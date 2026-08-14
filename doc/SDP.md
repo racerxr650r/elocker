@@ -1,19 +1,19 @@
 # Software Development Plan: elocker (elc)
 
-**Version:** 0.8
+**Version:** 1.3
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Planning complete. The specification stack — [PVD](PVD.md),
-[HLRs](HLRs.md), [SDD](SDD.md), [LLRs](LLRs.md), [STP](STP.md) — is
-written and internally consistent. No code exists yet. Phase 0 is ready
-to start.
+**Status:** Phase 0 complete. The build system, the nine-job CI gate, all
+four test levels, and a skeleton `elc` are in place; 44 catalogued tests
+verify 17 requirements and the coverage baseline stands at 361. Phase 1
+is ready to start.
 
 ## Status
 
 | Phase | Description | Status |
 | ----- | ----------- | ------ |
-| [0](#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | 🔲 Not started |
+| [0](#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | ✅ Complete |
 | [1](#phase-1--target-discovery-and-the-walking-skeleton) | Target discovery, ordering, table output — end to end | 🔲 Not started |
 | [2](#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | 🔲 Not started |
 | [3](#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | 🔲 Not started |
@@ -39,9 +39,9 @@ to start.
 | GCC or Clang | C11 support | Building `elc`; `--wrap` support required for unit mocking |
 | GNU make | ≥ 4.0 | The only build entry point |
 | GNU ld or LLVM lld | — | `--wrap` link-time interception (STP §2.2) |
-| `libtree-sitter` | ≥ 0.25 | Parsing and query execution |
+| `libtree-sitter` | ≥ 0.25 | Parsing and query execution. **Built from source** — see below |
 | `libgit2` | ≥ 1.7 | Repository-aware discovery (Phase 7) |
-| `igraph` | ≥ 1.0 | Graph algorithms (Phase 8). **Build with `-DIGRAPH_GRAPHML_SUPPORT=OFF`** |
+| `igraph` | ≥ 1.0 | Graph algorithms (Phase 8). **Built from source** with `-DIGRAPH_GRAPHML_SUPPORT=OFF` |
 | Expat | ≥ 2.6 | Streaming XML read for regeneration mode (Phase 5) |
 | Criterion | ≥ 2.4 | Unit test framework |
 | Bats | ≥ 1.10 | Integration, fixture, and instrumented levels |
@@ -59,11 +59,41 @@ to start.
 | `xmllint` | Validating emitted XML and GraphML well-formedness |
 | `clang-format` | Consistent formatting; not enforced by CI |
 
-**A note on `igraph`.** Its own GraphML support links libxml2, which has
-been unmaintained since September 2025 (see [notes.md](notes.md) §2.1).
-`elc` writes GraphML itself, so the feature is unneeded — but a distro
-package built with it enabled reintroduces the dependency transitively.
-The Makefile checks for this at configure time rather than assuming.
+### Installing them
+
+`make prereqs` installs everything. It takes the toolchain, the test
+framework, and the inspection tools from the distribution, then builds all
+four libraries elc links from pinned upstream releases.
+
+**The libraries are built from source deliberately.** When a security
+advisory lands against one of them, the fix is to bump a version in the
+Makefile and rebuild — the same day, if needed. Waiting for a distribution
+to rebuild and ship is not a control this project has. `make prereqs-<lib>`
+rebuilds one; `make check-prereqs` reports what is installed and flags
+anything below the minimums above.
+
+Two configure-time decisions fall out of building them ourselves, and both
+serve requirements rather than merely convenience:
+
+*   **libgit2 is built without network transports.** `elc` reads local
+    repositories and never contacts a remote, so HTTPS and SSH support is
+    attack surface with no matching capability. Compiling it out also drops
+    the OpenSSL and libssh2 dependencies, and makes HLR-040's no-network
+    rule a property of the link line rather than a promise.
+*   **igraph is built with GraphML support off.** `elc` writes GraphML
+    itself, so igraph's reader and writer are unused, and enabling them
+    links a second XML library the project has no other need for.
+
+It also resolves a version problem: Debian and Ubuntu currently carry
+`libtree-sitter` at 0.22 and `igraph` at 0.10, both below the minimums, and
+no backport carries a newer one. Those minimums are not arbitrary — a
+tree-sitter runtime refuses a grammar generated for a newer language ABI,
+which is what Phase 6 will produce, and igraph 1.0 is API-breaking against
+0.10.
+
+**Criterion is the exception**, taken from the distribution: it is a test
+framework, never linked into the shipped binary, so a vulnerability in it
+reaches no user of `elc`.
 
 ## 1. Motivation
 
@@ -370,7 +400,7 @@ requirements and no others.
 | GitHub Actions runner | Phase 0 | The gate is meaningless if it is not enforced |
 | `libtree-sitter` + a C grammar | Phase 2 | Nothing can be parsed before this |
 | Expat | Phase 5 | Only the regeneration read path needs it |
-| Additional grammars | Phase 6 | Ada's is community-maintained but vetted and accepted ([notes.md](notes.md) §2.3) |
+| Additional grammars | Phase 6 | Ada's is community-maintained but vetted and accepted ([notes.md](notes.md) §2.2) |
 | `libgit2` | Phase 7 | Isolated to one discovery route |
 | `igraph` | Phase 8 | With GraphML support **off** |
 
@@ -432,7 +462,7 @@ deferring one that does not. The documentation test exists from this phase for
 the same reason: it is the mechanism that makes HLR-130 enforceable rather
 than aspirational.
 
-**Acceptance:** CI green on all eight jobs. `elc --help` exits 0 with the
+**Acceptance:** CI green on all nine jobs. `elc --help` exits 0 with the
 summary on stdout; `elc --bogus` exits 2 with usage on stderr; `elc` with no
 target exits 2. `ldd` shows no interpreter or VM. `make asan` and
 `make valgrind` both pass on the skeleton. A deliberately broken
@@ -784,7 +814,7 @@ separate issue before this phase proceeds.
 Watch for:
 * **The Ada grammar is vetted and accepted** — `briot/tree-sitter-ada`,
   MIT, actively maintained, authored by an AdaCore developer
-  (`doc/notes.md` §2.3). Use it; no further vetting is needed. The caveat
+  (`doc/notes.md` §2.2). Use it; no further vetting is needed. The caveat
   recorded there about call-site ambiguity lands in Phase 8, not here.
 * Ada nested subprograms and Rust closures are the interesting cases for
   HLR-067/068 — give each a `nesting/` fixture.
@@ -900,7 +930,7 @@ Watch for:
   false-positive call edges in Ada. Do not disambiguate heuristically in C —
   that would put language knowledge in the binary. Add an Ada case to the
   `graph/` fixtures pinning whatever behaviour you settle on, so it is a
-  recorded decision rather than a later surprise (`doc/notes.md` §2.3).
+  recorded decision rather than a later surprise (`doc/notes.md` §2.2).
 * Build the graph from the facts the single parse produced. `strace` must
   still show one open per file (HLR-076).
 
@@ -1253,7 +1283,7 @@ working binary and runtime tree.
 *   **~~The Ada grammar is community-maintained.~~ Discharged 2026-08-14.**
     `briot/tree-sitter-ada` was vetted and accepted: MIT, last commit July
     2026, authored by an AdaCore developer, adopted by Zed
-    ([notes.md](notes.md) §2.3). HLR-011 stands unamended. *Residual risk,
+    ([notes.md](notes.md) §2.2). HLR-011 stands unamended. *Residual risk,
     now carried by Phase 8 instead:* Ada's `Foo (X)` is ambiguous between a
     call and an array index, and the grammar manages rather than resolves it,
     so Ada call edges may carry false positives. The direction is safe — extra
@@ -1263,10 +1293,10 @@ working binary and runtime tree.
     GNU ld or lld. *Mitigation:* Phase 0 proves the mechanism before anything
     depends on it; a toolchain lacking it cannot run the unit suite and must
     be declared unsupported rather than worked around.
-*   **`igraph` may arrive with libxml2 attached.** A distro package built
-    with GraphML support enabled reintroduces an unmaintained dependency.
-    *Mitigation:* configure-time check in Phase 8, failing the build rather
-    than linking it.
+*   **`igraph` may arrive with GraphML support enabled**, which links a
+    second XML library the project has no need for. *Mitigation:*
+    `make check-prereqs` reports the condition, and Phase 8 fails the build
+    rather than linking it.
 *   **Component granularity may prove too coarse.** HLR-114 defines a
     component as a source file, which is conventional for C but blunt for
     C++/Rust/Ada where several classes or packages share a file

@@ -30,16 +30,63 @@ Conventions already encoded in
     `CPPFLAGS` — `fts(3)` needs them on glibc, and `fts` is absent on
     musl, which matters if an Alpine build is ever wanted.
 
-### 1.1 A build flag that is not optional
+### 1.1 Every linked library is built from source
 
-**igraph must be built with `-DIGRAPH_GRAPHML_SUPPORT=OFF`.** Its own
-GraphML reader/writer pulls in libxml2, which is unmaintained (see
-§2.1). `elc` writes GraphML itself, so the feature is unneeded — but
-if igraph is taken from a distro package built with GraphML enabled,
-libxml2 re-enters transitively. This needs checking at configure time,
-not assuming.
+`make prereqs` takes the toolchain and the test framework from the
+distribution, then builds all four libraries elc links —
+`libtree-sitter`, `libgit2`, `igraph`, `Expat` — from pinned upstream
+releases. Versions are variables at the top of the Makefile's prereqs
+section, and `make prereqs-<lib>` rebuilds one.
 
-### 1.2 Runtime data files the build must ship
+**The reason is response time to an advisory.** When a CVE lands against
+one of these, the fix is to bump a version and rebuild, which can happen
+the same day. Waiting for a distribution to rebuild and ship is not a
+control this project has.
+
+Two secondary benefits came out of it, both of which happen to serve
+requirements:
+
+*   **libgit2's network transports are compiled out** (`-DUSE_HTTPS=OFF
+    -DUSE_SSH=OFF`). elc reads local repositories and never speaks to a
+    remote, so transport support was attack surface with no matching
+    capability — and dropping it removes the OpenSSL and libssh2
+    dependencies as well. This is HLR-040's no-network rule enforced at
+    the link line rather than trusted.
+*   **igraph's GraphML support is switched off** at configure time
+    (`-DIGRAPH_GRAPHML_SUPPORT=OFF`), verified to leave no XML library in
+    its link line. elc writes GraphML itself, so the feature was unused
+    and would have linked a second XML library the project has no need
+    for. Debian's `libigraph-dev` has it on, which is why the
+    distribution package is not used.
+
+It also settles a version problem: Debian carries `libtree-sitter` at
+0.22 and `igraph` at 0.10, both below the SDP §0 minimums, with no
+backport. Do not answer that by relaxing the minimums — a tree-sitter
+runtime refuses a grammar generated for a newer language ABI, which is
+what Phase 6 will produce, and igraph 1.0 is API-breaking against 0.10,
+so code written for one does not compile against the other.
+
+**Criterion is the deliberate exception**, taken from the distribution.
+It is a test framework that is never linked into the shipped binary, so
+a vulnerability in it reaches no user of elc.
+
+### 1.2 Bats is vendored, not installed
+
+The SDP §0 lists Bats as a required *tool* and only `bats-support` /
+`bats-assert` as vendored. Phase 0 vendored **bats-core as well**, under
+`test/helpers/`, pruned to its runtime files (63 files, 476K — its own CI
+configs, docs, and test suite removed).
+
+Two reasons. The suite becomes hermetic: no version skew between a
+developer's Bats and CI's, and no install step before `make test` works.
+And it is what makes the suite runnable in an environment without
+package-install rights, which is how Phase 0 was actually developed.
+
+Criterion cannot be vendored the same way — it is a C library needing a
+build — so the unit level still requires `libcriterion-dev` and is
+verified in CI rather than locally when the package is absent.
+
+### 1.3 Runtime data files the build must ship
 
 Named in the SDD but easy to forget when packaging:
 
@@ -59,21 +106,7 @@ graph analysis and ELOC classification were added.
 
 ## 2. Research findings (August 2026)
 
-### 2.1 libxml2 is unmaintained — do not reintroduce it
-
-Its sole maintainer stepped down in **September 2025**; no successor
-has been named, and the project page states it has known security
-issues. He had already ceased honouring security embargoes in June
-2025. The PVD still lists it as a *suggestion* (Principle 5 makes all
-library names suggestions, HLR-112 makes substitution legal), and the
-SDD substituted **Expat**, which is actively maintained and was funded
-by the City of Munich from August 2026 specifically to close known
-vulnerabilities.
-
-If someone later asks "why not libxml2?" — this is the answer, and
-§1.1 is the trap it sets.
-
-### 2.2 Status of the other dependencies, as checked
+### 2.1 Status of the dependencies, as checked
 
 | Library | Status when checked | Note |
 | ------- | ------------------- | ---- |
@@ -82,7 +115,7 @@ If someone later asks "why not libxml2?" — this is the answer, and
 | igraph | 1.0 series, explicit long-term API stability commitment | The only mature C-native option; Boost.Graph, LEMON, NetworKit are all C++ and would impose a second toolchain |
 | Expat | 2.8.3 (Aug 2026), funded maintenance | Parse-only. Fine — `elc` hand-rolls all writing |
 
-### 2.3 The Ada grammar — vetted 2026-08-14, accepted
+### 2.2 The Ada grammar — vetted 2026-08-14, accepted
 
 C, C++, Rust, and Python have grammars under the official `tree-sitter`
 GitHub organisation. Ada does not, so

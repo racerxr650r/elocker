@@ -1,0 +1,145 @@
+# CI — the gate every phase must pass (doc/SDP.md §5.3).
+#
+# `spec` runs first and everything else depends on it: a drifted Project.xml
+# invalidates the documents the rest of the suite is verified against, so
+# there is no point testing until it is sound.
+#
+# The runner is Linux. /proc, strace and read-only mounts are Linux facilities;
+# the instrumented level skips explicitly elsewhere, and a silent skip is a
+# suite failure rather than a pass (doc/STP.md §2.2). Nothing at that level may
+# depend on a facility a container withholds — unprivileged user namespaces,
+# notably — or the skip-detector below turns an unavailable facility into a
+# red build.
+
+name: CI
+
+on:
+  push:
+    branches: ['phase/**', develop]
+  pull_request:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+env:
+  # Suppresses noise, not failures: lint_project.py exits non-zero only on
+  # errors. Coverage gaps are warnings, tracked by the `coverage` job.
+  MAKEFLAGS: --no-print-directory
+
+jobs:
+  spec:
+    name: spec — Project.xml integrity and document currency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Validate Project.xml and confirm rendered documents are current
+        run: make spec
+
+  coverage:
+    name: coverage — verification coverage never regresses
+    runs-on: ubuntu-latest
+    needs: spec
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Compare gap count against the committed baseline
+        run: make coverage
+
+  build:
+    name: build — warning-clean with -Werror
+    runs-on: ubuntu-latest
+    needs: spec
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: make all CFLAGS="-O2 -g -Werror"
+      - name: Confirm the runtime symlink resolves
+        run: test -d build/runtime
+
+  unit:
+    name: unit — Criterion
+    runs-on: ubuntu-latest
+    needs: spec
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Criterion
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libcriterion-dev pkg-config
+      - name: Run the unit binaries
+        run: make unit
+
+  integration:
+    name: integration — Bats over build/elc
+    runs-on: ubuntu-latest
+    needs: spec
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the integration suites
+        run: make integration
+
+  fixtures:
+    name: fixtures — hand-counted conformance
+    runs-on: ubuntu-latest
+    needs: spec
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run the fixture suites
+        run: make fixtures
+
+  instrumented:
+    name: instrumented — process, link and filesystem observation
+    runs-on: ubuntu-latest
+    needs: spec
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install observation tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends strace binutils
+      - name: Run the instrumented suites
+        run: make instrumented
+      - name: Fail if any instrumented test skipped
+        run: |
+          # A skip here means a requirement went unverified on this runner.
+          # On Linux that is a defect, not an accepted degradation.
+          if make instrumented 2>&1 | grep -q '# skip'; then
+            echo "an instrumented test skipped on a Linux runner" >&2
+            make instrumented 2>&1 | grep '# skip' >&2
+            exit 1
+          fi
+
+  asan:
+    name: asan — AddressSanitizer, UBSan, LeakSanitizer
+    runs-on: ubuntu-latest
+    needs: spec
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Criterion
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libcriterion-dev pkg-config
+      - name: Run the whole suite instrumented
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:strict_string_checks=1
+          UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+        run: make asan
+
+  valgrind:
+    name: valgrind — separate pass, never combined with ASan
+    runs-on: ubuntu-latest
+    needs: spec
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install valgrind
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends valgrind
+      - name: Re-run integration and fixtures under valgrind
+        run: make valgrind

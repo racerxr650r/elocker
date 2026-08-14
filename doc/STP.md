@@ -61,13 +61,23 @@ Each wrapped symbol `f` is then defined in the test as `__wrap_f`, which may con
 
 This is what makes the failure paths testable at the unit level rather than only by contrivance. A wrapped `realloc` returning `NULL` exercises the checked-growth contracts of LLR-ANL-34 and LLR-RPT-16; a wrapped `mmap` returning `MAP_FAILED` exercises `analyze_file`'s read-failure path; a wrapped `dlopen` or `dlsym` returning failure exercises the malformed-module tolerance of HLR-070 without needing a deliberately corrupt `.so` on disk. Wrapping is confined to the unit level: the integration, fixture, and instrumented levels link and run the real binary, unwrapped.
 
+**Every arm/disarm flag guarding a wrapper must be `volatile`.** The compiler treats the allocation and I/O functions as builtins that cannot read the caller's globals, so in the natural shape of such a test —
+
+```c
+armed = 1;  p = malloc(n);  armed = 0;
+```
+
+— it judges the first store dead, overwritten before anything could observe it, and removes it. The wrapper then runs with the flag still clear, the interception silently does not happen, and the test fails while appearing to be about something else. Phase 0 hit exactly this. Declaring the flag `volatile` forces the store and costs nothing.
+
 **Bats** (Bash Automated Testing System) drives the integration, fixture-conformance, and instrumented levels, with `bats-support` and `bats-assert`. These levels invoke `build/elc` as a user would, assert on its output and exit status, and observe its process and link line — all of which is shell work, and none of which needs to call a C function.
 
 Both harnesses emit TAP, so `make test` produces one merged report despite the split.
 
 Every test writes its scratch files to `$BATS_TEST_TMPDIR`, or for Criterion to a per-test temporary directory created in setup and removed in teardown. No test writes into `test/fixtures/` or anywhere in the working tree, and no test depends on the execution order of any other.
 
-**Platform degradation.** The instrumented level rests on facilities that are not universal: `/proc`, `strace`, `unshare`, and read-only bind mounts are Linux conveniences. Where one is unavailable, the affected test **skips explicitly**, reporting through the harness both that it skipped and which requirement thereby went unverified on that platform. A silent non-run is treated as a suite failure rather than a pass, so that a CI target quietly shedding its memory-safety, single-thread, or single-parse coverage is visible rather than assumed.
+**Platform degradation.** The instrumented level rests on facilities that are not universal: `/proc`, `strace`, and read-only bind mounts are Linux conveniences. Where one is unavailable, the affected test **skips explicitly**, reporting through the harness both that it skipped and which requirement thereby went unverified on that platform. A silent non-run is treated as a suite failure rather than a pass, so that a CI target quietly shedding its memory-safety, single-thread, or single-parse coverage is visible rather than assumed.
+
+Because CI enforces that policy — a skip on a Linux runner fails the build — an instrumented test may not rest on a facility a *container* withholds, as distinct from one a *platform* lacks. Unprivileged user namespaces are the case that established this: `unshare -rn` is present on any modern Linux and works when run locally, but GitHub's runners disable it, so the test that used it to verify HLR-040 skipped there and turned an unavailable facility into a red build. The property is now observed with `strace -e trace=%network`, which needs no privilege. Prefer observing the syscalls a requirement forbids over constructing an environment in which the requirement cannot be violated: the direct observation is more portable, and it is the stronger claim — that `elc` never *attempts* the forbidden thing, not merely that it survives being denied it.
 
 ### 2.3 Build and Execution
 All tests are built and executed by `make test`. The target:
@@ -89,7 +99,7 @@ The sanitized run sets `ASAN_OPTIONS=detect_leaks=1:abort_on_error=1:strict_stri
 *   A test passes when every assertion holds and the exercised code writes to no file outside its scratch directory.
 *   **A sanitizer diagnostic is a failure, whatever the assertions did.** A test whose assertions all hold but which reports an out-of-bounds access, a use-after-free, an invalid free, or undefined behaviour has failed, and the defect is in `elc` rather than in the test.
 *   **A leak is a failure.** With leak detection enabled, any allocation, mapping, or handle outstanding at exit fails the test that provoked it — including on runs that end in a usage error, an invalid target, or a rejected saved record, since HLR-125 covers error paths as well as the success path.
-*   The suite is not considered passing until it has passed **three times**: once as an ordinary build, once under `make asan`, and once under `make valgrind`. A change may be merged only when all three are clean.
+*   The suite is not considered passing until it has passed **three times**: once as an ordinary build, once under `make asan`, and once under `make valgrind`. A change may be merged only when all three are clean. The instrumented passes must leave no artefacts behind: an ASan-built binary left in place makes valgrind refuse to run, so a single sanitizer failure would otherwise cascade into a wall of unrelated valgrind failures and obscure its own cause.
 *   The suite passes when every test passes. There is no tolerated-failure list and no quarantine; a test that cannot be made reliable is removed along with a note in [notes.md](notes.md) recording why.
 *   A requirement is **verified** when at least one passing test traces to it. A requirement with no tracing test is a coverage gap, reported in [Traceability.md §6](Traceability.md#6-coverage-gaps) rather than silently tolerated.
 *   A change to a hand-counted fixture value is a deliberate act: the fixture header states the expected numbers and the reasoning, so altering a number requires editing the reasoning that justifies it. Regenerating a fixture's expected values from `elc`'s own output is never acceptable.
@@ -116,8 +126,87 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **0 test(s)** across
-**0 file(s)**.
+Snapshot: **44 test(s)** across
+**5 file(s)**.
+
+### 3.1. [test/unit/cli.c](../test/unit/cli.c)
+
+Role: **unit**. **11 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="wrap_passes_through_when_not_armed"></a>`wrap_passes_through_when_not_armed` | `LLR-BLD-10` | An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it. |
+| 2 | <a id="wrap_intercepts_when_armed"></a>`wrap_intercepts_when_armed` | `LLR-BLD-10` | An armed wrapper intercepts the call, proving the mechanism by which later phases provoke allocation failure. |
+| 3 | <a id="help_short_option_reports_help"></a>`help_short_option_reports_help` | `LLR-CLI-13` | `-h` is reported as a help request rather than parsed as an ordinary option. |
+| 4 | <a id="help_long_option_reports_help"></a>`help_long_option_reports_help` | `LLR-CLI-13` | `--help` is reported as a help request. |
+| 5 | <a id="unrecognised_option_is_a_usage_error"></a>`unrecognised_option_is_a_usage_error` | `LLR-CLI-12` | An unrecognised option is rejected as a usage error. |
+| 6 | <a id="missing_target_is_a_usage_error"></a>`missing_target_is_a_usage_error` | `LLR-CLI-12`, `LLR-CLI-01` | An invocation with no target is rejected as a usage error. |
+| 7 | <a id="single_target_is_collected"></a>`single_target_is_collected` | `LLR-CLI-01` | A single target argument is collected into the options structure. |
+| 8 | <a id="several_targets_are_collected_in_order"></a>`several_targets_are_collected_in_order` | `LLR-CLI-01` | Several targets are collected in argument order, files and directories intermixed. |
+| 9 | <a id="help_takes_precedence_over_a_target"></a>`help_takes_precedence_over_a_target` | `LLR-CLI-13` | A help request is reported without validating the remaining arguments. |
+| 10 | <a id="mode_defaults_to_analyse"></a>`mode_defaults_to_analyse` | — | The run mode defaults to analysis when no mode-selecting option is given. |
+| 11 | <a id="options_free_is_safe_on_null"></a>`options_free_is_safe_on_null` | — | Releasing a null options structure does not fault, so teardown is safe on every path. |
+
+### 3.2. [test/integration/cli.bats](../test/integration/cli.bats)
+
+Role: **integration**. **16 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="--help exits 0"></a>`--help exits 0` | — | Requesting help succeeds; it is not an error. |
+| 2 | <a id="-h exits 0"></a>`-h exits 0` | — | The short form of the help option behaves as the long form. |
+| 3 | <a id="--help writes the summary to stdout, not stderr"></a>`--help writes the summary to stdout, not stderr` | — | The help summary goes to the results stream and nothing goes to the diagnostic stream. |
+| 4 | <a id="--help lists every option elc accepts"></a>`--help lists every option elc accepts` | — | The usage summary names each accepted option, making it the reference the documentation is checked against. |
+| 5 | <a id="--help documents the exit-status scheme"></a>`--help documents the exit-status scheme` | — | The usage summary describes what each exit status means. |
+| 6 | <a id="--help is reported without validating other arguments"></a>`--help is reported without validating other arguments` | — | A help request short-circuits argument validation. |
+| 7 | <a id="an unrecognised long option exits 2"></a>`an unrecognised long option exits 2` | — | An unrecognised long option terminates with the fatal status. |
+| 8 | <a id="an unrecognised short option exits 2"></a>`an unrecognised short option exits 2` | — | An unrecognised short option terminates with the fatal status. |
+| 9 | <a id="no target exits 2"></a>`no target exits 2` | — | An invocation with no target terminates with the fatal status. |
+| 10 | <a id="a usage error writes to stderr, not stdout"></a>`a usage error writes to stderr, not stdout` | — | A usage error writes its diagnostic and summary to the diagnostic stream, leaving the results stream empty. |
+| 11 | <a id="a usage error names the offending option"></a>`a usage error names the offending option` | — | The diagnostic identifies which option was rejected. |
+| 12 | <a id="no target is diagnosed explicitly"></a>`no target is diagnosed explicitly` | — | The missing-target case is diagnosed in its own words rather than as a generic failure. |
+| 13 | <a id="a single target is accepted"></a>`a single target is accepted` | — | A single file target is accepted. |
+| 14 | <a id="several targets are accepted, files and directories intermixed"></a>`several targets are accepted, files and directories intermixed` | — | Several targets are accepted in one invocation, files and directories freely mixed. |
+| 15 | <a id="a run producing no report writes nothing to stdout"></a>`a run producing no report writes nothing to stdout` | — | Nothing but results reaches the results stream. |
+| 16 | <a id="a decoy dotfile in the working directory changes nothing"></a>`a decoy dotfile in the working directory changes nothing` | — | Configuration-like files planted beside the invocation produce byte-identical output to their absence. |
+
+### 3.3. [test/integration/docs.bats](../test/integration/docs.bats)
+
+Role: **integration**. **8 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the man page exists"></a>`the man page exists` | — | The project delivers a man page. |
+| 2 | <a id="the user manual exists"></a>`the user manual exists` | — | The project delivers a user manual. |
+| 3 | <a id="the man page renders without diagnostic"></a>`the man page renders without diagnostic` | — | The delivered man page is well-formed roff. |
+| 4 | <a id="the usage summary advertises at least one option"></a>`the usage summary advertises at least one option` | — | The reference the documentation is checked against is non-empty. |
+| 5 | <a id="every option in the usage summary appears in the man page"></a>`every option in the usage summary appears in the man page` | — | No accepted option is undocumented in the man page. |
+| 6 | <a id="every option in the usage summary appears in the user manual"></a>`every option in the usage summary appears in the user manual` | — | No accepted option is undocumented in the user manual. |
+| 7 | <a id="every long option the man page documents is accepted by elc"></a>`every long option the man page documents is accepted by elc` | — | No documented option is unimplemented. |
+| 8 | <a id="both documents describe the exit-status scheme"></a>`both documents describe the exit-status scheme` | — | Both documents describe the exit-status classes. |
+
+### 3.4. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+
+Role: **instrumented**. **7 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-040: the binary links no interpreter or virtual machine"></a>`HLR-040: the binary links no interpreter or virtual machine` | — | The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids. |
+| 2 | <a id="HLR-040: elc makes no network syscall"></a>`HLR-040: elc makes no network syscall` | — | `strace -e trace=%network` over a full run logs no network syscall. This observes the syscalls directly rather than inferring the property from survival inside an isolated network namespace: it proves `elc` never *attempts* network access, and it runs in containers where unprivileged user namespaces are unavailable. |
+| 3 | <a id="HLR-041: elc links no threading library"></a>`HLR-041: elc links no threading library` | — | No threading library appears on the link line. |
+| 4 | <a id="HLR-041: elc references no thread-creation symbol"></a>`HLR-041: elc references no thread-creation symbol` | — | No thread-creation symbol is referenced by the binary. |
+| 5 | <a id="HLR-041: the build passes no threading flag"></a>`HLR-041: the build passes no threading flag` | — | The build never passes -pthread, which would silently license a future thread. |
+| 6 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
+| 7 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
+
+### 3.5. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+
+Role: **fixture**. **2 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the fixture level is wired and elc is runnable"></a>`the fixture level is wired and elc is runnable` | — | The fixture-conformance level is wired and green before the first real fixture is written. |
+| 2 | <a id="fixture directories carry no generated expected values yet"></a>`fixture directories carry no generated expected values yet` | — | Guards the convention that expected values are hand-counted, never generated from elc's own output. |
 
 ## 4. LLR Coverage Matrix
 
@@ -144,7 +233,7 @@ verified by code review — see
 | `LLR-MAIN-14` | `main` | `HLR-041` | **(no direct test)** |
 | `LLR-MAIN-15` | `main` | `HLR-103`, `HLR-104` | **(no direct test)** |
 | `LLR-MAIN-16` | `main` | `HLR-125`, `HLR-036` | **(no direct test)** |
-| `LLR-CLI-01` | `cli_parse` | `HLR-071`, `HLR-063` | **(no direct test)** |
+| `LLR-CLI-01` | `cli_parse` | `HLR-071`, `HLR-063` | `missing_target_is_a_usage_error`, `single_target_is_collected`, `several_targets_are_collected_in_order` |
 | `LLR-CLI-02` | `cli_parse` | `HLR-027`, `HLR-028`, `HLR-054`, `HLR-029` | **(no direct test)** |
 | `LLR-CLI-03` | `cli_parse` | `HLR-030` | **(no direct test)** |
 | `LLR-CLI-04` | `cli_parse` | `HLR-022` | **(no direct test)** |
@@ -155,8 +244,8 @@ verified by code review — see
 | `LLR-CLI-09` | `cli_parse` | `HLR-107`, `HLR-063` | **(no direct test)** |
 | `LLR-CLI-10` | `cli_parse` | `HLR-055`, `HLR-122` | **(no direct test)** |
 | `LLR-CLI-11` | `cli_parse` | `HLR-057` | **(no direct test)** |
-| `LLR-CLI-12` | `cli_parse` | `HLR-063` | **(no direct test)** |
-| `LLR-CLI-13` | `cli_parse` | `HLR-117` | **(no direct test)** |
+| `LLR-CLI-12` | `cli_parse` | `HLR-063` | `unrecognised_option_is_a_usage_error`, `missing_target_is_a_usage_error` |
+| `LLR-CLI-13` | `cli_parse` | `HLR-117` | `help_short_option_reports_help`, `help_long_option_reports_help`, `help_takes_precedence_over_a_target` |
 | `LLR-CLI-14` | `cli_parse` | `HLR-039` | **(no direct test)** |
 | `LLR-CLI-15` | `cli_parse` | `HLR-122`, `HLR-063` | **(no direct test)** |
 | `LLR-USG-01` | `cli_usage` | `HLR-117` | **(no direct test)** |
@@ -370,6 +459,7 @@ verified by code review — see
 | `LLR-BLD-06` | `build_configuration` | `HLR-112`, `HLR-113` | **(no direct test)** |
 | `LLR-BLD-07` | `build_configuration` | `HLR-011` | **(no direct test)** |
 | `LLR-BLD-08` | `build_configuration` | `HLR-121`, `HLR-010` | **(no direct test)** |
+| `LLR-BLD-10` | `build_configuration` | `HLR-113`, `HLR-124` | `wrap_passes_through_when_not_armed`, `wrap_intercepts_when_armed` |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | **(no direct test)** |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |
@@ -415,9 +505,8 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | AddressSanitizer + LeakSanitizer | HLR-124, HLR-125 — `make asan` | `-fsanitize=address` with `detect_leaks=1`; catches out-of-bounds, use-after-free, invalid free, and leaks. Requires an instrumented rebuild |
 | UndefinedBehaviorSanitizer | HLR-124 — `make asan` | `-fsanitize=undefined` with `halt_on_error=1`; catches signed overflow, misaligned and null dereference, and invalid shifts |
 | `valgrind` | HLR-124, HLR-125 — `make valgrind` | `--leak-check=full --errors-for-leak-kinds=all` over a single file, a directory, and a repository target. Run in a separate pass from ASan, never combined; finds uninitialised reads ASan does not, and needs no rebuild |
-| `strace` | HLR-076 — single parse | `-e trace=openat`; each source file opened exactly once per run |
+| `strace` | HLR-040 — no network access; HLR-076 — single parse | `-e trace=%network` must log no network syscall over a full run; `-e trace=openat` must show each source file opened exactly once. Preferred over `unshare -rn` for the network property, which containers — GitHub's runners included — commonly withhold by disabling unprivileged user namespaces |
 | `ldd` | HLR-040, HLR-113 — dependency constraints | Link line checked against an allowlist and for the graph library |
-| `unshare` | HLR-040 — no network access | `unshare -n` must produce output identical to a normal run |
 | `git` | Repository-target fixtures | Repositories are built per-test with pinned `user.name` and `user.email` |
 | `graphviz` | Validating `.dot` output | `dot -Tsvg -o /dev/null` must parse the emitted file; never linked by `elc` |
 | An XML parser | Validating XML and GraphML output | `xmllint --noout` or equivalent; well-formedness is asserted, not assumed |
