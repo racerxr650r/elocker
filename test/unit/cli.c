@@ -25,7 +25,17 @@
  */
 extern void *__real_malloc(size_t);
 
-static int malloc_should_fail;
+/* `volatile` is load-bearing, not decoration. The compiler treats malloc as a
+ * builtin that cannot read the caller's globals, so in
+ *
+ *     armed = 1;  p = malloc(n);  armed = 0;
+ *
+ * it considers the first store dead — overwritten by the second before
+ * anything could observe it — and removes it. The wrapper then runs with the
+ * flag still clear and the interception silently does not happen. Every
+ * arm/disarm flag guarding a wrapped function must be volatile for the same
+ * reason (doc/STP.md §2.2). */
+static volatile int malloc_should_fail;
 
 void *__wrap_malloc(size_t n)
 {

@@ -61,6 +61,14 @@ Each wrapped symbol `f` is then defined in the test as `__wrap_f`, which may con
 
 This is what makes the failure paths testable at the unit level rather than only by contrivance. A wrapped `realloc` returning `NULL` exercises the checked-growth contracts of LLR-ANL-34 and LLR-RPT-16; a wrapped `mmap` returning `MAP_FAILED` exercises `analyze_file`'s read-failure path; a wrapped `dlopen` or `dlsym` returning failure exercises the malformed-module tolerance of HLR-070 without needing a deliberately corrupt `.so` on disk. Wrapping is confined to the unit level: the integration, fixture, and instrumented levels link and run the real binary, unwrapped.
 
+**Every arm/disarm flag guarding a wrapper must be `volatile`.** The compiler treats the allocation and I/O functions as builtins that cannot read the caller's globals, so in the natural shape of such a test —
+
+```c
+armed = 1;  p = malloc(n);  armed = 0;
+```
+
+— it judges the first store dead, overwritten before anything could observe it, and removes it. The wrapper then runs with the flag still clear, the interception silently does not happen, and the test fails while appearing to be about something else. Phase 0 hit exactly this. Declaring the flag `volatile` forces the store and costs nothing.
+
 **Bats** (Bash Automated Testing System) drives the integration, fixture-conformance, and instrumented levels, with `bats-support` and `bats-assert`. These levels invoke `build/elc` as a user would, assert on its output and exit status, and observe its process and link line — all of which is shell work, and none of which needs to call a C function.
 
 Both harnesses emit TAP, so `make test` produces one merged report despite the split.
@@ -89,7 +97,7 @@ The sanitized run sets `ASAN_OPTIONS=detect_leaks=1:abort_on_error=1:strict_stri
 *   A test passes when every assertion holds and the exercised code writes to no file outside its scratch directory.
 *   **A sanitizer diagnostic is a failure, whatever the assertions did.** A test whose assertions all hold but which reports an out-of-bounds access, a use-after-free, an invalid free, or undefined behaviour has failed, and the defect is in `elc` rather than in the test.
 *   **A leak is a failure.** With leak detection enabled, any allocation, mapping, or handle outstanding at exit fails the test that provoked it — including on runs that end in a usage error, an invalid target, or a rejected saved record, since HLR-125 covers error paths as well as the success path.
-*   The suite is not considered passing until it has passed **three times**: once as an ordinary build, once under `make asan`, and once under `make valgrind`. A change may be merged only when all three are clean.
+*   The suite is not considered passing until it has passed **three times**: once as an ordinary build, once under `make asan`, and once under `make valgrind`. A change may be merged only when all three are clean. The instrumented passes must leave no artefacts behind: an ASan-built binary left in place makes valgrind refuse to run, so a single sanitizer failure would otherwise cascade into a wall of unrelated valgrind failures and obscure its own cause.
 *   The suite passes when every test passes. There is no tolerated-failure list and no quarantine; a test that cannot be made reliable is removed along with a note in [notes.md](notes.md) recording why.
 *   A requirement is **verified** when at least one passing test traces to it. A requirement with no tracing test is a coverage gap, reported in [Traceability.md §6](Traceability.md#6-coverage-gaps) rather than silently tolerated.
 *   A change to a hand-counted fixture value is a deliberate act: the fixture header states the expected numbers and the reasoning, so altering a number requires editing the reasoning that justifies it. Regenerating a fixture's expected values from `elc`'s own output is never acceptable.

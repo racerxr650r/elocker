@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 1.7
+**Version:** 1.8
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
@@ -981,7 +981,7 @@ Wrapping is confined to the unit level; every other level links and runs the rea
 | Parsing and queries | **Tree-sitter** | Not a free choice: its query language and grammar format are a user-visible contract (HLR-112). Actively released. |
 | Repository access | **libgit2** | Actively maintained, frequent releases; the only mature C option for tracked-file enumeration. |
 | Graph algorithms | **igraph** | The only mature C-native graph library; its 1.0 series carries an explicit long-term API stability commitment. Alternatives (Boost.Graph, LEMON, NetworKit) are C++ and would impose a second toolchain. Build with GraphML support disabled — see below. |
-| XML reading | **Expat** | **Substituted for the PVD's suggested `libxml2`**, which its maintainer declared unmaintained in September 2025 with no successor and known open security issues. Expat is actively maintained, currently funded, streaming, and namespace-aware — everything the read path needs. |
+| XML reading | **Expat** | Actively maintained, currently funded, streaming, and namespace-aware — everything the read path needs, and nothing it does not. |
 | XML and GraphML writing | **none** | Hand-rolled emission with centralised escaping. Removes a dependency rather than adding one. |
 | DOT writing | **none** | Plain text. Graphviz renders the output; `elc` never links it. |
 
@@ -991,7 +991,7 @@ Wrapping is confined to the unit level; every other level links and runs the rea
 *   **`ArchResults`**, **`TreeResults`**, **`StateResults`**, and the **`FindingList`** are owned by `main`. `report_assemble` copies from them into the report model rather than taking ownership, so `main` releases each with its `*_free` once assembly returns.
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
-**Consequence for the igraph build.** igraph's own GraphML support is gated on `IGRAPH_GRAPHML_SUPPORT` and pulls in libxml2 when enabled. Since `elc` writes GraphML itself, igraph must be built with that option **off**, or the unmaintained library re-enters through the back door.
+**Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.
 ## 19. Traceability
 
 The following table maps the high-level requirements in

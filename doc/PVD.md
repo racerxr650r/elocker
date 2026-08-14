@@ -1,6 +1,6 @@
 # Product Vision Document: elocker (elc)
 
-**Version:** 0.6
+**Version:** 0.7
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
@@ -199,7 +199,7 @@ These principles are the tie-breakers when requirements conflict.
     implementation convenience — but *which* library fills a given
     role is a design decision. Every library this document names —
     `libtree-sitter` for parsing, `libgit2` for repository-aware
-    discovery, `libxml2` for XML, `igraph` for graph mathematics — is
+    discovery, `Expat` for XML, `igraph` for graph mathematics — is
     a **suggested candidate, not a commitment**; design is free to
     substitute a better fit. One caveat: Tree-sitter's query language
     and grammar format are visible to the user in the `.scm` files

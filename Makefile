@@ -41,9 +41,13 @@ UNIT_BIN    := $(patsubst test/unit/%.c,$(BUILD)/unit/%,$(UNIT_SRC))
 # Symbols intercepted at link time for unit mocking (STP §2.2). Wrapping is
 # confined to the unit level; every other level links the real binary.
 # The canonical per-module inventory lives in doc/SDD.md's data dictionary.
+#
+# `comma` must be defined before WRAP_FLAGS: `:=` expands immediately, so a
+# later definition would leave the separator empty and silently produce
+# `-Wl--wrap=...`, which the compiler rejects.
+comma       := ,
 WRAP_SYMS   ?= malloc
 WRAP_FLAGS  := $(addprefix -Wl$(comma)--wrap=,$(WRAP_SYMS))
-comma       := ,
 
 # --------------------------------------------------------------------- help
 .PHONY: help
@@ -51,6 +55,177 @@ help: ## Display this help message
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
 		/^[a-zA-Z_0-9-]+:.*##/ {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 	@printf "\n"
+
+# ------------------------------------------------------------------ prereqs
+# Every library elc links is built from its upstream release, not taken from
+# a distribution package. The reason is response time: when an advisory lands
+# against one of these, the fix is to bump a version below and rebuild, which
+# can happen the same day. Waiting on a distribution to rebuild and ship is
+# not a control this project has.
+#
+# To answer an advisory: bump the version, run the matching prereqs-<lib>
+# target, then `make clean && make test` to confirm nothing broke.
+#
+# Criterion is the deliberate exception. It is a test framework that is never
+# linked into the shipped binary, so a vulnerability in it reaches no user of
+# elc; it comes from the distribution, where it is one apt upgrade away.
+
+TREE_SITTER_VER ?= 0.26.2
+LIBGIT2_VER     ?= 1.9.0
+IGRAPH_VER      ?= 1.0.1
+EXPAT_VER       ?= 2.8.3
+
+SRC_PREFIX      ?= /usr/local
+SRC_WORK        ?= $(BUILD)/prereq-src
+
+# Toolchain, test framework, and the headers the source builds need.
+PKGS_BUILD  ?= build-essential pkg-config python3 cmake curl zlib1g-dev
+PKGS_TEST   ?= libcriterion-dev
+
+# Test and inspection tools. These are executables the suites invoke, never
+# libraries elc links — `libxml2-utils` here is the `xmllint` binary used to
+# assert that emitted XML and GraphML are well-formed (doc/STP.md §6), which
+# is not the same thing as elc depending on libxml2. It does not.
+PKGS_TOOLS  ?= valgrind strace graphviz libxml2-utils binutils
+
+PKGS        := $(PKGS_BUILD) $(PKGS_TEST) $(PKGS_TOOLS)
+
+.PHONY: prereqs
+prereqs: ## Install the toolchain and build every linked library from source (needs sudo)
+	@command -v apt-get >/dev/null 2>&1 || { \
+		echo "prereqs: only apt is automated. Install the equivalents of:" >&2; \
+		echo "  $(PKGS)" >&2; \
+		echo "then run: make prereqs-src" >&2; \
+		exit 1; }
+	sudo apt-get update -qq
+	sudo apt-get install -y --no-install-recommends $(PKGS)
+	@$(MAKE) --no-print-directory prereqs-src
+	@$(MAKE) --no-print-directory check-prereqs
+
+.PHONY: prereqs-src
+prereqs-src: prereqs-tree-sitter prereqs-libgit2 prereqs-igraph prereqs-expat ## Build every linked library from source (needs sudo)
+	@sudo ldconfig
+	@echo "prereqs-src: all four libraries built and installed under $(SRC_PREFIX)"
+
+# Fetch and unpack an upstream release into the work directory.
+#   $(1) archive URL   $(2) directory the archive unpacks to
+define fetch
+	@mkdir -p $(SRC_WORK)
+	@rm -rf $(SRC_WORK)/$(2)
+	@echo "  fetching $(1)"
+	@curl -fsSL "$(1)" | tar xz -C $(SRC_WORK)
+endef
+
+.PHONY: prereqs-tree-sitter
+prereqs-tree-sitter: ## Build libtree-sitter from source (needs sudo)
+	@echo "tree-sitter $(TREE_SITTER_VER)"
+	$(call fetch,https://github.com/tree-sitter/tree-sitter/archive/refs/tags/v$(TREE_SITTER_VER).tar.gz,tree-sitter-$(TREE_SITTER_VER))
+	@$(MAKE) -C $(SRC_WORK)/tree-sitter-$(TREE_SITTER_VER) PREFIX=$(SRC_PREFIX)
+	@sudo $(MAKE) -C $(SRC_WORK)/tree-sitter-$(TREE_SITTER_VER) install PREFIX=$(SRC_PREFIX)
+
+# libgit2's network transports are compiled out. elc reads local
+# repositories and never speaks to a remote (HLR-040), so HTTPS and SSH
+# support is attack surface with no corresponding capability — and dropping
+# it removes the OpenSSL and libssh2 dependencies along with it.
+.PHONY: prereqs-libgit2
+prereqs-libgit2: ## Build libgit2 from source, no network transports (needs sudo)
+	@echo "libgit2 $(LIBGIT2_VER) (transports disabled)"
+	$(call fetch,https://github.com/libgit2/libgit2/archive/refs/tags/v$(LIBGIT2_VER).tar.gz,libgit2-$(LIBGIT2_VER))
+	@cmake -S $(SRC_WORK)/libgit2-$(LIBGIT2_VER) -B $(SRC_WORK)/libgit2-build \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=$(SRC_PREFIX) \
+		-DBUILD_SHARED_LIBS=ON \
+		-DBUILD_TESTS=OFF \
+		-DBUILD_CLI=OFF \
+		-DUSE_HTTPS=OFF \
+		-DUSE_SSH=OFF
+	@cmake --build $(SRC_WORK)/libgit2-build --parallel
+	@sudo cmake --install $(SRC_WORK)/libgit2-build
+
+# GraphML support is switched off at configure time: elc writes GraphML
+# itself, so igraph's reader and writer are unused, and enabling them links
+# a second XML library the project has no other need for.
+.PHONY: prereqs-igraph
+prereqs-igraph: ## Build igraph from source, GraphML off (needs sudo)
+	@echo "igraph $(IGRAPH_VER) (GraphML off)"
+	$(call fetch,https://github.com/igraph/igraph/releases/download/$(IGRAPH_VER)/igraph-$(IGRAPH_VER).tar.gz,igraph-$(IGRAPH_VER))
+	@cmake -S $(SRC_WORK)/igraph-$(IGRAPH_VER) -B $(SRC_WORK)/igraph-build \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=$(SRC_PREFIX) \
+		-DBUILD_SHARED_LIBS=ON \
+		-DIGRAPH_GRAPHML_SUPPORT=OFF
+	@cmake --build $(SRC_WORK)/igraph-build --parallel
+	@sudo cmake --install $(SRC_WORK)/igraph-build
+
+.PHONY: prereqs-expat
+prereqs-expat: ## Build Expat from source (needs sudo)
+	@echo "expat $(EXPAT_VER)"
+	$(call fetch,https://github.com/libexpat/libexpat/releases/download/R_$(subst .,_,$(EXPAT_VER))/expat-$(EXPAT_VER).tar.gz,expat-$(EXPAT_VER))
+	@cmake -S $(SRC_WORK)/expat-$(EXPAT_VER) -B $(SRC_WORK)/expat-build \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=$(SRC_PREFIX) \
+		-DBUILD_SHARED_LIBS=ON \
+		-DEXPAT_BUILD_TESTS=OFF \
+		-DEXPAT_BUILD_EXAMPLES=OFF \
+		-DEXPAT_BUILD_TOOLS=OFF \
+		-DEXPAT_BUILD_DOCS=OFF
+	@cmake --build $(SRC_WORK)/expat-build --parallel
+	@sudo cmake --install $(SRC_WORK)/expat-build
+
+.PHONY: prereqs-clean
+prereqs-clean: ## Remove the unpacked dependency sources
+	@rm -rf $(SRC_WORK)
+
+.PHONY: check-prereqs
+check-prereqs: ## Report which dependencies are present and flag version gaps
+	@echo "== tools =="
+	@for t in cc ld make python3 pkg-config valgrind strace dot xmllint nm; do \
+		if command -v $$t >/dev/null 2>&1; then \
+			printf '  %-12s ok\n' "$$t"; \
+		else \
+			printf '  %-12s MISSING\n' "$$t"; \
+		fi; \
+	done
+	@printf '  %-12s %s (vendored)\n' bats "$$($(BATS) --version 2>/dev/null || echo MISSING)"
+	@echo "== libraries =="
+	@command -v $(PKG_CONFIG) >/dev/null 2>&1 || { \
+		echo "  pkg-config missing; cannot report library versions" >&2; exit 0; }
+	@for l in criterion tree-sitter expat libgit2 igraph; do \
+		v=$$($(PKG_CONFIG) --modversion $$l 2>/dev/null); \
+		if [ -n "$$v" ]; then printf '  %-12s %s\n' "$$l" "$$v"; \
+		else printf '  %-12s MISSING\n' "$$l"; fi; \
+	done
+	@echo "== conformance to doc/SDP.md §0 =="
+	@$(MAKE) --no-print-directory _check-min LIB=tree-sitter MIN=0.25 PHASE=2
+	@$(MAKE) --no-print-directory _check-min LIB=expat       MIN=2.6  PHASE=5
+	@$(MAKE) --no-print-directory _check-min LIB=libgit2     MIN=1.7  PHASE=7
+	@$(MAKE) --no-print-directory _check-min LIB=igraph      MIN=1.0  PHASE=8
+	@$(MAKE) --no-print-directory _check-min LIB=criterion   MIN=2.4  PHASE=0
+	@if $(PKG_CONFIG) --exists igraph 2>/dev/null && \
+	    $(PKG_CONFIG) --libs igraph 2>/dev/null | grep -q xml2; then \
+		echo "  WARNING igraph was built with GraphML support, so it links"; \
+		echo "          libxml2 and would drag it into elc transitively."; \
+		echo "          elc does not depend on libxml2: XML reading is Expat's"; \
+		echo "          job and elc writes GraphML itself, so the feature is"; \
+		echo "          unneeded and the library is unmaintained (since"; \
+		echo "          September 2025). Before Phase 8, rebuild igraph with"; \
+		echo "          -DIGRAPH_GRAPHML_SUPPORT=OFF (doc/notes.md §1.1)."; \
+	fi
+
+# Compare an installed library version against the SDP minimum. A shortfall
+# is a warning, not an error: the library is not linked until its phase, so
+# a stale distro package blocks nothing today.
+.PHONY: _check-min
+_check-min:
+	@have=$$($(PKG_CONFIG) --modversion $(LIB) 2>/dev/null); \
+	if [ -z "$$have" ]; then \
+		printf '  %-12s absent — needed from Phase %s\n' "$(LIB)" "$(PHASE)"; \
+	elif [ "$$(printf '%s\n%s\n' "$(MIN)" "$$have" | sort -V | head -1)" = "$(MIN)" ]; then \
+		printf '  %-12s %s >= %s ok\n' "$(LIB)" "$$have" "$(MIN)"; \
+	else \
+		printf '  %-12s %s < %s BELOW MINIMUM — run: make prereqs-src\n' \
+			"$(LIB)" "$$have" "$(MIN)"; \
+	fi
 
 # -------------------------------------------------------------------- build
 .PHONY: all
@@ -113,10 +288,15 @@ instrumented: all ## Run the environment-observing suites
 .PHONY: asan
 asan: ## Rebuild with ASan and UBSan and re-run the whole suite
 	@$(MAKE) --no-print-directory clean
-	@$(MAKE) --no-print-directory \
+	@rc=0; $(MAKE) --no-print-directory \
 		CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
-		LDFLAGS="-fsanitize=address,undefined" test
-	@$(MAKE) --no-print-directory clean
+		LDFLAGS="-fsanitize=address,undefined" test || rc=$$?; \
+	$(MAKE) --no-print-directory clean; \
+	exit $$rc
+# The trailing clean runs even when the suite fails. Leaving instrumented
+# objects behind poisons every later target: valgrind refuses to run against
+# an ASan binary, so a single asan failure would cascade into a wall of
+# unrelated valgrind failures.
 
 .PHONY: valgrind
 valgrind: all ## Re-run integration and fixtures under valgrind

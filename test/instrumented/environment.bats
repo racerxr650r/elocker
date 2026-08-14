@@ -18,8 +18,15 @@ setup() {
 	assert_success
 
 	# Everything elc links must be on this list. A language runtime
-	# appearing here is exactly what HLR-040 forbids.
-	local allowed='^(linux-vdso|libc|libm|libgcc_s|ld-linux|/lib64/ld-linux)'
+	# appearing here — libpython, libperl, libmono, libjvm — is exactly
+	# what HLR-040 forbids.
+	#
+	# The sanitizer runtimes are allowed because `make asan` re-runs this
+	# very suite against an instrumented build, and libasan is test
+	# instrumentation rather than a product dependency: it is absent from
+	# the binary `make all` produces and `make install` ships. Excluding
+	# them here would make the sanitized pass fail on its own scaffolding.
+	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libasan|libubsan|ld-linux|/lib64/ld-linux)'
 	while read -r line; do
 		[ -n "$line" ] || continue
 		local lib

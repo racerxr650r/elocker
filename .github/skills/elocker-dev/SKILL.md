@@ -220,6 +220,20 @@ Criterion runs each test in its own process, so a segfault in pointer-heavy
 code is a reported failure rather than a dead suite. Do not hand-roll driver
 executables and do not try to call C functions from shell.
 
+**Mock with `--wrap`, and make the arm flag `volatile`:**
+
+```c
+static volatile int malloc_should_fail;   /* volatile is load-bearing */
+extern void *__real_malloc(size_t);
+void *__wrap_malloc(size_t n)
+{ return malloc_should_fail ? NULL : __real_malloc(n); }
+```
+
+Without `volatile` the compiler removes the `armed = 1` store — it treats
+malloc as a builtin that cannot read your globals, so a store overwritten
+before any *visible* read looks dead. The wrapper then never fires and the
+test fails for a reason that looks unrelated.
+
 **Fixtures** carry hand-counted expected values. Every fixture needs a
 comment header stating its expected numbers and the reasoning, so a change
 that alters one forces a deliberate decision rather than a silent golden-file
