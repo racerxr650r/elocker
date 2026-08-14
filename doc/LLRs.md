@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 1.6
+**Version:** 1.7
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
@@ -847,6 +847,9 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-08"></a>**LLR-BLD-08** — The documented set of required query files and capture names shall be published with the delivered runtime, so that a third party may add a language against it.
     *Trace:* HLR-121 (Language Module Interface Is a Stable Contract), HLR-010 (No-Recompilation Language Addition).
+
+*   <a id="LLR-BLD-10"></a>**LLR-BLD-10** — The build shall support link-time symbol interception for the unit level, so that a dependency can be replaced by a test without a seam being carried in `src/`. A toolchain that cannot provide it cannot run the unit suite and is unsupported rather than worked around.
+    *Trace:* HLR-113 (Graph Algorithms From an Established Library), HLR-124 (Memory Safety).
 
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).

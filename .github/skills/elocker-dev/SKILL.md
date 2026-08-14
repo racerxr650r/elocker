@@ -181,6 +181,8 @@ Each row is also the `##` description — keep them in sync.
 | `debug` | Build with `-O0 -g3 -DDEBUG` |
 | `asan` | Rebuild with ASan and UBSan and re-run the whole suite |
 | `valgrind` | Re-run integration and fixtures under valgrind |
+| `spec` | Validate Project.xml and check the rendered documents are current |
+| `coverage` | Fail if verification coverage has regressed |
 | `clean` | Remove build artifacts |
 | `install` | Install elc and runtime under `$(DESTDIR)$(PREFIX)` |
 

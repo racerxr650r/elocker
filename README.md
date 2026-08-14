@@ -18,16 +18,18 @@ analysis, for many languages.
 
 ## Status
 
-**The specification is complete; implementation has not begun.**
+**Phase 0 is complete.** `elc` builds, parses its command line, and passes a
+nine-job CI gate across four test levels — but performs no analysis yet. The
+metrics arrive in Phases 3–4, the call graph in Phase 8.
 
-**Progress: 0 of 16 phases complete.**
+**Progress: 1 of 16 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
 
 | Phase | Description | Status |
 | ----- | ----------- | ------ |
-| [0](doc/SDP.md#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | 🔲 Not started |
+| [0](doc/SDP.md#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | ✅ Complete |
 | [1](doc/SDP.md#phase-1--target-discovery-and-the-walking-skeleton) | Target discovery, ordering, table output — end to end | 🔲 Not started |
 | [2](doc/SDP.md#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | 🔲 Not started |
 | [3](doc/SDP.md#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | 🔲 Not started |

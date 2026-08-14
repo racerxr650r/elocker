@@ -13,14 +13,14 @@
   <metadata>
     <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="1.7" date="2026-08-14" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.1" date="2026-08-14" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="1.6" date="2026-08-14" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="1.7" date="2026-08-14" author="John Anderson"/>
     <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.1" date="2026-08-12" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.0" date="2026-08-14" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="129"/>
-      <count name="llrs"       value="249"/>
-      <count name="tests"      value="0"/>
-      <count name="test_files" value="0"/>
+      <count name="llrs"       value="250"/>
+      <count name="tests"      value="44"/>
+      <count name="test_files" value="5"/>
     </counts>
   </metadata>
 
@@ -3897,6 +3897,14 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-BLD-10">
+        <text><![CDATA[The build shall support link-time symbol interception for the unit level, so that a dependency can be replaced by a test without a seam being carried in `src/`. A toolchain that cannot provide it cannot run the unit suite and is unsupported rather than worked around.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-113" name="Graph Algorithms From an Established Library"/>
+          <trace target="HLR" ref="HLR-124" name="Memory Safety"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-BLD-09">
         <text><![CDATA[The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.]]></text>
         <traces>
@@ -3956,5 +3964,279 @@ Note on the division of labour, which determines where a failure lives: the requ
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
   <tests>
+  <file path="test/unit/cli.c" role="unit" count="11">
+    <test name="wrap_passes_through_when_not_armed">
+      <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-10"/>
+      </traces>
+    </test>
+    <test name="wrap_intercepts_when_armed">
+      <purpose><![CDATA[An armed wrapper intercepts the call, proving the mechanism by which later phases provoke allocation failure.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-10"/>
+      </traces>
+    </test>
+    <test name="help_short_option_reports_help">
+      <purpose><![CDATA[`-h` is reported as a help request rather than parsed as an ordinary option.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-13"/>
+      </traces>
+    </test>
+    <test name="help_long_option_reports_help">
+      <purpose><![CDATA[`--help` is reported as a help request.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-13"/>
+      </traces>
+    </test>
+    <test name="unrecognised_option_is_a_usage_error">
+      <purpose><![CDATA[An unrecognised option is rejected as a usage error.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-12"/>
+      </traces>
+    </test>
+    <test name="missing_target_is_a_usage_error">
+      <purpose><![CDATA[An invocation with no target is rejected as a usage error.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-12"/>
+        <trace target="LLR" ref="LLR-CLI-01"/>
+      </traces>
+    </test>
+    <test name="single_target_is_collected">
+      <purpose><![CDATA[A single target argument is collected into the options structure.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-01"/>
+      </traces>
+    </test>
+    <test name="several_targets_are_collected_in_order">
+      <purpose><![CDATA[Several targets are collected in argument order, files and directories intermixed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-01"/>
+      </traces>
+    </test>
+    <test name="help_takes_precedence_over_a_target">
+      <purpose><![CDATA[A help request is reported without validating the remaining arguments.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-13"/>
+      </traces>
+    </test>
+    <test name="mode_defaults_to_analyse">
+      <purpose><![CDATA[The run mode defaults to analysis when no mode-selecting option is given.]]></purpose>
+    </test>
+    <test name="options_free_is_safe_on_null">
+      <purpose><![CDATA[Releasing a null options structure does not fault, so teardown is safe on every path.]]></purpose>
+    </test>
+  </file>
+
+  <file path="test/integration/cli.bats" role="integration" count="16">
+    <test name="--help exits 0">
+      <purpose><![CDATA[Requesting help succeeds; it is not an error.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+      </traces>
+    </test>
+    <test name="-h exits 0">
+      <purpose><![CDATA[The short form of the help option behaves as the long form.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+      </traces>
+    </test>
+    <test name="--help writes the summary to stdout, not stderr">
+      <purpose><![CDATA[The help summary goes to the results stream and nothing goes to the diagnostic stream.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+        <trace target="HLR" ref="HLR-038" name="Diagnostics on stderr, Results on stdout"/>
+      </traces>
+    </test>
+    <test name="--help lists every option elc accepts">
+      <purpose><![CDATA[The usage summary names each accepted option, making it the reference the documentation is checked against.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+      </traces>
+    </test>
+    <test name="--help documents the exit-status scheme">
+      <purpose><![CDATA[The usage summary describes what each exit status means.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+        <trace target="HLR" ref="HLR-120" name="Distinct Exit Status Classes"/>
+      </traces>
+    </test>
+    <test name="--help is reported without validating other arguments">
+      <purpose><![CDATA[A help request short-circuits argument validation.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+      </traces>
+    </test>
+    <test name="an unrecognised long option exits 2">
+      <purpose><![CDATA[An unrecognised long option terminates with the fatal status.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+        <trace target="HLR" ref="HLR-120" name="Distinct Exit Status Classes"/>
+      </traces>
+    </test>
+    <test name="an unrecognised short option exits 2">
+      <purpose><![CDATA[An unrecognised short option terminates with the fatal status.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+        <trace target="HLR" ref="HLR-120" name="Distinct Exit Status Classes"/>
+      </traces>
+    </test>
+    <test name="no target exits 2">
+      <purpose><![CDATA[An invocation with no target terminates with the fatal status.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+        <trace target="HLR" ref="HLR-120" name="Distinct Exit Status Classes"/>
+      </traces>
+    </test>
+    <test name="a usage error writes to stderr, not stdout">
+      <purpose><![CDATA[A usage error writes its diagnostic and summary to the diagnostic stream, leaving the results stream empty.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+        <trace target="HLR" ref="HLR-038" name="Diagnostics on stderr, Results on stdout"/>
+      </traces>
+    </test>
+    <test name="a usage error names the offending option">
+      <purpose><![CDATA[The diagnostic identifies which option was rejected.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+      </traces>
+    </test>
+    <test name="no target is diagnosed explicitly">
+      <purpose><![CDATA[The missing-target case is diagnosed in its own words rather than as a generic failure.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+      </traces>
+    </test>
+    <test name="a single target is accepted">
+      <purpose><![CDATA[A single file target is accepted.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-071" name="Multiple Target Arguments"/>
+      </traces>
+    </test>
+    <test name="several targets are accepted, files and directories intermixed">
+      <purpose><![CDATA[Several targets are accepted in one invocation, files and directories freely mixed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-071" name="Multiple Target Arguments"/>
+      </traces>
+    </test>
+    <test name="a run producing no report writes nothing to stdout">
+      <purpose><![CDATA[Nothing but results reaches the results stream.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-038" name="Diagnostics on stderr, Results on stdout"/>
+      </traces>
+    </test>
+    <test name="a decoy dotfile in the working directory changes nothing">
+      <purpose><![CDATA[Configuration-like files planted beside the invocation produce byte-identical output to their absence.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-039" name="Zero Configuration"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/integration/docs.bats" role="integration" count="8">
+    <test name="the man page exists">
+      <purpose><![CDATA[The project delivers a man page.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-128" name="User Manual and Man Page Delivered"/>
+      </traces>
+    </test>
+    <test name="the user manual exists">
+      <purpose><![CDATA[The project delivers a user manual.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-128" name="User Manual and Man Page Delivered"/>
+      </traces>
+    </test>
+    <test name="the man page renders without diagnostic">
+      <purpose><![CDATA[The delivered man page is well-formed roff.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-128" name="User Manual and Man Page Delivered"/>
+      </traces>
+    </test>
+    <test name="the usage summary advertises at least one option">
+      <purpose><![CDATA[The reference the documentation is checked against is non-empty.]]></purpose>
+    </test>
+    <test name="every option in the usage summary appears in the man page">
+      <purpose><![CDATA[No accepted option is undocumented in the man page.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-129" name="Documentation Describes the Delivered Behaviour"/>
+        <trace target="HLR" ref="HLR-130" name="Documentation Updated With the Behaviour It Describes"/>
+      </traces>
+    </test>
+    <test name="every option in the usage summary appears in the user manual">
+      <purpose><![CDATA[No accepted option is undocumented in the user manual.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-129" name="Documentation Describes the Delivered Behaviour"/>
+        <trace target="HLR" ref="HLR-130" name="Documentation Updated With the Behaviour It Describes"/>
+      </traces>
+    </test>
+    <test name="every long option the man page documents is accepted by elc">
+      <purpose><![CDATA[No documented option is unimplemented.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-129" name="Documentation Describes the Delivered Behaviour"/>
+        <trace target="HLR" ref="HLR-130" name="Documentation Updated With the Behaviour It Describes"/>
+      </traces>
+    </test>
+    <test name="both documents describe the exit-status scheme">
+      <purpose><![CDATA[Both documents describe the exit-status classes.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-129" name="Documentation Describes the Delivered Behaviour"/>
+        <trace target="HLR" ref="HLR-120" name="Distinct Exit Status Classes"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/instrumented/environment.bats" role="instrumented" count="7">
+    <test name="HLR-040: the binary links no interpreter or virtual machine">
+      <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-040" name="Excluded Runtime Dependencies"/>
+      </traces>
+    </test>
+    <test name="HLR-040: elc runs identically with no network available">
+      <purpose><![CDATA[Running inside an empty network namespace produces identical output.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-040" name="Excluded Runtime Dependencies"/>
+      </traces>
+    </test>
+    <test name="HLR-041: elc links no threading library">
+      <purpose><![CDATA[No threading library appears on the link line.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-041" name="Single-Threaded Execution"/>
+      </traces>
+    </test>
+    <test name="HLR-041: elc references no thread-creation symbol">
+      <purpose><![CDATA[No thread-creation symbol is referenced by the binary.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-041" name="Single-Threaded Execution"/>
+      </traces>
+    </test>
+    <test name="HLR-041: the build passes no threading flag">
+      <purpose><![CDATA[The build never passes -pthread, which would silently license a future thread.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-041" name="Single-Threaded Execution"/>
+      </traces>
+    </test>
+    <test name="HLR-043: elc does not modify the tree it analyses">
+      <purpose><![CDATA[The analysed tree checksums identically before and after a run.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-043" name="Read-Only Operation"/>
+      </traces>
+    </test>
+    <test name="HLR-043: elc runs against a read-only directory">
+      <purpose><![CDATA[A run succeeds against a directory with write permission removed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-043" name="Read-Only Operation"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/smoke.bats" role="fixture" count="2">
+    <test name="the fixture level is wired and elc is runnable">
+      <purpose><![CDATA[The fixture-conformance level is wired and green before the first real fixture is written.]]></purpose>
+    </test>
+    <test name="fixture directories carry no generated expected values yet">
+      <purpose><![CDATA[Guards the convention that expected values are hand-counted, never generated from elc's own output.]]></purpose>
+    </test>
+  </file>
   </tests>
 </project>

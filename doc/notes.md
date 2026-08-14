@@ -39,7 +39,23 @@ if igraph is taken from a distro package built with GraphML enabled,
 libxml2 re-enters transitively. This needs checking at configure time,
 not assuming.
 
-### 1.2 Runtime data files the build must ship
+### 1.2 Bats is vendored, not installed
+
+The SDP §0 lists Bats as a required *tool* and only `bats-support` /
+`bats-assert` as vendored. Phase 0 vendored **bats-core as well**, under
+`test/helpers/`, pruned to its runtime files (63 files, 476K — its own CI
+configs, docs, and test suite removed).
+
+Two reasons. The suite becomes hermetic: no version skew between a
+developer's Bats and CI's, and no install step before `make test` works.
+And it is what makes the suite runnable in an environment without
+package-install rights, which is how Phase 0 was actually developed.
+
+Criterion cannot be vendored the same way — it is a C library needing a
+build — so the unit level still requires `libcriterion-dev` and is
+verified in CI rather than locally when the package is absent.
+
+### 1.3 Runtime data files the build must ship
 
 Named in the SDD but easy to forget when packaging:
 

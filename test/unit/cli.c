@@ -1,0 +1,134 @@
+/* test/unit/cli.c — unit tests for src/cli.c.
+ *
+ * One Criterion binary per src/ module, linked against that module. Tests
+ * register automatically, so a test cannot be written and silently never run
+ * (doc/STP.md §2.2).
+ *
+ * Suite names match the module they exercise, so the suite, the module, and
+ * the LLR prefix line up when a failure is read.
+ */
+
+#include <criterion/criterion.h>
+#include <criterion/redirect.h>
+#include <stdlib.h>
+
+#include "cli.h"
+#include "elc.h"
+
+/* --------------------------------------------------------------- --wrap ---
+ *
+ * Phase 0 proves the link-time interception the whole unit level rests on
+ * (STP §2.2), before anything depends on it. A wrapped allocator is the
+ * mechanism by which the checked-growth contracts of later phases —
+ * LLR-ANL-34, LLR-RPT-16 — become testable at all: allocation failure cannot
+ * otherwise be provoked from a test.
+ */
+extern void *__real_malloc(size_t);
+
+static int malloc_should_fail;
+
+void *__wrap_malloc(size_t n)
+{
+	if (malloc_should_fail)
+		return NULL;
+	return __real_malloc(n);
+}
+
+Test(cli, wrap_passes_through_when_not_armed)
+{
+	malloc_should_fail = 0;
+	void *p = malloc(32);
+	cr_assert_not_null(p, "unarmed wrap must delegate to the real malloc");
+	free(p);
+}
+
+Test(cli, wrap_intercepts_when_armed)
+{
+	malloc_should_fail = 1;
+	void *p = malloc(32);
+	malloc_should_fail = 0;
+	cr_assert_null(p, "armed wrap must intercept and fail the allocation");
+}
+
+/* ------------------------------------------------------------- cli_parse ---
+ *
+ * getopt_long keeps global state across calls, so each test resets optind
+ * via cli_parse() itself; Criterion's per-test process isolation means no
+ * test can leak that state into another regardless.
+ */
+
+Test(cli, help_short_option_reports_help)
+{
+	char *argv[] = { "elc", "-h", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_HELP);
+}
+
+Test(cli, help_long_option_reports_help)
+{
+	char *argv[] = { "elc", "--help", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_HELP);
+}
+
+Test(cli, unrecognised_option_is_a_usage_error)
+{
+	char *argv[] = { "elc", "--bogus", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_ERROR,
+	             "an unrecognised option must be rejected (HLR-063)");
+}
+
+Test(cli, missing_target_is_a_usage_error)
+{
+	char *argv[] = { "elc", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(1, argv, &o), CLI_ERROR,
+	             "an invocation with no target must be rejected (HLR-063)");
+}
+
+Test(cli, single_target_is_collected)
+{
+	char *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_eq(o.target_count, 1);
+	cr_assert_str_eq(o.targets[0], "a.c");
+	cli_options_free(&o);
+}
+
+Test(cli, several_targets_are_collected_in_order)
+{
+	char *argv[] = { "elc", "a.c", "src/", "b.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK,
+	             "files and directories may be intermixed (HLR-071)");
+	cr_assert_eq(o.target_count, 3);
+	cr_assert_str_eq(o.targets[0], "a.c");
+	cr_assert_str_eq(o.targets[1], "src/");
+	cr_assert_str_eq(o.targets[2], "b.c");
+	cli_options_free(&o);
+}
+
+Test(cli, help_takes_precedence_over_a_target)
+{
+	char *argv[] = { "elc", "--help", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(3, argv, &o), CLI_HELP,
+	             "help is reported without validating other arguments");
+}
+
+Test(cli, mode_defaults_to_analyse)
+{
+	char *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_eq(o.mode, MODE_ANALYSE);
+	cli_options_free(&o);
+}
+
+Test(cli, options_free_is_safe_on_null)
+{
+	cli_options_free(NULL);
+	cr_assert(1, "releasing a null options structure must not fault");
+}

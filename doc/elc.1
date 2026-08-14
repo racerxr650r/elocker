@@ -1,0 +1,104 @@
+.\" elc.1 — manual page for elc.
+.\"
+.\" This page describes the version it ships with (HLR-129). Every option elc
+.\" accepts appears here, and every option here is accepted; the documentation
+.\" test in test/integration/docs.bats enforces both directions.
+.TH ELC 1 "2026-08-14" "elocker" "User Commands"
+.SH NAME
+elc \- per-function code metrics and whole-project architecture analysis
+.SH SYNOPSIS
+.B elc
+.RI [ OPTION ]...
+.IR TARGET ...
+.br
+.B elc
+.B \-\-help
+.SH DESCRIPTION
+.B elc
+reports code metrics per function, and analyses the architecture that connects
+them, for a codebase in any language it has runtime support for.
+.PP
+A
+.I TARGET
+is a source file or a directory. Several may be given in any combination; a
+file reached through more than one target is analysed once.
+.SS Current state
+.B elc
+is under active development. This release parses its command line, reports
+usage, and returns the exit status described below. The analysis stages —
+effective lines of code, cyclomatic complexity, the System Dependence Graph
+and the findings derived from it — are delivered by later phases, and this
+page grows with them. See
+.B doc/SDP.md
+in the distribution for what each phase adds.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Display a usage summary on standard output and exit successfully. Requesting
+help is not an error, so the exit status is 0 rather than a failure code.
+.SH EXIT STATUS
+The three classes are distinct so that a caller can tell a degraded run from a
+run that never happened. No finding severity ever contributes to the exit
+status: findings are data, and acting on them is the caller's decision.
+.TP
+.B 0
+Every discovered file was processed without error, or skipped because no
+language module was available for it. A skipped file is not a failure.
+.TP
+.B 1
+The run completed and produced a report, but at least one discovered file
+failed to be read or parsed. The report covers the files that succeeded.
+.TP
+.B 2
+The run did not complete and no report was produced: a usage error, an
+invalid target, a fatal runtime-location failure, or a rejected saved record.
+.SH OUTPUT
+Results are written to standard output; diagnostics are written to standard
+error. Nothing else is written to the results stream, so output may be piped
+or captured without being corrupted by diagnostic text.
+.SH ENVIRONMENT
+.TP
+.B ELC_RUNTIME_DIR
+Location of the runtime directory holding language grammars and their query
+files. When set, it takes precedence over the
+.B runtime
+directory adjacent to the executable.
+.SH FILES
+.TP
+.I runtime/parsers/<lang>.so
+Tree-sitter grammar for a language, loaded on first use.
+.TP
+.I runtime/queries/<lang>/
+The query files that define what elc extracts for that language.
+.TP
+.I runtime/extensions.map
+Maps a file extension to a language name.
+.SH CONFIGURATION
+.B elc
+has none. Behaviour is determined entirely by the command line and the
+contents of the runtime directory. No configuration file or dotfile is read
+or discovered, from the working directory, the analysis target, or any
+ancestor of either, so two users running the same command on the same tree
+obtain the same result.
+.SH EXAMPLES
+.TP
+.B elc \-\-help
+Show the usage summary.
+.TP
+.B elc src/
+Analyse a directory.
+.TP
+.B elc src/main.c src/cli.c
+Analyse named files.
+.SH SEE ALSO
+.BR cloc (1),
+.BR gprof (1)
+.PP
+The full documentation is in
+.B User_Manual.md
+in the distribution, and the specification stack — vision, requirements,
+design, test plan — is under
+.B doc/
+in the source repository.
+.SH LICENSE
+MIT.

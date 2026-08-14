@@ -1,19 +1,19 @@
 # Software Development Plan: elocker (elc)
 
-**Version:** 0.8
+**Version:** 1.0
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Planning complete. The specification stack — [PVD](PVD.md),
-[HLRs](HLRs.md), [SDD](SDD.md), [LLRs](LLRs.md), [STP](STP.md) — is
-written and internally consistent. No code exists yet. Phase 0 is ready
-to start.
+**Status:** Phase 0 complete. The build system, the nine-job CI gate, all
+four test levels, and a skeleton `elc` are in place; 44 catalogued tests
+verify 17 requirements and the coverage baseline stands at 361. Phase 1
+is ready to start.
 
 ## Status
 
 | Phase | Description | Status |
 | ----- | ----------- | ------ |
-| [0](#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | 🔲 Not started |
+| [0](#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | ✅ Complete |
 | [1](#phase-1--target-discovery-and-the-walking-skeleton) | Target discovery, ordering, table output — end to end | 🔲 Not started |
 | [2](#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | 🔲 Not started |
 | [3](#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | 🔲 Not started |
@@ -432,7 +432,7 @@ deferring one that does not. The documentation test exists from this phase for
 the same reason: it is the mechanism that makes HLR-130 enforceable rather
 than aspirational.
 
-**Acceptance:** CI green on all eight jobs. `elc --help` exits 0 with the
+**Acceptance:** CI green on all nine jobs. `elc --help` exits 0 with the
 summary on stdout; `elc --bogus` exits 2 with usage on stderr; `elc` with no
 target exits 2. `ldd` shows no interpreter or VM. `make asan` and
 `make valgrind` both pass on the skeleton. A deliberately broken
