@@ -4,9 +4,12 @@
 # invalidates the documents the rest of the suite is verified against, so
 # there is no point testing until it is sound.
 #
-# The runner is Linux. /proc, strace, unshare and read-only mounts are Linux
-# facilities; the instrumented level skips explicitly elsewhere, and a silent
-# skip is a suite failure rather than a pass (doc/STP.md §2.2).
+# The runner is Linux. /proc, strace and read-only mounts are Linux facilities;
+# the instrumented level skips explicitly elsewhere, and a silent skip is a
+# suite failure rather than a pass (doc/STP.md §2.2). Nothing at that level may
+# depend on a facility a container withholds — unprivileged user namespaces,
+# notably — or the skip-detector below turns an unavailable facility into a
+# red build.
 
 name: CI
 

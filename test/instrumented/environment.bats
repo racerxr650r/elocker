@@ -38,14 +38,22 @@ setup() {
 	done <<<"$output"
 }
 
-@test "HLR-040: elc runs identically with no network available" {
-	require_tool unshare "HLR-040 no network access"
-	run unshare -rn "$ELC" --help
-	[ "$status" -eq 0 ] || skip "unprivileged namespaces unavailable here"
-	local isolated="$output"
+# Observing the syscalls directly is both stronger and more portable than
+# running under an isolated network namespace: it proves elc never *attempts*
+# network access, rather than proving it survives without it, and it works in
+# containers where unprivileged user namespaces are unavailable — which is
+# most CI runners, GitHub's included.
+@test "HLR-040: elc makes no network syscall" {
+	require_tool strace "HLR-040 no network access"
+	local log="$BATS_TEST_TMPDIR/net.log"
 
-	run "$ELC" --help
-	assert_equal "$output" "$isolated"
+	strace -f -e trace=%network -o "$log" \
+		"$ELC" "$REPO_ROOT/src" >/dev/null 2>&1 || true
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+
+	# Everything but process bookkeeping lines would be a network call.
+	run bash -c "grep -vE 'exited with|\\+\\+\\+|---' '$log' | grep -c ."
+	assert_output "0"
 }
 
 # --- HLR-041: single-threaded execution ------------------------------------

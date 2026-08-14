@@ -75,7 +75,9 @@ Both harnesses emit TAP, so `make test` produces one merged report despite the s
 
 Every test writes its scratch files to `$BATS_TEST_TMPDIR`, or for Criterion to a per-test temporary directory created in setup and removed in teardown. No test writes into `test/fixtures/` or anywhere in the working tree, and no test depends on the execution order of any other.
 
-**Platform degradation.** The instrumented level rests on facilities that are not universal: `/proc`, `strace`, `unshare`, and read-only bind mounts are Linux conveniences. Where one is unavailable, the affected test **skips explicitly**, reporting through the harness both that it skipped and which requirement thereby went unverified on that platform. A silent non-run is treated as a suite failure rather than a pass, so that a CI target quietly shedding its memory-safety, single-thread, or single-parse coverage is visible rather than assumed.
+**Platform degradation.** The instrumented level rests on facilities that are not universal: `/proc`, `strace`, and read-only bind mounts are Linux conveniences. Where one is unavailable, the affected test **skips explicitly**, reporting through the harness both that it skipped and which requirement thereby went unverified on that platform. A silent non-run is treated as a suite failure rather than a pass, so that a CI target quietly shedding its memory-safety, single-thread, or single-parse coverage is visible rather than assumed.
+
+Because CI enforces that policy — a skip on a Linux runner fails the build — an instrumented test may not rest on a facility a *container* withholds, as distinct from one a *platform* lacks. Unprivileged user namespaces are the case that established this: `unshare -rn` is present on any modern Linux and works when run locally, but GitHub's runners disable it, so the test that used it to verify HLR-040 skipped there and turned an unavailable facility into a red build. The property is now observed with `strace -e trace=%network`, which needs no privilege. Prefer observing the syscalls a requirement forbids over constructing an environment in which the requirement cannot be violated: the direct observation is more portable, and it is the stronger claim — that `elc` never *attempts* the forbidden thing, not merely that it survives being denied it.
 
 ### 2.3 Build and Execution
 All tests are built and executed by `make test`. The target:
@@ -190,7 +192,7 @@ Role: **instrumented**. **7 test(s).**
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
 | 1 | <a id="HLR-040: the binary links no interpreter or virtual machine"></a>`HLR-040: the binary links no interpreter or virtual machine` | — | The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids. |
-| 2 | <a id="HLR-040: elc runs identically with no network available"></a>`HLR-040: elc runs identically with no network available` | — | Running inside an empty network namespace produces identical output. |
+| 2 | <a id="HLR-040: elc makes no network syscall"></a>`HLR-040: elc makes no network syscall` | — | `strace -e trace=%network` over a full run logs no network syscall. This observes the syscalls directly rather than inferring the property from survival inside an isolated network namespace: it proves `elc` never *attempts* network access, and it runs in containers where unprivileged user namespaces are unavailable. |
 | 3 | <a id="HLR-041: elc links no threading library"></a>`HLR-041: elc links no threading library` | — | No threading library appears on the link line. |
 | 4 | <a id="HLR-041: elc references no thread-creation symbol"></a>`HLR-041: elc references no thread-creation symbol` | — | No thread-creation symbol is referenced by the binary. |
 | 5 | <a id="HLR-041: the build passes no threading flag"></a>`HLR-041: the build passes no threading flag` | — | The build never passes -pthread, which would silently license a future thread. |
@@ -503,9 +505,8 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | AddressSanitizer + LeakSanitizer | HLR-124, HLR-125 — `make asan` | `-fsanitize=address` with `detect_leaks=1`; catches out-of-bounds, use-after-free, invalid free, and leaks. Requires an instrumented rebuild |
 | UndefinedBehaviorSanitizer | HLR-124 — `make asan` | `-fsanitize=undefined` with `halt_on_error=1`; catches signed overflow, misaligned and null dereference, and invalid shifts |
 | `valgrind` | HLR-124, HLR-125 — `make valgrind` | `--leak-check=full --errors-for-leak-kinds=all` over a single file, a directory, and a repository target. Run in a separate pass from ASan, never combined; finds uninitialised reads ASan does not, and needs no rebuild |
-| `strace` | HLR-076 — single parse | `-e trace=openat`; each source file opened exactly once per run |
+| `strace` | HLR-040 — no network access; HLR-076 — single parse | `-e trace=%network` must log no network syscall over a full run; `-e trace=openat` must show each source file opened exactly once. Preferred over `unshare -rn` for the network property, which containers — GitHub's runners included — commonly withhold by disabling unprivileged user namespaces |
 | `ldd` | HLR-040, HLR-113 — dependency constraints | Link line checked against an allowlist and for the graph library |
-| `unshare` | HLR-040 — no network access | `unshare -n` must produce output identical to a normal run |
 | `git` | Repository-target fixtures | Repositories are built per-test with pinned `user.name` and `user.email` |
 | `graphviz` | Validating `.dot` output | `dot -Tsvg -o /dev/null` must parse the emitted file; never linked by `elc` |
 | An XML parser | Validating XML and GraphML output | `xmllint --noout` or equivalent; well-formedness is asserted, not assumed |
