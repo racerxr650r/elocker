@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 1.5
+**Version:** 1.7
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
@@ -29,8 +29,10 @@ This document describes the design of the source modules that implement the 116 
 *   [src/format_csv.c](../src/format_csv.c): The RFC 4180 CSV renderer.
 *   [src/format_xml.c](../src/format_xml.c): The XML record writer and the reader that drives the report-regeneration mode.
 *   [src/format_graph.c](../src/format_graph.c): The Graphviz `.dot` call-tree writer and the GraphML graph-export writer.
+*   [doc/elc.1](../doc/elc.1): The section-1 man page: the reference form of every option, format, and finding category.
+*   [doc/User_Manual.md](../doc/User_Manual.md): The user manual: the same material in expository form, with worked examples.
 
-It does not describe the language grammars or query files under `runtime/`, which are data rather than code, nor the Criterion and Bats test suites under `test/`, which are covered by the [Software Test Plan](STP.md).
+It does not describe the language grammars or query files under `runtime/`, which are data rather than code, nor the Criterion and Bats test suites under `test/`, which are covered by the [Software Test Plan](STP.md). The two documentation files are listed because their currency is a delivery obligation (HLR-128 – HLR-130), not because their prose is designed here.
 
 ### 1.3 Project Overview
 `elc` is a single, statically-linkable POSIX C11 executable that computes Effective Lines of Code and cyclomatic complexity per function, builds a project-wide System Dependence Graph from the same parse, and reports architectural findings derived from that graph against published industry and academic thresholds.
@@ -196,7 +198,11 @@ The runtime data flow of an analysis run is:
 ### 4.2 External Interfaces
 Options are the entirety of `elc`'s configuration surface: there is no configuration file and no dotfile discovery (HLR-039).
 
-#### 4.2.1 Command-Line Options
+#### 4.2.1 Option List as Single Reference
+
+The set of accepted options appears in three places: this module's `getopt_long` table, the man page, and the user manual. Nothing prevents those three drifting apart, so `cli_usage()`'s output is designated the **reference**: it is generated from the same table that parses, and the documentation is checked against it rather than against the source (LLR-DOC-04). An option that parses but does not print, or prints but is not documented, is a defect the documentation test catches.
+
+#### 4.2.2 Command-Line Options
 
 
 | Option | Argument | Default | Requirement |
@@ -486,6 +492,17 @@ The SDG is a **simple** directed graph: repeated calls from one function to the 
         4.  For each global object, add an edge from every writing function and to every reading function (HLR-074).
         5.  Build the component projection: an edge from component X to Y whenever any function in X calls a function in Y, or writes a global that a function in Y reads (HLR-114).
     *   Notes: Resolution is name-and-arity based within the analysed target. Indirect calls through a function pointer are not resolved to a destination, but the *address-taken* fact is retained and carried into reachability (§11). The asymmetry matters: a **missing** edge causes a live function to be reported as provably dead, which is a correctness failure against HLR-097, whereas an **extra** root merely shrinks the unreachable set and costs nothing but a missed pruning opportunity. `elc` therefore errs toward reachable — an interrupt vector or callback table entry is never reported as dead merely because no direct call to it exists.
+
+        **Call-edge precision is language-dependent, and over-approximation is not uniformly safe.** The paragraph above concerns *missing* edges; the opposite error also occurs. Some languages make a call syntactically indistinguishable from something else without semantic analysis a grammar does not perform — Ada's `Foo (X)` is a function call or an array index, and the grammar manages the ambiguity with precedence rules rather than resolving it. Where a language's `calls.scm` cannot separate the two, the graph carries edges that do not correspond to calls. `elc` does not attempt to disambiguate in C: doing so would place language knowledge in the binary, which the design forbids outright.
+
+        The consequences differ by analysis, and only one of them is dangerous:
+
+        *   **Reachability (§11, HLR-096)** — safe. A spurious edge can only shrink the unreachable set, the same direction the address-taken rule already errs in. A live function is never called dead because of it.
+        *   **Fan-out and coupling (§10, §9)** — inflated. Numbers are noisier for such a language than for one whose calls are unambiguous, and a borderline function may cross a threshold it would not otherwise cross.
+        *   **Call depth (§10)** — inflated, on top of already being a lower bound for the unresolved-call reason.
+        *   **Dependency cycles (§9, HLR-083/084)** — **the dangerous case.** A spurious edge can close a cycle that does not exist in the program, and HLR-084 reports every cycle at critical severity against an acceptable count of strictly zero. A false critical finding costs more than a noisy metric, because it spends the reader's trust in every other finding.
+
+        This is not resolvable in `src/`; it is a property of what the grammar can express. What the design owes the reader is that the limitation is stated rather than discovered, and that the `graph/` fixture group pins the behaviour for any language where it applies (STP §5).
 
 *   **`size_t graph_unresolved_count(const Sdg *g)`** — Return the number of call sites that could not be resolved.
 *   **`void graph_free(Sdg *g)`** — Release the graph, node table, symbol table, and projection.

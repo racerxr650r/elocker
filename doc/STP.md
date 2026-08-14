@@ -328,7 +328,7 @@ verified by code review — see
 | `LLR-TBL-02` | `format_table` | `HLR-027` | **(no direct test)** |
 | `LLR-TBL-03` | `format_table` | `HLR-038` | **(no direct test)** |
 | `LLR-MKD-01` | `format_markdown` | `HLR-029` | **(no direct test)** |
-| `LLR-SUM-01` | `render_summary` | `HLR-031` | **(no direct test)** |
+| `LLR-SUM-01` | `render_summary` | `HLR-031`, `HLR-127`, `HLR-012`, `HLR-115` | **(no direct test)** |
 | `LLR-SUM-02` | `render_summary` | `HLR-031` | **(no direct test)** |
 | `LLR-CSV-01` | `format_csv` | `HLR-028` | **(no direct test)** |
 | `LLR-CSV-02` | `format_csv` | `HLR-028`, `HLR-031` | **(no direct test)** |
@@ -371,6 +371,12 @@ verified by code review — see
 | `LLR-BLD-07` | `build_configuration` | `HLR-011` | **(no direct test)** |
 | `LLR-BLD-08` | `build_configuration` | `HLR-121`, `HLR-010` | **(no direct test)** |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | **(no direct test)** |
+| `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
+| `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |
+| `LLR-DOC-03` | `user_documentation` | `HLR-128` | **(no direct test)** |
+| `LLR-DOC-04` | `user_documentation` | `HLR-129` | **(no direct test)** |
+| `LLR-DOC-05` | `user_documentation` | `HLR-129` | **(no direct test)** |
+| `LLR-DOC-06` | `user_documentation` | `HLR-130` | **(no direct test)** |
 
 ## 5. Integration Test Environment
 
@@ -383,7 +389,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `eloc/` | [test/fixtures/eloc/](../test/fixtures/eloc/) | One source file per language, per ELOC category | `expected.tsv` — hand-counted ELOC and complexity per function | HLR-015, HLR-019, HLR-020, HLR-044 – HLR-053 |
 | `comments/` | [test/fixtures/comments/](../test/fixtures/comments/) | Nested block comments; comment syntax inside string literals; string delimiters inside comments; a block comment containing inline comment syntax | `expected.tsv`, with the merge arithmetic shown in each file header | HLR-016, HLR-034 — and, through them, HLR-013, which has no direct observable |
 | `nesting/` | [test/fixtures/nesting/](../test/fixtures/nesting/) | Ada nested subprograms; lambdas and closures; methods and constructors; a nested function inside a lambda | `expected.tsv` — per-function attribution showing no statement counted twice | HLR-014, HLR-018, HLR-067, HLR-068 |
-| `graph/` | [test/fixtures/graph/](../test/fixtures/graph/) | Mutual recursion within one file and across two; a function reachable only via an address-taken pointer; a clique of unused functions calling one another; a component dependency cycle; a global written in one region and read in another; a global read and written by a single function; a global read by unreachable functions only | `expected.graphml` and `expected-findings.tsv` | HLR-073 – HLR-077, HLR-083, HLR-089, HLR-091 – HLR-093, HLR-096, HLR-097, HLR-114 |
+| `graph/` | [test/fixtures/graph/](../test/fixtures/graph/) | Mutual recursion within one file and across two; a function reachable only via an address-taken pointer; a clique of unused functions calling one another; a component dependency cycle; a global written in one region and read in another; a global read and written by a single function; a global read by unreachable functions only; and, for a language whose grammar cannot separate a call from an index, a construct that is ambiguous between the two | `expected.graphml` and `expected-findings.tsv`. The ambiguous-call case pins whichever edge the grammar yields, so that over-approximation is a recorded decision rather than a later surprise — and so that a *false cycle* arising from it is visible in the fixture rather than in a user's report | HLR-073 – HLR-077, HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-096, HLR-097, HLR-114 |
 | `arch/` | [test/fixtures/arch/](../test/fixtures/arch/) | A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all | `expected-findings.tsv`, with the hand-computed `Ca`, `Ce`, and instability table, and the omission notice for the undeclared run | HLR-078 – HLR-082, HLR-094, HLR-114, HLR-115, HLR-118 |
 | `calltree/` | [test/fixtures/calltree/](../test/fixtures/calltree/) | Functions with fan-out at each band boundary — 2, 3, 7, 8, 10, 11, 15, and 16; a chain of known depth; a chain continuing through an unresolved indirect call; a recursive cycle | `expected-findings.tsv` — the classification of every boundary value, the deepest chain in full, and the recursion report standing in place of a depth figure | HLR-085 – HLR-090, HLR-086's exhaustive bands in particular |
 | `rules/` | [test/fixtures/rules/](../test/fixtures/rules/) | A valid rule file with several named captures, supplied both from the runtime location and from the command line; a rule naming a language with no module | Each match reported with its identity as basename plus capture name, and the file and line range | HLR-107 – HLR-111 |

@@ -3,28 +3,15 @@
 Scratch material that does not belong in a specification. Nothing here
 is a requirement, nothing traces, and nothing binds.
 
-The PVD, HLRs, SDD, LLRs, and STP are all now written, and the sections
-that fed them have been deleted as their content was absorbed — which
-is the rule this file runs on. What remains is the residue: decisions
-still open, findings worth not rediscovering, and one piece of
-outstanding traceability work.
+The PVD, HLRs, SDD, LLRs, STP, and SDP are all written, the traceability
+matrix is complete in both directions, and the sections of this file that
+fed them have been deleted as their content was absorbed — which is the
+rule this file runs on. What remains is the residue: decisions still
+open, and findings worth not rediscovering.
 
 ---
 
-## 1. Outstanding traceability work
-
-Every HLR still carries **no** `<traces target="SDD">`. The upward link
-from requirement to design section was deferred while the SDD was in
-flux; it is now stable, so each HLR needs its trace added. Until then
-[Traceability.md §1](Traceability.md#1-sdd--hlrs) is empty and the
-SDD → HLR half of the matrix reports nothing.
-
-This is the single largest remaining piece of traceability work, and
-the only one that is purely mechanical.
-
----
-
-## 2. For the development plan / build
+## 1. For the development plan / build
 
 Conventions already encoded in
 [`.github/skills/elocker-dev/SKILL.md`](../.github/skills/elocker-dev/SKILL.md)
@@ -43,16 +30,16 @@ Conventions already encoded in
     `CPPFLAGS` — `fts(3)` needs them on glibc, and `fts` is absent on
     musl, which matters if an Alpine build is ever wanted.
 
-### 2.1 A build flag that is not optional
+### 1.1 A build flag that is not optional
 
 **igraph must be built with `-DIGRAPH_GRAPHML_SUPPORT=OFF`.** Its own
 GraphML reader/writer pulls in libxml2, which is unmaintained (see
-§4.1). `elc` writes GraphML itself, so the feature is unneeded — but
+§2.1). `elc` writes GraphML itself, so the feature is unneeded — but
 if igraph is taken from a distro package built with GraphML enabled,
 libxml2 re-enters transitively. This needs checking at configure time,
 not assuming.
 
-### 2.2 Runtime data files the build must ship
+### 1.2 Runtime data files the build must ship
 
 Named in the SDD but easy to forget when packaging:
 
@@ -70,9 +57,9 @@ graph analysis and ELOC classification were added.
 
 ---
 
-## 3. Research findings (August 2026)
+## 2. Research findings (August 2026)
 
-### 3.1 libxml2 is unmaintained — do not reintroduce it
+### 2.1 libxml2 is unmaintained — do not reintroduce it
 
 Its sole maintainer stepped down in **September 2025**; no successor
 has been named, and the project page states it has known security
@@ -84,9 +71,9 @@ by the City of Munich from August 2026 specifically to close known
 vulnerabilities.
 
 If someone later asks "why not libxml2?" — this is the answer, and
-§3.1 is the trap it sets.
+§1.1 is the trap it sets.
 
-### 3.2 Status of the other dependencies, as checked
+### 2.2 Status of the other dependencies, as checked
 
 | Library | Status when checked | Note |
 | ------- | ------------------- | ---- |
@@ -95,17 +82,47 @@ If someone later asks "why not libxml2?" — this is the answer, and
 | igraph | 1.0 series, explicit long-term API stability commitment | The only mature C-native option; Boost.Graph, LEMON, NetworKit are all C++ and would impose a second toolchain |
 | Expat | 2.8.3 (Aug 2026), funded maintenance | Parse-only. Fine — `elc` hand-rolls all writing |
 
-### 3.3 The Ada grammar is the weak link
+### 2.3 The Ada grammar — vetted 2026-08-14, accepted
 
-C, C++, Rust, and Python all have grammars under the official
-`tree-sitter` GitHub organisation. **Ada does not** — the known option
-is community-maintained. HLR-011 commits the *project* to delivering
-Ada support, so its grammar's maturity, licence, and maintenance need
-vetting before that commitment is safe.
+C, C++, Rust, and Python have grammars under the official `tree-sitter`
+GitHub organisation. Ada does not, so
+[`briot/tree-sitter-ada`](https://github.com/briot/tree-sitter-ada) was
+vetted before relying on HLR-011's commitment. **It passes.**
+
+| | |
+| --- | --- |
+| Licence | MIT — matches this project's |
+| Last commit | 31 July 2026 (GNAT `finally` extension support) |
+| Activity | Sustained through 2025–26: crates.io release Oct 2025, binding work Dec 2025 |
+| Health | 97 commits, 27★, 12 forks, 0 open issues |
+| Author | Emmanuel Briot, an **AdaCore** developer; derived from Stephen Leak's Emacs `ada-mode` grammar |
+| Adoption | Zed's Ada extension, published crate, Neovim integration underway |
+
+**A caution about the source that raised this concern.** The
+[tree-sitter parsers wiki](https://github.com/tree-sitter/tree-sitter/wiki/List-of-parsers)
+lists the grammar as "last updated 2024-05-23, 14 commits" — stale by
+two years and 83 commits. Do not re-derive a maintenance judgement from
+that page; check the repository. The only other candidate,
+`repa4ok/tree-sitter-ada`, is 5 commits and 0 stars and is not viable.
+
+**One real caveat, for `calls.scm` in Phase 8.** The grammar defines
+`function_call`, `procedure_call_statement`, and
+`iterator_procedure_call`, so call extraction is possible. But Ada's
+`Foo (X)` is genuinely ambiguous between a function call and an array
+index, and the grammar *manages* this with precedence rules and a
+`_name` / `_name_not_function_call` split rather than resolving it —
+resolution needs semantic analysis a grammar does not do.
+
+So Ada call edges in the SDG may include array-indexing false
+positives. That is the safe direction: extra edges only shrink the
+unreachable set, exactly as HLR-096 reasons about address-taken
+functions. But Ada's coupling and fan-out figures will be noisier than
+C's, and the `graph/` fixture group needs an Ada case pinning the
+behaviour rather than leaving it to be discovered.
 
 ---
 
-## 4. Known soft spots and deferred decisions
+## 3. Known soft spots and deferred decisions
 
 Places where a defensible choice was made that may want revisiting.
 None is a defect; each is a judgement that could go the other way.
@@ -139,7 +156,7 @@ None is a defect; each is a judgement that could go the other way.
 
 ---
 
-## 5. Cross-document invariants worth not breaking
+## 4. Cross-document invariants worth not breaking
 
 Small set of rules that several documents depend on jointly. Breaking
 any one of them requires touching all three documents, so they are

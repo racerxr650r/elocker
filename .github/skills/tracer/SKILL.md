@@ -15,6 +15,8 @@ specification, design, and verification artefacts.
 | ---- | -------------------- | ---- |
 | `doc/Project.xml` | **Hand-edited** | The only spec file you change directly |
 | `doc/PVD.md` | **Hand-authored** | Product Vision Document — not generated |
+| `doc/SDP.md` | **Hand-authored** | Software Development Plan — not generated |
+| `doc/notes.md` | **Hand-authored** | Working notes; binds nothing, traces nothing |
 | `doc/SDD.md` | **Generated** | Never edit — regenerate from `Project.xml` |
 | `doc/HLRs.md` | **Generated** | Never edit — regenerate from `Project.xml` |
 | `doc/LLRs.md` | **Generated** | Never edit — regenerate from `Project.xml` |
@@ -53,6 +55,65 @@ specification, design, and verification artefacts.
    test name so Traceability.md can link to them. Do not add or remove
    these anchors manually.
 
+## Counts and Document Versions
+
+Two things in `<metadata>` are hand-maintained and silently drift if
+forgotten:
+
+*   **`<counts>`** must match reality. After adding or removing any `<hlr>`,
+    `<llr>`, `<test>`, or `<tests>/<file>`, update the corresponding
+    `<count name="…" value="…"/>`. Nothing enforces this, and a stale count
+    misreports the snapshot line in `Traceability.md`.
+*   **`<document version="…" date="…">`** should be bumped for each document
+    whose content you changed, so a reader can tell a regenerated file from a
+    revised one.
+
+Verify counts against the file itself rather than trusting the attribute:
+
+```sh
+python3 -c "
+import xml.etree.ElementTree as ET
+r = ET.parse('doc/Project.xml').getroot()
+print('hlrs', len(list(r.iter('hlr'))), '| llrs', len(list(r.find('llrs').iter('llr'))))"
+```
+
+## Recording Tests as They Are Written
+
+A requirement is only *verified* when a catalogued test traces to it. Writing
+the test is not enough — an uncatalogued test leaves the requirement in the
+coverage-gap list forever. Every test written during implementation therefore
+needs an entry:
+
+```xml
+<tests>
+  <file path="test/unit/analyze.c" role="unit" count="12">
+    <test name="merge_nested_spans">
+      <purpose><![CDATA[Verifies that overlapping and nested comment spans are
+        coalesced before their lines are excluded from ELOC.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MRG-02"/>
+      </traces>
+    </test>
+  </file>
+</tests>
+```
+
+Unit tests trace to **LLRs**; integration, fixture, and instrumented tests
+trace to **HLRs**. The test's doc comment in source and its `<traces>` block
+here must name the same identifiers.
+
+## Adding Requirements Discovered During Implementation
+
+Implementation surfaces behaviour nobody wrote down. When it does:
+
+1.  Allocate the **next free ID** — never reuse a retired one (`HLR-042` is
+    retired and must stay so) and never renumber an existing one.
+2.  Place it in the section whose subject it belongs to, in document order.
+3.  Give it at least one `<traces>` link, and write the LLR beneath it in the
+    same change — a requirement with no LLR is a gap by construction.
+4.  Update `<counts>`, re-render, and confirm `lint_project.py` reports 0
+    errors.
+
 ## Traceability Chain
 
 ```
@@ -80,7 +141,22 @@ in `doc/Traceability.md` and in the VS Code Problems panel.
 
 After editing `doc/Project.xml`, regenerate the affected documents.
 
-**Via VS Code (preferred):**
+**Via the CLI — use this when working in a terminal or as an agent.** The
+VS Code commands below are unavailable outside the editor.
+
+```sh
+python3 tools/lint_project.py                    # validate first; 0 errors required
+python3 tools/render_doc.py tools/templates/SDD.md.j2          SDD          --out doc/SDD.md
+python3 tools/render_doc.py tools/templates/HLRs.md.j2         HLRs         --out doc/HLRs.md
+python3 tools/render_doc.py tools/templates/LLRs.md.j2         LLRs         --out doc/LLRs.md
+python3 tools/render_doc.py tools/templates/STP.md.j2          STP          --out doc/STP.md
+python3 tools/render_doc.py tools/templates/Traceability.md.j2 Traceability --out doc/Traceability.md
+```
+
+Render **every** document whose payload you touched, plus `Traceability`
+whenever any `<traces>` block changed — which is nearly always.
+
+**Via VS Code:**
 
 - **Command Palette** (`Ctrl+Shift+P`) → **Project Spec: Render All Documents** —
   regenerates all five spec documents at once.

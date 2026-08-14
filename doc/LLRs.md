@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 1.5
+**Version:** 1.6
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
@@ -850,3 +850,25 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
+
+## 46. User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))
+
+Requirements met by the delivered documentation rather than by any function. Verified against the built binary and the install tree, in the manner of the build-configuration group.
+
+*   <a id="LLR-DOC-01"></a>**LLR-DOC-01** — A `man` page for `elc` shall be delivered in section-1 roff form, and shall render without diagnostic under a standard man-page formatter.
+    *Trace:* HLR-128 (User Manual and Man Page Delivered).
+
+*   <a id="LLR-DOC-02"></a>**LLR-DOC-02** — A user manual shall be delivered describing every capability with at least one worked example per output format and per analysis family.
+    *Trace:* HLR-128 (User Manual and Man Page Delivered).
+
+*   <a id="LLR-DOC-03"></a>**LLR-DOC-03** — The install target shall place the man page into the section-1 manual path and the user manual alongside the delivered runtime, both under the staging root when one is given.
+    *Trace:* HLR-128 (User Manual and Man Page Delivered).
+
+*   <a id="LLR-DOC-04"></a>**LLR-DOC-04** — Every option appearing in `elc`'s usage summary shall appear in both the man page and the user manual, and every option documented in either shall be accepted by `elc`; the usage summary is the reference against which both are checked.
+    *Trace:* HLR-129 (Documentation Describes the Delivered Behaviour).
+
+*   <a id="LLR-DOC-05"></a>**LLR-DOC-05** — Every report format, companion artefact, and category of reported finding shall be described in both documents.
+    *Trace:* HLR-129 (Documentation Describes the Delivered Behaviour).
+
+*   <a id="LLR-DOC-06"></a>**LLR-DOC-06** — A change altering an option, a format, an artefact, or a finding category shall update both documents within the same change, and shall be treated as incomplete otherwise.
+    *Trace:* HLR-130 (Documentation Updated With the Behaviour It Describes).

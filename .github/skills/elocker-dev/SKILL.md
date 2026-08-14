@@ -432,7 +432,7 @@ extensibility pillar is broken — stop and fix that instead.
 ## Open Items — Ask, Don't Invent
 
 The spec settles nearly everything; [`doc/notes.md`](../../../doc/notes.md)
-§4 lists the judgements that were made deliberately and could reasonably go
+§3 lists the judgements that were made deliberately and could reasonably go
 the other way. Two are worth knowing before you touch the code they govern:
 
 - **Component = source file** (HLR-114). Coarse for C++/Rust/Ada where
