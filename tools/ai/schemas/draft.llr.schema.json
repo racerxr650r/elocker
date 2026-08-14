@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "draft.llr response",
+  "type": "object",
+  "required": ["text"],
+  "properties": {
+    "text": {"type": "string", "minLength": 10},
+    "traces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "ref"],
+        "properties": {
+          "target": {"type": "string", "enum": ["HLR", "LLR", "SDD"]},
+          "ref": {"type": "string", "minLength": 1},
+          "name": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

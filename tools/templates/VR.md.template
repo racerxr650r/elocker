@@ -1,0 +1,134 @@
+# Vulnerability Report: <Product Name> (<short_name>)
+
+**Version:** 0.1
+**Date:** <YYYY-MM-DD>
+**Author(s):** <Your name(s)>
+
+> **How to use this template.** This is a living document — update it
+> as vulnerabilities are discovered, mitigated, or accepted. Each
+> entry should be kept current with its latest status. Replace every
+> `<placeholder>` and the prompt blocks with your own content. Delete
+> prompts once a section is filled in.
+
+## 1. Purpose
+
+This Vulnerability Report (VR) tracks all known security
+vulnerabilities in `<short_name>` and its dependencies. It serves
+as the canonical inventory of:
+
+- Vulnerabilities discovered by automated scanners (Dependabot,
+  npm audit, pip-audit, CodeQL, etc.)
+- Vulnerabilities identified during manual review or penetration
+  testing
+- The disposition of each (fixed, mitigated, accepted, dismissed)
+
+For the broader security assessment, see the companion
+[Security Audit Report](SAR.md).
+
+> *No prompts — this section is boilerplate. Just substitute the
+> product name above.*
+
+## 2. Summary
+
+> **Prompts**
+> *   How many open vulnerabilities exist by severity?
+> *   What is the overall trend (improving, stable, degrading)?
+
+| Severity | Open | Mitigated | Accepted | Dismissed | Fixed |
+|----------|------|-----------|----------|-----------|-------|
+| Critical | <n> | <n> | <n> | <n> | <n> |
+| High | <n> | <n> | <n> | <n> | <n> |
+| Medium | <n> | <n> | <n> | <n> | <n> |
+| Low | <n> | <n> | <n> | <n> | <n> |
+
+**Last updated:** <YYYY-MM-DD>
+
+## 3. Scanning Configuration
+
+> **Prompts**
+> *   What automated scanners are configured?
+> *   How frequently do they run?
+> *   Where do alerts surface (GitHub Security tab, CI logs, etc.)?
+
+| Scanner | Ecosystem | Frequency | Alert Destination |
+|---------|-----------|-----------|-------------------|
+| <Dependabot> | <npm/pip/etc.> | <Daily/Weekly/On PR> | <GitHub Security tab> |
+| <npm audit> | <npm> | <CI on every PR> | <CI logs> |
+| <pip-audit> | <Python> | <CI on every PR> | <CI logs> |
+
+## 4. Open Vulnerabilities
+
+> **Prompts**
+> *   List each open vulnerability with its CVE (if assigned),
+>     severity, affected component, and planned action.
+> *   Keep entries sorted by severity (Critical first).
+
+### 4.1 Critical
+
+| CVE / ID | Component | Version | Description | Planned Action | Target Date |
+|----------|-----------|---------|-------------|----------------|-------------|
+| <CVE-YYYY-NNNNN> | <package> | <version> | <Brief description> | <Upgrade/Patch/Mitigate> | <YYYY-MM-DD> |
+
+### 4.2 High
+
+| CVE / ID | Component | Version | Description | Planned Action | Target Date |
+|----------|-----------|---------|-------------|----------------|-------------|
+| — | — | — | No open high-severity vulnerabilities. | — | — |
+
+### 4.3 Medium
+
+| CVE / ID | Component | Version | Description | Planned Action | Target Date |
+|----------|-----------|---------|-------------|----------------|-------------|
+| — | — | — | No open medium-severity vulnerabilities. | — | — |
+
+### 4.4 Low
+
+| CVE / ID | Component | Version | Description | Planned Action | Target Date |
+|----------|-----------|---------|-------------|----------------|-------------|
+| — | — | — | No open low-severity vulnerabilities. | — | — |
+
+## 5. Accepted Risks
+
+> **Prompts**
+> *   List vulnerabilities that have been assessed and deliberately
+>     accepted (not fixed), along with the justification.
+> *   Each acceptance should name who approved it and under what
+>     conditions it should be re-evaluated.
+
+| CVE / ID | Component | Severity | Justification | Approved By | Re-evaluate |
+|----------|-----------|----------|---------------|-------------|-------------|
+| <CVE-YYYY-NNNNN> | <package> | <Severity> | <Why this is acceptable in context> | <Name> | <Condition or date> |
+
+## 6. Dismissed Vulnerabilities
+
+> **Prompts**
+> *   List vulnerabilities dismissed as false positives or not
+>     applicable, with justification.
+
+| CVE / ID | Component | Severity | Reason for Dismissal |
+|----------|-----------|----------|---------------------|
+| <CVE-YYYY-NNNNN> | <package> | <Severity> | <Not applicable because…> |
+
+## 7. Resolved Vulnerabilities (History)
+
+> **Prompts**
+> *   Keep a log of vulnerabilities that have been fixed, for
+>     audit trail purposes. Move entries here from §4 when resolved.
+
+| CVE / ID | Component | Severity | Resolution | Date Fixed |
+|----------|-----------|----------|-----------|------------|
+| <CVE-YYYY-NNNNN> | <package> | <Severity> | <Upgraded to version X.Y.Z> | <YYYY-MM-DD> |
+
+## 8. Process
+
+> **Prompts**
+> *   How are new vulnerabilities triaged?
+> *   What is the SLA for each severity level?
+> *   Who is responsible for remediation?
+
+| Severity | Response SLA | Remediation SLA | Owner |
+|----------|-------------|-----------------|-------|
+| Critical | <24 hours> | <7 days> | <Role/Name> |
+| High | <48 hours> | <30 days> | <Role/Name> |
+| Medium | <1 week> | <90 days> | <Role/Name> |
+| Low | <2 weeks> | <Next release> | <Role/Name> |

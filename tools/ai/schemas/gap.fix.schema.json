@@ -1,0 +1,113 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "gap.fix response",
+  "type": "object",
+  "required": ["kind"],
+  "properties": {
+    "kind": {"type": "string", "enum": ["llr", "test"]},
+    "llr": {
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": {"type": "string", "minLength": 10},
+        "traces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["target", "ref"],
+            "properties": {
+              "target": {"type": "string"},
+              "ref": {"type": "string"},
+              "name": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "test": {
+      "type": "object",
+      "required": ["name", "purpose"],
+      "properties": {
+        "name": {"type": "string", "minLength": 3},
+        "purpose": {"type": "string", "minLength": 10},
+        "traces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["target", "ref"],
+            "properties": {
+              "target": {"type": "string"},
+              "ref": {"type": "string"},
+              "name": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "new_llr": {
+      "description": "Optional LLR to create when the test needs an upstream LLR that does not yet exist.",
+      "type": "object",
+      "required": ["text"],
+      "properties": {
+        "text": {"type": "string", "minLength": 10},
+        "traces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["target", "ref"],
+            "properties": {
+              "target": {"type": "string"},
+              "ref": {"type": "string"},
+              "name": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "new_hlr": {
+      "description": "Optional HLR to create when the LLR needs an upstream HLR that does not yet exist.",
+      "type": "object",
+      "required": ["name", "text"],
+      "properties": {
+        "name": {"type": "string", "minLength": 3},
+        "text": {"type": "string", "minLength": 10},
+        "traces": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["target", "ref"],
+            "properties": {
+              "target": {"type": "string"},
+              "ref": {"type": "string"},
+              "name": {"type": "string"}
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "new_module": {
+      "description": "Optional SDD module to create when the HLR needs an SDD target that does not yet exist.",
+      "type": "object",
+      "required": ["path", "title"],
+      "properties": {
+        "path": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 3},
+        "purpose": {"type": "string"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "anyOf": [
+    {"properties": {"kind": {"const": "llr"}}, "required": ["llr"]},
+    {"properties": {"kind": {"const": "test"}}, "required": ["test"]}
+  ]
+}

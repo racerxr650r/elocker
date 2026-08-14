@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "draft.pvd response",
+  "type": "object",
+  "properties": {
+    "markdown": {"type": "string"},
+    "questions": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 3}
+    }
+  },
+  "anyOf": [
+    {"required": ["markdown"]},
+    {"required": ["questions"]}
+  ],
+  "additionalProperties": false
+}

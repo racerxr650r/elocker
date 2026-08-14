@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "draft.hlr response",
+  "type": "object",
+  "required": ["name", "text"],
+  "properties": {
+    "name": {"type": "string", "minLength": 3, "maxLength": 80},
+    "text": {"type": "string", "minLength": 10},
+    "traces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "ref"],
+        "properties": {
+          "target": {"type": "string", "enum": ["SDD", "PVD", "HLR", "LLR"]},
+          "ref": {"type": "string", "minLength": 1},
+          "name": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

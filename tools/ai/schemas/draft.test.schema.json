@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "draft.test response",
+  "type": "object",
+  "required": ["name", "purpose"],
+  "properties": {
+    "name": {"type": "string", "minLength": 3, "maxLength": 120},
+    "purpose": {"type": "string", "minLength": 10},
+    "traces": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["target", "ref"],
+        "properties": {
+          "target": {"type": "string", "enum": ["LLR", "HLR"]},
+          "ref": {"type": "string", "minLength": 1},
+          "name": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

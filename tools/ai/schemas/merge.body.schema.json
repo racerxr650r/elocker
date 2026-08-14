@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "merge.body response",
+  "type": "object",
+  "required": ["merged_xml"],
+  "properties": {
+    "merged_xml": {"type": "string", "minLength": 5},
+    "rationale": {"type": "string"}
+  },
+  "additionalProperties": false
+}

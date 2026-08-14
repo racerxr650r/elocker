@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "merge.trace response",
+  "type": "object",
+  "required": ["traces"],
+  "properties": {
+    "traces": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "type": "object",
+        "required": ["target", "ref"],
+        "properties": {
+          "target": {"type": "string", "enum": ["SDD", "PVD", "HLR", "LLR"]},
+          "ref": {"type": "string", "minLength": 1},
+          "name": {"type": "string"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "rationale": {"type": "string"}
+  },
+  "additionalProperties": false
+}

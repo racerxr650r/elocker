@@ -1,0 +1,11 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "merge.schema_bump response",
+  "type": "object",
+  "required": ["schema_version"],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^\\d+\\.\\d+$"},
+    "rationale": {"type": "string"}
+  },
+  "additionalProperties": false
+}

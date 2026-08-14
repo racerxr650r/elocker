@@ -1,0 +1,171 @@
+# Security Audit Report: <Product Name> (<short_name>)
+
+**Version:** 0.1
+**Date:** <YYYY-MM-DD>
+**Author(s):** <Your name(s)>
+
+> **How to use this template.** Each section below contains the
+> *intent* of the section followed by **prompts** to elicit the
+> content. Replace every `<placeholder>` and the prompt block with
+> your own prose. Delete prompts once a section is filled in.
+
+## 1. Purpose
+
+This Security Audit Report (SAR) documents the security posture of
+`<short_name>`, including the methodology used, findings from static
+and dynamic analysis, and recommendations for remediation.
+
+This document is a point-in-time assessment. For the living list of
+known vulnerabilities and their status, see the companion
+[Vulnerability Report](VR.md).
+
+> *No prompts — this section is boilerplate. Just substitute the
+> product name above.*
+
+## 2. Scope & Methodology
+
+> **Prompts**
+> *   What components were assessed? (source code, dependencies,
+>     infrastructure, deployment configuration, etc.)
+> *   What tools and techniques were used? (SAST, DAST, manual
+>     code review, threat modelling, penetration testing, etc.)
+> *   What was explicitly excluded from the audit?
+> *   What version / commit was audited?
+
+| Aspect | Detail |
+| ------ | ------ |
+| **Components in scope** | <List: source code, dependencies, configs, etc.> |
+| **Tools used** | <List: CodeQL, Semgrep, Bandit, npm audit, etc.> |
+| **Manual review** | <Yes/No — describe focus areas if yes> |
+| **Commit / version** | <Git SHA or release tag> |
+| **Date of audit** | <YYYY-MM-DD> |
+| **Exclusions** | <What was not audited and why> |
+
+## 3. Security Architecture Overview
+
+> **Prompts**
+> *   What are the trust boundaries in the system?
+> *   Where does untrusted input enter?
+> *   What authentication / authorisation mechanisms exist?
+> *   How are secrets managed?
+> *   What are the data flows between components?
+
+<Describe or diagram the security-relevant architecture here.>
+
+## 4. Integration with the Traceability Stack
+
+Security requirements in this project are tracked through the same
+traceability mechanism as all other requirements:
+
+1. **Security concerns** are documented as components or constraints
+   in the [Software Design Document](SDD.md).
+2. **Security requirements** are captured as High-Level Requirements
+   (HLRs) in [Project.xml](Project.xml) — typically prefixed
+   `HLR-SEC-*` — and traced to the SDD component they implement.
+3. **Implementation details** are captured as Low-Level Requirements
+   (LLRs) traced to their parent HLR(s).
+4. **Verification** is captured as test cases in the
+   [Software Test Plan](STP.md), traced to the LLR(s) they verify.
+5. **Coverage** is visible in the
+   [Traceability Matrix](Traceability.md) — gaps in security
+   test coverage appear as lint warnings alongside all other
+   coverage gaps.
+
+This audit report is an *assessment artefact* — it validates that
+the above process is being followed and identifies gaps. It is not
+itself integrated into the traceability matrix.
+
+## 5. OWASP Top 10 / CWE Analysis
+
+> **Prompts**
+> *   For each applicable OWASP Top 10 category, state whether the
+>     product is exposed, mitigated, or not applicable, with brief
+>     justification.
+
+| # | OWASP Category | Applicability | Status | Notes |
+|---|----------------|---------------|--------|-------|
+| A01 | Broken Access Control | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+| A02 | Cryptographic Failures | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+| A03 | Injection | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+| A04 | Insecure Design | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+| A05 | Security Misconfiguration | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+| A06 | Vulnerable/Outdated Components | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+| A07 | Identification/Authentication Failures | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+| A08 | Software/Data Integrity Failures | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+| A09 | Security Logging/Monitoring Failures | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+| A10 | Server-Side Request Forgery | <Applicable/N/A> | <Mitigated/Open/N/A> | <Brief notes> |
+
+## 6. Static Analysis Findings
+
+> **Prompts**
+> *   What did SAST tools report?
+> *   Categorise findings by severity (Critical / High / Medium / Low / Info).
+> *   For each finding, state: tool, rule, location, and disposition
+>     (fixed, accepted risk, false positive).
+
+| Severity | Tool | Rule/CWE | Location | Disposition | Notes |
+|----------|------|----------|----------|-------------|-------|
+| <Critical/High/Medium/Low> | <Tool> | <Rule ID> | <file:line> | <Fixed/Accepted/FP> | <Brief> |
+
+## 7. Dependency Security
+
+> **Prompts**
+> *   What dependency scanning was performed?
+> *   Summarise the findings at a high level (counts by severity).
+> *   Individual CVEs and their status belong in the
+>     [Vulnerability Report](VR.md) — reference it here.
+
+| Ecosystem | Scanner | Critical | High | Medium | Low |
+|-----------|---------|----------|------|--------|-----|
+| Python (pip) | <Tool> | <n> | <n> | <n> | <n> |
+| Node.js (npm) | <Tool> | <n> | <n> | <n> | <n> |
+
+For individual CVE details and disposition, see [VR.md](VR.md).
+
+## 8. Input Validation & Injection Surfaces
+
+> **Prompts**
+> *   Where does untrusted data enter the system?
+> *   What validation is applied at each entry point?
+> *   Are there any gaps?
+
+| Entry Point | Input Source | Validation | Notes |
+|-------------|-------------|------------|-------|
+| <Component/endpoint> | <User/file/network/etc.> | <Schema/sanitise/none> | <Adequate/Gap> |
+
+## 9. Secrets & Credential Hygiene
+
+> **Prompts**
+> *   Are there any hardcoded secrets in the repository?
+> *   How are tokens, API keys, and credentials managed?
+> *   Are secrets rotated? How?
+
+<Describe findings here.>
+
+## 10. Recommendations
+
+> **Prompts**
+> *   Prioritise remediation actions (Critical → Low).
+> *   For each recommendation, name the affected component and
+>     the expected outcome.
+
+| Priority | Recommendation | Component | Expected Outcome |
+|----------|---------------|-----------|-----------------|
+| <Critical/High/Medium/Low> | <Action> | <Component> | <What improves> |
+
+## 11. Residual Risk Summary
+
+> **Prompts**
+> *   After all mitigations, what risk remains?
+> *   What assumptions underpin the current security posture?
+> *   Under what conditions should this audit be repeated?
+
+<Summarise the residual risk and the conditions that would trigger
+a re-audit.>
+
+## 12. Approval
+
+| Role | Name | Date | Signature |
+|------|------|------|-----------|
+| Author | <Name> | <Date> | |
+| Reviewer | <Name> | <Date> | |

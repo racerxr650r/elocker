@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Project.xml — single source of truth for this project's spec stack.
+  See tools/Developers_Guide.md for the schema reference.
+
+  This file was created by `make project-init`. Fill in the
+  payload sections (sdd, stp, hlrs, llrs, tests) as the project takes
+  shape, then regenerate the markdown specs with `render_doc.py`.
+-->
+<project name="@@NAME@@" short_name="@@SHORT_NAME@@" schema_version="1.3"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="@@SCHEMA_LOCATION@@">
+  <metadata>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="0.1" date="@@DATE@@" author="@@AUTHOR@@"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="0.1" date="@@DATE@@" author="@@AUTHOR@@"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="0.1" date="@@DATE@@" author="@@AUTHOR@@"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.1" date="@@DATE@@" author="@@AUTHOR@@"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="0.1" date="@@DATE@@" author="@@AUTHOR@@"/>
+    <counts>
+      <count name="hlrs"       value="0"/>
+      <count name="llrs"       value="0"/>
+      <count name="tests"      value="0"/>
+      <count name="test_files" value="0"/>
+    </counts>
+  </metadata>
+
+  <!-- Software Design Document payload (see tools/Developers_Guide.md §3). -->
+  <sdd>
+  </sdd>
+
+  <!-- Software Test Plan payload (see tools/Developers_Guide.md §4). -->
+  <stp>
+  </stp>
+
+  <!-- High-Level Requirements (see tools/Developers_Guide.md §5). -->
+  <hlrs>
+  </hlrs>
+
+  <!-- Low-Level Requirements (see tools/Developers_Guide.md §6). -->
+  <llrs>
+  </llrs>
+
+  <!-- Test sources (see tools/Developers_Guide.md §7). -->
+  <tests>
+  </tests>
+</project>

@@ -1,0 +1,202 @@
+# Software Development Plan: <Product Name> (<short_name>)
+
+**Version:** 0.1
+**Date:** <YYYY-MM-DD>
+**Author(s):** <Your name(s)>
+
+> **How to use this template.** Each section below contains the
+> *intent* of the section followed by **prompts** to elicit the
+> content. Replace every `<placeholder>` and the prompt block with
+> your own prose. Delete prompts once a section is filled in.
+>
+> The SDP is a living document — update the Status table and Phased
+> Delivery section as work progresses. Link phase names in the Status
+> table to their detailed descriptions in §8.
+
+**Status:** <Overall project status summary>
+
+## Status
+
+> **Prompts**
+> *   Create a row for each phase of your project.
+> *   Link the phase number/name to its detailed description in §8.
+> *   Use status indicators: ✅ Complete, 🔲 Not started,
+>     🔄 In progress.
+
+| Phase | Description | Status |
+| ----- | ----------- | ------ |
+| [0](#phase-0--placeholder) | <Brief description> | 🔲 Not started |
+| [1](#phase-1--placeholder) | <Brief description> | 🔲 Not started |
+
+## 0. Required Tools for Development
+
+> **Prompts**
+> *   What tools, languages, and runtimes must a developer have
+>     installed to build, test, and run this project?
+> *   Include version constraints where they matter.
+> *   List both required and optional (nice-to-have) tools.
+
+### Required
+
+| Tool | Version | Purpose |
+| ---- | ------- | ------- |
+| <Language/Runtime> | <≥ X.Y> | <What it's used for> |
+| <Package manager> | <≥ X.Y> | <What it's used for> |
+| <Build tool> | <≥ X.Y> | <What it's used for> |
+
+### Optional
+
+| Tool | Purpose |
+| ---- | ------- |
+| <Tool> | <What it enables> |
+
+## 1. Motivation
+
+> **Prompts**
+> *   Why does this project exist? What problem does it solve?
+> *   Why this approach over alternatives?
+> *   Link to the [PVD](PVD.md) for the full vision — this section
+>     is the SDP-local summary.
+
+<Brief motivation linking to the PVD.>
+
+## 2. Goals
+
+> **Prompts**
+> *   What must the delivered product do? List the goals as a
+>     numbered or bulleted list.
+> *   Each goal should be verifiable — you can tell when it's done.
+> *   Cross-reference the PVD value proposition where applicable.
+
+1. <Goal 1.>
+2. <Goal 2.>
+3. <Goal 3.>
+
+## 3. Non-Goals
+
+> **Prompts**
+> *   What is explicitly not in scope for this plan?
+> *   These prevent scope creep and set expectations.
+
+*   <Non-goal 1.>
+*   <Non-goal 2.>
+
+## 4. Design — see the SDD
+
+> **Prompts**
+> *   If architecture details live in a separate SDD, reference it
+>     here. Otherwise, provide a high-level architecture overview.
+
+The detailed software architecture is documented in the
+[Software Design Document](SDD.md). Key components:
+
+*   <Component 1> — <one-line purpose>
+*   <Component 2> — <one-line purpose>
+
+## 5. Development Process
+
+> **Prompts**
+> *   What branching strategy is used? (trunk-based, Git Flow, etc.)
+> *   How are changes reviewed and merged?
+> *   What CI checks must pass?
+> *   What is the release process?
+
+### 5.1 Branching Strategy
+
+<Describe your branching model.>
+
+### 5.2 Code Review
+
+<Describe your review process.>
+
+### 5.3 Continuous Integration
+
+<Describe CI checks and gates.>
+
+### 5.4 Release Process
+
+<Describe how releases are cut and published.>
+
+## 6. Testing Strategy
+
+> **Prompts**
+> *   What kinds of tests exist? (unit, integration, e2e, manual)
+> *   What coverage targets are expected?
+> *   How do tests relate to the LLRs and STP?
+
+| Level | Scope | Tools | Coverage Target |
+| ----- | ----- | ----- | --------------- |
+| Unit | <Scope> | <pytest/mocha/etc.> | <Target %> |
+| Integration | <Scope> | <Tools> | <Target %> |
+
+Tests are traced to Low-Level Requirements in [Project.xml](Project.xml)
+and reported in the [Software Test Plan](STP.md) and
+[Traceability Matrix](Traceability.md).
+
+## 7. Dependencies & Prerequisites
+
+> **Prompts**
+> *   What external dependencies does the project rely on?
+> *   Are there ordering constraints between phases?
+> *   What must be true before Phase 1 can start?
+
+| Dependency | Required By | Notes |
+| ---------- | ----------- | ----- |
+| <Dependency 1> | Phase <N> | <Notes> |
+
+## 8. Phased Delivery
+
+> **Prompts**
+> *   Break the work into numbered phases, each with:
+>     - A descriptive title
+>     - A numbered list of deliverables
+>     - Acceptance criteria (how you know the phase is done)
+>     - Optionally, an AI prompt that could drive the implementation
+> *   Phases should be deliverable independently where possible.
+> *   Earlier phases should produce value on their own.
+
+### Phase 0 — <Title>
+
+1. <Deliverable 1.>
+2. <Deliverable 2.>
+
+**Acceptance:** <How you know this phase is complete.>
+
+### Phase 1 — <Title>
+
+1. <Deliverable 1.>
+2. <Deliverable 2.>
+
+**Acceptance:** <How you know this phase is complete.>
+
+## 9. Risks & Open Questions
+
+> **Prompts**
+> *   What could go wrong? What is uncertain?
+> *   For each risk, name the impact and any mitigation.
+> *   Open questions are things you need to decide but haven't yet.
+
+*   **<Risk 1>.** <Impact and mitigation.>
+*   **<Risk 2>.** <Impact and mitigation.>
+
+## 10. Estimated Effort
+
+> **Prompts**
+> *   Optionally provide effort estimates per phase.
+> *   Use ranges or t-shirt sizes if precise estimates aren't
+>     available.
+> *   This section may be omitted if not useful.
+
+| Phase | Effort |
+| ----- | ------ |
+| 0 | <Estimate> |
+| 1 | <Estimate> |
+
+## 11. Out-of-Scope Follow-ups
+
+> **Prompts**
+> *   Ideas that surfaced during planning but are not committed.
+> *   These may become future phases if demand warrants.
+
+*   <Follow-up 1.>
+*   <Follow-up 2.>
