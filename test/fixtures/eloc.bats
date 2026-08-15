@@ -41,6 +41,42 @@ function_eloc() {
 	assert_output --regexp "ELOC +19"
 }
 
+@test "HLR-017: the hand-counted complexity matches" {
+	elc "$SUBJECT"
+	assert_success
+	# 1 + for + if + else-if's if + while + case 0 = 6. The switch itself,
+	# the default label, and the goto are not decisions.
+	assert_output --regexp "categories +11-40 +18 +6"
+}
+
+@test "HLR-017: a straight-line function is one" {
+	local f="$BATS_TEST_TMPDIR/straight.c"
+	printf 'int f(int n)\n{\n\tint a = n;\n\treturn a;\n}\n' > "$f"
+	elc "$f"
+	assert_success
+	# Capturing the function itself as a decision point would report 2.
+	assert_output --regexp "f +1-5 +2 +1"
+}
+
+@test "HLR-017: a short-circuit operator is a decision point" {
+	local f="$BATS_TEST_TMPDIR/logic.c"
+	printf 'int f(int a, int b)\n{\n\tif (a && b)\n\t\treturn 1;\n\treturn 0;\n}\n' > "$f"
+	elc "$f"
+	assert_success
+	# 1 + the if + the && = 3.
+	assert_output --regexp "f +1-6 +3 +3"
+}
+
+@test "HLR-017: a default label and a goto are not decisions" {
+	local f="$BATS_TEST_TMPDIR/switch.c"
+	printf 'int f(int n)\n{\n\tswitch (n) {\n\tcase 1:\n\t\tgoto done;\n\tdefault:\n\t\tbreak;\n\t}\ndone:\n\treturn 0;\n}\n' > "$f"
+	elc "$f"
+	assert_success
+	# 1 + the single `case` = 2. The switch, the default, and the goto add
+	# nothing.
+	assert_output --regexp "f +1-11 +[0-9]+ +2"
+}
+
 @test "HLR-044: an assignment or operation counts" {
 	local f="$BATS_TEST_TMPDIR/assign.c"
 	# An initialising declaration, a plain assignment, and an operation.

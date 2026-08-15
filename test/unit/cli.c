@@ -177,6 +177,62 @@ Test(cli, an_output_option_without_its_argument_is_a_usage_error)
 	             "(HLR-063)");
 }
 
+Test(cli, the_complexity_threshold_defaults_to_fifteen)
+{
+	char *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_eq(o.complexity_threshold, ELC_DEFAULT_COMPLEXITY_THRESHOLD);
+	cr_assert_eq(o.complexity_threshold, 15,
+	             "the documented default is 15 (HLR-022)");
+	cli_options_free(&o);
+}
+
+Test(cli, a_complexity_threshold_is_collected)
+{
+	char *argv[] = { "elc", "--complexity-threshold", "7", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_eq(o.complexity_threshold, 7);
+	cr_assert_eq(o.target_count, 1);
+	cli_options_free(&o);
+}
+
+Test(cli, the_short_threshold_option_behaves_as_the_long_one)
+{
+	char *argv[] = { "elc", "-c", "7", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_eq(o.complexity_threshold, 7);
+	cli_options_free(&o);
+}
+
+Test(cli, a_threshold_of_zero_is_accepted)
+{
+	/* Zero lists every function, which is a legitimate thing to ask for
+	 * and must not be confused with "unset". */
+	char *argv[] = { "elc", "-c", "0", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_eq(o.complexity_threshold, 0);
+	cli_options_free(&o);
+}
+
+Test(cli, a_malformed_threshold_is_a_usage_error)
+{
+	/* strtoul would accept every one of these: a sign, a trailing tail,
+	 * leading whitespace, and an empty string all parse to something. */
+	const char *bad[] = { "abc", "7x", "-1", " 7", "", "0x10" };
+
+	for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
+		char      *argv[] = { "elc", "-c", (char *)bad[i], "a.c", NULL };
+		ElcOptions o;
+
+		cr_assert_eq(cli_parse(4, argv, &o), CLI_ERROR,
+		             "'%s' is not a threshold", bad[i]);
+	}
+}
+
 Test(cli, options_free_is_safe_on_null)
 {
 	cli_options_free(NULL);

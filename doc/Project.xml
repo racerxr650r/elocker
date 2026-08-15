@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.1" date="2026-08-16" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.2" date="2026-08-18" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.2" date="2026-08-15" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.0" date="2026-08-16" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.4" date="2026-08-16" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.3" date="2026-08-16" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.1" date="2026-08-18" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.5" date="2026-08-18" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.4" date="2026-08-18" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="129"/>
-      <count name="llrs"       value="270"/>
-      <count name="tests"      value="230"/>
-      <count name="test_files" value="18"/>
+      <count name="llrs"       value="274"/>
+      <count name="tests"      value="259"/>
+      <count name="test_files" value="19"/>
     </counts>
   </metadata>
 
@@ -218,6 +218,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
           <case name="Unknown option or missing argument"><![CDATA[Print the usage summary to `stderr` and return `CLI_ERROR`; `main()` exits 2 without analysing anything (HLR-063).]]></case>
           <case name="Help requested"><![CDATA[Print the usage summary to `stdout` and return `CLI_HELP`; `main()` exits 0, since a help request is not an error (HLR-117).]]></case>
           <case name="Malformed declaration"><![CDATA[A stratum, scope, or entry-point argument that cannot be parsed is a usage error, handled as above.]]></case>
+          <case name="Malformed numeric argument"><![CDATA[A threshold must be a plain decimal number and nothing else. `strtoul` alone is not that test: it accepts a leading sign, leading whitespace, a hexadecimal prefix, and a trailing tail, each of which would silently become a threshold the user did not write. The argument is rejected unless it begins with a digit, converts without overflow, and is consumed entirely.]]></case>
         </error_handling>
       </module>
 
@@ -384,7 +385,7 @@ The signature above is the complete one. The `FileFacts` output arrives with the
 **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.]]></notes>
           </function>
           <function signature="uint32_t merge_comment_spans(SpanList *spans)" summary="Sort by start byte and coalesce overlapping and nested spans, in place; returns the number of distinct lines the merged set covers."/>
-          <function signature="const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)" summary="Return the narrowest reported function containing a byte offset."/>
+          <function signature="const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)" summary="Return the narrowest reported function containing a byte offset, or NULL when the offset lies outside every one of them. Only *reported* functions are in the index, which is what makes an anonymous callable transparent to the lookup: an offset inside one resolves to the named function around it (HLR-018)."/>
           <function signature="void filemetrics_free(FileMetrics *m)" summary="Release a file's metrics and every function name it owns."/>
           <function signature="void filefacts_free(FileFacts *f)" summary="Release the call sites, global accesses, address-taken records, and rule matches a file produced."/>
         </functions>
@@ -396,7 +397,11 @@ The merged set is applied as a **byte-granular** exclusion, not a line-granular 
 
 The merged line count is likewise a count of *distinct* lines. Two comments on one line are two disjoint byte ranges that do not coalesce, and summing their line counts would report that one line twice.
 
-**The innermost-enclosing lookup is the analogous safeguard for nested named functions.** Attributing each statement to exactly one reported function is what prevents a nested subprogram's lines from being counted twice (HLR-068), and *narrowest* rather than *first* is what makes the answer independent of the order the query matched — an implementation returning the first containing range would also break HLR-032.]]></algorithm>
+**The innermost-enclosing lookup is the analogous safeguard for nested named functions.** Attributing each statement to exactly one reported function is what prevents a nested subprogram's lines from being counted twice (HLR-068), and *narrowest* rather than *first* is what makes the answer independent of the order the query matched — an implementation returning the first containing range would also break HLR-032.
+
+**Cyclomatic complexity reuses that lookup rather than scoping the query.** `complexity.scm` is run once over the whole tree and each capture attributed by `innermost_enclosing`, which makes both halves of the requirement fall out of one pass. A nested *named* function is reported, so it is its own innermost enclosing function and owns its decision points (HLR-068). An anonymous callable is *not* reported, so the nearest reported function containing it is the named one, and its decision points land there (HLR-018). Running the query against each `@function.body` separately — the obvious reading — would instead give an enclosing function everything its nested functions branch on, and need a subtraction to undo it.
+
+The `1 +` base is added in C and not in the query, so that a query capturing the function itself cannot make a function that never branches score 2. Every language module would otherwise have to remember not to.]]></algorithm>
         <dependencies>
           <dep><![CDATA[`libtree-sitter` — parser, query, and cursor API.]]></dep>
           <dep><![CDATA[POSIX — `mmap()`, `munmap()`, `open()`, `fstat()`.]]></dep>
@@ -596,8 +601,8 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
             <returns><![CDATA[0 on success.]]></returns>
             <logic>
               <step><![CDATA[Sum physical lines and ELOC across all files, both combined and per language (HLR-024, HLR-025). A language's row is created on first sight of a file written in it; the list holds one entry per language present, so a linear search costs less than the structure that would avoid it.]]></step>
-              <step><![CDATA[Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026).]]></step>
-              <step><![CDATA[For each file, filter its functions by the complexity threshold into the over-threshold list (HLR-021).]]></step>
+              <step><![CDATA[Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026). Both are chosen *after* the model is ordered, by scanning it and taking a new candidate only on a strictly greater value: scanning in presentation order and refusing to displace an equal value is what makes the winner whichever sorts first, and what makes the callout the same on every run.]]></step>
+              <step><![CDATA[For each file, filter its functions by the complexity threshold into the over-threshold list, at or above rather than strictly above (HLR-021). The list is built here rather than filtered by a renderer: a renderer is a pure consumer, and a threshold applied at render time would be applied once per format and could differ between them. The threshold reaches nothing else — not a total, not a callout, and never the exit status (HLR-023).]]></step>
               <step><![CDATA[Attach the architectural findings, custom-rule matches, and omission notices.]]></step>
               <step><![CDATA[Sort files by path; functions by start line and then by name; per-language totals by language name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.]]></step>
             </logic>
@@ -637,6 +642,12 @@ Project summary
   ELOC             18
   Functions         3
   Skipped           0
+
+Callouts
+  What          Value  Where
+  ------------  -----  -----------------------------
+  Largest file     12  /home/u/proj/src/a.c
+  Most complex      7  parse in /home/u/proj/src/a.c
 
 Languages
   Language  Files  Lines  ELOC
@@ -2497,6 +2508,13 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         </traces>
       </llr>
 
+      <llr id="LLR-CLI-16">
+        <text><![CDATA[`cli_parse` shall reject a numeric option argument that is not a plain decimal number consumed in its entirety, rather than accepting the prefix that a permissive conversion would read from it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-063"/>
+          <trace target="HLR" ref="HLR-022"/>
+        </traces>
+      </llr>
       <llr id="LLR-CLI-15">
         <text><![CDATA[`cli_parse` shall reject as a usage error a command line that combines regeneration mode with an explicit request for a companion artefact, since a saved record does not carry the graph from which either could be produced.]]></text>
         <traces>
@@ -3167,6 +3185,13 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-068"/>
         </traces>
       </llr>
+      <llr id="LLR-ANL-41">
+        <text><![CDATA[`analyze_file` shall attribute a decision point lying outside every reported function to no function, so that a branch in a file-scope initialiser is charged to nothing.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-017"/>
+          <trace target="HLR" ref="HLR-018"/>
+        </traces>
+      </llr>
       <llr id="LLR-ANL-34">
         <text><![CDATA[`analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.]]></text>
         <traces>
@@ -3801,6 +3826,21 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-033"/>
         </traces>
       </llr>
+      <llr id="LLR-RPT-20">
+        <text><![CDATA[`report_assemble` shall list a function for its file when its complexity is greater than *or equal to* the configured threshold, and shall build that listing itself rather than leaving a renderer to filter, so that every format lists the same functions.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-021"/>
+          <trace target="HLR" ref="HLR-023"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RPT-21">
+        <text><![CDATA[`report_assemble` shall select each most-complex callout by scanning the ordered model and replacing the incumbent only on a strictly greater value, so that a tie resolves to whichever candidate sorts first under the presentation order and resolves the same way on every run.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-026"/>
+          <trace target="HLR" ref="HLR-032"/>
+          <trace target="HLR" ref="HLR-033"/>
+        </traces>
+      </llr>
       <llr id="LLR-RPT-16">
         <text><![CDATA[`report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.]]></text>
         <traces>
@@ -4230,7 +4270,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
   <tests>
-  <file path="test/unit/cli.c" role="unit" count="15">
+  <file path="test/unit/cli.c" role="unit" count="20">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -4310,6 +4350,37 @@ Note on the division of labour, which determines where a failure lives: the requ
     <test name="an_output_option_without_its_argument_is_a_usage_error">
       <purpose><![CDATA[An option requiring an argument and given none is a usage error.]]></purpose>
       <traces>
+        <trace target="LLR" ref="LLR-CLI-12"/>
+      </traces>
+    </test>
+    <test name="the_complexity_threshold_defaults_to_fifteen">
+      <purpose><![CDATA[The threshold defaults to the documented value when none is supplied.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-04"/>
+      </traces>
+    </test>
+    <test name="a_complexity_threshold_is_collected">
+      <purpose><![CDATA[A threshold given as a long option is collected, and its argument is not mistaken for a target.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-04"/>
+      </traces>
+    </test>
+    <test name="the_short_threshold_option_behaves_as_the_long_one">
+      <purpose><![CDATA[The short form is parsed as the long form is.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-04"/>
+      </traces>
+    </test>
+    <test name="a_threshold_of_zero_is_accepted">
+      <purpose><![CDATA[Zero lists every function, which is a legitimate request and must not be read as absent.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-04"/>
+      </traces>
+    </test>
+    <test name="a_malformed_threshold_is_a_usage_error">
+      <purpose><![CDATA[A sign, a trailing tail, leading whitespace, an empty string, and a hexadecimal literal are each rejected — every one of which a permissive conversion would accept, silently yielding a threshold the user did not write.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-16"/>
         <trace target="LLR" ref="LLR-CLI-12"/>
       </traces>
     </test>
@@ -4416,7 +4487,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/unit/analyze.c" role="unit" count="29">
+  <file path="test/unit/analyze.c" role="unit" count="34">
     <test name="physical_lines_are_counted">
       <purpose><![CDATA[The physical line count comes from the mapped contents.]]></purpose>
       <traces>
@@ -4590,6 +4661,37 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[A line of code carrying a trailing comment is still a line of code. The exclusion is byte-granular for this reason; a line-granular one deletes the statement.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-39"/>
+      </traces>
+    </test>
+    <test name="a_function_that_never_branches_is_one">
+      <purpose><![CDATA[A function with no decision point reports 1. A query capturing the function itself would report 2, which is the failure this asserts against.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-21"/>
+      </traces>
+    </test>
+    <test name="each_decision_point_adds_one">
+      <purpose><![CDATA[Two decision points make three, so the base and the increment are both applied exactly once.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-21"/>
+      </traces>
+    </test>
+    <test name="a_nested_functions_decisions_are_not_counted_twice">
+      <purpose><![CDATA[A nested named function owns its decision points and the function enclosing it gains none of them; running the query against the enclosing body without attribution would report one more.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-22"/>
+        <trace target="LLR" ref="LLR-INN-02"/>
+      </traces>
+    </test>
+    <test name="an_unreported_scope_attributes_to_the_named_function_around_it">
+      <purpose><![CDATA[An offset inside a scope that is not a reported function resolves to the nearest named function containing it. This is the anonymous-callable rule, whose language-level observable waits for a language with lambdas; the mechanism it constrains is verified here.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-22"/>
+      </traces>
+    </test>
+    <test name="a_file_scope_decision_belongs_to_no_function">
+      <purpose><![CDATA[A conditional in a file-scope initialiser is charged to no function rather than to an arbitrary one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-41"/>
       </traces>
     </test>
     <test name="filemetrics_free_is_safe_on_null">
@@ -5242,7 +5344,94 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/fixtures/eloc.bats" role="fixture" count="9">
+  <file path="test/integration/complexity.bats" role="integration" count="13">
+    <test name="HLR-017: complexity is reported per function">
+      <purpose><![CDATA[Each function's complexity appears beside its ELOC: one for a function that never branches, four for one that branches three times.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-017"/>
+      </traces>
+    </test>
+    <test name="HLR-026: the summary names the most complex function and the largest file">
+      <purpose><![CDATA[The report carries both project-wide callouts, naming the function and the file.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-026"/>
+      </traces>
+    </test>
+    <test name="HLR-022: the threshold defaults to 15">
+      <purpose><![CDATA[With no option given, the listing is built at the documented default.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-022"/>
+      </traces>
+    </test>
+    <test name="HLR-021: a function at or over the threshold is listed for its file">
+      <purpose><![CDATA[A function meeting the threshold appears in the per-file listing, against the file that defines it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-021"/>
+      </traces>
+    </test>
+    <test name="HLR-021: the listing is at-or-over, not strictly over">
+      <purpose><![CDATA[A function whose complexity equals the threshold is listed; one below it is not. The boundary is the requirement's word, and an off-by-one here is invisible in any other test.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-021"/>
+      </traces>
+    </test>
+    <test name="HLR-022: a lower threshold lists more">
+      <purpose><![CDATA[Lowering the threshold enlarges the listing, so the option reaches the listing at all.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-022"/>
+      </traces>
+    </test>
+    <test name="HLR-063: a malformed threshold is a usage error">
+      <purpose><![CDATA[An argument that is not a number is rejected with the usage-error status rather than silently becoming some other threshold.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063"/>
+        <trace target="HLR" ref="HLR-022"/>
+      </traces>
+    </test>
+    <test name="HLR-023: the threshold does not affect the exit status">
+      <purpose><![CDATA[A threshold every function breaches and one no function breaches both exit 0. Findings are data; deciding what a number warrants is the caller's.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-023"/>
+        <trace target="HLR" ref="HLR-120"/>
+      </traces>
+    </test>
+    <test name="HLR-023: the threshold changes the listing and nothing else">
+      <purpose><![CDATA[Everything above the listing section is byte-identical at two very different thresholds, so no total, callout, or ordering moves with it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-023"/>
+      </traces>
+    </test>
+    <test name="HLR-023: the threshold does not change the totals or the callouts">
+      <purpose><![CDATA[A threshold no function meets leaves the function count and the callouts as they were — the report still describes the code.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-023"/>
+        <trace target="HLR" ref="HLR-026"/>
+      </traces>
+    </test>
+    <test name="HLR-026: a tie for most complex resolves the same way every run">
+      <purpose><![CDATA[Two functions of equal complexity resolve to the one sorting first under the presentation order, identically on every run.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-026"/>
+        <trace target="HLR" ref="HLR-032"/>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="HLR-032: two runs with a threshold are byte-identical">
+      <purpose><![CDATA[Repeating a run with a threshold produces identical bytes.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="HLR-066: an empty run still renders the callouts and the listing">
+      <purpose><![CDATA[A run that analysed nothing renders both new sections with no rows, rather than omitting them and changing the report's shape.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-066"/>
+        <trace target="HLR" ref="HLR-006"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/eloc.bats" role="fixture" count="13">
     <test name="the hand-counted category totals match">
       <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the values counted line by line in the fixture's header.]]></purpose>
       <traces>
@@ -5270,6 +5459,31 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-050"/>
         <trace target="HLR" ref="HLR-051"/>
         <trace target="HLR" ref="HLR-052"/>
+      </traces>
+    </test>
+    <test name="HLR-017: the hand-counted complexity matches">
+      <purpose><![CDATA[The function's complexity matches the value counted by hand in the fixture's header: one plus five decision points.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-017"/>
+        <trace target="HLR" ref="HLR-034"/>
+      </traces>
+    </test>
+    <test name="HLR-017: a straight-line function is one">
+      <purpose><![CDATA[A function with no branch reports one, not two — the base is added once, and the query does not capture the function itself.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-017"/>
+      </traces>
+    </test>
+    <test name="HLR-017: a short-circuit operator is a decision point">
+      <purpose><![CDATA[A `&&` inside a condition adds a decision, so a function built from one compound condition does not score as though it had none.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-017"/>
+      </traces>
+    </test>
+    <test name="HLR-017: a default label and a goto are not decisions">
+      <purpose><![CDATA[A `default` label adds no path that was not already counted and a `goto` chooses nothing, so neither raises the complexity.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-017"/>
       </traces>
     </test>
     <test name="HLR-044: an assignment or operation counts">
@@ -5353,7 +5567,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/fixtures/nesting.bats" role="fixture" count="6">
+  <file path="test/fixtures/nesting.bats" role="fixture" count="8">
     <test name="the hand-counted nesting totals match">
       <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the fixture's hand-counted header.]]></purpose>
       <traces>
@@ -5365,6 +5579,19 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Each nested function reports the statements written inside it.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-068"/>
+      </traces>
+    </test>
+    <test name="HLR-068: the innermost function owns its own decision points">
+      <purpose><![CDATA[Each nested function reports the branches written inside it; running the query against each body without attribution would give an enclosing function everything its nested functions branch on.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-068"/>
+        <trace target="HLR" ref="HLR-017"/>
+      </traces>
+    </test>
+    <test name="HLR-017: complexity is one plus the decision points">
+      <purpose><![CDATA[The outermost function scores one plus its two decision points — the `if` and the `&&` short-circuiting inside its condition.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-017"/>
       </traces>
     </test>
     <test name="HLR-068: an enclosing function gains none of the nested one's lines">

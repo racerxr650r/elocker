@@ -20,6 +20,11 @@ the parser's, and check which answer arrives. That is what this file is.
 | `block_opener_in_string` ELOC | **1** |
 | `line_opener_in_string` ELOC | **1** |
 | `quote_in_comment` ELOC | **2** |
+| Every function's complexity | **1** |
+
+No function here branches, so each is one plus zero. That is deliberate: this
+group isolates comment handling, and a decision point inside one of these
+functions would make a failure ambiguous between the two.
 
 ## The count
 

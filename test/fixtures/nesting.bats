@@ -14,23 +14,41 @@ function_eloc() {
 	                  f && $2 == want { print $4 }' <<<"$output"
 }
 
+function_complexity() {
+	elc "$SUBJECT"
+	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+	                  f && $2 == want { print $5 }' <<<"$output"
+}
+
 @test "the hand-counted nesting totals match" {
 	elc "$SUBJECT"
 	assert_success
-	assert_output --regexp "Physical lines +20"
-	assert_output --regexp "ELOC +5"
+	assert_output --regexp "Physical lines +23"
+	assert_output --regexp "ELOC +8"
 	assert_output --regexp "Functions +3"
 }
 
 @test "HLR-068: the innermost function owns its own statements" {
 	assert_equal "$(function_eloc inner)" "1"
-	assert_equal "$(function_eloc middle)" "1"
+	assert_equal "$(function_eloc middle)" "3"
+}
+
+@test "HLR-068: the innermost function owns its own decision points" {
+	# Running the query against each body without attribution would give
+	# outer 5 and middle 3 — everything its nested functions branch on.
+	assert_equal "$(function_complexity inner)" "2"
+	assert_equal "$(function_complexity middle)" "2"
+}
+
+@test "HLR-017: complexity is one plus the decision points" {
+	# outer branches twice on line 20: the `if`, and the `&&` that
+	# short-circuits inside its condition.
+	assert_equal "$(function_complexity outer)" "3"
 }
 
 @test "HLR-068: an enclosing function gains none of the nested one's lines" {
-	# Attributing to the outermost enclosing function would report 5 here,
-	# and attributing to every enclosing function would report 5, 2, 1.
-	assert_equal "$(function_eloc outer)" "3"
+	# Attributing to the outermost enclosing function would report 8 here.
+	assert_equal "$(function_eloc outer)" "4"
 }
 
 @test "HLR-067: all three functions are reported in their own right" {
@@ -42,9 +60,9 @@ function_eloc() {
 }
 
 @test "HLR-019: the file counts each statement line once" {
-	# Five statements on five distinct lines, however they are attributed.
+	# Eight statements on eight distinct lines, however they are attributed.
 	elc "$SUBJECT"
-	assert_output --regexp "nested\.c +c +20 +5"
+	assert_output --regexp "nested\.c +c +23 +8"
 }
 
 @test "HLR-032: nested attribution is deterministic across runs" {

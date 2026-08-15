@@ -364,6 +364,30 @@ None is a defect; each is a judgement that could go the other way.
     category with no test, and it stays uncovered until C++ arrives in
     Phase 6. Recorded here so the gap is a known one rather than an
     oversight found later.
+*   **`complexity.scm` is run over the whole tree, not against each
+    `@function.body`** (Phase 4). The SDD said the latter and the
+    published contract still describes the *scope* that way, which is
+    the obvious reading and the wrong mechanism: running per body gives
+    an enclosing function every decision point its nested functions
+    contain, and needs a subtraction to undo. Running once and
+    attributing by `innermost_enclosing` makes HLR-018 and HLR-068 fall
+    out of the same pass — a nested *named* function is reported, so it
+    is its own innermost; an anonymous callable is not, so its decision
+    points land on the named function around it. Amended in the SDD.
+*   **HLR-018 (anonymous-scope attribution) has no observable in C**,
+    which has no lambdas or closures. The *mechanism* it constrains is
+    unit-tested — an offset inside an unreported scope resolving to the
+    named function containing it — but the language-level fixture waits
+    for C++ in Phase 6. Different from HLR-048 above, where nothing at
+    all can be checked today.
+*   **`&&` and `||` each count as a decision point** (Phase 4). McCabe's
+    original measure counts edges in the control-flow graph, and a
+    short-circuit operator adds one: `a && b` can be decided two ways.
+    The alternative reading — count only statements — makes a function
+    built from one long compound condition score the same as a function
+    with no condition at all, which is the opposite of informative.
+    `goto` is *not* counted, on the same reasoning read the other way:
+    it moves control without choosing.
 *   **Code inside `#if 0` counts toward ELOC** (Phase 3). `elc` parses;
     it does not run the preprocessor, so `tree-sitter-c` yields the
     statements inside a disabled block and they are counted like any

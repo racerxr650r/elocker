@@ -27,6 +27,25 @@ typedef struct {
 	size_t  capacity;
 } PathList;
 
+/* One function listed for its file because its complexity met or exceeded
+ * the threshold (HLR-021). Both fields are borrowed from the report's own
+ * files, which outlive the list.
+ *
+ * The list is built here rather than filtered by a renderer: a renderer is a
+ * pure consumer, and a threshold applied at render time would be applied
+ * once per format and could differ between them.
+ */
+typedef struct {
+	const char           *file;
+	const FunctionMetric *function;
+} ThresholdEntry;
+
+typedef struct {
+	ThresholdEntry *items; /* ordered by file, then by function start line */
+	size_t          count;
+	size_t          capacity;
+} ThresholdList;
+
 /* Per-file metrics as they accumulate during the run, before assembly.
  * Owns every FileMetrics handed to it. */
 typedef struct {
@@ -36,12 +55,27 @@ typedef struct {
 	PathList      skipped;
 } MetricsAccumulator;
 
-/* Project-level totals across every analysed file (HLR-024). */
+/* Project-level totals across every analysed file (HLR-024), and the
+ * most-complex callouts of HLR-026.
+ *
+ * A callout's `where` fields are NULL when the run analysed nothing. Ties are
+ * broken by the stable presentation order, so the callout is a property of
+ * the report rather than of the order files were discovered — without that,
+ * two runs over the same tree could name different functions and HLR-032
+ * would fail.
+ */
 typedef struct {
 	size_t   file_count;
 	uint64_t physical_lines;
 	uint64_t eloc;
 	uint64_t function_count;
+
+	const char *largest_file;      /* highest file-level ELOC; borrowed */
+	uint32_t    largest_file_eloc;
+
+	const char *most_complex;      /* function name; borrowed           */
+	const char *most_complex_file; /* the file defining it; borrowed    */
+	uint32_t    most_complex_value;
 } ProjectSummary;
 
 /* One language's share of the project totals, so that the contribution of
@@ -67,6 +101,8 @@ typedef struct {
 	FileMetrics  **files;         /* sorted by path; owned            */
 	size_t         file_count;
 	LanguageList   languages;     /* sorted by name; owned (HLR-025)  */
+	ThresholdList  over_threshold; /* the per-file listing (HLR-021)  */
+	uint32_t       complexity_threshold; /* the value it was built at */
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;
 

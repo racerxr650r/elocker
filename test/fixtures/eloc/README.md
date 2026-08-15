@@ -13,6 +13,7 @@ asserts nothing (STP §2.4).
 | File ELOC | **19** |
 | Functions | **1** |
 | `categories` ELOC | **18** |
+| `categories` complexity | **6** |
 
 ## The count, line by line
 
@@ -70,6 +71,31 @@ it would contribute two, which is correct: there are then two lines to read.
 **A label is not a statement.** `done:` on line 37 directs nothing by itself;
 what it labels is the call on line 38, which is counted in its own right.
 Counting both would make labelling a function's exit worth an extra line.
+
+## The complexity count
+
+Complexity is one plus the decision points, and the set of decision points is
+not the set of ELOC lines. Five of the nineteen counting lines branch:
+
+| Line | Construct | Why it is a decision |
+| ---- | --------- | -------------------- |
+| 16 | `for` | the loop may or may not be entered |
+| 17 | `if` | two paths |
+| 19 | `else if` | the `if` branches; the `else` does not |
+| 25 | `while` | two paths |
+| 30 | `case 0:` | a labelled branch |
+
+One plus five is **six**.
+
+Three things in the file look like decisions and are not:
+
+* **`switch` on line 29** is not itself a branch — each of its `case` labels
+  is, which is where the count comes from. Counting the `switch` as well
+  would charge a two-case switch three.
+* **`default:` on line 33** is where control goes when no branch was taken.
+  It adds no path that was not already counted.
+* **`goto` on line 34** moves control without choosing. The choice, where
+  there is one, is in the `if` that guards the `goto`.
 
 **Exception handling (HLR-048) is absent** because C has none. The category is
 exercised when C++ arrives in Phase 6, and its absence here is a fact about

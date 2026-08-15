@@ -166,12 +166,66 @@ static int by_start_line(const void *a, const void *b)
 	return strcmp(x->name, y->name);
 }
 
+/* Add one function to the per-file threshold listing. */
+static int threshold_add(ThresholdList *list, const char *file,
+                         const FunctionMetric *function)
+{
+	if (list->count == list->capacity) {
+		size_t          next   = list->capacity ? list->capacity * 2 : 8;
+		ThresholdEntry *bigger = realloc(list->items, next * sizeof *bigger);
+
+		if (!bigger) {
+			fputs("elc: out of memory listing threshold breaches\n",
+			      stderr);
+			return -1;
+		}
+		list->items    = bigger;
+		list->capacity = next;
+	}
+
+	list->items[list->count].file     = file;
+	list->items[list->count].function = function;
+	list->count++;
+	return 0;
+}
+
+/* Select the highest-ELOC file and the highest-complexity function.
+ *
+ * Called after the model is ordered, and taking a new candidate only on a
+ * *strictly* greater value. Both together are the tie-break: scanning in
+ * presentation order and refusing to displace an equal value means the
+ * winner is whichever sorts first, which is what makes the callout the same
+ * on every run (HLR-026, HLR-033).
+ */
+static void select_callouts(Report *out)
+{
+	for (size_t i = 0; i < out->file_count; i++) {
+		const FileMetrics *file = out->files[i];
+
+		if (!out->summary.largest_file ||
+		    file->eloc > out->summary.largest_file_eloc) {
+			out->summary.largest_file      = file->path;
+			out->summary.largest_file_eloc = file->eloc;
+		}
+
+		for (size_t j = 0; j < file->function_count; j++) {
+			const FunctionMetric *fn = &file->functions[j];
+
+			if (!out->summary.most_complex ||
+			    fn->complexity > out->summary.most_complex_value) {
+				out->summary.most_complex       = fn->name;
+				out->summary.most_complex_file  = file->path;
+				out->summary.most_complex_value = fn->complexity;
+			}
+		}
+	}
+}
+
 int report_assemble(MetricsAccumulator *acc, const ElcOptions *opts,
                     Report *out)
 {
-	(void)opts;   /* Thresholds and format selection reach here later. */
-
 	memset(out, 0, sizeof *out);
+	out->complexity_threshold = opts->complexity_threshold;
 
 	out->files      = acc->files;
 	out->file_count = acc->count;
@@ -212,6 +266,24 @@ int report_assemble(MetricsAccumulator *acc, const ElcOptions *opts,
 		qsort(out->languages.items, out->languages.count,
 		      sizeof *out->languages.items, by_language);
 
+	/* Both of these read the model *after* it is ordered, so the listing
+	 * comes out in presentation order and the callouts break their ties
+	 * by it (HLR-021, HLR-026). */
+	for (size_t i = 0; i < out->file_count; i++) {
+		const FileMetrics *file = out->files[i];
+
+		for (size_t j = 0; j < file->function_count; j++) {
+			if (file->functions[j].complexity <
+			    out->complexity_threshold)
+				continue;
+			if (threshold_add(&out->over_threshold, file->path,
+			                  &file->functions[j]) != 0)
+				return -1;
+		}
+	}
+
+	select_callouts(out);
+
 	return 0;
 }
 
@@ -229,6 +301,10 @@ void report_free(Report *report)
 	report->languages.items    = NULL;
 	report->languages.count    = 0;
 	report->languages.capacity = 0;
+	free(report->over_threshold.items);
+	report->over_threshold.items    = NULL;
+	report->over_threshold.count    = 0;
+	report->over_threshold.capacity = 0;
 	pathlist_free(&report->skipped_files);
 	memset(&report->summary, 0, sizeof report->summary);
 }
