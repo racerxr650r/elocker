@@ -1,6 +1,6 @@
 # elc User Manual
 
-**Version:** 0.2 (Phase 1)
+**Version:** 0.3 (Phase 2)
 **Applies to:** the `elc` build shipped alongside this file
 
 This manual describes the version it ships with. Every option `elc` accepts is
@@ -31,16 +31,16 @@ repository are comparable and results from different runs can be diffed.
 
 `elc` is under active development, and this manual grows with it.
 
-**What this build does:** finds the source files in your targets and prints a
-table of them with their physical line counts, plus the project totals. It
-walks directories, resolves overlapping targets, and writes the report to
-standard output or to a file you name.
+**What this build does:** finds the source files in your targets, parses each
+one, and prints the functions it defines with their line ranges — alongside
+each file's physical line count and the project totals. C is the language it
+ships with.
 
-**What it does not do yet:** parse anything. Effective lines of code,
-cyclomatic complexity, the System Dependence Graph, and the findings derived
-from it arrive in later phases. The `Lines` column counts physical lines —
-every line in the file, blank and comment alike — which is not the same thing
-as ELOC and is not meant to be.
+**What it does not do yet:** measure anything about those functions.
+Effective lines of code, cyclomatic complexity, the System Dependence Graph,
+and the findings derived from it arrive in later phases. The `Lines` column
+against a *file* counts physical lines — every line, blank and comment alike
+— which is not the same thing as ELOC and is not meant to be.
 
 `doc/SDP.md` lists what each phase delivers. Metrics land in Phases 3–4, the
 call graph in Phase 8, and the architectural analyses in Phases 9–13.
@@ -111,21 +111,42 @@ report that quietly covers fewer targets than you asked for.
 
 ```
 Project summary
-  Files             3
+  Files             2
   Physical lines   42
+  Functions         3
+  Skipped           1
 
 Files
-  File                       Lines
-  -------------------------  -----
-  /home/u/proj/src/a.c          18
-  /home/u/proj/src/b.c          21
-  /home/u/proj/src/sub/c.c       3
+  File                  Language  Lines  Functions
+  --------------------  --------  -----  ---------
+  /home/u/proj/src/a.c  c            18          2
+  /home/u/proj/src/b.c  c            24          1
+
+Functions
+  File                  Function    Lines
+  --------------------  ----------  -----
+  /home/u/proj/src/a.c  parse        5-19
+  /home/u/proj/src/a.c  emit        21-24
+  /home/u/proj/src/b.c  main         3-11
+
+Skipped files (no language module)
+  /home/u/proj/src/notes.md
 ```
 
-Two tiers: the project summary, then one row per file. Paths are canonical and
-absolute, and the column is padded to the longest of them.
+Four sections: the project totals, one row per file, one row per function,
+and whatever was skipped. Paths are canonical and absolute, and each column
+is padded to its longest value.
 
-Files appear in ascending byte order. That order comes from the report, not
+A function's range runs from its signature to the end of its body — where you
+would point if asked where it starts. A function declared inside another is
+reported in its own right, not folded into the one containing it.
+
+Every section is printed whether or not it has anything in it. A heading with
+nothing under it tells you there was nothing; a missing heading would leave
+you wondering.
+
+Files appear in ascending byte order, and functions within a file in
+start-line order. That order comes from the report, not
 from the filesystem, which is why two runs over the same tree produce
 byte-identical output — and so do two runs naming the same targets in a
 different order. That is what makes the output worth diffing:
@@ -138,7 +159,68 @@ diff before.txt after.txt
 ```
 
 A target containing no files still produces the report, with zero totals and
-an empty table, and exits 0. Silence would be indistinguishable from a crash.
+empty tables, and exits 0. Silence would be indistinguishable from a crash.
+
+## Languages
+
+`elc` works out each file's language from its extension and loads the parser
+for it on first use. Nothing about any language is built into the binary:
+
+```sh
+elc src/main.c      # .c → the C module in runtime/
+```
+
+This build ships C. C++, Rust, Python, and Ada arrive in a later phase — as
+data, with no change to the executable.
+
+### When a file has no language
+
+A file whose extension `elc` has no module for is **skipped**, not failed:
+
+```
+elc: /home/u/proj/README.md: no usable language module; skipped
+```
+
+It is named on standard error, listed in the report's skipped section, and it
+does not change the exit status. That is deliberate — a repository is full of
+files that are not source, and a tool that failed on each would be useless.
+The report accounts for every file it discovered, so nothing disappears
+silently.
+
+### When a language module is broken
+
+If a module is present but unusable — its parser is missing, exposes no entry
+point, or one of its query files will not compile — `elc` says so once, drops
+that language, and carries on with the rest:
+
+```
+elc: c: functions.scm: no such node type in this grammar at byte 41
+```
+
+The run still exits 0: one broken language is a degraded run, not a failed
+one. Only a runtime directory that yields *no* language at all is fatal, and
+then `elc` stops before reading a single file rather than producing a report
+covering nothing.
+
+### When a file does not parse
+
+A file that fails to parse is skipped whole and the run exits 1:
+
+```
+elc: /home/u/proj/src/broken.c: parse error; file skipped
+```
+
+Whole, not partly. A syntax error anywhere means the rest of the tree may be
+misread, and metrics from a damaged tree look exactly like sound ones once
+they are in a table. Discarding the file is the conservative choice: a
+visibly skipped file is better than a quietly wrong number.
+
+### Adding a language
+
+Drop a grammar and six query files into `runtime/` and add one line to
+`runtime/extensions.map`. No rebuild, no patch, no upstream release to wait
+for. The contract a module must satisfy — the file names, the capture names,
+and what each means — is `runtime/queries/README.md` in the distribution.
 
 The report has the same shape whatever the target was — a single file, a
 directory, or a repository — so results from different targets are directly
@@ -241,8 +323,11 @@ upstream release to wait for. The same mechanism is open to you: a team's own
 coding standard is expressed as `.scm` queries and checked by the same engine
 that produces the built-in metrics.
 
-Language support is populated by Phases 2 and 6. This build ships the
-structure, not yet the grammars.
+This build ships the C module. C++, Rust, Python, and Ada arrive in Phase 6.
+
+`runtime/queries/README.md` is the contract: read it before writing a module,
+and treat its file names and capture names as fixed — renaming one breaks
+every grammar anyone has shipped.
 
 ## Troubleshooting
 
@@ -270,8 +355,29 @@ third.
 read. The diagnostic naming it is on standard error, and the report covers
 everything that succeeded.
 
-**The `Lines` column looks too big** — it is the physical line count, blanks
-and comments included. Effective lines of code arrives in Phase 3.
+**The `Lines` column against a file looks too big** — it is the physical line
+count, blanks and comments included. Effective lines of code arrives in
+Phase 3.
+
+**`elc: <path>: no usable language module; skipped`** — the extension is not
+in `runtime/extensions.map`, or the module for it could not be loaded. Look
+above the message for a line naming the language, which says which. Exit
+status is unaffected.
+
+**`elc: <lang>: <file>.scm: ... at byte N`** — a query file will not compile
+against that grammar. The language is dropped and the run continues. The byte
+offset is into the query file.
+
+**`elc: <path>: parse error; file skipped`** — the file did not parse. The run
+continues and exits 1.
+
+**Everything is skipped and the exit status is 0** — the runtime directory
+was found but its modules are not loading. The first diagnostic names the
+language and the reason.
+
+**`elc: <path>: No such file or directory` naming a runtime directory, exit
+2** — `ELC_RUNTIME_DIR` points somewhere that is not there, or `elc` was run
+from a location with no `runtime/` beside it.
 
 ## Getting more detail
 

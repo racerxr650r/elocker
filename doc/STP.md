@@ -1,6 +1,6 @@
 # Software Test Plan
 
-**Version:** 0.2
+**Version:** 0.3
 **Date:** 2026-08-15
 **Author(s):** John Anderson
 
@@ -132,8 +132,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **128 test(s)** across
-**12 file(s)**.
+Snapshot: **183 test(s)** across
+**15 file(s)**.
 
 ### 3.1. [test/unit/cli.c](../test/unit/cli.c)
 
@@ -157,21 +157,48 @@ Role: **unit**. **15 test(s).**
 | 14 | <a id="an_output_option_without_its_argument_is_a_usage_error"></a>`an_output_option_without_its_argument_is_a_usage_error` | `LLR-CLI-12` | An option requiring an argument and given none is a usage error. |
 | 15 | <a id="options_free_is_safe_on_null"></a>`options_free_is_safe_on_null` | — | Releasing a null options structure does not fault, so teardown is safe on every path. |
 
-### 3.2. [test/unit/analyze.c](../test/unit/analyze.c)
+### 3.2. [test/unit/registry.c](../test/unit/registry.c)
 
-Role: **unit**. **7 test(s).**
+Role: **unit**. **15 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the_environment_variable_names_the_runtime_location"></a>`the_environment_variable_names_the_runtime_location` | `LLR-ROP-01`, `LLR-ROP-02` | The environment variable names the runtime location, and wins over the path adjacent to the executable — which for a unit binary does not exist at all. |
+| 2 | <a id="an_absent_runtime_location_is_fatal"></a>`an_absent_runtime_location_is_fatal` | `LLR-ROP-04` | A runtime location that does not exist ends the run: no analysis is possible without one. |
+| 3 | <a id="a_runtime_location_that_is_a_file_is_fatal"></a>`a_runtime_location_that_is_a_file_is_fatal` | `LLR-ROP-04` | A runtime location that is a regular file is the same unusable state as a missing one, and is treated the same way. |
+| 4 | <a id="an_extension_map_naming_no_language_is_fatal"></a>`an_extension_map_naming_no_language_is_fatal` | `LLR-ROP-04` | An extension map naming no language leaves nothing that can be routed to a module, which is the state HLR-036 calls fatal. |
+| 5 | <a id="the_extension_map_is_runtime_data"></a>`the_extension_map_is_runtime_data` | `LLR-ROP-03` | Pointing an unrelated extension at a language resolves, and an extension the data does not name does not — so the mapping is read from runtime data rather than compiled in. |
+| 6 | <a id="the_extension_map_tolerates_comments_and_bare_extensions"></a>`the_extension_map_tolerates_comments_and_bare_extensions` | `LLR-ROP-03` | Comments and blank lines are not entries, an extension written without its leading period still matches, and matching ignores case. |
+| 7 | <a id="a_module_is_loaded_on_first_use_of_its_extension"></a>`a_module_is_loaded_on_first_use_of_its_extension` | `LLR-RFP-01`, `LLR-RFP-03`, `LLR-RFP-08` | A file's language comes from its extension alone, and first use loads the grammar and compiles all six queries. |
+| 8 | <a id="a_language_is_loaded_at_most_once"></a>`a_language_is_loaded_at_most_once` | `LLR-RFP-02` | A second lookup returns the cached module, so a language is loaded at most once per run and a mixed-language target needs one pass. |
+| 9 | <a id="an_unmapped_extension_yields_no_module"></a>`an_unmapped_extension_yields_no_module` | `LLR-RFP-05` | An extension the map does not name, and a file name with no extension at all, both yield no module — so the caller skips rather than fails. |
+| 10 | <a id="an_absent_grammar_makes_the_language_unusable"></a>`an_absent_grammar_makes_the_language_unusable` | `LLR-RFP-06` | A module whose grammar is missing is excluded rather than fatal, and opening the registry does not load any grammar up front. |
+| 11 | <a id="a_missing_query_file_makes_the_language_unusable"></a>`a_missing_query_file_makes_the_language_unusable` | `LLR-RFP-06`, `LLR-RFP-08` | A module omitting one of the six required query files is handled as unusable, not as undefined behaviour. |
+| 12 | <a id="an_invalid_query_makes_the_language_unusable"></a>`an_invalid_query_makes_the_language_unusable` | `LLR-RFP-06` | A query file that will not compile makes its language unusable rather than crashing the run or being silently ignored. |
+| 13 | <a id="an_unusable_language_is_not_retried"></a>`an_unusable_language_is_not_retried` | `LLR-RFP-06`, `LLR-RFP-07` | A language that failed to load is recorded once, so the diagnostic is emitted once rather than once per file that would have used it. |
+| 14 | <a id="no_particular_language_is_required"></a>`no_particular_language_is_required` | `LLR-ROP-05` | The registry opens over whatever the runtime location holds and verifies no particular language up front. |
+| 15 | <a id="close_is_safe_on_null_and_on_a_zeroed_registry"></a>`close_is_safe_on_null_and_on_a_zeroed_registry` | `LLR-RCL-01` | Teardown is safe on a null and on a never-opened registry, so every error path can release unconditionally. |
+
+### 3.3. [test/unit/analyze.c](../test/unit/analyze.c)
+
+Role: **unit**. **12 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
 | 1 | <a id="physical_lines_are_counted"></a>`physical_lines_are_counted` | `LLR-ANL-06` | The physical line count comes from the mapped contents. |
 | 2 | <a id="an_unterminated_final_line_counts"></a>`an_unterminated_final_line_counts` | `LLR-ANL-06` | A trailing fragment with no terminating newline is a line the reader sees, and is counted as one. |
 | 3 | <a id="a_zero_length_file_reports_zero_without_error"></a>`a_zero_length_file_reports_zero_without_error` | `LLR-ANL-04` | A file of zero length reports zero metrics without error, rather than being mapped — mmap of an empty file fails with EINVAL. |
-| 4 | <a id="the_metrics_carry_the_path"></a>`the_metrics_carry_the_path` | `LLR-ANL-06` | The returned metrics carry the path they were measured from, which the report is later ordered by. |
-| 5 | <a id="an_unreadable_file_is_reported_without_metrics"></a>`an_unreadable_file_is_reported_without_metrics` | `LLR-ANL-02` | A file that cannot be read yields a non-zero return and no metrics for the caller to release, so the run can continue leak-free. |
-| 6 | <a id="a_file_in_an_unwritable_directory_is_still_measured"></a>`a_file_in_an_unwritable_directory_is_still_measured` | `LLR-ANL-02` | Measurement succeeds where nothing may be written, which is the observable consequence of opening read-only. |
-| 7 | <a id="filemetrics_free_is_safe_on_null"></a>`filemetrics_free_is_safe_on_null` | `LLR-ANL-02` | Releasing a null metrics structure does not fault, so teardown is safe on every path. |
+| 4 | <a id="an_unreadable_file_is_a_failure_without_metrics"></a>`an_unreadable_file_is_a_failure_without_metrics` | `LLR-ANL-02` | A file that cannot be read yields a failure and no metrics for the caller to release, so the run continues leak-free. |
+| 5 | <a id="the_metrics_carry_the_path_and_language"></a>`the_metrics_carry_the_path_and_language` | `LLR-ANL-02` | The returned metrics carry the path measured and the language resolved for it. |
+| 6 | <a id="a_function_is_reported_with_its_name_and_line_range"></a>`a_function_is_reported_with_its_name_and_line_range` | `LLR-ANL-07`, `LLR-ANL-35` | A function is reported with its name and its line range, the span beginning at the signature rather than at the body's opening brace. |
+| 7 | <a id="a_nested_function_is_reported_in_its_own_right"></a>`a_nested_function_is_reported_in_its_own_right` | `LLR-ANL-09` | A named function declared inside another is reported as a function of its own, with its own name and line range, rather than folded into its enclosing function. |
+| 8 | <a id="a_prototype_is_not_a_function"></a>`a_prototype_is_not_a_function` | `LLR-ANL-08`, `LLR-ANL-36` | A declaration without a body contributes no function: what counts as one is the query file's decision, and it supplies no body capture for a prototype. |
+| 9 | <a id="a_function_name_outlives_the_mapping"></a>`a_function_name_outlives_the_mapping` | `LLR-ANL-07` | A name is still readable after analyze_file returns, so it was copied out of the mapping rather than pointed into it. |
+| 10 | <a id="a_file_that_fails_to_parse_is_a_failure"></a>`a_file_that_fails_to_parse_is_a_failure` | `LLR-ANL-01` | A file whose tree contains an error node is skipped whole and reported as a failure, rather than reported from a partially valid tree. |
+| 11 | <a id="an_unmapped_extension_is_a_skip_not_a_failure"></a>`an_unmapped_extension_is_a_skip_not_a_failure` | `LLR-ANL-37` | A file whose extension maps to no language is a skip, a distinct outcome from a failure, so the exit status stays 0. |
+| 12 | <a id="filemetrics_free_is_safe_on_null"></a>`filemetrics_free_is_safe_on_null` | `LLR-ANL-02` | Releasing a null metrics structure does not fault, so teardown is safe on every path. |
 
-### 3.3. [test/unit/discover.c](../test/unit/discover.c)
+### 3.4. [test/unit/discover.c](../test/unit/discover.c)
 
 Role: **unit**. **20 test(s).**
 
@@ -198,7 +225,7 @@ Role: **unit**. **20 test(s).**
 | 19 | <a id="a_path_that_cannot_be_canonicalised_is_a_per_file_failure"></a>`a_path_that_cannot_be_canonicalised_is_a_per_file_failure` | `LLR-DSC-09` | A canonicalisation failure, provoked through a link-time wrapper, drops that path and records a per-file failure rather than ending the run. |
 | 20 | <a id="filelist_free_is_safe_on_null"></a>`filelist_free_is_safe_on_null` | `LLR-DSC-01` | Releasing a null file list or extension list does not fault, so teardown is safe on every path. |
 
-### 3.4. [test/unit/report.c](../test/unit/report.c)
+### 3.5. [test/unit/report.c](../test/unit/report.c)
 
 Role: **unit**. **6 test(s).**
 
@@ -211,7 +238,7 @@ Role: **unit**. **6 test(s).**
 | 5 | <a id="a_failed_growth_leaves_the_accumulator_intact"></a>`a_failed_growth_leaves_the_accumulator_intact` | `LLR-RPT-16` | A reallocation failure, provoked through a link-time wrapper, is reported and leaves the original allocation intact rather than overwriting it with a null pointer. |
 | 6 | <a id="free_is_safe_on_null"></a>`free_is_safe_on_null` | `LLR-RPT-16` | Releasing a null report or accumulator does not fault, so teardown is safe on every path. |
 
-### 3.5. [test/unit/format_text.c](../test/unit/format_text.c)
+### 3.6. [test/unit/format_text.c](../test/unit/format_text.c)
 
 Role: **unit**. **4 test(s).**
 
@@ -222,7 +249,7 @@ Role: **unit**. **4 test(s).**
 | 3 | <a id="an_empty_report_still_renders_a_table"></a>`an_empty_report_still_renders_a_table` | `LLR-TBL-01` | A model with no files still renders its headings and column rule, so an empty run is distinguishable from a crash. |
 | 4 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-TBL-03` | A stream that cannot absorb the report yields a non-zero return, so a truncated report is never reported as success. |
 
-### 3.6. [test/integration/cli.bats](../test/integration/cli.bats)
+### 3.7. [test/integration/cli.bats](../test/integration/cli.bats)
 
 Role: **integration**. **16 test(s).**
 
@@ -245,7 +272,7 @@ Role: **integration**. **16 test(s).**
 | 15 | <a id="an accepted invocation writes its report to stdout"></a>`an accepted invocation writes its report to stdout` | — | Nothing but results reaches the results stream. |
 | 16 | <a id="a decoy dotfile in the working directory changes nothing"></a>`a decoy dotfile in the working directory changes nothing` | — | Configuration-like files planted beside the invocation produce byte-identical output to their absence. |
 
-### 3.7. [test/integration/docs.bats](../test/integration/docs.bats)
+### 3.8. [test/integration/docs.bats](../test/integration/docs.bats)
 
 Role: **integration**. **8 test(s).**
 
@@ -260,7 +287,7 @@ Role: **integration**. **8 test(s).**
 | 7 | <a id="every long option the man page documents is accepted by elc"></a>`every long option the man page documents is accepted by elc` | — | No documented option is unimplemented. |
 | 8 | <a id="both documents describe the exit-status scheme"></a>`both documents describe the exit-status scheme` | — | Both documents describe the exit-status classes. |
 
-### 3.8. [test/integration/discovery.bats](../test/integration/discovery.bats)
+### 3.9. [test/integration/discovery.bats](../test/integration/discovery.bats)
 
 Role: **integration**. **21 test(s).**
 
@@ -288,7 +315,54 @@ Role: **integration**. **21 test(s).**
 | 20 | <a id="an output file that cannot be opened is diagnosed on stderr"></a>`an output file that cannot be opened is diagnosed on stderr` | `LLR-MAIN-17` | The diagnostic names the destination and reaches the diagnostic stream. |
 | 21 | <a id="an unreadable file inside a target degrades the run to 1"></a>`an unreadable file inside a target degrades the run to 1` | — | A file within a target that cannot be read is a per-file failure: the report still covers the files that succeeded, and the exit status says so. |
 
-### 3.9. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
+### 3.10. [test/integration/language.bats](../test/integration/language.bats)
+
+Role: **integration**. **18 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-007: the language is determined from the extension, unprompted"></a>`HLR-007: the language is determined from the extension, unprompted` | — | A file's language is detected from its extension with no user declaration, and is shown in the report. |
+| 2 | <a id="HLR-007: a header is detected as well as a source file"></a>`HLR-007: a header is detected as well as a source file` | — | A header maps to a language and its definitions are reported, so a project's headers are not silently uncovered. |
+| 3 | <a id="HLR-008: files sharing a language are analysed in one invocation"></a>`HLR-008: files sharing a language are analysed in one invocation` | — | Several files are analysed in a single invocation and a single pass, with no per-language re-invocation. |
+| 4 | <a id="HLR-014: each function is reported with its name and line range"></a>`HLR-014: each function is reported with its name and line range` | — | Every function discovered is reported with its name and its start and end lines. |
+| 5 | <a id="HLR-014: the line range starts at the signature, not the brace"></a>`HLR-014: the line range starts at the signature, not the brace` | — | The reported span begins where a reader says the function begins, rather than at the body's opening delimiter. |
+| 6 | <a id="HLR-033: functions are presented in start-line order"></a>`HLR-033: functions are presented in start-line order` | — | Functions appear in start-line order rather than in the order the query happened to match them. |
+| 7 | <a id="HLR-012: a file with no language module is listed as skipped"></a>`HLR-012: a file with no language module is listed as skipped` | — | A file whose extension maps to no language appears in the report's skipped list, so the report accounts for every discovered file. |
+| 8 | <a id="HLR-012: a skipped file is also reported on stderr"></a>`HLR-012: a skipped file is also reported on stderr` | — | The skip is reported through both observables the requirement names: the list and a diagnostic. |
+| 9 | <a id="HLR-037: a skip does not make the exit status non-zero"></a>`HLR-037: a skip does not make the exit status non-zero` | — | A skipped file is not a failure and does not by itself make the status non-zero. |
+| 10 | <a id="HLR-012: a skipped file does not contribute to the totals"></a>`HLR-012: a skipped file does not contribute to the totals` | — | A skipped file is accounted for without being counted: the project totals are unchanged by its presence. |
+| 11 | <a id="HLR-035: a file that fails to parse does not abort the run"></a>`HLR-035: a file that fails to parse does not abort the run` | — | A file that fails to parse leaves the rest of the run intact and the report covers the files that succeeded. |
+| 12 | <a id="HLR-120: a parse failure degrades the run to 1"></a>`HLR-120: a parse failure degrades the run to 1` | — | A parse failure produces the status reserved for a run that completed but did not process every file. |
+| 13 | <a id="HLR-035: a parse failure names the file on stderr"></a>`HLR-035: a parse failure names the file on stderr` | — | The diagnostic identifies the file that failed and reaches the diagnostic stream. |
+| 14 | <a id="HLR-035: a file with a syntax error is skipped whole, not partially reported"></a>`HLR-035: a file with a syntax error is skipped whole, not partially reported` | — | A file carrying an error node is discarded entirely rather than reported from the sound part of its tree, since metrics from a damaged tree are indistinguishable from sound ones once rendered. |
+| 15 | <a id="HLR-019: each file reports its own line and function counts"></a>`HLR-019: each file reports its own line and function counts` | — | Each file's row carries its own physical line count and the number of functions it defines. |
+| 16 | <a id="HLR-066: a target of only skipped files still reports zero totals"></a>`HLR-066: a target of only skipped files still reports zero totals` | — | A run in which nothing could be analysed still emits a well-formed report with zero totals, and names what it skipped. |
+| 17 | <a id="HLR-006: the report has the same sections whatever the target type"></a>`HLR-006: the report has the same sections whatever the target type` | — | A file target and a directory target produce the same sections in the same order. |
+| 18 | <a id="HLR-032: two runs over a parsed tree are byte-identical"></a>`HLR-032: two runs over a parsed tree are byte-identical` | — | Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones. |
+
+### 3.11. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
+
+Role: **fixture**. **15 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="an intact runtime analyses the subject"></a>`an intact runtime analyses the subject` | — | The control the rest of the group is read against: an unbroken runtime directory analyses the subject and reports its function. |
+| 2 | <a id="HLR-036: an absent runtime directory is fatal before any file is read"></a>`HLR-036: an absent runtime directory is fatal before any file is read` | — | A missing runtime location ends the run with no report, since no analysis is possible in that state. |
+| 3 | <a id="HLR-036: a runtime location that is a file is fatal"></a>`HLR-036: a runtime location that is a file is fatal` | — | The same unusable state reached differently is treated the same way. |
+| 4 | <a id="HLR-036: an absent extension map is fatal"></a>`HLR-036: an absent extension map is fatal` | — | Without the extension map nothing can be routed to a language, which is the fatal state. |
+| 5 | <a id="HLR-036: an extension map naming no language is fatal"></a>`HLR-036: an extension map naming no language is fatal` | — | A map present but naming nothing is as unusable as one that is missing. |
+| 6 | <a id="HLR-036: a fatal runtime failure is diagnosed on stderr"></a>`HLR-036: a fatal runtime failure is diagnosed on stderr` | — | The fatal diagnostic names the location and reaches the diagnostic stream. |
+| 7 | <a id="HLR-070: an absent grammar degrades that language only"></a>`HLR-070: an absent grammar degrades that language only` | — | A language whose grammar is missing is excluded, the run completes, the status stays 0, and the affected file is listed as skipped. |
+| 8 | <a id="HLR-070: a grammar exposing no entry point degrades that language only"></a>`HLR-070: a grammar exposing no entry point degrades that language only` | — | A shared object that loads but exposes no grammar entry point is unusable rather than fatal. |
+| 9 | <a id="HLR-070: a grammar that is not a shared object degrades that language only"></a>`HLR-070: a grammar that is not a shared object degrades that language only` | — | A parser file that cannot be loaded at all is unusable rather than fatal. |
+| 10 | <a id="HLR-121: a module missing a required query file is unusable, not undefined"></a>`HLR-121: a module missing a required query file is unusable, not undefined` | — | A module omitting one of the six required query files is handled under HLR-070 rather than producing undefined behaviour. |
+| 11 | <a id="HLR-070: an unparseable query degrades that language only"></a>`HLR-070: an unparseable query degrades that language only` | — | A query file that will not compile excludes its language and leaves the run otherwise intact. |
+| 12 | <a id="HLR-070: the diagnostic names the language and the reason"></a>`HLR-070: the diagnostic names the language and the reason` | — | The diagnostic identifies the language, the query file, and the reason in words rather than as a numeric code. |
+| 13 | <a id="HLR-070: an unusable module is reported once, not once per file"></a>`HLR-070: an unusable module is reported once, not once per file` | — | The load failure is diagnosed once for the language rather than once for every file that would have used it. |
+| 14 | <a id="HLR-059: the environment variable takes precedence over the adjacent runtime"></a>`HLR-059: the environment variable takes precedence over the adjacent runtime` | — | Pointing the environment variable at a broken runtime degrades the run even though a working one sits beside the executable, which it can only do if the variable was preferred. |
+| 15 | <a id="HLR-059: the runtime adjacent to the executable is used when the variable is unset"></a>`HLR-059: the runtime adjacent to the executable is used when the variable is unset` | — | With the variable unset, the runtime beside the executable is found and used. |
+
+### 3.12. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
 
 Role: **fixture**. **11 test(s).**
 
@@ -306,7 +380,7 @@ Role: **fixture**. **11 test(s).**
 | 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
 | 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
 
-### 3.10. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.13. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -320,9 +394,9 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.11. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.14. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
-Role: **instrumented**. **11 test(s).**
+Role: **instrumented**. **13 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -336,9 +410,11 @@ Role: **instrumented**. **11 test(s).**
 | 8 | <a id="HLR-041: the build passes no threading flag"></a>`HLR-041: the build passes no threading flag` | — | The build never passes -pthread, which would silently license a future thread. |
 | 9 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
 | 10 | <a id="HLR-043: elc opens nothing for writing"></a>`HLR-043: elc opens nothing for writing` | — | No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial. |
-| 11 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
+| 11 | <a id="HLR-076: each source file is opened exactly once"></a>`HLR-076: each source file is opened exactly once` | — | No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it. |
+| 12 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
+| 13 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 
-### 3.12. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.15. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -372,6 +448,7 @@ verified by code review — see
 | `LLR-MAIN-14` | `main` | `HLR-041` | **(no direct test)** |
 | `LLR-MAIN-15` | `main` | `HLR-103`, `HLR-104` | **(no direct test)** |
 | `LLR-MAIN-17` | `main` | `HLR-030`, `HLR-038`, `HLR-120` | `--output writes the report to the named file`, `an output file that cannot be opened exits 2`, `an output file that cannot be opened is diagnosed on stderr` |
+| `LLR-MAIN-18` | `main` | `HLR-012`, `HLR-037` | **(no direct test)** |
 | `LLR-MAIN-16` | `main` | `HLR-125`, `HLR-036` | **(no direct test)** |
 | `LLR-CLI-01` | `cli_parse` | `HLR-071`, `HLR-063` | `missing_target_is_a_usage_error`, `single_target_is_collected`, `several_targets_are_collected_in_order` |
 | `LLR-CLI-02` | `cli_parse` | `HLR-027`, `HLR-028`, `HLR-054`, `HLR-029` | **(no direct test)** |
@@ -418,20 +495,22 @@ verified by code review — see
 | `LLR-EXT-01` | `is_excluded_extension` | `HLR-005`, `HLR-060` | `excluded_extension_matches_the_runtime_list`, `a_name_without_an_extension_is_not_excluded` |
 | `LLR-EXT-02` | `is_excluded_extension` | `HLR-005`, `HLR-060` | `excluded_extension_ignores_case`, `extension_list_skips_comments_and_blank_lines` |
 | `LLR-EXT-03` | `is_excluded_extension` | `HLR-005`, `HLR-038` | `an_empty_exclusion_list_excludes_nothing`, `a_missing_extension_list_is_not_fatal` |
-| `LLR-ROP-01` | `registry_open` | `HLR-059` | **(no direct test)** |
-| `LLR-ROP-02` | `registry_open` | `HLR-059` | **(no direct test)** |
-| `LLR-ROP-03` | `registry_open` | `HLR-060` | **(no direct test)** |
-| `LLR-ROP-04` | `registry_open` | `HLR-036` | **(no direct test)** |
-| `LLR-ROP-05` | `registry_open` | `HLR-011` | **(no direct test)** |
+| `LLR-ROP-01` | `registry_open` | `HLR-059` | `the_environment_variable_names_the_runtime_location` |
+| `LLR-ROP-02` | `registry_open` | `HLR-059` | `the_environment_variable_names_the_runtime_location` |
+| `LLR-ROP-03` | `registry_open` | `HLR-060` | `the_extension_map_is_runtime_data`, `the_extension_map_tolerates_comments_and_bare_extensions` |
+| `LLR-ROP-04` | `registry_open` | `HLR-036` | `an_absent_runtime_location_is_fatal`, `a_runtime_location_that_is_a_file_is_fatal`, `an_extension_map_naming_no_language_is_fatal` |
+| `LLR-ROP-05` | `registry_open` | `HLR-011` | `no_particular_language_is_required` |
+| `LLR-ROP-07` | `registry_open` | `HLR-059`, `HLR-005` | **(no direct test)** |
 | `LLR-ROP-06` | `registry_open` | `HLR-039` | **(no direct test)** |
-| `LLR-RFP-01` | `registry_for_path` | `HLR-007` | **(no direct test)** |
-| `LLR-RFP-02` | `registry_for_path` | `HLR-008` | **(no direct test)** |
-| `LLR-RFP-03` | `registry_for_path` | `HLR-009` | **(no direct test)** |
+| `LLR-RFP-01` | `registry_for_path` | `HLR-007` | `a_module_is_loaded_on_first_use_of_its_extension` |
+| `LLR-RFP-02` | `registry_for_path` | `HLR-008` | `a_language_is_loaded_at_most_once` |
+| `LLR-RFP-03` | `registry_for_path` | `HLR-009` | `a_module_is_loaded_on_first_use_of_its_extension` |
 | `LLR-RFP-04` | `registry_for_path` | `HLR-010` | **(no direct test)** |
-| `LLR-RFP-05` | `registry_for_path` | `HLR-012` | **(no direct test)** |
-| `LLR-RFP-06` | `registry_for_path` | `HLR-070` | **(no direct test)** |
-| `LLR-RFP-07` | `registry_for_path` | `HLR-070` | **(no direct test)** |
-| `LLR-RFP-08` | `registry_for_path` | `HLR-121` | **(no direct test)** |
+| `LLR-RFP-05` | `registry_for_path` | `HLR-012` | `an_unmapped_extension_yields_no_module` |
+| `LLR-RFP-06` | `registry_for_path` | `HLR-070` | `an_absent_grammar_makes_the_language_unusable`, `a_missing_query_file_makes_the_language_unusable`, `an_invalid_query_makes_the_language_unusable`, `an_unusable_language_is_not_retried` |
+| `LLR-RFP-07` | `registry_for_path` | `HLR-070` | `an_unusable_language_is_not_retried` |
+| `LLR-RFP-09` | `registry_for_path` | `HLR-070`, `HLR-038` | **(no direct test)** |
+| `LLR-RFP-08` | `registry_for_path` | `HLR-121` | `a_module_is_loaded_on_first_use_of_its_extension`, `a_missing_query_file_makes_the_language_unusable` |
 | `LLR-RLR-01` | `registry_load_rules` | `HLR-107` | **(no direct test)** |
 | `LLR-RLR-02` | `registry_load_rules` | `HLR-107` | **(no direct test)** |
 | `LLR-RLR-03` | `registry_load_rules` | `HLR-107`, `HLR-070` | **(no direct test)** |
@@ -439,16 +518,16 @@ verified by code review — see
 | `LLR-RLR-05` | `registry_load_rules` | `HLR-110`, `HLR-039` | **(no direct test)** |
 | `LLR-RLR-06` | `registry_load_rules` | `HLR-116`, `HLR-063` | **(no direct test)** |
 | `LLR-RLR-07` | `registry_load_rules` | `HLR-116`, `HLR-070` | **(no direct test)** |
-| `LLR-RCL-01` | `registry_close` | `HLR-124`, `HLR-125`, `HLR-009` | **(no direct test)** |
-| `LLR-ANL-01` | `analyze_file` | `HLR-013` | **(no direct test)** |
-| `LLR-ANL-02` | `analyze_file` | `HLR-043` | `an_unreadable_file_is_reported_without_metrics`, `a_file_in_an_unwritable_directory_is_still_measured`, `filemetrics_free_is_safe_on_null` |
+| `LLR-RCL-01` | `registry_close` | `HLR-124`, `HLR-125`, `HLR-009` | `close_is_safe_on_null_and_on_a_zeroed_registry` |
+| `LLR-ANL-01` | `analyze_file` | `HLR-013` | `a_file_that_fails_to_parse_is_a_failure` |
+| `LLR-ANL-02` | `analyze_file` | `HLR-043` | `an_unreadable_file_is_a_failure_without_metrics`, `the_metrics_carry_the_path_and_language`, `filemetrics_free_is_safe_on_null` |
 | `LLR-ANL-03` | `analyze_file` | `HLR-076` | **(no direct test)** |
 | `LLR-ANL-04` | `analyze_file` | `HLR-020` | `a_zero_length_file_reports_zero_without_error` |
 | `LLR-ANL-05` | `analyze_file` | `HLR-013` | **(no direct test)** |
-| `LLR-ANL-06` | `analyze_file` | `HLR-019` | `physical_lines_are_counted`, `an_unterminated_final_line_counts`, `the_metrics_carry_the_path` |
-| `LLR-ANL-07` | `analyze_file` | `HLR-014` | **(no direct test)** |
-| `LLR-ANL-08` | `analyze_file` | `HLR-014` | **(no direct test)** |
-| `LLR-ANL-09` | `analyze_file` | `HLR-067` | **(no direct test)** |
+| `LLR-ANL-06` | `analyze_file` | `HLR-019` | `physical_lines_are_counted`, `an_unterminated_final_line_counts` |
+| `LLR-ANL-07` | `analyze_file` | `HLR-014` | `a_function_is_reported_with_its_name_and_line_range`, `a_function_name_outlives_the_mapping` |
+| `LLR-ANL-08` | `analyze_file` | `HLR-014` | `a_prototype_is_not_a_function` |
+| `LLR-ANL-09` | `analyze_file` | `HLR-067` | `a_nested_function_is_reported_in_its_own_right` |
 | `LLR-ANL-10` | `analyze_file` | `HLR-015` | **(no direct test)** |
 | `LLR-ANL-11` | `analyze_file` | `HLR-053` | **(no direct test)** |
 | `LLR-ANL-12` | `analyze_file` | `HLR-044` | **(no direct test)** |
@@ -473,6 +552,9 @@ verified by code review — see
 | `LLR-ANL-31` | `analyze_file` | `HLR-043` | **(no direct test)** |
 | `LLR-ANL-32` | `analyze_file` | `HLR-034` | **(no direct test)** |
 | `LLR-ANL-33` | `analyze_file` | `HLR-124` | **(no direct test)** |
+| `LLR-ANL-35` | `analyze_file` | `HLR-014` | `a_function_is_reported_with_its_name_and_line_range` |
+| `LLR-ANL-36` | `analyze_file` | `HLR-014`, `HLR-121` | `a_prototype_is_not_a_function` |
+| `LLR-ANL-37` | `analyze_file` | `HLR-012`, `HLR-035`, `HLR-037` | `an_unmapped_extension_is_a_skip_not_a_failure` |
 | `LLR-ANL-34` | `analyze_file` | `HLR-124`, `HLR-125` | **(no direct test)** |
 | `LLR-MRG-01` | `merge_comment_spans` | `HLR-016` | **(no direct test)** |
 | `LLR-MRG-02` | `merge_comment_spans` | `HLR-016` | **(no direct test)** |
@@ -606,6 +688,7 @@ verified by code review — see
 | `LLR-BLD-08` | `build_configuration` | `HLR-121`, `HLR-010` | **(no direct test)** |
 | `LLR-BLD-10` | `build_configuration` | `HLR-113`, `HLR-124` | `wrap_passes_through_when_not_armed`, `wrap_intercepts_when_armed` |
 | `LLR-BLD-11` | `build_configuration` | `HLR-124` | `the build's required flags survive an overridden CFLAGS` |
+| `LLR-BLD-12` | `build_configuration` | `HLR-040`, `HLR-011`, `HLR-009` | **(no direct test)** |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | **(no direct test)** |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |

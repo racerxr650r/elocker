@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 1.8
+**Version:** 1.9
 **Date:** 2026-08-15
 **Author(s):** John Anderson
 
@@ -55,6 +55,9 @@ Orchestration and exit status. `main` performs no analysis; every requirement be
 
 *   <a id="LLR-MAIN-17"></a>**LLR-MAIN-17** — `main` shall open the output destination named by the options, or use standard output when none was named, and shall emit a diagnostic and return 2 when that destination cannot be opened or cannot be written, rather than reporting a truncated report as success.
     *Trace:* HLR-030 (Optional Output-File Redirection), HLR-038 (Diagnostics on stderr, Results on stdout), HLR-120 (Distinct Exit Status Classes).
+
+*   <a id="LLR-MAIN-18"></a>**LLR-MAIN-18** — `main` shall record a file skipped for want of a usable language module in the report's skipped-file list and emit a diagnostic naming it, and shall not count the skip as a per-file failure.
+    *Trace:* HLR-012, HLR-037.
 
 *   <a id="LLR-MAIN-16"></a>**LLR-MAIN-16** — `main` shall release every resource it acquired before returning, on the success path and on every error path alike, so that a completed run leaves no allocation, mapping, or handle outstanding.
     *Trace:* HLR-125 (Complete Resource Release), HLR-036 (Setup-Failure Fatality).
@@ -233,6 +236,9 @@ Runtime location resolution and registry initialisation. The boundary that keeps
 *   <a id="LLR-ROP-05"></a>**LLR-ROP-05** — `registry_open` shall not require, verify, or assume the presence of any particular language's support files, and shall succeed over whatever valid modules are present.
     *Trace:* HLR-011 (Initial Delivered Language Set).
 
+*   <a id="LLR-ROP-07"></a>**LLR-ROP-07** — `registry_open` shall make the resolved runtime location available to every other module that needs runtime data, so that the precedence rule of HLR-059 is implemented once rather than repeated wherever runtime data is read.
+    *Trace:* HLR-059, HLR-005.
+
 *   <a id="LLR-ROP-06"></a>**LLR-ROP-06** — `registry_open` shall read no configuration file or dotfile outside the runtime location.
     *Trace:* HLR-039 (Zero Configuration).
 
@@ -258,6 +264,9 @@ Runtime location resolution and registry initialisation. The boundary that keeps
 
 *   <a id="LLR-RFP-07"></a>**LLR-RFP-07** — An unusable language module shall not by itself cause `elc` to terminate or to return a non-zero exit status.
     *Trace:* HLR-070 (Malformed Language Module Tolerance).
+
+*   <a id="LLR-RFP-09"></a>**LLR-RFP-09** — `registry_for_path` shall state, in the diagnostic for a query that will not compile, the language, the query file, and the reason in words rather than as a numeric code, since the author of the query file is who acts on that diagnostic.
+    *Trace:* HLR-070, HLR-038.
 
 *   <a id="LLR-RFP-08"></a>**LLR-RFP-08** — `registry_for_path` shall require of a language module only the documented set of query files and capture names, and a module supplying exactly that set shall function without further configuration.
     *Trace:* HLR-121 (Language Module Interface Is a Stable Contract).
@@ -314,7 +323,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-06"></a>**LLR-ANL-06** — `analyze_file` shall count the file's physical lines from the mapped contents, counting a final line that carries no terminating newline, and bounding every scan by the mapped length rather than by a terminator.
     *Trace:* HLR-019 (File-Level Totals).
 
-*   <a id="LLR-ANL-07"></a>**LLR-ANL-07** — `analyze_file` shall report, for each function it discovers, that function's name and its start and end line numbers, converting from the parser's zero-based rows exactly once.
+*   <a id="LLR-ANL-07"></a>**LLR-ANL-07** — `analyze_file` shall report, for each function it discovers, that function's name and its start and end line numbers, converting from the parser's zero-based rows exactly once, and shall copy the name out of the mapping into its own storage before that mapping is released.
     *Trace:* HLR-014 (Per-Function Identity).
 
 *   <a id="LLR-ANL-08"></a>**LLR-ANL-08** — `analyze_file` shall treat as a function any named callable unit the language defines, including a method, constructor, destructor, or nested subprogram, as identified by the language's query configuration.
@@ -394,6 +403,15 @@ Note on the division of labour, which determines where a failure lives: the requ
 
 *   <a id="LLR-ANL-33"></a>**LLR-ANL-33** — `analyze_file` shall confine every read of the mapped buffer to the range reported by `fstat`, so that a node offset returned by the parser cannot cause a read beyond the end of the mapping.
     *Trace:* HLR-124 (Memory Safety).
+
+*   <a id="LLR-ANL-35"></a>**LLR-ANL-35** — `analyze_file` shall report a function's line span from the start of its captured name to the end of its captured body, so that the span begins at the signature a reader sees rather than at the body's opening delimiter. Where a language's query captures the name after the body, the span shall be the body's alone rather than an inverted one.
+    *Trace:* HLR-014.
+
+*   <a id="LLR-ANL-36"></a>**LLR-ANL-36** — `analyze_file` shall report a function only for a query match supplying both the name capture and the body capture, and shall discard a match carrying one without the other rather than reporting a function with no line range or a line range with no name.
+    *Trace:* HLR-014, HLR-121.
+
+*   <a id="LLR-ANL-37"></a>**LLR-ANL-37** — `analyze_file` shall distinguish a file skipped for want of a usable language module from a file that failed to be read or parsed, and shall report the two as different outcomes, so that a skip leaves the exit status at zero and a failure does not.
+    *Trace:* HLR-012, HLR-035, HLR-037.
 
 *   <a id="LLR-ANL-34"></a>**LLR-ANL-34** — `analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
@@ -676,7 +694,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-10"></a>**LLR-RPT-10** — `report_assemble` shall sort every collection in the report model by an explicit key, so that no renderer sorts and no library enumeration order reaches the output.
     *Trace:* HLR-033 (Traversal-Order Independence), HLR-032 (Deterministic Output).
 
-*   <a id="LLR-RPT-11"></a>**LLR-RPT-11** — `report_assemble` shall order files by path, functions within a file by start line, findings by severity then kind then location, cycles by their lowest-ordered member, and unreachable functions by file then line.
+*   <a id="LLR-RPT-11"></a>**LLR-RPT-11** — `report_assemble` shall order files by path, functions within a file by start line and then by name, skipped files by path, findings by severity then kind then location, cycles by their lowest-ordered member, and unreachable functions by file then line. The name shall break a tie between two functions sharing a start line, since the sort is not otherwise stable and their order would then be the implementation's choice.
     *Trace:* HLR-033 (Traversal-Order Independence).
 
 *   <a id="LLR-RPT-12"></a>**LLR-RPT-12** — `report_assemble` shall produce a complete model with zero totals for a run in which no file was analysed.
@@ -871,6 +889,9 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-11"></a>**LLR-BLD-11** — The build shall apply the language standard, the warning set, and the header-dependency generation it requires in a way that a caller-supplied `CFLAGS` cannot displace, so that a build invoked with an added flag is compiled under the same rules as one invoked with none.
     *Trace:* HLR-124 (Memory Safety).
+
+*   <a id="LLR-BLD-12"></a>**LLR-BLD-12** — The build shall produce each delivered language grammar from a pinned upstream release, compiling the generated parser that release publishes, so that no code-generation step is required at build time and the version delivered is a recorded decision rather than whatever was current.
+    *Trace:* HLR-040, HLR-011, HLR-009.
 
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).

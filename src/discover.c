@@ -124,38 +124,6 @@ static void filelist_sort_unique(FileList *list)
 
 /* ------------------------------------------------------ extension list ---- */
 
-/* Resolve the runtime location: the environment variable when set, otherwise
- * the runtime directory adjacent to the executable (HLR-059).
- *
- * Phase 2's registry_open() owns this resolution for language modules; Phase
- * 1 needs only binary.exts and there is no registry yet, so the resolution
- * lives here until the registry can supply it (doc/notes.md §3).
- */
-static int runtime_dir(char *buf, size_t len)
-{
-	const char *env = getenv(ELC_RUNTIME_DIR_ENV);
-
-	if (env && *env) {
-		int n = snprintf(buf, len, "%s", env);
-		return (n < 0 || (size_t)n >= len) ? -1 : 0;
-	}
-
-	char    exe[PATH_MAX];
-	ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
-
-	if (n < 0)
-		return -1;
-	exe[n] = '\0';
-
-	char *slash = strrchr(exe, '/');
-	if (!slash)
-		return -1;
-	*slash = '\0';
-
-	int m = snprintf(buf, len, "%s/runtime", exe);
-	return (m < 0 || (size_t)m >= len) ? -1 : 0;
-}
-
 static int extlist_add(ExtensionList *list, const char *ext)
 {
 	char *copy;
@@ -199,9 +167,8 @@ void binary_exts_free(ExtensionList *list)
 	list->capacity = 0;
 }
 
-int binary_exts_load(ExtensionList *out)
+int binary_exts_load(const char *runtime_dir, ExtensionList *out)
 {
-	char   dir[PATH_MAX];
 	char   path[PATH_MAX];
 	FILE  *fp     = NULL;
 	char  *line   = NULL;
@@ -210,13 +177,13 @@ int binary_exts_load(ExtensionList *out)
 
 	memset(out, 0, sizeof *out);
 
-	if (runtime_dir(dir, sizeof dir) != 0) {
-		fputs("elc: cannot locate the runtime directory; "
+	if (!runtime_dir) {
+		fputs("elc: no runtime directory; "
 		      "no extension is excluded\n", stderr);
 		return 0;
 	}
 
-	int n = snprintf(path, sizeof path, "%s/binary.exts", dir);
+	int n = snprintf(path, sizeof path, "%s/binary.exts", runtime_dir);
 	if (n < 0 || (size_t)n >= sizeof path) {
 		fputs("elc: runtime directory path is too long; "
 		      "no extension is excluded\n", stderr);
@@ -366,7 +333,8 @@ int walk_filesystem(const char *root, const ExtensionList *exts,
 
 /* ------------------------------------------------------ discover_targets -- */
 
-int discover_targets(const ElcOptions *opts, FileList *out, size_t *failures)
+int discover_targets(const ElcOptions *opts, const char *runtime_dir,
+                     FileList *out, size_t *failures)
 {
 	ExtensionList  exts;
 	unsigned char *kind   = NULL;
@@ -423,7 +391,7 @@ int discover_targets(const ElcOptions *opts, FileList *out, size_t *failures)
 		}
 	}
 
-	if (binary_exts_load(&exts) != 0) {
+	if (binary_exts_load(runtime_dir, &exts) != 0) {
 		status = -1;
 		goto cleanup;
 	}

@@ -46,14 +46,29 @@ typedef struct {
 	size_t        target_count;
 } ElcOptions;
 
-/* Per-file totals and, from Phase 2, the functions the file defines.
+/* The metrics for one reported function, including nested named functions.
  *
- * Phase 1 carries the physical line count only; `language`, `eloc`, and the
- * function array arrive with the stages that compute them (doc/SDD.md §18).
+ * Phase 2 carries identity. `eloc` arrives in Phase 3, `complexity` in
+ * Phase 4, and `node_id` with the graph in Phase 8 (doc/SDD.md §18).
  */
 typedef struct {
-	char     *path;           /* canonical absolute path; owned          */
-	uint32_t  physical_lines; /* newline count from the mapping          */
+	char     *name;       /* copied out of the mapping before it is
+	                       * released, since the name outlives it        */
+	uint32_t  start_line; /* 1-based; TSPoint.row is 0-based and
+	                       * converted exactly once                      */
+	uint32_t  end_line;   /* 1-based                                     */
+} FunctionMetric;
+
+/* Per-file totals and the functions the file defines.
+ *
+ * `eloc` arrives with the stage that computes it (doc/SDD.md §18).
+ */
+typedef struct {
+	char           *path;           /* canonical absolute path; owned   */
+	const char     *language;       /* borrowed from the language module */
+	uint32_t        physical_lines; /* newline count from the mapping    */
+	FunctionMetric *functions;      /* dynamic array, grown by doubling  */
+	size_t          function_count;
 } FileMetrics;
 
 #endif /* ELC_H */

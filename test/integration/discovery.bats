@@ -11,8 +11,11 @@ setup() {
 
 	TREE="$BATS_TEST_TMPDIR/tree"
 	mkdir -p "$TREE/sub"
-	printf 'one\ntwo\nthree\n' > "$TREE/a.c"
-	printf 'only\n'            > "$TREE/sub/b.c"
+	# Real C since Phase 2: a .c file that does not parse is a per-file
+	# failure, and a suite built on placeholder text would be asserting on
+	# the failure path everywhere by accident.
+	printf 'int a;\nint b;\nint c;\n' > "$TREE/a.c"
+	printf 'int only;\n'              > "$TREE/sub/b.c"
 }
 
 # --- the walking skeleton (HLR-027, HLR-071) ------------------------------
@@ -48,19 +51,17 @@ setup() {
 
 @test "the output shape does not depend on the type of the target" {
 	# HLR-006: a file target and a directory target produce the same
-	# structure — the same headings and the same columns.
+	# sections in the same order. Column widths differ with the content,
+	# so the section headings are what is compared.
 	elc "$TREE/a.c"
 	local file_shape
-	file_shape="$(grep -oE '^(Project summary|Files|  File .*)$' <<<"$output")"
+	file_shape="$(grep -E '^[A-Z]' <<<"$output")"
 
 	elc "$TREE"
 	local dir_shape
-	dir_shape="$(grep -oE '^(Project summary|Files|  File .*)$' <<<"$output")"
+	dir_shape="$(grep -E '^[A-Z]' <<<"$output")"
 
-	# The File column is padded to the longest path, so compare the
-	# headings rather than their widths.
-	assert_equal "$(sed 's/  */ /g' <<<"$dir_shape")" \
-	             "$(sed 's/  */ /g' <<<"$file_shape")"
+	assert_equal "$dir_shape" "$file_shape"
 }
 
 # --- duplicate elimination (HLR-072) --------------------------------------

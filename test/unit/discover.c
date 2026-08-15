@@ -88,17 +88,21 @@ static void subdir(const char *dir, const char *name)
 	cr_assert_eq(mkdir(path, 0755), 0, "could not create %s", path);
 }
 
-/* Point elc at a runtime directory carrying a known exclusion list, so the
- * tests do not depend on the shipped one and no test reads a list compiled
- * into the binary — there is none (LLR-EXT-01). */
-static void runtime_with(const char *dir, const char *exts)
+/* A runtime directory carrying a known exclusion list, so the tests do not
+ * depend on the shipped one and no test reads a list compiled into the
+ * binary — there is none (LLR-EXT-01).
+ *
+ * The path is returned rather than published through the environment: since
+ * Phase 2 the location is resolved once, by the registry, and handed to
+ * discovery (LLR-ROP-01). */
+static const char *runtime_with(const char *dir, const char *exts)
 {
-	char path[1024];
+	static char path[1024];
 
 	snprintf(path, sizeof path, "%s/rt", dir);
 	cr_assert_eq(mkdir(path, 0755), 0);
 	put(path, "binary.exts", exts);
-	setenv(ELC_RUNTIME_DIR_ENV, path, 1);
+	return path;
 }
 
 static ElcOptions options_for(const char **targets, size_t count)
@@ -132,8 +136,8 @@ Test(discover, excluded_extension_matches_the_runtime_list)
 	ExtensionList exts;
 	const char   *dir = tmptree();
 
-	runtime_with(dir, ".png\n.zip\n");
-	cr_assert_eq(binary_exts_load(&exts), 0);
+	const char *rt = runtime_with(dir, ".png\n.zip\n");
+	cr_assert_eq(binary_exts_load(rt, &exts), 0);
 
 	cr_assert(is_excluded_extension("/a/b/logo.png", &exts));
 	cr_assert(is_excluded_extension("archive.zip", &exts));
@@ -147,8 +151,8 @@ Test(discover, excluded_extension_ignores_case)
 	ExtensionList exts;
 	const char   *dir = tmptree();
 
-	runtime_with(dir, ".png\n");
-	cr_assert_eq(binary_exts_load(&exts), 0);
+	const char *rt = runtime_with(dir, ".png\n");
+	cr_assert_eq(binary_exts_load(rt, &exts), 0);
 
 	cr_assert(is_excluded_extension("LOGO.PNG", &exts),
 	          "one entry must cover every spelling of the extension");
@@ -161,8 +165,8 @@ Test(discover, a_name_without_an_extension_is_not_excluded)
 	ExtensionList exts;
 	const char   *dir = tmptree();
 
-	runtime_with(dir, ".png\n");
-	cr_assert_eq(binary_exts_load(&exts), 0);
+	const char *rt = runtime_with(dir, ".png\n");
+	cr_assert_eq(binary_exts_load(rt, &exts), 0);
 
 	cr_assert_not(is_excluded_extension("/a/b.d/Makefile", &exts),
 	              "a dot in a directory component is not an extension");
@@ -187,8 +191,8 @@ Test(discover, extension_list_skips_comments_and_blank_lines)
 	ExtensionList exts;
 	const char   *dir = tmptree();
 
-	runtime_with(dir, "# a comment\n\n  .png\nzip\n");
-	cr_assert_eq(binary_exts_load(&exts), 0);
+	const char *rt = runtime_with(dir, "# a comment\n\n  .png\nzip\n");
+	cr_assert_eq(binary_exts_load(rt, &exts), 0);
 
 	cr_assert_eq(exts.count, 2, "comments and blank lines are not entries");
 	cr_assert(is_excluded_extension("a.png", &exts));
@@ -203,9 +207,8 @@ Test(discover, a_missing_extension_list_is_not_fatal)
 	ExtensionList exts;
 	const char   *dir = tmptree();
 
-	setenv(ELC_RUNTIME_DIR_ENV, dir, 1);   /* holds no binary.exts */
-
-	cr_assert_eq(binary_exts_load(&exts), 0,
+	/* `dir` holds no binary.exts. */
+	cr_assert_eq(binary_exts_load(dir, &exts), 0,
 	             "discovery continues without an exclusion list");
 	cr_assert_eq(exts.count, 0);
 
@@ -221,14 +224,14 @@ Test(discover, a_regular_file_target_is_appended_directly)
 	size_t      failures = 0;
 	char        target[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	put(dir, "a.c", "one\ntwo\n");
 	snprintf(target, sizeof target, "%s/a.c", dir);
 
 	const char *targets[] = { target };
 	ElcOptions  opts      = options_for(targets, 1);
 
-	cr_assert_eq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_eq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 1);
 	cr_assert_eq(failures, 0);
 	cr_assert(list_has_suffix(&list, "/a.c"));
@@ -243,13 +246,13 @@ Test(discover, a_missing_target_is_rejected_with_an_empty_list)
 	size_t      failures = 0;
 	char        target[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	snprintf(target, sizeof target, "%s/absent.c", dir);
 
 	const char *targets[] = { target };
 	ElcOptions  opts      = options_for(targets, 1);
 
-	cr_assert_neq(discover_targets(&opts, &list, &failures), 0,
+	cr_assert_neq(discover_targets(&opts, rt, &list, &failures), 0,
 	              "a target that does not exist ends the run (HLR-062)");
 	cr_assert_eq(list.count, 0, "no partial file list survives rejection");
 
@@ -263,14 +266,14 @@ Test(discover, a_target_that_is_neither_file_nor_directory_is_rejected)
 	size_t      failures = 0;
 	char        target[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	snprintf(target, sizeof target, "%s/pipe", dir);
 	cr_assert_eq(mkfifo(target, 0644), 0, "could not create a FIFO");
 
 	const char *targets[] = { target };
 	ElcOptions  opts      = options_for(targets, 1);
 
-	cr_assert_neq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_neq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 0);
 
 	filelist_free(&list);
@@ -283,7 +286,7 @@ Test(discover, every_target_is_validated_before_any_is_walked)
 	size_t      failures = 0;
 	char        good[1024], bad[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	subdir(dir, "tree");
 	snprintf(good, sizeof good, "%s/tree", dir);
 	put(good, "a.c", "one\n");
@@ -292,7 +295,7 @@ Test(discover, every_target_is_validated_before_any_is_walked)
 	const char *targets[] = { good, bad };
 	ElcOptions  opts      = options_for(targets, 2);
 
-	cr_assert_neq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_neq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 0,
 	             "a valid target must not be walked when a later one is "
 	             "invalid (HLR-062)");
@@ -307,7 +310,7 @@ Test(discover, a_file_reached_through_two_targets_appears_once)
 	size_t      failures = 0;
 	char        tree[1024], file[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	subdir(dir, "tree");
 	snprintf(tree, sizeof tree, "%s/tree", dir);
 	put(tree, "a.c", "one\n");
@@ -316,7 +319,7 @@ Test(discover, a_file_reached_through_two_targets_appears_once)
 	const char *targets[] = { file, tree };
 	ElcOptions  opts      = options_for(targets, 2);
 
-	cr_assert_eq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_eq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 1,
 	             "canonicalisation before de-duplication is what makes "
 	             "`elc a.c src/` count a.c once (HLR-072)");
@@ -331,7 +334,7 @@ Test(discover, the_file_list_is_sorted_into_byte_order)
 	size_t      failures = 0;
 	char        tree[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	subdir(dir, "tree");
 	snprintf(tree, sizeof tree, "%s/tree", dir);
 	put(tree, "z.c", "one\n");
@@ -341,7 +344,7 @@ Test(discover, the_file_list_is_sorted_into_byte_order)
 	const char *targets[] = { tree };
 	ElcOptions  opts      = options_for(targets, 1);
 
-	cr_assert_eq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_eq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 3);
 	for (size_t i = 1; i < list.count; i++)
 		cr_assert(strcmp(list.paths[i - 1], list.paths[i]) < 0,
@@ -358,7 +361,7 @@ Test(discover, hidden_entries_and_binary_extensions_are_excluded)
 	size_t      failures = 0;
 	char        tree[1024], hidden[1024];
 
-	runtime_with(dir, ".png\n");
+	const char *rt = runtime_with(dir, ".png\n");
 	subdir(dir, "tree");
 	snprintf(tree, sizeof tree, "%s/tree", dir);
 	put(tree, "a.c", "one\n");
@@ -371,7 +374,7 @@ Test(discover, hidden_entries_and_binary_extensions_are_excluded)
 	const char *targets[] = { tree };
 	ElcOptions  opts      = options_for(targets, 1);
 
-	cr_assert_eq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_eq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 1, "only a.c survives filtering");
 	cr_assert(list_has_suffix(&list, "/a.c"));
 
@@ -385,7 +388,7 @@ Test(discover, the_walk_descends_into_subdirectories)
 	size_t      failures = 0;
 	char        tree[1024], deep[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	subdir(dir, "tree");
 	snprintf(tree, sizeof tree, "%s/tree", dir);
 	put(tree, "top.c", "one\n");
@@ -399,7 +402,7 @@ Test(discover, the_walk_descends_into_subdirectories)
 	const char *targets[] = { tree };
 	ElcOptions  opts      = options_for(targets, 1);
 
-	cr_assert_eq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_eq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 3, "the traversal is recursive");
 	cr_assert(list_has_suffix(&list, "/sub/deeper/bottom.c"));
 
@@ -413,7 +416,7 @@ Test(discover, a_hidden_directory_named_as_the_target_is_traversed)
 	size_t      failures = 0;
 	char        hidden[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	subdir(dir, ".config");
 	snprintf(hidden, sizeof hidden, "%s/.config", dir);
 	put(hidden, "a.c", "one\n");
@@ -421,7 +424,7 @@ Test(discover, a_hidden_directory_named_as_the_target_is_traversed)
 	const char *targets[] = { hidden };
 	ElcOptions  opts      = options_for(targets, 1);
 
-	cr_assert_eq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_eq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 1,
 	             "the hidden-entry exclusion applies below the target, not "
 	             "to the target itself, which was named explicitly");
@@ -436,7 +439,7 @@ Test(discover, files_and_directories_are_classified_independently)
 	size_t      failures = 0;
 	char        tree[1024], file[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	subdir(dir, "tree");
 	snprintf(tree, sizeof tree, "%s/tree", dir);
 	put(tree, "walked.c", "one\n");
@@ -446,7 +449,7 @@ Test(discover, files_and_directories_are_classified_independently)
 	const char *targets[] = { file, tree };
 	ElcOptions  opts      = options_for(targets, 2);
 
-	cr_assert_eq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_eq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 2,
 	             "each target is routed on its own type, so files and "
 	             "directories may be intermixed");
@@ -463,7 +466,7 @@ Test(discover, a_cyclic_directory_symlink_terminates)
 	size_t      failures = 0;
 	char        tree[1024], loop[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	subdir(dir, "tree");
 	snprintf(tree, sizeof tree, "%s/tree", dir);
 	put(tree, "a.c", "one\n");
@@ -475,7 +478,7 @@ Test(discover, a_cyclic_directory_symlink_terminates)
 
 	/* Reaching this assertion at all is the result: a logical walk would
 	 * not return (HLR-069, LLR-FTS-04). */
-	cr_assert_eq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_eq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 1, "the linked directory is not descended");
 
 	filelist_free(&list);
@@ -488,7 +491,7 @@ Test(discover, a_symbolic_link_named_as_a_target_is_resolved)
 	size_t      failures = 0;
 	char        real[1024], link[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	put(dir, "a.c", "one\n");
 	snprintf(real, sizeof real, "%s/a.c", dir);
 	snprintf(link, sizeof link, "%s/link.c", dir);
@@ -497,7 +500,7 @@ Test(discover, a_symbolic_link_named_as_a_target_is_resolved)
 	const char *targets[] = { link };
 	ElcOptions  opts      = options_for(targets, 1);
 
-	cr_assert_eq(discover_targets(&opts, &list, &failures), 0);
+	cr_assert_eq(discover_targets(&opts, rt, &list, &failures), 0);
 	cr_assert_eq(list.count, 1);
 	cr_assert(list_has_suffix(&list, "/a.c"),
 	          "a link named explicitly identifies its referent (HLR-069)");
@@ -512,7 +515,7 @@ Test(discover, a_path_that_cannot_be_canonicalised_is_a_per_file_failure)
 	size_t      failures = 0;
 	char        tree[1024];
 
-	runtime_with(dir, "");
+	const char *rt = runtime_with(dir, "");
 	subdir(dir, "tree");
 	snprintf(tree, sizeof tree, "%s/tree", dir);
 	put(tree, "a.c", "one\n");
@@ -521,7 +524,7 @@ Test(discover, a_path_that_cannot_be_canonicalised_is_a_per_file_failure)
 	ElcOptions  opts      = options_for(targets, 1);
 
 	realpath_should_fail = 1;
-	int rc = discover_targets(&opts, &list, &failures);
+	int rc = discover_targets(&opts, rt, &list, &failures);
 	realpath_should_fail = 0;
 
 	cr_assert_eq(rc, 0, "the run continues past a per-file failure");

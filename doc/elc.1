@@ -3,7 +3,7 @@
 .\" This page describes the version it ships with (HLR-129). Every option elc
 .\" accepts appears here, and every option here is accepted; the documentation
 .\" test in test/integration/docs.bats enforces both directions.
-.TH ELC 1 "2026-08-15" "elocker" "User Commands"
+.TH ELC 1 "2026-08-16" "elocker" "User Commands"
 .SH NAME
 elc \- per-function code metrics and whole-project architecture analysis
 .SH SYNOPSIS
@@ -24,15 +24,33 @@ is a source file or a directory. Several may be given in any combination; a
 file reached through more than one target is analysed once.
 .SS Current state
 .B elc
-is under active development. This release discovers the files in its targets
-and reports each one's physical line count in the table described under
-.BR OUTPUT ,
-together with the project totals. Nothing is parsed yet: effective lines of
-code, cyclomatic complexity, the System Dependence Graph and the findings
-derived from it are delivered by later phases, and this page grows with them.
-See
+is under active development. This release discovers the files in its targets,
+parses each one, and reports the functions it defines with their line ranges,
+alongside each file's physical line count. Effective lines of code,
+cyclomatic complexity, the System Dependence Graph and the findings derived
+from it are delivered by later phases, and this page grows with them. See
 .B doc/SDP.md
 in the distribution for what each phase adds.
+.SS Language support
+.B elc
+determines each file's language from its extension, and loads the parser and
+queries for that language from the runtime directory at first use. Nothing
+language-specific is compiled into the executable: adding a language means
+adding files under
+.IR runtime/ ,
+never rebuilding. The interface a language module must satisfy is published
+as
+.I runtime/queries/README.md
+in the distribution.
+.PP
+A file whose extension maps to no available language is
+.I skipped
+rather than failed: it is named on standard error, listed in the report's
+skipped-file section, and does not affect the exit status. A language whose
+module is unusable — absent, exposing no entry point, or carrying a query
+file that will not compile — is reported once, excluded, and the run
+continues over the remaining languages. Only a runtime directory that yields
+no language at all is fatal.
 .SS Discovery
 A target that is a regular file is analysed directly, with no traversal. A
 target that is a directory is walked recursively. During that walk
@@ -86,25 +104,43 @@ diagnostics are written to standard error. Nothing else is written to the
 results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
-The default format is an aligned table in two tiers. The first is the project
-summary — the number of files analysed and their combined physical line
-count. The second lists each file with its own physical line count, the
-column widths taken from the longest path so the figures line up:
+The default format is an aligned table in four sections: the project summary,
+one row per analysed file, one row per function, and the files that were
+skipped. Column widths are taken from the longest value in each column so the
+figures line up:
 .PP
 .EX
 Project summary
-  Files             3
+  Files             2
   Physical lines   42
+  Functions         3
+  Skipped           1
 
 Files
-  File                    Lines
-  ----------------------  -----
-  /home/u/proj/src/a.c       18
-  /home/u/proj/src/b.c       21
-  /home/u/proj/src/sub/c.c    3
+  File                  Language  Lines  Functions
+  --------------------  --------  -----  ---------
+  /home/u/proj/src/a.c  c            18          2
+  /home/u/proj/src/b.c  c            24          1
+
+Functions
+  File                  Function    Lines
+  --------------------  ----------  -----
+  /home/u/proj/src/a.c  parse        5-19
+  /home/u/proj/src/a.c  emit        21-24
+  /home/u/proj/src/b.c  main         3-11
+
+Skipped files (no language module)
+  /home/u/proj/src/notes.md
 .EE
 .PP
-Files are listed by canonical absolute path in ascending byte order. That
+A function's line range runs from its signature to the end of its body. A
+named function declared inside another is reported in its own right rather
+than folded into the one containing it.
+.PP
+Every section is emitted whether or not it has rows, so the report has the
+same shape whatever the target held. Files are listed by canonical absolute
+path in ascending byte order, and functions within a file in start-line
+order. That
 order is a property of the report rather than of the filesystem, so two runs
 over the same tree produce byte-identical output, and so do two runs that
 name the same targets in a different order.
@@ -132,7 +168,12 @@ Tree-sitter grammar for a language, loaded on first use.
 The query files that define what elc extracts for that language.
 .TP
 .I runtime/extensions.map
-Maps a file extension to a language name.
+Maps a file extension to a language name, one pair per line. Editing this
+file changes what is detected; no rebuild is needed.
+.TP
+.I runtime/queries/README.md
+The published contract a language module must satisfy: the query files it
+supplies and the capture names by which they return their results.
 .TP
 .I runtime/binary.exts
 Extensions excluded from the directory walk, one per line. Editing this file
@@ -160,6 +201,9 @@ Analyse a file and a directory that contains it. The file is reported once.
 .TP
 .B elc \-o report.txt src/
 Write the report to a file, leaving standard output empty.
+.TP
+.B ELC_RUNTIME_DIR=/opt/elc/runtime elc src/
+Analyse with language support taken from a runtime directory elsewhere.
 .SH SEE ALSO
 .BR cloc (1),
 .BR gprof (1)

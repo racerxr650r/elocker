@@ -15,7 +15,7 @@ is ready to start.
 | ----- | ----------- | ------ |
 | [0](#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | ✅ Complete |
 | [1](#phase-1--target-discovery-and-the-walking-skeleton) | Target discovery, ordering, table output — end to end | ✅ Complete |
-| [2](#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | 🔲 Not started |
+| [2](#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | ✅ Complete |
 | [3](#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | 🔲 Not started |
 | [4](#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | 🔲 Not started |
 | [5](#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | 🔲 Not started |
