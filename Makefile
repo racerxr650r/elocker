@@ -3,6 +3,52 @@
 # Non-recursive: one top-level Makefile, no `make -C` into subdirectories.
 # Conventions are binding and documented in
 # .github/skills/elocker-dev/SKILL.md ("Build").
+#
+# The block below is the help text. `make help` prints it, stripped of the
+# `#>` marker, and it is the default goal — so the usage summary is one text,
+# read the same way whether you open this file or run it. Reconstructing the
+# summary by pattern-matching the target declarations, as this used to, meant
+# the help existed only as a side effect of a regular expression, and a reader
+# of the file saw nothing at all.
+#
+# Keep it in step with the targets: `make instrumented` fails if a .PHONY
+# target is missing from here, or listed here and absent from the file.
+#
+#>Usage:
+#>  make <target>
+#>
+#>Build:
+#>  all             Build elc, the grammars, and the runtime symlink
+#>  debug           Build with -O0 -g3 -DDEBUG
+#>  grammars        Build the runtime language grammars
+#>  clean           Remove build artifacts
+#>  clean-grammars  Remove the built grammars, forcing a refetch
+#>  install         Install elc and runtime under $(DESTDIR)$(PREFIX)
+#>
+#>Test — all three must be clean before a change is done:
+#>  test            Run every test level
+#>  unit            Build and run the Criterion unit binaries
+#>  integration     Run the CLI-level Bats suites
+#>  fixtures        Run the fixture-conformance suites
+#>  instrumented    Run the environment-observing suites
+#>  asan            Rebuild with ASan and UBSan and re-run the whole suite
+#>  valgrind        Re-run integration and fixtures under valgrind
+#>
+#>Specification:
+#>  spec            Validate Project.xml and check the rendered documents are current
+#>  coverage        Fail if verification coverage has regressed
+#>
+#>Dependencies — each library is built from its pinned upstream release:
+#>  prereqs         Install the toolchain and build every linked library from source (needs sudo)
+#>  prereqs-src     Build every linked library from source (needs sudo)
+#>  prereqs-tree-sitter  Build libtree-sitter from source (needs sudo)
+#>  prereqs-libgit2      Build libgit2 from source, no network transports (needs sudo)
+#>  prereqs-igraph       Build igraph from source, GraphML off (needs sudo)
+#>  prereqs-expat        Build Expat from source (needs sudo)
+#>  prereqs-clean   Remove the unpacked dependency sources
+#>  check-prereqs   Report which dependencies are present and flag version gaps
+#>
+#>  help            Display this help message
 
 .DEFAULT_GOAL := help
 
@@ -75,11 +121,14 @@ WRAP_SYMS_report   ?= realloc
 WRAP_FLAGS          = $(addprefix -Wl$(comma)--wrap=,$(WRAP_SYMS) $(WRAP_SYMS_$*))
 
 # --------------------------------------------------------------------- help
+# One text, two ways of reading it: the block at the top of this file is what
+# `make help` prints. The marker is `#>` because it cannot occur in ordinary
+# prose, so no comment can join the help by accident.
 .PHONY: help
-help: ## Display this help message
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
-		/^[a-zA-Z_0-9-]+:.*##/ {printf "  \033[36m%-14s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-	@printf "\n"
+help:
+	@printf '\n'
+	@sed -n 's/^#>//p' $(firstword $(MAKEFILE_LIST))
+	@printf '\n'
 
 # ------------------------------------------------------------------ prereqs
 # Every library elc links is built from its upstream release, not taken from
@@ -123,7 +172,7 @@ PKGS_TOOLS  ?= valgrind strace graphviz libxml2-utils binutils
 PKGS        := $(PKGS_BUILD) $(PKGS_TEST) $(PKGS_TOOLS)
 
 .PHONY: prereqs
-prereqs: ## Install the toolchain and build every linked library from source (needs sudo)
+prereqs:
 	@command -v apt-get >/dev/null 2>&1 || { \
 		echo "prereqs: only apt is automated. Install the equivalents of:" >&2; \
 		echo "  $(PKGS)" >&2; \
@@ -135,7 +184,7 @@ prereqs: ## Install the toolchain and build every linked library from source (ne
 	@$(MAKE) --no-print-directory check-prereqs
 
 .PHONY: prereqs-src
-prereqs-src: prereqs-tree-sitter prereqs-libgit2 prereqs-igraph prereqs-expat ## Build every linked library from source (needs sudo)
+prereqs-src: prereqs-tree-sitter prereqs-libgit2 prereqs-igraph prereqs-expat
 	@sudo ldconfig
 	@echo "prereqs-src: all four libraries built and installed under $(SRC_PREFIX)"
 
@@ -149,7 +198,7 @@ define fetch
 endef
 
 .PHONY: prereqs-tree-sitter
-prereqs-tree-sitter: ## Build libtree-sitter from source (needs sudo)
+prereqs-tree-sitter:
 	@echo "tree-sitter $(TREE_SITTER_VER)"
 	$(call fetch,https://github.com/tree-sitter/tree-sitter/archive/refs/tags/v$(TREE_SITTER_VER).tar.gz,tree-sitter-$(TREE_SITTER_VER))
 	@$(MAKE) -C $(SRC_WORK)/tree-sitter-$(TREE_SITTER_VER) PREFIX=$(SRC_PREFIX)
@@ -160,7 +209,7 @@ prereqs-tree-sitter: ## Build libtree-sitter from source (needs sudo)
 # support is attack surface with no corresponding capability — and dropping
 # it removes the OpenSSL and libssh2 dependencies along with it.
 .PHONY: prereqs-libgit2
-prereqs-libgit2: ## Build libgit2 from source, no network transports (needs sudo)
+prereqs-libgit2:
 	@echo "libgit2 $(LIBGIT2_VER) (transports disabled)"
 	$(call fetch,https://github.com/libgit2/libgit2/archive/refs/tags/v$(LIBGIT2_VER).tar.gz,libgit2-$(LIBGIT2_VER))
 	@cmake -S $(SRC_WORK)/libgit2-$(LIBGIT2_VER) -B $(SRC_WORK)/libgit2-build \
@@ -178,7 +227,7 @@ prereqs-libgit2: ## Build libgit2 from source, no network transports (needs sudo
 # itself, so igraph's reader and writer are unused, and enabling them links
 # a second XML library the project has no other need for.
 .PHONY: prereqs-igraph
-prereqs-igraph: ## Build igraph from source, GraphML off (needs sudo)
+prereqs-igraph:
 	@echo "igraph $(IGRAPH_VER) (GraphML off)"
 	$(call fetch,https://github.com/igraph/igraph/releases/download/$(IGRAPH_VER)/igraph-$(IGRAPH_VER).tar.gz,igraph-$(IGRAPH_VER))
 	@cmake -S $(SRC_WORK)/igraph-$(IGRAPH_VER) -B $(SRC_WORK)/igraph-build \
@@ -190,7 +239,7 @@ prereqs-igraph: ## Build igraph from source, GraphML off (needs sudo)
 	@sudo cmake --install $(SRC_WORK)/igraph-build
 
 .PHONY: prereqs-expat
-prereqs-expat: ## Build Expat from source (needs sudo)
+prereqs-expat:
 	@echo "expat $(EXPAT_VER)"
 	$(call fetch,https://github.com/libexpat/libexpat/releases/download/R_$(subst .,_,$(EXPAT_VER))/expat-$(EXPAT_VER).tar.gz,expat-$(EXPAT_VER))
 	@cmake -S $(SRC_WORK)/expat-$(EXPAT_VER) -B $(SRC_WORK)/expat-build \
@@ -205,11 +254,11 @@ prereqs-expat: ## Build Expat from source (needs sudo)
 	@sudo cmake --install $(SRC_WORK)/expat-build
 
 .PHONY: prereqs-clean
-prereqs-clean: ## Remove the unpacked dependency sources
+prereqs-clean:
 	@rm -rf $(SRC_WORK)
 
 .PHONY: check-prereqs
-check-prereqs: ## Report which dependencies are present and flag version gaps
+check-prereqs:
 	@echo "== tools =="
 	@for t in cc ld make python3 pkg-config valgrind strace dot xmllint nm; do \
 		if command -v $$t >/dev/null 2>&1; then \
@@ -269,7 +318,7 @@ _check-min:
 GRAMMARS    := runtime/parsers/c.so
 
 .PHONY: grammars
-grammars: $(GRAMMARS) ## Build the runtime language grammars
+grammars: $(GRAMMARS)
 
 # Build one grammar into runtime/parsers/<lang>.so.
 #   $(1) language name   $(2) upstream repository   $(3) version
@@ -292,11 +341,11 @@ runtime/parsers/c.so:
 	$(call build_grammar,c,tree-sitter-c,$(GRAMMAR_C_VER))
 
 .PHONY: clean-grammars
-clean-grammars: ## Remove the built grammars, forcing a refetch
+clean-grammars:
 	@rm -f $(GRAMMARS)
 
 .PHONY: all
-all: $(BIN) $(BUILD)/runtime $(GRAMMARS) ## Build elc, the grammars, and the runtime symlink
+all: $(BIN) $(BUILD)/runtime $(GRAMMARS)
 
 $(BIN): $(OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(ELC_CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
@@ -314,21 +363,21 @@ $(BUILD)/runtime: | $(BUILD)
 	@ln -sfn ../runtime $(BUILD)/runtime
 
 .PHONY: debug
-debug: ## Build with -O0 -g3 -DDEBUG
+debug:
 	@$(MAKE) --no-print-directory CFLAGS="-O0 -g3 -DDEBUG" all
 
 -include $(DEP)
 
 # --------------------------------------------------------------------- test
 .PHONY: test
-test: unit integration fixtures instrumented ## Run every test level
+test: unit integration fixtures instrumented
 
 # ELC_RUNTIME_DIR is set here for the same reason the Bats suites set it: a
 # unit binary lives in build/unit/, so the runtime adjacent to *it* does not
 # exist, and the registry tests need a real grammar to load. Pointing at the
 # in-tree runtime keeps the unit level independent of any installed copy.
 .PHONY: unit
-unit: $(UNIT_BIN) $(GRAMMARS) ## Build and run the Criterion unit binaries
+unit: $(UNIT_BIN) $(GRAMMARS)
 	@fail=0; for b in $(UNIT_BIN); do \
 		printf '\n== %s ==\n' "$$b"; \
 		ELC_RUNTIME_DIR=$(CURDIR)/runtime $$b --tap || fail=1; \
@@ -345,7 +394,7 @@ $(BUILD)/unit:
 	@mkdir -p $(BUILD)/unit
 
 .PHONY: integration
-integration: all ## Run the CLI-level Bats suites
+integration: all
 	@$(BATS) test/integration
 
 # The fixture data lives in one directory per property under test/fixtures/;
@@ -353,16 +402,16 @@ integration: all ## Run the CLI-level Bats suites
 # discovery — which uses `find -L` and would walk the cyclic symlink the
 # traversal fixture deliberately contains.
 .PHONY: fixtures
-fixtures: all ## Run the fixture-conformance suites
+fixtures: all
 	@$(BATS) test/fixtures
 
 .PHONY: instrumented
-instrumented: all ## Run the environment-observing suites
+instrumented: all
 	@$(BATS) test/instrumented
 
 # ----------------------------------------------------------------- analysis
 .PHONY: asan
-asan: ## Rebuild with ASan and UBSan and re-run the whole suite
+asan:
 	@$(MAKE) --no-print-directory clean
 	@rc=0; $(MAKE) --no-print-directory \
 		CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
@@ -375,14 +424,14 @@ asan: ## Rebuild with ASan and UBSan and re-run the whole suite
 # unrelated valgrind failures.
 
 .PHONY: valgrind
-valgrind: all ## Re-run integration and fixtures under valgrind
+valgrind: all
 	@command -v valgrind >/dev/null || { \
 		echo "make: valgrind not found" >&2; exit 1; }
 	ELC_VALGRIND=1 $(BATS) test/integration test/fixtures
 
 # -------------------------------------------------------------- spec / docs
 .PHONY: spec
-spec: ## Validate Project.xml and check the rendered documents are current
+spec:
 	@python3 tools/lint_project.py --no-warnings
 	@tmp=$$(mktemp -d); rc=0; \
 	for d in SDD HLRs LLRs STP Traceability; do \
@@ -393,7 +442,7 @@ spec: ## Validate Project.xml and check the rendered documents are current
 	done; rm -rf $$tmp; exit $$rc
 
 .PHONY: coverage
-coverage: ## Fail if verification coverage has regressed
+coverage:
 	@gaps=$$(python3 tools/lint_project.py 2>&1 | grep -c 'has no test verifying it'); \
 	base=$$(cat test/gap-baseline.txt); \
 	if [ "$$gaps" -gt "$$base" ]; then \
@@ -404,7 +453,7 @@ coverage: ## Fail if verification coverage has regressed
 
 # ------------------------------------------------------------------ install
 .PHONY: install
-install: all ## Install elc and runtime under $(DESTDIR)$(PREFIX)
+install: all
 	install -d $(DESTDIR)$(PREFIX)/bin
 	install -m 755 $(BIN) $(DESTDIR)$(PREFIX)/bin/elc
 	install -d $(DESTDIR)$(PREFIX)/share/elc
@@ -416,5 +465,5 @@ install: all ## Install elc and runtime under $(DESTDIR)$(PREFIX)
 
 # -------------------------------------------------------------------- clean
 .PHONY: clean
-clean: ## Remove build artifacts
+clean:
 	@rm -rf $(BUILD)

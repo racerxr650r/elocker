@@ -333,6 +333,45 @@ None is a defect; each is a judgement that could go the other way.
     cannot satisfy that. Excluding hidden entries wholesale is the
     smaller change, and dotfiles are not source. A hidden path named
     *as* the target is still walked; naming it is explicit.
+*   **The comment exclusion is byte-granular, and the line-granular
+    version was written first** (Phase 3). Comment spans are byte
+    ranges, and asking whether a *statement's line* touches one is a
+    different question with a wrong answer: on
+    `int n = 0;   /* note */` the line touches a comment and the
+    statement does not, so the first implementation silently deleted a
+    line of code. The fixture pins the case, because it is the kind of
+    thing a later change to the exclusion would break without noticing.
+*   **HLR-016's merge is a guard, not a subtraction** (Phase 3). ELOC
+    counts lines carrying statements, statements come from the syntax
+    tree, and a parser does not produce a statement inside a comment —
+    so the merged comment set and the ELOC line set are disjoint by
+    construction, and the exclusion never fires for a correct query
+    file. It is implemented anyway, because it is what the requirement
+    asks for and because it is the guard that catches a *wrong* query
+    file. The merge itself is load-bearing regardless: its returned
+    line count is a reported quantity in its own right, and the
+    coalescing is what a nesting language (Rust, Ada) will need. If a
+    later phase finds a real subtraction case, this note is the record
+    that the current answer was reasoned about rather than assumed.
+*   **`merge_comment_spans` counted a shared line twice**, and a unit
+    test caught it (Phase 3). Two comments on one line are two disjoint
+    byte ranges — neither contains the other, so they do not coalesce —
+    and summing per-span line counts reported that one line as two.
+    LLR-MRG-03 says no line is excluded more than once; the return value
+    now counts distinct lines.
+*   **HLR-048 (exception handling counts toward ELOC) cannot be
+    verified in C**, which has no such construct. It is the one ELOC
+    category with no test, and it stays uncovered until C++ arrives in
+    Phase 6. Recorded here so the gap is a known one rather than an
+    oversight found later.
+*   **Code inside `#if 0` counts toward ELOC** (Phase 3). `elc` parses;
+    it does not run the preprocessor, so `tree-sitter-c` yields the
+    statements inside a disabled block and they are counted like any
+    other. Documented in the user manual rather than worked around: a
+    preprocessing pass would be a second parse of the same file, which
+    HLR-076 forbids, and a heuristic over `#if` conditions would be the
+    textual approximation HLR-013 forbids. If it proves to matter, the
+    honest fix is a query-level exclusion, not C.
 *   **`.gitignore` can swallow product data, silently** (Phase 2). The
     file carries `*.map` for linker map files, and that also matches
     `runtime/extensions.map` — the extension-to-language table, which is
@@ -344,6 +383,16 @@ None is a defect; each is a judgement that could go the other way.
     there is worth a `git check-ignore -v` before it is relied on; the
     patterns that reach in are `*.map` and `*.so`, and only the latter
     is meant to.
+*   **The Makefile's help text moved into its header** (Phase 3). It
+    used to be reconstructed by `awk`-ing a `## <description>` off each
+    target declaration, which could not drift but gave a reader who
+    *opened* the file nothing at all. It is now a `#>`-marked block at
+    the top that `make help` prints verbatim. The trade is that a
+    hand-maintained block can go stale, which the old one could not, so
+    an instrumented test compares it against the `.PHONY` declarations
+    and fails on either kind of drift. The `##` annotations are gone
+    rather than kept alongside: two mechanisms for one text is how the
+    two come to disagree.
 *   **Grammars are fetched at build time, not vendored** (Phase 2).
     `make all` builds `runtime/parsers/<lang>.so` from a pinned upstream
     release, downloading it once; the alternative was committing the

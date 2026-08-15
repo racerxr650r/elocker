@@ -101,6 +101,51 @@ static int by_path(const void *a, const void *b)
 	return strcmp(x->path, y->path);
 }
 
+/* Accumulate one file into its language's totals, adding the language on
+ * first sight. The list is short — one entry per language present — so a
+ * linear search costs less than the structure that would avoid it. */
+static int language_add(LanguageList *list, const FileMetrics *file)
+{
+	const char *name = file->language ? file->language : "";
+
+	for (size_t i = 0; i < list->count; i++) {
+		if (strcmp(list->items[i].language, name) != 0)
+			continue;
+		list->items[i].file_count++;
+		list->items[i].physical_lines += file->physical_lines;
+		list->items[i].eloc           += file->eloc;
+		return 0;
+	}
+
+	if (list->count == list->capacity) {
+		size_t          next   = list->capacity ? list->capacity * 2 : 8;
+		LanguageTotals *bigger = realloc(list->items, next * sizeof *bigger);
+
+		if (!bigger) {
+			fputs("elc: out of memory summarising by language\n",
+			      stderr);
+			return -1;
+		}
+		list->items    = bigger;
+		list->capacity = next;
+	}
+
+	list->items[list->count].language       = name;
+	list->items[list->count].file_count     = 1;
+	list->items[list->count].physical_lines = file->physical_lines;
+	list->items[list->count].eloc           = file->eloc;
+	list->count++;
+	return 0;
+}
+
+static int by_language(const void *a, const void *b)
+{
+	const LanguageTotals *x = a;
+	const LanguageTotals *y = b;
+
+	return strcmp(x->language, y->language);
+}
+
 static int by_string(const void *a, const void *b)
 {
 	return strcmp(*(char *const *)a, *(char *const *)b);
@@ -139,7 +184,11 @@ int report_assemble(MetricsAccumulator *acc, const ElcOptions *opts,
 
 	for (size_t i = 0; i < out->file_count; i++) {
 		out->summary.physical_lines += out->files[i]->physical_lines;
+		out->summary.eloc           += out->files[i]->eloc;
 		out->summary.function_count += out->files[i]->function_count;
+
+		if (language_add(&out->languages, out->files[i]) != 0)
+			return -1;
 	}
 	out->summary.file_count = out->file_count;
 
@@ -159,6 +208,10 @@ int report_assemble(MetricsAccumulator *acc, const ElcOptions *opts,
 		qsort(out->skipped_files.paths, out->skipped_files.count,
 		      sizeof *out->skipped_files.paths, by_string);
 
+	if (out->languages.count > 1)
+		qsort(out->languages.items, out->languages.count,
+		      sizeof *out->languages.items, by_language);
+
 	return 0;
 }
 
@@ -172,6 +225,10 @@ void report_free(Report *report)
 	free(report->files);
 	report->files      = NULL;
 	report->file_count = 0;
+	free(report->languages.items);
+	report->languages.items    = NULL;
+	report->languages.count    = 0;
+	report->languages.capacity = 0;
 	pathlist_free(&report->skipped_files);
 	memset(&report->summary, 0, sizeof report->summary);
 }

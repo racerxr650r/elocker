@@ -164,6 +164,51 @@ alpha"
 	assert_equal "$(grep -E '^[A-Z]' <<<"$output")" "$file_shape"
 }
 
+# --- ELOC in the report (HLR-015, HLR-019, HLR-024, HLR-025) ---------------
+
+@test "HLR-015: each function reports its own ELOC" {
+	printf 'int f(void)\n{\n\tint n = 1;\n\treturn n;\n}\n' > "$TREE/one.c"
+	elc "$TREE/one.c"
+	assert_success
+	assert_output --regexp "f +1-5 +2"
+}
+
+@test "HLR-024: the project summary carries a combined ELOC total" {
+	elc "$TREE"
+	assert_success
+	# pair.c is two functions of one `return` each; header.h is one more.
+	assert_equal "$(awk '/^  ELOC/ { print $2 }' <<<"$output")" "3"
+}
+
+@test "HLR-025: the totals are broken down by language" {
+	elc "$TREE"
+	assert_success
+	assert_output --partial "Languages"
+	assert_equal "$(awk '/^Languages$/ { f = 1; next } f && /^  c / { print $1 }' <<<"$output")" "c"
+}
+
+@test "HLR-025: the per-language totals sum to the project totals" {
+	# One language present, so its row must equal the summary exactly.
+	elc "$TREE"
+	assert_success
+
+	local summary_lines summary_eloc row_lines row_eloc
+	summary_lines="$(awk '/^  Physical lines/ { print $3 }' <<<"$output")"
+	summary_eloc="$(awk '/^  ELOC/ { print $2 }' <<<"$output")"
+	row_lines="$(awk '/^  c +/ { print $3 }' <<<"$output")"
+	row_eloc="$(awk '/^  c +/ { print $4 }' <<<"$output")"
+
+	assert_equal "$row_lines" "$summary_lines"
+	assert_equal "$row_eloc" "$summary_eloc"
+}
+
+@test "HLR-019: a header of declarations only reports zero ELOC" {
+	elc "$TREE/header.h"
+	assert_success
+	# The header defines one inline function with a single return.
+	assert_output --regexp "header\.h +c +4 +1"
+}
+
 # --- determinism over the new sections (HLR-032) ---------------------------
 
 @test "HLR-032: two runs over a parsed tree are byte-identical" {

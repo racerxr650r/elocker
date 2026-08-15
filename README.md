@@ -18,13 +18,14 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 2 is complete.** `elc src/` walks a directory tree, parses every
-source file it finds, and reports the functions each one defines with their
-line ranges — using a grammar loaded from `runtime/` at run time, with no
-language name anywhere in the C. Measuring those functions is next: ELOC in
-Phase 3, complexity in Phase 4, the call graph in Phase 8.
+**Phase 3 is complete.** `elc src/` walks a directory tree, parses every
+source file, and reports **effective lines of code** per function, per file,
+and per language. A statement spread over four lines counts once; a nested
+function's work belongs to it and not to the function containing it; and a
+comment cannot fool the count, because comments come from the syntax tree
+rather than from matching text. Cyclomatic complexity is next, in Phase 4.
 
-**Progress: 3 of 16 phases complete.**
+**Progress: 4 of 16 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -34,7 +35,7 @@ Phase 3, complexity in Phase 4, the call graph in Phase 8.
 | [0](doc/SDP.md#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | ✅ Complete |
 | [1](doc/SDP.md#phase-1--target-discovery-and-the-walking-skeleton) | Target discovery, ordering, table output — end to end | ✅ Complete |
 | [2](doc/SDP.md#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | ✅ Complete |
-| [3](doc/SDP.md#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | 🔲 Not started |
+| [3](doc/SDP.md#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | ✅ Complete |
 | [4](doc/SDP.md#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | 🔲 Not started |
 | [5](doc/SDP.md#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | 🔲 Not started |
 | [6](doc/SDP.md#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | 🔲 Not started |
@@ -171,7 +172,7 @@ documents below are generated from it.
 | [PVD.md](doc/PVD.md) | *Why* does this exist, who is it for, how do we know it is succeeding? |
 | [HLRs.md](doc/HLRs.md) | *What* must it do — 129 high-level requirements |
 | [SDD.md](doc/SDD.md) | *How is it structured* — modules, data, algorithms, dependency selection |
-| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 264 low-level requirements |
+| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 270 low-level requirements |
 | [STP.md](doc/STP.md) | *How is it verified* — test levels, fixtures, the sanitizer gate |
 | [Traceability.md](doc/Traceability.md) | *Where are the gaps*, end to end |
 | [SDP.md](doc/SDP.md) | *How is it built* — the 16 phases below |

@@ -33,6 +33,24 @@
  * every language module, not a property of any language. */
 #define CAPTURE_FUNCTION_NAME "function.name"
 #define CAPTURE_FUNCTION_BODY "function.body"
+#define CAPTURE_COMMENT       "comment"
+#define CAPTURE_ELOC          "eloc.statement"
+
+/* One counted statement: the line it starts on, and the function it belongs
+ * to. `function` is SIZE_MAX for a statement outside every reported function,
+ * which contributes to the file's ELOC and to no function's. */
+typedef struct {
+	uint32_t line;
+	size_t   function;
+} StatementSite;
+
+typedef struct {
+	StatementSite *items;
+	size_t         count;
+	size_t         capacity;
+} SiteList;
+
+#define NO_FUNCTION SIZE_MAX
 
 void filemetrics_free(FileMetrics *metrics)
 {
@@ -44,6 +62,120 @@ void filemetrics_free(FileMetrics *metrics)
 	free(metrics->functions);
 	free(metrics->path);
 	free(metrics);
+}
+
+/* Grow any of the analyser's arrays by doubling, with the realloc result
+ * checked in a temporary before the original is overwritten (HLR-125). */
+static int grow(void **items, size_t *capacity, size_t item_size)
+{
+	size_t next   = *capacity ? *capacity * 2 : 32;
+	void  *bigger = realloc(*items, next * item_size);
+
+	if (!bigger)
+		return -1;
+
+	*items    = bigger;
+	*capacity = next;
+	return 0;
+}
+
+/* --------------------------------------------------- comment-span merging --
+ *
+ * The canonical bug in this class of tool lives here. Captured spans overlap
+ * and nest, and excluding them one at a time removes a shared line more than
+ * once — enough to drive a file's ELOC below zero. Sorting and coalescing
+ * first makes the exclusion idempotent (HLR-016).
+ */
+
+static int by_start_byte(const void *a, const void *b)
+{
+	const CommentSpan *x = a;
+	const CommentSpan *y = b;
+
+	if (x->start_byte != y->start_byte)
+		return x->start_byte < y->start_byte ? -1 : 1;
+	/* A tie leaves the wider span first, so the coalescing pass absorbs
+	 * the narrower one immediately rather than depending on qsort's
+	 * choice between equal elements. */
+	if (x->end_byte != y->end_byte)
+		return x->end_byte > y->end_byte ? -1 : 1;
+	return 0;
+}
+
+uint32_t merge_comment_spans(SpanList *spans)
+{
+	uint32_t lines        = 0;
+	uint32_t last_counted = 0;   /* 0 = no line counted yet */
+	size_t   kept         = 0;
+
+	if (spans->count == 0)
+		return 0;
+
+	qsort(spans->items, spans->count, sizeof *spans->items, by_start_byte);
+
+	for (size_t i = 0; i < spans->count; ) {
+		CommentSpan merged = spans->items[i];
+		size_t      j      = i + 1;
+
+		/* `j < spans->count` is the whole of LLR-MRG-04: the loop reads
+		 * the next element, and without the bound it reads one past the
+		 * last span whenever the final run is more than one long. */
+		while (j < spans->count &&
+		       spans->items[j].start_byte <= merged.end_byte) {
+			if (spans->items[j].end_byte > merged.end_byte) {
+				merged.end_byte = spans->items[j].end_byte;
+				merged.end_line = spans->items[j].end_line;
+			}
+			j++;
+		}
+
+		spans->items[kept++] = merged;
+
+		/* Count lines, not spans. Two comments sitting on one line
+		 * are two disjoint byte ranges: neither contains the other, so
+		 * they do not coalesce, and summing their line counts would
+		 * report that single line twice. Spans arrive in byte order, so
+		 * their start lines are non-decreasing and it is enough to skip
+		 * whatever the previous span already covered (LLR-MRG-03).
+		 */
+		uint32_t from = merged.start_line;
+
+		if (last_counted && from <= last_counted)
+			from = last_counted + 1;
+		if (merged.end_line >= from)
+			lines += merged.end_line - from + 1;
+		if (merged.end_line > last_counted)
+			last_counted = merged.end_line;
+
+		i = j;
+	}
+
+	spans->count = kept;
+	return lines;
+}
+
+/* ------------------------------------------------------ statement attribution */
+
+const FnRange *innermost_enclosing(const FnRangeIndex *index, uint32_t byte)
+{
+	const FnRange *best = NULL;
+
+	for (size_t i = 0; i < index->count; i++) {
+		const FnRange *candidate = &index->items[i];
+
+		if (byte < candidate->start_byte || byte >= candidate->end_byte)
+			continue;
+
+		/* Narrowest wins. A nested function's range lies entirely
+		 * within its parent's, so comparing extents is what stops a
+		 * statement counting for both (HLR-068). */
+		if (!best ||
+		    (candidate->end_byte - candidate->start_byte) <
+		    (best->end_byte - best->start_byte))
+			best = candidate;
+	}
+
+	return best;
 }
 
 /* Count the lines in a mapping.
@@ -122,7 +254,7 @@ static char *name_from(const char *data, TSNode node)
  */
 static int collect_functions(const LanguageModule *module, Registry *reg,
                              const char *data, TSNode root,
-                             FileMetrics *metrics)
+                             FileMetrics *metrics, FnRangeIndex *ranges)
 {
 	TSQuery      *query    = module->queries[QUERY_FUNCTIONS];
 	size_t        capacity = 0;
@@ -182,16 +314,222 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 		fn->start_line = (name_row < body_row ? name_row : body_row) + 1;
 		fn->end_line   = ts_node_end_point(body_node).row + 1;
 
+		/* The same extent in bytes, for attribution. A statement is
+		 * attributed to the narrowest range containing it, so the range
+		 * must be the reported one: attributing by a different extent
+		 * from the one shown would let a statement count for a function
+		 * whose printed line range does not contain it. */
+		if (ranges->count == ranges->capacity &&
+		    grow((void **)&ranges->items, &ranges->capacity,
+		         sizeof *ranges->items) != 0)
+			return -1;
+
+		uint32_t name_start = ts_node_start_byte(name_node);
+		uint32_t body_start = ts_node_start_byte(body_node);
+
+		ranges->items[ranges->count].start_byte =
+			name_start < body_start ? name_start : body_start;
+		ranges->items[ranges->count].end_byte =
+			ts_node_end_byte(body_node);
+		ranges->items[ranges->count].index = metrics->function_count;
+		ranges->count++;
+
 		metrics->function_count++;
 	}
 
 	return 0;
 }
 
+/* Collect every comment span, then sort and coalesce them. */
+static int collect_comments(const LanguageModule *module, Registry *reg,
+                            TSNode root, SpanList *spans)
+{
+	TSQuery      *query = module->queries[QUERY_COMMENTS];
+	TSQueryMatch  match;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		for (uint16_t i = 0; i < match.capture_count; i++) {
+			if (!capture_is(query, match.captures[i].index,
+			                CAPTURE_COMMENT))
+				continue;
+
+			if (spans->count == spans->capacity &&
+			    grow((void **)&spans->items, &spans->capacity,
+			         sizeof *spans->items) != 0)
+				return -1;
+
+			TSNode node = match.captures[i].node;
+
+			spans->items[spans->count].start_byte =
+				ts_node_start_byte(node);
+			spans->items[spans->count].end_byte =
+				ts_node_end_byte(node);
+			spans->items[spans->count].start_line =
+				ts_node_start_point(node).row + 1;
+			spans->items[spans->count].end_line =
+				ts_node_end_point(node).row + 1;
+			spans->count++;
+		}
+	}
+
+	merge_comment_spans(spans);
+	return 0;
+}
+
+/* True when a byte offset lies inside the merged comment set.
+ *
+ * **Byte-granular, deliberately.** The first version of this asked whether a
+ * statement's *line* touched a comment span, which is a different question
+ * with a wrong answer. On a line reading
+ *
+ *     int n = 0;           // a trailing note
+ *
+ * the line touches a comment and the statement does not, and the
+ * line-granular form silently deleted a line of code. Comment spans are byte
+ * ranges; the exclusion has to be one too.
+ *
+ * With statements taken from the syntax tree the two sets are then disjoint —
+ * a statement inside a comment is not something a parser produces — so this
+ * is a guard rather than a subtraction. It is the guard HLR-016 asks for, and
+ * merging first is what stops it removing anything twice.
+ */
+static bool byte_is_comment(const SpanList *spans, uint32_t byte)
+{
+	for (size_t i = 0; i < spans->count; i++) {
+		if (byte < spans->items[i].start_byte)
+			return false;   /* sorted; no later span can contain it */
+		if (byte < spans->items[i].end_byte)
+			return true;
+	}
+	return false;
+}
+
+/* Record every counted statement with the line it starts on and the function
+ * it belongs to. */
+static int collect_statements(const LanguageModule *module, Registry *reg,
+                              TSNode root, const FnRangeIndex *ranges,
+                              const SpanList *comments, SiteList *sites)
+{
+	TSQuery      *query = module->queries[QUERY_ELOC];
+	TSQueryMatch  match;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		for (uint16_t i = 0; i < match.capture_count; i++) {
+			if (!capture_is(query, match.captures[i].index,
+			                CAPTURE_ELOC))
+				continue;
+
+			TSNode   node = match.captures[i].node;
+			uint32_t byte = ts_node_start_byte(node);
+
+			/* Counted once, at its start line: a statement spread
+			 * over four lines is the same statement as one written
+			 * on a single line, and style must not move the number
+			 * (HLR-053). */
+			uint32_t line = ts_node_start_point(node).row + 1;
+
+			if (byte_is_comment(comments, byte))
+				continue;
+
+			if (sites->count == sites->capacity &&
+			    grow((void **)&sites->items, &sites->capacity,
+			         sizeof *sites->items) != 0)
+				return -1;
+
+			const FnRange *owner = innermost_enclosing(ranges, byte);
+
+			sites->items[sites->count].line     = line;
+			sites->items[sites->count].function =
+				owner ? owner->index : NO_FUNCTION;
+			sites->count++;
+		}
+	}
+
+	return 0;
+}
+
+static int by_function_then_line(const void *a, const void *b)
+{
+	const StatementSite *x = a;
+	const StatementSite *y = b;
+
+	if (x->function != y->function)
+		return x->function < y->function ? -1 : 1;
+	if (x->line != y->line)
+		return x->line < y->line ? -1 : 1;
+	return 0;
+}
+
+static int by_line(const void *a, const void *b)
+{
+	const StatementSite *x = a;
+	const StatementSite *y = b;
+
+	if (x->line != y->line)
+		return x->line < y->line ? -1 : 1;
+	return 0;
+}
+
+/* Turn the recorded sites into counts.
+ *
+ * Both counts are of distinct *lines*, not of statements: two statements
+ * written on one line are one line of code, and counting the captures would
+ * make `a = 1; b = 2;` worth twice what the same two statements are worth on
+ * separate lines — which is the same error HLR-053 forbids, in the other
+ * direction.
+ */
+static void apply_eloc(FileMetrics *metrics, SiteList *sites)
+{
+	if (sites->count == 0)
+		return;
+
+	qsort(sites->items, sites->count, sizeof *sites->items,
+	      by_function_then_line);
+
+	for (size_t i = 0; i < sites->count; ) {
+		size_t   function = sites->items[i].function;
+		uint32_t previous = 0;
+		uint32_t count    = 0;
+
+		while (i < sites->count && sites->items[i].function == function) {
+			if (count == 0 || sites->items[i].line != previous) {
+				previous = sites->items[i].line;
+				count++;
+			}
+			i++;
+		}
+
+		/* A statement outside every reported function contributes to
+		 * the file and to nothing else. */
+		if (function != NO_FUNCTION)
+			metrics->functions[function].eloc = count;
+	}
+
+	qsort(sites->items, sites->count, sizeof *sites->items, by_line);
+
+	uint32_t previous = 0;
+	uint32_t total    = 0;
+
+	for (size_t i = 0; i < sites->count; i++) {
+		if (total == 0 || sites->items[i].line != previous) {
+			previous = sites->items[i].line;
+			total++;
+		}
+	}
+	metrics->eloc = total;
+}
+
 int analyze_file(Registry *reg, const char *path, FileMetrics **out)
 {
 	const LanguageModule *module;
-	FileMetrics          *metrics = NULL;
+	FileMetrics          *metrics  = NULL;
+	FnRangeIndex          ranges   = { 0 };
+	SpanList              comments = { 0 };
+	SiteList              sites    = { 0 };
 	struct stat           st;
 	void                 *map    = MAP_FAILED;
 	size_t                len    = 0;
@@ -273,10 +611,15 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out)
 		goto cleanup;
 	}
 
-	if (collect_functions(module, reg, map, root, metrics) != 0) {
+	if (collect_functions(module, reg, map, root, metrics, &ranges) != 0 ||
+	    collect_comments(module, reg, root, &comments) != 0 ||
+	    collect_statements(module, reg, root, &ranges, &comments,
+	                       &sites) != 0) {
 		fprintf(stderr, "elc: out of memory analysing %s\n", path);
 		goto cleanup;
 	}
+
+	apply_eloc(metrics, &sites);
 
 	*out    = metrics;
 	metrics = NULL;
@@ -286,6 +629,9 @@ cleanup:
 	/* Every acquired resource released on every path, in order: the tree
 	 * before the mapping it points into, and the mapping in the same
 	 * function that made it. */
+	free(sites.items);
+	free(comments.items);
+	free(ranges.items);
 	if (tree)
 		ts_tree_delete(tree);
 	if (map != MAP_FAILED)

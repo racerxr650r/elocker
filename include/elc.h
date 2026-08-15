@@ -57,16 +57,17 @@ typedef struct {
 	uint32_t  start_line; /* 1-based; TSPoint.row is 0-based and
 	                       * converted exactly once                      */
 	uint32_t  end_line;   /* 1-based                                     */
+	uint32_t  eloc;       /* statements attributed to this function
+	                       * alone, never to one enclosing it (HLR-068)  */
 } FunctionMetric;
 
-/* Per-file totals and the functions the file defines.
- *
- * `eloc` arrives with the stage that computes it (doc/SDD.md §18).
- */
+/* Per-file totals and the functions the file defines. */
 typedef struct {
 	char           *path;           /* canonical absolute path; owned   */
 	const char     *language;       /* borrowed from the language module */
 	uint32_t        physical_lines; /* newline count from the mapping    */
+	uint32_t        eloc;           /* file-level ELOC, including code
+	                                 * outside any function (HLR-019)    */
 	FunctionMetric *functions;      /* dynamic array, grown by doubling  */
 	size_t          function_count;
 } FileMetrics;

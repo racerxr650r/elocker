@@ -36,4 +36,58 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out);
 /* Release a file's metrics and every function name it owns. Safe on NULL. */
 void filemetrics_free(FileMetrics *metrics);
 
+/* --------------------------------------------------------------------------
+ * The two pieces of arithmetic ELOC rests on. Both are exposed because both
+ * are where this class of tool goes wrong, and both are worth testing against
+ * their contract directly rather than only through a parsed file.
+ */
+
+/* One comment's extent, in bytes and in lines. */
+typedef struct {
+	uint32_t start_byte;
+	uint32_t end_byte;
+	uint32_t start_line; /* 1-based */
+	uint32_t end_line;   /* 1-based */
+} CommentSpan;
+
+typedef struct {
+	CommentSpan *items;
+	size_t       count;
+	size_t       capacity;
+} SpanList;
+
+/* Sort the spans by start byte and coalesce every overlapping or nested run
+ * into one, in place; returns the number of lines the merged set covers.
+ *
+ * Captured comment spans overlap and nest — a block comment can contain what
+ * looks like an inline comment, and a language may nest block comments
+ * outright. Excluding them one capture at a time removes a shared line more
+ * than once, which is how a file's ELOC goes negative. Merging first is what
+ * makes the exclusion idempotent (HLR-016, LLR-MRG-01 – LLR-MRG-03).
+ */
+uint32_t merge_comment_spans(SpanList *spans);
+
+/* One reported function's byte extent, and where its metrics live. */
+typedef struct {
+	uint32_t start_byte;
+	uint32_t end_byte;
+	size_t   index;      /* into FileMetrics.functions */
+} FnRange;
+
+typedef struct {
+	FnRange *items;
+	size_t   count;
+	size_t   capacity;
+} FnRangeIndex;
+
+/* The narrowest reported function containing `byte`, or NULL when the offset
+ * lies outside every one of them — file-scope code, which contributes to the
+ * file's ELOC and to no function's.
+ *
+ * Narrowest, not first: a nested named function is reported in its own right
+ * (HLR-067), and its statements must contribute to it and not also to the
+ * function enclosing it (HLR-068, LLR-INN-01).
+ */
+const FnRange *innermost_enclosing(const FnRangeIndex *index, uint32_t byte);
+
 #endif /* ELC_ANALYZE_H */

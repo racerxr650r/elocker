@@ -151,6 +151,45 @@ setup() {
 	assert_output "0"
 }
 
+# Verifies LLR-BLD-13: `make help` and the file's own header are one text.
+#
+# The help block is hand-maintained, which the mechanism it replaced was not:
+# the old one reconstructed the list by pattern-matching the target
+# declarations, so it could not drift. This buys that guarantee back — the
+# text is written once, for both readers, and cannot silently disagree with
+# the targets that exist.
+@test "the help block and the real target set agree" {
+	local listed declared
+
+	# Names in the help block, which `make help` prints verbatim.
+	listed="$(sed -n 's/^#>  \([a-z][a-z0-9-]*\)  *[A-Z].*/\1/p' \
+		"$REPO_ROOT/Makefile" | sort -u)"
+
+	# Every .PHONY target, less the internal helpers, which are named with
+	# a leading underscore precisely so they can be excluded here.
+	declared="$(grep -oE '^\.PHONY: .*' "$REPO_ROOT/Makefile" |
+		sed 's/^\.PHONY: //' | tr ' ' '\n' |
+		grep -vE '^(_|$)' | sort -u)"
+
+	assert_equal "$listed" "$declared"
+}
+
+@test "make help prints the block from the file's header" {
+	run make -C "$REPO_ROOT" help
+	assert_success
+	assert_output --partial "Usage:"
+	assert_output --partial "make <target>"
+
+	# Every listed target must appear in what is printed, and the marker
+	# must not.
+	while read -r target; do
+		[ -n "$target" ] || continue
+		assert_output --partial "$target"
+	done < <(sed -n 's/^#>  \([a-z][a-z0-9-]*\)  *[A-Z].*/\1/p' "$REPO_ROOT/Makefile")
+
+	refute_output --partial "#>"
+}
+
 # --- HLR-060, HLR-121: the runtime data actually ships ---------------------
 
 # This exists because it did not. `.gitignore` carries `*.map` for linker map

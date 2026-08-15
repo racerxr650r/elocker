@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 1.9
-**Date:** 2026-08-15
+**Version:** 2.0
+**Date:** 2026-08-16
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -413,6 +413,15 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-37"></a>**LLR-ANL-37** — `analyze_file` shall distinguish a file skipped for want of a usable language module from a file that failed to be read or parsed, and shall report the two as different outcomes, so that a skip leaves the exit status at zero and a failure does not.
     *Trace:* HLR-012, HLR-035, HLR-037.
 
+*   <a id="LLR-ANL-38"></a>**LLR-ANL-38** — `analyze_file` shall compute ELOC as a count of distinct lines carrying a counted statement, so that two statements written on one line contribute one and the same two written on separate lines contribute two.
+    *Trace:* HLR-015, HLR-053.
+
+*   <a id="LLR-ANL-39"></a>**LLR-ANL-39** — `analyze_file` shall exclude a captured statement from ELOC when the statement itself lies within the merged comment set, and shall not exclude a statement merely because its line also carries a comment.
+    *Trace:* HLR-016, HLR-015.
+
+*   <a id="LLR-ANL-40"></a>**LLR-ANL-40** — `analyze_file` shall attribute a statement lying outside every reported function to no function, counting it toward the file's ELOC alone.
+    *Trace:* HLR-019, HLR-068.
+
 *   <a id="LLR-ANL-34"></a>**LLR-ANL-34** — `analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -428,6 +437,9 @@ The comment-deduction algorithm. A naive implementation is silently wrong on nes
 
 *   <a id="LLR-MRG-03"></a>**LLR-MRG-03** — `merge_comment_spans` shall exclude no line more than once, so that a block comment containing inline comment syntax cannot drive a file's ELOC below zero.
     *Trace:* HLR-016 (Comment Span Merging), HLR-034 (Correctness Against Hand-Counted Fixtures).
+
+*   <a id="LLR-MRG-05"></a>**LLR-MRG-05** — `merge_comment_spans` shall report the number of distinct lines the merged set covers, counting a line shared by two spans that do not overlap in bytes — two comments written on one line — once rather than once per span.
+    *Trace:* HLR-016.
 
 *   <a id="LLR-MRG-04"></a>**LLR-MRG-04** — `merge_comment_spans` shall index the span array only within its populated extent while sorting and coalescing, so that coalescing a run of adjacent spans cannot read past the final element.
     *Trace:* HLR-124 (Memory Safety).
@@ -715,6 +727,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-18"></a>**LLR-RPT-18** — `report_assemble` shall take ownership of the accumulated per-file metrics and leave the accumulator empty, so that a caller releasing both the accumulator and the report — as it must on every exit path — cannot free the same metrics twice.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
+*   <a id="LLR-RPT-19"></a>**LLR-RPT-19** — `report_assemble` shall accumulate the physical-line and ELOC totals of each language present in the run into its own entry, ordered by language name, so that a language's contribution is visible separately from the combined totals.
+    *Trace:* HLR-025, HLR-033.
+
 *   <a id="LLR-RPT-16"></a>**LLR-RPT-16** — `report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -892,6 +907,9 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-12"></a>**LLR-BLD-12** — The build shall produce each delivered language grammar from a pinned upstream release, compiling the generated parser that release publishes, so that no code-generation step is required at build time and the version delivered is a recorded decision rather than whatever was current.
     *Trace:* HLR-040, HLR-011, HLR-009.
+
+*   <a id="LLR-BLD-13"></a>**LLR-BLD-13** — The build shall carry its usage summary as a marked comment block in the makefile's own header and shall print that block for the help target, so that one text serves a reader who opens the file and a reader who runs it, and shall fail its own test suite when that block and the set of declared targets disagree.
+    *Trace:* HLR-128.
 
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).

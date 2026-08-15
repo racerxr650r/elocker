@@ -117,26 +117,47 @@ precedence (HLR-059). The Makefile creates `build/runtime` as a symlink so
 **GNU make.** Non-recursive — one top-level `Makefile`, no `make -C` into
 subdirectories.
 
-### The self-documenting help hack
+### The help text lives in the file's header
 
-The Makefile is self-documenting, and `help` is the **default goal**. `make`
-with no arguments prints the target list; `make all` builds.
+The Makefile documents itself, and `help` is the **default goal**. `make`
+with no arguments prints the usage summary; `make all` builds.
 
-- Every target that should appear in `make help` carries a
-  `## <description>` comment **on the same line as the target declaration**.
-- The `help` target `awk`s those comments out of `$(MAKEFILE_LIST)`.
+The summary is a comment block at the top of the Makefile, marked `#>`, and
+`make help` prints that block with the marker stripped:
 
 ```makefile
 .DEFAULT_GOAL := help
 
+#>Usage:
+#>  make <target>
+#>
+#>Build:
+#>  all             Build elc, the grammars, and the runtime symlink
+#>  ...
+
 .PHONY: help
-help: ## Display this help message
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} \
-		/^[a-zA-Z_0-9-]+:.*##/ {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+help:
+	@printf '\n'
+	@sed -n 's/^#>//p' $(firstword $(MAKEFILE_LIST))
+	@printf '\n'
 ```
 
-**Every target you add MUST have a `## <description>` comment**, or it
-silently disappears from `make help`.
+**One text, two ways of reading it.** Most people meet a Makefile by opening
+it, and the previous mechanism — reconstructing the list by `awk`-ing a
+`## <description>` off each target declaration — gave that reader nothing: the
+help existed only as a side effect of a regular expression over the source.
+
+`#>` is the marker because it cannot occur in ordinary prose, so no comment
+joins the help by accident.
+
+**Every target you add MUST appear in the help block**, and every name in the
+block must be a real target. That is not a convention anyone has to remember:
+an instrumented test compares the block against the `.PHONY` declarations and
+fails on either kind of drift. Internal helper targets are named with a
+leading underscore, which is what excludes them.
+
+The old `## <description>` annotations are gone. Do not reintroduce them —
+two mechanisms for one text is how the two come to disagree.
 
 ### Makefile conventions
 
@@ -167,10 +188,10 @@ silently disappears from `make help`.
 
 ### Required targets
 
-Each row is also the `##` description — keep them in sync.
+Each row is also the line in the help block — keep them in sync.
 
-| Target | `##` description |
-| ------ | ---------------- |
+| Target | Help-block description |
+| ------ | ---------------------- |
 | `help` (default goal) | Display this help message |
 | `all` | Build elc and the runtime symlink |
 | `test` | Run every test level |
@@ -428,8 +449,8 @@ extensibility pillar is broken — stop and fix that instead.
 
 - [ ] `make all` is clean at `-Wall -Wextra -Wpedantic`, no new warnings.
 - [ ] `make test` passes — both unit and integration suites.
-- [ ] Any new Makefile target has a `## <description>` and appears in
-      `make help`, with `.PHONY` set if it is not a file.
+- [ ] Any new Makefile target appears in the `#>` help block at the top of
+      the Makefile, with `.PHONY` set if it is not a file.
 - [ ] New or changed behaviour has a Bats test; new languages have a fixture.
 - [ ] `make asan` clean.
 - [ ] `valgrind --leak-check=full` clean on a single file, a directory, and a

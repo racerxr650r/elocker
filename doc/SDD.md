@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.0
-**Date:** 2026-08-15
+**Version:** 2.1
+**Date:** 2026-08-16
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -448,7 +448,7 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
         4.  `ts_parser_set_language()` and `ts_parser_parse_string()` with the explicit `st_size` length — the mapping is not NUL-terminated.
         5.  Run `comments.scm`, collect spans, sort by start byte, and merge overlaps into a canonical excluded-line set (HLR-016).
         6.  Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067). A match is a function only when it supplies **both** `@function.name` and `@function.body`; a match carrying one without the other is discarded rather than reported as a function with no line range or a line range with no name.
-        7.  Run `eloc.scm` and `complexity.scm`, attributing each capture to its innermost enclosing reported function; count each multi-line statement once at its start line (HLR-053, HLR-068).
+        7.  Run `eloc.scm` and `complexity.scm`, attributing each capture to its innermost enclosing reported function, or to no function when it lies outside every one of them — file-scope code, which contributes to the file's ELOC alone (HLR-019). Record the line each capture starts on, discard any capture falling inside the merged comment set, and count distinct lines (HLR-053, HLR-068).
         8.  Run `calls.scm` and `globals.scm`, recording each call site, each global access, and each address-taken function with its enclosing function, into `FileFacts`.
         9.  Run every loaded custom rule query and record its matches (HLR-109). A match's identity is the rule file's basename plus the capture name that matched, so one `.scm` file may express several distinct named rules.
         10.  `ts_tree_delete()` and `munmap()` on every exit path.
@@ -460,14 +460,22 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
 
         **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.
 
-*   **`uint32_t merge_comment_spans(SpanList *spans)`** — Sort by start byte and coalesce overlapping and nested spans; returns the merged line count.
+*   **`uint32_t merge_comment_spans(SpanList *spans)`** — Sort by start byte and coalesce overlapping and nested spans, in place; returns the number of distinct lines the merged set covers.
 *   **`const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)`** — Return the narrowest reported function containing a byte offset.
 *   **`void filemetrics_free(FileMetrics *m)`** — Release a file's metrics and every function name it owns.
 *   **`void filefacts_free(FileFacts *f)`** — Release the call sites, global accesses, address-taken records, and rule matches a file produced.
 
 #### 7.3.3 Parsing Strategy / Algorithm
 
-Comment-span merging is the one place where a naive implementation is silently wrong. Spans are sorted by start byte and coalesced pairwise; only then is the merged line count excluded. Subtracting per capture double-counts a block comment that contains inline comment syntax, and can drive a file's ELOC negative. The innermost-enclosing lookup is the analogous safeguard for nested named functions: attributing each statement to exactly one reported function is what prevents a nested subprogram's lines from being counted twice (HLR-068).
+**ELOC is a count of lines, derived from statements.** Each capture from `eloc.scm` contributes the line it *starts* on, and the count is of distinct lines. Both halves matter, for opposite reasons: taking the start line is what makes a statement spread over four lines worth one (HLR-053), and counting distinct lines rather than captures is what stops two statements written on one line being worth two — the same error inverted. What does *not* count is decided by absence from the query file rather than by a rule in C: a blank line, a lone brace, a bare declaration, and a preprocessor directive are excluded by never being captured (HLR-049 – HLR-052).
+
+**Comment-span merging is the one place where a naive implementation is silently wrong.** Spans are sorted by start byte and coalesced pairwise before anything is excluded. Subtracting per capture double-counts a block comment that contains inline comment syntax, and can drive a file's ELOC negative.
+
+The merged set is applied as a **byte-granular** exclusion, not a line-granular one, and the difference is not academic. On a line reading `int n = 0;` followed by a trailing comment, the line touches a comment span and the statement does not; excluding by line deletes a line of code. Because statements come from the syntax tree the two sets are then disjoint in practice — a parser does not produce a statement inside a comment — so the exclusion is a guard rather than a subtraction. It is the guard HLR-016 asks for, and merging first is what makes it idempotent.
+
+The merged line count is likewise a count of *distinct* lines. Two comments on one line are two disjoint byte ranges that do not coalesce, and summing their line counts would report that one line twice.
+
+**The innermost-enclosing lookup is the analogous safeguard for nested named functions.** Attributing each statement to exactly one reported function is what prevents a nested subprogram's lines from being counted twice (HLR-068), and *narrowest* rather than *first* is what makes the answer independent of the order the query matched — an implementation returning the first containing range would also break HLR-032.
 
 ### 7.4 Dependencies
 
@@ -721,11 +729,11 @@ The hidden-channel test asks whether the functions touching a global fall into m
     *   Post-condition: Every collection in `out` is sorted by its defined key; no renderer needs to sort anything. The accumulator's per-file metrics have moved into the model, which owns them thereafter, and the accumulator is left empty — so releasing both, as `main()` does on every path, cannot free the same metrics twice.
     *   Return Value: 0 on success.
     *   Logic:
-        1.  Sum physical lines and ELOC across all files, both combined and per language (HLR-024, HLR-025).
+        1.  Sum physical lines and ELOC across all files, both combined and per language (HLR-024, HLR-025). A language's row is created on first sight of a file written in it; the list holds one entry per language present, so a linear search costs less than the structure that would avoid it.
         2.  Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026).
         3.  For each file, filter its functions by the complexity threshold into the over-threshold list (HLR-021).
         4.  Attach the architectural findings, custom-rule matches, and omission notices.
-        5.  Sort files by path; functions by start line and then by name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.
+        5.  Sort files by path; functions by start line and then by name; per-language totals by language name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.
     *   Notes: Centralising every sort here is deliberate: it is the single place a reviewer must check to be satisfied that HLR-032's byte-identical guarantee holds, rather than auditing six renderers and three analysis modules.
 
         `discover.c` also sorts, and the two are not redundant. Its sort exists so that de-duplication can collapse equal canonical paths, and so that the *analysis* order is not the filesystem's; this one exists so that *presentation* order is a property of the model. A later phase that changes how files are discovered therefore cannot silently change how they are presented.
@@ -765,14 +773,22 @@ The table is laid out in tiers, each introduced by a heading and indented beneat
 
 ```text
 Project summary
-  Files             3
+  Files             2
   Physical lines   42
+  ELOC             18
+  Functions         3
+  Skipped           0
+
+Languages
+  Language  Files  Lines  ELOC
+  --------  -----  -----  ----
+  c             2     42    18
 
 Files
-  File                    Lines
-  ----------------------  -----
-  /home/u/proj/src/a.c       18
-  /home/u/proj/src/b.c       21
+  File                  Language  Lines  ELOC  Functions
+  --------------------  --------  -----  ----  ---------
+  /home/u/proj/src/a.c  c            18    12          2
+  /home/u/proj/src/b.c  c            24     6          1
 ```
 
 Each column is exactly as wide as its widest cell and no wider: the path column from the longest path, the numeric columns from the largest value.
