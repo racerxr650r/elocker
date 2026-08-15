@@ -148,6 +148,43 @@ them. None is documented where you would look for it.
 
 ---
 
+### 1.5 What is installed in the development environment, 2026-08-15
+
+Every dependency the build needs is now present, and `make check-prereqs`
+reports every tool and every library found. Two things about *how* they
+are present matter, and neither is visible from "it builds":
+
+*   **They came from the distribution, not from `make prereqs-src`.**
+    Every library reports a prefix of `/usr`; a source build installs
+    under `/usr/local`. So the same-day-advisory-response property
+    described in §1.1 does not hold in this environment today — a CVE
+    against `libgit2` would be answered on the distribution's schedule,
+    not by bumping a version at the top of the Makefile. Running
+    `make prereqs-src` restores it.
+*   **Two are below the SDP §0 minimum**, and `check-prereqs` says so
+    rather than failing, because a library is not linked until its phase:
+
+    | Library | Installed | Minimum | Needed from |
+    | ------- | --------- | ------- | ----------- |
+    | `tree-sitter` | 0.22.6 | 0.25 | **Phase 2** |
+    | `igraph` | 0.10.15 | 1.0 | Phase 8 |
+
+    The `tree-sitter` shortfall is not a future problem: Phase 2 links it
+    and compiles queries against it. Build it from source before starting
+    that phase, or the first grammar load is debugging a version gap
+    rather than the code.
+
+    `igraph` 0.10.15 does not report `libxml2` in its link line, so the
+    GraphML-support warning of §1.1 has not fired — but the 1.0 rebuild
+    that Phase 8 needs anyway must carry
+    `-DIGRAPH_GRAPHML_SUPPORT=OFF`, so the condition is worth
+    re-checking then rather than assumed settled.
+
+Criterion 2.4.1 is installed and `make unit` runs locally, which the
+Phase 0 note in §3 recorded as unavailable. That entry is annotated.
+
+---
+
 ## 2. Research findings (August 2026)
 
 ### 2.1 Status of the dependencies, as checked
