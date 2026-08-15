@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.1
-**Date:** 2026-08-14
+**Version:** 3.2
+**Date:** 2026-08-15
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -41,7 +41,7 @@ Requirements governing how `elc` discovers and selects the set of source files t
     *Trace:* [SDD Section 5](SDD.md), [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
 
 *   <a id="HLR-005"></a>**HLR-005: Filesystem-Fallback Exclusion.**
-    During the filesystem-level traversal of HLR-004, `elc` shall exclude files with recognized binary file extensions and shall exclude hidden directories from analysis. The set of recognized binary extensions shall be defined by data in the runtime location rather than compiled into the executable, so that the exclusion list may be adjusted without a rebuild, consistent with HLR-060.
+    During the filesystem-level traversal of HLR-004, `elc` shall exclude files with recognized binary file extensions, and shall exclude hidden files and hidden directories, from analysis. An entry is hidden when its name begins with a period; the exclusion applies below the target and not to the target itself, since naming a hidden path as the target is explicit. Excluding hidden *files* as well as hidden directories is what makes HLR-039 observable: a configuration-like file planted in the analysis target cannot change the output if the traversal never yields it. The set of recognized binary extensions shall be defined by data in the runtime location rather than compiled into the executable, so that the exclusion list may be adjusted without a rebuild, consistent with HLR-060.
     *Trace:* [SDD Section 5](SDD.md).
 
 *   <a id="HLR-069"></a>**HLR-069: Symbolic Link Handling During Traversal.**

@@ -9,6 +9,12 @@ fed them have been deleted as their content was absorbed — which is the
 rule this file runs on. What remains is the residue: decisions still
 open, and findings worth not rediscovering.
 
+Phase 0 is complete and merged behaviour now lives in the specification,
+so what that phase taught is mostly *not* here — the `--wrap` `volatile`
+trap and the instrumented-test portability rule both went into
+[STP.md](STP.md) §2.2, where the next person writing such a test will
+actually be standing. Only what has no home in a specification stayed.
+
 ---
 
 ## 1. For the development plan / build
@@ -70,6 +76,19 @@ so code written for one does not compile against the other.
 It is a test framework that is never linked into the shipped binary, so
 a vulnerability in it reaches no user of elc.
 
+**The one gap in this story: nothing verifies what was downloaded.**
+`make prereqs-src` fetches four tarballs over HTTPS and builds whatever
+arrives. There is no checksum and no signature check, so the pinned
+version protects against a *silent upgrade* but not against a tampered
+or substituted archive — which is a strange place to stop, given that
+supply-chain response is the entire reason the libraries are built from
+source. The fix is small and self-contained: record the SHA-256 of each
+release beside its version variable and have the `fetch` macro verify
+before unpacking. It has not been done. Do it the next time these
+versions are bumped, so the checksums are captured from an upstream
+release page at the moment the version is chosen rather than computed
+from a download already in hand — which would verify nothing.
+
 ### 1.2 Bats is vendored, not installed
 
 The SDP §0 lists Bats as a required *tool* and only `bats-support` /
@@ -101,6 +120,68 @@ runtime/
 
 Six required queries per language, not three — the count grew when
 graph analysis and ELOC classification were added.
+
+### 1.4 What the spec toolchain does and does not enforce
+
+Three behaviours of TraceR that Phase 0 established by running into
+them. None is documented where you would look for it.
+
+*   **`lint_project.py` does not fail on uncovered requirements.** A
+    requirement with no verifying test is reported as a *warning* and
+    the tool exits 0. Coverage is therefore enforced entirely outside
+    TraceR: `make coverage` counts the warning lines and compares them
+    against [`test/gap-baseline.txt`](../test/gap-baseline.txt), and CI
+    fails only if the count *rises*. Lowering the baseline is a manual
+    step in the phase protocol — nothing detects that you wrote tests
+    and forgot to bank them. The number is 361 after Phase 0, down from
+    378.
+*   **`make spec` re-renders all five documents into a temporary
+    directory and diffs them against what is committed.** Editing a
+    generated `.md` by hand therefore fails CI rather than sticking.
+    Every change goes into [`Project.xml`](Project.xml), and the
+    documents are regenerated with
+    `python3 tools/render_doc.py tools/templates/<D>.md.j2 <D> --out doc/<D>.md`.
+*   **An empty `<traces>` element is schema-invalid.** A catalogued test
+    that verifies no requirement — harness self-checks, mostly — must
+    omit the element entirely. Emitting it empty to mean "none" fails
+    validation with a message that does not obviously say so.
+
+---
+
+### 1.5 What is installed in the development environment, 2026-08-15
+
+Every dependency the build needs is now present, and `make check-prereqs`
+reports every tool and every library found. Two things about *how* they
+are present matter, and neither is visible from "it builds":
+
+*   **They came from the distribution, not from `make prereqs-src`.**
+    Every library reports a prefix of `/usr`; a source build installs
+    under `/usr/local`. So the same-day-advisory-response property
+    described in §1.1 does not hold in this environment today — a CVE
+    against `libgit2` would be answered on the distribution's schedule,
+    not by bumping a version at the top of the Makefile. Running
+    `make prereqs-src` restores it.
+*   **Two are below the SDP §0 minimum**, and `check-prereqs` says so
+    rather than failing, because a library is not linked until its phase:
+
+    | Library | Installed | Minimum | Needed from |
+    | ------- | --------- | ------- | ----------- |
+    | `tree-sitter` | 0.22.6 | 0.25 | **Phase 2** |
+    | `igraph` | 0.10.15 | 1.0 | Phase 8 |
+
+    The `tree-sitter` shortfall is not a future problem: Phase 2 links it
+    and compiles queries against it. Build it from source before starting
+    that phase, or the first grammar load is debugging a version gap
+    rather than the code.
+
+    `igraph` 0.10.15 does not report `libxml2` in its link line, so the
+    GraphML-support warning of §1.1 has not fired — but the 1.0 rebuild
+    that Phase 8 needs anyway must carry
+    `-DIGRAPH_GRAPHML_SUPPORT=OFF`, so the condition is worth
+    re-checking then rather than assumed settled.
+
+Criterion 2.4.1 is installed and `make unit` runs locally, which the
+Phase 0 note in §3 recorded as unavailable. That entry is annotated.
 
 ---
 
@@ -186,6 +267,69 @@ None is a defect; each is a judgement that could go the other way.
     theme — which would need HLR-041 revisited.
 *   **HLR-042 is permanently retired** — the old performance-target
     requirement. Do not reuse the number.
+*   **CI runs twice on a phase branch with an open PR.** The workflow
+    triggers on pushes to `phase/**` and on pull requests targeting
+    `develop`, and a phase branch under review satisfies both, so all
+    nine jobs execute twice per push. It was left that way because a
+    phase branch is also pushed *before* its PR exists and the feedback
+    is wanted then too. Dropping `phase/**` from the push trigger halves
+    the minutes at the cost of that early signal; restricting it to
+    pushes without an open PR is not expressible in the `on:` syntax and
+    would need a job-level `if`.
+*   **Unit tests do not run locally in the development environment
+    used so far** — `libcriterion-dev` needs package-install rights that
+    were unavailable, so the unit level is verified in CI only (§1.2).
+    Anything that passes review without a local Criterion run has had
+    its unit level checked by a machine and not by a person.
+    *Update, Phase 1:* Criterion 2.4.1 was present in the environment
+    Phase 1 was written in, and `make unit` ran locally throughout. The
+    constraint is environment-specific, not a property of the project.
+*   **`discover.c` resolves the runtime location for itself**
+    (Phase 1). `binary.exts` is runtime data (HLR-005), so discovery
+    needs the runtime location — and the module that owns that
+    resolution, `registry.c`, does not exist until Phase 2. Rather than
+    hold discovery to a compiled-in list until then, `discover.c`
+    performs the `$ELC_RUNTIME_DIR`-then-adjacent-to-the-executable
+    resolution for that one file. Phase 2 should resolve it once in
+    `registry.c` per LLR-ROP-01/02 and have `discover.c` ask; two copies
+    of one precedence rule is exactly the sort of thing that drifts.
+    Noted in the SDP's Phase 2 prompt so it is not forgotten.
+*   **A symbolic link to a *file* is skipped during traversal**, not
+    only a link to a directory (LLR-FTS-05). HLR-069's text is about
+    unbounded traversal and double-counting, both of which the
+    directory case covers; extending it to files was a judgement, made
+    because a link to a file inside the tree double-counts it and a
+    link out of the tree silently widens what the target denotes. The
+    cost is that a repository which uses file symlinks as its normal
+    layout will under-report on the filesystem route. The Git route
+    (Phase 7) sees the link as a tracked blob, so the two routes may
+    disagree there — worth checking against HLR-126 when Phase 7 lands.
+*   **Hidden *files* are excluded from the walk, not just hidden
+    directories** (HLR-005, amended in Phase 1). The reason is
+    HLR-039: it states observably that a configuration-like file in
+    the analysis target must produce output byte-identical to its
+    absence, and a walk that yields `.elcrc` as a discovered file
+    cannot satisfy that. Excluding hidden entries wholesale is the
+    smaller change, and dotfiles are not source. A hidden path named
+    *as* the target is still walked; naming it is explicit.
+*   **The fixture suites are flat, the fixture data is not.**
+    `test/fixtures/traversal/` holds the tree; `test/fixtures/traversal.bats`
+    sits beside it rather than inside. Bats' recursive discovery
+    (`bats -r`) enumerates suites with `find -L`, which follows
+    symbolic links — and the traversal fixture contains a deliberate
+    self-referential one. GNU find detects the loop and warns rather
+    than hanging, but a harness that has to survive a tree built to
+    defeat walking is a harness waiting to break. Keeping the suites
+    flat means no recursion is needed at all.
+*   **LeakSanitizer and `strace` cannot both watch the same run.**
+    LSan stops the world at exit through a `clone`d tracer and
+    `ptrace`, which collides with `strace`'s attachment and aborts the
+    process. The instrumented suite therefore disables leak detection
+    for a traced run and for that run only (`strace_elc` in
+    `test/helpers/common.bash`). This was found in Phase 1 and was
+    already affecting Phase 0's network-syscall test under `make asan`:
+    the trace was being truncated by the abort, so the test passed
+    because elc had died, not because it made no network call.
 
 ---
 

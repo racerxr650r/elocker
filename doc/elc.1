@@ -3,7 +3,7 @@
 .\" This page describes the version it ships with (HLR-129). Every option elc
 .\" accepts appears here, and every option here is accepted; the documentation
 .\" test in test/integration/docs.bats enforces both directions.
-.TH ELC 1 "2026-08-14" "elocker" "User Commands"
+.TH ELC 1 "2026-08-15" "elocker" "User Commands"
 .SH NAME
 elc \- per-function code metrics and whole-project architecture analysis
 .SH SYNOPSIS
@@ -24,14 +24,41 @@ is a source file or a directory. Several may be given in any combination; a
 file reached through more than one target is analysed once.
 .SS Current state
 .B elc
-is under active development. This release parses its command line, reports
-usage, and returns the exit status described below. The analysis stages —
-effective lines of code, cyclomatic complexity, the System Dependence Graph
-and the findings derived from it — are delivered by later phases, and this
-page grows with them. See
+is under active development. This release discovers the files in its targets
+and reports each one's physical line count in the table described under
+.BR OUTPUT ,
+together with the project totals. Nothing is parsed yet: effective lines of
+code, cyclomatic complexity, the System Dependence Graph and the findings
+derived from it are delivered by later phases, and this page grows with them.
+See
 .B doc/SDP.md
 in the distribution for what each phase adds.
+.SS Discovery
+A target that is a regular file is analysed directly, with no traversal. A
+target that is a directory is walked recursively. During that walk
+.B elc
+excludes hidden files and hidden directories, and files whose extension
+appears in
+.IR runtime/binary.exts .
+.PP
+A symbolic link encountered during the walk is not followed, so a directory
+reached through a link is never descended into and a self-referential link
+cannot produce an unbounded traversal. A symbolic link named
+.I directly
+as a target is resolved and analysed, since naming it identifies its referent.
+.PP
+Every target is validated before any of them is walked, so an invalid target
+is reported whatever else was named and no report is produced that covers
+fewer targets than were given. Each discovered file is reduced to its
+canonical absolute path and analysed exactly once, however many targets reach
+it.
 .SH OPTIONS
+.TP
+.BR \-o ", " \-\-output " " \fIFILE\fR
+Write the report to
+.I FILE
+instead of to standard output. Diagnostics continue to go to standard error,
+so the file holds results and nothing else. The default is standard output.
 .TP
 .BR \-h ", " \-\-help
 Display a usage summary on standard output and exit successfully. Requesting
@@ -53,9 +80,42 @@ failed to be read or parsed. The report covers the files that succeeded.
 The run did not complete and no report was produced: a usage error, an
 invalid target, a fatal runtime-location failure, or a rejected saved record.
 .SH OUTPUT
-Results are written to standard output; diagnostics are written to standard
-error. Nothing else is written to the results stream, so output may be piped
-or captured without being corrupted by diagnostic text.
+Results are written to standard output, or to the file named with
+.BR \-\-output ;
+diagnostics are written to standard error. Nothing else is written to the
+results stream, so output may be piped or captured without being corrupted by
+diagnostic text.
+.PP
+The default format is an aligned table in two tiers. The first is the project
+summary — the number of files analysed and their combined physical line
+count. The second lists each file with its own physical line count, the
+column widths taken from the longest path so the figures line up:
+.PP
+.EX
+Project summary
+  Files             3
+  Physical lines   42
+
+Files
+  File                    Lines
+  ----------------------  -----
+  /home/u/proj/src/a.c       18
+  /home/u/proj/src/b.c       21
+  /home/u/proj/src/sub/c.c    3
+.EE
+.PP
+Files are listed by canonical absolute path in ascending byte order. That
+order is a property of the report rather than of the filesystem, so two runs
+over the same tree produce byte-identical output, and so do two runs that
+name the same targets in a different order.
+.PP
+A run in which no file was found still produces this report, with zero totals
+and an empty table, and exits successfully. Silence would be
+indistinguishable from a failure.
+.PP
+The shape of the report does not vary with the type of the target: a single
+file, a plain directory, and a repository all produce the same headings and
+the same columns.
 .SH ENVIRONMENT
 .TP
 .B ELC_RUNTIME_DIR
@@ -73,6 +133,10 @@ The query files that define what elc extracts for that language.
 .TP
 .I runtime/extensions.map
 Maps a file extension to a language name.
+.TP
+.I runtime/binary.exts
+Extensions excluded from the directory walk, one per line. Editing this file
+changes what is excluded; no rebuild is needed.
 .SH CONFIGURATION
 .B elc
 has none. Behaviour is determined entirely by the command line and the
@@ -90,6 +154,12 @@ Analyse a directory.
 .TP
 .B elc src/main.c src/cli.c
 Analyse named files.
+.TP
+.B elc src/main.c src/
+Analyse a file and a directory that contains it. The file is reported once.
+.TP
+.B elc \-o report.txt src/
+Write the report to a file, leaving standard output empty.
 .SH SEE ALSO
 .BR cloc (1),
 .BR gprof (1)

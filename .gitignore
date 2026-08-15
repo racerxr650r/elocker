@@ -56,3 +56,7 @@ dkms.conf
 
 # Build output
 /build/
+
+# Python bytecode from the spec tooling
+__pycache__/
+*.pyc

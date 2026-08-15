@@ -1,2 +1,93 @@
 # Extensions excluded from filesystem traversal (HLR-005).
-# Populated by Phase 1.
+#
+# One extension per line, with or without its leading dot; blank lines and
+# lines beginning with '#' are ignored. Matching is case-insensitive, so a
+# single entry covers ".PNG" as well as ".png".
+#
+# This list is data, not code: an extension is added or removed by editing
+# this file, with no rebuild (HLR-005, HLR-060). It applies to the filesystem
+# route only — the Git route excludes binary blobs by asking the repository
+# what is binary, which needs no list at all (HLR-003).
+#
+# The list is deliberately about *form*, not about language support. A file
+# whose extension maps to no language module is skipped later and reported as
+# skipped (HLR-012), which is visible; excluding it here would make it
+# vanish. Only files that are binary by construction belong below.
+
+# Object code, libraries, and executables
+.o
+.obj
+.a
+.lib
+.so
+.dylib
+.dll
+.exe
+.elf
+.ko
+.class
+.wasm
+.pyc
+.pyo
+.pdb
+
+# Archives and compressed streams
+.zip
+.tar
+.gz
+.bz2
+.xz
+.zst
+.7z
+.rar
+.jar
+.war
+.tgz
+
+# Images
+.png
+.jpg
+.jpeg
+.gif
+.bmp
+.ico
+.tif
+.tiff
+.webp
+
+# Documents that are containers rather than text
+.pdf
+.doc
+.docx
+.xls
+.xlsx
+.ppt
+.pptx
+.odt
+.ods
+
+# Audio and video
+.mp3
+.mp4
+.m4a
+.wav
+.flac
+.ogg
+.avi
+.mkv
+.mov
+
+# Fonts
+.ttf
+.otf
+.woff
+.woff2
+.eot
+
+# Databases and disk images
+.db
+.sqlite
+.sqlite3
+.iso
+.img
+.dmg

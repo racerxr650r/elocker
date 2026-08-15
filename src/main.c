@@ -4,21 +4,35 @@
  * stage, and translates the accumulated failure record into a process exit
  * status. Contains no analysis logic of its own (doc/SDD.md §3).
  *
- * Phase 0 wires only the first stage. Each later phase inserts its stage
- * between argument parsing and the exit-status computation, in the order the
- * SDD's flow describes.
+ * The whole run happens on the thread main() was entered on; no stage
+ * creates another (HLR-041, LLR-MAIN-14).
+ *
+ * Phase 1 wires discovery, per-file measurement, assembly, and rendering.
+ * Each later phase inserts its stage into this same sequence, in the order
+ * the SDD's flow describes.
  */
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
+#include "analyze.h"
 #include "cli.h"
+#include "discover.h"
 #include "elc.h"
+#include "format_text.h"
+#include "report.h"
 
 int main(int argc, char *argv[])
 {
-	ElcOptions opts;
-	int status = ELC_EXIT_OK;
+	ElcOptions         opts;
+	FileList           files    = { 0 };
+	MetricsAccumulator acc      = { 0 };
+	Report             report   = { 0 };
+	FILE              *out      = NULL;
+	size_t             failures = 0;
+	int                status   = ELC_EXIT_OK;
 
 	switch (cli_parse(argc, argv, &opts)) {
 	case CLI_HELP:
@@ -35,12 +49,68 @@ int main(int argc, char *argv[])
 		break;
 	}
 
-	/* Stages arrive here as later phases build them: registry_open,
-	 * discover_targets, analyze_file, graph_build, the analyses,
-	 * thresholds_apply, report_assemble, and the renderers. Phase 0 has
-	 * none of them, so a valid command line produces no report and the
-	 * run is trivially successful. */
+	/* An invalid target ends the run here, before any file is measured, so
+	 * no report can silently cover fewer targets than were named
+	 * (HLR-062, LLR-MAIN-10). */
+	if (discover_targets(&opts, &files, &failures) != 0) {
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
 
+	for (size_t i = 0; i < files.count; i++) {
+		FileMetrics *metrics = NULL;
+
+		/* A per-file failure is recorded, not propagated: the run
+		 * continues over the remaining files and the status reflects it
+		 * at the end (HLR-035, LLR-MAIN-07). */
+		if (analyze_file(files.paths[i], &metrics) != 0) {
+			failures++;
+			continue;
+		}
+		if (metrics_add(&acc, metrics) != 0) {
+			filemetrics_free(metrics);
+			failures++;
+		}
+	}
+
+	if (report_assemble(&acc, &opts, &report) != 0) {
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
+	out = stdout;
+	if (opts.output_path) {
+		out = fopen(opts.output_path, "w");
+		if (!out) {
+			fprintf(stderr, "elc: %s: %s\n", opts.output_path,
+			        strerror(errno));
+			status = ELC_EXIT_FATAL;
+			goto cleanup;
+		}
+	}
+
+	/* Results go to the selected destination and nothing else does; every
+	 * diagnostic above and below went to stderr (HLR-038, LLR-MAIN-12). */
+	if (format_table(&report, out) != 0) {
+		fprintf(stderr, "elc: %s: %s\n",
+		        opts.output_path ? opts.output_path : "standard output",
+		        strerror(errno));
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
+	if (failures > 0)
+		status = ELC_EXIT_FAILURE;
+
+cleanup:
+	/* Every acquired resource is released on every path, the error paths
+	 * included, so a run that ends in an invalid target exits as
+	 * leak-clean as one that succeeds (HLR-125, LLR-MAIN-16). */
+	if (out && out != stdout)
+		fclose(out);
+	report_free(&report);
+	metrics_free(&acc);
+	filelist_free(&files);
 	cli_options_free(&opts);
 	return status;
 }

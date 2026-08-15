@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 1.8
-**Date:** 2026-08-14
+**Version:** 1.9
+**Date:** 2026-08-15
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -172,8 +172,9 @@ The runtime data flow of an analysis run is:
         5.  For each discovered file call `analyze_file()`, appending its `FileMetrics` to the accumulator and its `FileFacts` to the fact list; record but do not propagate per-file failures.
         6.  Call `graph_build()` over the fact list.
         7.  Call `arch_analyse()`, `calltree_analyse()`, `state_analyse()`, then `thresholds_apply()`, then `report_assemble()`.
-        8.  Dispatch to the selected renderer, then to `graph_write_dot()` when the companion artefact is warranted.
-        9.  Tear down in reverse order and return the computed status.
+        8.  Open the output destination — the file named by the options, or standard output when none was named — and on a failure to open it emit a diagnostic and return 2 without writing a partial report (HLR-030).
+        9.  Dispatch to the selected renderer, then to `graph_write_dot()` when the companion artefact is warranted.
+        10.  Tear down in reverse order and return the computed status.
     *   Notes: `main()` contains no analysis logic; its cyclomatic complexity is bounded by the number of stages and their failure branches, keeping it well inside the self-quality target of PVD §8.
 
 ### 3.4 Dependencies
@@ -183,6 +184,7 @@ The runtime data flow of an analysis run is:
 ### 3.5 Error Handling and Logging
 
 *   **Stage returns fatal** Tear down what has been acquired, ensure the diagnostic has reached `stderr`, and return 2. No partial report is written.
+*   **Output destination cannot be opened or written** Diagnostic to `stderr` naming the destination, and return 2. A truncated report is never reported as success, and the diagnostic never enters the results stream (HLR-030, HLR-038).
 *   **Per-file failure recorded** Continue the run; the report is complete for the files that succeeded, and the exit status becomes 1 (HLR-035, HLR-037).
 
 ## 4. Detailed Design for [src/cli.c](../src/cli.c)
@@ -254,7 +256,8 @@ The set of accepted options appears in three places: this module's `getopt_long`
 *   Validate every target argument before any traversal begins.
 *   Classify each target with `stat(2)` and route it to direct handling, Git enumeration, or filesystem traversal.
 *   Establish whether a discovered repository is *applicable* to the target before using it, and fall back to filesystem traversal when it is not.
-*   Enumerate tracked, non-binary blobs at or beneath the target for an applicable Git target; walk the tree with `fts(3)` otherwise, excluding binary extensions, hidden directories, and symlinked directories.
+*   Enumerate tracked, non-binary blobs at or beneath the target for an applicable Git target; walk the tree with `fts(3)` otherwise, excluding binary extensions, hidden entries, and anything reached through a symbolic link.
+*   Load the binary-extension exclusion list from the runtime location and pass it into the walk, so that no extension is compiled into the executable.
 *   Record which route each directory target took, for reporting.
 *   De-duplicate by resolved absolute path and sort the result into a stable order.
 
@@ -265,30 +268,39 @@ Reads directory structure and file metadata only; never opens a source file for 
 
 #### 5.2.2 Symbolic Links
 
-Target arguments are classified with `stat(2)`, which follows links, so a symlink named directly on the command line is resolved and analysed. Traversal uses `FTS_PHYSICAL`, which does not, so a symlinked directory encountered during a walk is never descended into. The pairing is deliberate and implements both halves of HLR-069; changing either call to match the other breaks one half.
+Target arguments are classified with `stat(2)`, which follows links, so a symlink named directly on the command line is resolved and analysed. Traversal uses `FTS_PHYSICAL`, which does not, so a link encountered during a walk is never followed — a linked directory is not descended into, and a linked file is not appended. The pairing is deliberate and implements both halves of HLR-069; changing either call to match the other breaks one half.
+
+Skipping linked *files* as well as linked directories follows from the same reasoning as the cycle case: a link to a file already inside the tree would otherwise contribute it twice, and a link out of the tree would silently widen what the target denotes. A link that the user means to analyse is named, and naming it resolves it.
+
+#### 5.2.3 Runtime Data
+
+The binary-extension exclusion list is read from `binary.exts` in the runtime location — `$ELC_RUNTIME_DIR` when set, otherwise the `runtime/` directory adjacent to the executable (HLR-059). Until `registry.c` exists to supply that resolution, `discover.c` performs it for this one file; the language-module half of the runtime location remains the registry's.
 
 
 ### 5.3 Internal Structure
 #### 5.3.1 Key Functions
 
-*   **`int discover_targets(const ElcOptions *opts, FileList *out)`**
+*   **`int discover_targets(const ElcOptions *opts, FileList *out, size_t *failures)`**
     *   Purpose: Produce the complete, ordered, de-duplicated analysis file list.
     *   Pre-condition: `opts` has been validated by `cli_parse()`.
     *   Post-condition: `out` holds absolute paths in ascending byte order, each appearing exactly once.
-    *   Return Value: 0 on success; non-zero if any target argument was invalid, in which case `out` is empty.
+    *   Return Value: 0 on success, with `*failures` holding the number of per-file failures the traversal encountered; non-zero if any target argument was invalid, in which case `out` is empty. The two are distinct outcomes: an invalid target is fatal and yields no report (HLR-062), whereas a per-file failure degrades the exit status to 1 and the report is still produced (HLR-035).
     *   Logic:
-        1.  Loop over every target argument calling `stat(2)`; on the first that does not exist, cannot be read, or is neither regular file nor directory, emit a diagnostic naming it and return non-zero (HLR-062).
-        2.  For each validated target: a regular file is appended directly; a directory is offered to `git_repository_open_ext()`, which searches the directory and then its ancestors.
-        3.  On a successful repository open, test applicability: does this repository track the target directory? A repository that does not — because the target is `.gitignore`d, or because the repository found several levels up is an unrelated one such as a version-controlled home directory — is discarded, and the target falls through to filesystem traversal.
-        4.  For an applicable repository, resolve `HEAD^{tree}` and walk it, appending each blob that `git_blob_is_binary()` reports as text **and** whose repository-relative path lies at or beneath the target directory.
-        5.  Otherwise walk with `fts_open()`/`fts_read()` in `FTS_PHYSICAL` mode, skipping hidden directories, known binary extensions, and any directory reached through a symbolic link.
-        6.  Canonicalise each accumulated path with `realpath()`, insert into a set keyed on the canonical path, and finally sort the set into byte order.
+        1.  Loop over every target argument calling `stat(2)` and `access(2)`; on the first that does not exist, cannot be read, or is neither regular file nor directory, emit a diagnostic naming it and return non-zero (HLR-062). The classification each target received is recorded, so the traversal pass does not re-`stat` a path already resolved.
+        2.  Load the binary-extension exclusion list from the runtime location, once for the whole run.
+        3.  For each validated target: a regular file is appended directly; a directory is offered to `git_repository_open_ext()`, which searches the directory and then its ancestors.
+        4.  On a successful repository open, test applicability: does this repository track the target directory? A repository that does not — because the target is `.gitignore`d, or because the repository found several levels up is an unrelated one such as a version-controlled home directory — is discarded, and the target falls through to filesystem traversal.
+        5.  For an applicable repository, resolve `HEAD^{tree}` and walk it, appending each blob that `git_blob_is_binary()` reports as text **and** whose repository-relative path lies at or beneath the target directory.
+        6.  Otherwise walk with `fts_open()`/`fts_read()` in `FTS_PHYSICAL` mode, skipping hidden entries below the target, known binary extensions, and anything reached through a symbolic link.
+        7.  Canonicalise each accumulated path with `realpath()`, insert into a set keyed on the canonical path, and finally sort the set into byte order.
     *   Notes: Canonicalising before de-duplication is what makes `elc src/main.c src/` count `main.c` once (HLR-072). Sorting here, rather than relying on `fts` or `libgit2` ordering, is what makes the output independent of filesystem enumeration order (HLR-033).
 
-*   **`bool is_excluded_extension(const char *path)`** — Test a path against the binary-extension exclusion list, which is runtime data (runtime/binary.exts), not a compiled-in table.
+*   **`bool is_excluded_extension(const char *path, const ExtensionList *exts)`** — Test a path against the binary-extension exclusion list, which is runtime data (runtime/binary.exts), not a compiled-in table. The list is a parameter rather than a global, so every function that consults it receives it through its arguments.
+*   **`int binary_exts_load(ExtensionList *out)`** — Read the exclusion list from the runtime location. An absent or unreadable file is a diagnostic and an empty list, not a fatal error: discovery still runs, and the user is told why nothing was excluded.
+*   **`void binary_exts_free(ExtensionList *list)`** — Release the exclusion list and every extension it owns.
 *   **`bool repo_tracks_target(git_repository *repo, const char *target)`** — True when the discovered repository tracks the target directory; the applicability test that gates repository enumeration.
 *   **`int walk_git_tree(git_repository *repo, const char *target, FileList *out)`** — Enumerate text blobs tracked at HEAD whose path lies at or beneath target.
-*   **`int walk_filesystem(const char *root, FileList *out)`** — fts(3) traversal with hidden, binary, and symlink filtering.
+*   **`int walk_filesystem(const char *root, const ExtensionList *exts, FileList *out, size_t *failures)`** — fts(3) traversal with hidden-entry, binary-extension, and symbolic-link filtering. Returns non-zero only when the traversal could not be started; an entry that cannot be read increments the failure count and the walk continues.
 *   **`void filelist_free(FileList *list)`** — Release the list and every path it owns.
 
 #### 5.3.2 Parsing Strategy / Algorithm
@@ -306,12 +318,14 @@ Two constraints on that preference exist because `git_repository_open_ext()` sea
 ### 5.4 Dependencies
 
 *   `libgit2` — `git_repository_open_ext()`, `git_revparse_single()`, `git_tree_walk()`, `git_blob_is_binary()`.
-*   POSIX — `stat(2)`, `fts(3)`, `realpath(3)`.
+*   POSIX — `stat(2)`, `access(2)`, `fts(3)`, `realpath(3)`, `getline(3)`.
 
 ### 5.5 Error Handling and Logging
 
 *   **Invalid target argument** Diagnostic to `stderr` naming the target; the whole run aborts before any analysis, so no report can silently cover fewer targets than the user named (HLR-062).
 *   **Unreadable subdirectory during traversal** Diagnostic to `stderr`, skip that subtree, continue; recorded as a per-file failure so the exit status reflects it.
+*   **Binary-extension list absent or unreadable** Diagnostic to `stderr` naming the file, and an empty exclusion list; discovery proceeds and nothing is excluded. Not fatal: HLR-036's fatality concerns a runtime location that yields no language module at all, which is a state in which no analysis is possible; an unfiltered walk is a degraded run, not an impossible one, and the diagnostic makes it visible.
+*   **Path that cannot be canonicalised** Diagnostic to `stderr`, the path is dropped from the list, and a per-file failure is recorded; the run continues over the rest.
 *   **Enclosing repository does not track the target** Not an error. The repository is discarded and the target is traversed from the filesystem; the route taken is recorded and reported (HLR-127), so the fallback is visible rather than silent.
 
 ## 6. Detailed Design for [src/registry.c](../src/registry.c)
@@ -420,7 +434,7 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
     *   Logic:
         1.  Obtain the language module; a `NULL` return means skip this file and report it skipped (HLR-012).
         2.  `open`, `fstat`, and short-circuit a zero-length file to zero metrics, since `mmap` of an empty file fails with `EINVAL` (HLR-020).
-        3.  `mmap` the file and count `\n` occurrences for the physical line total.
+        3.  `mmap` the file and count `\n` occurrences for the physical line total, counting a final line that carries no terminating newline, since it is a line the reader sees. Every scan is bounded by the length from `fstat(2)`; the mapping is not NUL-terminated.
         4.  `ts_parser_set_language()` and `ts_parser_parse_string()` with the explicit `st_size` length — the mapping is not NUL-terminated.
         5.  Run `comments.scm`, collect spans, sort by start byte, and merge overlaps into a canonical excluded-line set (HLR-016).
         6.  Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067).
@@ -429,6 +443,8 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
         9.  Run every loaded custom rule query and record its matches (HLR-109). A match's identity is the rule file's basename plus the capture name that matched, so one `.scm` file may express several distinct named rules.
         10.  `ts_tree_delete()` and `munmap()` on every exit path.
     *   Notes: Identifier text is `memcpy`'d out of the mapping into NUL-terminated allocations before the mapping is released, since every name outlives it.
+
+        The signature above is the complete one. The mapping-and-counting half of the function — steps 2, 3, and the `munmap` of step 10 — needs no grammar and is therefore built before the registry exists, as `int analyze_file(const char *path, FileMetrics **metrics)`; the registry parameter and the `FileFacts` output are added with the parse itself. The narrower form is the same function at an earlier stage of its construction, not a second entry point.
 
 *   **`uint32_t merge_comment_spans(SpanList *spans)`** — Sort by start byte and coalesce overlapping and nested spans; returns the merged line count.
 *   **`const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)`** — Return the narrowest reported function containing a byte offset.
@@ -673,6 +689,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 [src/report.c](../src/report.c) assembles every metric, finding, and custom-rule match into a single format-independent report model, and imposes the stable ordering that makes the output deterministic.
 
 *   Merge per-file metrics, project totals, per-language breakdowns, and every analysis result into one structure.
+*   Accumulate per-file metrics as the analysis stage produces them, growing the collection through a checked reallocation, and take ownership of them at assembly.
 *   Carry every computed architectural *measurement* into the model, not only those that crossed a threshold, so that a value lying within its accepted band is still reported.
 *   Compute the project summary, including the most-complex callouts with their tie-break rule.
 *   Apply the complexity threshold to produce each file's over-threshold function list.
@@ -687,7 +704,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 
 *   **`int report_assemble(const MetricsAccumulator *acc, const ArchResults *a, const TreeResults *t, const StateResults *s, const FindingList *f, const ElcOptions *opts, Report *out)`**
     *   Purpose: Produce the ordered, format-independent report model.
-    *   Post-condition: Every collection in `out` is sorted by its defined key; no renderer needs to sort anything.
+    *   Post-condition: Every collection in `out` is sorted by its defined key; no renderer needs to sort anything. The accumulator's per-file metrics have moved into the model, which owns them thereafter, and the accumulator is left empty — so releasing both, as `main()` does on every path, cannot free the same metrics twice.
     *   Return Value: 0 on success.
     *   Logic:
         1.  Sum physical lines and ELOC across all files, both combined and per language (HLR-024, HLR-025).
@@ -697,6 +714,10 @@ The hidden-channel test asks whether the functions touching a global fall into m
         5.  Sort files by path; functions by start line; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033).
     *   Notes: Centralising every sort here is deliberate: it is the single place a reviewer must check to be satisfied that HLR-032's byte-identical guarantee holds, rather than auditing six renderers and three analysis modules.
 
+        `discover.c` also sorts, and the two are not redundant. Its sort exists so that de-duplication can collapse equal canonical paths, and so that the *analysis* order is not the filesystem's; this one exists so that *presentation* order is a property of the model. A later phase that changes how files are discovered therefore cannot silently change how they are presented.
+
+*   **`int metrics_add(MetricsAccumulator *acc, FileMetrics *m)`** — Append one file's metrics, taking ownership of them. Grows by doubling through a checked reallocation; on failure the accumulator is left intact and the caller still owns the metrics, so nothing is leaked and nothing is freed twice.
+*   **`void metrics_free(MetricsAccumulator *acc)`** — Release the accumulator and every FileMetrics it still owns.
 *   **`void report_free(Report *r)`** — Release the report model and everything it owns.
 ### 13.4 Dependencies
 
@@ -712,6 +733,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 [src/format_text.c](../src/format_text.c) renders the report model in the two human-facing formats: the aligned ASCII table that is the default, and GitHub-Flavored Markdown.
 
 *   Compute column widths from the longest path and function name, and render the aligned table.
+*   Render every tier in the fixed order, so that the report has the same shape whatever the type of the target was (HLR-006).
 *   Render Markdown with functions grouped under a per-file heading.
 *   Present every tier the uniform-composition rule requires, in both formats.
 
@@ -719,11 +741,27 @@ The hidden-channel test asks whether the functions touching a global fall into m
 ### 14.3 Internal Structure
 #### 14.3.1 Key Functions
 
-*   **`int format_table(const Report *r, FILE *out)`** — Render the aligned ASCII table.
+*   **`int format_table(const Report *r, FILE *out)`** — Render the aligned ASCII table. Returns non-zero when the stream reported a write failure, checked once after the last write rather than at every call.
 *   **`int format_markdown(const Report *r, FILE *out)`** — Render GitHub-Flavored Markdown.
 *   **`void render_summary(const Report *r, FILE *out, Style style)`** — Shared project-summary rendering for both formats.
 
 #### 14.3.2 Parsing Strategy / Algorithm
+
+The table is laid out in tiers, each introduced by a heading and indented beneath it:
+
+```text
+Project summary
+  Files             3
+  Physical lines   42
+
+Files
+  File                    Lines
+  ----------------------  -----
+  /home/u/proj/src/a.c       18
+  /home/u/proj/src/b.c       21
+```
+
+Each column is exactly as wide as its widest cell and no wider: the path column from the longest path, the numeric columns from the largest value. A run that analysed nothing renders the headings and the rule with no rows beneath them, rather than nothing at all (HLR-066).
 
 Both renderers walk the identical model in the identical order and emit the identical tiers — project summary, per-file totals and over-threshold list, per-function detail, architectural measurements and findings, custom-rule matches — differing only in decoration. The traversal also emits the discovery route of each directory target (HLR-127) ahead of the per-file detail, so that a reader sees how a target was enumerated before seeing what it yielded. Sharing the traversal is what keeps HLR-031's uniform-composition guarantee true by construction rather than by parallel maintenance.
 
@@ -880,6 +918,20 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `scopes` | `ScopeList` | Empty when undeclared (HLR-094) |
 | `rule_paths` | `PathList` | Custom rule query files (HLR-107) |
 | `targets` | `PathList` | One or more file or directory arguments (HLR-071) |
+*   **`FileList`** (defined in [inc/discover.h](../inc/discover.h)) — The discovered files: canonical absolute paths, each appearing exactly once, in ascending byte order. Owns every path it holds.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `paths` | `char **` | Dynamic array, grown by doubling |
+| `count` | `size_t` | Populated entries |
+| `capacity` | `size_t` | Allocated entries |
+*   **`ExtensionList`** (defined in [inc/discover.h](../inc/discover.h)) — The binary-extension exclusion list read from runtime data (HLR-005). Passed explicitly to every function that consults it rather than held in a global.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `exts` | `char **` | Each including its leading dot; matched case-insensitively |
+| `count` | `size_t` | Populated entries |
+| `capacity` | `size_t` | Allocated entries |
 *   **`LanguageModule`** (defined in [inc/elc.h](../inc/elc.h)) — One dynamically loaded language, cached by the registry after first use.
 
     | Field | Type | Description |
@@ -934,6 +986,19 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `attribution` | `const char *` | Citation, or an explicit marker for elc's own heuristics (HLR-099) |
 | `location` | `Location` | File, line, and node where applicable |
 | `detail` | `char *` | Rendered description, including cycle members or chain steps |
+*   **`MetricsAccumulator`** (defined in [inc/report.h](../inc/report.h)) — Per-file metrics as they accumulate during the run. Owns every FileMetrics handed to it, until report_assemble takes them.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `files` | `FileMetrics **` | Dynamic array, grown by doubling through a checked reallocation (LLR-RPT-16) |
+| `count` | `size_t` | Populated entries |
+| `capacity` | `size_t` | Allocated entries |
+*   **`ProjectSummary`** (defined in [inc/report.h](../inc/report.h)) — The project-level totals across every analysed file (HLR-024), and the most-complex callouts once there are metrics to compare (HLR-026).
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `file_count` | `size_t` | Files analysed in the run |
+| `physical_lines` | `uint64_t` | Combined physical line count; wider than the per-file field because it sums over the whole project |
 *   **`Report`** (defined in [inc/elc.h](../inc/elc.h)) — The format-independent model every renderer consumes. Every collection is sorted before a renderer sees it.
 
     | Field | Type | Description |
@@ -967,12 +1032,16 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | ------ | --------------- | ------- |
 | `analyze.c` | `mmap`, `open`, `fstat`, `read`, `realloc` | Read failure, zero-length file, failed array growth (LLR-ANL-04, ANL-28, ANL-34) |
 | `registry.c` | `dlopen`, `dlsym`, `dlerror`, `ts_query_new` | Malformed module tolerance without a corrupt `.so` on disk (HLR-070, LLR-RFP-06) |
-| `discover.c` | `stat`, `git_repository_open_ext`, `realpath` | Invalid target classes, repository inapplicability, canonicalisation failure (LLR-DSC-02, GIT-04) |
+| `discover.c` | `realpath`, `git_repository_open_ext` | Canonicalisation failure, repository inapplicability (LLR-DSC-07, GIT-04). `stat` is deliberately absent: every invalid target class — absent, unreadable, FIFO, device node — can be produced on a real filesystem, and a test that builds one verifies the requirement rather than the mock. |
 | `graph.c`, `arch.c`, `calltree.c`, `state.c` | `realloc`, the graph library's allocating entry points | Allocation failure on graph paths (HLR-124, HLR-125) |
 | `report.c` | `realloc` | Checked collection growth (LLR-RPT-16) |
 | `format_*.c` | `fwrite`, `fprintf`, `fopen` | Write-failure paths, companion file creation failure (LLR-DOT-05) |
 
 Wrapping is confined to the unit level; every other level links and runs the real binary.
+
+The lists are **per module** in the build as well as here. A `--wrap` applies to every object in the binary being linked, and every unit binary links every module, so a symbol wrapped for one module's tests would oblige every other test file to define a `__wrap_` for it whether or not it mocks anything.
+
+Interception and `ptrace` do not compose. LeakSanitizer stops the world at exit through a `clone`d tracer and `ptrace`, which collides with `strace`'s own attachment and aborts the process; an instrumented run observed under `strace` therefore disables leak detection for that run alone. Every other run in the same sanitized pass still has it on, so HLR-125 stays verified — but a test that asserts a syscall never appears would otherwise pass because the process died before reaching the interesting part, which is worse than failing.
 
 **Dependency selection.** HLR-112 defers library choice to this document. The selections below were made after confirming the maintenance status of each candidate named in the PVD:
 
@@ -989,6 +1058,7 @@ Wrapping is confined to the unit level; every other level links and runs the rea
 
 *   A **`FileFacts`** is owned by the caller of `graph_build`, never by the graph. `graph_build` copies what it needs into the SDG's own tables, so the fact list is released with `filefacts_free` as soon as `graph_build` returns; it must not be kept alive for the analyses.
 *   **`ArchResults`**, **`TreeResults`**, **`StateResults`**, and the **`FindingList`** are owned by `main`. `report_assemble` copies from them into the report model rather than taking ownership, so `main` releases each with its `*_free` once assembly returns.
+*   The **`MetricsAccumulator`** is the exception, and is exceptional because its contents are the model rather than an input to it: `report_assemble` *moves* the per-file metrics into the `Report` and leaves the accumulator empty. `main` still calls `metrics_free` afterwards, which is then a no-op — teardown stays unconditional, and no path frees the same `FileMetrics` twice.
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.

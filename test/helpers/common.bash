@@ -29,6 +29,33 @@ elc() {
 	fi
 }
 
+# strace_elc <log> <trace-expression> [elc argument...]
+#
+# Trace the named syscalls into <log> while elc runs over the given targets.
+#
+# Leak detection is switched off for the traced run, and must be: LeakSanitizer
+# stops the world at exit through a clone()d tracer and ptrace, which collides
+# with strace's own ptrace attachment and aborts the process. Under `make asan`
+# that abort truncates the trace, so a test asserting "this syscall never
+# appears" would pass because elc died before reaching the interesting part —
+# passing for the wrong reason, which is worse than failing.
+#
+# Nothing is lost: every other run in the same sanitized pass still has leak
+# detection on, so HLR-125 stays verified. This concerns the traced run only.
+strace_elc() {
+	local log="$1" expression="$2"
+	shift 2
+	ASAN_OPTIONS="${ASAN_OPTIONS:+$ASAN_OPTIONS:}detect_leaks=0" \
+		strace -f -e "trace=$expression" -o "$log" "$ELC" "$@" \
+		>/dev/null 2>&1 || true
+}
+
+# Count the lines of a strace log that are syscalls rather than the process
+# bookkeeping strace interleaves with them.
+strace_syscall_count() {
+	grep -cvE 'exited with|\+\+\+|---' "$1" || true
+}
+
 # Skip a test that needs a Linux facility the platform does not provide, and
 # say which requirement thereby went unverified. A silent non-run is a suite
 # failure, not a pass (STP §2.2).

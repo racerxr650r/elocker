@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 1.7
-**Date:** 2026-08-14
+**Version:** 1.8
+**Date:** 2026-08-15
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -52,6 +52,9 @@ Orchestration and exit status. `main` performs no analysis; every requirement be
 
 *   <a id="LLR-MAIN-15"></a>**LLR-MAIN-15** — `main` shall invoke `graph_write_dot` when, and only when, `graph_dot_warranted` returns true.
     *Trace:* HLR-103 (.dot Generation Enabled by Default), HLR-104 (No .dot Output to Standard Output).
+
+*   <a id="LLR-MAIN-17"></a>**LLR-MAIN-17** — `main` shall open the output destination named by the options, or use standard output when none was named, and shall emit a diagnostic and return 2 when that destination cannot be opened or cannot be written, rather than reporting a truncated report as success.
+    *Trace:* HLR-030 (Optional Output-File Redirection), HLR-038 (Diagnostics on stderr, Results on stdout), HLR-120 (Distinct Exit Status Classes).
 
 *   <a id="LLR-MAIN-16"></a>**LLR-MAIN-16** — `main` shall release every resource it acquired before returning, on the success path and on every error path alike, so that a completed run leaves no allocation, mapping, or handle outstanding.
     *Trace:* HLR-125 (Complete Resource Release), HLR-036 (Setup-Failure Fatality).
@@ -185,7 +188,7 @@ Target validation, classification, and file discovery. Produces the de-duplicate
 *   <a id="LLR-FTS-01"></a>**LLR-FTS-01** — `walk_filesystem` shall traverse the directory tree recursively, appending each regular file that survives filtering.
     *Trace:* HLR-004 (Plain-Directory Fallback Traversal).
 
-*   <a id="LLR-FTS-02"></a>**LLR-FTS-02** — `walk_filesystem` shall exclude hidden directories from the traversal.
+*   <a id="LLR-FTS-02"></a>**LLR-FTS-02** — `walk_filesystem` shall exclude hidden entries — files as well as directories — from the traversal, a hidden entry being one whose name begins with a period.
     *Trace:* HLR-005 (Filesystem-Fallback Exclusion).
 
 *   <a id="LLR-FTS-03"></a>**LLR-FTS-03** — `walk_filesystem` shall exclude files whose extension appears in the binary-extension list.
@@ -194,10 +197,22 @@ Target validation, classification, and file discovery. Produces the de-duplicate
 *   <a id="LLR-FTS-04"></a>**LLR-FTS-04** — `walk_filesystem` shall traverse physically rather than logically, so that a directory reached through a symbolic link is not descended into and a cyclic link cannot cause unbounded traversal.
     *Trace:* HLR-069 (Symbolic Link Handling During Traversal).
 
+*   <a id="LLR-FTS-05"></a>**LLR-FTS-05** — `walk_filesystem` shall not follow a symbolic link encountered during the traversal, whether it names a directory or a regular file, so that a link to a file already within the tree cannot contribute it a second time and a link out of the tree cannot widen what the target denotes.
+    *Trace:* HLR-069 (Symbolic Link Handling During Traversal), HLR-072 (Duplicate File Elimination Across Targets).
+
+*   <a id="LLR-FTS-06"></a>**LLR-FTS-06** — `walk_filesystem` shall apply its hidden-entry exclusion below the target only, and shall not apply it to the target itself, so that a hidden directory named on the command line is traversed.
+    *Trace:* HLR-005 (Filesystem-Fallback Exclusion).
+
 ## 9. `is_excluded_extension` ([src/discover.c](../src/discover.c))
 
 *   <a id="LLR-EXT-01"></a>**LLR-EXT-01** — `is_excluded_extension` shall test a path against the binary-extension list loaded from the runtime location, and shall not consult any list compiled into the executable.
     *Trace:* HLR-005 (Filesystem-Fallback Exclusion), HLR-060 (Extension Mapping Defined by Runtime Data).
+
+*   <a id="LLR-EXT-02"></a>**LLR-EXT-02** — `binary_exts_load` shall read the exclusion list from the runtime location, ignoring blank lines and comment lines and accepting an entry written with or without its leading period, and shall match an extension without regard to case.
+    *Trace:* HLR-005 (Filesystem-Fallback Exclusion), HLR-060 (Extension Mapping Defined by Runtime Data).
+
+*   <a id="LLR-EXT-03"></a>**LLR-EXT-03** — `binary_exts_load` shall emit a diagnostic and yield an empty list, rather than aborting the run, when the binary-extension file is absent or unreadable, so that discovery still completes and the reason nothing was excluded is visible.
+    *Trace:* HLR-005 (Filesystem-Fallback Exclusion), HLR-038 (Diagnostics on stderr, Results on stdout).
 
 ## 10. `registry_open` ([src/registry.c](../src/registry.c))
 
@@ -296,7 +311,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-05"></a>**LLR-ANL-05** — `analyze_file` shall pass the mapped length explicitly to the parser, since the mapping is not null-terminated.
     *Trace:* HLR-013 (AST-Based Metric Extraction).
 
-*   <a id="LLR-ANL-06"></a>**LLR-ANL-06** — `analyze_file` shall count the file's physical lines from the mapped contents.
+*   <a id="LLR-ANL-06"></a>**LLR-ANL-06** — `analyze_file` shall count the file's physical lines from the mapped contents, counting a final line that carries no terminating newline, and bounding every scan by the mapped length rather than by a terminator.
     *Trace:* HLR-019 (File-Level Totals).
 
 *   <a id="LLR-ANL-07"></a>**LLR-ANL-07** — `analyze_file` shall report, for each function it discovers, that function's name and its start and end line numbers, converting from the parser's zero-based rows exactly once.
@@ -679,6 +694,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-17"></a>**LLR-RPT-17** — `report_assemble` shall carry the discovery route of each directory target into the model, so that every report format can state which route was applied.
     *Trace:* HLR-127 (Discovery Route Reported).
 
+*   <a id="LLR-RPT-18"></a>**LLR-RPT-18** — `report_assemble` shall take ownership of the accumulated per-file metrics and leave the accumulator empty, so that a caller releasing both the accumulator and the report — as it must on every exit path — cannot free the same metrics twice.
+    *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
+
 *   <a id="LLR-RPT-16"></a>**LLR-RPT-16** — `report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -850,6 +868,9 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-10"></a>**LLR-BLD-10** — The build shall support link-time symbol interception for the unit level, so that a dependency can be replaced by a test without a seam being carried in `src/`. A toolchain that cannot provide it cannot run the unit suite and is unsupported rather than worked around.
     *Trace:* HLR-113 (Graph Algorithms From an Established Library), HLR-124 (Memory Safety).
+
+*   <a id="LLR-BLD-11"></a>**LLR-BLD-11** — The build shall apply the language standard, the warning set, and the header-dependency generation it requires in a way that a caller-supplied `CFLAGS` cannot displace, so that a build invoked with an added flag is compiled under the same rules as one invoked with none.
+    *Trace:* HLR-124 (Memory Safety).
 
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
