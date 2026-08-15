@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.0
-**Date:** 2026-08-16
+**Version:** 2.1
+**Date:** 2026-08-18
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -107,6 +107,9 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-CLI-14"></a>**LLR-CLI-14** — `cli_parse` shall derive the options structure solely from the arguments passed to it, opening no file in the working directory, the analysis target, or any ancestor of either.
     *Trace:* HLR-039 (Zero Configuration).
+
+*   <a id="LLR-CLI-16"></a>**LLR-CLI-16** — `cli_parse` shall reject a numeric option argument that is not a plain decimal number consumed in its entirety, rather than accepting the prefix that a permissive conversion would read from it.
+    *Trace:* HLR-063, HLR-022.
 
 *   <a id="LLR-CLI-15"></a>**LLR-CLI-15** — `cli_parse` shall reject as a usage error a command line that combines regeneration mode with an explicit request for a companion artefact, since a saved record does not carry the graph from which either could be produced.
     *Trace:* HLR-122 (No Companion Artefacts From a Saved Record), HLR-063 (Invalid Command-Line Rejection).
@@ -422,6 +425,9 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-40"></a>**LLR-ANL-40** — `analyze_file` shall attribute a statement lying outside every reported function to no function, counting it toward the file's ELOC alone.
     *Trace:* HLR-019, HLR-068.
 
+*   <a id="LLR-ANL-41"></a>**LLR-ANL-41** — `analyze_file` shall attribute a decision point lying outside every reported function to no function, so that a branch in a file-scope initialiser is charged to nothing.
+    *Trace:* HLR-017, HLR-018.
+
 *   <a id="LLR-ANL-34"></a>**LLR-ANL-34** — `analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -729,6 +735,12 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-RPT-19"></a>**LLR-RPT-19** — `report_assemble` shall accumulate the physical-line and ELOC totals of each language present in the run into its own entry, ordered by language name, so that a language's contribution is visible separately from the combined totals.
     *Trace:* HLR-025, HLR-033.
+
+*   <a id="LLR-RPT-20"></a>**LLR-RPT-20** — `report_assemble` shall list a function for its file when its complexity is greater than *or equal to* the configured threshold, and shall build that listing itself rather than leaving a renderer to filter, so that every format lists the same functions.
+    *Trace:* HLR-021, HLR-023.
+
+*   <a id="LLR-RPT-21"></a>**LLR-RPT-21** — `report_assemble` shall select each most-complex callout by scanning the ordered model and replacing the incumbent only on a strictly greater value, so that a tie resolves to whichever candidate sorts first under the presentation order and resolves the same way on every run.
+    *Trace:* HLR-026, HLR-032, HLR-033.
 
 *   <a id="LLR-RPT-16"></a>**LLR-RPT-16** — `report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).

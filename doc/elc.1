@@ -3,7 +3,7 @@
 .\" This page describes the version it ships with (HLR-129). Every option elc
 .\" accepts appears here, and every option here is accepted; the documentation
 .\" test in test/integration/docs.bats enforces both directions.
-.TH ELC 1 "2026-08-17" "elocker" "User Commands"
+.TH ELC 1 "2026-08-18" "elocker" "User Commands"
 .SH NAME
 elc \- per-function code metrics and whole-project architecture analysis
 .SH SYNOPSIS
@@ -25,10 +25,10 @@ file reached through more than one target is analysed once.
 .SS Current state
 .B elc
 is under active development. This release discovers the files in its targets,
-parses each one, and reports effective lines of code per function, per file,
-and per language. Cyclomatic complexity, the System Dependence Graph and the
-findings derived from it are delivered by later phases, and this page grows
-with them. See
+parses each one, and reports effective lines of code and cyclomatic
+complexity per function, per file, and per language. The System Dependence
+Graph and the findings derived from it are delivered by later phases, and
+this page grows with them. See
 .B doc/SDP.md
 in the distribution for what each phase adds.
 .SS Effective lines of code
@@ -59,6 +59,52 @@ Comments are identified from the syntax tree, never by matching text. A
 comment opener inside a string literal opens nothing, a quote inside a comment
 opens no string, and a comment sharing a line with code does not stop that
 line counting.
+.SS Cyclomatic complexity
+A function's cyclomatic complexity is
+.B one plus
+the number of decision points in it: the number of paths through it. A
+function that never branches is 1.
+.PP
+A decision point is a place execution can go more than one way — an
+.BR if ,
+a loop, a
+.B case
+label, a conditional expression, and each short-circuiting
+.B &&
+or
+.BR || ,
+since each of those is a second place the condition can be decided. Three
+things that look like decisions are not: a bare
+.B else
+adds no path the
+.B if
+did not already count, a
+.B default
+label is where control goes when no branch was taken, and a
+.B goto
+moves control without choosing.
+.PP
+As with effective lines of code, a nested named function owns its own
+decision points and the function enclosing it gains none of them. A decision
+point inside an
+.I anonymous
+callable — a lambda or closure, which is not reported as a function in its own
+right — is attributed to the nearest enclosing named function.
+.SS The complexity threshold
+.B elc
+lists, for each file, the functions whose complexity is at or above a
+threshold, set with
+.B \-\-complexity\-threshold
+and defaulting to 15.
+.PP
+The threshold changes
+.I what is listed
+and nothing else. It does not change a total, a callout, or — most
+importantly — the exit status. Findings are data; deciding what a number
+warrants is the caller's. A build that should fail on a breach acts on the
+report rather than expecting
+.B elc
+to exit non-zero.
 .SS Language support
 .B elc
 determines each file's language from its extension, and loads the parser and
@@ -100,6 +146,12 @@ canonical absolute path and analysed exactly once, however many targets reach
 it.
 .SH OPTIONS
 .TP
+.BR \-c ", " \-\-complexity\-threshold " " \fIN\fR
+List a file's functions whose cyclomatic complexity is
+.I N
+or greater. The default is 15. Listing only: no threshold affects the exit
+status.
+.TP
 .BR \-o ", " \-\-output " " \fIFILE\fR
 Write the report to
 .I FILE
@@ -132,9 +184,10 @@ diagnostics are written to standard error. Nothing else is written to the
 results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
-The default format is an aligned table in five sections: the project summary,
-the totals broken down by language, one row per analysed file, one row per
-function, and the files that were skipped. Column widths are taken from the longest value in each column so the
+The default format is an aligned table in seven sections: the project
+summary, the project-wide callouts, the totals broken down by language, one
+row per analysed file, one row per function, the functions at or over the
+complexity threshold, and the files that were skipped. Column widths are taken from the longest value in each column so the
 figures line up:
 .PP
 .EX
@@ -144,6 +197,12 @@ Project summary
   ELOC             18
   Functions         3
   Skipped           1
+
+Callouts
+  What          Value  Where
+  ------------  -----  ---------------------------------
+  Largest file     12  /home/u/proj/src/a.c
+  Most complex      7  parse in /home/u/proj/src/a.c
 
 Languages
   Language  Files  Lines  ELOC
@@ -157,11 +216,16 @@ Files
   /home/u/proj/src/b.c  c            24     6          1
 
 Functions
-  File                  Function    Lines  ELOC
-  --------------------  ----------  -----  ----
-  /home/u/proj/src/a.c  parse        5-19     9
-  /home/u/proj/src/a.c  emit        21-24     3
-  /home/u/proj/src/b.c  main         3-11     6
+  File                  Function    Lines  ELOC  Complexity
+  --------------------  ----------  -----  ----  ----------
+  /home/u/proj/src/a.c  parse        5-19     9           7
+  /home/u/proj/src/a.c  emit        21-24     3           1
+  /home/u/proj/src/b.c  main         3-11     6           2
+
+At or over the complexity threshold (5)
+  File                  Function  Complexity
+  --------------------  --------  ----------
+  /home/u/proj/src/a.c  parse              7
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
@@ -239,6 +303,10 @@ Analyse a file and a directory that contains it. The file is reported once.
 .TP
 .B elc \-o report.txt src/
 Write the report to a file, leaving standard output empty.
+.TP
+.B elc \-c 10 src/
+List every function whose complexity is 10 or greater. The exit status is
+unchanged by what the list contains.
 .TP
 .B ELC_RUNTIME_DIR=/opt/elc/runtime elc src/
 Analyse with language support taken from a runtime directory elsewhere.

@@ -28,6 +28,11 @@ enum {
  * adjacent to the executable (HLR-059). */
 #define ELC_RUNTIME_DIR_ENV "ELC_RUNTIME_DIR"
 
+/* The complexity at or above which a function is listed for its file
+ * (HLR-021, HLR-022). Reporting only: no threshold ever reaches the exit
+ * status (HLR-023). */
+#define ELC_DEFAULT_COMPLEXITY_THRESHOLD 15u
+
 /* What the run is being asked to do. Phase 5 adds MODE_REGENERATE. */
 typedef enum {
 	MODE_ANALYSE = 0
@@ -42,6 +47,8 @@ typedef enum {
 typedef struct {
 	RunMode       mode;
 	const char   *output_path;  /* NULL when writing to stdout (HLR-030) */
+	uint32_t      complexity_threshold; /* listing only; never the exit
+	                                     * status (HLR-022, HLR-023)     */
 	const char  **targets;      /* borrowed from argv; not owned          */
 	size_t        target_count;
 } ElcOptions;
@@ -59,6 +66,7 @@ typedef struct {
 	uint32_t  end_line;   /* 1-based                                     */
 	uint32_t  eloc;       /* statements attributed to this function
 	                       * alone, never to one enclosing it (HLR-068)  */
+	uint32_t  complexity; /* 1 + the decision points attributed to it    */
 } FunctionMetric;
 
 /* Per-file totals and the functions the file defines. */

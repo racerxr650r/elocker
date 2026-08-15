@@ -47,13 +47,21 @@ static char *render(Report *report)
 	return buf;
 }
 
-/* Length of the whole line containing `needle`, or 0 if it is absent. */
+/* Length of the line containing `needle` within the Files section.
+ *
+ * Scoped to that section deliberately: a path appears in the Callouts section
+ * too, and searching the whole report finds that row first — where the
+ * columns are different and the widths have no reason to agree.
+ */
 static size_t line_length(const char *text, const char *needle)
 {
-	const char *hit = strstr(text, needle);
+	const char *section = strstr(text, "\nFiles\n");
+	const char *hit     = section ? strstr(section, needle) : NULL;
 
 	if (!hit)
 		return 0;
+
+	text = section;
 
 	const char *start = hit;
 	while (start > text && start[-1] != '\n')

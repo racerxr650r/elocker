@@ -179,6 +179,7 @@ static void functions_section(const Report *report, FILE *out)
 	int  name = widest(0, "Function");
 	int  line = widest(0, "Lines");
 	int  eloc = widest(0, "ELOC");
+	int  cplx = widest(0, "Complexity");
 
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
@@ -189,12 +190,13 @@ static void functions_section(const Report *report, FILE *out)
 			span_of(span, sizeof span, &f->functions[j]);
 			line = widest(line, span);
 			eloc = widest_number(eloc, f->functions[j].eloc);
+			cplx = widest_number(cplx, f->functions[j].complexity);
 		}
 	}
 
 	fputs("\nFunctions\n", out);
-	fprintf(out, "  %-*s  %-*s  %*s  %*s\n", path, "File", name, "Function",
-	        line, "Lines", eloc, "ELOC");
+	fprintf(out, "  %-*s  %-*s  %*s  %*s  %*s\n", path, "File", name,
+	        "Function", line, "Lines", eloc, "ELOC", cplx, "Complexity");
 	fputs("  ", out);
 	rule(out, path);
 	fputs("  ", out);
@@ -203,6 +205,8 @@ static void functions_section(const Report *report, FILE *out)
 	rule(out, line);
 	fputs("  ", out);
 	rule(out, eloc);
+	fputs("  ", out);
+	rule(out, cplx);
 	fputc('\n', out);
 
 	for (size_t i = 0; i < report->file_count; i++) {
@@ -210,11 +214,83 @@ static void functions_section(const Report *report, FILE *out)
 
 		for (size_t j = 0; j < f->function_count; j++) {
 			span_of(span, sizeof span, &f->functions[j]);
-			fprintf(out, "  %-*s  %-*s  %*s  %*" PRIu32 "\n", path,
-			        f->path, name, f->functions[j].name, line, span,
-			        eloc, f->functions[j].eloc);
+			fprintf(out,
+			        "  %-*s  %-*s  %*s  %*" PRIu32 "  %*" PRIu32 "\n",
+			        path, f->path, name, f->functions[j].name, line,
+			        span, eloc, f->functions[j].eloc, cplx,
+			        f->functions[j].complexity);
 		}
 	}
+}
+
+/* The two project-wide callouts (HLR-026). A run that analysed nothing
+ * renders the headings with no rows, as every other section does. */
+static void callouts_section(const Report *report, FILE *out)
+{
+	const ProjectSummary *sum   = &report->summary;
+	int                   what  = widest(widest(0, "Largest file"),
+	                                     "Most complex");
+	int                   value = widest(0, "Value");
+	int                   where = widest(0, "Where");
+
+	value = widest_number(value, sum->largest_file_eloc);
+	value = widest_number(value, sum->most_complex_value);
+	if (sum->largest_file)
+		where = widest(where, sum->largest_file);
+
+	fputs("\nCallouts\n", out);
+	fprintf(out, "  %-*s  %*s  %s\n", what, "What", value, "Value", "Where");
+	fputs("  ", out);
+	rule(out, what);
+	fputs("  ", out);
+	rule(out, value);
+	fputs("  ", out);
+	rule(out, where);
+	fputc('\n', out);
+
+	if (sum->largest_file)
+		fprintf(out, "  %-*s  %*" PRIu32 "  %s\n", what,
+		        "Largest file", value, sum->largest_file_eloc,
+		        sum->largest_file);
+
+	if (sum->most_complex)
+		fprintf(out, "  %-*s  %*" PRIu32 "  %s in %s\n", what,
+		        "Most complex", value, sum->most_complex_value,
+		        sum->most_complex, sum->most_complex_file);
+}
+
+/* The functions listed for their file because they met the threshold
+ * (HLR-021). The threshold changes what appears here and nothing else — not
+ * a total, not a callout, and never the exit status (HLR-023). */
+static void threshold_section(const Report *report, FILE *out)
+{
+	const ThresholdList *list = &report->over_threshold;
+	int                  path = widest(0, "File");
+	int                  name = widest(0, "Function");
+	int                  cplx = widest(0, "Complexity");
+
+	for (size_t i = 0; i < list->count; i++) {
+		path = widest(path, list->items[i].file);
+		name = widest(name, list->items[i].function->name);
+		cplx = widest_number(cplx, list->items[i].function->complexity);
+	}
+
+	fprintf(out, "\nAt or over the complexity threshold (%" PRIu32 ")\n",
+	        report->complexity_threshold);
+	fprintf(out, "  %-*s  %-*s  %*s\n", path, "File", name, "Function",
+	        cplx, "Complexity");
+	fputs("  ", out);
+	rule(out, path);
+	fputs("  ", out);
+	rule(out, name);
+	fputs("  ", out);
+	rule(out, cplx);
+	fputc('\n', out);
+
+	for (size_t i = 0; i < list->count; i++)
+		fprintf(out, "  %-*s  %-*s  %*" PRIu32 "\n", path,
+		        list->items[i].file, name, list->items[i].function->name,
+		        cplx, list->items[i].function->complexity);
 }
 
 /* Every discovered file is accounted for: one that no language module could
@@ -230,9 +306,11 @@ static void skipped_section(const Report *report, FILE *out)
 int format_table(const Report *report, FILE *out)
 {
 	summary_section(report, out);
+	callouts_section(report, out);
 	languages_section(report, out);
 	files_section(report, out);
 	functions_section(report, out);
+	threshold_section(report, out);
 	skipped_section(report, out);
 
 	if (fflush(out) != 0 || ferror(out))

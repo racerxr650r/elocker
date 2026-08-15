@@ -17,7 +17,7 @@ is ready to start.
 | [1](#phase-1--target-discovery-and-the-walking-skeleton) | Target discovery, ordering, table output — end to end | ✅ Complete |
 | [2](#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | ✅ Complete |
 | [3](#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | ✅ Complete |
-| [4](#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | 🔲 Not started |
+| [4](#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
 | [5](#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | 🔲 Not started |
 | [6](#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | 🔲 Not started |
 | [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | 🔲 Not started |

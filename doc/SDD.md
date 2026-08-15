@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.1
-**Date:** 2026-08-16
+**Version:** 2.2
+**Date:** 2026-08-18
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -247,6 +247,7 @@ The set of accepted options appears in three places: this module's `getopt_long`
 *   **Unknown option or missing argument** Print the usage summary to `stderr` and return `CLI_ERROR`; `main()` exits 2 without analysing anything (HLR-063).
 *   **Help requested** Print the usage summary to `stdout` and return `CLI_HELP`; `main()` exits 0, since a help request is not an error (HLR-117).
 *   **Malformed declaration** A stratum, scope, or entry-point argument that cannot be parsed is a usage error, handled as above.
+*   **Malformed numeric argument** A threshold must be a plain decimal number and nothing else. `strtoul` alone is not that test: it accepts a leading sign, leading whitespace, a hexadecimal prefix, and a trailing tail, each of which would silently become a threshold the user did not write. The argument is rejected unless it begins with a digit, converts without overflow, and is consumed entirely.
 
 ## 5. Detailed Design for [src/discover.c](../src/discover.c)
 
@@ -461,7 +462,7 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
         **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.
 
 *   **`uint32_t merge_comment_spans(SpanList *spans)`** — Sort by start byte and coalesce overlapping and nested spans, in place; returns the number of distinct lines the merged set covers.
-*   **`const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)`** — Return the narrowest reported function containing a byte offset.
+*   **`const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)`** — Return the narrowest reported function containing a byte offset, or NULL when the offset lies outside every one of them. Only *reported* functions are in the index, which is what makes an anonymous callable transparent to the lookup: an offset inside one resolves to the named function around it (HLR-018).
 *   **`void filemetrics_free(FileMetrics *m)`** — Release a file's metrics and every function name it owns.
 *   **`void filefacts_free(FileFacts *f)`** — Release the call sites, global accesses, address-taken records, and rule matches a file produced.
 
@@ -476,6 +477,10 @@ The merged set is applied as a **byte-granular** exclusion, not a line-granular 
 The merged line count is likewise a count of *distinct* lines. Two comments on one line are two disjoint byte ranges that do not coalesce, and summing their line counts would report that one line twice.
 
 **The innermost-enclosing lookup is the analogous safeguard for nested named functions.** Attributing each statement to exactly one reported function is what prevents a nested subprogram's lines from being counted twice (HLR-068), and *narrowest* rather than *first* is what makes the answer independent of the order the query matched — an implementation returning the first containing range would also break HLR-032.
+
+**Cyclomatic complexity reuses that lookup rather than scoping the query.** `complexity.scm` is run once over the whole tree and each capture attributed by `innermost_enclosing`, which makes both halves of the requirement fall out of one pass. A nested *named* function is reported, so it is its own innermost enclosing function and owns its decision points (HLR-068). An anonymous callable is *not* reported, so the nearest reported function containing it is the named one, and its decision points land there (HLR-018). Running the query against each `@function.body` separately — the obvious reading — would instead give an enclosing function everything its nested functions branch on, and need a subtraction to undo it.
+
+The `1 +` base is added in C and not in the query, so that a query capturing the function itself cannot make a function that never branches score 2. Every language module would otherwise have to remember not to.
 
 ### 7.4 Dependencies
 
@@ -730,8 +735,8 @@ The hidden-channel test asks whether the functions touching a global fall into m
     *   Return Value: 0 on success.
     *   Logic:
         1.  Sum physical lines and ELOC across all files, both combined and per language (HLR-024, HLR-025). A language's row is created on first sight of a file written in it; the list holds one entry per language present, so a linear search costs less than the structure that would avoid it.
-        2.  Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026).
-        3.  For each file, filter its functions by the complexity threshold into the over-threshold list (HLR-021).
+        2.  Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026). Both are chosen *after* the model is ordered, by scanning it and taking a new candidate only on a strictly greater value: scanning in presentation order and refusing to displace an equal value is what makes the winner whichever sorts first, and what makes the callout the same on every run.
+        3.  For each file, filter its functions by the complexity threshold into the over-threshold list, at or above rather than strictly above (HLR-021). The list is built here rather than filtered by a renderer: a renderer is a pure consumer, and a threshold applied at render time would be applied once per format and could differ between them. The threshold reaches nothing else — not a total, not a callout, and never the exit status (HLR-023).
         4.  Attach the architectural findings, custom-rule matches, and omission notices.
         5.  Sort files by path; functions by start line and then by name; per-language totals by language name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.
     *   Notes: Centralising every sort here is deliberate: it is the single place a reviewer must check to be satisfied that HLR-032's byte-identical guarantee holds, rather than auditing six renderers and three analysis modules.
@@ -778,6 +783,12 @@ Project summary
   ELOC             18
   Functions         3
   Skipped           0
+
+Callouts
+  What          Value  Where
+  ------------  -----  -----------------------------
+  Largest file     12  /home/u/proj/src/a.c
+  Most complex      7  parse in /home/u/proj/src/a.c
 
 Languages
   Language  Files  Lines  ELOC

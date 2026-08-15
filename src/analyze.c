@@ -35,6 +35,7 @@
 #define CAPTURE_FUNCTION_BODY "function.body"
 #define CAPTURE_COMMENT       "comment"
 #define CAPTURE_ELOC          "eloc.statement"
+#define CAPTURE_COMPLEXITY    "complexity.decision"
 
 /* One counted statement: the line it starts on, and the function it belongs
  * to. `function` is SIZE_MAX for a statement outside every reported function,
@@ -452,6 +453,57 @@ static int collect_statements(const LanguageModule *module, Registry *reg,
 	return 0;
 }
 
+/* Count each decision point against the function it belongs to.
+ *
+ * Complexity is one plus the decision points in a function, and the `1 +` is
+ * added here rather than in the query: a query that captured the function
+ * itself would make a straight-line function 2, and every language module
+ * would have to remember not to.
+ *
+ * The query runs over the whole tree, not over each function body in turn,
+ * and the attribution is `innermost_enclosing` — the same rule ELOC uses.
+ * That is what makes both halves of the requirement fall out of one pass: a
+ * nested *named* function is reported, so it is its own innermost enclosing
+ * function and owns its decision points (HLR-068); an anonymous lambda is
+ * *not* reported, so the nearest reported function containing it is the named
+ * one, and its decision points land there (HLR-018). Running the query
+ * against each body separately would give the enclosing function everything
+ * its nested functions do, and need a subtraction to undo it.
+ */
+static int collect_complexity(const LanguageModule *module, Registry *reg,
+                              TSNode root, const FnRangeIndex *ranges,
+                              FileMetrics *metrics)
+{
+	TSQuery      *query = module->queries[QUERY_COMPLEXITY];
+	TSQueryMatch  match;
+
+	/* Every reported function starts at one: a function with no branch
+	 * still has one path through it. */
+	for (size_t i = 0; i < metrics->function_count; i++)
+		metrics->functions[i].complexity = 1;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		for (uint16_t i = 0; i < match.capture_count; i++) {
+			if (!capture_is(query, match.captures[i].index,
+			                CAPTURE_COMPLEXITY))
+				continue;
+
+			const FnRange *owner = innermost_enclosing(
+				ranges, ts_node_start_byte(match.captures[i].node));
+
+			/* A decision point outside every reported function —
+			 * in a file-scope initialiser — belongs to no function
+			 * and is not counted anywhere. */
+			if (owner)
+				metrics->functions[owner->index].complexity++;
+		}
+	}
+
+	return 0;
+}
+
 static int by_function_then_line(const void *a, const void *b)
 {
 	const StatementSite *x = a;
@@ -614,7 +666,8 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out)
 	if (collect_functions(module, reg, map, root, metrics, &ranges) != 0 ||
 	    collect_comments(module, reg, root, &comments) != 0 ||
 	    collect_statements(module, reg, root, &ranges, &comments,
-	                       &sites) != 0) {
+	                       &sites) != 0 ||
+	    collect_complexity(module, reg, root, &ranges, metrics) != 0) {
 		fprintf(stderr, "elc: out of memory analysing %s\n", path);
 		goto cleanup;
 	}

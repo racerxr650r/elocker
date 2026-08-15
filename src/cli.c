@@ -10,7 +10,9 @@
  * (HLR-129). Later phases add each option alongside the behaviour it selects.
  */
 
+#include <errno.h>
 #include <getopt.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,6 +29,10 @@ void cli_usage(FILE *stream)
 "for the given targets. A TARGET is a source file or a directory.\n"
 "\n"
 "Options:\n"
+"  -c, --complexity-threshold N\n"
+"                     list a file's functions whose cyclomatic complexity\n"
+"                     is N or greater (default 15). Listing only: no\n"
+"                     threshold affects the exit status\n"
 "  -o, --output FILE  write the report to FILE instead of standard output\n"
 "  -h, --help         display this help and exit\n"
 "\n"
@@ -51,13 +57,15 @@ void cli_usage(FILE *stream)
 int cli_parse(int argc, char *argv[], ElcOptions *out)
 {
 	static const struct option longopts[] = {
-		{ "output", required_argument, NULL, 'o' },
-		{ "help",   no_argument,       NULL, 'h' },
-		{ NULL,     0,                 NULL, 0   }
+		{ "complexity-threshold", required_argument, NULL, 'c' },
+		{ "output",               required_argument, NULL, 'o' },
+		{ "help",                 no_argument,       NULL, 'h' },
+		{ NULL,                   0,                 NULL, 0   }
 	};
 
 	memset(out, 0, sizeof(*out));
-	out->mode = MODE_ANALYSE;
+	out->mode                 = MODE_ANALYSE;
+	out->complexity_threshold = ELC_DEFAULT_COMPLEXITY_THRESHOLD;
 
 	/* Report errors ourselves so every diagnostic reaches stderr in one
 	 * voice (HLR-038); getopt's own messages would bypass cli_usage(). */
@@ -65,8 +73,28 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	optind = 1;
 
 	int c;
-	while ((c = getopt_long(argc, argv, ":ho:", longopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, ":ho:c:", longopts, NULL)) != -1) {
 		switch (c) {
+		case 'c': {
+			/* strtoul accepts leading whitespace, a sign, and a
+			 * trailing tail; none of those is a threshold. The
+			 * argument must be digits and nothing else. */
+			char         *end  = NULL;
+			unsigned long value;
+
+			errno = 0;
+			value = strtoul(optarg, &end, 10);
+
+			if (optarg[0] < '0' || optarg[0] > '9' || !end ||
+			    *end != '\0' || errno == ERANGE || value > UINT32_MAX) {
+				fprintf(stderr,
+				        "elc: '%s' is not a complexity threshold\n",
+				        optarg);
+				return CLI_ERROR;
+			}
+			out->complexity_threshold = (uint32_t)value;
+			break;
+		}
 		case 'o':
 			/* Borrowed from argv, which outlives the run. Recording
 			 * standard output as the destination is the default:

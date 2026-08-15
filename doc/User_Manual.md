@@ -1,6 +1,6 @@
 # elc User Manual
 
-**Version:** 0.4 (Phase 3)
+**Version:** 0.5 (Phase 4)
 **Applies to:** the `elc` build shipped alongside this file
 
 This manual describes the version it ships with. Every option `elc` accepts is
@@ -32,12 +32,14 @@ repository are comparable and results from different runs can be diffed.
 `elc` is under active development, and this manual grows with it.
 
 **What this build does:** finds the source files in your targets, parses each
-one, and reports **effective lines of code** per function, per file, and per
-language — alongside each function's line range and each file's physical line
-count. C is the language it ships with.
+one, and reports **effective lines of code** and **cyclomatic complexity** per
+function — with project totals, a per-language breakdown, and a list of the
+functions over a complexity threshold you set. C is the language it ships
+with.
 
-**What it does not do yet:** cyclomatic complexity, the System Dependence
-Graph, and the findings derived from it. Those arrive in later phases.
+**What it does not do yet:** the System Dependence Graph and the findings
+derived from it — coupling, cycles, call depth, dead code. Those arrive in
+later phases.
 
 `doc/SDP.md` lists what each phase delivers. Metrics land in Phases 3–4, the
 call graph in Phase 8, and the architectural analyses in Phases 9–13.
@@ -206,6 +208,12 @@ Project summary
   Functions         3
   Skipped           1
 
+Callouts
+  What          Value  Where
+  ------------  -----  ---------------------------------
+  Largest file     12  /home/u/proj/src/a.c
+  Most complex      7  parse in /home/u/proj/src/a.c
+
 Languages
   Language  Files  Lines  ELOC
   --------  -----  -----  ----
@@ -218,18 +226,24 @@ Files
   /home/u/proj/src/b.c  c            24     6          1
 
 Functions
-  File                  Function    Lines  ELOC
-  --------------------  ----------  -----  ----
-  /home/u/proj/src/a.c  parse        5-19     9
-  /home/u/proj/src/a.c  emit        21-24     3
-  /home/u/proj/src/b.c  main         3-11     6
+  File                  Function    Lines  ELOC  Complexity
+  --------------------  ----------  -----  ----  ----------
+  /home/u/proj/src/a.c  parse        5-19     9           7
+  /home/u/proj/src/a.c  emit        21-24     3           1
+  /home/u/proj/src/b.c  main         3-11     6           2
+
+At or over the complexity threshold (5)
+  File                  Function  Complexity
+  --------------------  --------  ----------
+  /home/u/proj/src/a.c  parse              7
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
 ```
 
-Five sections: the project totals, those totals broken down by language, one
-row per file, one row per function, and whatever was skipped. Paths are
+Seven sections: the project totals, the callouts, those totals broken down by
+language, one row per file, one row per function, the functions at or over the
+complexity threshold, and whatever was skipped. Paths are
 canonical and absolute, and each column is padded to its longest value.
 
 The `Languages` section is a partition of the totals, not a second count of
@@ -258,6 +272,93 @@ diff before.txt after.txt
 
 A target containing no files still produces the report, with zero totals and
 empty tables, and exits 0. Silence would be indistinguishable from a crash.
+
+## Cyclomatic complexity
+
+Complexity is **one plus** the number of decision points in a function: the
+number of paths through it. A function that never branches is 1.
+
+```c
+int simple(int n)          // complexity 1 — one path
+{
+	return n;
+}
+
+int branchy(int a, int b)  // complexity 4
+{
+	if (a && b)            // the if is one, the && is another
+		return 1;
+	while (a--)            // and the loop is a third
+		b++;
+	return b;
+}
+```
+
+A decision point is a place execution can go more than one way: an `if`, a
+loop, a `case` label, a conditional expression `? :`, and each `&&` or `||`.
+The short-circuit operators count because each is a second place the
+condition can be decided — without them, a function built from one long
+compound condition would score the same as one with no condition at all.
+
+Three things look like decisions and are not:
+
+| Construct | Why not |
+| --------- | ------- |
+| a bare `else` | the branch was already counted at the `if` that owns it |
+| `default:` | where control goes when no branch was taken |
+| `goto` | moves control without choosing; the choice is in the `if` guarding it |
+
+An `else if` counts once — for the `if` inside it.
+
+As with ELOC, a nested named function owns its own decision points and the
+function containing it gains none of them.
+
+## The complexity threshold
+
+`elc` lists the functions whose complexity is **at or above** a threshold:
+
+```sh
+elc src/                # the default, 15
+elc -c 10 src/          # list anything 10 or greater
+elc -c 1 src/           # list everything
+```
+
+```
+At or over the complexity threshold (10)
+  File                  Function  Complexity
+  --------------------  --------  ----------
+  /home/u/proj/src/a.c  parse             17
+```
+
+**The threshold changes what is listed and nothing else.** Not a total, not a
+callout, and — this is the part worth being clear about — **not the exit
+status**:
+
+```sh
+elc -c 1 src/ ; echo $?     # lists everything, exits 0
+elc -c 999 src/ ; echo $?   # lists nothing, exits 0
+```
+
+Findings are data. Deciding what a number warrants is yours, not `elc`'s. If
+you want a build to fail when something crosses a line, act on the report —
+`elc` will not do it for you, and a tool that did would make the number
+political rather than descriptive.
+
+## Callouts
+
+The report names two things across the whole run:
+
+```
+Callouts
+  What          Value  Where
+  ------------  -----  ---------------------------------
+  Largest file     12  /home/u/proj/src/a.c
+  Most complex      7  parse in /home/u/proj/src/a.c
+```
+
+When two files or two functions tie, the one that sorts first in the report
+wins — so the callout is the same on every run, and a diff of two reports
+shows real change rather than a coin toss.
 
 ## Languages
 
@@ -328,6 +429,7 @@ comparable.
 
 | Option | Argument | Default | Effect |
 | ------ | -------- | ------- | ------ |
+| `-c`, `--complexity-threshold` | `N` | `15` | List functions whose complexity is `N` or greater |
 | `-o`, `--output` | `FILE` | standard output | Write the report to `FILE` |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 
@@ -341,8 +443,8 @@ bytes; the option exists so that a caller that has no shell around it can
 still separate results from diagnostics. If the file cannot be opened, `elc`
 says so on standard error and exits 2 without writing a partial report.
 
-Later phases add options for output format, complexity thresholds,
-architectural declarations, and custom rules. Each arrives together with the
+Later phases add options for output format, architectural declarations, and
+custom rules. Each arrives together with the
 behaviour it selects — an option is never added before it does something.
 
 ### Exit status
@@ -458,6 +560,14 @@ count, blanks and comments included. `ELOC` is the column beside it.
 
 **A file's ELOC does not equal the sum of its functions'** — expected. See
 *Where the numbers may surprise you* above.
+
+**`elc: 'x' is not a complexity threshold`** — `-c` takes a plain decimal
+number. A sign, a hex literal, or a trailing unit is rejected rather than
+half-read. Exit status 2.
+
+**The threshold list is empty and you expected entries** — the listing is at
+or *above* the threshold, and the default is 15, which most functions are
+comfortably under. Try `-c 1` to see everything.
 
 **`elc: <path>: no usable language module; skipped`** — the extension is not
 in `runtime/extensions.map`, or the module for it could not be loaded. Look

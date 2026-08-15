@@ -650,6 +650,138 @@ Test(analyze, a_trailing_comment_does_not_remove_its_line)
 	registry_close(&reg);
 }
 
+/* ------------------------------------------------------------ complexity -- */
+
+/* Verifies LLR-ANL-21: complexity is one plus the decision points, so a
+ * function that never branches is 1. A query capturing the function itself
+ * would report 2, which is the failure this asserts against. */
+Test(analyze, a_function_that_never_branches_is_one)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int f(int n)\n"
+		"{\n"
+		"\tint a = n;\n"
+		"\treturn a;\n"
+		"}\n"), &m), ANALYZE_OK);
+
+	cr_assert_eq(m->functions[0].complexity, 1);
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-ANL-21: each decision point adds one. */
+Test(analyze, each_decision_point_adds_one)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int f(int n)\n"
+		"{\n"
+		"\tif (n > 0)\n"
+		"\t\treturn 1;\n"
+		"\twhile (n--)\n"
+		"\t\tn = n;\n"
+		"\treturn 0;\n"
+		"}\n"), &m), ANALYZE_OK);
+
+	cr_assert_eq(m->functions[0].complexity, 3, "1 + the if + the while");
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-ANL-22, LLR-INN-02: a nested named function owns its own
+ * decision points, and the function enclosing it gains none of them. */
+Test(analyze, a_nested_functions_decisions_are_not_counted_twice)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int outer(int a)\n"
+		"{\n"
+		"\tint inner(int b)\n"
+		"\t{\n"
+		"\t\tif (b)\n"
+		"\t\t\treturn 1;\n"
+		"\t\treturn 0;\n"
+		"\t}\n"
+		"\tif (a)\n"
+		"\t\treturn inner(a);\n"
+		"\treturn 0;\n"
+		"}\n"), &m), ANALYZE_OK);
+
+	const FunctionMetric *outer = function_named(m, "outer");
+	const FunctionMetric *inner = function_named(m, "inner");
+
+	cr_assert_not_null(outer);
+	cr_assert_not_null(inner);
+	cr_assert_eq(inner->complexity, 2);
+	cr_assert_eq(outer->complexity, 2,
+	             "running the query against outer's body without "
+	             "attribution would report 3 (HLR-068)");
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-ANL-22: a decision point inside a scope that is *not* a
+ * reported function belongs to the nearest enclosing one that is.
+ *
+ * This is the anonymous-callable rule (HLR-018), which C cannot express — it
+ * has no lambdas. The mechanism is what the requirement constrains, and the
+ * mechanism is `innermost_enclosing` over the *reported* functions: an offset
+ * inside an unreported scope resolves to the named function containing it,
+ * because the unreported scope is not in the index at all. A fixture in the
+ * language follows when C++ arrives in Phase 6.
+ */
+Test(analyze, an_unreported_scope_attributes_to_the_named_function_around_it)
+{
+	/* One reported function spanning 0..100. Bytes 40..60 stand for an
+	 * anonymous callable inside it, which contributes no range of its
+	 * own. */
+	FnRange      items[] = { { 0, 100, 0 } };
+	FnRangeIndex index   = ranges_of(items, 1);
+
+	const FnRange *hit = innermost_enclosing(&index, 50);
+
+	cr_assert_not_null(hit, "an unreported scope does not swallow the "
+	                        "decision point");
+	cr_assert_eq(hit->index, 0,
+	             "it lands on the nearest enclosing named function "
+	             "(HLR-018)");
+}
+
+/* Verifies LLR-ANL-21: a decision point outside every reported function is
+ * counted for no function, rather than for an arbitrary one. */
+Test(analyze, a_file_scope_decision_belongs_to_no_function)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int global = 1 ? 2 : 3;\n"
+		"int f(void)\n"
+		"{\n"
+		"\treturn global;\n"
+		"}\n"), &m), ANALYZE_OK);
+
+	cr_assert_eq(m->functions[0].complexity, 1,
+	             "the conditional in the global initialiser is not f's");
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
 Test(analyze, filemetrics_free_is_safe_on_null)
 {
 	filemetrics_free(NULL);

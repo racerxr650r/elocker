@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.4
-**Date:** 2026-08-16
+**Version:** 0.5
+**Date:** 2026-08-18
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -132,12 +132,12 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **230 test(s)** across
-**18 file(s)**.
+Snapshot: **259 test(s)** across
+**19 file(s)**.
 
 ### 3.1. [test/unit/cli.c](../test/unit/cli.c)
 
-Role: **unit**. **15 test(s).**
+Role: **unit**. **20 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -155,7 +155,12 @@ Role: **unit**. **15 test(s).**
 | 12 | <a id="an_output_path_is_collected"></a>`an_output_path_is_collected` | `LLR-CLI-03` | An output file path is collected into the options, and its argument is not mistaken for a target. |
 | 13 | <a id="the_short_output_option_behaves_as_the_long_one"></a>`the_short_output_option_behaves_as_the_long_one` | `LLR-CLI-03` | The short form of the redirection option is parsed as the long form is. |
 | 14 | <a id="an_output_option_without_its_argument_is_a_usage_error"></a>`an_output_option_without_its_argument_is_a_usage_error` | `LLR-CLI-12` | An option requiring an argument and given none is a usage error. |
-| 15 | <a id="options_free_is_safe_on_null"></a>`options_free_is_safe_on_null` | — | Releasing a null options structure does not fault, so teardown is safe on every path. |
+| 15 | <a id="the_complexity_threshold_defaults_to_fifteen"></a>`the_complexity_threshold_defaults_to_fifteen` | `LLR-CLI-04` | The threshold defaults to the documented value when none is supplied. |
+| 16 | <a id="a_complexity_threshold_is_collected"></a>`a_complexity_threshold_is_collected` | `LLR-CLI-04` | A threshold given as a long option is collected, and its argument is not mistaken for a target. |
+| 17 | <a id="the_short_threshold_option_behaves_as_the_long_one"></a>`the_short_threshold_option_behaves_as_the_long_one` | `LLR-CLI-04` | The short form is parsed as the long form is. |
+| 18 | <a id="a_threshold_of_zero_is_accepted"></a>`a_threshold_of_zero_is_accepted` | `LLR-CLI-04` | Zero lists every function, which is a legitimate request and must not be read as absent. |
+| 19 | <a id="a_malformed_threshold_is_a_usage_error"></a>`a_malformed_threshold_is_a_usage_error` | `LLR-CLI-16`, `LLR-CLI-12` | A sign, a trailing tail, leading whitespace, an empty string, and a hexadecimal literal are each rejected — every one of which a permissive conversion would accept, silently yielding a threshold the user did not write. |
+| 20 | <a id="options_free_is_safe_on_null"></a>`options_free_is_safe_on_null` | — | Releasing a null options structure does not fault, so teardown is safe on every path. |
 
 ### 3.2. [test/unit/registry.c](../test/unit/registry.c)
 
@@ -181,7 +186,7 @@ Role: **unit**. **15 test(s).**
 
 ### 3.3. [test/unit/analyze.c](../test/unit/analyze.c)
 
-Role: **unit**. **29 test(s).**
+Role: **unit**. **34 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -213,7 +218,12 @@ Role: **unit**. **29 test(s).**
 | 26 | <a id="file_scope_code_counts_for_the_file_only"></a>`file_scope_code_counts_for_the_file_only` | `LLR-ANL-40` | An initialised global contributes to the file's ELOC and to no function's. |
 | 27 | <a id="a_file_with_nothing_executable_reports_zero_eloc"></a>`a_file_with_nothing_executable_reports_zero_eloc` | `LLR-ANL-04`, `LLR-ANL-10` | A file of comments, directives, and bare declarations reports zero ELOC without error. |
 | 28 | <a id="a_trailing_comment_does_not_remove_its_line"></a>`a_trailing_comment_does_not_remove_its_line` | `LLR-ANL-39` | A line of code carrying a trailing comment is still a line of code. The exclusion is byte-granular for this reason; a line-granular one deletes the statement. |
-| 29 | <a id="filemetrics_free_is_safe_on_null"></a>`filemetrics_free_is_safe_on_null` | `LLR-ANL-02` | Releasing a null metrics structure does not fault, so teardown is safe on every path. |
+| 29 | <a id="a_function_that_never_branches_is_one"></a>`a_function_that_never_branches_is_one` | `LLR-ANL-21` | A function with no decision point reports 1. A query capturing the function itself would report 2, which is the failure this asserts against. |
+| 30 | <a id="each_decision_point_adds_one"></a>`each_decision_point_adds_one` | `LLR-ANL-21` | Two decision points make three, so the base and the increment are both applied exactly once. |
+| 31 | <a id="a_nested_functions_decisions_are_not_counted_twice"></a>`a_nested_functions_decisions_are_not_counted_twice` | `LLR-ANL-22`, `LLR-INN-02` | A nested named function owns its decision points and the function enclosing it gains none of them; running the query against the enclosing body without attribution would report one more. |
+| 32 | <a id="an_unreported_scope_attributes_to_the_named_function_around_it"></a>`an_unreported_scope_attributes_to_the_named_function_around_it` | `LLR-ANL-22` | An offset inside a scope that is not a reported function resolves to the nearest named function containing it. This is the anonymous-callable rule, whose language-level observable waits for a language with lambdas; the mechanism it constrains is verified here. |
+| 33 | <a id="a_file_scope_decision_belongs_to_no_function"></a>`a_file_scope_decision_belongs_to_no_function` | `LLR-ANL-41` | A conditional in a file-scope initialiser is charged to no function rather than to an arbitrary one. |
+| 34 | <a id="filemetrics_free_is_safe_on_null"></a>`filemetrics_free_is_safe_on_null` | `LLR-ANL-02` | Releasing a null metrics structure does not fault, so teardown is safe on every path. |
 
 ### 3.4. [test/unit/discover.c](../test/unit/discover.c)
 
@@ -362,9 +372,29 @@ Role: **integration**. **23 test(s).**
 | 22 | <a id="HLR-019: a header of declarations only reports zero ELOC"></a>`HLR-019: a header of declarations only reports zero ELOC` | — | A file's own line and ELOC counts are reported per file, and a header whose only statement is one return reports one. |
 | 23 | <a id="HLR-032: two runs over a parsed tree are byte-identical"></a>`HLR-032: two runs over a parsed tree are byte-identical` | — | Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones. |
 
-### 3.11. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
+### 3.11. [test/integration/complexity.bats](../test/integration/complexity.bats)
 
-Role: **fixture**. **9 test(s).**
+Role: **integration**. **13 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-017: complexity is reported per function"></a>`HLR-017: complexity is reported per function` | — | Each function's complexity appears beside its ELOC: one for a function that never branches, four for one that branches three times. |
+| 2 | <a id="HLR-026: the summary names the most complex function and the largest file"></a>`HLR-026: the summary names the most complex function and the largest file` | — | The report carries both project-wide callouts, naming the function and the file. |
+| 3 | <a id="HLR-022: the threshold defaults to 15"></a>`HLR-022: the threshold defaults to 15` | — | With no option given, the listing is built at the documented default. |
+| 4 | <a id="HLR-021: a function at or over the threshold is listed for its file"></a>`HLR-021: a function at or over the threshold is listed for its file` | — | A function meeting the threshold appears in the per-file listing, against the file that defines it. |
+| 5 | <a id="HLR-021: the listing is at-or-over, not strictly over"></a>`HLR-021: the listing is at-or-over, not strictly over` | — | A function whose complexity equals the threshold is listed; one below it is not. The boundary is the requirement's word, and an off-by-one here is invisible in any other test. |
+| 6 | <a id="HLR-022: a lower threshold lists more"></a>`HLR-022: a lower threshold lists more` | — | Lowering the threshold enlarges the listing, so the option reaches the listing at all. |
+| 7 | <a id="HLR-063: a malformed threshold is a usage error"></a>`HLR-063: a malformed threshold is a usage error` | — | An argument that is not a number is rejected with the usage-error status rather than silently becoming some other threshold. |
+| 8 | <a id="HLR-023: the threshold does not affect the exit status"></a>`HLR-023: the threshold does not affect the exit status` | — | A threshold every function breaches and one no function breaches both exit 0. Findings are data; deciding what a number warrants is the caller's. |
+| 9 | <a id="HLR-023: the threshold changes the listing and nothing else"></a>`HLR-023: the threshold changes the listing and nothing else` | — | Everything above the listing section is byte-identical at two very different thresholds, so no total, callout, or ordering moves with it. |
+| 10 | <a id="HLR-023: the threshold does not change the totals or the callouts"></a>`HLR-023: the threshold does not change the totals or the callouts` | — | A threshold no function meets leaves the function count and the callouts as they were — the report still describes the code. |
+| 11 | <a id="HLR-026: a tie for most complex resolves the same way every run"></a>`HLR-026: a tie for most complex resolves the same way every run` | — | Two functions of equal complexity resolve to the one sorting first under the presentation order, identically on every run. |
+| 12 | <a id="HLR-032: two runs with a threshold are byte-identical"></a>`HLR-032: two runs with a threshold are byte-identical` | — | Repeating a run with a threshold produces identical bytes. |
+| 13 | <a id="HLR-066: an empty run still renders the callouts and the listing"></a>`HLR-066: an empty run still renders the callouts and the listing` | — | A run that analysed nothing renders both new sections with no rows, rather than omitting them and changing the report's shape. |
+
+### 3.12. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
+
+Role: **fixture**. **13 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -372,13 +402,17 @@ Role: **fixture**. **9 test(s).**
 | 2 | <a id="HLR-015: the function's ELOC excludes the file-scope statement"></a>`HLR-015: the function's ELOC excludes the file-scope statement` | — | The function reports eighteen of the file's nineteen statement lines; the nineteenth is an initialised global outside it. |
 | 3 | <a id="HLR-019: the file's ELOC includes code outside any function"></a>`HLR-019: the file's ELOC includes code outside any function` | — | The file's ELOC accounts for every qualifying line, including the one that belongs to no function. |
 | 4 | <a id="HLR-049 – HLR-052: blanks, braces, bare declarations and directives are excluded"></a>`HLR-049 – HLR-052: blanks, braces, bare declarations and directives are excluded` | — | The fixture holds two directives, three bare declarations, five lone braces and six blank lines; counting any of them would exceed the hand count. |
-| 5 | <a id="HLR-044: an assignment or operation counts"></a>`HLR-044: an assignment or operation counts` | — | An initialising declaration, a plain assignment, and a compound operation each contribute a line. |
-| 6 | <a id="HLR-046: a call counts whether or not its result is used"></a>`HLR-046: a call counts whether or not its result is used` | — | A call whose result is discarded counts as surely as one whose result is used; the prototypes beside them declare and do nothing. |
-| 7 | <a id="HLR-047: a return counts, with or without a value"></a>`HLR-047: a return counts, with or without a value` | — | A bare return and a return carrying a value each contribute a line. |
-| 8 | <a id="HLR-045: else-if on one line counts once"></a>`HLR-045: else-if on one line counts once` | — | A line that is both an else and an if contributes one line, since ELOC counts lines rather than captures. |
-| 9 | <a id="HLR-020: a file with nothing executable reports zero, without error"></a>`HLR-020: a file with nothing executable reports zero, without error` | — | A file of comments, directives, and declarations reports zero ELOC and succeeds. |
+| 5 | <a id="HLR-017: the hand-counted complexity matches"></a>`HLR-017: the hand-counted complexity matches` | — | The function's complexity matches the value counted by hand in the fixture's header: one plus five decision points. |
+| 6 | <a id="HLR-017: a straight-line function is one"></a>`HLR-017: a straight-line function is one` | — | A function with no branch reports one, not two — the base is added once, and the query does not capture the function itself. |
+| 7 | <a id="HLR-017: a short-circuit operator is a decision point"></a>`HLR-017: a short-circuit operator is a decision point` | — | A `&&` inside a condition adds a decision, so a function built from one compound condition does not score as though it had none. |
+| 8 | <a id="HLR-017: a default label and a goto are not decisions"></a>`HLR-017: a default label and a goto are not decisions` | — | A `default` label adds no path that was not already counted and a `goto` chooses nothing, so neither raises the complexity. |
+| 9 | <a id="HLR-044: an assignment or operation counts"></a>`HLR-044: an assignment or operation counts` | — | An initialising declaration, a plain assignment, and a compound operation each contribute a line. |
+| 10 | <a id="HLR-046: a call counts whether or not its result is used"></a>`HLR-046: a call counts whether or not its result is used` | — | A call whose result is discarded counts as surely as one whose result is used; the prototypes beside them declare and do nothing. |
+| 11 | <a id="HLR-047: a return counts, with or without a value"></a>`HLR-047: a return counts, with or without a value` | — | A bare return and a return carrying a value each contribute a line. |
+| 12 | <a id="HLR-045: else-if on one line counts once"></a>`HLR-045: else-if on one line counts once` | — | A line that is both an else and an if contributes one line, since ELOC counts lines rather than captures. |
+| 13 | <a id="HLR-020: a file with nothing executable reports zero, without error"></a>`HLR-020: a file with nothing executable reports zero, without error` | — | A file of comments, directives, and declarations reports zero ELOC and succeeds. |
 
-### 3.12. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
+### 3.13. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -392,20 +426,22 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-016: inline syntax inside a block comment excludes no line twice"></a>`HLR-016: inline syntax inside a block comment excludes no line twice` | — | Comment-like openers inside a block comment do not cause any line to be excluded more than once. |
 | 7 | <a id="HLR-020: a file of only comments reports zero ELOC"></a>`HLR-020: a file of only comments reports zero ELOC` | — | A file with nothing but comments reports zero, without error. |
 
-### 3.13. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
+### 3.14. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
 
-Role: **fixture**. **6 test(s).**
+Role: **fixture**. **8 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
 | 1 | <a id="the hand-counted nesting totals match"></a>`the hand-counted nesting totals match` | — | The physical line count, the file's ELOC, and the function count match the fixture's hand-counted header. |
 | 2 | <a id="HLR-068: the innermost function owns its own statements"></a>`HLR-068: the innermost function owns its own statements` | — | Each nested function reports the statements written inside it. |
-| 3 | <a id="HLR-068: an enclosing function gains none of the nested one's lines"></a>`HLR-068: an enclosing function gains none of the nested one's lines` | — | The outermost function reports its own three statements and none of the five in the file. Attributing to the outermost enclosing function would report five; attributing to every enclosing one would report five, two, and one. |
-| 4 | <a id="HLR-067: all three functions are reported in their own right"></a>`HLR-067: all three functions are reported in their own right` | — | Three levels of nesting yield three reported functions, not one. |
-| 5 | <a id="HLR-019: the file counts each statement line once"></a>`HLR-019: the file counts each statement line once` | — | The file's ELOC is the number of distinct lines carrying a statement, however those statements are attributed. |
-| 6 | <a id="HLR-032: nested attribution is deterministic across runs"></a>`HLR-032: nested attribution is deterministic across runs` | — | Repeating the run produces identical bytes, so the attribution does not depend on the order the query matched. |
+| 3 | <a id="HLR-068: the innermost function owns its own decision points"></a>`HLR-068: the innermost function owns its own decision points` | — | Each nested function reports the branches written inside it; running the query against each body without attribution would give an enclosing function everything its nested functions branch on. |
+| 4 | <a id="HLR-017: complexity is one plus the decision points"></a>`HLR-017: complexity is one plus the decision points` | — | The outermost function scores one plus its two decision points — the `if` and the `&&` short-circuiting inside its condition. |
+| 5 | <a id="HLR-068: an enclosing function gains none of the nested one's lines"></a>`HLR-068: an enclosing function gains none of the nested one's lines` | — | The outermost function reports its own three statements and none of the five in the file. Attributing to the outermost enclosing function would report five; attributing to every enclosing one would report five, two, and one. |
+| 6 | <a id="HLR-067: all three functions are reported in their own right"></a>`HLR-067: all three functions are reported in their own right` | — | Three levels of nesting yield three reported functions, not one. |
+| 7 | <a id="HLR-019: the file counts each statement line once"></a>`HLR-019: the file counts each statement line once` | — | The file's ELOC is the number of distinct lines carrying a statement, however those statements are attributed. |
+| 8 | <a id="HLR-032: nested attribution is deterministic across runs"></a>`HLR-032: nested attribution is deterministic across runs` | — | Repeating the run produces identical bytes, so the attribution does not depend on the order the query matched. |
 
-### 3.14. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
+### 3.15. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
 
 Role: **fixture**. **15 test(s).**
 
@@ -427,7 +463,7 @@ Role: **fixture**. **15 test(s).**
 | 14 | <a id="HLR-059: the environment variable takes precedence over the adjacent runtime"></a>`HLR-059: the environment variable takes precedence over the adjacent runtime` | — | Pointing the environment variable at a broken runtime degrades the run even though a working one sits beside the executable, which it can only do if the variable was preferred. |
 | 15 | <a id="HLR-059: the runtime adjacent to the executable is used when the variable is unset"></a>`HLR-059: the runtime adjacent to the executable is used when the variable is unset` | — | With the variable unset, the runtime beside the executable is found and used. |
 
-### 3.15. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
+### 3.16. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
 
 Role: **fixture**. **11 test(s).**
 
@@ -445,7 +481,7 @@ Role: **fixture**. **11 test(s).**
 | 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
 | 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
 
-### 3.16. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.17. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -459,7 +495,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.17. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.18. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **16 test(s).**
 
@@ -482,7 +518,7 @@ Role: **instrumented**. **16 test(s).**
 | 15 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
 | 16 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 
-### 3.18. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.19. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -521,7 +557,7 @@ verified by code review — see
 | `LLR-CLI-01` | `cli_parse` | `HLR-071`, `HLR-063` | `missing_target_is_a_usage_error`, `single_target_is_collected`, `several_targets_are_collected_in_order` |
 | `LLR-CLI-02` | `cli_parse` | `HLR-027`, `HLR-028`, `HLR-054`, `HLR-029` | **(no direct test)** |
 | `LLR-CLI-03` | `cli_parse` | `HLR-030` | `the_output_destination_defaults_to_standard_output`, `an_output_path_is_collected`, `the_short_output_option_behaves_as_the_long_one` |
-| `LLR-CLI-04` | `cli_parse` | `HLR-022` | **(no direct test)** |
+| `LLR-CLI-04` | `cli_parse` | `HLR-022` | `the_complexity_threshold_defaults_to_fifteen`, `a_complexity_threshold_is_collected`, `the_short_threshold_option_behaves_as_the_long_one`, `a_threshold_of_zero_is_accepted` |
 | `LLR-CLI-05` | `cli_parse` | `HLR-081` | **(no direct test)** |
 | `LLR-CLI-06` | `cli_parse` | `HLR-103` | **(no direct test)** |
 | `LLR-CLI-07` | `cli_parse` | `HLR-106`, `HLR-119` | **(no direct test)** |
@@ -529,9 +565,10 @@ verified by code review — see
 | `LLR-CLI-09` | `cli_parse` | `HLR-107`, `HLR-063` | **(no direct test)** |
 | `LLR-CLI-10` | `cli_parse` | `HLR-055`, `HLR-122` | **(no direct test)** |
 | `LLR-CLI-11` | `cli_parse` | `HLR-057` | **(no direct test)** |
-| `LLR-CLI-12` | `cli_parse` | `HLR-063` | `unrecognised_option_is_a_usage_error`, `missing_target_is_a_usage_error`, `an_output_option_without_its_argument_is_a_usage_error` |
+| `LLR-CLI-12` | `cli_parse` | `HLR-063` | `unrecognised_option_is_a_usage_error`, `missing_target_is_a_usage_error`, `an_output_option_without_its_argument_is_a_usage_error`, `a_malformed_threshold_is_a_usage_error` |
 | `LLR-CLI-13` | `cli_parse` | `HLR-117` | `help_short_option_reports_help`, `help_long_option_reports_help`, `help_takes_precedence_over_a_target` |
 | `LLR-CLI-14` | `cli_parse` | `HLR-039` | **(no direct test)** |
+| `LLR-CLI-16` | `cli_parse` | `HLR-063`, `HLR-022` | `a_malformed_threshold_is_a_usage_error` |
 | `LLR-CLI-15` | `cli_parse` | `HLR-122`, `HLR-063` | **(no direct test)** |
 | `LLR-USG-01` | `cli_usage` | `HLR-117` | **(no direct test)** |
 | `LLR-USG-02` | `cli_usage` | `HLR-117`, `HLR-063`, `HLR-038` | **(no direct test)** |
@@ -607,8 +644,8 @@ verified by code review — see
 | `LLR-ANL-18` | `analyze_file` | `HLR-050` | **(no direct test)** |
 | `LLR-ANL-19` | `analyze_file` | `HLR-051` | **(no direct test)** |
 | `LLR-ANL-20` | `analyze_file` | `HLR-052` | **(no direct test)** |
-| `LLR-ANL-21` | `analyze_file` | `HLR-017` | **(no direct test)** |
-| `LLR-ANL-22` | `analyze_file` | `HLR-018` | **(no direct test)** |
+| `LLR-ANL-21` | `analyze_file` | `HLR-017` | `a_function_that_never_branches_is_one`, `each_decision_point_adds_one` |
+| `LLR-ANL-22` | `analyze_file` | `HLR-018` | `a_nested_functions_decisions_are_not_counted_twice`, `an_unreported_scope_attributes_to_the_named_function_around_it` |
 | `LLR-ANL-23` | `analyze_file` | `HLR-019` | **(no direct test)** |
 | `LLR-ANL-24` | `analyze_file` | `HLR-020` | **(no direct test)** |
 | `LLR-ANL-25` | `analyze_file` | `HLR-073`, `HLR-074`, `HLR-096` | **(no direct test)** |
@@ -626,6 +663,7 @@ verified by code review — see
 | `LLR-ANL-38` | `analyze_file` | `HLR-015`, `HLR-053` | `two_statements_on_one_line_count_once` |
 | `LLR-ANL-39` | `analyze_file` | `HLR-016`, `HLR-015` | `a_trailing_comment_does_not_remove_its_line` |
 | `LLR-ANL-40` | `analyze_file` | `HLR-019`, `HLR-068` | `a_nested_functions_statements_are_not_counted_twice`, `file_scope_code_counts_for_the_file_only` |
+| `LLR-ANL-41` | `analyze_file` | `HLR-017`, `HLR-018` | `a_file_scope_decision_belongs_to_no_function` |
 | `LLR-ANL-34` | `analyze_file` | `HLR-124`, `HLR-125` | **(no direct test)** |
 | `LLR-MRG-01` | `merge_comment_spans` | `HLR-016` | `spans_are_sorted_before_merging` |
 | `LLR-MRG-02` | `merge_comment_spans` | `HLR-016` | `overlapping_spans_coalesce`, `a_nested_span_is_absorbed_not_counted_twice` |
@@ -633,7 +671,7 @@ verified by code review — see
 | `LLR-MRG-05` | `merge_comment_spans` | `HLR-016` | `a_shared_line_is_counted_once` |
 | `LLR-MRG-04` | `merge_comment_spans` | `HLR-124` | `coalescing_a_trailing_run_stays_in_bounds`, `merging_an_empty_span_list_is_zero` |
 | `LLR-INN-01` | `innermost_enclosing` | `HLR-068` | `the_narrowest_enclosing_function_wins`, `the_narrowest_wins_whatever_order_the_ranges_are_in`, `an_empty_range_index_owns_nothing` |
-| `LLR-INN-02` | `innermost_enclosing` | `HLR-068`, `HLR-067` | `the_narrowest_wins_whatever_order_the_ranges_are_in`, `an_offset_outside_every_function_has_no_owner`, `a_nested_functions_statements_are_not_counted_twice` |
+| `LLR-INN-02` | `innermost_enclosing` | `HLR-068`, `HLR-067` | `the_narrowest_wins_whatever_order_the_ranges_are_in`, `an_offset_outside_every_function_has_no_owner`, `a_nested_functions_statements_are_not_counted_twice`, `a_nested_functions_decisions_are_not_counted_twice` |
 | `LLR-SDG-01` | `graph_build` | `HLR-073` | **(no direct test)** |
 | `LLR-SDG-02` | `graph_build` | `HLR-073` | **(no direct test)** |
 | `LLR-SDG-03` | `graph_build` | `HLR-074` | **(no direct test)** |
@@ -712,6 +750,8 @@ verified by code review — see
 | `LLR-RPT-17` | `report_assemble` | `HLR-127` | **(no direct test)** |
 | `LLR-RPT-18` | `report_assemble` | `HLR-124`, `HLR-125` | `assembly_leaves_the_accumulator_empty` |
 | `LLR-RPT-19` | `report_assemble` | `HLR-025`, `HLR-033` | **(no direct test)** |
+| `LLR-RPT-20` | `report_assemble` | `HLR-021`, `HLR-023` | **(no direct test)** |
+| `LLR-RPT-21` | `report_assemble` | `HLR-026`, `HLR-032`, `HLR-033` | **(no direct test)** |
 | `LLR-RPT-16` | `report_assemble` | `HLR-124`, `HLR-125` | `a_failed_growth_leaves_the_accumulator_intact`, `free_is_safe_on_null` |
 | `LLR-TBL-01` | `format_table` | `HLR-027` | `the_table_carries_the_summary_and_every_file`, `columns_are_aligned_on_the_longest_path`, `an_empty_report_still_renders_a_table` |
 | `LLR-TBL-02` | `format_table` | `HLR-027` | **(no direct test)** |
