@@ -70,6 +70,7 @@ static void summary_section(const Report *report, FILE *out)
 
 	value_width = widest_number(value_width,
 	                            (uint64_t)report->summary.file_count);
+	value_width = widest_number(value_width, report->summary.eloc);
 	value_width = widest_number(value_width, report->summary.function_count);
 	value_width = widest_number(value_width,
 	                            (uint64_t)report->skipped_files.count);
@@ -79,10 +80,53 @@ static void summary_section(const Report *report, FILE *out)
 	        report->summary.file_count);
 	fprintf(out, "  %-14s  %*" PRIu64 "\n", "Physical lines", value_width,
 	        report->summary.physical_lines);
+	fprintf(out, "  %-14s  %*" PRIu64 "\n", "ELOC", value_width,
+	        report->summary.eloc);
 	fprintf(out, "  %-14s  %*" PRIu64 "\n", "Functions", value_width,
 	        report->summary.function_count);
 	fprintf(out, "  %-14s  %*zu\n", "Skipped", value_width,
 	        report->skipped_files.count);
+}
+
+/* Each language's share of the totals, so a mixed-language project shows
+ * what each part of it contributes rather than one blended figure
+ * (HLR-025). */
+static void languages_section(const Report *report, FILE *out)
+{
+	int name  = widest(0, "Language");
+	int files = widest(0, "Files");
+	int lines = widest(0, "Lines");
+	int eloc  = widest(0, "ELOC");
+
+	for (size_t i = 0; i < report->languages.count; i++) {
+		const LanguageTotals *l = &report->languages.items[i];
+
+		name  = widest(name, l->language);
+		files = widest_number(files, (uint64_t)l->file_count);
+		lines = widest_number(lines, l->physical_lines);
+		eloc  = widest_number(eloc, l->eloc);
+	}
+
+	fputs("\nLanguages\n", out);
+	fprintf(out, "  %-*s  %*s  %*s  %*s\n", name, "Language", files,
+	        "Files", lines, "Lines", eloc, "ELOC");
+	fputs("  ", out);
+	rule(out, name);
+	fputs("  ", out);
+	rule(out, files);
+	fputs("  ", out);
+	rule(out, lines);
+	fputs("  ", out);
+	rule(out, eloc);
+	fputc('\n', out);
+
+	for (size_t i = 0; i < report->languages.count; i++) {
+		const LanguageTotals *l = &report->languages.items[i];
+
+		fprintf(out, "  %-*s  %*zu  %*" PRIu64 "  %*" PRIu64 "\n",
+		        name, l->language, files, l->file_count, lines,
+		        l->physical_lines, eloc, l->eloc);
+	}
 }
 
 static void files_section(const Report *report, FILE *out)
@@ -90,6 +134,7 @@ static void files_section(const Report *report, FILE *out)
 	int path = widest(0, "File");
 	int lang = widest(0, "Language");
 	int line = widest(0, "Lines");
+	int eloc = widest(0, "ELOC");
 	int func = widest(0, "Functions");
 
 	for (size_t i = 0; i < report->file_count; i++) {
@@ -98,12 +143,13 @@ static void files_section(const Report *report, FILE *out)
 		path = widest(path, f->path);
 		lang = widest(lang, f->language ? f->language : "");
 		line = widest_number(line, f->physical_lines);
+		eloc = widest_number(eloc, f->eloc);
 		func = widest_number(func, (uint64_t)f->function_count);
 	}
 
 	fputs("\nFiles\n", out);
-	fprintf(out, "  %-*s  %-*s  %*s  %*s\n", path, "File", lang, "Language",
-	        line, "Lines", func, "Functions");
+	fprintf(out, "  %-*s  %-*s  %*s  %*s  %*s\n", path, "File", lang,
+	        "Language", line, "Lines", eloc, "ELOC", func, "Functions");
 	fputs("  ", out);
 	rule(out, path);
 	fputs("  ", out);
@@ -111,15 +157,18 @@ static void files_section(const Report *report, FILE *out)
 	fputs("  ", out);
 	rule(out, line);
 	fputs("  ", out);
+	rule(out, eloc);
+	fputs("  ", out);
 	rule(out, func);
 	fputc('\n', out);
 
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
-		fprintf(out, "  %-*s  %-*s  %*" PRIu32 "  %*zu\n", path, f->path,
-		        lang, f->language ? f->language : "", line,
-		        f->physical_lines, func, f->function_count);
+		fprintf(out, "  %-*s  %-*s  %*" PRIu32 "  %*" PRIu32 "  %*zu\n",
+		        path, f->path, lang, f->language ? f->language : "",
+		        line, f->physical_lines, eloc, f->eloc, func,
+		        f->function_count);
 	}
 }
 
@@ -129,6 +178,7 @@ static void functions_section(const Report *report, FILE *out)
 	int  path = widest(0, "File");
 	int  name = widest(0, "Function");
 	int  line = widest(0, "Lines");
+	int  eloc = widest(0, "ELOC");
 
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
@@ -138,18 +188,21 @@ static void functions_section(const Report *report, FILE *out)
 			name = widest(name, f->functions[j].name);
 			span_of(span, sizeof span, &f->functions[j]);
 			line = widest(line, span);
+			eloc = widest_number(eloc, f->functions[j].eloc);
 		}
 	}
 
 	fputs("\nFunctions\n", out);
-	fprintf(out, "  %-*s  %-*s  %*s\n", path, "File", name, "Function",
-	        line, "Lines");
+	fprintf(out, "  %-*s  %-*s  %*s  %*s\n", path, "File", name, "Function",
+	        line, "Lines", eloc, "ELOC");
 	fputs("  ", out);
 	rule(out, path);
 	fputs("  ", out);
 	rule(out, name);
 	fputs("  ", out);
 	rule(out, line);
+	fputs("  ", out);
+	rule(out, eloc);
 	fputc('\n', out);
 
 	for (size_t i = 0; i < report->file_count; i++) {
@@ -157,8 +210,9 @@ static void functions_section(const Report *report, FILE *out)
 
 		for (size_t j = 0; j < f->function_count; j++) {
 			span_of(span, sizeof span, &f->functions[j]);
-			fprintf(out, "  %-*s  %-*s  %*s\n", path, f->path, name,
-			        f->functions[j].name, line, span);
+			fprintf(out, "  %-*s  %-*s  %*s  %*" PRIu32 "\n", path,
+			        f->path, name, f->functions[j].name, line, span,
+			        eloc, f->functions[j].eloc);
 		}
 	}
 }
@@ -176,6 +230,7 @@ static void skipped_section(const Report *report, FILE *out)
 int format_table(const Report *report, FILE *out)
 {
 	summary_section(report, out);
+	languages_section(report, out);
 	files_section(report, out);
 	functions_section(report, out);
 	skipped_section(report, out);

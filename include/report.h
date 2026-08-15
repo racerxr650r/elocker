@@ -40,8 +40,24 @@ typedef struct {
 typedef struct {
 	size_t   file_count;
 	uint64_t physical_lines;
+	uint64_t eloc;
 	uint64_t function_count;
 } ProjectSummary;
+
+/* One language's share of the project totals, so that the contribution of
+ * each language present in the target is separately visible (HLR-025). */
+typedef struct {
+	const char *language; /* borrowed from a language module */
+	size_t      file_count;
+	uint64_t    physical_lines;
+	uint64_t    eloc;
+} LanguageTotals;
+
+typedef struct {
+	LanguageTotals *items; /* sorted by language name */
+	size_t          count;
+	size_t          capacity;
+} LanguageList;
 
 
 /* The model every renderer consumes. Every collection is sorted before a
@@ -50,6 +66,7 @@ typedef struct {
 	ProjectSummary summary;
 	FileMetrics  **files;         /* sorted by path; owned            */
 	size_t         file_count;
+	LanguageList   languages;     /* sorted by name; owned (HLR-025)  */
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;
 

@@ -296,6 +296,360 @@ Test(analyze, an_unmapped_extension_is_a_skip_not_a_failure)
 	registry_close(&reg);
 }
 
+/* ------------------------------------------------ merge_comment_spans ----
+ *
+ * Tested against its contract with synthetic spans rather than only through a
+ * parsed file. This is the arithmetic the whole metric rests on, and the ways
+ * it goes wrong — a shared line excluded twice, a run of adjacent spans read
+ * one past its end — are reachable directly and awkward to provoke through C
+ * source.
+ */
+
+static SpanList spans_of(CommentSpan *items, size_t count)
+{
+	SpanList list;
+
+	list.items    = items;
+	list.count    = count;
+	list.capacity = count;
+	return list;
+}
+
+/* Verifies LLR-MRG-01: spans are sorted before anything is merged. */
+Test(analyze, spans_are_sorted_before_merging)
+{
+	CommentSpan items[] = {
+		{ 100, 120, 10, 12 },
+		{  10,  20,  1,  2 },
+		{  50,  60,  5,  6 },
+	};
+	SpanList list = spans_of(items, 3);
+
+	cr_assert_eq(merge_comment_spans(&list), 7,
+	             "2 + 2 + 3 lines, whatever order they arrived in");
+	cr_assert_eq(list.count, 3, "disjoint spans do not coalesce");
+	cr_assert_eq(list.items[0].start_byte, 10);
+	cr_assert_eq(list.items[1].start_byte, 50);
+	cr_assert_eq(list.items[2].start_byte, 100);
+}
+
+/* Verifies LLR-MRG-02: overlapping spans coalesce into one. */
+Test(analyze, overlapping_spans_coalesce)
+{
+	CommentSpan items[] = {
+		{ 10, 40, 1, 4 },
+		{ 30, 60, 3, 6 },
+	};
+	SpanList list = spans_of(items, 2);
+
+	cr_assert_eq(merge_comment_spans(&list), 6, "lines 1 through 6, once");
+	cr_assert_eq(list.count, 1);
+	cr_assert_eq(list.items[0].start_byte, 10);
+	cr_assert_eq(list.items[0].end_byte, 60);
+}
+
+/* Verifies LLR-MRG-02, LLR-MRG-03: a nested span is absorbed by the span
+ * containing it, and contributes nothing of its own. This is the canonical
+ * case — a block comment carrying inline comment syntax — and subtracting per
+ * capture would count its lines twice. */
+Test(analyze, a_nested_span_is_absorbed_not_counted_twice)
+{
+	CommentSpan items[] = {
+		{ 10, 90, 1, 9 },   /* the block comment          */
+		{ 30, 40, 3, 4 },   /* inline syntax inside it    */
+		{ 50, 55, 5, 5 },   /* and again                  */
+	};
+	SpanList list = spans_of(items, 3);
+
+	cr_assert_eq(merge_comment_spans(&list), 9,
+	             "nine lines, not nine plus two plus one");
+	cr_assert_eq(list.count, 1);
+	cr_assert_eq(list.items[0].end_byte, 90,
+	             "the outer span is not shortened by the inner one");
+}
+
+/* Verifies LLR-MRG-03: no line is excluded more than once, however many
+ * spans share it. Subtracting per capture is what drives ELOC negative. */
+Test(analyze, a_shared_line_is_counted_once)
+{
+	CommentSpan items[] = {
+		{ 10, 20, 7, 7 },
+		{ 21, 30, 7, 7 },
+		{ 31, 40, 7, 7 },
+	};
+	SpanList list = spans_of(items, 3);
+
+	cr_assert_eq(merge_comment_spans(&list), 1,
+	             "three comments on one line are one line");
+}
+
+/* Verifies LLR-MRG-04: coalescing a run of adjacent spans stops at the final
+ * element. The bound is the whole of the requirement — without it the loop
+ * reads one past the last span whenever the trailing run is longer than one,
+ * which is exactly this shape. */
+Test(analyze, coalescing_a_trailing_run_stays_in_bounds)
+{
+	CommentSpan items[] = {
+		{ 10, 20, 1, 1 },
+		{ 15, 25, 1, 2 },
+		{ 20, 35, 2, 3 },
+		{ 30, 45, 3, 4 },
+	};
+	SpanList list = spans_of(items, 4);
+
+	cr_assert_eq(merge_comment_spans(&list), 4, "lines 1 through 4");
+	cr_assert_eq(list.count, 1);
+}
+
+Test(analyze, merging_an_empty_span_list_is_zero)
+{
+	SpanList list = { 0 };
+
+	cr_assert_eq(merge_comment_spans(&list), 0);
+	cr_assert_eq(list.count, 0);
+}
+
+/* ------------------------------------------------- innermost_enclosing ---- */
+
+static FnRangeIndex ranges_of(FnRange *items, size_t count)
+{
+	FnRangeIndex index;
+
+	index.items    = items;
+	index.count    = count;
+	index.capacity = count;
+	return index;
+}
+
+/* Verifies LLR-INN-01: the narrowest containing range wins, not the first. */
+Test(analyze, the_narrowest_enclosing_function_wins)
+{
+	FnRange      items[] = { { 0, 100, 0 }, { 20, 40, 1 } };
+	FnRangeIndex index   = ranges_of(items, 2);
+
+	const FnRange *hit = innermost_enclosing(&index, 30);
+
+	cr_assert_not_null(hit);
+	cr_assert_eq(hit->index, 1,
+	             "a statement inside a nested function belongs to it alone "
+	             "(HLR-068)");
+}
+
+/* Verifies LLR-INN-01: order of declaration does not decide the answer. */
+Test(analyze, the_narrowest_wins_whatever_order_the_ranges_are_in)
+{
+	FnRange      items[] = { { 20, 40, 1 }, { 0, 100, 0 } };
+	FnRangeIndex index   = ranges_of(items, 2);
+
+	cr_assert_eq(innermost_enclosing(&index, 30)->index, 1);
+	cr_assert_eq(innermost_enclosing(&index, 50)->index, 0,
+	             "outside the nested range, the enclosing one applies");
+}
+
+/* Verifies LLR-INN-02: an offset outside every function belongs to none, so
+ * file-scope code contributes to the file and to no function. */
+Test(analyze, an_offset_outside_every_function_has_no_owner)
+{
+	FnRange      items[] = { { 20, 40, 0 } };
+	FnRangeIndex index   = ranges_of(items, 1);
+
+	cr_assert_null(innermost_enclosing(&index, 10));
+	cr_assert_null(innermost_enclosing(&index, 40),
+	               "the end offset is exclusive");
+	cr_assert_not_null(innermost_enclosing(&index, 20),
+	                   "the start offset is inclusive");
+}
+
+Test(analyze, an_empty_range_index_owns_nothing)
+{
+	FnRangeIndex index = { 0 };
+
+	cr_assert_null(innermost_enclosing(&index, 0));
+}
+
+/* ------------------------------------------------------------------ ELOC -- */
+
+/* Verifies LLR-ANL-11: a statement spread over several lines counts once, at
+ * its start line — style must not move the number. */
+Test(analyze, a_multi_line_statement_counts_once)
+{
+	Registry     reg;
+	FileMetrics *spread = NULL;
+	FileMetrics *dense  = NULL;
+
+	registry_for_tests(&reg);
+
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int f(int a, int b)\n"
+		"{\n"
+		"\treturn (a +\n"
+		"\t        b +\n"
+		"\t        a);\n"
+		"}\n"), &spread), ANALYZE_OK);
+
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int f(int a, int b)\n"
+		"{\n"
+		"\treturn (a + b + a);\n"
+		"}\n"), &dense), ANALYZE_OK);
+
+	cr_assert_eq(spread->functions[0].eloc, 1);
+	cr_assert_eq(spread->functions[0].eloc, dense->functions[0].eloc,
+	             "identical logic yields the same ELOC however it is laid "
+	             "out (HLR-053)");
+
+	filemetrics_free(spread);
+	filemetrics_free(dense);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-ANL-10: a statement is counted, a blank line, a lone brace, a
+ * bare declaration, and a directive are not. */
+Test(analyze, only_statements_count_toward_eloc)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"#define N 4\n"          /* directive     — excluded */
+		"int f(void)\n"
+		"{\n"                    /* lone brace    — excluded */
+		"\tint bare;\n"          /* declaration   — excluded */
+		"\n"                     /* blank         — excluded */
+		"\tint init = N;\n"      /* initialises   — counted  */
+		"\treturn init;\n"       /* returns       — counted  */
+		"}\n"), &m), ANALYZE_OK);
+
+	cr_assert_eq(m->functions[0].eloc, 2);
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-ANL-11: two statements sharing a line are one line of code.
+ * Counting the captures instead would make the same two statements worth
+ * twice as much on one line as on two, which is HLR-053's error inverted. */
+Test(analyze, two_statements_on_one_line_count_once)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int f(void)\n"
+		"{\n"
+		"\tint a = 1; int b = 2;\n"
+		"\treturn a + b;\n"
+		"}\n"), &m), ANALYZE_OK);
+
+	cr_assert_eq(m->functions[0].eloc, 2);
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-INN-02: a statement in a nested function contributes to it
+ * and not also to the function enclosing it. */
+Test(analyze, a_nested_functions_statements_are_not_counted_twice)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int outer(void)\n"
+		"{\n"
+		"\tint a = 1;\n"
+		"\tint inner(int x)\n"
+		"\t{\n"
+		"\t\tint b = 2;\n"
+		"\t\treturn x + b;\n"
+		"\t}\n"
+		"\treturn inner(a);\n"
+		"}\n"), &m), ANALYZE_OK);
+
+	const FunctionMetric *outer = function_named(m, "outer");
+	const FunctionMetric *inner = function_named(m, "inner");
+
+	cr_assert_not_null(outer);
+	cr_assert_not_null(inner);
+	cr_assert_eq(inner->eloc, 2);
+	cr_assert_eq(outer->eloc, 2,
+	             "the enclosing function keeps its own two statements and "
+	             "gains none of the nested one's (HLR-068)");
+	cr_assert_eq(m->eloc, 4, "four distinct lines carry a statement");
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-ANL-10: code outside every function contributes to the file's
+ * ELOC and to no function's. */
+Test(analyze, file_scope_code_counts_for_the_file_only)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int global = 1;\n"
+		"int bare;\n"
+		"int f(void)\n"
+		"{\n"
+		"\treturn global;\n"
+		"}\n"), &m), ANALYZE_OK);
+
+	cr_assert_eq(m->functions[0].eloc, 1);
+	cr_assert_eq(m->eloc, 2,
+	             "the initialised global counts for the file (HLR-019)");
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-ANL-04: a file with nothing executable reports zero ELOC
+ * without error (HLR-020). */
+Test(analyze, a_file_with_nothing_executable_reports_zero_eloc)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"/* a comment */\n"
+		"#include <stdio.h>\n"
+		"int declared_only;\n"
+		"int prototype(void);\n"), &m), ANALYZE_OK);
+
+	cr_assert_eq(m->eloc, 0);
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-ANL-01: a line of code carrying a trailing comment is still a
+ * line of code. The exclusion is byte-granular for exactly this reason — a
+ * line-granular one deletes this statement. */
+Test(analyze, a_trailing_comment_does_not_remove_its_line)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_file(&reg, source_holding(
+		"int f(void)\n"
+		"{\n"
+		"\tint n = 0;   /* a note */\n"
+		"\treturn n;    /* another */\n"
+		"}\n"), &m), ANALYZE_OK);
+
+	cr_assert_eq(m->functions[0].eloc, 2);
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
 Test(analyze, filemetrics_free_is_safe_on_null)
 {
 	filemetrics_free(NULL);

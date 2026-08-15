@@ -3,7 +3,7 @@
 .\" This page describes the version it ships with (HLR-129). Every option elc
 .\" accepts appears here, and every option here is accepted; the documentation
 .\" test in test/integration/docs.bats enforces both directions.
-.TH ELC 1 "2026-08-16" "elocker" "User Commands"
+.TH ELC 1 "2026-08-17" "elocker" "User Commands"
 .SH NAME
 elc \- per-function code metrics and whole-project architecture analysis
 .SH SYNOPSIS
@@ -25,12 +25,40 @@ file reached through more than one target is analysed once.
 .SS Current state
 .B elc
 is under active development. This release discovers the files in its targets,
-parses each one, and reports the functions it defines with their line ranges,
-alongside each file's physical line count. Effective lines of code,
-cyclomatic complexity, the System Dependence Graph and the findings derived
-from it are delivered by later phases, and this page grows with them. See
+parses each one, and reports effective lines of code per function, per file,
+and per language. Cyclomatic complexity, the System Dependence Graph and the
+findings derived from it are delivered by later phases, and this page grows
+with them. See
 .B doc/SDP.md
 in the distribution for what each phase adds.
+.SS Effective lines of code
+.B ELOC
+is the count of lines carrying an executable statement: an assignment or
+operation, a control-flow construct, a call, a return, or exception handling.
+It excludes what serves only a structural, declarative, blank, or documentary
+purpose — a blank line, a line holding nothing but a brace, a declaration
+that initialises nothing, a preprocessor directive, and a comment.
+.PP
+Two properties follow from counting
+.I lines that carry statements
+rather than counting either physical lines or statements:
+.TP
+.B Layout does not move the number.
+A statement spread over four lines counts once, at the line it starts on, so
+reformatting a long condition changes nothing. Two statements written on one
+line likewise count once — that line is one line to read.
+.TP
+.B A nested function's work belongs to it.
+Where a language allows a named function inside another,
+.B elc
+reports both, and each statement counts for the innermost function containing
+it and for no other. An enclosing function is not credited with what its
+nested functions do.
+.PP
+Comments are identified from the syntax tree, never by matching text. A
+comment opener inside a string literal opens nothing, a quote inside a comment
+opens no string, and a comment sharing a line with code does not stop that
+line counting.
 .SS Language support
 .B elc
 determines each file's language from its extension, and loads the parser and
@@ -104,30 +132,36 @@ diagnostics are written to standard error. Nothing else is written to the
 results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
-The default format is an aligned table in four sections: the project summary,
-one row per analysed file, one row per function, and the files that were
-skipped. Column widths are taken from the longest value in each column so the
+The default format is an aligned table in five sections: the project summary,
+the totals broken down by language, one row per analysed file, one row per
+function, and the files that were skipped. Column widths are taken from the longest value in each column so the
 figures line up:
 .PP
 .EX
 Project summary
   Files             2
   Physical lines   42
+  ELOC             18
   Functions         3
   Skipped           1
 
+Languages
+  Language  Files  Lines  ELOC
+  --------  -----  -----  ----
+  c             2     42    18
+
 Files
-  File                  Language  Lines  Functions
-  --------------------  --------  -----  ---------
-  /home/u/proj/src/a.c  c            18          2
-  /home/u/proj/src/b.c  c            24          1
+  File                  Language  Lines  ELOC  Functions
+  --------------------  --------  -----  ----  ---------
+  /home/u/proj/src/a.c  c            18    12          2
+  /home/u/proj/src/b.c  c            24     6          1
 
 Functions
-  File                  Function    Lines
-  --------------------  ----------  -----
-  /home/u/proj/src/a.c  parse        5-19
-  /home/u/proj/src/a.c  emit        21-24
-  /home/u/proj/src/b.c  main         3-11
+  File                  Function    Lines  ELOC
+  --------------------  ----------  -----  ----
+  /home/u/proj/src/a.c  parse        5-19     9
+  /home/u/proj/src/a.c  emit        21-24     3
+  /home/u/proj/src/b.c  main         3-11     6
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
@@ -136,6 +170,10 @@ Skipped files (no language module)
 A function's line range runs from its signature to the end of its body. A
 named function declared inside another is reported in its own right rather
 than folded into the one containing it.
+.PP
+A file's ELOC may exceed the sum of its functions': a statement outside every
+function — an initialised global, say — counts for the file and for no
+function. It may also fall below that sum, where two functions share a line.
 .PP
 Every section is emitted whether or not it has rows, so the report has the
 same shape whatever the target held. Files are listed by canonical absolute

@@ -1,6 +1,6 @@
 # elc User Manual
 
-**Version:** 0.3 (Phase 2)
+**Version:** 0.4 (Phase 3)
 **Applies to:** the `elc` build shipped alongside this file
 
 This manual describes the version it ships with. Every option `elc` accepts is
@@ -32,15 +32,12 @@ repository are comparable and results from different runs can be diffed.
 `elc` is under active development, and this manual grows with it.
 
 **What this build does:** finds the source files in your targets, parses each
-one, and prints the functions it defines with their line ranges — alongside
-each file's physical line count and the project totals. C is the language it
-ships with.
+one, and reports **effective lines of code** per function, per file, and per
+language — alongside each function's line range and each file's physical line
+count. C is the language it ships with.
 
-**What it does not do yet:** measure anything about those functions.
-Effective lines of code, cyclomatic complexity, the System Dependence Graph,
-and the findings derived from it arrive in later phases. The `Lines` column
-against a *file* counts physical lines — every line, blank and comment alike
-— which is not the same thing as ELOC and is not meant to be.
+**What it does not do yet:** cyclomatic complexity, the System Dependence
+Graph, and the findings derived from it. Those arrive in later phases.
 
 `doc/SDP.md` lists what each phase delivers. Metrics land in Phases 3–4, the
 call graph in Phase 8, and the architectural analyses in Phases 9–13.
@@ -107,35 +104,136 @@ unreadable, or is something other than a file or a directory — a socket, a
 FIFO, a device node — `elc` says so and stops with status 2. You never get a
 report that quietly covers fewer targets than you asked for.
 
+## Effective lines of code
+
+ELOC is the number of lines that carry an executable statement. A line counts
+if it assigns or operates on data, directs control flow, calls something,
+returns, or handles an exception. It does not count if it is blank, holds
+nothing but a brace, declares without initialising, is a preprocessor
+directive, or is a comment.
+
+```c
+int total = 0;          // counts — initialises
+int scratch;            // does not — declares and nothing else
+for (i = 0; i < n; i++) // counts — control flow
+{                       // does not — a brace
+	total += i;         // counts — an operation
+}
+```
+
+That is five lines of source and three of ELOC.
+
+### Layout does not move the number
+
+A statement spread over several lines counts **once**, at the line it starts
+on:
+
+```c
+printf("%d items in %s\n",     // one statement...
+       count, name);           // ...so one line of ELOC
+```
+
+And two statements on one line also count once — that is one line to read:
+
+```c
+int a = 1; int b = 2;          // one line of ELOC, not two
+```
+
+Reformatting a file therefore cannot change its ELOC. That is the point: the
+number describes the work the code does, not how it is laid out, so two
+versions of the same logic are comparable and a diff of two reports shows real
+change.
+
+### A nested function's work belongs to it
+
+Where a language allows a named function inside another, `elc` reports both —
+and each statement counts for the **innermost** function containing it:
+
+```c
+int outer(void)
+{
+	int total = 1;              // outer
+
+	int inner(int x)
+	{
+		return x * 2;           // inner, not outer
+	}
+
+	return inner(total);        // outer
+}
+```
+
+`outer` is 2, `inner` is 1. An enclosing function is never credited with what
+its nested functions do, so a function that merely contains others does not
+look large.
+
+### Comments cannot fool it
+
+Comments come from the parsed syntax tree, never from matching text, so the
+awkward cases are not special cases:
+
+```c
+return "/* this opens nothing */";   // a string, and it counts
+/* a comment containing " a quote    // opens no string
+   and // inline syntax              // is not a second comment
+*/
+int n = 1;   /* a trailing note */   // still a line of code
+```
+
+The last one is worth knowing: a comment at the end of a line of code does not
+stop that line counting.
+
+### Where the numbers may surprise you
+
+**A file's ELOC is not always the sum of its functions'.** It can be higher,
+when a statement sits outside every function — an initialised global counts
+for the file and for no function. It can be lower, when two functions share a
+line: the file counts that line once and each function counts it too.
+
+**Code inside `#if 0` still counts.** `elc` parses; it does not run the
+preprocessor, so a disabled block is ordinary source to it.
+
+**A declaration counts only if it initialises.** `int x = f();` does work.
+`int x;` reserves a name.
+
 ### The report
 
 ```
 Project summary
   Files             2
   Physical lines   42
+  ELOC             18
   Functions         3
   Skipped           1
 
+Languages
+  Language  Files  Lines  ELOC
+  --------  -----  -----  ----
+  c             2     42    18
+
 Files
-  File                  Language  Lines  Functions
-  --------------------  --------  -----  ---------
-  /home/u/proj/src/a.c  c            18          2
-  /home/u/proj/src/b.c  c            24          1
+  File                  Language  Lines  ELOC  Functions
+  --------------------  --------  -----  ----  ---------
+  /home/u/proj/src/a.c  c            18    12          2
+  /home/u/proj/src/b.c  c            24     6          1
 
 Functions
-  File                  Function    Lines
-  --------------------  ----------  -----
-  /home/u/proj/src/a.c  parse        5-19
-  /home/u/proj/src/a.c  emit        21-24
-  /home/u/proj/src/b.c  main         3-11
+  File                  Function    Lines  ELOC
+  --------------------  ----------  -----  ----
+  /home/u/proj/src/a.c  parse        5-19     9
+  /home/u/proj/src/a.c  emit        21-24     3
+  /home/u/proj/src/b.c  main         3-11     6
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
 ```
 
-Four sections: the project totals, one row per file, one row per function,
-and whatever was skipped. Paths are canonical and absolute, and each column
-is padded to its longest value.
+Five sections: the project totals, those totals broken down by language, one
+row per file, one row per function, and whatever was skipped. Paths are
+canonical and absolute, and each column is padded to its longest value.
+
+The `Languages` section is a partition of the totals, not a second count of
+them: with one language present its row equals the summary exactly.
 
 A function's range runs from its signature to the end of its body — where you
 would point if asked where it starts. A function declared inside another is
@@ -356,8 +454,10 @@ read. The diagnostic naming it is on standard error, and the report covers
 everything that succeeded.
 
 **The `Lines` column against a file looks too big** — it is the physical line
-count, blanks and comments included. Effective lines of code arrives in
-Phase 3.
+count, blanks and comments included. `ELOC` is the column beside it.
+
+**A file's ELOC does not equal the sum of its functions'** — expected. See
+*Where the numbers may surprise you* above.
 
 **`elc: <path>: no usable language module; skipped`** — the extension is not
 in `runtime/extensions.map`, or the module for it could not be loaded. Look

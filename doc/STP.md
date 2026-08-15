@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.3
-**Date:** 2026-08-15
+**Version:** 0.4
+**Date:** 2026-08-16
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -132,8 +132,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **184 test(s)** across
-**15 file(s)**.
+Snapshot: **230 test(s)** across
+**18 file(s)**.
 
 ### 3.1. [test/unit/cli.c](../test/unit/cli.c)
 
@@ -181,7 +181,7 @@ Role: **unit**. **15 test(s).**
 
 ### 3.3. [test/unit/analyze.c](../test/unit/analyze.c)
 
-Role: **unit**. **12 test(s).**
+Role: **unit**. **29 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -196,7 +196,24 @@ Role: **unit**. **12 test(s).**
 | 9 | <a id="a_function_name_outlives_the_mapping"></a>`a_function_name_outlives_the_mapping` | `LLR-ANL-07` | A name is still readable after analyze_file returns, so it was copied out of the mapping rather than pointed into it. |
 | 10 | <a id="a_file_that_fails_to_parse_is_a_failure"></a>`a_file_that_fails_to_parse_is_a_failure` | `LLR-ANL-01` | A file whose tree contains an error node is skipped whole and reported as a failure, rather than reported from a partially valid tree. |
 | 11 | <a id="an_unmapped_extension_is_a_skip_not_a_failure"></a>`an_unmapped_extension_is_a_skip_not_a_failure` | `LLR-ANL-37` | A file whose extension maps to no language is a skip, a distinct outcome from a failure, so the exit status stays 0. |
-| 12 | <a id="filemetrics_free_is_safe_on_null"></a>`filemetrics_free_is_safe_on_null` | `LLR-ANL-02` | Releasing a null metrics structure does not fault, so teardown is safe on every path. |
+| 12 | <a id="spans_are_sorted_before_merging"></a>`spans_are_sorted_before_merging` | `LLR-MRG-01` | Spans arriving out of order are sorted before anything is merged, and disjoint spans stay separate. |
+| 13 | <a id="overlapping_spans_coalesce"></a>`overlapping_spans_coalesce` | `LLR-MRG-02` | Two spans that overlap become one covering both, so their shared lines are counted once. |
+| 14 | <a id="a_nested_span_is_absorbed_not_counted_twice"></a>`a_nested_span_is_absorbed_not_counted_twice` | `LLR-MRG-02`, `LLR-MRG-03` | A span wholly inside another is absorbed and contributes nothing of its own — the canonical case of a block comment carrying inline comment syntax, where subtracting per capture counts its lines twice. |
+| 15 | <a id="a_shared_line_is_counted_once"></a>`a_shared_line_is_counted_once` | `LLR-MRG-03`, `LLR-MRG-05` | A line shared by three comments is one line, however many spans touch it. Counting per span is what drives ELOC below zero. |
+| 16 | <a id="coalescing_a_trailing_run_stays_in_bounds"></a>`coalescing_a_trailing_run_stays_in_bounds` | `LLR-MRG-04` | Coalescing a run of spans that reaches the last element stops there. The bound is the whole of the requirement: without it the loop reads one past the final span whenever the trailing run is longer than one. |
+| 17 | <a id="merging_an_empty_span_list_is_zero"></a>`merging_an_empty_span_list_is_zero` | `LLR-MRG-04` | A file with no comments merges to nothing without touching an empty array. |
+| 18 | <a id="the_narrowest_enclosing_function_wins"></a>`the_narrowest_enclosing_function_wins` | `LLR-INN-01` | A statement inside a nested function is attributed to that function rather than to the one enclosing it. |
+| 19 | <a id="the_narrowest_wins_whatever_order_the_ranges_are_in"></a>`the_narrowest_wins_whatever_order_the_ranges_are_in` | `LLR-INN-01`, `LLR-INN-02` | The answer does not depend on the order the ranges were discovered in — an implementation returning the first containing range would also break determinism. |
+| 20 | <a id="an_offset_outside_every_function_has_no_owner"></a>`an_offset_outside_every_function_has_no_owner` | `LLR-INN-02` | An offset outside every function belongs to none, so file-scope code contributes to the file alone; the start offset is inclusive and the end offset exclusive. |
+| 21 | <a id="an_empty_range_index_owns_nothing"></a>`an_empty_range_index_owns_nothing` | `LLR-INN-01` | A file defining no function attributes nothing, rather than indexing an empty array. |
+| 22 | <a id="a_multi_line_statement_counts_once"></a>`a_multi_line_statement_counts_once` | `LLR-ANL-11` | The same expression written across three lines and on one line yields the same ELOC, so layout cannot move the number. |
+| 23 | <a id="only_statements_count_toward_eloc"></a>`only_statements_count_toward_eloc` | `LLR-ANL-10` | A directive, a lone brace, a bare declaration, and a blank line contribute nothing, while an initialising declaration and a return each contribute one. |
+| 24 | <a id="two_statements_on_one_line_count_once"></a>`two_statements_on_one_line_count_once` | `LLR-ANL-38` | Two statements sharing a line are one line of code. Counting captures instead would make the same two statements worth twice as much on one line as on two. |
+| 25 | <a id="a_nested_functions_statements_are_not_counted_twice"></a>`a_nested_functions_statements_are_not_counted_twice` | `LLR-INN-02`, `LLR-ANL-40` | A nested function's statements contribute to it alone, the enclosing function keeps only its own, and the file counts each line once. |
+| 26 | <a id="file_scope_code_counts_for_the_file_only"></a>`file_scope_code_counts_for_the_file_only` | `LLR-ANL-40` | An initialised global contributes to the file's ELOC and to no function's. |
+| 27 | <a id="a_file_with_nothing_executable_reports_zero_eloc"></a>`a_file_with_nothing_executable_reports_zero_eloc` | `LLR-ANL-04`, `LLR-ANL-10` | A file of comments, directives, and bare declarations reports zero ELOC without error. |
+| 28 | <a id="a_trailing_comment_does_not_remove_its_line"></a>`a_trailing_comment_does_not_remove_its_line` | `LLR-ANL-39` | A line of code carrying a trailing comment is still a line of code. The exclusion is byte-granular for this reason; a line-granular one deletes the statement. |
+| 29 | <a id="filemetrics_free_is_safe_on_null"></a>`filemetrics_free_is_safe_on_null` | `LLR-ANL-02` | Releasing a null metrics structure does not fault, so teardown is safe on every path. |
 
 ### 3.4. [test/unit/discover.c](../test/unit/discover.c)
 
@@ -317,7 +334,7 @@ Role: **integration**. **21 test(s).**
 
 ### 3.10. [test/integration/language.bats](../test/integration/language.bats)
 
-Role: **integration**. **18 test(s).**
+Role: **integration**. **23 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -338,9 +355,57 @@ Role: **integration**. **18 test(s).**
 | 15 | <a id="HLR-019: each file reports its own line and function counts"></a>`HLR-019: each file reports its own line and function counts` | — | Each file's row carries its own physical line count and the number of functions it defines. |
 | 16 | <a id="HLR-066: a target of only skipped files still reports zero totals"></a>`HLR-066: a target of only skipped files still reports zero totals` | — | A run in which nothing could be analysed still emits a well-formed report with zero totals, and names what it skipped. |
 | 17 | <a id="HLR-006: the report has the same sections whatever the target type"></a>`HLR-006: the report has the same sections whatever the target type` | — | A file target and a directory target produce the same sections in the same order. |
-| 18 | <a id="HLR-032: two runs over a parsed tree are byte-identical"></a>`HLR-032: two runs over a parsed tree are byte-identical` | — | Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones. |
+| 18 | <a id="HLR-015: each function reports its own ELOC"></a>`HLR-015: each function reports its own ELOC` | — | A function's own ELOC appears beside its line range. |
+| 19 | <a id="HLR-024: the project summary carries a combined ELOC total"></a>`HLR-024: the project summary carries a combined ELOC total` | — | The summary reports the combined ELOC across every analysed file. |
+| 20 | <a id="HLR-025: the totals are broken down by language"></a>`HLR-025: the totals are broken down by language` | — | The report carries a per-language section, so each language's contribution is separately visible. |
+| 21 | <a id="HLR-025: the per-language totals sum to the project totals"></a>`HLR-025: the per-language totals sum to the project totals` | — | With one language present, its row equals the summary exactly — the breakdown is a partition of the totals, not a second count of them. |
+| 22 | <a id="HLR-019: a header of declarations only reports zero ELOC"></a>`HLR-019: a header of declarations only reports zero ELOC` | — | A file's own line and ELOC counts are reported per file, and a header whose only statement is one return reports one. |
+| 23 | <a id="HLR-032: two runs over a parsed tree are byte-identical"></a>`HLR-032: two runs over a parsed tree are byte-identical` | — | Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones. |
 
-### 3.11. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
+### 3.11. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
+
+Role: **fixture**. **9 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the hand-counted category totals match"></a>`the hand-counted category totals match` | — | The physical line count, the file's ELOC, and the function count match the values counted line by line in the fixture's header. |
+| 2 | <a id="HLR-015: the function's ELOC excludes the file-scope statement"></a>`HLR-015: the function's ELOC excludes the file-scope statement` | — | The function reports eighteen of the file's nineteen statement lines; the nineteenth is an initialised global outside it. |
+| 3 | <a id="HLR-019: the file's ELOC includes code outside any function"></a>`HLR-019: the file's ELOC includes code outside any function` | — | The file's ELOC accounts for every qualifying line, including the one that belongs to no function. |
+| 4 | <a id="HLR-049 – HLR-052: blanks, braces, bare declarations and directives are excluded"></a>`HLR-049 – HLR-052: blanks, braces, bare declarations and directives are excluded` | — | The fixture holds two directives, three bare declarations, five lone braces and six blank lines; counting any of them would exceed the hand count. |
+| 5 | <a id="HLR-044: an assignment or operation counts"></a>`HLR-044: an assignment or operation counts` | — | An initialising declaration, a plain assignment, and a compound operation each contribute a line. |
+| 6 | <a id="HLR-046: a call counts whether or not its result is used"></a>`HLR-046: a call counts whether or not its result is used` | — | A call whose result is discarded counts as surely as one whose result is used; the prototypes beside them declare and do nothing. |
+| 7 | <a id="HLR-047: a return counts, with or without a value"></a>`HLR-047: a return counts, with or without a value` | — | A bare return and a return carrying a value each contribute a line. |
+| 8 | <a id="HLR-045: else-if on one line counts once"></a>`HLR-045: else-if on one line counts once` | — | A line that is both an else and an if contributes one line, since ELOC counts lines rather than captures. |
+| 9 | <a id="HLR-020: a file with nothing executable reports zero, without error"></a>`HLR-020: a file with nothing executable reports zero, without error` | — | A file of comments, directives, and declarations reports zero ELOC and succeeds. |
+
+### 3.12. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
+
+Role: **fixture**. **7 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the hand-counted comment totals match"></a>`the hand-counted comment totals match` | — | The physical line count, the file's ELOC, and the function count match the fixture's hand-counted header. |
+| 2 | <a id="HLR-013: a block-comment opener inside a string opens nothing"></a>`HLR-013: a block-comment opener inside a string opens nothing` | — | A string containing a block-comment opener is a string. A textual matcher would open a comment there and swallow the rest of the file. |
+| 3 | <a id="HLR-013: a line-comment opener inside a string discards nothing"></a>`HLR-013: a line-comment opener inside a string discards nothing` | — | A string containing a line-comment opener is a string. A textual matcher would discard the rest of that line, losing a statement. |
+| 4 | <a id="HLR-013: a quote inside a comment opens no string"></a>`HLR-013: a quote inside a comment opens no string` | — | An unbalanced quote inside a comment opens nothing. A matcher tracking strings textually would mis-read everything after it — the case no regular expression survives, and the reason HLR-013's verification is bound to this group. |
+| 5 | <a id="HLR-016: a comment sharing a line with code does not remove that line"></a>`HLR-016: a comment sharing a line with code does not remove that line` | — | A statement carrying a trailing comment still counts. Excluding by line rather than by byte deletes it, which an earlier implementation did. |
+| 6 | <a id="HLR-016: inline syntax inside a block comment excludes no line twice"></a>`HLR-016: inline syntax inside a block comment excludes no line twice` | — | Comment-like openers inside a block comment do not cause any line to be excluded more than once. |
+| 7 | <a id="HLR-020: a file of only comments reports zero ELOC"></a>`HLR-020: a file of only comments reports zero ELOC` | — | A file with nothing but comments reports zero, without error. |
+
+### 3.13. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
+
+Role: **fixture**. **6 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the hand-counted nesting totals match"></a>`the hand-counted nesting totals match` | — | The physical line count, the file's ELOC, and the function count match the fixture's hand-counted header. |
+| 2 | <a id="HLR-068: the innermost function owns its own statements"></a>`HLR-068: the innermost function owns its own statements` | — | Each nested function reports the statements written inside it. |
+| 3 | <a id="HLR-068: an enclosing function gains none of the nested one's lines"></a>`HLR-068: an enclosing function gains none of the nested one's lines` | — | The outermost function reports its own three statements and none of the five in the file. Attributing to the outermost enclosing function would report five; attributing to every enclosing one would report five, two, and one. |
+| 4 | <a id="HLR-067: all three functions are reported in their own right"></a>`HLR-067: all three functions are reported in their own right` | — | Three levels of nesting yield three reported functions, not one. |
+| 5 | <a id="HLR-019: the file counts each statement line once"></a>`HLR-019: the file counts each statement line once` | — | The file's ELOC is the number of distinct lines carrying a statement, however those statements are attributed. |
+| 6 | <a id="HLR-032: nested attribution is deterministic across runs"></a>`HLR-032: nested attribution is deterministic across runs` | — | Repeating the run produces identical bytes, so the attribution does not depend on the order the query matched. |
+
+### 3.14. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
 
 Role: **fixture**. **15 test(s).**
 
@@ -362,7 +427,7 @@ Role: **fixture**. **15 test(s).**
 | 14 | <a id="HLR-059: the environment variable takes precedence over the adjacent runtime"></a>`HLR-059: the environment variable takes precedence over the adjacent runtime` | — | Pointing the environment variable at a broken runtime degrades the run even though a working one sits beside the executable, which it can only do if the variable was preferred. |
 | 15 | <a id="HLR-059: the runtime adjacent to the executable is used when the variable is unset"></a>`HLR-059: the runtime adjacent to the executable is used when the variable is unset` | — | With the variable unset, the runtime beside the executable is found and used. |
 
-### 3.12. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
+### 3.15. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
 
 Role: **fixture**. **11 test(s).**
 
@@ -380,7 +445,7 @@ Role: **fixture**. **11 test(s).**
 | 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
 | 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
 
-### 3.13. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.16. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -394,9 +459,9 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.14. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.17. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
-Role: **instrumented**. **14 test(s).**
+Role: **instrumented**. **16 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -408,14 +473,16 @@ Role: **instrumented**. **14 test(s).**
 | 6 | <a id="HLR-041: elc references no thread-creation symbol"></a>`HLR-041: elc references no thread-creation symbol` | — | No thread-creation symbol is referenced by the binary. |
 | 7 | <a id="the build's required flags survive an overridden CFLAGS"></a>`the build's required flags survive an overridden CFLAGS` | `LLR-BLD-11` | The language standard, the warning set, and the header-dependency generation all appear in the compile command when CFLAGS is overridden from the command line, so a build invoked with an added flag is compiled under the same rules as one invoked with none. |
 | 8 | <a id="HLR-041: the build passes no threading flag"></a>`HLR-041: the build passes no threading flag` | — | The build never passes -pthread, which would silently license a future thread. |
-| 9 | <a id="every runtime data file the build does not produce is tracked"></a>`every runtime data file the build does not produce is tracked` | — | Every file under the runtime location that the build does not itself produce is tracked by the repository, so that a version-control ignore rule cannot silently exclude product data. `.gitignore` carries `*.map` for linker map files, which also matched the extension table: it worked locally, was absent from the clone CI made, and every parsing test then failed naming the missing file rather than the rule that hid it. |
-| 10 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
-| 11 | <a id="HLR-043: elc opens nothing for writing"></a>`HLR-043: elc opens nothing for writing` | — | No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial. |
-| 12 | <a id="HLR-076: each source file is opened exactly once"></a>`HLR-076: each source file is opened exactly once` | — | No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it. |
-| 13 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
-| 14 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
+| 9 | <a id="the help block and the real target set agree"></a>`the help block and the real target set agree` | `LLR-BLD-13` | Every declared target appears in the makefile's help block and every name in that block is a real target, so the hand-maintained summary cannot drift from what the build actually offers. |
+| 10 | <a id="make help prints the block from the file's header"></a>`make help prints the block from the file's header` | `LLR-BLD-13` | The help target prints the header block itself, marker stripped, so a reader who opens the file and a reader who runs it see one text. |
+| 11 | <a id="every runtime data file the build does not produce is tracked"></a>`every runtime data file the build does not produce is tracked` | — | Every file under the runtime location that the build does not itself produce is tracked by the repository, so that a version-control ignore rule cannot silently exclude product data. `.gitignore` carries `*.map` for linker map files, which also matched the extension table: it worked locally, was absent from the clone CI made, and every parsing test then failed naming the missing file rather than the rule that hid it. |
+| 12 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
+| 13 | <a id="HLR-043: elc opens nothing for writing"></a>`HLR-043: elc opens nothing for writing` | — | No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial. |
+| 14 | <a id="HLR-076: each source file is opened exactly once"></a>`HLR-076: each source file is opened exactly once` | — | No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it. |
+| 15 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
+| 16 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 
-### 3.15. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.18. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -523,14 +590,14 @@ verified by code review — see
 | `LLR-ANL-01` | `analyze_file` | `HLR-013` | `a_file_that_fails_to_parse_is_a_failure` |
 | `LLR-ANL-02` | `analyze_file` | `HLR-043` | `an_unreadable_file_is_a_failure_without_metrics`, `the_metrics_carry_the_path_and_language`, `filemetrics_free_is_safe_on_null` |
 | `LLR-ANL-03` | `analyze_file` | `HLR-076` | **(no direct test)** |
-| `LLR-ANL-04` | `analyze_file` | `HLR-020` | `a_zero_length_file_reports_zero_without_error` |
+| `LLR-ANL-04` | `analyze_file` | `HLR-020` | `a_zero_length_file_reports_zero_without_error`, `a_file_with_nothing_executable_reports_zero_eloc` |
 | `LLR-ANL-05` | `analyze_file` | `HLR-013` | **(no direct test)** |
 | `LLR-ANL-06` | `analyze_file` | `HLR-019` | `physical_lines_are_counted`, `an_unterminated_final_line_counts` |
 | `LLR-ANL-07` | `analyze_file` | `HLR-014` | `a_function_is_reported_with_its_name_and_line_range`, `a_function_name_outlives_the_mapping` |
 | `LLR-ANL-08` | `analyze_file` | `HLR-014` | `a_prototype_is_not_a_function` |
 | `LLR-ANL-09` | `analyze_file` | `HLR-067` | `a_nested_function_is_reported_in_its_own_right` |
-| `LLR-ANL-10` | `analyze_file` | `HLR-015` | **(no direct test)** |
-| `LLR-ANL-11` | `analyze_file` | `HLR-053` | **(no direct test)** |
+| `LLR-ANL-10` | `analyze_file` | `HLR-015` | `only_statements_count_toward_eloc`, `a_file_with_nothing_executable_reports_zero_eloc` |
+| `LLR-ANL-11` | `analyze_file` | `HLR-053` | `a_multi_line_statement_counts_once` |
 | `LLR-ANL-12` | `analyze_file` | `HLR-044` | **(no direct test)** |
 | `LLR-ANL-13` | `analyze_file` | `HLR-045` | **(no direct test)** |
 | `LLR-ANL-14` | `analyze_file` | `HLR-046` | **(no direct test)** |
@@ -556,13 +623,17 @@ verified by code review — see
 | `LLR-ANL-35` | `analyze_file` | `HLR-014` | `a_function_is_reported_with_its_name_and_line_range` |
 | `LLR-ANL-36` | `analyze_file` | `HLR-014`, `HLR-121` | `a_prototype_is_not_a_function` |
 | `LLR-ANL-37` | `analyze_file` | `HLR-012`, `HLR-035`, `HLR-037` | `an_unmapped_extension_is_a_skip_not_a_failure` |
+| `LLR-ANL-38` | `analyze_file` | `HLR-015`, `HLR-053` | `two_statements_on_one_line_count_once` |
+| `LLR-ANL-39` | `analyze_file` | `HLR-016`, `HLR-015` | `a_trailing_comment_does_not_remove_its_line` |
+| `LLR-ANL-40` | `analyze_file` | `HLR-019`, `HLR-068` | `a_nested_functions_statements_are_not_counted_twice`, `file_scope_code_counts_for_the_file_only` |
 | `LLR-ANL-34` | `analyze_file` | `HLR-124`, `HLR-125` | **(no direct test)** |
-| `LLR-MRG-01` | `merge_comment_spans` | `HLR-016` | **(no direct test)** |
-| `LLR-MRG-02` | `merge_comment_spans` | `HLR-016` | **(no direct test)** |
-| `LLR-MRG-03` | `merge_comment_spans` | `HLR-016`, `HLR-034` | **(no direct test)** |
-| `LLR-MRG-04` | `merge_comment_spans` | `HLR-124` | **(no direct test)** |
-| `LLR-INN-01` | `innermost_enclosing` | `HLR-068` | **(no direct test)** |
-| `LLR-INN-02` | `innermost_enclosing` | `HLR-068`, `HLR-067` | **(no direct test)** |
+| `LLR-MRG-01` | `merge_comment_spans` | `HLR-016` | `spans_are_sorted_before_merging` |
+| `LLR-MRG-02` | `merge_comment_spans` | `HLR-016` | `overlapping_spans_coalesce`, `a_nested_span_is_absorbed_not_counted_twice` |
+| `LLR-MRG-03` | `merge_comment_spans` | `HLR-016`, `HLR-034` | `a_nested_span_is_absorbed_not_counted_twice`, `a_shared_line_is_counted_once` |
+| `LLR-MRG-05` | `merge_comment_spans` | `HLR-016` | `a_shared_line_is_counted_once` |
+| `LLR-MRG-04` | `merge_comment_spans` | `HLR-124` | `coalescing_a_trailing_run_stays_in_bounds`, `merging_an_empty_span_list_is_zero` |
+| `LLR-INN-01` | `innermost_enclosing` | `HLR-068` | `the_narrowest_enclosing_function_wins`, `the_narrowest_wins_whatever_order_the_ranges_are_in`, `an_empty_range_index_owns_nothing` |
+| `LLR-INN-02` | `innermost_enclosing` | `HLR-068`, `HLR-067` | `the_narrowest_wins_whatever_order_the_ranges_are_in`, `an_offset_outside_every_function_has_no_owner`, `a_nested_functions_statements_are_not_counted_twice` |
 | `LLR-SDG-01` | `graph_build` | `HLR-073` | **(no direct test)** |
 | `LLR-SDG-02` | `graph_build` | `HLR-073` | **(no direct test)** |
 | `LLR-SDG-03` | `graph_build` | `HLR-074` | **(no direct test)** |
@@ -640,6 +711,7 @@ verified by code review — see
 | `LLR-RPT-15` | `report_assemble` | `HLR-080`, `HLR-082`, `HLR-085`, `HLR-031` | **(no direct test)** |
 | `LLR-RPT-17` | `report_assemble` | `HLR-127` | **(no direct test)** |
 | `LLR-RPT-18` | `report_assemble` | `HLR-124`, `HLR-125` | `assembly_leaves_the_accumulator_empty` |
+| `LLR-RPT-19` | `report_assemble` | `HLR-025`, `HLR-033` | **(no direct test)** |
 | `LLR-RPT-16` | `report_assemble` | `HLR-124`, `HLR-125` | `a_failed_growth_leaves_the_accumulator_intact`, `free_is_safe_on_null` |
 | `LLR-TBL-01` | `format_table` | `HLR-027` | `the_table_carries_the_summary_and_every_file`, `columns_are_aligned_on_the_longest_path`, `an_empty_report_still_renders_a_table` |
 | `LLR-TBL-02` | `format_table` | `HLR-027` | **(no direct test)** |
@@ -690,6 +762,7 @@ verified by code review — see
 | `LLR-BLD-10` | `build_configuration` | `HLR-113`, `HLR-124` | `wrap_passes_through_when_not_armed`, `wrap_intercepts_when_armed` |
 | `LLR-BLD-11` | `build_configuration` | `HLR-124` | `the build's required flags survive an overridden CFLAGS` |
 | `LLR-BLD-12` | `build_configuration` | `HLR-040`, `HLR-011`, `HLR-009` | **(no direct test)** |
+| `LLR-BLD-13` | `build_configuration` | `HLR-128` | `the help block and the real target set agree`, `make help prints the block from the file's header` |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | **(no direct test)** |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |

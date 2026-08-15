@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.0" date="2026-08-15" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.1" date="2026-08-16" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.2" date="2026-08-15" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="1.9" date="2026-08-15" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.3" date="2026-08-15" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.2" date="2026-08-15" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.0" date="2026-08-16" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.4" date="2026-08-16" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.3" date="2026-08-16" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="129"/>
-      <count name="llrs"       value="264"/>
-      <count name="tests"      value="184"/>
-      <count name="test_files" value="15"/>
+      <count name="llrs"       value="270"/>
+      <count name="tests"      value="230"/>
+      <count name="test_files" value="18"/>
     </counts>
   </metadata>
 
@@ -370,7 +370,7 @@ It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Alloca
               <step><![CDATA[`ts_parser_set_language()` and `ts_parser_parse_string()` with the explicit `st_size` length — the mapping is not NUL-terminated.]]></step>
               <step><![CDATA[Run `comments.scm`, collect spans, sort by start byte, and merge overlaps into a canonical excluded-line set (HLR-016).]]></step>
               <step><![CDATA[Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067). A match is a function only when it supplies **both** `@function.name` and `@function.body`; a match carrying one without the other is discarded rather than reported as a function with no line range or a line range with no name.]]></step>
-              <step><![CDATA[Run `eloc.scm` and `complexity.scm`, attributing each capture to its innermost enclosing reported function; count each multi-line statement once at its start line (HLR-053, HLR-068).]]></step>
+              <step><![CDATA[Run `eloc.scm` and `complexity.scm`, attributing each capture to its innermost enclosing reported function, or to no function when it lies outside every one of them — file-scope code, which contributes to the file's ELOC alone (HLR-019). Record the line each capture starts on, discard any capture falling inside the merged comment set, and count distinct lines (HLR-053, HLR-068).]]></step>
               <step><![CDATA[Run `calls.scm` and `globals.scm`, recording each call site, each global access, and each address-taken function with its enclosing function, into `FileFacts`.]]></step>
               <step><![CDATA[Run every loaded custom rule query and record its matches (HLR-109). A match's identity is the rule file's basename plus the capture name that matched, so one `.scm` file may express several distinct named rules.]]></step>
               <step><![CDATA[`ts_tree_delete()` and `munmap()` on every exit path.]]></step>
@@ -383,12 +383,20 @@ The signature above is the complete one. The `FileFacts` output arrives with the
 
 **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.]]></notes>
           </function>
-          <function signature="uint32_t merge_comment_spans(SpanList *spans)" summary="Sort by start byte and coalesce overlapping and nested spans; returns the merged line count."/>
+          <function signature="uint32_t merge_comment_spans(SpanList *spans)" summary="Sort by start byte and coalesce overlapping and nested spans, in place; returns the number of distinct lines the merged set covers."/>
           <function signature="const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)" summary="Return the narrowest reported function containing a byte offset."/>
           <function signature="void filemetrics_free(FileMetrics *m)" summary="Release a file's metrics and every function name it owns."/>
           <function signature="void filefacts_free(FileFacts *f)" summary="Release the call sites, global accesses, address-taken records, and rule matches a file produced."/>
         </functions>
-        <algorithm><![CDATA[Comment-span merging is the one place where a naive implementation is silently wrong. Spans are sorted by start byte and coalesced pairwise; only then is the merged line count excluded. Subtracting per capture double-counts a block comment that contains inline comment syntax, and can drive a file's ELOC negative. The innermost-enclosing lookup is the analogous safeguard for nested named functions: attributing each statement to exactly one reported function is what prevents a nested subprogram's lines from being counted twice (HLR-068).]]></algorithm>
+        <algorithm><![CDATA[**ELOC is a count of lines, derived from statements.** Each capture from `eloc.scm` contributes the line it *starts* on, and the count is of distinct lines. Both halves matter, for opposite reasons: taking the start line is what makes a statement spread over four lines worth one (HLR-053), and counting distinct lines rather than captures is what stops two statements written on one line being worth two — the same error inverted. What does *not* count is decided by absence from the query file rather than by a rule in C: a blank line, a lone brace, a bare declaration, and a preprocessor directive are excluded by never being captured (HLR-049 – HLR-052).
+
+**Comment-span merging is the one place where a naive implementation is silently wrong.** Spans are sorted by start byte and coalesced pairwise before anything is excluded. Subtracting per capture double-counts a block comment that contains inline comment syntax, and can drive a file's ELOC negative.
+
+The merged set is applied as a **byte-granular** exclusion, not a line-granular one, and the difference is not academic. On a line reading `int n = 0;` followed by a trailing comment, the line touches a comment span and the statement does not; excluding by line deletes a line of code. Because statements come from the syntax tree the two sets are then disjoint in practice — a parser does not produce a statement inside a comment — so the exclusion is a guard rather than a subtraction. It is the guard HLR-016 asks for, and merging first is what makes it idempotent.
+
+The merged line count is likewise a count of *distinct* lines. Two comments on one line are two disjoint byte ranges that do not coalesce, and summing their line counts would report that one line twice.
+
+**The innermost-enclosing lookup is the analogous safeguard for nested named functions.** Attributing each statement to exactly one reported function is what prevents a nested subprogram's lines from being counted twice (HLR-068), and *narrowest* rather than *first* is what makes the answer independent of the order the query matched — an implementation returning the first containing range would also break HLR-032.]]></algorithm>
         <dependencies>
           <dep><![CDATA[`libtree-sitter` — parser, query, and cursor API.]]></dep>
           <dep><![CDATA[POSIX — `mmap()`, `munmap()`, `open()`, `fstat()`.]]></dep>
@@ -587,11 +595,11 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
             <post><![CDATA[Every collection in `out` is sorted by its defined key; no renderer needs to sort anything. The accumulator's per-file metrics have moved into the model, which owns them thereafter, and the accumulator is left empty — so releasing both, as `main()` does on every path, cannot free the same metrics twice.]]></post>
             <returns><![CDATA[0 on success.]]></returns>
             <logic>
-              <step><![CDATA[Sum physical lines and ELOC across all files, both combined and per language (HLR-024, HLR-025).]]></step>
+              <step><![CDATA[Sum physical lines and ELOC across all files, both combined and per language (HLR-024, HLR-025). A language's row is created on first sight of a file written in it; the list holds one entry per language present, so a linear search costs less than the structure that would avoid it.]]></step>
               <step><![CDATA[Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026).]]></step>
               <step><![CDATA[For each file, filter its functions by the complexity threshold into the over-threshold list (HLR-021).]]></step>
               <step><![CDATA[Attach the architectural findings, custom-rule matches, and omission notices.]]></step>
-              <step><![CDATA[Sort files by path; functions by start line and then by name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.]]></step>
+              <step><![CDATA[Sort files by path; functions by start line and then by name; per-language totals by language name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.]]></step>
             </logic>
             <notes><![CDATA[Centralising every sort here is deliberate: it is the single place a reviewer must check to be satisfied that HLR-032's byte-identical guarantee holds, rather than auditing six renderers and three analysis modules.
 
@@ -624,14 +632,22 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
 
 ```text
 Project summary
-  Files             3
+  Files             2
   Physical lines   42
+  ELOC             18
+  Functions         3
+  Skipped           0
+
+Languages
+  Language  Files  Lines  ELOC
+  --------  -----  -----  ----
+  c             2     42    18
 
 Files
-  File                    Lines
-  ----------------------  -----
-  /home/u/proj/src/a.c       18
-  /home/u/proj/src/b.c       21
+  File                  Language  Lines  ELOC  Functions
+  --------------------  --------  -----  ----  ---------
+  /home/u/proj/src/a.c  c            18    12          2
+  /home/u/proj/src/b.c  c            24     6          1
 ```
 
 Each column is exactly as wide as its widest cell and no wider: the path column from the longest path, the numeric columns from the largest value.
@@ -3130,6 +3146,27 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-037"/>
         </traces>
       </llr>
+      <llr id="LLR-ANL-38">
+        <text><![CDATA[`analyze_file` shall compute ELOC as a count of distinct lines carrying a counted statement, so that two statements written on one line contribute one and the same two written on separate lines contribute two.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-015"/>
+          <trace target="HLR" ref="HLR-053"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-39">
+        <text><![CDATA[`analyze_file` shall exclude a captured statement from ELOC when the statement itself lies within the merged comment set, and shall not exclude a statement merely because its line also carries a comment.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-016"/>
+          <trace target="HLR" ref="HLR-015"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-40">
+        <text><![CDATA[`analyze_file` shall attribute a statement lying outside every reported function to no function, counting it toward the file's ELOC alone.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-019"/>
+          <trace target="HLR" ref="HLR-068"/>
+        </traces>
+      </llr>
       <llr id="LLR-ANL-34">
         <text><![CDATA[`analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.]]></text>
         <traces>
@@ -3164,6 +3201,12 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-MRG-05">
+        <text><![CDATA[`merge_comment_spans` shall report the number of distinct lines the merged set covers, counting a line shared by two spans that do not overlap in bytes — two comments written on one line — once rather than once per span.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-016"/>
+        </traces>
+      </llr>
       <llr id="LLR-MRG-04">
         <text><![CDATA[`merge_comment_spans` shall index the span array only within its populated extent while sorting and coalescing, so that coalescing a run of adjacent spans cannot read past the final element.]]></text>
         <traces>
@@ -3751,6 +3794,13 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-125" name="Complete Resource Release"/>
         </traces>
       </llr>
+      <llr id="LLR-RPT-19">
+        <text><![CDATA[`report_assemble` shall accumulate the physical-line and ELOC totals of each language present in the run into its own entry, ordered by language name, so that a language's contribution is visible separately from the combined totals.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-025"/>
+          <trace target="HLR" ref="HLR-033"/>
+        </traces>
+      </llr>
       <llr id="LLR-RPT-16">
         <text><![CDATA[`report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.]]></text>
         <traces>
@@ -4115,6 +4165,12 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-009"/>
         </traces>
       </llr>
+      <llr id="LLR-BLD-13">
+        <text><![CDATA[The build shall carry its usage summary as a marked comment block in the makefile's own header and shall print that block for the help target, so that one text serves a reader who opens the file and a reader who runs it, and shall fail its own test suite when that block and the set of declared targets disagree.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-128"/>
+        </traces>
+      </llr>
       <llr id="LLR-BLD-09">
         <text><![CDATA[The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.]]></text>
         <traces>
@@ -4360,7 +4416,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/unit/analyze.c" role="unit" count="12">
+  <file path="test/unit/analyze.c" role="unit" count="29">
     <test name="physical_lines_are_counted">
       <purpose><![CDATA[The physical line count comes from the mapped contents.]]></purpose>
       <traces>
@@ -4427,6 +4483,113 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[A file whose extension maps to no language is a skip, a distinct outcome from a failure, so the exit status stays 0.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-37"/>
+      </traces>
+    </test>
+    <test name="spans_are_sorted_before_merging">
+      <purpose><![CDATA[Spans arriving out of order are sorted before anything is merged, and disjoint spans stay separate.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MRG-01"/>
+      </traces>
+    </test>
+    <test name="overlapping_spans_coalesce">
+      <purpose><![CDATA[Two spans that overlap become one covering both, so their shared lines are counted once.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MRG-02"/>
+      </traces>
+    </test>
+    <test name="a_nested_span_is_absorbed_not_counted_twice">
+      <purpose><![CDATA[A span wholly inside another is absorbed and contributes nothing of its own — the canonical case of a block comment carrying inline comment syntax, where subtracting per capture counts its lines twice.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MRG-02"/>
+        <trace target="LLR" ref="LLR-MRG-03"/>
+      </traces>
+    </test>
+    <test name="a_shared_line_is_counted_once">
+      <purpose><![CDATA[A line shared by three comments is one line, however many spans touch it. Counting per span is what drives ELOC below zero.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MRG-03"/>
+        <trace target="LLR" ref="LLR-MRG-05"/>
+      </traces>
+    </test>
+    <test name="coalescing_a_trailing_run_stays_in_bounds">
+      <purpose><![CDATA[Coalescing a run of spans that reaches the last element stops there. The bound is the whole of the requirement: without it the loop reads one past the final span whenever the trailing run is longer than one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MRG-04"/>
+      </traces>
+    </test>
+    <test name="merging_an_empty_span_list_is_zero">
+      <purpose><![CDATA[A file with no comments merges to nothing without touching an empty array.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MRG-04"/>
+      </traces>
+    </test>
+    <test name="the_narrowest_enclosing_function_wins">
+      <purpose><![CDATA[A statement inside a nested function is attributed to that function rather than to the one enclosing it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INN-01"/>
+      </traces>
+    </test>
+    <test name="the_narrowest_wins_whatever_order_the_ranges_are_in">
+      <purpose><![CDATA[The answer does not depend on the order the ranges were discovered in — an implementation returning the first containing range would also break determinism.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INN-01"/>
+        <trace target="LLR" ref="LLR-INN-02"/>
+      </traces>
+    </test>
+    <test name="an_offset_outside_every_function_has_no_owner">
+      <purpose><![CDATA[An offset outside every function belongs to none, so file-scope code contributes to the file alone; the start offset is inclusive and the end offset exclusive.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INN-02"/>
+      </traces>
+    </test>
+    <test name="an_empty_range_index_owns_nothing">
+      <purpose><![CDATA[A file defining no function attributes nothing, rather than indexing an empty array.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INN-01"/>
+      </traces>
+    </test>
+    <test name="a_multi_line_statement_counts_once">
+      <purpose><![CDATA[The same expression written across three lines and on one line yields the same ELOC, so layout cannot move the number.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-11"/>
+      </traces>
+    </test>
+    <test name="only_statements_count_toward_eloc">
+      <purpose><![CDATA[A directive, a lone brace, a bare declaration, and a blank line contribute nothing, while an initialising declaration and a return each contribute one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-10"/>
+      </traces>
+    </test>
+    <test name="two_statements_on_one_line_count_once">
+      <purpose><![CDATA[Two statements sharing a line are one line of code. Counting captures instead would make the same two statements worth twice as much on one line as on two.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-38"/>
+      </traces>
+    </test>
+    <test name="a_nested_functions_statements_are_not_counted_twice">
+      <purpose><![CDATA[A nested function's statements contribute to it alone, the enclosing function keeps only its own, and the file counts each line once.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INN-02"/>
+        <trace target="LLR" ref="LLR-ANL-40"/>
+      </traces>
+    </test>
+    <test name="file_scope_code_counts_for_the_file_only">
+      <purpose><![CDATA[An initialised global contributes to the file's ELOC and to no function's.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-40"/>
+      </traces>
+    </test>
+    <test name="a_file_with_nothing_executable_reports_zero_eloc">
+      <purpose><![CDATA[A file of comments, directives, and bare declarations reports zero ELOC without error.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-04"/>
+        <trace target="LLR" ref="LLR-ANL-10"/>
+      </traces>
+    </test>
+    <test name="a_trailing_comment_does_not_remove_its_line">
+      <purpose><![CDATA[A line of code carrying a trailing comment is still a line of code. The exclusion is byte-granular for this reason; a line-granular one deletes the statement.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-39"/>
       </traces>
     </test>
     <test name="filemetrics_free_is_safe_on_null">
@@ -4930,7 +5093,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/integration/language.bats" role="integration" count="18">
+  <file path="test/integration/language.bats" role="integration" count="23">
     <test name="HLR-007: the language is determined from the extension, unprompted">
       <purpose><![CDATA[A file's language is detected from its extension with no user declaration, and is shown in the report.]]></purpose>
       <traces>
@@ -5040,8 +5203,190 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-006"/>
       </traces>
     </test>
+    <test name="HLR-015: each function reports its own ELOC">
+      <purpose><![CDATA[A function's own ELOC appears beside its line range.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-015"/>
+      </traces>
+    </test>
+    <test name="HLR-024: the project summary carries a combined ELOC total">
+      <purpose><![CDATA[The summary reports the combined ELOC across every analysed file.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-024"/>
+      </traces>
+    </test>
+    <test name="HLR-025: the totals are broken down by language">
+      <purpose><![CDATA[The report carries a per-language section, so each language's contribution is separately visible.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-025"/>
+      </traces>
+    </test>
+    <test name="HLR-025: the per-language totals sum to the project totals">
+      <purpose><![CDATA[With one language present, its row equals the summary exactly — the breakdown is a partition of the totals, not a second count of them.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-025"/>
+        <trace target="HLR" ref="HLR-024"/>
+      </traces>
+    </test>
+    <test name="HLR-019: a header of declarations only reports zero ELOC">
+      <purpose><![CDATA[A file's own line and ELOC counts are reported per file, and a header whose only statement is one return reports one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-019"/>
+      </traces>
+    </test>
     <test name="HLR-032: two runs over a parsed tree are byte-identical">
       <purpose><![CDATA[Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/eloc.bats" role="fixture" count="9">
+    <test name="the hand-counted category totals match">
+      <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the values counted line by line in the fixture's header.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-015"/>
+        <trace target="HLR" ref="HLR-034"/>
+      </traces>
+    </test>
+    <test name="HLR-015: the function's ELOC excludes the file-scope statement">
+      <purpose><![CDATA[The function reports eighteen of the file's nineteen statement lines; the nineteenth is an initialised global outside it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-015"/>
+        <trace target="HLR" ref="HLR-068"/>
+      </traces>
+    </test>
+    <test name="HLR-019: the file's ELOC includes code outside any function">
+      <purpose><![CDATA[The file's ELOC accounts for every qualifying line, including the one that belongs to no function.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-019"/>
+      </traces>
+    </test>
+    <test name="HLR-049 – HLR-052: blanks, braces, bare declarations and directives are excluded">
+      <purpose><![CDATA[The fixture holds two directives, three bare declarations, five lone braces and six blank lines; counting any of them would exceed the hand count.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-049"/>
+        <trace target="HLR" ref="HLR-050"/>
+        <trace target="HLR" ref="HLR-051"/>
+        <trace target="HLR" ref="HLR-052"/>
+      </traces>
+    </test>
+    <test name="HLR-044: an assignment or operation counts">
+      <purpose><![CDATA[An initialising declaration, a plain assignment, and a compound operation each contribute a line.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-044"/>
+      </traces>
+    </test>
+    <test name="HLR-046: a call counts whether or not its result is used">
+      <purpose><![CDATA[A call whose result is discarded counts as surely as one whose result is used; the prototypes beside them declare and do nothing.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-046"/>
+        <trace target="HLR" ref="HLR-051"/>
+      </traces>
+    </test>
+    <test name="HLR-047: a return counts, with or without a value">
+      <purpose><![CDATA[A bare return and a return carrying a value each contribute a line.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-047"/>
+      </traces>
+    </test>
+    <test name="HLR-045: else-if on one line counts once">
+      <purpose><![CDATA[A line that is both an else and an if contributes one line, since ELOC counts lines rather than captures.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-045"/>
+        <trace target="HLR" ref="HLR-053"/>
+      </traces>
+    </test>
+    <test name="HLR-020: a file with nothing executable reports zero, without error">
+      <purpose><![CDATA[A file of comments, directives, and declarations reports zero ELOC and succeeds.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-020"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/comments.bats" role="fixture" count="7">
+    <test name="the hand-counted comment totals match">
+      <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the fixture's hand-counted header.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-016"/>
+        <trace target="HLR" ref="HLR-034"/>
+      </traces>
+    </test>
+    <test name="HLR-013: a block-comment opener inside a string opens nothing">
+      <purpose><![CDATA[A string containing a block-comment opener is a string. A textual matcher would open a comment there and swallow the rest of the file.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-013"/>
+      </traces>
+    </test>
+    <test name="HLR-013: a line-comment opener inside a string discards nothing">
+      <purpose><![CDATA[A string containing a line-comment opener is a string. A textual matcher would discard the rest of that line, losing a statement.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-013"/>
+      </traces>
+    </test>
+    <test name="HLR-013: a quote inside a comment opens no string">
+      <purpose><![CDATA[An unbalanced quote inside a comment opens nothing. A matcher tracking strings textually would mis-read everything after it — the case no regular expression survives, and the reason HLR-013's verification is bound to this group.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-013"/>
+      </traces>
+    </test>
+    <test name="HLR-016: a comment sharing a line with code does not remove that line">
+      <purpose><![CDATA[A statement carrying a trailing comment still counts. Excluding by line rather than by byte deletes it, which an earlier implementation did.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-016"/>
+        <trace target="HLR" ref="HLR-015"/>
+      </traces>
+    </test>
+    <test name="HLR-016: inline syntax inside a block comment excludes no line twice">
+      <purpose><![CDATA[Comment-like openers inside a block comment do not cause any line to be excluded more than once.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-016"/>
+      </traces>
+    </test>
+    <test name="HLR-020: a file of only comments reports zero ELOC">
+      <purpose><![CDATA[A file with nothing but comments reports zero, without error.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-020"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/nesting.bats" role="fixture" count="6">
+    <test name="the hand-counted nesting totals match">
+      <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the fixture's hand-counted header.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-068"/>
+        <trace target="HLR" ref="HLR-034"/>
+      </traces>
+    </test>
+    <test name="HLR-068: the innermost function owns its own statements">
+      <purpose><![CDATA[Each nested function reports the statements written inside it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-068"/>
+      </traces>
+    </test>
+    <test name="HLR-068: an enclosing function gains none of the nested one's lines">
+      <purpose><![CDATA[The outermost function reports its own three statements and none of the five in the file. Attributing to the outermost enclosing function would report five; attributing to every enclosing one would report five, two, and one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-068"/>
+      </traces>
+    </test>
+    <test name="HLR-067: all three functions are reported in their own right">
+      <purpose><![CDATA[Three levels of nesting yield three reported functions, not one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-067"/>
+      </traces>
+    </test>
+    <test name="HLR-019: the file counts each statement line once">
+      <purpose><![CDATA[The file's ELOC is the number of distinct lines carrying a statement, however those statements are attributed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-019"/>
+      </traces>
+    </test>
+    <test name="HLR-032: nested attribution is deterministic across runs">
+      <purpose><![CDATA[Repeating the run produces identical bytes, so the attribution does not depend on the order the query matched.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-032"/>
       </traces>
@@ -5265,7 +5610,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="14">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="16">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -5312,6 +5657,18 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[The build never passes -pthread, which would silently license a future thread.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-041" name="Single-Threaded Execution"/>
+      </traces>
+    </test>
+    <test name="the help block and the real target set agree">
+      <purpose><![CDATA[Every declared target appears in the makefile's help block and every name in that block is a real target, so the hand-maintained summary cannot drift from what the build actually offers.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-13"/>
+      </traces>
+    </test>
+    <test name="make help prints the block from the file's header">
+      <purpose><![CDATA[The help target prints the header block itself, marker stripped, so a reader who opens the file and a reader who runs it see one text.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-13"/>
       </traces>
     </test>
     <test name="every runtime data file the build does not produce is tracked">
