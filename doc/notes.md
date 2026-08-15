@@ -388,14 +388,54 @@ None is a defect; each is a judgement that could go the other way.
     with no condition at all, which is the opposite of informative.
     `goto` is *not* counted, on the same reasoning read the other way:
     it moves control without choosing.
-*   **Code inside `#if 0` counts toward ELOC** (Phase 3). `elc` parses;
-    it does not run the preprocessor, so `tree-sitter-c` yields the
-    statements inside a disabled block and they are counted like any
-    other. Documented in the user manual rather than worked around: a
+*   **Code inside `#if 0` counts toward ELOC** (Phase 3) — *until
+    Phase 15*. `elc` parses; it does not run the preprocessor, so
+    `tree-sitter-c` yields the statements inside a disabled block and
+    they are counted like any other. The reasoning at the time: a
     preprocessing pass would be a second parse of the same file, which
     HLR-076 forbids, and a heuristic over `#if` conditions would be the
-    textual approximation HLR-013 forbids. If it proves to matter, the
-    honest fix is a query-level exclusion, not C.
+    textual approximation HLR-013 forbids. The note ended "if it proves
+    to matter, the honest fix is a query-level exclusion, not C."
+
+    **It proved to matter, and that is the fix** — HLR-131 through
+    HLR-136, delivered in Phase 15. Worth being precise about what did
+    and did not change, because the two look alike:
+
+    *   `elc` still runs **no preprocessor** (HLR-135). Not `cpp`, not
+        `rustc --cfg`, not a build system, and it reads no file the
+        source includes. A result that depended on which toolchain was
+        installed would not be a property of the source.
+    *   HLR-013 is untouched, because the condition is evaluated from
+        the *parsed condition nodes* rather than matched in the text.
+        That distinction is the whole of why this is admissible: `#if`
+        is a construct `tree-sitter-c` already parses, and reading a
+        tree it produced is not a textual approximation.
+    *   HLR-076 is untouched: pruning happens on the one tree, after
+        parsing, and reads no file twice.
+    *   Which constructs are conditional, and where their conditions
+        sit, is runtime data — a seventh, *optional* query file
+        (HLR-134). A C `#if` and a Rust `#[cfg]` are one mechanism, and
+        the required six are unchanged, so no shipped module breaks.
+
+    The cost is a genuine scope limit, stated in HLR-133 rather than
+    discovered later: only a literal condition or a definedness test
+    over symbols the user named is decided. `#if VERSION > 2` is
+    **undecidable, not false** — both branches stay counted and the
+    region is reported undecided. Treating it as false would silently
+    delete code and produce a report indistinguishable from a correct
+    one, which is the failure mode this whole design is arranged
+    against.
+
+    One consequence for the gap baseline, since it is the one place the
+    protocol's arithmetic runs backwards: specifying these eighteen
+    requirements ahead of the phase that delivers them **raised** the
+    count from 242 to 260, and the baseline was raised to match. Step 8
+    reads a rise as "requirements were added without tests", which is
+    exactly what happened and is exactly what was intended — a
+    requirement recorded and not yet built is honest, and the
+    alternative is not recording it. The count falls again when Phase 15
+    lands. This is the only circumstance in which raising the baseline
+    is not a regression, and it is worth being suspicious of any other.
 *   **Four grammars were added without touching `src/`** (Phase 6),
     which is HLR-010's claim demonstrated rather than asserted. Four
     things the exercise taught, worth knowing before a fifth:
