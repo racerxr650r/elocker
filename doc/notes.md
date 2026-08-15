@@ -9,6 +9,12 @@ fed them have been deleted as their content was absorbed — which is the
 rule this file runs on. What remains is the residue: decisions still
 open, and findings worth not rediscovering.
 
+Phase 0 is complete and merged behaviour now lives in the specification,
+so what that phase taught is mostly *not* here — the `--wrap` `volatile`
+trap and the instrumented-test portability rule both went into
+[STP.md](STP.md) §2.2, where the next person writing such a test will
+actually be standing. Only what has no home in a specification stayed.
+
 ---
 
 ## 1. For the development plan / build
@@ -70,6 +76,19 @@ so code written for one does not compile against the other.
 It is a test framework that is never linked into the shipped binary, so
 a vulnerability in it reaches no user of elc.
 
+**The one gap in this story: nothing verifies what was downloaded.**
+`make prereqs-src` fetches four tarballs over HTTPS and builds whatever
+arrives. There is no checksum and no signature check, so the pinned
+version protects against a *silent upgrade* but not against a tampered
+or substituted archive — which is a strange place to stop, given that
+supply-chain response is the entire reason the libraries are built from
+source. The fix is small and self-contained: record the SHA-256 of each
+release beside its version variable and have the `fetch` macro verify
+before unpacking. It has not been done. Do it the next time these
+versions are bumped, so the checksums are captured from an upstream
+release page at the moment the version is chosen rather than computed
+from a download already in hand — which would verify nothing.
+
 ### 1.2 Bats is vendored, not installed
 
 The SDP §0 lists Bats as a required *tool* and only `bats-support` /
@@ -101,6 +120,31 @@ runtime/
 
 Six required queries per language, not three — the count grew when
 graph analysis and ELOC classification were added.
+
+### 1.4 What the spec toolchain does and does not enforce
+
+Three behaviours of TraceR that Phase 0 established by running into
+them. None is documented where you would look for it.
+
+*   **`lint_project.py` does not fail on uncovered requirements.** A
+    requirement with no verifying test is reported as a *warning* and
+    the tool exits 0. Coverage is therefore enforced entirely outside
+    TraceR: `make coverage` counts the warning lines and compares them
+    against [`test/gap-baseline.txt`](../test/gap-baseline.txt), and CI
+    fails only if the count *rises*. Lowering the baseline is a manual
+    step in the phase protocol — nothing detects that you wrote tests
+    and forgot to bank them. The number is 361 after Phase 0, down from
+    378.
+*   **`make spec` re-renders all five documents into a temporary
+    directory and diffs them against what is committed.** Editing a
+    generated `.md` by hand therefore fails CI rather than sticking.
+    Every change goes into [`Project.xml`](Project.xml), and the
+    documents are regenerated with
+    `python3 tools/render_doc.py tools/templates/<D>.md.j2 <D> --out doc/<D>.md`.
+*   **An empty `<traces>` element is schema-invalid.** A catalogued test
+    that verifies no requirement — harness self-checks, mostly — must
+    omit the element entirely. Emitting it empty to mean "none" fails
+    validation with a message that does not obviously say so.
 
 ---
 
@@ -186,6 +230,20 @@ None is a defect; each is a judgement that could go the other way.
     theme — which would need HLR-041 revisited.
 *   **HLR-042 is permanently retired** — the old performance-target
     requirement. Do not reuse the number.
+*   **CI runs twice on a phase branch with an open PR.** The workflow
+    triggers on pushes to `phase/**` and on pull requests targeting
+    `develop`, and a phase branch under review satisfies both, so all
+    nine jobs execute twice per push. It was left that way because a
+    phase branch is also pushed *before* its PR exists and the feedback
+    is wanted then too. Dropping `phase/**` from the push trigger halves
+    the minutes at the cost of that early signal; restricting it to
+    pushes without an open PR is not expressible in the `on:` syntax and
+    would need a job-level `if`.
+*   **Unit tests do not run locally in the development environment
+    used so far** — `libcriterion-dev` needs package-install rights that
+    were unavailable, so the unit level is verified in CI only (§1.2).
+    Anything that passes review without a local Criterion run has had
+    its unit level checked by a machine and not by a person.
 
 ---
 
