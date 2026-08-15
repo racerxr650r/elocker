@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.2" date="2026-08-18" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.3" date="2026-08-19" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.2" date="2026-08-15" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.1" date="2026-08-18" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.5" date="2026-08-18" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.4" date="2026-08-18" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.2" date="2026-08-19" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.6" date="2026-08-19" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.5" date="2026-08-19" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="129"/>
-      <count name="llrs"       value="274"/>
-      <count name="tests"      value="259"/>
-      <count name="test_files" value="19"/>
+      <count name="llrs"       value="281"/>
+      <count name="tests"      value="327"/>
+      <count name="test_files" value="24"/>
     </counts>
   </metadata>
 
@@ -633,7 +633,13 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
           <function signature="int format_markdown(const Report *r, FILE *out)" summary="Render GitHub-Flavored Markdown."/>
           <function signature="void render_summary(const Report *r, FILE *out, Style style)" summary="Shared project-summary rendering for both formats."/>
         </functions>
-        <algorithm><![CDATA[The table is laid out in tiers, each introduced by a heading and indented beneath it:
+        <algorithm><![CDATA[**The two renderers are one traversal.** `render_report()` walks the model once and emits every tier in a fixed order; the `Style` decides only how each tier is decorated. A tier added to the traversal appears in both formats, and cannot be added to one and forgotten in the other, because there is nowhere to forget it — which is what makes HLR-031's uniform composition structural rather than maintained (LLR-SUM-02).
+
+Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
+
+A left-aligned final column is not padded in the aligned style. Padding it puts trailing whitespace on every line, which shows up in a diff and is stripped by half the tools that would read it.
+
+The table is laid out in tiers, each introduced by a heading and indented beneath it:
 
 ```text
 Project summary
@@ -698,7 +704,12 @@ Both renderers walk the identical model in the identical order and emit the iden
         <responsibility><![CDATA[Escape every character with structural meaning in XML.]]></responsibility>
         <responsibility><![CDATA[Parse a saved record back into a report model, rejecting anything malformed, structurally foreign, or of an unsupported version.]]></responsibility>
         <interfaces>
-          <interface title="XML Record Structure"><![CDATA[A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<files>` with nested `<function>` elements, `<architecture>` holding every graph finding, `<custom-rules>`, and `<omissions>`. The format version is incremented whenever an element is removed or its meaning changes.]]></interface>
+          <interface title="XML Record Structure"><![CDATA[A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<files>` with nested `<function>` elements, `<skipped>`, `<architecture>` holding every graph finding, `<custom-rules>`, and `<omissions>`. The format version is incremented whenever an element is removed or its meaning changes.
+
+It is **not** incremented when an element is added, because a reader ignores elements it does not recognise. That asymmetry is what makes a later phase's additions compatible with a record written today, and it is why an element that does not yet exist is absent rather than present and empty.]]></interface>
+          <interface title="Reading What elc Did Not Write"><![CDATA[The read path treats its input as hostile. The root element must be `elc-report`, its `format-version` must be one this build reads, and an attribute that should be numeric and is not makes the record malformed rather than zero — accepting it would produce a report that renders cleanly and is wrong, which is the outcome HLR-058 exists to prevent.
+
+Nothing reconstructed before a rejection survives it. The partially built model is released rather than rendered, since a partly reconstructed report is indistinguishable from a complete one once it reaches a reader (LLR-XRD-06).]]></interface>
         </interfaces>
         <functions>
           <function signature="int xml_write_report(const Report *r, FILE *out)" summary="Serialise the complete report model, escaping every emitted value."/>
@@ -714,7 +725,13 @@ Both renderers walk the identical model in the identical order and emit the iden
           </function>
           <function signature="void write_escaped(const char *value, FILE *out)" summary="Emit text with &amp;, &lt;, &gt;, and quotation marks escaped."/>
         </functions>
-        <algorithm><![CDATA[Writing is hand-rolled text emission; reading is streamed through a parser. This asymmetry is deliberate. Emission needs only correct escaping, which `write_escaped()` provides in one place, so a writer library would add a dependency for no benefit. Ingestion needs a hardened parser, because the input is a file the user supplies and may not be one `elc` wrote.]]></algorithm>
+        <algorithm><![CDATA[Writing is hand-rolled text emission; reading is streamed through a parser. This asymmetry is deliberate. Emission needs only correct escaping, which `write_escaped()` provides in one place, so a writer library would add a dependency for no benefit. Ingestion needs a hardened parser, because the input is a file the user supplies and may not be one `elc` wrote.
+
+**The reader reconstructs inputs, not conclusions.** It rebuilds the per-file and per-function facts and hands them to `report_assemble()` — the same function a live run calls. Every derived value (the totals, the per-language breakdown, the callouts and their tie-break, the threshold listing, the ordering) is therefore computed once, by one function, on both paths. That is what makes HLR-056's byte-identical guarantee a structural property rather than one two pieces of code have to keep agreeing about; a reader that rebuilt the derived values from the record would be a second implementation, and would drift.
+
+It follows that **the threshold is not in the record**. The record stores what was measured; the threshold is what somebody decided about it. Keeping them apart is what lets one record answer any number of threshold questions without re-analysis, and is the whole of HLR-057.
+
+The totals *are* written, for a consumer reading the record with something other than `elc` (LLR-XWR-02), and ignored on read.]]></algorithm>
         <dependencies>
           <dep><![CDATA[A streaming XML parser for the read path only. The write path has no third-party dependency.]]></dep>
           <dep><![CDATA[`src/report.c`.]]></dep>
@@ -2515,6 +2532,13 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
           <trace target="HLR" ref="HLR-022"/>
         </traces>
       </llr>
+      <llr id="LLR-CLI-17">
+        <text><![CDATA[`cli_parse` shall reject a target given alongside a regeneration-mode input path, since the record is the input and a target would name a second source for one report.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-055"/>
+          <trace target="HLR" ref="HLR-063"/>
+        </traces>
+      </llr>
       <llr id="LLR-CLI-15">
         <text><![CDATA[`cli_parse` shall reject as a usage error a command line that combines regeneration mode with an explicit request for a companion artefact, since a saved record does not carry the graph from which either could be produced.]]></text>
         <traces>
@@ -3891,6 +3915,19 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-115" name="Analyses Requiring User Declarations"/>
         </traces>
       </llr>
+      <llr id="LLR-SUM-03">
+        <text><![CDATA[`render_summary` shall emit every tier from one traversal shared by both human-facing formats, so that a tier cannot be present in one format and absent from the other.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-031"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SUM-04">
+        <text><![CDATA[The aligned format shall not pad a left-aligned final column, so that no line carries trailing whitespace.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-027"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
       <llr id="LLR-SUM-02">
         <text><![CDATA[`render_summary` shall traverse the report model in a single shared order for both the table and Markdown renderers, so that the two present the same tiers.]]></text>
         <traces>
@@ -3949,6 +3986,13 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-061" name="XML Format-Version Identifier"/>
         </traces>
       </llr>
+      <llr id="LLR-XWR-05">
+        <text><![CDATA[`xml_write_report` shall omit an element it has nothing to record rather than emit it empty, and the format-version identifier shall be incremented for a removal or a change of meaning and not for an addition, so that a record written by a later build remains readable by an earlier one of the same version.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-061"/>
+          <trace target="HLR" ref="HLR-054"/>
+        </traces>
+      </llr>
       <llr id="LLR-XWR-04">
         <text><![CDATA[`xml_write_report` shall emit well-formed XML.]]></text>
         <traces>
@@ -4002,6 +4046,19 @@ Note on the division of labour, which determines where a failure lives: the requ
         <traces>
           <trace target="HLR" ref="HLR-058" name="Malformed or Unsupported Saved-XML Rejection"/>
           <trace target="HLR" ref="HLR-061" name="XML Format-Version Identifier"/>
+        </traces>
+      </llr>
+      <llr id="LLR-XRD-09">
+        <text><![CDATA[`xml_read_report` shall reconstruct only the measurements a record carries and shall derive every reported total, breakdown, callout, ordering, and threshold listing with the same code that derives them for a live run, so that a regenerated report cannot differ from a direct one by way of a second implementation.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-056"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
+      <llr id="LLR-XRD-10">
+        <text><![CDATA[`xml_read_report` shall treat an attribute that should be numeric and is not as a malformed record rather than as a zero, since a record accepted on those terms renders cleanly and reports the wrong figures.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-058"/>
         </traces>
       </llr>
       <llr id="LLR-XRD-06">
@@ -4209,6 +4266,13 @@ Note on the division of labour, which determines where a failure lives: the requ
         <text><![CDATA[The build shall carry its usage summary as a marked comment block in the makefile's own header and shall print that block for the help target, so that one text serves a reader who opens the file and a reader who runs it, and shall fail its own test suite when that block and the set of declared targets disagree.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-128"/>
+        </traces>
+      </llr>
+      <llr id="LLR-BLD-14">
+        <text><![CDATA[The delivered source shall avoid the C constructs the delivered grammar cannot parse — a multi-token type argument to a variadic accessor, and a macro standing between a function's return type and its name — so that `elc` can analyse its own source without a per-file failure.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-035"/>
+          <trace target="HLR" ref="HLR-013"/>
         </traces>
       </llr>
       <llr id="LLR-BLD-09">
@@ -5431,6 +5495,289 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
+  <file path="test/unit/format_csv.c" role="unit" count="11">
+    <test name="an_ordinary_field_is_not_quoted">
+      <purpose><![CDATA[A field needing no escape is emitted bare, so the common case stays readable rather than uniformly quoted.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FLD-01"/>
+      </traces>
+    </test>
+    <test name="a_field_containing_a_comma_is_quoted">
+      <purpose><![CDATA[A comma is what separates fields, so a value carrying one is quoted — the template-signature case, where one identifier looks like two fields.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FLD-01"/>
+      </traces>
+    </test>
+    <test name="a_quote_is_doubled_not_backslashed">
+      <purpose><![CDATA[RFC 4180 escapes a quote by doubling it. A backslash escape parses without error and carries the wrong text, which is worse than failing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FLD-01"/>
+      </traces>
+    </test>
+    <test name="a_field_containing_a_newline_is_quoted">
+      <purpose><![CDATA[A line break inside a field ends the record unless the field is quoted.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FLD-01"/>
+      </traces>
+    </test>
+    <test name="a_field_containing_a_carriage_return_is_quoted">
+      <purpose><![CDATA[Records are CRLF-terminated, so a carriage return ends one as surely as a newline.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FLD-01"/>
+      </traces>
+    </test>
+    <test name="a_field_needing_every_escape_survives">
+      <purpose><![CDATA[A comma, a quote, and a newline in one field are handled together rather than one rule cancelling another.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FLD-01"/>
+      </traces>
+    </test>
+    <test name="an_empty_field_is_emitted_empty">
+      <purpose><![CDATA[An empty value is an empty field.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FLD-01"/>
+      </traces>
+    </test>
+    <test name="a_null_field_is_emitted_empty">
+      <purpose><![CDATA[A missing value is an empty field rather than a fault, so a record with an absent language still has the right shape.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FLD-01"/>
+      </traces>
+    </test>
+    <test name="the_header_row_is_written">
+      <purpose><![CDATA[The header names the columns each record carries, and passes through the same emission path as every record.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CSV-01"/>
+        <trace target="LLR" ref="LLR-FLD-02"/>
+      </traces>
+    </test>
+    <test name="an_empty_report_is_a_header_alone">
+      <purpose><![CDATA[A run with no functions produces the header and nothing else, rather than no output at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CSV-01"/>
+      </traces>
+    </test>
+    <test name="a_write_failure_is_reported">
+      <purpose><![CDATA[A stream that cannot absorb the document yields a non-zero return, so a truncated file is never reported as success.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CSV-01"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/format_xml.c" role="unit" count="17">
+    <test name="an_ampersand_is_escaped">
+      <purpose><![CDATA[An unescaped ampersand begins an entity reference and makes the document unparseable.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ESC-01"/>
+      </traces>
+    </test>
+    <test name="angle_brackets_are_escaped">
+      <purpose><![CDATA[An angle bracket would open or close a tag — the template-signature case, which carries both.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ESC-01"/>
+      </traces>
+    </test>
+    <test name="quotation_marks_are_escaped">
+      <purpose><![CDATA[A quotation mark inside an attribute value ends the attribute early, leaving the document unparseable from that point.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ESC-01"/>
+      </traces>
+    </test>
+    <test name="an_ampersand_in_an_entity_is_escaped_once">
+      <purpose><![CDATA[Escaping is not recursive: text that already looks like an entity is encoded once, not doubled.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ESC-01"/>
+      </traces>
+    </test>
+    <test name="ordinary_text_is_unchanged">
+      <purpose><![CDATA[A value needing no escape passes through untouched.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ESC-01"/>
+      </traces>
+    </test>
+    <test name="escaping_null_emits_nothing">
+      <purpose><![CDATA[A missing value emits nothing rather than faulting.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ESC-01"/>
+      </traces>
+    </test>
+    <test name="the_record_carries_its_format_version">
+      <purpose><![CDATA[The root element carries a format-version identifier, which is what lets a consumer decide whether it understands the structure before interpreting it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-03"/>
+        <trace target="LLR" ref="LLR-XWR-04"/>
+      </traces>
+    </test>
+    <test name="an_empty_report_is_still_a_complete_record">
+      <purpose><![CDATA[A run that analysed nothing still writes a complete, well-formed record rather than nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-01"/>
+        <trace target="LLR" ref="LLR-XWR-04"/>
+      </traces>
+    </test>
+    <test name="a_write_failure_is_reported">
+      <purpose><![CDATA[A truncated record is not well-formed and a consumer would reject it with no idea why, so a write failure is reported instead.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-04"/>
+      </traces>
+    </test>
+    <test name="input_that_is_not_xml_is_rejected">
+      <purpose><![CDATA[A file that is not XML at all is rejected.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-03"/>
+      </traces>
+    </test>
+    <test name="well_formed_but_foreign_input_is_rejected">
+      <purpose><![CDATA[A well-formed document of some other shape is rejected outright, with nothing reconstructed from it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-04"/>
+        <trace target="LLR" ref="LLR-XRD-06"/>
+      </traces>
+    </test>
+    <test name="an_unsupported_format_version_is_rejected">
+      <purpose><![CDATA[A record of a version this build does not read is rejected rather than interpreted optimistically.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-05"/>
+      </traces>
+    </test>
+    <test name="a_record_without_a_version_is_rejected">
+      <purpose><![CDATA[A record with no version identifier is rejected: the identifier is what makes the structure knowable.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-04"/>
+      </traces>
+    </test>
+    <test name="the_threshold_supplied_now_is_the_one_applied">
+      <purpose><![CDATA[One record read at two thresholds yields two different listings, so the threshold is the one supplied at conversion time and the record carries none.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-07"/>
+      </traces>
+    </test>
+    <test name="the_model_is_reconstructed_from_the_record">
+      <purpose><![CDATA[The model is rebuilt from the record alone, ordered by the same code that orders a live one, with the totals recomputed rather than read.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-01"/>
+        <trace target="LLR" ref="LLR-XRD-09"/>
+      </traces>
+    </test>
+    <test name="a_truncated_record_is_rejected">
+      <purpose><![CDATA[A record whose root never closes is not well-formed and is rejected rather than read as far as it goes.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-03"/>
+        <trace target="LLR" ref="LLR-XRD-06"/>
+      </traces>
+    </test>
+    <test name="an_absent_record_is_rejected">
+      <purpose><![CDATA[A record that cannot be opened is a rejection rather than a crash.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-03"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/integration/formats.bats" role="integration" count="16">
+    <test name="HLR-027: table is the format when none is selected">
+      <purpose><![CDATA[The aligned table is what a run with no format option produces.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-027"/>
+      </traces>
+    </test>
+    <test name="HLR-027: table may also be selected explicitly">
+      <purpose><![CDATA[Selecting the default explicitly produces the same bytes as not selecting it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-027"/>
+      </traces>
+    </test>
+    <test name="HLR-028: csv produces one record per function">
+      <purpose><![CDATA[CSV carries a header and a record naming each function.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-028"/>
+      </traces>
+    </test>
+    <test name="HLR-029: md produces GitHub-Flavored Markdown">
+      <purpose><![CDATA[Markdown carries headings and pipe tables rather than the aligned form.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-029"/>
+      </traces>
+    </test>
+    <test name="HLR-054: xml produces a record with a version">
+      <purpose><![CDATA[XML carries a closed root element with a format-version identifier.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-054"/>
+        <trace target="HLR" ref="HLR-061"/>
+      </traces>
+    </test>
+    <test name="HLR-063: an unknown format is a usage error naming the choices">
+      <purpose><![CDATA[An unrecognised format is rejected, and the diagnostic names what would have been accepted.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="HLR-063: a format option without its argument is a usage error">
+      <purpose><![CDATA[An option requiring an argument and given none is rejected.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="HLR-031: table and Markdown present the same tiers">
+      <purpose><![CDATA[The two formats emit the same headings in the same order, which is the observable form of their sharing one traversal.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-031"/>
+      </traces>
+    </test>
+    <test name="HLR-031: a tier with no rows appears in both">
+      <purpose><![CDATA[A tier that happens to be empty is still present in both formats, so the report's shape does not vary with its content.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-031"/>
+        <trace target="HLR" ref="HLR-006"/>
+      </traces>
+    </test>
+    <test name="the format changes the rendering and not the analysis">
+      <purpose><![CDATA[Every format names the same discovered function, so the formats are views of one run rather than four separate reports.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-031"/>
+      </traces>
+    </test>
+    <test name="HLR-028: csv is unfiltered by the threshold">
+      <purpose><![CDATA[Two very different thresholds produce identical CSV: the threshold governs a listing tier CSV does not have.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-028"/>
+        <trace target="HLR" ref="HLR-023"/>
+      </traces>
+    </test>
+    <test name="HLR-054: xml is unfiltered by the threshold">
+      <purpose><![CDATA[The record stores what was measured, so the threshold does not change it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-054"/>
+        <trace target="HLR" ref="HLR-023"/>
+      </traces>
+    </test>
+    <test name="HLR-038: every format writes results to stdout alone">
+      <purpose><![CDATA[Each format leaves the diagnostic stream carrying only diagnostics.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="HLR-030: every format honours --output">
+      <purpose><![CDATA[Redirection applies to every format, not only the default one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-030"/>
+      </traces>
+    </test>
+    <test name="HLR-032: every format is byte-identical across runs">
+      <purpose><![CDATA[Repeating a run in any format produces identical bytes.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="HLR-066: every format renders an empty run">
+      <purpose><![CDATA[A run that analysed nothing still produces output in every format.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-066"/>
+      </traces>
+    </test>
+  </file>
+
   <file path="test/fixtures/eloc.bats" role="fixture" count="13">
     <test name="the hand-counted category totals match">
       <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the values counted line by line in the fixture's header.]]></purpose>
@@ -5616,6 +5963,161 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Repeating the run produces identical bytes, so the attribution does not depend on the order the query matched.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/escaping.bats" role="fixture" count="8">
+    <test name="HLR-064: a path containing a comma does not split a record">
+      <purpose><![CDATA[Every row of the document parses to the same field count under an independent CSV reader, which a split field would break. The hostile value is a path rather than an identifier, because C cannot yet produce an identifier carrying a comma.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-064"/>
+      </traces>
+    </test>
+    <test name="HLR-064: the path survives the round trip intact">
+      <purpose><![CDATA[The value read back out of the document is the value that went in, comma and quotes included.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-064"/>
+      </traces>
+    </test>
+    <test name="HLR-064: a hostile path changes the field count of nothing">
+      <purpose><![CDATA[A record over a hostile path has the same number of fields as one over an ordinary path, so quoting preserved the structure rather than merely surviving it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-064"/>
+      </traces>
+    </test>
+    <test name="HLR-065: XML over a hostile path is well-formed">
+      <purpose><![CDATA[An independent parser accepts the document, so the escaping is correct rather than merely present.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-065"/>
+      </traces>
+    </test>
+    <test name="HLR-065: the structural characters are escaped, not emitted raw">
+      <purpose><![CDATA[The angle brackets, ampersand, and quotation marks appear as entities in the document.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-065"/>
+      </traces>
+    </test>
+    <test name="HLR-065: the path arrives intact after unescaping">
+      <purpose><![CDATA[An independent parser recovers the original value, so escaping and the document's meaning agree.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-065"/>
+      </traces>
+    </test>
+    <test name="HLR-056: a hostile path survives a record round trip">
+      <purpose><![CDATA[Regeneration over a hostile path matches a direct run. An asymmetry — escaped on the way out and not unescaped on the way in — passes a well-formedness check and still corrupts the report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-056"/>
+        <trace target="HLR" ref="HLR-065"/>
+      </traces>
+    </test>
+    <test name="HLR-027: the table renders a hostile path unchanged">
+      <purpose><![CDATA[The aligned table escapes nothing and must not: it is read by a person, and a path is what it is.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-027"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/regeneration.bats" role="fixture" count="16">
+    <test name="the hand-counted subject totals match">
+      <purpose><![CDATA[The subject's totals match the values in the fixture's header, so a later failure is about the round trip rather than about the subject having changed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-034"/>
+      </traces>
+    </test>
+    <test name="HLR-056: regenerated Markdown is byte-identical to a direct run">
+      <purpose><![CDATA[The report rebuilt from a record is identical to the one a direct analysis produces at the same threshold — not similar, identical, so a diff of the two is empty.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="HLR-057: the threshold supplied now is the one applied">
+      <purpose><![CDATA[Regeneration at a given threshold matches a direct run at that threshold, so the threshold reaches the rebuilt report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-057"/>
+      </traces>
+    </test>
+    <test name="HLR-057: the same record at two thresholds gives two listings">
+      <purpose><![CDATA[Two thresholds over one record produce different reports. Without this, the test above would pass for a build that ignored the threshold entirely.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-057"/>
+      </traces>
+    </test>
+    <test name="HLR-055: regeneration reads no source file">
+      <purpose><![CDATA[A report is produced from the record with the working directory elsewhere and the source unreachable.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-055"/>
+      </traces>
+    </test>
+    <test name="HLR-054: the record carries every tier the report presents">
+      <purpose><![CDATA[Every tier the report has today appears in the record — the totals, the languages, the files and their functions, and the skipped list. A tier missing here regenerates as a report that looks complete and is not.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-054"/>
+      </traces>
+    </test>
+    <test name="HLR-061: the record carries a format-version identifier">
+      <purpose><![CDATA[The record identifies the structure it uses, exactly once.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-061"/>
+      </traces>
+    </test>
+    <test name="HLR-058: input that is not XML is rejected with no output">
+      <purpose><![CDATA[A file that is not XML is rejected with the fatal status and nothing on the results stream.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-058"/>
+        <trace target="HLR" ref="HLR-120"/>
+      </traces>
+    </test>
+    <test name="HLR-058: a well-formed document of another shape is rejected">
+      <purpose><![CDATA[Being parseable is not being an elc record; no best-effort partial conversion is attempted.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-058"/>
+      </traces>
+    </test>
+    <test name="HLR-058: an unsupported format version is rejected, naming it">
+      <purpose><![CDATA[A bumped version is rejected, and the diagnostic names both the version found and the version this build reads.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-058"/>
+        <trace target="HLR" ref="HLR-061"/>
+      </traces>
+    </test>
+    <test name="HLR-058: a truncated record is rejected">
+      <purpose><![CDATA[A record whose root never closes is rejected rather than read as far as it goes.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-058"/>
+      </traces>
+    </test>
+    <test name="HLR-058: an absent record is rejected">
+      <purpose><![CDATA[A record that cannot be opened is a rejection rather than a crash.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-058"/>
+      </traces>
+    </test>
+    <test name="HLR-055: regeneration defaults to Markdown without being asked">
+      <purpose><![CDATA[The mode's output format is its default, so it is usable without a redundant option.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-055"/>
+      </traces>
+    </test>
+    <test name="HLR-063: a format other than Markdown is rejected in regeneration mode">
+      <purpose><![CDATA[A saved record carries the findings of a run rather than the graph, so another format is a usage error rather than a silently ignored request.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063"/>
+        <trace target="HLR" ref="HLR-122"/>
+      </traces>
+    </test>
+    <test name="HLR-063: an explicit Markdown selection is accepted">
+      <purpose><![CDATA[Saying the default out loud is not an error; only asking for something else is.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="HLR-063: a target alongside --from-xml is a usage error">
+      <purpose><![CDATA[The record is the input; a target would name a second source of truth for one report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063"/>
+        <trace target="HLR" ref="HLR-055"/>
       </traces>
     </test>
   </file>

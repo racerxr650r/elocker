@@ -12,6 +12,7 @@
 
 #include <errno.h>
 #include <getopt.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +30,14 @@ void cli_usage(FILE *stream)
 "for the given targets. A TARGET is a source file or a directory.\n"
 "\n"
 "Options:\n"
+"  -f, --format FORMAT\n"
+"                     table, csv, xml, or md (default table). In\n"
+"                     regeneration mode the default is md, and no other\n"
+"                     format is accepted\n"
+"      --from-xml FILE\n"
+"                     rebuild a report from a record FILE previously\n"
+"                     written with --format xml, without reading any\n"
+"                     source file. TARGET is not given in this mode\n"
 "  -c, --complexity-threshold N\n"
 "                     list a file's functions whose cyclomatic complexity\n"
 "                     is N or greater (default 15). Listing only: no\n"
@@ -56,15 +65,31 @@ void cli_usage(FILE *stream)
 
 int cli_parse(int argc, char *argv[], ElcOptions *out)
 {
+	/* A value above any printable character, so a long-only option cannot
+	 * collide with a short one. */
+	enum { OPT_FROM_XML = 1000 };
+
 	static const struct option longopts[] = {
+		{ "format",               required_argument, NULL, 'f' },
+		{ "from-xml",             required_argument, NULL, OPT_FROM_XML },
 		{ "complexity-threshold", required_argument, NULL, 'c' },
 		{ "output",               required_argument, NULL, 'o' },
 		{ "help",                 no_argument,       NULL, 'h' },
 		{ NULL,                   0,                 NULL, 0   }
 	};
 
+	static const struct { const char *name; OutputFormat format; } formats[] = {
+		{ "table", FORMAT_TABLE },
+		{ "csv",   FORMAT_CSV   },
+		{ "xml",   FORMAT_XML   },
+		{ "md",    FORMAT_MARKDOWN }
+	};
+
+	bool format_given = false;
+
 	memset(out, 0, sizeof(*out));
 	out->mode                 = MODE_ANALYSE;
+	out->format               = FORMAT_TABLE;
 	out->complexity_threshold = ELC_DEFAULT_COMPLEXITY_THRESHOLD;
 
 	/* Report errors ourselves so every diagnostic reaches stderr in one
@@ -73,8 +98,30 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	optind = 1;
 
 	int c;
-	while ((c = getopt_long(argc, argv, ":ho:c:", longopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, ":ho:c:f:", longopts, NULL)) != -1) {
 		switch (c) {
+		case 'f': {
+			size_t i;
+
+			for (i = 0; i < sizeof formats / sizeof *formats; i++) {
+				if (strcmp(optarg, formats[i].name) != 0)
+					continue;
+				out->format  = formats[i].format;
+				format_given = true;
+				break;
+			}
+			if (i == sizeof formats / sizeof *formats) {
+				fprintf(stderr,
+				        "elc: '%s' is not a format; expected "
+				        "table, csv, xml, or md\n", optarg);
+				return CLI_ERROR;
+			}
+			break;
+		}
+		case OPT_FROM_XML:
+			out->mode       = MODE_REGENERATE;
+			out->input_path = optarg;
+			break;
 		case 'c': {
 			/* strtoul accepts leading whitespace, a sign, and a
 			 * trailing tail; none of those is a threshold. The
@@ -118,6 +165,32 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 				        argv[optind - 1]);
 			return CLI_ERROR;
 		}
+	}
+
+	if (out->mode == MODE_REGENERATE) {
+		/* A saved record is the input, so a target would name a second
+		 * source of truth for the same report. */
+		if (optind < argc) {
+			fprintf(stderr, "elc: --from-xml takes no target, but "
+			        "'%s' was given\n", argv[optind]);
+			return CLI_ERROR;
+		}
+
+		/* Markdown is the mode's output (HLR-055), and is therefore its
+		 * default rather than a format the user must remember. Only an
+		 * *explicit* choice of something else is an error — defaulting
+		 * to table and then rejecting it would make the mode unusable
+		 * without a redundant option (LLR-CLI-10). */
+		if (!format_given) {
+			out->format = FORMAT_MARKDOWN;
+		} else if (out->format != FORMAT_MARKDOWN) {
+			fputs("elc: --from-xml produces Markdown; no other "
+			      "format can be regenerated from a saved record\n",
+			      stderr);
+			return CLI_ERROR;
+		}
+
+		return CLI_OK;
 	}
 
 	if (optind >= argc) {

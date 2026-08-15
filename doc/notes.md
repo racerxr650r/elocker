@@ -396,6 +396,37 @@ None is a defect; each is a judgement that could go the other way.
     HLR-076 forbids, and a heuristic over `#if` conditions would be the
     textual approximation HLR-013 forbids. If it proves to matter, the
     honest fix is a query-level exclusion, not C.
+*   **tree-sitter-c cannot parse two ordinary C constructs** (found in
+    Phase 5, by `elc` failing to read its own source):
+    `va_arg(ap, T)` for any *multi-token* type — `char *`,
+    `const char *`, `unsigned long` all fail, while `va_arg(ap, int)`
+    parses — and a macro standing between a function's return type and
+    its name, as in Expat's `static void XMLCALL handler(...)`. Both
+    yield an error node, and HLR-035 then skips the whole file and
+    degrades the run to exit 1, which is correct behaviour over a
+    grammar that cannot read the input.
+    Both are common in real C, so this is a product limitation and not
+    only a self-analysis nuisance. The project's own source avoids them
+    — a single-token typedef for the `va_arg` type, and no `XMLCALL`,
+    which names a calling convention only on Windows and `elc` is
+    POSIX-only. Worth reporting upstream, and worth re-testing when the
+    grammar pin moves; LLR-BLD-14 records the constraint on our source.
+*   **The XML reader recomputes rather than trusts** (Phase 5). It
+    rebuilds only the per-file and per-function *measurements* from a
+    record and calls the same `report_assemble` a live run calls, so
+    the totals, the callouts, the ordering, and the threshold listing
+    are derived once by one function on both paths. HLR-056's
+    byte-identical guarantee is then structural. Rebuilding the derived
+    values from the record — which the record does carry, for other
+    consumers — would have made the requirement a claim that two
+    implementations agree, which they would eventually stop doing.
+*   **The threshold is deliberately absent from the record.** It stores
+    what was measured; a threshold is what somebody decided about it.
+    Keeping them apart is the whole of HLR-057 and is why one record
+    answers any number of threshold questions. If a later phase is
+    tempted to record it "for reference", note that a recorded
+    threshold and a supplied one would then disagree, and something
+    would have to choose.
 *   **`.gitignore` can swallow product data, silently** (Phase 2). The
     file carries `*.map` for linker map files, and that also matches
     `runtime/extensions.map` — the extension-to-language table, which is

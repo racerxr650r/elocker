@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.5
-**Date:** 2026-08-18
+**Version:** 0.6
+**Date:** 2026-08-19
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -132,8 +132,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **259 test(s)** across
-**19 file(s)**.
+Snapshot: **327 test(s)** across
+**24 file(s)**.
 
 ### 3.1. [test/unit/cli.c](../test/unit/cli.c)
 
@@ -392,7 +392,72 @@ Role: **integration**. **13 test(s).**
 | 12 | <a id="HLR-032: two runs with a threshold are byte-identical"></a>`HLR-032: two runs with a threshold are byte-identical` | — | Repeating a run with a threshold produces identical bytes. |
 | 13 | <a id="HLR-066: an empty run still renders the callouts and the listing"></a>`HLR-066: an empty run still renders the callouts and the listing` | — | A run that analysed nothing renders both new sections with no rows, rather than omitting them and changing the report's shape. |
 
-### 3.12. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
+### 3.12. [test/unit/format_csv.c](../test/unit/format_csv.c)
+
+Role: **unit**. **11 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="an_ordinary_field_is_not_quoted"></a>`an_ordinary_field_is_not_quoted` | `LLR-FLD-01` | A field needing no escape is emitted bare, so the common case stays readable rather than uniformly quoted. |
+| 2 | <a id="a_field_containing_a_comma_is_quoted"></a>`a_field_containing_a_comma_is_quoted` | `LLR-FLD-01` | A comma is what separates fields, so a value carrying one is quoted — the template-signature case, where one identifier looks like two fields. |
+| 3 | <a id="a_quote_is_doubled_not_backslashed"></a>`a_quote_is_doubled_not_backslashed` | `LLR-FLD-01` | RFC 4180 escapes a quote by doubling it. A backslash escape parses without error and carries the wrong text, which is worse than failing. |
+| 4 | <a id="a_field_containing_a_newline_is_quoted"></a>`a_field_containing_a_newline_is_quoted` | `LLR-FLD-01` | A line break inside a field ends the record unless the field is quoted. |
+| 5 | <a id="a_field_containing_a_carriage_return_is_quoted"></a>`a_field_containing_a_carriage_return_is_quoted` | `LLR-FLD-01` | Records are CRLF-terminated, so a carriage return ends one as surely as a newline. |
+| 6 | <a id="a_field_needing_every_escape_survives"></a>`a_field_needing_every_escape_survives` | `LLR-FLD-01` | A comma, a quote, and a newline in one field are handled together rather than one rule cancelling another. |
+| 7 | <a id="an_empty_field_is_emitted_empty"></a>`an_empty_field_is_emitted_empty` | `LLR-FLD-01` | An empty value is an empty field. |
+| 8 | <a id="a_null_field_is_emitted_empty"></a>`a_null_field_is_emitted_empty` | `LLR-FLD-01` | A missing value is an empty field rather than a fault, so a record with an absent language still has the right shape. |
+| 9 | <a id="the_header_row_is_written"></a>`the_header_row_is_written` | `LLR-CSV-01`, `LLR-FLD-02` | The header names the columns each record carries, and passes through the same emission path as every record. |
+| 10 | <a id="an_empty_report_is_a_header_alone"></a>`an_empty_report_is_a_header_alone` | `LLR-CSV-01` | A run with no functions produces the header and nothing else, rather than no output at all. |
+| 11 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-CSV-01` | A stream that cannot absorb the document yields a non-zero return, so a truncated file is never reported as success. |
+
+### 3.13. [test/unit/format_xml.c](../test/unit/format_xml.c)
+
+Role: **unit**. **17 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="an_ampersand_is_escaped"></a>`an_ampersand_is_escaped` | `LLR-ESC-01` | An unescaped ampersand begins an entity reference and makes the document unparseable. |
+| 2 | <a id="angle_brackets_are_escaped"></a>`angle_brackets_are_escaped` | `LLR-ESC-01` | An angle bracket would open or close a tag — the template-signature case, which carries both. |
+| 3 | <a id="quotation_marks_are_escaped"></a>`quotation_marks_are_escaped` | `LLR-ESC-01` | A quotation mark inside an attribute value ends the attribute early, leaving the document unparseable from that point. |
+| 4 | <a id="an_ampersand_in_an_entity_is_escaped_once"></a>`an_ampersand_in_an_entity_is_escaped_once` | `LLR-ESC-01` | Escaping is not recursive: text that already looks like an entity is encoded once, not doubled. |
+| 5 | <a id="ordinary_text_is_unchanged"></a>`ordinary_text_is_unchanged` | `LLR-ESC-01` | A value needing no escape passes through untouched. |
+| 6 | <a id="escaping_null_emits_nothing"></a>`escaping_null_emits_nothing` | `LLR-ESC-01` | A missing value emits nothing rather than faulting. |
+| 7 | <a id="the_record_carries_its_format_version"></a>`the_record_carries_its_format_version` | `LLR-XWR-03`, `LLR-XWR-04` | The root element carries a format-version identifier, which is what lets a consumer decide whether it understands the structure before interpreting it. |
+| 8 | <a id="an_empty_report_is_still_a_complete_record"></a>`an_empty_report_is_still_a_complete_record` | `LLR-XWR-01`, `LLR-XWR-04` | A run that analysed nothing still writes a complete, well-formed record rather than nothing. |
+| 9 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-XWR-04` | A truncated record is not well-formed and a consumer would reject it with no idea why, so a write failure is reported instead. |
+| 10 | <a id="input_that_is_not_xml_is_rejected"></a>`input_that_is_not_xml_is_rejected` | `LLR-XRD-03` | A file that is not XML at all is rejected. |
+| 11 | <a id="well_formed_but_foreign_input_is_rejected"></a>`well_formed_but_foreign_input_is_rejected` | `LLR-XRD-04`, `LLR-XRD-06` | A well-formed document of some other shape is rejected outright, with nothing reconstructed from it. |
+| 12 | <a id="an_unsupported_format_version_is_rejected"></a>`an_unsupported_format_version_is_rejected` | `LLR-XRD-05` | A record of a version this build does not read is rejected rather than interpreted optimistically. |
+| 13 | <a id="a_record_without_a_version_is_rejected"></a>`a_record_without_a_version_is_rejected` | `LLR-XRD-04` | A record with no version identifier is rejected: the identifier is what makes the structure knowable. |
+| 14 | <a id="the_threshold_supplied_now_is_the_one_applied"></a>`the_threshold_supplied_now_is_the_one_applied` | `LLR-XRD-07` | One record read at two thresholds yields two different listings, so the threshold is the one supplied at conversion time and the record carries none. |
+| 15 | <a id="the_model_is_reconstructed_from_the_record"></a>`the_model_is_reconstructed_from_the_record` | `LLR-XRD-01`, `LLR-XRD-09` | The model is rebuilt from the record alone, ordered by the same code that orders a live one, with the totals recomputed rather than read. |
+| 16 | <a id="a_truncated_record_is_rejected"></a>`a_truncated_record_is_rejected` | `LLR-XRD-03`, `LLR-XRD-06` | A record whose root never closes is not well-formed and is rejected rather than read as far as it goes. |
+| 17 | <a id="an_absent_record_is_rejected"></a>`an_absent_record_is_rejected` | `LLR-XRD-03` | A record that cannot be opened is a rejection rather than a crash. |
+
+### 3.14. [test/integration/formats.bats](../test/integration/formats.bats)
+
+Role: **integration**. **16 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-027: table is the format when none is selected"></a>`HLR-027: table is the format when none is selected` | — | The aligned table is what a run with no format option produces. |
+| 2 | <a id="HLR-027: table may also be selected explicitly"></a>`HLR-027: table may also be selected explicitly` | — | Selecting the default explicitly produces the same bytes as not selecting it. |
+| 3 | <a id="HLR-028: csv produces one record per function"></a>`HLR-028: csv produces one record per function` | — | CSV carries a header and a record naming each function. |
+| 4 | <a id="HLR-029: md produces GitHub-Flavored Markdown"></a>`HLR-029: md produces GitHub-Flavored Markdown` | — | Markdown carries headings and pipe tables rather than the aligned form. |
+| 5 | <a id="HLR-054: xml produces a record with a version"></a>`HLR-054: xml produces a record with a version` | — | XML carries a closed root element with a format-version identifier. |
+| 6 | <a id="HLR-063: an unknown format is a usage error naming the choices"></a>`HLR-063: an unknown format is a usage error naming the choices` | — | An unrecognised format is rejected, and the diagnostic names what would have been accepted. |
+| 7 | <a id="HLR-063: a format option without its argument is a usage error"></a>`HLR-063: a format option without its argument is a usage error` | — | An option requiring an argument and given none is rejected. |
+| 8 | <a id="HLR-031: table and Markdown present the same tiers"></a>`HLR-031: table and Markdown present the same tiers` | — | The two formats emit the same headings in the same order, which is the observable form of their sharing one traversal. |
+| 9 | <a id="HLR-031: a tier with no rows appears in both"></a>`HLR-031: a tier with no rows appears in both` | — | A tier that happens to be empty is still present in both formats, so the report's shape does not vary with its content. |
+| 10 | <a id="the format changes the rendering and not the analysis"></a>`the format changes the rendering and not the analysis` | — | Every format names the same discovered function, so the formats are views of one run rather than four separate reports. |
+| 11 | <a id="HLR-028: csv is unfiltered by the threshold"></a>`HLR-028: csv is unfiltered by the threshold` | — | Two very different thresholds produce identical CSV: the threshold governs a listing tier CSV does not have. |
+| 12 | <a id="HLR-054: xml is unfiltered by the threshold"></a>`HLR-054: xml is unfiltered by the threshold` | — | The record stores what was measured, so the threshold does not change it. |
+| 13 | <a id="HLR-038: every format writes results to stdout alone"></a>`HLR-038: every format writes results to stdout alone` | — | Each format leaves the diagnostic stream carrying only diagnostics. |
+| 14 | <a id="HLR-030: every format honours --output"></a>`HLR-030: every format honours --output` | — | Redirection applies to every format, not only the default one. |
+| 15 | <a id="HLR-032: every format is byte-identical across runs"></a>`HLR-032: every format is byte-identical across runs` | — | Repeating a run in any format produces identical bytes. |
+| 16 | <a id="HLR-066: every format renders an empty run"></a>`HLR-066: every format renders an empty run` | — | A run that analysed nothing still produces output in every format. |
+
+### 3.15. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
 
 Role: **fixture**. **13 test(s).**
 
@@ -412,7 +477,7 @@ Role: **fixture**. **13 test(s).**
 | 12 | <a id="HLR-045: else-if on one line counts once"></a>`HLR-045: else-if on one line counts once` | — | A line that is both an else and an if contributes one line, since ELOC counts lines rather than captures. |
 | 13 | <a id="HLR-020: a file with nothing executable reports zero, without error"></a>`HLR-020: a file with nothing executable reports zero, without error` | — | A file of comments, directives, and declarations reports zero ELOC and succeeds. |
 
-### 3.13. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
+### 3.16. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -426,7 +491,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-016: inline syntax inside a block comment excludes no line twice"></a>`HLR-016: inline syntax inside a block comment excludes no line twice` | — | Comment-like openers inside a block comment do not cause any line to be excluded more than once. |
 | 7 | <a id="HLR-020: a file of only comments reports zero ELOC"></a>`HLR-020: a file of only comments reports zero ELOC` | — | A file with nothing but comments reports zero, without error. |
 
-### 3.14. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
+### 3.17. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
 
 Role: **fixture**. **8 test(s).**
 
@@ -441,7 +506,45 @@ Role: **fixture**. **8 test(s).**
 | 7 | <a id="HLR-019: the file counts each statement line once"></a>`HLR-019: the file counts each statement line once` | — | The file's ELOC is the number of distinct lines carrying a statement, however those statements are attributed. |
 | 8 | <a id="HLR-032: nested attribution is deterministic across runs"></a>`HLR-032: nested attribution is deterministic across runs` | — | Repeating the run produces identical bytes, so the attribution does not depend on the order the query matched. |
 
-### 3.15. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
+### 3.18. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
+
+Role: **fixture**. **8 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-064: a path containing a comma does not split a record"></a>`HLR-064: a path containing a comma does not split a record` | — | Every row of the document parses to the same field count under an independent CSV reader, which a split field would break. The hostile value is a path rather than an identifier, because C cannot yet produce an identifier carrying a comma. |
+| 2 | <a id="HLR-064: the path survives the round trip intact"></a>`HLR-064: the path survives the round trip intact` | — | The value read back out of the document is the value that went in, comma and quotes included. |
+| 3 | <a id="HLR-064: a hostile path changes the field count of nothing"></a>`HLR-064: a hostile path changes the field count of nothing` | — | A record over a hostile path has the same number of fields as one over an ordinary path, so quoting preserved the structure rather than merely surviving it. |
+| 4 | <a id="HLR-065: XML over a hostile path is well-formed"></a>`HLR-065: XML over a hostile path is well-formed` | — | An independent parser accepts the document, so the escaping is correct rather than merely present. |
+| 5 | <a id="HLR-065: the structural characters are escaped, not emitted raw"></a>`HLR-065: the structural characters are escaped, not emitted raw` | — | The angle brackets, ampersand, and quotation marks appear as entities in the document. |
+| 6 | <a id="HLR-065: the path arrives intact after unescaping"></a>`HLR-065: the path arrives intact after unescaping` | — | An independent parser recovers the original value, so escaping and the document's meaning agree. |
+| 7 | <a id="HLR-056: a hostile path survives a record round trip"></a>`HLR-056: a hostile path survives a record round trip` | — | Regeneration over a hostile path matches a direct run. An asymmetry — escaped on the way out and not unescaped on the way in — passes a well-formedness check and still corrupts the report. |
+| 8 | <a id="HLR-027: the table renders a hostile path unchanged"></a>`HLR-027: the table renders a hostile path unchanged` | — | The aligned table escapes nothing and must not: it is read by a person, and a path is what it is. |
+
+### 3.19. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
+
+Role: **fixture**. **16 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the hand-counted subject totals match"></a>`the hand-counted subject totals match` | — | The subject's totals match the values in the fixture's header, so a later failure is about the round trip rather than about the subject having changed. |
+| 2 | <a id="HLR-056: regenerated Markdown is byte-identical to a direct run"></a>`HLR-056: regenerated Markdown is byte-identical to a direct run` | — | The report rebuilt from a record is identical to the one a direct analysis produces at the same threshold — not similar, identical, so a diff of the two is empty. |
+| 3 | <a id="HLR-057: the threshold supplied now is the one applied"></a>`HLR-057: the threshold supplied now is the one applied` | — | Regeneration at a given threshold matches a direct run at that threshold, so the threshold reaches the rebuilt report. |
+| 4 | <a id="HLR-057: the same record at two thresholds gives two listings"></a>`HLR-057: the same record at two thresholds gives two listings` | — | Two thresholds over one record produce different reports. Without this, the test above would pass for a build that ignored the threshold entirely. |
+| 5 | <a id="HLR-055: regeneration reads no source file"></a>`HLR-055: regeneration reads no source file` | — | A report is produced from the record with the working directory elsewhere and the source unreachable. |
+| 6 | <a id="HLR-054: the record carries every tier the report presents"></a>`HLR-054: the record carries every tier the report presents` | — | Every tier the report has today appears in the record — the totals, the languages, the files and their functions, and the skipped list. A tier missing here regenerates as a report that looks complete and is not. |
+| 7 | <a id="HLR-061: the record carries a format-version identifier"></a>`HLR-061: the record carries a format-version identifier` | — | The record identifies the structure it uses, exactly once. |
+| 8 | <a id="HLR-058: input that is not XML is rejected with no output"></a>`HLR-058: input that is not XML is rejected with no output` | — | A file that is not XML is rejected with the fatal status and nothing on the results stream. |
+| 9 | <a id="HLR-058: a well-formed document of another shape is rejected"></a>`HLR-058: a well-formed document of another shape is rejected` | — | Being parseable is not being an elc record; no best-effort partial conversion is attempted. |
+| 10 | <a id="HLR-058: an unsupported format version is rejected, naming it"></a>`HLR-058: an unsupported format version is rejected, naming it` | — | A bumped version is rejected, and the diagnostic names both the version found and the version this build reads. |
+| 11 | <a id="HLR-058: a truncated record is rejected"></a>`HLR-058: a truncated record is rejected` | — | A record whose root never closes is rejected rather than read as far as it goes. |
+| 12 | <a id="HLR-058: an absent record is rejected"></a>`HLR-058: an absent record is rejected` | — | A record that cannot be opened is a rejection rather than a crash. |
+| 13 | <a id="HLR-055: regeneration defaults to Markdown without being asked"></a>`HLR-055: regeneration defaults to Markdown without being asked` | — | The mode's output format is its default, so it is usable without a redundant option. |
+| 14 | <a id="HLR-063: a format other than Markdown is rejected in regeneration mode"></a>`HLR-063: a format other than Markdown is rejected in regeneration mode` | — | A saved record carries the findings of a run rather than the graph, so another format is a usage error rather than a silently ignored request. |
+| 15 | <a id="HLR-063: an explicit Markdown selection is accepted"></a>`HLR-063: an explicit Markdown selection is accepted` | — | Saying the default out loud is not an error; only asking for something else is. |
+| 16 | <a id="HLR-063: a target alongside --from-xml is a usage error"></a>`HLR-063: a target alongside --from-xml is a usage error` | — | The record is the input; a target would name a second source of truth for one report. |
+
+### 3.20. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
 
 Role: **fixture**. **15 test(s).**
 
@@ -463,7 +566,7 @@ Role: **fixture**. **15 test(s).**
 | 14 | <a id="HLR-059: the environment variable takes precedence over the adjacent runtime"></a>`HLR-059: the environment variable takes precedence over the adjacent runtime` | — | Pointing the environment variable at a broken runtime degrades the run even though a working one sits beside the executable, which it can only do if the variable was preferred. |
 | 15 | <a id="HLR-059: the runtime adjacent to the executable is used when the variable is unset"></a>`HLR-059: the runtime adjacent to the executable is used when the variable is unset` | — | With the variable unset, the runtime beside the executable is found and used. |
 
-### 3.16. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
+### 3.21. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
 
 Role: **fixture**. **11 test(s).**
 
@@ -481,7 +584,7 @@ Role: **fixture**. **11 test(s).**
 | 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
 | 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
 
-### 3.17. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.22. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -495,7 +598,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.18. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.23. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **16 test(s).**
 
@@ -518,7 +621,7 @@ Role: **instrumented**. **16 test(s).**
 | 15 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
 | 16 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 
-### 3.19. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.24. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -569,6 +672,7 @@ verified by code review — see
 | `LLR-CLI-13` | `cli_parse` | `HLR-117` | `help_short_option_reports_help`, `help_long_option_reports_help`, `help_takes_precedence_over_a_target` |
 | `LLR-CLI-14` | `cli_parse` | `HLR-039` | **(no direct test)** |
 | `LLR-CLI-16` | `cli_parse` | `HLR-063`, `HLR-022` | `a_malformed_threshold_is_a_usage_error` |
+| `LLR-CLI-17` | `cli_parse` | `HLR-055`, `HLR-063` | **(no direct test)** |
 | `LLR-CLI-15` | `cli_parse` | `HLR-122`, `HLR-063` | **(no direct test)** |
 | `LLR-USG-01` | `cli_usage` | `HLR-117` | **(no direct test)** |
 | `LLR-USG-02` | `cli_usage` | `HLR-117`, `HLR-063`, `HLR-038` | **(no direct test)** |
@@ -758,24 +862,29 @@ verified by code review — see
 | `LLR-TBL-03` | `format_table` | `HLR-038` | `a_write_failure_is_reported` |
 | `LLR-MKD-01` | `format_markdown` | `HLR-029` | **(no direct test)** |
 | `LLR-SUM-01` | `render_summary` | `HLR-031`, `HLR-127`, `HLR-012`, `HLR-115` | **(no direct test)** |
+| `LLR-SUM-03` | `render_summary` | `HLR-031` | **(no direct test)** |
+| `LLR-SUM-04` | `render_summary` | `HLR-027`, `HLR-032` | **(no direct test)** |
 | `LLR-SUM-02` | `render_summary` | `HLR-031` | **(no direct test)** |
-| `LLR-CSV-01` | `format_csv` | `HLR-028` | **(no direct test)** |
+| `LLR-CSV-01` | `format_csv` | `HLR-028` | `the_header_row_is_written`, `an_empty_report_is_a_header_alone`, `a_write_failure_is_reported` |
 | `LLR-CSV-02` | `format_csv` | `HLR-028`, `HLR-031` | **(no direct test)** |
-| `LLR-FLD-01` | `write_field` | `HLR-064` | **(no direct test)** |
-| `LLR-FLD-02` | `write_field` | `HLR-064` | **(no direct test)** |
-| `LLR-XWR-01` | `xml_write_report` | `HLR-054` | **(no direct test)** |
+| `LLR-FLD-01` | `write_field` | `HLR-064` | `an_ordinary_field_is_not_quoted`, `a_field_containing_a_comma_is_quoted`, `a_quote_is_doubled_not_backslashed`, `a_field_containing_a_newline_is_quoted`, `a_field_containing_a_carriage_return_is_quoted`, `a_field_needing_every_escape_survives`, `an_empty_field_is_emitted_empty`, `a_null_field_is_emitted_empty` |
+| `LLR-FLD-02` | `write_field` | `HLR-064` | `the_header_row_is_written` |
+| `LLR-XWR-01` | `xml_write_report` | `HLR-054` | `an_empty_report_is_still_a_complete_record` |
 | `LLR-XWR-02` | `xml_write_report` | `HLR-054` | **(no direct test)** |
-| `LLR-XWR-03` | `xml_write_report` | `HLR-061` | **(no direct test)** |
-| `LLR-XWR-04` | `xml_write_report` | `HLR-065` | **(no direct test)** |
-| `LLR-ESC-01` | `write_escaped` | `HLR-065` | **(no direct test)** |
+| `LLR-XWR-03` | `xml_write_report` | `HLR-061` | `the_record_carries_its_format_version` |
+| `LLR-XWR-05` | `xml_write_report` | `HLR-061`, `HLR-054` | **(no direct test)** |
+| `LLR-XWR-04` | `xml_write_report` | `HLR-065` | `the_record_carries_its_format_version`, `an_empty_report_is_still_a_complete_record`, `a_write_failure_is_reported` |
+| `LLR-ESC-01` | `write_escaped` | `HLR-065` | `an_ampersand_is_escaped`, `angle_brackets_are_escaped`, `quotation_marks_are_escaped`, `an_ampersand_in_an_entity_is_escaped_once`, `ordinary_text_is_unchanged`, `escaping_null_emits_nothing` |
 | `LLR-ESC-02` | `write_escaped` | `HLR-065` | **(no direct test)** |
-| `LLR-XRD-01` | `xml_read_report` | `HLR-055` | **(no direct test)** |
+| `LLR-XRD-01` | `xml_read_report` | `HLR-055` | `the_model_is_reconstructed_from_the_record` |
 | `LLR-XRD-02` | `xml_read_report` | `HLR-055` | **(no direct test)** |
-| `LLR-XRD-03` | `xml_read_report` | `HLR-058` | **(no direct test)** |
-| `LLR-XRD-04` | `xml_read_report` | `HLR-058` | **(no direct test)** |
-| `LLR-XRD-05` | `xml_read_report` | `HLR-058`, `HLR-061` | **(no direct test)** |
-| `LLR-XRD-06` | `xml_read_report` | `HLR-058` | **(no direct test)** |
-| `LLR-XRD-07` | `xml_read_report` | `HLR-057` | **(no direct test)** |
+| `LLR-XRD-03` | `xml_read_report` | `HLR-058` | `input_that_is_not_xml_is_rejected`, `a_truncated_record_is_rejected`, `an_absent_record_is_rejected` |
+| `LLR-XRD-04` | `xml_read_report` | `HLR-058` | `well_formed_but_foreign_input_is_rejected`, `a_record_without_a_version_is_rejected` |
+| `LLR-XRD-05` | `xml_read_report` | `HLR-058`, `HLR-061` | `an_unsupported_format_version_is_rejected` |
+| `LLR-XRD-09` | `xml_read_report` | `HLR-056`, `HLR-032` | `the_model_is_reconstructed_from_the_record` |
+| `LLR-XRD-10` | `xml_read_report` | `HLR-058` | **(no direct test)** |
+| `LLR-XRD-06` | `xml_read_report` | `HLR-058` | `well_formed_but_foreign_input_is_rejected`, `a_truncated_record_is_rejected` |
+| `LLR-XRD-07` | `xml_read_report` | `HLR-057` | `the_threshold_supplied_now_is_the_one_applied` |
 | `LLR-XRD-08` | `xml_read_report` | `HLR-056` | **(no direct test)** |
 | `LLR-WAR-01` | `graph_dot_warranted` | `HLR-103` | **(no direct test)** |
 | `LLR-WAR-02` | `graph_dot_warranted` | `HLR-104` | **(no direct test)** |
@@ -803,6 +912,7 @@ verified by code review — see
 | `LLR-BLD-11` | `build_configuration` | `HLR-124` | `the build's required flags survive an overridden CFLAGS` |
 | `LLR-BLD-12` | `build_configuration` | `HLR-040`, `HLR-011`, `HLR-009` | **(no direct test)** |
 | `LLR-BLD-13` | `build_configuration` | `HLR-128` | `the help block and the real target set agree`, `make help prints the block from the file's header` |
+| `LLR-BLD-14` | `build_configuration` | `HLR-035`, `HLR-013` | **(no direct test)** |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | **(no direct test)** |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |

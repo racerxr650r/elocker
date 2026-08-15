@@ -3,13 +3,18 @@
 .\" This page describes the version it ships with (HLR-129). Every option elc
 .\" accepts appears here, and every option here is accepted; the documentation
 .\" test in test/integration/docs.bats enforces both directions.
-.TH ELC 1 "2026-08-18" "elocker" "User Commands"
+.TH ELC 1 "2026-08-19" "elocker" "User Commands"
 .SH NAME
 elc \- per-function code metrics and whole-project architecture analysis
 .SH SYNOPSIS
 .B elc
 .RI [ OPTION ]...
 .IR TARGET ...
+.br
+.B elc
+.B \-\-from\-xml
+.I FILE
+.RI [ OPTION ]...
 .br
 .B elc
 .B \-\-help
@@ -26,9 +31,9 @@ file reached through more than one target is analysed once.
 .B elc
 is under active development. This release discovers the files in its targets,
 parses each one, and reports effective lines of code and cyclomatic
-complexity per function, per file, and per language. The System Dependence
-Graph and the findings derived from it are delivered by later phases, and
-this page grows with them. See
+complexity per function, per file, and per language, in any of four formats.
+The System Dependence Graph and the findings derived from it are delivered by
+later phases, and this page grows with them. See
 .B doc/SDP.md
 in the distribution for what each phase adds.
 .SS Effective lines of code
@@ -144,7 +149,92 @@ is reported whatever else was named and no report is produced that covers
 fewer targets than were given. Each discovered file is reduced to its
 canonical absolute path and analysed exactly once, however many targets reach
 it.
+.SH FORMATS
+.TP
+.B table
+An aligned table for reading. The default.
+.TP
+.B md
+The same report as GitHub-Flavored Markdown. The two present the same tiers
+in the same order and differ only in decoration, because they are one
+traversal of one model.
+.TP
+.B csv
+One record per function, RFC 4180, with the complete dataset: the complexity
+threshold does not filter it. The architectural findings are absent, not
+omitted — they are not expressible as a single flat record set. Every field
+that contains a comma, a quotation mark, or a line break is quoted.
+.TP
+.B xml
+The complete record of a run, carrying every element any report may present
+and a format-version identifier. It is what
+.B \-\-from\-xml
+reads back.
+.SH THE SAVED RECORD
+.B elc \-f xml
+writes a record that is sufficient on its own to produce a report later,
+without the source it describes:
+.PP
+.EX
+elc \-f xml \-o build/metrics.xml src/
+elc \-\-from\-xml build/metrics.xml > report.md
+.EE
+.PP
+The regenerated Markdown is
+.I byte-identical
+to the Markdown a direct analysis would have produced at the same threshold.
+It is identical rather than merely equivalent because the record carries the
+measurements and nothing derived from them: the totals, the callouts, the
+ordering, and the threshold listing are all computed when the report is
+assembled, by the same code on both paths.
+.PP
+The threshold is therefore
+.I not
+in the record. One record answers as many threshold questions as you care to
+ask:
+.PP
+.EX
+elc \-\-from\-xml build/metrics.xml \-c 10
+elc \-\-from\-xml build/metrics.xml \-c 20
+.EE
+.PP
+A record that is not well-formed XML, that does not match
+.BR elc 's
+own structure, or that carries a format version this build does not read, is
+rejected with exit status 2 and no output at all. A partly reconstructed
+report is indistinguishable from a complete one once rendered, so none is
+attempted.
+.PP
+Regeneration takes no
+.IR TARGET ,
+and produces Markdown alone: a saved record carries the findings of a run
+rather than the graph, so no companion artefact can be rebuilt from it.
+Selecting any other format with
+.B \-\-from\-xml
+is a usage error rather than a silently ignored request.
 .SH OPTIONS
+.TP
+.BR \-f ", " \-\-format " " \fIFORMAT\fR
+One of
+.BR table ,
+.BR csv ,
+.BR xml ,
+or
+.BR md .
+The default is
+.BR table ,
+except with
+.BR \-\-from\-xml ,
+where it is
+.B md
+and no other format is accepted.
+.TP
+.BI \-\-from\-xml " FILE"
+Rebuild a report from a record previously written with
+.BR "\-f xml" ,
+reading no source file. No
+.I TARGET
+is given in this mode.
 .TP
 .BR \-c ", " \-\-complexity\-threshold " " \fIN\fR
 List a file's functions whose cyclomatic complexity is
@@ -307,6 +397,15 @@ Write the report to a file, leaving standard output empty.
 .B elc \-c 10 src/
 List every function whose complexity is 10 or greater. The exit status is
 unchanged by what the list contains.
+.TP
+.B elc \-f md src/ > report.md
+Produce a Markdown report.
+.TP
+.B elc \-f csv src/ | cut \-d, \-f3,7
+Take the function names and their complexities into another tool.
+.TP
+.B elc \-f xml \-o run.xml src/ && elc \-\-from\-xml run.xml \-c 8
+Keep a record of a run, then ask it a question the original run did not.
 .TP
 .B ELC_RUNTIME_DIR=/opt/elc/runtime elc src/
 Analyse with language support taken from a runtime directory elsewhere.

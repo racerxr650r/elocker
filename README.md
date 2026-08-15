@@ -18,14 +18,14 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 4 is complete.** `elc src/` reports **effective lines of code** and
-**cyclomatic complexity** per function, with project totals, a per-language
-breakdown, and a list of the functions over a threshold you set. Both metrics
-attribute to the innermost function containing them, so a function that merely
-contains others does not look large. The threshold changes what is listed and
-nothing else — never the exit status. Output formats are next, in Phase 5.
+**Phase 5 is complete.** `elc src/` reports **effective lines of code** and
+**cyclomatic complexity** per function, as an aligned table, Markdown, CSV, or
+XML — and can rebuild the report later from the XML alone, byte-identically,
+at whatever threshold you ask then. The two human-facing formats are one
+traversal of one model, so a tier cannot appear in one and be forgotten in the
+other. More languages are next, in Phase 6.
 
-**Progress: 5 of 16 phases complete.**
+**Progress: 6 of 16 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -37,7 +37,7 @@ nothing else — never the exit status. Output formats are next, in Phase 5.
 | [2](doc/SDP.md#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | ✅ Complete |
 | [3](doc/SDP.md#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | ✅ Complete |
 | [4](doc/SDP.md#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
-| [5](doc/SDP.md#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | 🔲 Not started |
+| [5](doc/SDP.md#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | ✅ Complete |
 | [6](doc/SDP.md#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | 🔲 Not started |
 | [7](doc/SDP.md#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | 🔲 Not started |
 | [8](doc/SDP.md#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | 🔲 Not started |
@@ -172,7 +172,7 @@ documents below are generated from it.
 | [PVD.md](doc/PVD.md) | *Why* does this exist, who is it for, how do we know it is succeeding? |
 | [HLRs.md](doc/HLRs.md) | *What* must it do — 129 high-level requirements |
 | [SDD.md](doc/SDD.md) | *How is it structured* — modules, data, algorithms, dependency selection |
-| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 274 low-level requirements |
+| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 281 low-level requirements |
 | [STP.md](doc/STP.md) | *How is it verified* — test levels, fixtures, the sanitizer gate |
 | [Traceability.md](doc/Traceability.md) | *Where are the gaps*, end to end |
 | [SDP.md](doc/SDP.md) | *How is it built* — the 16 phases below |

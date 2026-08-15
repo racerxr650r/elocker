@@ -1,6 +1,6 @@
 # elc User Manual
 
-**Version:** 0.5 (Phase 4)
+**Version:** 0.6 (Phase 5)
 **Applies to:** the `elc` build shipped alongside this file
 
 This manual describes the version it ships with. Every option `elc` accepts is
@@ -34,8 +34,9 @@ repository are comparable and results from different runs can be diffed.
 **What this build does:** finds the source files in your targets, parses each
 one, and reports **effective lines of code** and **cyclomatic complexity** per
 function — with project totals, a per-language breakdown, and a list of the
-functions over a complexity threshold you set. C is the language it ships
-with.
+functions over a complexity threshold you set. It writes that report as a
+table, Markdown, CSV, or XML, and can rebuild it later from the XML alone. C
+is the language it ships with.
 
 **What it does not do yet:** the System Dependence Graph and the findings
 derived from it — coupling, cycles, call depth, dead code. Those arrive in
@@ -360,6 +361,93 @@ When two files or two functions tie, the one that sorts first in the report
 wins — so the callout is the same on every run, and a diff of two reports
 shows real change rather than a coin toss.
 
+## Output formats
+
+```sh
+elc src/                 # an aligned table, the default
+elc -f md src/           # GitHub-Flavored Markdown
+elc -f csv src/          # one record per function, RFC 4180
+elc -f xml src/          # the complete record of the run
+```
+
+| Format | For | Notes |
+| ------ | --- | ----- |
+| `table` | reading | The default |
+| `md` | a pull request, a wiki | Same tiers as the table, in the same order |
+| `csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it |
+| `xml` | keeping | Complete record; what `--from-xml` reads back |
+
+**`table` and `md` are the same report.** They are one traversal of one
+model, so a tier cannot appear in one and be forgotten in the other. Only the
+decoration differs.
+
+**`csv` and `xml` are unfiltered.** The complexity threshold governs the
+*listing* tier of a human-facing report. CSV has no such tier — it is the
+complete dataset, and filtering is what the tool you pipe it into is for:
+
+```sh
+elc -f csv src/ | cut -d, -f3,7      # function names and complexities
+```
+
+CSV carries per-function metrics only. The architectural findings that later
+phases add are absent by design: they are not expressible as one flat record
+set, which is what XML is for.
+
+Every field containing a comma, a quotation mark, or a line break is quoted,
+so a name like `foo<int, long>` stays one field.
+
+## Keeping a record
+
+`-f xml` writes a record that is sufficient on its own to produce a report
+later, without the source it describes:
+
+```sh
+elc -f xml -o build/metrics.xml src/     # today
+elc --from-xml build/metrics.xml         # any time after
+```
+
+The regenerated Markdown is **byte-identical** to what a direct analysis
+would have produced at the same threshold. Not similar — identical, so a diff
+of the two is empty.
+
+That is achievable because the record carries the *measurements* and nothing
+derived from them. The totals, the callouts, the ordering, and the threshold
+listing are all worked out when the report is assembled, by the same code on
+both paths. There is no second implementation to drift.
+
+### The threshold is not in the record
+
+The record stores what was measured; the threshold is what you decided about
+it. So one record answers as many questions as you care to ask:
+
+```sh
+elc --from-xml build/metrics.xml -c 10   # what was over 10?
+elc --from-xml build/metrics.xml -c 20   # and over 20?
+```
+
+Neither re-reads a source file. This is the point of keeping the record: the
+tree may have moved on, and the questions may not have been thought of yet.
+
+### What is rejected
+
+A record that is not well-formed XML, that does not match `elc`'s own
+structure, or that carries a format version this build does not read, is
+rejected with exit status 2 and **no output at all**:
+
+```
+elc: build/metrics.xml: format version 7 is not supported; this build reads version 1
+```
+
+No best-effort partial conversion is attempted. A half-reconstructed report
+looks exactly like a complete one once it is rendered, and you would have no
+way to tell.
+
+### What regeneration does not do
+
+It takes no `TARGET`, and produces Markdown alone. A saved record carries the
+findings of a run rather than the graph behind them, so asking for another
+format is a usage error rather than a request quietly ignored.
+
 ## Languages
 
 `elc` works out each file's language from its extension and loads the parser
@@ -429,6 +517,8 @@ comparable.
 
 | Option | Argument | Default | Effect |
 | ------ | -------- | ------- | ------ |
+| `-f`, `--format` | `table\|csv\|xml\|md` | `table` | Render the report as `FORMAT` |
+| `--from-xml` | `FILE` | — | Rebuild a report from a saved record; takes no `TARGET` |
 | `-c`, `--complexity-threshold` | `N` | `15` | List functions whose complexity is `N` or greater |
 | `-o`, `--output` | `FILE` | standard output | Write the report to `FILE` |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
@@ -443,8 +533,7 @@ bytes; the option exists so that a caller that has no shell around it can
 still separate results from diagnostics. If the file cannot be opened, `elc`
 says so on standard error and exits 2 without writing a partial report.
 
-Later phases add options for output format, architectural declarations, and
-custom rules. Each arrives together with the
+Later phases add options for architectural declarations and custom rules. Each arrives together with the
 behaviour it selects — an option is never added before it does something.
 
 ### Exit status
@@ -568,6 +657,20 @@ half-read. Exit status 2.
 **The threshold list is empty and you expected entries** — the listing is at
 or *above* the threshold, and the default is 15, which most functions are
 comfortably under. Try `-c 1` to see everything.
+
+**`elc: '''yaml''' is not a format`** — the formats are `table`, `csv`, `xml`,
+and `md`. Exit status 2.
+
+**`elc: --from-xml produces Markdown`** — regeneration has one output format.
+Drop the `-f`, or pass `-f md` if you prefer to say it.
+
+**`elc: --from-xml takes no target`** — the record *is* the input. Naming a
+target as well would give the report two sources of truth.
+
+**CSV rows have a different number of fields than you expect** — they should
+not; every field that needs quoting gets it. If you are reading the file with
+`cut` or `awk` rather than a CSV parser, a quoted field containing a comma
+will confuse them. That is a property of those tools, not of the file.
 
 **`elc: <path>: no usable language module; skipped`** — the extension is not
 in `runtime/extensions.map`, or the module for it could not be loaded. Look

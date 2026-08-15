@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.2
-**Date:** 2026-08-18
+**Version:** 2.3
+**Date:** 2026-08-19
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -774,6 +774,12 @@ The hidden-channel test asks whether the functions touching a global fall into m
 
 #### 14.3.2 Parsing Strategy / Algorithm
 
+**The two renderers are one traversal.** `render_report()` walks the model once and emits every tier in a fixed order; the `Style` decides only how each tier is decorated. A tier added to the traversal appears in both formats, and cannot be added to one and forgotten in the other, because there is nowhere to forget it — which is what makes HLR-031's uniform composition structural rather than maintained (LLR-SUM-02).
+
+Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
+
+A left-aligned final column is not padded in the aligned style. Padding it puts trailing whitespace on every line, which shows up in a diff and is stripped by half the tools that would read it.
+
 The table is laid out in tiers, each introduced by a heading and indented beneath it:
 
 ```text
@@ -856,7 +862,15 @@ Every field passes through `write_field()` without exception. A C++ template sig
 ### 16.2 External Interfaces
 #### 16.2.1 XML Record Structure
 
-A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<files>` with nested `<function>` elements, `<architecture>` holding every graph finding, `<custom-rules>`, and `<omissions>`. The format version is incremented whenever an element is removed or its meaning changes.
+A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<files>` with nested `<function>` elements, `<skipped>`, `<architecture>` holding every graph finding, `<custom-rules>`, and `<omissions>`. The format version is incremented whenever an element is removed or its meaning changes.
+
+It is **not** incremented when an element is added, because a reader ignores elements it does not recognise. That asymmetry is what makes a later phase's additions compatible with a record written today, and it is why an element that does not yet exist is absent rather than present and empty.
+
+#### 16.2.2 Reading What elc Did Not Write
+
+The read path treats its input as hostile. The root element must be `elc-report`, its `format-version` must be one this build reads, and an attribute that should be numeric and is not makes the record malformed rather than zero — accepting it would produce a report that renders cleanly and is wrong, which is the outcome HLR-058 exists to prevent.
+
+Nothing reconstructed before a rejection survives it. The partially built model is released rather than rendered, since a partly reconstructed report is indistinguishable from a complete one once it reaches a reader (LLR-XRD-06).
 
 
 ### 16.3 Internal Structure
@@ -877,6 +891,12 @@ A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<
 #### 16.3.2 Parsing Strategy / Algorithm
 
 Writing is hand-rolled text emission; reading is streamed through a parser. This asymmetry is deliberate. Emission needs only correct escaping, which `write_escaped()` provides in one place, so a writer library would add a dependency for no benefit. Ingestion needs a hardened parser, because the input is a file the user supplies and may not be one `elc` wrote.
+
+**The reader reconstructs inputs, not conclusions.** It rebuilds the per-file and per-function facts and hands them to `report_assemble()` — the same function a live run calls. Every derived value (the totals, the per-language breakdown, the callouts and their tie-break, the threshold listing, the ordering) is therefore computed once, by one function, on both paths. That is what makes HLR-056's byte-identical guarantee a structural property rather than one two pieces of code have to keep agreeing about; a reader that rebuilt the derived values from the record would be a second implementation, and would drift.
+
+It follows that **the threshold is not in the record**. The record stores what was measured; the threshold is what somebody decided about it. Keeping them apart is what lets one record answer any number of threshold questions without re-analysis, and is the whole of HLR-057.
+
+The totals *are* written, for a consumer reading the record with something other than `elc` (LLR-XWR-02), and ignored on read.
 
 ### 16.4 Dependencies
 
