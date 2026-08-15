@@ -12,6 +12,18 @@
 *.map
 *.exp
 
+# ...but runtime/ holds product data, not build output, and two of the
+# patterns above reach into it. `*.map` matches extensions.map, which is the
+# extension-to-language table (HLR-060) and must ship; `*.so` matches the
+# grammars, which must not, because the build produces them from pinned
+# upstream releases. The negation is only for the former.
+#
+# An ignore rule that swallows a data file is silent: the file works locally,
+# is absent from the clone CI makes, and the failure names the missing file
+# rather than the rule. Anything added under runtime/ is worth a
+# `git check-ignore -v` before it is relied on.
+!runtime/extensions.map
+
 # Precompiled Headers
 *.gch
 *.pch

@@ -19,7 +19,7 @@
     <counts>
       <count name="hlrs"       value="129"/>
       <count name="llrs"       value="264"/>
-      <count name="tests"      value="183"/>
+      <count name="tests"      value="184"/>
       <count name="test_files" value="15"/>
     </counts>
   </metadata>
@@ -5265,7 +5265,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="13">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="14">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -5312,6 +5312,13 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[The build never passes -pthread, which would silently license a future thread.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-041" name="Single-Threaded Execution"/>
+      </traces>
+    </test>
+    <test name="every runtime data file the build does not produce is tracked">
+      <purpose><![CDATA[Every file under the runtime location that the build does not itself produce is tracked by the repository, so that a version-control ignore rule cannot silently exclude product data. `.gitignore` carries `*.map` for linker map files, which also matched the extension table: it worked locally, was absent from the clone CI made, and every parsing test then failed naming the missing file rather than the rule that hid it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-060"/>
+        <trace target="HLR" ref="HLR-121"/>
       </traces>
     </test>
     <test name="HLR-043: elc does not modify the tree it analyses">

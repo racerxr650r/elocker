@@ -1,0 +1,18 @@
+# extension -> language, one pair per line (HLR-060).
+#
+# This is data, not code. Associating another extension with a language, or
+# pointing an extension at a different language, is an edit here and needs no
+# rebuild. Blank lines and lines beginning with '#' are ignored; the
+# extension may be written with or without its leading period, and is matched
+# without regard to case.
+#
+# An extension absent from this file maps to no language, and a file carrying
+# it is skipped and reported as skipped (HLR-012) — not an error.
+
+# C. Headers map to C as well: a header carries function definitions in
+# practice (static inline, and anything a single-header library ships), and
+# an unmapped .h would be reported skipped on almost every C project.
+.c    c
+.h    c
+
+# C++, Rust, Python, and Ada arrive with their grammars in Phase 6 (HLR-011).

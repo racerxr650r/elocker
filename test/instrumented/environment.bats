@@ -151,6 +151,36 @@ setup() {
 	assert_output "0"
 }
 
+# --- HLR-060, HLR-121: the runtime data actually ships ---------------------
+
+# This exists because it did not. `.gitignore` carries `*.map` for linker map
+# files, which also matches runtime/extensions.map — so the extension table
+# worked locally, was absent from the clone CI made, and every parsing test
+# failed naming the missing file rather than the rule that hid it.
+#
+# An ignore rule that swallows a data file is silent by construction. The
+# only reliable check is to ask git what it is tracking.
+@test "every runtime data file the build does not produce is tracked" {
+	require_tool git "HLR-060 runtime data ships with the product"
+	[ -d "$REPO_ROOT/.git" ] || skip "not a git checkout; nothing to ask"
+
+	local untracked=()
+	while read -r file; do
+		[ -n "$file" ] || continue
+		# Grammars are build products, deliberately ignored: the build
+		# fetches and compiles them from pinned upstream releases.
+		case "$file" in *.so) continue ;; esac
+		git -C "$REPO_ROOT" ls-files --error-unmatch "$file" \
+			>/dev/null 2>&1 || untracked+=("$file")
+	done < <(cd "$REPO_ROOT" && find runtime -type f)
+
+	[ "${#untracked[@]}" -eq 0 ] || {
+		echo "runtime data missing from the repository: ${untracked[*]}" >&2
+		echo "run: git check-ignore -v <file>" >&2
+		false
+	}
+}
+
 # --- HLR-043: read-only operation ------------------------------------------
 
 @test "HLR-043: elc does not modify the tree it analyses" {

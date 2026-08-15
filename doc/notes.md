@@ -333,6 +333,17 @@ None is a defect; each is a judgement that could go the other way.
     cannot satisfy that. Excluding hidden entries wholesale is the
     smaller change, and dotfiles are not source. A hidden path named
     *as* the target is still walked; naming it is explicit.
+*   **`.gitignore` can swallow product data, silently** (Phase 2). The
+    file carries `*.map` for linker map files, and that also matches
+    `runtime/extensions.map` — the extension-to-language table, which is
+    product data and must ship. It worked locally for a whole phase, was
+    absent from the clone CI made, and the failure named the missing file
+    rather than the rule that hid it. `!runtime/extensions.map` now
+    negates it, and an instrumented test asks git what it is tracking
+    under `runtime/` so the next one cannot get through. Anything added
+    there is worth a `git check-ignore -v` before it is relied on; the
+    patterns that reach in are `*.map` and `*.so`, and only the latter
+    is meant to.
 *   **Grammars are fetched at build time, not vendored** (Phase 2).
     `make all` builds `runtime/parsers/<lang>.so` from a pinned upstream
     release, downloading it once; the alternative was committing the
