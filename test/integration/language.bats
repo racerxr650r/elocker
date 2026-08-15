@@ -217,3 +217,65 @@ alpha"
 	run bash -c '"$0" "$1" 2>/dev/null' "$ELC" "$TREE"
 	assert_equal "$output" "$first"
 }
+
+# --- the delivered language set (HLR-011) ----------------------------------
+
+@test "HLR-011: five languages are detected from their extensions" {
+	local tree="$BATS_TEST_TMPDIR/many"
+	mkdir -p "$tree"
+	printf 'int c_fn(void) { return 0; }\n'                > "$tree/a.c"
+	printf 'int cpp_fn(void) { return 0; }\n'              > "$tree/b.cpp"
+	printf 'fn rust_fn() -> i32 { 0 }\n'                   > "$tree/c.rs"
+	printf 'def py_fn():\n    return 0\n'                  > "$tree/d.py"
+	printf 'procedure Ada_Fn is\nbegin\n   null;\nend Ada_Fn;\n' > "$tree/e.adb"
+
+	elc "$tree"
+	assert_success
+	for language in ada c cpp python rust; do
+		assert_output --partial "$language"
+	done
+}
+
+@test "HLR-008: a mixed-language target is analysed in one invocation" {
+	local tree="$BATS_TEST_TMPDIR/mixed"
+	mkdir -p "$tree"
+	printf 'int c_fn(void) { return 0; }\n'   > "$tree/a.c"
+	printf 'int cpp_fn(void) { return 0; }\n' > "$tree/b.cpp"
+	printf 'fn rust_fn() -> i32 { 0 }\n'      > "$tree/c.rs"
+	printf 'def py_fn():\n    return 0\n'     > "$tree/d.py"
+
+	elc "$tree"
+	assert_success
+	assert_output --partial "c_fn"
+	assert_output --partial "cpp_fn"
+	assert_output --partial "rust_fn"
+	assert_output --partial "py_fn"
+	assert_output --regexp "Functions +4"
+}
+
+@test "HLR-025: each language's contribution is separately visible" {
+	local tree="$BATS_TEST_TMPDIR/breakdown"
+	mkdir -p "$tree"
+	printf 'int c_fn(void) { return 0; }\n' > "$tree/a.c"
+	printf 'fn rust_fn() -> i32 { 0 }\n'    > "$tree/b.rs"
+
+	elc "$tree"
+	assert_success
+
+	local languages
+	languages="$(awk '/^Languages$/ { f = 1; next } f && /^$/ { f = 0 }
+	                  f && /^  [a-z]/ { print $1 }' <<<"$output" | tr '\n' ' ')"
+	assert_equal "$languages" "c rust "
+}
+
+@test "HLR-011: elc requires no particular language to be present" {
+	# A target of one language runs exactly as a mixed one does; nothing
+	# verifies that the other four are installed.
+	local tree="$BATS_TEST_TMPDIR/one"
+	mkdir -p "$tree"
+	printf 'fn only() -> i32 { 0 }\n' > "$tree/a.rs"
+
+	elc "$tree"
+	assert_success
+	assert_output --regexp "Functions +1"
+}

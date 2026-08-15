@@ -196,6 +196,78 @@ setup() {
 	refute_output --partial "#>"
 }
 
+# --- the grammar build (HLR-009, HLR-011) ----------------------------------
+
+# Verifies LLR-BLD-16: a grammar is linked with the external scanner it needs.
+#
+# This exists because it did not. The rule found an optional `scanner.c` with
+# `$(wildcard)`, which make expands *before* running the recipe — so it looked
+# for a file the fetch on the line above had not yet unpacked, and silently
+# found nothing. C has no external scanner, so nothing showed until three
+# grammars that have one arrived; and a grammar linked without its scanner
+# fails at load, not at build.
+@test "every grammar is linked with the scanner it requires" {
+	require_tool nm "HLR-009 runtime-loaded language support"
+
+	local broken=()
+	for parser in "$REPO_ROOT"/runtime/parsers/*.so; do
+		[ -e "$parser" ] || continue
+		nm -D --undefined-only "$parser" 2>/dev/null |
+			grep -q external_scanner && broken+=("$parser")
+	done
+
+	[ "${#broken[@]}" -eq 0 ] || {
+		echo "linked without an external scanner: ${broken[*]}" >&2
+		false
+	}
+}
+
+# Verifies LLR-BLD-15: the upstream owner and the archive reference are
+# parameters, so a grammar hosted elsewhere, or one pinned by commit because
+# its upstream cuts no releases, needs no change to any source module.
+@test "the grammar build takes its owner and reference as parameters" {
+	run make -C "$REPO_ROOT" -Bn runtime/parsers/ada.so
+
+	# Ada is not under the parsing library's own organisation, and has no
+	# version tags — so the rule must reach a different owner and fetch by
+	# commit. Both are visible in the command it would run.
+	assert_output --partial "briot/tree-sitter-ada"
+	refute_output --partial "tree-sitter/tree-sitter-ada"
+	refute_output --regexp "briot/tree-sitter-ada/archive/refs/tags"
+}
+
+@test "every grammar the build declares is one the build can produce" {
+	# A name in GRAMMARS with no rule behind it fails only on a clean tree,
+	# which is the tree nobody builds on.
+	run make -C "$REPO_ROOT" -n grammars
+	assert_success
+}
+
+# Verifies LLR-BLD-17: an immutable pin is not thereby an invisible one.
+@test "check-prereqs reports every grammar against upstream" {
+	run make -C "$REPO_ROOT" check-prereqs
+	assert_success
+	assert_output --partial "== grammars =="
+
+	# One line per delivered language, whatever the network did.
+	# Extracted with awk rather than matched with --regexp: bats-assert
+	# applies a regexp to the whole output as one string, so `^` anchors
+	# the output and not a line.
+	local listed
+	listed="$(awk '/^== grammars ==/ { g = 1; next } g && /^== / { g = 0 }
+	               g && /^  [a-z]/ { print $1 }' <<<"$output" | sort | tr '\n' ' ')"
+	assert_equal "$listed" "ada c cpp python rust "
+}
+
+@test "check-prereqs survives an unreachable upstream" {
+	# It is a diagnostic a person runs, not a gate: no network must mean
+	# "unknown" rather than a failure or a hang.
+	run timeout 30 make -C "$REPO_ROOT" _check-grammar LANG=probe \
+		REPO=nonexistent-org-xyzzy/nope KIND=tag PIN=1.0
+	assert_success
+	assert_output --partial "unknown"
+}
+
 # --- HLR-060, HLR-121: the runtime data actually ships ---------------------
 
 # This exists because it did not. `.gitignore` carries `*.map` for linker map

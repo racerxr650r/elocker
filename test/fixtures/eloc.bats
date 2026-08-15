@@ -7,6 +7,20 @@
 setup() {
 	load "../helpers/common"
 	SUBJECT="$BATS_TEST_DIRNAME/eloc/categories.c"
+	GROUP="$BATS_TEST_DIRNAME/eloc"
+}
+
+# The file-level and function-level figures elc reports for one fixture.
+totals() {
+	elc "$1"
+	awk '/^Project summary/ { s = 1 } s && /^  ELOC/ { print $2; exit }' \
+		<<<"$output"
+}
+
+subject_row() {
+	elc "$1"
+	awk -v want="$2" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+	                  f && $2 == want { print $4, $5 }' <<<"$output"
 }
 
 # The ELOC figure elc reports for a named function.
@@ -121,4 +135,57 @@ function_eloc() {
 	elc "$quiet"
 	assert_success
 	assert_output --regexp "ELOC +0"
+}
+
+# --- the other four languages (HLR-011, HLR-034) ---------------------------
+#
+# Each fixture holds one instance of every category the language has, counted
+# line by line in eloc/README.md. The numbers differ between languages because
+# the languages differ — a C `else` is a node and a Rust one is not — and the
+# header states each difference rather than leaving it to be inferred.
+
+@test "HLR-011: C++ matches its hand-counted categories" {
+	assert_equal "$(totals "$GROUP/categories.cpp")" "25"
+	assert_equal "$(subject_row "$GROUP/categories.cpp" categories)" "24 8"
+}
+
+@test "HLR-011: Python matches its hand-counted categories" {
+	assert_equal "$(totals "$GROUP/categories.py")" "27"
+	assert_equal "$(subject_row "$GROUP/categories.py" categories)" "25 8"
+}
+
+@test "HLR-011: Rust matches its hand-counted categories" {
+	assert_equal "$(totals "$GROUP/categories.rs")" "19"
+	assert_equal "$(subject_row "$GROUP/categories.rs" categories)" "18 10"
+}
+
+@test "HLR-011: Ada matches its hand-counted categories" {
+	assert_equal "$(totals "$GROUP/categories.adb")" "20"
+	assert_equal "$(subject_row "$GROUP/categories.adb" Categories)" "20 10"
+}
+
+@test "HLR-048: C++ counts exception handling toward ELOC" {
+	# The one ELOC category C cannot express. Removing try/catch/throw from
+	# the fixture would drop four lines; this asserts they are counted.
+	local f="$BATS_TEST_TMPDIR/exc.cpp"
+	printf 'int f(int n)\n{\n\ttry {\n\t\tthrow n;\n\t} catch (int e) {\n\t\treturn e;\n\t}\n\treturn 0;\n}\n' > "$f"
+	elc "$f"
+	assert_success
+	# try, throw, catch, return, return = 5
+	assert_output --regexp "ELOC +5"
+}
+
+@test "HLR-048: a catch clause is a decision point" {
+	local f="$BATS_TEST_TMPDIR/exc2.cpp"
+	printf 'int f(int n)\n{\n\ttry {\n\t\tthrow n;\n\t} catch (int e) {\n\t\treturn e;\n\t}\n\treturn 0;\n}\n' > "$f"
+	elc "$f"
+	assert_success
+	# 1 + the catch. `try` and `throw` choose nothing.
+	assert_output --regexp "f +1-9 +5 +2"
+}
+
+@test "HLR-011: a language with no exception construct still reports" {
+	# Ada has exception handlers, C does not. Neither is an error.
+	elc "$GROUP/categories.c"
+	assert_success
 }

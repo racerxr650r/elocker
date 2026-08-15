@@ -115,3 +115,59 @@ print(root.find("files/file").get("path"))' <<<"$output"
 	assert_success
 	assert_output --partial 'tmpl<int, long> & "quoted"'
 }
+
+# --- the identifier the requirements were written for (HLR-064, HLR-065) ---
+#
+# Until C++ arrived, no shipped language could produce an identifier carrying
+# a comma or an angle bracket, and these requirements could only be exercised
+# against a contrived path. An explicit template specialisation names itself
+# with its template arguments, so `combine<int, long>` is one identifier
+# holding both.
+
+@test "HLR-014: a template specialisation is reported under its full name" {
+	elc "$BATS_TEST_DIRNAME/escaping/templates.cpp"
+	assert_success
+	assert_output --partial "combine<int, long>"
+}
+
+@test "HLR-064: an identifier containing a comma stays one CSV field" {
+	run bash -c '"$0" -f csv "$1" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_DIRNAME/escaping/templates.cpp"
+	assert_success
+
+	run python3 -c '
+import csv, sys
+rows = [r for r in csv.reader(sys.stdin) if r]
+names = [r[2] for r in rows[1:]]
+widths = {len(r) for r in rows}
+print(",".join(str(w) for w in sorted(widths)), "|", "|".join(sorted(names)))' \
+		<<<"$output"
+	assert_output "7 | combine|combine<int, long>"
+}
+
+@test "HLR-065: an identifier containing angle brackets is escaped" {
+	run bash -c '"$0" -f xml "$1" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_DIRNAME/escaping/templates.cpp"
+	assert_success
+	assert_output --partial "combine&lt;int, long&gt;"
+	refute_output --partial 'name="combine<int'
+}
+
+@test "HLR-065: XML carrying such an identifier is well-formed" {
+	require_tool xmllint "HLR-065 XML well-formedness"
+	run bash -c '"$0" -f xml "$1" 2>/dev/null | xmllint --noout -' "$ELC" \
+		"$BATS_TEST_DIRNAME/escaping/templates.cpp"
+	assert_success
+}
+
+@test "HLR-056: such an identifier survives a record round trip" {
+	local record="$BATS_TEST_TMPDIR/tmpl.xml"
+	local subject="$BATS_TEST_DIRNAME/escaping/templates.cpp"
+
+	run bash -c '"$0" -f xml "$1" > "$2" 2>/dev/null' "$ELC" "$subject" \
+		"$record"
+	run bash -c '"$0" -f md "$1" 2>/dev/null' "$ELC" "$subject"
+	local direct="$output"
+	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" "$record"
+	assert_equal "$output" "$direct"
+}

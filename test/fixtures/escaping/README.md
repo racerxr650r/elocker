@@ -54,9 +54,34 @@ The last is the one that catches an asymmetry: a value escaped on the way out
 and not unescaped on the way in survives `xmllint` and still corrupts the
 report.
 
-## What this group does not cover
+## The identifier case, closed
 
-An identifier — as opposed to a path — carrying these characters. That needs a
-language whose grammar produces one, and belongs with C++ in Phase 6. The
-escaping is shared, so the risk is small; the gap is stated rather than left
-to be assumed away.
+`templates.cpp` supplies what the path could only stand in for. An explicit
+template specialisation names itself with its template arguments, so
+
+```cpp
+template <> void combine<int, long>(Pair<int, long> p) { ... }
+```
+
+is reported under the name `combine<int, long>` — **one identifier carrying a
+comma and two angle brackets**, produced by the analyser rather than
+constructed by the suite.
+
+| Value | Expected |
+| ----- | -------- |
+| Physical lines | **25** |
+| File ELOC | **2** |
+| Functions | **2** — `combine` and `combine<int, long>` |
+
+The cases it closes:
+
+| Format | Assertion |
+| ------ | --------- |
+| CSV | every row is 7 fields, and the name reads back as one value |
+| XML | emitted as `combine&lt;int, long&gt;`, never raw |
+| XML | `xmllint` accepts the document |
+| record | Markdown regenerated from it matches a direct run |
+
+Adding this required no change to the escaping code — which is the result
+worth having. The functions were written against the values in Phase 5 and
+met the real one two phases later without alteration.

@@ -95,3 +95,65 @@ lambda is not reported, so its decision points belong to the nearest enclosing
 is unit-tested against `innermost_enclosing` directly — an offset inside an
 unreported scope resolving to the named function containing it — and gains a
 fixture when C++ arrives in Phase 6.
+
+
+---
+
+# The other four languages
+
+C could demonstrate only half of the attribution rule. A nested *named*
+function owns its own metrics (HLR-067, HLR-068), and C has those as a GNU
+extension — but an *anonymous* callable's decision points belonging to the
+nearest enclosing named function (HLR-018) had no observable at all, and was
+verified only against the attribution mechanism directly.
+
+These four close that.
+
+| Fixture | Demonstrates | File ELOC |
+| ------- | ------------ | --------- |
+| `nested.adb` | nested subprograms, three deep | **9** |
+| `nested.rs` | a nested `fn` **and** a closure, in one body | **8** |
+| `nested.py` | a nested `def` **and** a lambda | **9** |
+| `nested.cpp` | a lambda | **5** |
+
+| Fixture | Function | ELOC | Complexity |
+| ------- | -------- | ---- | ---------- |
+| `nested.adb` | `Outer` | 3 | **3** |
+| | `Middle` | 3 | 2 |
+| | `Inner` | 3 | 2 |
+| `nested.rs` | `outer` | 5 | **4** |
+| | `inner` | 3 | 2 |
+| `nested.py` | `outer` | 5 | **4** |
+| | `inner` | 3 | 2 |
+| `nested.cpp` | `outer` | 5 | **4** |
+
+## Ada — the requirement's real motivation
+
+`nested.adb` nests three deep, because Ada's declarative part may hold
+subprograms and those may hold more. Each owns exactly its own: `Inner` 3 and
+2, `Middle` 3 and 2, `Outer` 3 and 3. An implementation attributing to the
+outermost enclosing subprogram would report `Outer` as 9 and the other two as
+nothing.
+
+`Outer`'s complexity of 3 is one `if` plus one `and then` — the short-circuit
+operator being a second place its condition can be decided.
+
+## The bolded complexities are HLR-018
+
+In `nested.rs`, `nested.py`, and `nested.cpp`, the enclosing function branches
+**twice of its own** — an `if` and a short-circuit operator — and the
+anonymous callable branches once more. The enclosing function reports 4.
+
+Without HLR-018 it would report 3, and the closure's branch would belong to
+nothing at all: the anonymous callable is not a reported function, so there is
+no other function for it to land on. The decision point would simply vanish
+from the report, which is the failure this pins.
+
+The two rules pull in opposite directions and `nested.rs` holds both at once:
+
+| In one Rust body | Reported? | Its decision points |
+| ---------------- | --------- | ------------------- |
+| `fn inner` — named | yes | its own (HLR-067, HLR-068) |
+| `\|x\| ...` — a closure | no | the enclosing function's (HLR-018) |
+
+`nested.rs` asserts both, which is why it is the fixture worth reading first.

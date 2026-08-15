@@ -11,15 +11,15 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.3" date="2026-08-19" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.4" date="2026-08-20" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.2" date="2026-08-15" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.2" date="2026-08-19" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.6" date="2026-08-19" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.5" date="2026-08-19" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.3" date="2026-08-20" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.7" date="2026-08-20" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.6" date="2026-08-20" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="129"/>
-      <count name="llrs"       value="281"/>
-      <count name="tests"      value="327"/>
+      <count name="llrs"       value="284"/>
+      <count name="tests"      value="357"/>
       <count name="test_files" value="24"/>
     </counts>
   </metadata>
@@ -917,7 +917,11 @@ The lists are **per module** in the build as well as here. A `--wrap` applies to
 
 Interception and `ptrace` do not compose. LeakSanitizer stops the world at exit through a `clone`d tracer and `ptrace`, which collides with `strace`'s own attachment and aborts the process; an instrumented run observed under `strace` therefore disables leak detection for that run alone. Every other run in the same sanitized pass still has it on, so HLR-125 stays verified — but a test that asserts a syscall never appears would otherwise pass because the process died before reaching the interesting part, which is worse than failing.
 
-**Delivering the grammars.** A grammar is runtime data, not an object: it is `dlopen`'d by name from `runtime/parsers/` and never linked, so it cannot be a build product in the ordinary sense. It is nonetheless a project deliverable (HLR-011), and the build produces it: each grammar is pinned to an upstream release, fetched, and compiled from the `parser.c` that release ships. **No code generation is involved** — the generated parser is what upstream publishes, which is what makes HLR-040's no-code-generation rule satisfiable while still shipping a parser.
+**Delivering the grammars.** A grammar is runtime data, not an object: it is `dlopen`'d by name from `runtime/parsers/` and never linked, so it cannot be a build product in the ordinary sense.
+
+The owner and the archive reference are both parameters of the build rule, not constants. Three of the five grammars live under the `tree-sitter` organisation and one does not, and a hardcoded owner would read as though a grammar from elsewhere could not be added as data — which would contradict HLR-010. A repository that cuts releases is fetched by tag; one that does not is fetched by **commit**, because a branch name is not a pin: what it refers to changes without anyone deciding.
+
+A grammar's external scanner must be located by a shell glob rather than by `$(wildcard)`. Make expands a recipe before running any of it, so a `$(wildcard)` would be evaluated before the fetch had unpacked anything and would find nothing — linking a grammar without the scanner it needs. C has no external scanner, which is why that went unnoticed until four grammars that have one arrived. It is nonetheless a project deliverable (HLR-011), and the build produces it: each grammar is pinned to an upstream release, fetched, and compiled from the `parser.c` that release ships. **No code generation is involved** — the generated parser is what upstream publishes, which is what makes HLR-040's no-code-generation rule satisfiable while still shipping a parser.
 
 Two consequences follow. A grammar's ABI must lie inside the range the linked `libtree-sitter` supports, and a mismatch fails at *load* with a version error rather than at build, so the pin is checked against the library rather than assumed. And because grammars are gitignored build products that no `clean` should discard, `make clean` deliberately leaves them: the sanitized pass cleans twice, and refetching an upstream tarball on each is a network round trip for nothing.
 
@@ -4226,7 +4230,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
       <llr id="LLR-BLD-07">
-        <text><![CDATA[The build shall deliver runtime language support for C, C++, Rust, Python, and Ada.]]></text>
+        <text><![CDATA[The build shall deliver runtime language support for C, C++, Rust, Python, and Ada, each as a grammar and its query files under the runtime location, requiring no change to any source module of the executable.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-011" name="Initial Delivered Language Set"/>
         </traces>
@@ -4273,6 +4277,26 @@ Note on the division of labour, which determines where a failure lives: the requ
         <traces>
           <trace target="HLR" ref="HLR-035"/>
           <trace target="HLR" ref="HLR-013"/>
+        </traces>
+      </llr>
+      <llr id="LLR-BLD-15">
+        <text><![CDATA[The build shall take the upstream owner and the archive reference of each grammar as parameters rather than as constants, so that a grammar hosted outside the parsing library's own organisation, or one whose upstream cuts no releases and must be pinned by commit, is added as data without a change to any source module.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-010"/>
+          <trace target="HLR" ref="HLR-011"/>
+        </traces>
+      </llr>
+      <llr id="LLR-BLD-16">
+        <text><![CDATA[The build shall locate a grammar's external scanner at the time the compile command runs rather than when the rule is expanded, since a grammar linked without the scanner it requires fails at load rather than at build.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-009"/>
+          <trace target="HLR" ref="HLR-011"/>
+        </traces>
+      </llr>
+      <llr id="LLR-BLD-17">
+        <text><![CDATA[The build shall report, for each delivered grammar, the reference it is pinned to and the reference upstream carries now, so that a pin which is immutable is not thereby invisible when it falls behind.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-011"/>
         </traces>
       </llr>
       <llr id="LLR-BLD-09">
@@ -5259,7 +5283,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/integration/language.bats" role="integration" count="23">
+  <file path="test/integration/language.bats" role="integration" count="27">
     <test name="HLR-007: the language is determined from the extension, unprompted">
       <purpose><![CDATA[A file's language is detected from its extension with no user declaration, and is shown in the report.]]></purpose>
       <traces>
@@ -5404,6 +5428,33 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="HLR-011: five languages are detected from their extensions">
+      <purpose><![CDATA[One target holding a file of each delivered language yields all five in the per-language breakdown.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-011"/>
+        <trace target="HLR" ref="HLR-007"/>
+      </traces>
+    </test>
+    <test name="HLR-008: a mixed-language target is analysed in one invocation">
+      <purpose><![CDATA[Four languages are analysed in a single pass, with every function found — no invocation per language.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-008"/>
+        <trace target="HLR" ref="HLR-011"/>
+      </traces>
+    </test>
+    <test name="HLR-025: each language's contribution is separately visible">
+      <purpose><![CDATA[A two-language target reports both languages, in name order.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-025"/>
+        <trace target="HLR" ref="HLR-011"/>
+      </traces>
+    </test>
+    <test name="HLR-011: elc requires no particular language to be present">
+      <purpose><![CDATA[A target of one language runs exactly as a mixed one does; nothing verifies that the other four are installed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-011"/>
       </traces>
     </test>
   </file>
@@ -5778,7 +5829,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/fixtures/eloc.bats" role="fixture" count="13">
+  <file path="test/fixtures/eloc.bats" role="fixture" count="20">
     <test name="the hand-counted category totals match">
       <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the values counted line by line in the fixture's header.]]></purpose>
       <traces>
@@ -5865,6 +5916,53 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-020"/>
       </traces>
     </test>
+    <test name="HLR-011: C++ matches its hand-counted categories">
+      <purpose><![CDATA[C++'s ELOC and complexity match the values counted line by line in the group's header, over a fixture holding one instance of every category the language has.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-011"/>
+        <trace target="HLR" ref="HLR-034"/>
+      </traces>
+    </test>
+    <test name="HLR-011: Python matches its hand-counted categories">
+      <purpose><![CDATA[Python's figures match its hand count, including the decisions the query file records: `pass` and `import` excluded, the module docstring counted as the expression statement it is.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-011"/>
+        <trace target="HLR" ref="HLR-034"/>
+      </traces>
+    </test>
+    <test name="HLR-011: Rust matches its hand-counted categories">
+      <purpose><![CDATA[Rust's figures match its hand count, including a counted `static` against an excluded `const`, and a tail expression counted where the language has no `return`.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-011"/>
+        <trace target="HLR" ref="HLR-034"/>
+      </traces>
+    </test>
+    <test name="HLR-011: Ada matches its hand-counted categories">
+      <purpose><![CDATA[Ada's figures match its hand count, including short-circuit `and then` counted as a decision where plain `and` is not.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-011"/>
+        <trace target="HLR" ref="HLR-034"/>
+      </traces>
+    </test>
+    <test name="HLR-048: C++ counts exception handling toward ELOC">
+      <purpose><![CDATA[The one ELOC category C cannot express. `try`, `catch`, and `throw` each contribute a line, which no earlier phase could verify in any shipped language.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-048"/>
+      </traces>
+    </test>
+    <test name="HLR-048: a catch clause is a decision point">
+      <purpose><![CDATA[A handler is a path out of the guarded block and raises complexity; `try` and `throw` choose nothing and do not.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-048"/>
+        <trace target="HLR" ref="HLR-017"/>
+      </traces>
+    </test>
+    <test name="HLR-011: a language with no exception construct still reports">
+      <purpose><![CDATA[C has no exception handling and analysing it is not thereby an error — no language is required to have every category.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-011"/>
+      </traces>
+    </test>
   </file>
 
   <file path="test/fixtures/comments.bats" role="fixture" count="7">
@@ -5914,7 +6012,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/fixtures/nesting.bats" role="fixture" count="8">
+  <file path="test/fixtures/nesting.bats" role="fixture" count="17">
     <test name="the hand-counted nesting totals match">
       <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the fixture's hand-counted header.]]></purpose>
       <traces>
@@ -5965,9 +6063,65 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-032"/>
       </traces>
     </test>
+    <test name="HLR-067: Ada reports a nested subprogram in its own right">
+      <purpose><![CDATA[Three subprograms nested three deep are three reported functions, which is the shape HLR-067 was written for.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-067"/>
+        <trace target="HLR" ref="HLR-011"/>
+      </traces>
+    </test>
+    <test name="HLR-068: an Ada subprogram gains none of its nested ones' work">
+      <purpose><![CDATA[Each of the three owns exactly its own ELOC and complexity; attributing to the outermost would give the outer one everything and the others nothing.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-068"/>
+      </traces>
+    </test>
+    <test name="HLR-018: a Rust closure is not reported as a function">
+      <purpose><![CDATA[A closure has no name to report, so the report names the two `fn` items and not the closure beside them.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-018"/>
+      </traces>
+    </test>
+    <test name="HLR-018: a Rust closure's decision point lands on the enclosing function">
+      <purpose><![CDATA[The enclosing function's complexity includes the closure's branch. Without the rule that branch would belong to nothing at all, since an unreported callable is not a function for it to land on — it would vanish from the report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-018"/>
+      </traces>
+    </test>
+    <test name="HLR-018: a Python lambda is not reported as a function">
+      <purpose><![CDATA[A lambda is unnamed and so is absent from the reported function set.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-018"/>
+      </traces>
+    </test>
+    <test name="HLR-018: a Python lambda's conditional lands on the enclosing function">
+      <purpose><![CDATA[The conditional expression inside a lambda raises the enclosing function's complexity.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-018"/>
+      </traces>
+    </test>
+    <test name="HLR-018: a C++ lambda is not reported as a function">
+      <purpose><![CDATA[A lambda is unnamed and so is absent from the reported function set.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-018"/>
+      </traces>
+    </test>
+    <test name="HLR-018: a C++ lambda's conditional lands on the enclosing function">
+      <purpose><![CDATA[The conditional expression inside a lambda raises the enclosing function's complexity.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-018"/>
+      </traces>
+    </test>
+    <test name="HLR-067: a nested named function is reported where a lambda is not">
+      <purpose><![CDATA[The distinction the two requirements draw, in one language and one function body: Rust's nested `fn` is reported and the closure beside it is not.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-067"/>
+        <trace target="HLR" ref="HLR-018"/>
+      </traces>
+    </test>
   </file>
 
-  <file path="test/fixtures/escaping.bats" role="fixture" count="8">
+  <file path="test/fixtures/escaping.bats" role="fixture" count="13">
     <test name="HLR-064: a path containing a comma does not split a record">
       <purpose><![CDATA[Every row of the document parses to the same field count under an independent CSV reader, which a split field would break. The hostile value is a path rather than an identifier, because C cannot yet produce an identifier carrying a comma.]]></purpose>
       <traces>
@@ -6015,6 +6169,38 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[The aligned table escapes nothing and must not: it is read by a person, and a path is what it is.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-027"/>
+      </traces>
+    </test>
+    <test name="HLR-014: a template specialisation is reported under its full name">
+      <purpose><![CDATA[An explicit specialisation names itself with its template arguments, so the reported name carries a comma and two angle brackets — an identifier the analyser produces rather than one the suite constructs.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-014"/>
+        <trace target="HLR" ref="HLR-011"/>
+      </traces>
+    </test>
+    <test name="HLR-064: an identifier containing a comma stays one CSV field">
+      <purpose><![CDATA[Every row parses to the same field count under an independent reader, and the name reads back whole. This is the value HLR-064 was written for, reachable only once C++ shipped.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-064"/>
+      </traces>
+    </test>
+    <test name="HLR-065: an identifier containing angle brackets is escaped">
+      <purpose><![CDATA[The angle brackets appear as entities, never raw, so no identifier can open or close a tag.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-065"/>
+      </traces>
+    </test>
+    <test name="HLR-065: XML carrying such an identifier is well-formed">
+      <purpose><![CDATA[An independent parser accepts the document, so the escaping is correct rather than merely present.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-065"/>
+      </traces>
+    </test>
+    <test name="HLR-056: such an identifier survives a record round trip">
+      <purpose><![CDATA[Regeneration matches a direct run, so escaping on the way out and reading on the way in agree about the identifier.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-056"/>
+        <trace target="HLR" ref="HLR-065"/>
       </traces>
     </test>
   </file>
@@ -6339,7 +6525,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="16">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="21">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -6398,6 +6584,36 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[The help target prints the header block itself, marker stripped, so a reader who opens the file and a reader who runs it see one text.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-BLD-13"/>
+      </traces>
+    </test>
+    <test name="every grammar is linked with the scanner it requires">
+      <purpose><![CDATA[No delivered grammar has an unresolved external-scanner symbol. The rule located an optional scanner with a construct make expands before running the recipe, so it looked for a file the fetch above it had not unpacked and silently found none — invisible while C, which has no scanner, was the only grammar.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-16"/>
+      </traces>
+    </test>
+    <test name="the grammar build takes its owner and reference as parameters">
+      <purpose><![CDATA[The rule for a grammar hosted outside the parsing library's organisation reaches that owner, and fetches by commit rather than by tag because its upstream cuts no releases. Both would be impossible with either value hardcoded.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-15"/>
+      </traces>
+    </test>
+    <test name="every grammar the build declares is one the build can produce">
+      <purpose><![CDATA[Each name the build lists has a rule behind it. A missing one fails only on a clean tree, which is the tree nobody builds on.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-15"/>
+      </traces>
+    </test>
+    <test name="check-prereqs reports every grammar against upstream">
+      <purpose><![CDATA[Each delivered language appears in the dependency report, so a pin that is immutable is not thereby invisible when it falls behind.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-17"/>
+      </traces>
+    </test>
+    <test name="check-prereqs survives an unreachable upstream">
+      <purpose><![CDATA[An unreachable upstream reports "unknown" rather than failing or hanging: the report is a diagnostic a person runs, not a gate.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-17"/>
       </traces>
     </test>
     <test name="every runtime data file the build does not produce is tracked">

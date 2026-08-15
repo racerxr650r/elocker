@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.2
-**Date:** 2026-08-19
+**Version:** 2.3
+**Date:** 2026-08-20
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -923,7 +923,7 @@ Requirements satisfied by the build rather than by any single function. Verified
 *   <a id="LLR-BLD-06"></a>**LLR-BLD-06** — The build shall configure the graph library so that it does not itself introduce a dependency on an unmaintained XML library.
     *Trace:* HLR-112 (Library Selection Deferred to Design), HLR-113 (Graph Algorithms From an Established Library).
 
-*   <a id="LLR-BLD-07"></a>**LLR-BLD-07** — The build shall deliver runtime language support for C, C++, Rust, Python, and Ada.
+*   <a id="LLR-BLD-07"></a>**LLR-BLD-07** — The build shall deliver runtime language support for C, C++, Rust, Python, and Ada, each as a grammar and its query files under the runtime location, requiring no change to any source module of the executable.
     *Trace:* HLR-011 (Initial Delivered Language Set).
 
 *   <a id="LLR-BLD-08"></a>**LLR-BLD-08** — The documented set of required query files and capture names shall be published with the delivered runtime, so that a third party may add a language against it.
@@ -943,6 +943,15 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-14"></a>**LLR-BLD-14** — The delivered source shall avoid the C constructs the delivered grammar cannot parse — a multi-token type argument to a variadic accessor, and a macro standing between a function's return type and its name — so that `elc` can analyse its own source without a per-file failure.
     *Trace:* HLR-035, HLR-013.
+
+*   <a id="LLR-BLD-15"></a>**LLR-BLD-15** — The build shall take the upstream owner and the archive reference of each grammar as parameters rather than as constants, so that a grammar hosted outside the parsing library's own organisation, or one whose upstream cuts no releases and must be pinned by commit, is added as data without a change to any source module.
+    *Trace:* HLR-010, HLR-011.
+
+*   <a id="LLR-BLD-16"></a>**LLR-BLD-16** — The build shall locate a grammar's external scanner at the time the compile command runs rather than when the rule is expanded, since a grammar linked without the scanner it requires fails at load rather than at build.
+    *Trace:* HLR-009, HLR-011.
+
+*   <a id="LLR-BLD-17"></a>**LLR-BLD-17** — The build shall report, for each delivered grammar, the reference it is pinned to and the reference upstream carries now, so that a pin which is immutable is not thereby invisible when it falls behind.
+    *Trace:* HLR-011.
 
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).

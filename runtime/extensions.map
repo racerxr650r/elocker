@@ -15,4 +15,25 @@
 .c    c
 .h    c
 
-# C++, Rust, Python, and Ada arrive with their grammars in Phase 6 (HLR-011).
+# C++. The header extensions are the ones a C++ project actually uses; `.h` is
+# deliberately absent, because it is already C's above and a header shared by
+# both is far more often C. A project that knows better changes this line.
+.cc    cpp
+.cpp   cpp
+.cxx   cpp
+.hh    cpp
+.hpp   cpp
+.hxx   cpp
+
+# Rust
+.rs    rust
+
+# Python. `.pyi` is a type stub — declarations and nothing else — which
+# reports zero ELOC rather than being skipped, and that is the honest answer.
+.py    python
+.pyi   python
+
+# Ada. `.ads` is a specification and `.adb` a body; both are Ada, and a
+# specification reporting no executable lines is correct rather than a gap.
+.adb   ada
+.ads   ada

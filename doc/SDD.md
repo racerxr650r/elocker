@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.3
-**Date:** 2026-08-19
+**Version:** 2.4
+**Date:** 2026-08-20
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -1128,7 +1128,11 @@ The lists are **per module** in the build as well as here. A `--wrap` applies to
 
 Interception and `ptrace` do not compose. LeakSanitizer stops the world at exit through a `clone`d tracer and `ptrace`, which collides with `strace`'s own attachment and aborts the process; an instrumented run observed under `strace` therefore disables leak detection for that run alone. Every other run in the same sanitized pass still has it on, so HLR-125 stays verified — but a test that asserts a syscall never appears would otherwise pass because the process died before reaching the interesting part, which is worse than failing.
 
-**Delivering the grammars.** A grammar is runtime data, not an object: it is `dlopen`'d by name from `runtime/parsers/` and never linked, so it cannot be a build product in the ordinary sense. It is nonetheless a project deliverable (HLR-011), and the build produces it: each grammar is pinned to an upstream release, fetched, and compiled from the `parser.c` that release ships. **No code generation is involved** — the generated parser is what upstream publishes, which is what makes HLR-040's no-code-generation rule satisfiable while still shipping a parser.
+**Delivering the grammars.** A grammar is runtime data, not an object: it is `dlopen`'d by name from `runtime/parsers/` and never linked, so it cannot be a build product in the ordinary sense.
+
+The owner and the archive reference are both parameters of the build rule, not constants. Three of the five grammars live under the `tree-sitter` organisation and one does not, and a hardcoded owner would read as though a grammar from elsewhere could not be added as data — which would contradict HLR-010. A repository that cuts releases is fetched by tag; one that does not is fetched by **commit**, because a branch name is not a pin: what it refers to changes without anyone deciding.
+
+A grammar's external scanner must be located by a shell glob rather than by `$(wildcard)`. Make expands a recipe before running any of it, so a `$(wildcard)` would be evaluated before the fetch had unpacked anything and would find nothing — linking a grammar without the scanner it needs. C has no external scanner, which is why that went unnoticed until four grammars that have one arrived. It is nonetheless a project deliverable (HLR-011), and the build produces it: each grammar is pinned to an upstream release, fetched, and compiled from the `parser.c` that release ships. **No code generation is involved** — the generated parser is what upstream publishes, which is what makes HLR-040's no-code-generation rule satisfiable while still shipping a parser.
 
 Two consequences follow. A grammar's ABI must lie inside the range the linked `libtree-sitter` supports, and a mismatch fails at *load* with a version error rather than at build, so the pin is checked against the library rather than assumed. And because grammars are gitignored build products that no `clean` should discard, `make clean` deliberately leaves them: the sanitized pass cleans twice, and refetching an upstream tarball on each is a network round trip for nothing.
 
