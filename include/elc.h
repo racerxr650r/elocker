@@ -33,10 +33,27 @@ enum {
  * status (HLR-023). */
 #define ELC_DEFAULT_COMPLEXITY_THRESHOLD 15u
 
-/* What the run is being asked to do. Phase 5 adds MODE_REGENERATE. */
+/* The structure of the XML record this build writes and accepts (HLR-061).
+ *
+ * Incremented whenever an element is removed or its meaning changes — not
+ * when one is added, since a reader ignores elements it does not recognise.
+ * A record carrying any other version is rejected rather than read
+ * optimistically (HLR-058). */
+#define ELC_XML_FORMAT_VERSION 1
+
+/* What the run is being asked to do. */
 typedef enum {
-	MODE_ANALYSE = 0
+	MODE_ANALYSE = 0,
+	MODE_REGENERATE   /* rebuild a report from a saved record (HLR-055) */
 } RunMode;
+
+/* The rendered form of the report. */
+typedef enum {
+	FORMAT_TABLE = 0, /* the default (HLR-027)                          */
+	FORMAT_CSV,       /* one record per function, flat (HLR-028)         */
+	FORMAT_XML,       /* the complete record of a run (HLR-054)          */
+	FORMAT_MARKDOWN   /* GitHub-Flavored Markdown (HLR-029)              */
+} OutputFormat;
 
 /* The complete, validated configuration of one run.
  *
@@ -46,6 +63,8 @@ typedef enum {
  */
 typedef struct {
 	RunMode       mode;
+	OutputFormat  format;
+	const char   *input_path;   /* the saved record, in regeneration mode */
 	const char   *output_path;  /* NULL when writing to stdout (HLR-030) */
 	uint32_t      complexity_threshold; /* listing only; never the exit
 	                                     * status (HLR-022, HLR-023)     */
@@ -72,7 +91,11 @@ typedef struct {
 /* Per-file totals and the functions the file defines. */
 typedef struct {
 	char           *path;           /* canonical absolute path; owned   */
-	const char     *language;       /* borrowed from the language module */
+	char           *language;       /* owned; a copy of the language
+	                                 * module's name, so that a model
+	                                 * rebuilt from a saved record — where
+	                                 * no module exists — releases it the
+	                                 * same way                          */
 	uint32_t        physical_lines; /* newline count from the mapping    */
 	uint32_t        eloc;           /* file-level ELOC, including code
 	                                 * outside any function (HLR-019)    */

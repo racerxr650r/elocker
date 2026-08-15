@@ -21,9 +21,25 @@
 #include "cli.h"
 #include "discover.h"
 #include "elc.h"
+#include "format_csv.h"
 #include "format_text.h"
+#include "format_xml.h"
 #include "registry.h"
 #include "report.h"
+
+/* Dispatch to the renderer the options selected. Every one is a pure
+ * consumer of the same assembled model, which is what makes the formats
+ * views of one run rather than four separate reports. */
+static int render(const Report *report, OutputFormat format, FILE *out)
+{
+	switch (format) {
+	case FORMAT_CSV:      return format_csv(report, out);
+	case FORMAT_XML:      return xml_write_report(report, out);
+	case FORMAT_MARKDOWN: return format_markdown(report, out);
+	case FORMAT_TABLE:
+	default:              return format_table(report, out);
+	}
+}
 
 int main(int argc, char *argv[])
 {
@@ -49,6 +65,17 @@ int main(int argc, char *argv[])
 	case CLI_OK:
 	default:
 		break;
+	}
+
+	/* A saved record is its own input: no source file is read, no
+	 * language module is loaded, and nothing is discovered (HLR-055,
+	 * LLR-MAIN-03). */
+	if (opts.mode == MODE_REGENERATE) {
+		if (xml_read_report(opts.input_path, &opts, &report) != 0) {
+			status = ELC_EXIT_FATAL;
+			goto cleanup;
+		}
+		goto render;
 	}
 
 	/* The registry comes before discovery: a runtime location that yields
@@ -103,6 +130,7 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
+render:
 	out = stdout;
 	if (opts.output_path) {
 		out = fopen(opts.output_path, "w");
@@ -116,7 +144,7 @@ int main(int argc, char *argv[])
 
 	/* Results go to the selected destination and nothing else does; every
 	 * diagnostic above and below went to stderr (HLR-038, LLR-MAIN-12). */
-	if (format_table(&report, out) != 0) {
+	if (render(&report, opts.format, out) != 0) {
 		fprintf(stderr, "elc: %s: %s\n",
 		        opts.output_path ? opts.output_path : "standard output",
 		        strerror(errno));

@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.1
-**Date:** 2026-08-18
+**Version:** 2.2
+**Date:** 2026-08-19
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -110,6 +110,9 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-CLI-16"></a>**LLR-CLI-16** — `cli_parse` shall reject a numeric option argument that is not a plain decimal number consumed in its entirety, rather than accepting the prefix that a permissive conversion would read from it.
     *Trace:* HLR-063, HLR-022.
+
+*   <a id="LLR-CLI-17"></a>**LLR-CLI-17** — `cli_parse` shall reject a target given alongside a regeneration-mode input path, since the record is the input and a target would name a second source for one report.
+    *Trace:* HLR-055, HLR-063.
 
 *   <a id="LLR-CLI-15"></a>**LLR-CLI-15** — `cli_parse` shall reject as a usage error a command line that combines regeneration mode with an explicit request for a companion artefact, since a saved record does not carry the graph from which either could be produced.
     *Trace:* HLR-122 (No Companion Artefacts From a Saved Record), HLR-063 (Invalid Command-Line Rejection).
@@ -766,6 +769,12 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SUM-01"></a>**LLR-SUM-01** — `render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion.
     *Trace:* HLR-031 (Uniform Report Composition Across Formats), HLR-127 (Discovery Route Reported), HLR-012 (Unsupported-Language File Handling), HLR-115 (Analyses Requiring User Declarations).
 
+*   <a id="LLR-SUM-03"></a>**LLR-SUM-03** — `render_summary` shall emit every tier from one traversal shared by both human-facing formats, so that a tier cannot be present in one format and absent from the other.
+    *Trace:* HLR-031.
+
+*   <a id="LLR-SUM-04"></a>**LLR-SUM-04** — The aligned format shall not pad a left-aligned final column, so that no line carries trailing whitespace.
+    *Trace:* HLR-027, HLR-032.
+
 *   <a id="LLR-SUM-02"></a>**LLR-SUM-02** — `render_summary` shall traverse the report model in a single shared order for both the table and Markdown renderers, so that the two present the same tiers.
     *Trace:* HLR-031 (Uniform Report Composition Across Formats).
 
@@ -796,6 +805,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-03"></a>**LLR-XWR-03** — `xml_write_report` shall emit a format-version identifier in the document root.
     *Trace:* HLR-061 (XML Format-Version Identifier).
 
+*   <a id="LLR-XWR-05"></a>**LLR-XWR-05** — `xml_write_report` shall omit an element it has nothing to record rather than emit it empty, and the format-version identifier shall be incremented for a removal or a change of meaning and not for an addition, so that a record written by a later build remains readable by an earlier one of the same version.
+    *Trace:* HLR-061, HLR-054.
+
 *   <a id="LLR-XWR-04"></a>**LLR-XWR-04** — `xml_write_report` shall emit well-formed XML.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).
 
@@ -823,6 +835,12 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XRD-05"></a>**LLR-XRD-05** — `xml_read_report` shall reject an input whose format-version identifier this build does not support, naming the version found.
     *Trace:* HLR-058 (Malformed or Unsupported Saved-XML Rejection), HLR-061 (XML Format-Version Identifier).
+
+*   <a id="LLR-XRD-09"></a>**LLR-XRD-09** — `xml_read_report` shall reconstruct only the measurements a record carries and shall derive every reported total, breakdown, callout, ordering, and threshold listing with the same code that derives them for a live run, so that a regenerated report cannot differ from a direct one by way of a second implementation.
+    *Trace:* HLR-056, HLR-032.
+
+*   <a id="LLR-XRD-10"></a>**LLR-XRD-10** — `xml_read_report` shall treat an attribute that should be numeric and is not as a malformed record rather than as a zero, since a record accepted on those terms renders cleanly and reports the wrong figures.
+    *Trace:* HLR-058.
 
 *   <a id="LLR-XRD-06"></a>**LLR-XRD-06** — `xml_read_report` shall attempt no best-effort partial conversion of a rejected input.
     *Trace:* HLR-058 (Malformed or Unsupported Saved-XML Rejection).
@@ -922,6 +940,9 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-13"></a>**LLR-BLD-13** — The build shall carry its usage summary as a marked comment block in the makefile's own header and shall print that block for the help target, so that one text serves a reader who opens the file and a reader who runs it, and shall fail its own test suite when that block and the set of declared targets disagree.
     *Trace:* HLR-128.
+
+*   <a id="LLR-BLD-14"></a>**LLR-BLD-14** — The delivered source shall avoid the C constructs the delivered grammar cannot parse — a multi-token type argument to a variadic accessor, and a macro standing between a function's return type and its name — so that `elc` can analyse its own source without a per-file failure.
+    *Trace:* HLR-035, HLR-013.
 
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).

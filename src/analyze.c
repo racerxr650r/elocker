@@ -61,6 +61,7 @@ void filemetrics_free(FileMetrics *metrics)
 	for (size_t i = 0; i < metrics->function_count; i++)
 		free(metrics->functions[i].name);
 	free(metrics->functions);
+	free(metrics->language);
 	free(metrics->path);
 	free(metrics);
 }
@@ -619,7 +620,11 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out)
 		fprintf(stderr, "elc: out of memory measuring %s\n", path);
 		goto cleanup;
 	}
-	metrics->language = module->language_name;   /* borrowed from the module */
+	metrics->language = strdup(module->language_name);
+	if (!metrics->language) {
+		fprintf(stderr, "elc: out of memory measuring %s\n", path);
+		goto cleanup;
+	}
 
 	/* A zero-length file is short-circuited rather than mapped: mmap of an
 	 * empty file fails with EINVAL, and an empty file is not an error

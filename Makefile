@@ -67,12 +67,17 @@ WARNINGS    := -Wall -Wextra -Wpedantic
 # registry dlopen's grammars, and on glibc before 2.34 that is not in libc.
 TS_CFLAGS   ?= $(shell $(PKG_CONFIG) --cflags tree-sitter 2>/dev/null)
 TS_LIBS     ?= $(shell $(PKG_CONFIG) --libs tree-sitter 2>/dev/null || echo -ltree-sitter)
+
+# Expat is linked for the XML *read* path only. The write path is hand-rolled
+# text emission and needs nothing (doc/SDD.md §16).
+EXPAT_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags expat 2>/dev/null)
+EXPAT_LIBS   ?= $(shell $(PKG_CONFIG) --libs expat 2>/dev/null || echo -lexpat)
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
 # set before any include; they live here rather than in the .c files.
-CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS)
+CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
-LDLIBS      += $(TS_LIBS) -ldl
+LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) -ldl
 
 # Flags the build requires whatever the caller chose, appended in the recipes
 # rather than folded into CFLAGS.

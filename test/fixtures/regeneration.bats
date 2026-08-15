@@ -1,0 +1,161 @@
+#!/usr/bin/env bats
+# test/fixtures/regeneration.bats — the saved record round trip (STP §5).
+#
+# The reasoning, and why byte-identical is achievable rather than
+# aspirational, is in regeneration/README.md beside this file.
+
+setup() {
+	load "../helpers/common"
+	TREE="$BATS_TEST_DIRNAME/regeneration/tree"
+	RECORD="$BATS_TEST_TMPDIR/record.xml"
+}
+
+# Write the record the round-trip cases read back.
+record() {
+	run bash -c '"$0" -f xml "$1" > "$2" 2>/dev/null' "$ELC" "$TREE" "$RECORD"
+	[ -s "$RECORD" ] || {
+		echo "the record is empty" >&2
+		return 1
+	}
+}
+
+@test "the hand-counted subject totals match" {
+	elc "$TREE"
+	assert_success
+	assert_output --regexp "Physical lines +20"
+	assert_output --regexp "ELOC +8"
+	assert_output --regexp "Functions +3"
+	assert_output --regexp "Skipped +1"
+}
+
+# --- the round trip (HLR-055, HLR-056) -------------------------------------
+
+@test "HLR-056: regenerated Markdown is byte-identical to a direct run" {
+	record
+	run bash -c '"$0" -f md "$1" 2>/dev/null' "$ELC" "$TREE"
+	local direct="$output"
+	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" "$RECORD"
+	assert_equal "$output" "$direct"
+}
+
+@test "HLR-057: the threshold supplied now is the one applied" {
+	record
+	run bash -c '"$0" -f md -c 2 "$1" 2>/dev/null' "$ELC" "$TREE"
+	local direct="$output"
+	run bash -c '"$0" --from-xml "$1" -c 2 2>/dev/null' "$ELC" "$RECORD"
+	assert_equal "$output" "$direct"
+}
+
+@test "HLR-057: the same record at two thresholds gives two listings" {
+	# If it did not, the test above would pass for a build that ignored
+	# the threshold entirely.
+	record
+	run bash -c '"$0" --from-xml "$1" -c 2 2>/dev/null' "$ELC" "$RECORD"
+	local low="$output"
+	run bash -c '"$0" --from-xml "$1" -c 99 2>/dev/null' "$ELC" "$RECORD"
+	refute_output "$low"
+}
+
+@test "HLR-055: regeneration reads no source file" {
+	# The record alone, with the tree moved out of reach.
+	record
+	local hidden="$BATS_TEST_TMPDIR/moved"
+	cp -r "$TREE" "$hidden"
+
+	run bash -c 'cd / && "$0" --from-xml "$1" 2>/dev/null' "$ELC" "$RECORD"
+	assert_success
+	assert_output --partial "branchy"
+}
+
+@test "HLR-054: the record carries every tier the report presents" {
+	record
+	run cat "$RECORD"
+	assert_output --partial "<summary"
+	assert_output --partial "<languages>"
+	assert_output --partial "<files>"
+	assert_output --partial "<function "
+	assert_output --partial "<skipped>"
+	assert_output --partial "notes.md"
+}
+
+@test "HLR-061: the record carries a format-version identifier" {
+	record
+	run grep -c 'format-version="1"' "$RECORD"
+	assert_output "1"
+}
+
+# --- rejection (HLR-058) ---------------------------------------------------
+
+@test "HLR-058: input that is not XML is rejected with no output" {
+	printf 'this is not xml <<<\n' > "$BATS_TEST_TMPDIR/bad.xml"
+	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/bad.xml"
+	assert_equal "$status" 2
+	assert_output ""
+}
+
+@test "HLR-058: a well-formed document of another shape is rejected" {
+	printf '<?xml version="1.0"?>\n<other><file path="a"/></other>\n' \
+		> "$BATS_TEST_TMPDIR/foreign.xml"
+	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/foreign.xml"
+	assert_equal "$status" 2
+	assert_output "" "no best-effort partial conversion"
+}
+
+@test "HLR-058: an unsupported format version is rejected, naming it" {
+	record
+	sed 's/format-version="1"/format-version="99"/' "$RECORD" \
+		> "$BATS_TEST_TMPDIR/v99.xml"
+
+	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/v99.xml"
+	assert_equal "$status" 2
+	assert_output ""
+
+	run bash -c '"$0" --from-xml "$1" 2>&1 >/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/v99.xml"
+	assert_output --partial "99"
+	assert_output --partial "1"
+}
+
+@test "HLR-058: a truncated record is rejected" {
+	record
+	head -4 "$RECORD" > "$BATS_TEST_TMPDIR/cut.xml"
+	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/cut.xml"
+	assert_equal "$status" 2
+	assert_output ""
+}
+
+@test "HLR-058: an absent record is rejected" {
+	elc --from-xml "$BATS_TEST_TMPDIR/nowhere.xml"
+	assert_equal "$status" 2
+}
+
+# --- the mode's command line (HLR-055, HLR-063) ----------------------------
+
+@test "HLR-055: regeneration defaults to Markdown without being asked" {
+	record
+	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" "$RECORD"
+	assert_success
+	assert_output --partial "## Project summary"
+}
+
+@test "HLR-063: a format other than Markdown is rejected in regeneration mode" {
+	record
+	elc --from-xml "$RECORD" -f csv
+	assert_equal "$status" 2
+}
+
+@test "HLR-063: an explicit Markdown selection is accepted" {
+	record
+	elc --from-xml "$RECORD" -f md
+	assert_success
+}
+
+@test "HLR-063: a target alongside --from-xml is a usage error" {
+	record
+	elc --from-xml "$RECORD" "$TREE"
+	assert_equal "$status" 2
+}

@@ -21,19 +21,25 @@ setup() {
 	# appearing here — libpython, libperl, libmono, libjvm — is exactly
 	# what HLR-040 forbids.
 	#
-	# libtree-sitter is a parsing library, not a language runtime: it
-	# executes no user code and starts no interpreter. It is on the list
-	# because it is a deliberate, documented dependency (SDD §18), and the
-	# list exists to catch the ones that are neither. The grammars elc
-	# loads are dlopen'd at run time and so never appear in ldd output;
-	# HLR-009 is what makes that the right place for them.
+	# libtree-sitter and libexpat are parsing libraries, not language
+	# runtimes: neither executes user code or starts an interpreter. Both
+	# are on the list because both are deliberate, documented dependencies
+	# (SDD §18), and the list exists to catch the ones that are neither.
+	#
+	# libexpat is linked for the XML *read* path alone. The write path is
+	# hand-rolled emission, which is why there is no second XML library
+	# here — and why adding one would be a change worth arguing about
+	# rather than a detail.
+	#
+	# The grammars elc loads are dlopen'd at run time and so never appear
+	# in ldd output; HLR-009 is what makes that the right place for them.
 	#
 	# The sanitizer runtimes are allowed because `make asan` re-runs this
 	# very suite against an instrumented build, and libasan is test
 	# instrumentation rather than a product dependency: it is absent from
 	# the binary `make all` produces and `make install` ships. Excluding
 	# them here would make the sanitized pass fail on its own scaffolding.
-	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libasan|libubsan|ld-linux|/lib64/ld-linux)'
+	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libasan|libubsan|ld-linux|/lib64/ld-linux)'
 	while read -r line; do
 		[ -n "$line" ] || continue
 		local lib
