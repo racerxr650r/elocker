@@ -284,16 +284,37 @@ None is a defect; each is a judgement that could go the other way.
     *Update, Phase 1:* Criterion 2.4.1 was present in the environment
     Phase 1 was written in, and `make unit` ran locally throughout. The
     constraint is environment-specific, not a property of the project.
-*   **`discover.c` resolves the runtime location for itself**
-    (Phase 1). `binary.exts` is runtime data (HLR-005), so discovery
-    needs the runtime location — and the module that owns that
-    resolution, `registry.c`, does not exist until Phase 2. Rather than
-    hold discovery to a compiled-in list until then, `discover.c`
-    performs the `$ELC_RUNTIME_DIR`-then-adjacent-to-the-executable
-    resolution for that one file. Phase 2 should resolve it once in
-    `registry.c` per LLR-ROP-01/02 and have `discover.c` ask; two copies
-    of one precedence rule is exactly the sort of thing that drifts.
-    Noted in the SDP's Phase 2 prompt so it is not forgotten.
+*   **`discover.c` resolved the runtime location for itself**
+    (Phase 1). ~~Resolved in Phase 2~~: `registry_open()` now owns the
+    precedence rule and hands the location to `discover_targets()`.
+    Kept here as the record of a deliberate temporary duplication that
+    was actually undone rather than absorbed.
+*   **A function's reported span runs from its name to the end of its
+    body** (Phase 2, LLR-ANL-35). The obvious alternative — the body
+    node alone — is what the query naturally yields, and it puts the
+    start line on the opening brace. A reader asked where a function
+    begins points at its signature, and a hand-counted fixture would
+    have had to encode the brace convention to agree. The span is
+    therefore stitched from two captures. It is not the full definition
+    node either: capturing that would need a third capture in every
+    `functions.scm`, and the contract is worth more than the handful of
+    lines a multi-line return type would add.
+*   **The reported span and the complexity scope are the same node in
+    C, and need not be in every language.** `complexity.scm` runs
+    against `@function.body` (SDD §7); the reported span starts earlier.
+    No language shipped so far notices, but a language whose parameter
+    list can contain a decision point — a default argument with a
+    conditional, in C++ — would be counted differently depending on
+    which node the query file chooses to call the body. Worth settling
+    in Phase 6 when C++ lands, not before.
+*   **A query file that captures nothing is valid** (Phase 2). It is
+    how an unimplemented query is expressed, and it is what lets a
+    phase ship a language with `functions.scm` complete and the other
+    five as documented stubs. The cost is that a genuinely empty query
+    file — one someone forgot to write — loads silently and reports
+    nothing, which will look like a metric of zero rather than a
+    missing file. If that bites, the answer is a manifest in the
+    language directory, not a heuristic over file contents.
 *   **A symbolic link to a *file* is skipped during traversal**, not
     only a link to a directory (LLR-FTS-05). HLR-069's text is about
     unbounded traversal and double-counting, both of which the
@@ -312,6 +333,25 @@ None is a defect; each is a judgement that could go the other way.
     cannot satisfy that. Excluding hidden entries wholesale is the
     smaller change, and dotfiles are not source. A hidden path named
     *as* the target is still walked; naming it is explicit.
+*   **`.gitignore` can swallow product data, silently** (Phase 2). The
+    file carries `*.map` for linker map files, and that also matches
+    `runtime/extensions.map` — the extension-to-language table, which is
+    product data and must ship. It worked locally for a whole phase, was
+    absent from the clone CI made, and the failure named the missing file
+    rather than the rule that hid it. `!runtime/extensions.map` now
+    negates it, and an instrumented test asks git what it is tracking
+    under `runtime/` so the next one cannot get through. Anything added
+    there is worth a `git check-ignore -v` before it is relied on; the
+    patterns that reach in are `*.map` and `*.so`, and only the latter
+    is meant to.
+*   **Grammars are fetched at build time, not vendored** (Phase 2).
+    `make all` builds `runtime/parsers/<lang>.so` from a pinned upstream
+    release, downloading it once; the alternative was committing the
+    generated `parser.c`, which for five languages is several megabytes
+    of machine-written code in the history. The cost is that a first
+    build needs network access, and that a CI job without it cannot
+    build at all. `make clean` deliberately leaves the grammars, since
+    `make asan` cleans twice and would otherwise refetch twice.
 *   **The fixture suites are flat, the fixture data is not.**
     `test/fixtures/traversal/` holds the tree; `test/fixtures/traversal.bats`
     sits beside it rather than inside. Bats' recursive discovery

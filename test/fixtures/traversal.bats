@@ -15,10 +15,14 @@ setup() {
 # The paths elc reports, one per line, with the fixture prefix stripped so
 # the assertions read as the tree does. Goes through the shared elc helper so
 # that `make valgrind` instruments these runs too.
+#
+# Scoped to the Files section: since Phase 2 the Functions section also has
+# rows beginning with a path, and an unscoped match would report each file
+# once per function it defines.
 analysed() {
 	elc "$@"
 	printf '%s\n' "$output" |
-		awk '/^  \// { print $1 }' |
+		awk '/^Files$/ { f = 1; next } f && /^$/ { f = 0 } f && /^  \// { print $1 }' |
 		sed "s|^$TREE_REAL/||"
 }
 

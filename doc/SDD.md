@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 1.9
+**Version:** 2.0
 **Date:** 2026-08-15
 **Author(s):** John Anderson
 
@@ -274,13 +274,13 @@ Skipping linked *files* as well as linked directories follows from the same reas
 
 #### 5.2.3 Runtime Data
 
-The binary-extension exclusion list is read from `binary.exts` in the runtime location — `$ELC_RUNTIME_DIR` when set, otherwise the `runtime/` directory adjacent to the executable (HLR-059). Until `registry.c` exists to supply that resolution, `discover.c` performs it for this one file; the language-module half of the runtime location remains the registry's.
+The binary-extension exclusion list is read from `binary.exts` in the runtime location. `discover.c` does not resolve that location: `registry_open()` does, and hands it over. The precedence rule of HLR-059 therefore exists once, in one module, and a change to it cannot leave a second copy behind.
 
 
 ### 5.3 Internal Structure
 #### 5.3.1 Key Functions
 
-*   **`int discover_targets(const ElcOptions *opts, FileList *out, size_t *failures)`**
+*   **`int discover_targets(const ElcOptions *opts, const char *runtime_dir, FileList *out, size_t *failures)`**
     *   Purpose: Produce the complete, ordered, de-duplicated analysis file list.
     *   Pre-condition: `opts` has been validated by `cli_parse()`.
     *   Post-condition: `out` holds absolute paths in ascending byte order, each appearing exactly once.
@@ -296,7 +296,7 @@ The binary-extension exclusion list is read from `binary.exts` in the runtime lo
     *   Notes: Canonicalising before de-duplication is what makes `elc src/main.c src/` count `main.c` once (HLR-072). Sorting here, rather than relying on `fts` or `libgit2` ordering, is what makes the output independent of filesystem enumeration order (HLR-033).
 
 *   **`bool is_excluded_extension(const char *path, const ExtensionList *exts)`** — Test a path against the binary-extension exclusion list, which is runtime data (runtime/binary.exts), not a compiled-in table. The list is a parameter rather than a global, so every function that consults it receives it through its arguments.
-*   **`int binary_exts_load(ExtensionList *out)`** — Read the exclusion list from the runtime location. An absent or unreadable file is a diagnostic and an empty list, not a fatal error: discovery still runs, and the user is told why nothing was excluded.
+*   **`int binary_exts_load(const char *runtime_dir, ExtensionList *out)`** — Read the exclusion list from the runtime location the registry resolved. An absent or unreadable file is a diagnostic and an empty list, not a fatal error: discovery still runs, and the user is told why nothing was excluded.
 *   **`void binary_exts_free(ExtensionList *list)`** — Release the exclusion list and every extension it owns.
 *   **`bool repo_tracks_target(git_repository *repo, const char *target)`** — True when the discovered repository tracks the target directory; the applicability test that gates repository enumeration.
 *   **`int walk_git_tree(git_repository *repo, const char *target, FileList *out)`** — Enumerate text blobs tracked at HEAD whose path lies at or beneath target.
@@ -352,7 +352,11 @@ runtime/
     ├── eloc.scm  calls.scm  globals.scm
     └── rules/*.scm         # custom rules for this language (HLR-107)
 ```
-The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060).
+The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060). `binary.exts` lives here too and is read by `discover.c`, which is given this location rather than resolving it (HLR-005).
+
+A query file that compiles and captures nothing is valid, and is how an unimplemented query is expressed. The registry reads captures; it never asks whether a file is "filled in". That is what lets a phase ship a language with one query complete and the rest as documented stubs, without either a special case in the loader or a module that fails to load.
+
+The contract this directory embodies — the filenames, the capture names, and what each means — is published with the runtime as `runtime/queries/README.md`. That document, not this section, is what a third party codes against (HLR-121).
 
 #### 6.2.2 Custom Rule Binding
 
@@ -360,13 +364,17 @@ A Tree-sitter query compiles against one specific `TSLanguage`, so every custom 
 
 #### 6.2.3 Environment
 
-`ELC_RUNTIME_DIR`, when set, takes precedence over the path adjacent to the executable (HLR-059).
+`ELC_RUNTIME_DIR`, when set, takes precedence over the path adjacent to the executable (HLR-059). The adjacent path is derived from the executable itself rather than from `argv[0]`, which a caller controls.
+
+This resolution happens once per run and is the module's alone. `discover.c` also needs the runtime location, for `binary.exts`, and asks for it through `registry_runtime_dir()` rather than repeating the rule — one precedence rule, one implementation.
 
 
 ### 6.3 Internal Structure
 #### 6.3.1 Key Data Structures
 
-`LanguageModule` (see the Data Dictionary) is the cached unit. The registry holds a dynamic array of them plus the extension map and the custom rule list.
+`LanguageModule` (see the Data Dictionary) is the cached unit. The `Registry` holds a dynamic array of them plus the resolved runtime location, the extension map, and the custom rule list.
+
+It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Allocating either is expensive and reuse costs nothing — only `ts_parser_set_language()` per file — so both live for the whole run and are destroyed at teardown. They belong to the registry rather than to `analyze.c` because this is where the teardown ordering of LLR-RCL-01 is enforced, and the parser must be released before the `dlclose` that unmaps the grammar it was last set to.
 
 
 #### 6.3.2 Key Functions
@@ -382,6 +390,7 @@ A Tree-sitter query compiles against one specific `TSLanguage`, so every custom 
         4.  Read and compile each `.scm` query with `ts_query_new()`.
         5.  On any failure, emit a diagnostic, mark the language unusable so it is not retried, and return `NULL`; the run continues on the remaining languages (HLR-070).
 
+*   **`const char *registry_runtime_dir(const Registry *reg)`** — The resolved runtime location, so that another module needing runtime data asks for it rather than repeating HLR-059's precedence rule.
 *   **`int registry_load_rules(Registry *reg, const ElcOptions *opts)`** — Load and compile custom rule queries against their bound language; fatal for CLI-named files, diagnostic-and-skip for runtime-located ones (HLR-116).
 *   **`void registry_close(Registry *reg)`** — Delete every query, then every parser context, then dlclose every handle.
 
@@ -396,7 +405,8 @@ Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage`
 
 ### 6.5 Error Handling and Logging
 
-*   **Runtime location absent or empty** Fatal. `registry_open()` returns non-zero and the run stops before any file is processed, since no analysis is possible (HLR-036).
+*   **Runtime location absent or empty** Fatal. `registry_open()` returns non-zero and the run stops before any file is processed, since no analysis is possible (HLR-036). An extension map that names no language is the same state reached differently, and is treated the same way.
+*   **Query file will not compile** Diagnostic naming the language, the query file, and the reason in words — `ts_query_new()`'s numeric code alone tells the author of a query file nothing, and that author is who acts on this message. The language is excluded and the run continues (HLR-070).
 *   **Single language module unusable** Diagnostic naming the language, exclude it, continue. Does not by itself make the exit status non-zero (HLR-070).
 *   **Custom rule file invalid** Fatal when the file was named on the command line; diagnostic-and-skip when it was found in the runtime location (HLR-116).
 
@@ -432,19 +442,23 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
     *   Post-condition: The mapping has been released; the returned structures own their own memory.
     *   Return Value: 0 on success; non-zero on a read or parse failure, which the caller records without aborting.
     *   Logic:
-        1.  Obtain the language module; a `NULL` return means skip this file and report it skipped (HLR-012).
+        1.  Obtain the language module; a `NULL` return means skip this file and report it skipped, distinct from any failure (HLR-012).
         2.  `open`, `fstat`, and short-circuit a zero-length file to zero metrics, since `mmap` of an empty file fails with `EINVAL` (HLR-020).
         3.  `mmap` the file and count `\n` occurrences for the physical line total, counting a final line that carries no terminating newline, since it is a line the reader sees. Every scan is bounded by the length from `fstat(2)`; the mapping is not NUL-terminated.
         4.  `ts_parser_set_language()` and `ts_parser_parse_string()` with the explicit `st_size` length — the mapping is not NUL-terminated.
         5.  Run `comments.scm`, collect spans, sort by start byte, and merge overlaps into a canonical excluded-line set (HLR-016).
-        6.  Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067).
+        6.  Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067). A match is a function only when it supplies **both** `@function.name` and `@function.body`; a match carrying one without the other is discarded rather than reported as a function with no line range or a line range with no name.
         7.  Run `eloc.scm` and `complexity.scm`, attributing each capture to its innermost enclosing reported function; count each multi-line statement once at its start line (HLR-053, HLR-068).
         8.  Run `calls.scm` and `globals.scm`, recording each call site, each global access, and each address-taken function with its enclosing function, into `FileFacts`.
         9.  Run every loaded custom rule query and record its matches (HLR-109). A match's identity is the rule file's basename plus the capture name that matched, so one `.scm` file may express several distinct named rules.
         10.  `ts_tree_delete()` and `munmap()` on every exit path.
     *   Notes: Identifier text is `memcpy`'d out of the mapping into NUL-terminated allocations before the mapping is released, since every name outlives it.
 
-        The signature above is the complete one. The mapping-and-counting half of the function — steps 2, 3, and the `munmap` of step 10 — needs no grammar and is therefore built before the registry exists, as `int analyze_file(const char *path, FileMetrics **metrics)`; the registry parameter and the `FileFacts` output are added with the parse itself. The narrower form is the same function at an earlier stage of its construction, not a second entry point.
+        The signature above is the complete one. The `FileFacts` output arrives with the graph in Phase 8; until then the function is `int analyze_file(Registry *reg, const char *path, FileMetrics **metrics)`. That is the same function at an earlier stage of its construction, not a second entry point.
+
+        **A skip and a failure are different outcomes, and the return value distinguishes them.** A file whose extension maps to no usable language was never attempted: it is reported skipped and leaves the exit status at 0 (HLR-012, HLR-037). A file that was attempted and could not be read or parsed makes it 1 (HLR-035). A single non-zero return would collapse the two and make every unsupported file look like a failure.
+
+        **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.
 
 *   **`uint32_t merge_comment_spans(SpanList *spans)`** — Sort by start byte and coalesce overlapping and nested spans; returns the merged line count.
 *   **`const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)`** — Return the narrowest reported function containing a byte offset.
@@ -711,7 +725,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
         2.  Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026).
         3.  For each file, filter its functions by the complexity threshold into the over-threshold list (HLR-021).
         4.  Attach the architectural findings, custom-rule matches, and omission notices.
-        5.  Sort files by path; functions by start line; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033).
+        5.  Sort files by path; functions by start line and then by name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.
     *   Notes: Centralising every sort here is deliberate: it is the single place a reviewer must check to be satisfied that HLR-032's byte-identical guarantee holds, rather than auditing six renderers and three analysis modules.
 
         `discover.c` also sorts, and the two are not redundant. Its sort exists so that de-duplication can collapse equal canonical paths, and so that the *analysis* order is not the filesystem's; this one exists so that *presentation* order is a property of the model. A later phase that changes how files are discovered therefore cannot silently change how they are presented.
@@ -761,7 +775,9 @@ Files
   /home/u/proj/src/b.c       21
 ```
 
-Each column is exactly as wide as its widest cell and no wider: the path column from the longest path, the numeric columns from the largest value. A run that analysed nothing renders the headings and the rule with no rows beneath them, rather than nothing at all (HLR-066).
+Each column is exactly as wide as its widest cell and no wider: the path column from the longest path, the numeric columns from the largest value.
+
+Every section is emitted whether or not it has rows. A heading with an empty body says "nothing here"; an absent heading is indistinguishable from a renderer that forgot, and would make the report's shape vary with its content — which is what HLR-006 forbids across target types and HLR-032 forbids across runs. A run that analysed nothing therefore renders every heading and every column rule, with no rows beneath them (HLR-066).
 
 Both renderers walk the identical model in the identical order and emit the identical tiers — project summary, per-file totals and over-threshold list, per-function detail, architectural measurements and findings, custom-rule matches — differing only in decoration. The traversal also emits the discovery route of each directory target (HLR-127) ahead of the per-file detail, so that a reader sees how a target was enumerated before seeing what it yielded. Sharing the traversal is what keeps HLR-031's uniform-composition guarantee true by construction rather than by parallel maintenance.
 
@@ -932,6 +948,21 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `exts` | `char **` | Each including its leading dot; matched case-insensitively |
 | `count` | `size_t` | Populated entries |
 | `capacity` | `size_t` | Allocated entries |
+*   **`Registry`** (defined in [inc/registry.h](../inc/registry.h)) — Everything loaded from the runtime location, plus the parser and cursor reused across the whole run.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `dir` | `char *` | The resolved runtime location; handed to any other module needing runtime data, so HLR-059's precedence rule exists once |
+| `map` | `ExtensionMapping *` | Extension to language, from runtime data (HLR-060) |
+| `modules` | `LanguageModule *` | Loaded languages, cached after first use |
+| `parser` | `TSParser *` | One for the whole run; reuse needs only ts_parser_set_language() per file |
+| `cursor` | `TSQueryCursor *` | One for the whole run, for the same reason |
+*   **`ExtensionMapping`** (defined in [inc/registry.h](../inc/registry.h)) — One extension-to-language association read from runtime data.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `extension` | `char *` | Including its leading period; matched without regard to case |
+| `language` | `char *` | Names the parser and query directory to load |
 *   **`LanguageModule`** (defined in [inc/elc.h](../inc/elc.h)) — One dynamically loaded language, cached by the registry after first use.
 
     | Field | Type | Description |
@@ -999,6 +1030,13 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
     | ----- | ---- | ----------- |
 | `file_count` | `size_t` | Files analysed in the run |
 | `physical_lines` | `uint64_t` | Combined physical line count; wider than the per-file field because it sums over the whole project |
+*   **`PathList`** (defined in [inc/report.h](../inc/report.h)) — A sorted, owned list of paths. Used for the files discovered but not analysed, so the report accounts for every discovered file (HLR-012).
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `paths` | `char **` | Dynamic array, grown by doubling |
+| `count` | `size_t` | Populated entries |
+| `capacity` | `size_t` | Allocated entries |
 *   **`Report`** (defined in [inc/elc.h](../inc/elc.h)) — The format-independent model every renderer consumes. Every collection is sorted before a renderer sees it.
 
     | Field | Type | Description |
@@ -1031,7 +1069,7 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | Module | Wrapped symbols | Reaches |
 | ------ | --------------- | ------- |
 | `analyze.c` | `mmap`, `open`, `fstat`, `read`, `realloc` | Read failure, zero-length file, failed array growth (LLR-ANL-04, ANL-28, ANL-34) |
-| `registry.c` | `dlopen`, `dlsym`, `dlerror`, `ts_query_new` | Malformed module tolerance without a corrupt `.so` on disk (HLR-070, LLR-RFP-06) |
+| `registry.c` | *(none)* | Every module failure the requirement names — an absent `.so`, one exporting no entry point, a missing query file, an unparseable one — is a file a fixture can create in two lines. A wrapped `dlopen` would verify the wrapper. The wrap is available if a failure appears that a filesystem cannot produce (HLR-070, LLR-RFP-06). |
 | `discover.c` | `realpath`, `git_repository_open_ext` | Canonicalisation failure, repository inapplicability (LLR-DSC-07, GIT-04). `stat` is deliberately absent: every invalid target class — absent, unreadable, FIFO, device node — can be produced on a real filesystem, and a test that builds one verifies the requirement rather than the mock. |
 | `graph.c`, `arch.c`, `calltree.c`, `state.c` | `realloc`, the graph library's allocating entry points | Allocation failure on graph paths (HLR-124, HLR-125) |
 | `report.c` | `realloc` | Checked collection growth (LLR-RPT-16) |
@@ -1042,6 +1080,10 @@ Wrapping is confined to the unit level; every other level links and runs the rea
 The lists are **per module** in the build as well as here. A `--wrap` applies to every object in the binary being linked, and every unit binary links every module, so a symbol wrapped for one module's tests would oblige every other test file to define a `__wrap_` for it whether or not it mocks anything.
 
 Interception and `ptrace` do not compose. LeakSanitizer stops the world at exit through a `clone`d tracer and `ptrace`, which collides with `strace`'s own attachment and aborts the process; an instrumented run observed under `strace` therefore disables leak detection for that run alone. Every other run in the same sanitized pass still has it on, so HLR-125 stays verified — but a test that asserts a syscall never appears would otherwise pass because the process died before reaching the interesting part, which is worse than failing.
+
+**Delivering the grammars.** A grammar is runtime data, not an object: it is `dlopen`'d by name from `runtime/parsers/` and never linked, so it cannot be a build product in the ordinary sense. It is nonetheless a project deliverable (HLR-011), and the build produces it: each grammar is pinned to an upstream release, fetched, and compiled from the `parser.c` that release ships. **No code generation is involved** — the generated parser is what upstream publishes, which is what makes HLR-040's no-code-generation rule satisfiable while still shipping a parser.
+
+Two consequences follow. A grammar's ABI must lie inside the range the linked `libtree-sitter` supports, and a mismatch fails at *load* with a version error rather than at build, so the pin is checked against the library rather than assumed. And because grammars are gitignored build products that no `clean` should discard, `make clean` deliberately leaves them: the sanitized pass cleans twice, and refetching an upstream tarball on each is a network round trip for nothing.
 
 **Dependency selection.** HLR-112 defers library choice to this document. The selections below were made after confirming the maintenance status of each candidate named in the PVD:
 

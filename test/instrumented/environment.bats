@@ -21,12 +21,19 @@ setup() {
 	# appearing here — libpython, libperl, libmono, libjvm — is exactly
 	# what HLR-040 forbids.
 	#
+	# libtree-sitter is a parsing library, not a language runtime: it
+	# executes no user code and starts no interpreter. It is on the list
+	# because it is a deliberate, documented dependency (SDD §18), and the
+	# list exists to catch the ones that are neither. The grammars elc
+	# loads are dlopen'd at run time and so never appear in ldd output;
+	# HLR-009 is what makes that the right place for them.
+	#
 	# The sanitizer runtimes are allowed because `make asan` re-runs this
 	# very suite against an instrumented build, and libasan is test
 	# instrumentation rather than a product dependency: it is absent from
 	# the binary `make all` produces and `make install` ships. Excluding
 	# them here would make the sanitized pass fail on its own scaffolding.
-	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libasan|libubsan|ld-linux|/lib64/ld-linux)'
+	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libasan|libubsan|ld-linux|/lib64/ld-linux)'
 	while read -r line; do
 		[ -n "$line" ] || continue
 		local lib
@@ -144,6 +151,36 @@ setup() {
 	assert_output "0"
 }
 
+# --- HLR-060, HLR-121: the runtime data actually ships ---------------------
+
+# This exists because it did not. `.gitignore` carries `*.map` for linker map
+# files, which also matches runtime/extensions.map — so the extension table
+# worked locally, was absent from the clone CI made, and every parsing test
+# failed naming the missing file rather than the rule that hid it.
+#
+# An ignore rule that swallows a data file is silent by construction. The
+# only reliable check is to ask git what it is tracking.
+@test "every runtime data file the build does not produce is tracked" {
+	require_tool git "HLR-060 runtime data ships with the product"
+	[ -d "$REPO_ROOT/.git" ] || skip "not a git checkout; nothing to ask"
+
+	local untracked=()
+	while read -r file; do
+		[ -n "$file" ] || continue
+		# Grammars are build products, deliberately ignored: the build
+		# fetches and compiles them from pinned upstream releases.
+		case "$file" in *.so) continue ;; esac
+		git -C "$REPO_ROOT" ls-files --error-unmatch "$file" \
+			>/dev/null 2>&1 || untracked+=("$file")
+	done < <(cd "$REPO_ROOT" && find runtime -type f)
+
+	[ "${#untracked[@]}" -eq 0 ] || {
+		echo "runtime data missing from the repository: ${untracked[*]}" >&2
+		echo "run: git check-ignore -v <file>" >&2
+		false
+	}
+}
+
 # --- HLR-043: read-only operation ------------------------------------------
 
 @test "HLR-043: elc does not modify the tree it analyses" {
@@ -178,6 +215,48 @@ setup() {
 	# checksums after the fact.
 	run grep -nE 'O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|creat\(|unlink|truncate|rename' "$log"
 	assert_output "" "elc must issue no syscall capable of modifying a file"
+}
+
+# --- HLR-076: one parse per file -------------------------------------------
+
+@test "HLR-076: each source file is opened exactly once" {
+	require_tool strace "HLR-076 the single parse"
+	local tree="$BATS_TEST_TMPDIR/single" log="$BATS_TEST_TMPDIR/open-once.log"
+	mkdir -p "$tree"
+	printf 'int a(void) { return 0; }\n' > "$tree/one.c"
+	printf 'int b(void) { return 0; }\n' > "$tree/two.c"
+
+	strace_elc "$log" "openat,open" "$tree"
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+
+	# The single-parse rule is what makes the graph and the metrics come
+	# from the same tree (HLR-076). A second open of a source file would
+	# mean some stage re-read it, which is the thing the rule forbids —
+	# and counting opens is the only way to see that from outside.
+	run grep -c '/one\.c' "$log"
+	assert_output "1"
+	run grep -c '/two\.c' "$log"
+	assert_output "1"
+}
+
+# --- HLR-009: language support is loaded at run time ------------------------
+
+@test "HLR-009: the grammar is loaded from the runtime location, not linked" {
+	require_tool ldd "HLR-009 runtime-loaded language support"
+	local tree="$BATS_TEST_TMPDIR/grammar" log="$BATS_TEST_TMPDIR/grammar.log"
+	mkdir -p "$tree"
+	printf 'int a(void) { return 0; }\n' > "$tree/one.c"
+
+	# Not linked: no grammar appears among the binary's dependencies.
+	run ldd "$ELC"
+	refute_output --partial "parsers/"
+
+	# Loaded: the grammar file is opened during the run.
+	require_tool strace "HLR-009 runtime-loaded language support"
+	strace_elc "$log" "openat,open" "$tree"
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+	run grep -c "parsers/c.so" "$log"
+	refute_output "0"
 }
 
 @test "HLR-043: elc runs against a read-only directory" {

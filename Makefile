@@ -15,12 +15,18 @@ DESTDIR     ?=
 BATS        ?= test/helpers/bats-core/bin/bats
 
 WARNINGS    := -Wall -Wextra -Wpedantic
+
+# libtree-sitter is discovered with pkg-config, with an overridable fallback
+# so a hard-coded /usr/lib path never enters the build. -ldl is separate: the
+# registry dlopen's grammars, and on glibc before 2.34 that is not in libc.
+TS_CFLAGS   ?= $(shell $(PKG_CONFIG) --cflags tree-sitter 2>/dev/null)
+TS_LIBS     ?= $(shell $(PKG_CONFIG) --libs tree-sitter 2>/dev/null || echo -ltree-sitter)
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
 # set before any include; they live here rather than in the .c files.
-CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE
+CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
-LDLIBS      +=
+LDLIBS      += $(TS_LIBS) -ldl
 
 # Flags the build requires whatever the caller chose, appended in the recipes
 # rather than folded into CFLAGS.
@@ -93,6 +99,13 @@ TREE_SITTER_VER ?= 0.26.2
 LIBGIT2_VER     ?= 1.9.0
 IGRAPH_VER      ?= 1.0.1
 EXPAT_VER       ?= 2.8.3
+
+# Grammars are pinned like the libraries, and for the same reason. Each is a
+# separate upstream project on its own release cadence, and the ABI it
+# generates must stay inside libtree-sitter's supported range — a grammar
+# built against a newer generator than the linked library understands fails
+# at load with a version error rather than at build.
+GRAMMAR_C_VER   ?= 0.24.2
 
 SRC_PREFIX      ?= /usr/local
 SRC_WORK        ?= $(BUILD)/prereq-src
@@ -247,8 +260,43 @@ _check-min:
 	fi
 
 # -------------------------------------------------------------------- build
+# Grammars are runtime data, not objects: they are dlopen'd by name from
+# runtime/parsers/ and never linked. They are gitignored (*.so), so a fresh
+# clone builds them once and every later build skips them — make sees the
+# file and stops. `clean` deliberately leaves them: `make asan` cleans twice,
+# and refetching an upstream tarball on each of those is a network round trip
+# for nothing. `make clean-grammars` removes them when that is what is meant.
+GRAMMARS    := runtime/parsers/c.so
+
+.PHONY: grammars
+grammars: $(GRAMMARS) ## Build the runtime language grammars
+
+# Build one grammar into runtime/parsers/<lang>.so.
+#   $(1) language name   $(2) upstream repository   $(3) version
+#
+# The generated parser.c ships in the upstream release, so no tree-sitter CLI
+# and no code generation is involved — HLR-040 forbids requiring the latter at
+# build time. Third-party generated code is compiled at the project's warning
+# settings minus the pedantry it was never written to satisfy; -fvisibility is
+# not narrowed, since tree_sitter_<lang> must remain resolvable by dlsym.
+define build_grammar
+	@echo "$(2) $(3)"
+	$(call fetch,https://github.com/tree-sitter/$(2)/archive/refs/tags/v$(3).tar.gz,$(2)-$(3))
+	@mkdir -p runtime/parsers
+	$(CC) -O2 -fPIC -shared -I$(SRC_WORK)/$(2)-$(3)/src \
+		-o runtime/parsers/$(1).so $(SRC_WORK)/$(2)-$(3)/src/parser.c \
+		$(wildcard $(SRC_WORK)/$(2)-$(3)/src/scanner.c)
+endef
+
+runtime/parsers/c.so:
+	$(call build_grammar,c,tree-sitter-c,$(GRAMMAR_C_VER))
+
+.PHONY: clean-grammars
+clean-grammars: ## Remove the built grammars, forcing a refetch
+	@rm -f $(GRAMMARS)
+
 .PHONY: all
-all: $(BIN) $(BUILD)/runtime ## Build elc and the runtime symlink
+all: $(BIN) $(BUILD)/runtime $(GRAMMARS) ## Build elc, the grammars, and the runtime symlink
 
 $(BIN): $(OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(ELC_CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
@@ -275,10 +323,15 @@ debug: ## Build with -O0 -g3 -DDEBUG
 .PHONY: test
 test: unit integration fixtures instrumented ## Run every test level
 
+# ELC_RUNTIME_DIR is set here for the same reason the Bats suites set it: a
+# unit binary lives in build/unit/, so the runtime adjacent to *it* does not
+# exist, and the registry tests need a real grammar to load. Pointing at the
+# in-tree runtime keeps the unit level independent of any installed copy.
 .PHONY: unit
-unit: $(UNIT_BIN) ## Build and run the Criterion unit binaries
+unit: $(UNIT_BIN) $(GRAMMARS) ## Build and run the Criterion unit binaries
 	@fail=0; for b in $(UNIT_BIN); do \
-		printf '\n== %s ==\n' "$$b"; $$b --tap || fail=1; \
+		printf '\n== %s ==\n' "$$b"; \
+		ELC_RUNTIME_DIR=$(CURDIR)/runtime $$b --tap || fail=1; \
 	done; exit $$fail
 
 $(BUILD)/unit/%: test/unit/%.c $(LIB_OBJ) | $(BUILD)/unit
@@ -286,7 +339,7 @@ $(BUILD)/unit/%: test/unit/%.c $(LIB_OBJ) | $(BUILD)/unit
 		echo "make: Criterion not found — install libcriterion-dev" >&2; exit 1; }
 	$(CC) $(CPPFLAGS) $(CFLAGS) $(ELC_CFLAGS) -o $@ $< $(LIB_OBJ) \
 		$(shell $(PKG_CONFIG) --cflags --libs criterion) \
-		$(LDFLAGS) $(WRAP_FLAGS)
+		$(LDFLAGS) $(WRAP_FLAGS) $(LDLIBS)
 
 $(BUILD)/unit:
 	@mkdir -p $(BUILD)/unit

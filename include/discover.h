@@ -42,7 +42,8 @@ typedef struct {
  * folds into its exit status. Returns non-zero when a target was invalid, in
  * which case `*out` is empty.
  */
-int discover_targets(const ElcOptions *opts, FileList *out, size_t *failures);
+int discover_targets(const ElcOptions *opts, const char *runtime_dir,
+                     FileList *out, size_t *failures);
 
 /* Release the list and every path it owns. Safe on NULL and on a zeroed
  * list, so teardown is unconditional on every exit path. */
@@ -61,15 +62,16 @@ int walk_filesystem(const char *root, const ExtensionList *exts,
  * runtime data; no extension is compiled into the executable (LLR-EXT-01). */
 bool is_excluded_extension(const char *path, const ExtensionList *exts);
 
-/* Load the binary-extension list from `binary.exts` in the runtime location:
- * $ELC_RUNTIME_DIR when set, otherwise the runtime directory adjacent to the
- * executable (HLR-059).
+/* Load the binary-extension list from `binary.exts` in `runtime_dir`.
+ *
+ * The location is resolved once, by registry.c, and passed in — the
+ * precedence rule of HLR-059 lives in one place and is not repeated here.
  *
  * An absent or unreadable file is a diagnostic and an empty list, not a
- * fatal error: discovery still runs, and nothing is excluded (LLR-EXT-02).
+ * fatal error: discovery still runs, and nothing is excluded (LLR-EXT-03).
  * Returns 0 unless the list itself could not be built.
  */
-int binary_exts_load(ExtensionList *out);
+int binary_exts_load(const char *runtime_dir, ExtensionList *out);
 
 /* Release the extension list and every extension it owns. */
 void binary_exts_free(ExtensionList *list);

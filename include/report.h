@@ -18,27 +18,44 @@
 
 #include "elc.h"
 
+/* Files discovered but not analysed, for want of a language module. The
+ * report accounts for every discovered file, so a skip is visible rather
+ * than a silent absence (HLR-012). */
+typedef struct {
+	char  **paths;
+	size_t  count;
+	size_t  capacity;
+} PathList;
+
 /* Per-file metrics as they accumulate during the run, before assembly.
  * Owns every FileMetrics handed to it. */
 typedef struct {
 	FileMetrics **files;
 	size_t        count;
 	size_t        capacity;
+	PathList      skipped;
 } MetricsAccumulator;
 
 /* Project-level totals across every analysed file (HLR-024). */
 typedef struct {
 	size_t   file_count;
 	uint64_t physical_lines;
+	uint64_t function_count;
 } ProjectSummary;
+
 
 /* The model every renderer consumes. Every collection is sorted before a
  * renderer sees it. */
 typedef struct {
 	ProjectSummary summary;
-	FileMetrics  **files;      /* sorted by path; owned */
+	FileMetrics  **files;         /* sorted by path; owned            */
 	size_t         file_count;
+	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;
+
+/* Record a file skipped for want of a language module, copying its path.
+ * Returns 0 on success (LLR-RPT-07). */
+int metrics_add_skipped(MetricsAccumulator *acc, const char *path);
 
 /* Append one file's metrics, taking ownership of them. Grows by doubling
  * through a checked reallocation; on failure the accumulator is left intact

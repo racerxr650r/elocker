@@ -7,9 +7,9 @@
  * The whole run happens on the thread main() was entered on; no stage
  * creates another (HLR-041, LLR-MAIN-14).
  *
- * Phase 1 wires discovery, per-file measurement, assembly, and rendering.
- * Each later phase inserts its stage into this same sequence, in the order
- * the SDD's flow describes.
+ * Phase 2 wires the runtime registry ahead of discovery, and the single
+ * parse behind it. Each later phase inserts its stage into this same
+ * sequence, in the order the SDD's flow describes.
  */
 
 #include <errno.h>
@@ -22,11 +22,13 @@
 #include "discover.h"
 #include "elc.h"
 #include "format_text.h"
+#include "registry.h"
 #include "report.h"
 
 int main(int argc, char *argv[])
 {
 	ElcOptions         opts;
+	Registry           registry = { 0 };
 	FileList           files    = { 0 };
 	MetricsAccumulator acc      = { 0 };
 	Report             report   = { 0 };
@@ -49,10 +51,20 @@ int main(int argc, char *argv[])
 		break;
 	}
 
+	/* The registry comes before discovery: a runtime location that yields
+	 * no language at all is fatal, and it is fatal before any file is
+	 * read rather than after a full walk (HLR-036, LLR-MAIN-05). */
+	if (registry_open(&opts, &registry) != 0) {
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
 	/* An invalid target ends the run here, before any file is measured, so
 	 * no report can silently cover fewer targets than were named
-	 * (HLR-062, LLR-MAIN-10). */
-	if (discover_targets(&opts, &files, &failures) != 0) {
+	 * (HLR-062, LLR-MAIN-10). Discovery asks the registry where the
+	 * runtime location is rather than resolving it a second time. */
+	if (discover_targets(&opts, registry_runtime_dir(&registry), &files,
+	                     &failures) != 0) {
 		status = ELC_EXIT_FATAL;
 		goto cleanup;
 	}
@@ -62,11 +74,24 @@ int main(int argc, char *argv[])
 
 		/* A per-file failure is recorded, not propagated: the run
 		 * continues over the remaining files and the status reflects it
-		 * at the end (HLR-035, LLR-MAIN-07). */
-		if (analyze_file(files.paths[i], &metrics) != 0) {
+		 * at the end (HLR-035, LLR-MAIN-07). A skip is not a failure —
+		 * it is reported and leaves the status at 0 (HLR-012,
+		 * HLR-037). */
+		switch (analyze_file(&registry, files.paths[i], &metrics)) {
+		case ANALYZE_SKIPPED:
+			fprintf(stderr,
+			        "elc: %s: no usable language module; skipped\n",
+			        files.paths[i]);
+			if (metrics_add_skipped(&acc, files.paths[i]) != 0)
+				failures++;
+			continue;
+		case ANALYZE_OK:
+			break;
+		default:
 			failures++;
 			continue;
 		}
+
 		if (metrics_add(&acc, metrics) != 0) {
 			filemetrics_free(metrics);
 			failures++;
@@ -111,6 +136,7 @@ cleanup:
 	report_free(&report);
 	metrics_free(&acc);
 	filelist_free(&files);
+	registry_close(&registry);
 	cli_options_free(&opts);
 	return status;
 }

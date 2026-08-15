@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="1.9" date="2026-08-15" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.0" date="2026-08-15" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.2" date="2026-08-15" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="1.8" date="2026-08-15" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.2" date="2026-08-15" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.1" date="2026-08-15" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="1.9" date="2026-08-15" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.3" date="2026-08-15" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.2" date="2026-08-15" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="129"/>
-      <count name="llrs"       value="257"/>
-      <count name="tests"      value="128"/>
-      <count name="test_files" value="12"/>
+      <count name="llrs"       value="264"/>
+      <count name="tests"      value="184"/>
+      <count name="test_files" value="15"/>
     </counts>
   </metadata>
 
@@ -235,10 +235,10 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
           <interface title="Symbolic Links"><![CDATA[Target arguments are classified with `stat(2)`, which follows links, so a symlink named directly on the command line is resolved and analysed. Traversal uses `FTS_PHYSICAL`, which does not, so a link encountered during a walk is never followed — a linked directory is not descended into, and a linked file is not appended. The pairing is deliberate and implements both halves of HLR-069; changing either call to match the other breaks one half.
 
 Skipping linked *files* as well as linked directories follows from the same reasoning as the cycle case: a link to a file already inside the tree would otherwise contribute it twice, and a link out of the tree would silently widen what the target denotes. A link that the user means to analyse is named, and naming it resolves it.]]></interface>
-          <interface title="Runtime Data"><![CDATA[The binary-extension exclusion list is read from `binary.exts` in the runtime location — `$ELC_RUNTIME_DIR` when set, otherwise the `runtime/` directory adjacent to the executable (HLR-059). Until `registry.c` exists to supply that resolution, `discover.c` performs it for this one file; the language-module half of the runtime location remains the registry's.]]></interface>
+          <interface title="Runtime Data"><![CDATA[The binary-extension exclusion list is read from `binary.exts` in the runtime location. `discover.c` does not resolve that location: `registry_open()` does, and hands it over. The precedence rule of HLR-059 therefore exists once, in one module, and a change to it cannot leave a second copy behind.]]></interface>
         </interfaces>
         <functions>
-          <function signature="int discover_targets(const ElcOptions *opts, FileList *out, size_t *failures)">
+          <function signature="int discover_targets(const ElcOptions *opts, const char *runtime_dir, FileList *out, size_t *failures)">
             <purpose><![CDATA[Produce the complete, ordered, de-duplicated analysis file list.]]></purpose>
             <pre><![CDATA[`opts` has been validated by `cli_parse()`.]]></pre>
             <post><![CDATA[`out` holds absolute paths in ascending byte order, each appearing exactly once.]]></post>
@@ -255,7 +255,7 @@ Skipping linked *files* as well as linked directories follows from the same reas
             <notes><![CDATA[Canonicalising before de-duplication is what makes `elc src/main.c src/` count `main.c` once (HLR-072). Sorting here, rather than relying on `fts` or `libgit2` ordering, is what makes the output independent of filesystem enumeration order (HLR-033).]]></notes>
           </function>
           <function signature="bool is_excluded_extension(const char *path, const ExtensionList *exts)" summary="Test a path against the binary-extension exclusion list, which is runtime data (runtime/binary.exts), not a compiled-in table. The list is a parameter rather than a global, so every function that consults it receives it through its arguments."/>
-          <function signature="int binary_exts_load(ExtensionList *out)" summary="Read the exclusion list from the runtime location. An absent or unreadable file is a diagnostic and an empty list, not a fatal error: discovery still runs, and the user is told why nothing was excluded."/>
+          <function signature="int binary_exts_load(const char *runtime_dir, ExtensionList *out)" summary="Read the exclusion list from the runtime location the registry resolved. An absent or unreadable file is a diagnostic and an empty list, not a fatal error: discovery still runs, and the user is told why nothing was excluded."/>
           <function signature="void binary_exts_free(ExtensionList *list)" summary="Release the exclusion list and every extension it owns."/>
           <function signature="bool repo_tracks_target(git_repository *repo, const char *target)" summary="True when the discovered repository tracks the target directory; the applicability test that gates repository enumeration."/>
           <function signature="int walk_git_tree(git_repository *repo, const char *target, FileList *out)" summary="Enumerate text blobs tracked at HEAD whose path lies at or beneath target."/>
@@ -302,11 +302,19 @@ runtime/
     ├── eloc.scm  calls.scm  globals.scm
     └── rules/*.scm         # custom rules for this language (HLR-107)
 ```
-The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060).]]></interface>
+The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060). `binary.exts` lives here too and is read by `discover.c`, which is given this location rather than resolving it (HLR-005).
+
+A query file that compiles and captures nothing is valid, and is how an unimplemented query is expressed. The registry reads captures; it never asks whether a file is "filled in". That is what lets a phase ship a language with one query complete and the rest as documented stubs, without either a special case in the loader or a module that fails to load.
+
+The contract this directory embodies — the filenames, the capture names, and what each means — is published with the runtime as `runtime/queries/README.md`. That document, not this section, is what a third party codes against (HLR-121).]]></interface>
           <interface title="Custom Rule Binding"><![CDATA[A Tree-sitter query compiles against one specific `TSLanguage`, so every custom rule must name the language it applies to. Rules found under `runtime/queries/<lang>/rules/` are bound by their location; rules named on the command line are bound by the `lang:path` argument form. A rule naming a language with no available module is a diagnostic, not a compile attempt.]]></interface>
-          <interface title="Environment"><![CDATA[`ELC_RUNTIME_DIR`, when set, takes precedence over the path adjacent to the executable (HLR-059).]]></interface>
+          <interface title="Environment"><![CDATA[`ELC_RUNTIME_DIR`, when set, takes precedence over the path adjacent to the executable (HLR-059). The adjacent path is derived from the executable itself rather than from `argv[0]`, which a caller controls.
+
+This resolution happens once per run and is the module's alone. `discover.c` also needs the runtime location, for `binary.exts`, and asks for it through `registry_runtime_dir()` rather than repeating the rule — one precedence rule, one implementation.]]></interface>
         </interfaces>
-        <data_structures><![CDATA[`LanguageModule` (see the Data Dictionary) is the cached unit. The registry holds a dynamic array of them plus the extension map and the custom rule list.]]></data_structures>
+        <data_structures><![CDATA[`LanguageModule` (see the Data Dictionary) is the cached unit. The `Registry` holds a dynamic array of them plus the resolved runtime location, the extension map, and the custom rule list.
+
+It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Allocating either is expensive and reuse costs nothing — only `ts_parser_set_language()` per file — so both live for the whole run and are destroyed at teardown. They belong to the registry rather than to `analyze.c` because this is where the teardown ordering of LLR-RCL-01 is enforced, and the parser must be released before the `dlclose` that unmaps the grammar it was last set to.]]></data_structures>
         <functions>
           <function signature="int registry_open(const ElcOptions *opts, Registry *out)" summary="Resolve the runtime location, load the extension map and custom rules, and verify at least one language module is loadable."/>
           <function signature="const LanguageModule *registry_for_path(Registry *reg, const char *path)">
@@ -320,6 +328,7 @@ The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals
               <step><![CDATA[On any failure, emit a diagnostic, mark the language unusable so it is not retried, and return `NULL`; the run continues on the remaining languages (HLR-070).]]></step>
             </logic>
           </function>
+          <function signature="const char *registry_runtime_dir(const Registry *reg)" summary="The resolved runtime location, so that another module needing runtime data asks for it rather than repeating HLR-059's precedence rule."/>
           <function signature="int registry_load_rules(Registry *reg, const ElcOptions *opts)" summary="Load and compile custom rule queries against their bound language; fatal for CLI-named files, diagnostic-and-skip for runtime-located ones (HLR-116)."/>
           <function signature="void registry_close(Registry *reg)" summary="Delete every query, then every parser context, then dlclose every handle."/>
         </functions>
@@ -329,7 +338,8 @@ The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals
           <dep><![CDATA[POSIX — `dlopen()`, `dlsym()`, `dlerror()`, `dlclose()`, `open()`, `fstat()`, `read()`.]]></dep>
         </dependencies>
         <error_handling>
-          <case name="Runtime location absent or empty"><![CDATA[Fatal. `registry_open()` returns non-zero and the run stops before any file is processed, since no analysis is possible (HLR-036).]]></case>
+          <case name="Runtime location absent or empty"><![CDATA[Fatal. `registry_open()` returns non-zero and the run stops before any file is processed, since no analysis is possible (HLR-036). An extension map that names no language is the same state reached differently, and is treated the same way.]]></case>
+          <case name="Query file will not compile"><![CDATA[Diagnostic naming the language, the query file, and the reason in words — `ts_query_new()`'s numeric code alone tells the author of a query file nothing, and that author is who acts on this message. The language is excluded and the run continues (HLR-070).]]></case>
           <case name="Single language module unusable"><![CDATA[Diagnostic naming the language, exclude it, continue. Does not by itself make the exit status non-zero (HLR-070).]]></case>
           <case name="Custom rule file invalid"><![CDATA[Fatal when the file was named on the command line; diagnostic-and-skip when it was found in the runtime location (HLR-116).]]></case>
         </error_handling>
@@ -354,12 +364,12 @@ The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals
             <post><![CDATA[The mapping has been released; the returned structures own their own memory.]]></post>
             <returns><![CDATA[0 on success; non-zero on a read or parse failure, which the caller records without aborting.]]></returns>
             <logic>
-              <step><![CDATA[Obtain the language module; a `NULL` return means skip this file and report it skipped (HLR-012).]]></step>
+              <step><![CDATA[Obtain the language module; a `NULL` return means skip this file and report it skipped, distinct from any failure (HLR-012).]]></step>
               <step><![CDATA[`open`, `fstat`, and short-circuit a zero-length file to zero metrics, since `mmap` of an empty file fails with `EINVAL` (HLR-020).]]></step>
               <step><![CDATA[`mmap` the file and count `\n` occurrences for the physical line total, counting a final line that carries no terminating newline, since it is a line the reader sees. Every scan is bounded by the length from `fstat(2)`; the mapping is not NUL-terminated.]]></step>
               <step><![CDATA[`ts_parser_set_language()` and `ts_parser_parse_string()` with the explicit `st_size` length — the mapping is not NUL-terminated.]]></step>
               <step><![CDATA[Run `comments.scm`, collect spans, sort by start byte, and merge overlaps into a canonical excluded-line set (HLR-016).]]></step>
-              <step><![CDATA[Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067).]]></step>
+              <step><![CDATA[Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067). A match is a function only when it supplies **both** `@function.name` and `@function.body`; a match carrying one without the other is discarded rather than reported as a function with no line range or a line range with no name.]]></step>
               <step><![CDATA[Run `eloc.scm` and `complexity.scm`, attributing each capture to its innermost enclosing reported function; count each multi-line statement once at its start line (HLR-053, HLR-068).]]></step>
               <step><![CDATA[Run `calls.scm` and `globals.scm`, recording each call site, each global access, and each address-taken function with its enclosing function, into `FileFacts`.]]></step>
               <step><![CDATA[Run every loaded custom rule query and record its matches (HLR-109). A match's identity is the rule file's basename plus the capture name that matched, so one `.scm` file may express several distinct named rules.]]></step>
@@ -367,7 +377,11 @@ The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals
             </logic>
             <notes><![CDATA[Identifier text is `memcpy`'d out of the mapping into NUL-terminated allocations before the mapping is released, since every name outlives it.
 
-The signature above is the complete one. The mapping-and-counting half of the function — steps 2, 3, and the `munmap` of step 10 — needs no grammar and is therefore built before the registry exists, as `int analyze_file(const char *path, FileMetrics **metrics)`; the registry parameter and the `FileFacts` output are added with the parse itself. The narrower form is the same function at an earlier stage of its construction, not a second entry point.]]></notes>
+The signature above is the complete one. The `FileFacts` output arrives with the graph in Phase 8; until then the function is `int analyze_file(Registry *reg, const char *path, FileMetrics **metrics)`. That is the same function at an earlier stage of its construction, not a second entry point.
+
+**A skip and a failure are different outcomes, and the return value distinguishes them.** A file whose extension maps to no usable language was never attempted: it is reported skipped and leaves the exit status at 0 (HLR-012, HLR-037). A file that was attempted and could not be read or parsed makes it 1 (HLR-035). A single non-zero return would collapse the two and make every unsupported file look like a failure.
+
+**The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.]]></notes>
           </function>
           <function signature="uint32_t merge_comment_spans(SpanList *spans)" summary="Sort by start byte and coalesce overlapping and nested spans; returns the merged line count."/>
           <function signature="const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)" summary="Return the narrowest reported function containing a byte offset."/>
@@ -577,7 +591,7 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
               <step><![CDATA[Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026).]]></step>
               <step><![CDATA[For each file, filter its functions by the complexity threshold into the over-threshold list (HLR-021).]]></step>
               <step><![CDATA[Attach the architectural findings, custom-rule matches, and omission notices.]]></step>
-              <step><![CDATA[Sort files by path; functions by start line; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033).]]></step>
+              <step><![CDATA[Sort files by path; functions by start line and then by name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.]]></step>
             </logic>
             <notes><![CDATA[Centralising every sort here is deliberate: it is the single place a reviewer must check to be satisfied that HLR-032's byte-identical guarantee holds, rather than auditing six renderers and three analysis modules.
 
@@ -620,7 +634,9 @@ Files
   /home/u/proj/src/b.c       21
 ```
 
-Each column is exactly as wide as its widest cell and no wider: the path column from the longest path, the numeric columns from the largest value. A run that analysed nothing renders the headings and the rule with no rows beneath them, rather than nothing at all (HLR-066).
+Each column is exactly as wide as its widest cell and no wider: the path column from the longest path, the numeric columns from the largest value.
+
+Every section is emitted whether or not it has rows. A heading with an empty body says "nothing here"; an absent heading is indistinguishable from a renderer that forgot, and would make the report's shape vary with its content — which is what HLR-006 forbids across target types and HLR-032 forbids across runs. A run that analysed nothing therefore renders every heading and every column rule, with no rows beneath them (HLR-066).
 
 Both renderers walk the identical model in the identical order and emit the identical tiers — project summary, per-file totals and over-threshold list, per-function detail, architectural measurements and findings, custom-rule matches — differing only in decoration. The traversal also emits the discovery route of each directory target (HLR-127) ahead of the per-file detail, so that a reader sees how a target was enumerated before seeing what it yielded. Sharing the traversal is what keeps HLR-031's uniform-composition guarantee true by construction rather than by parallel maintenance.]]></algorithm>
         <dependencies>
@@ -750,6 +766,17 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="count" type="size_t" desc="Populated entries"/>
         <field name="capacity" type="size_t" desc="Allocated entries"/>
       </type>
+      <type name="Registry" header="inc/registry.h" summary="Everything loaded from the runtime location, plus the parser and cursor reused across the whole run.">
+        <field name="dir" type="char *" desc="The resolved runtime location; handed to any other module needing runtime data, so HLR-059's precedence rule exists once"/>
+        <field name="map" type="ExtensionMapping *" desc="Extension to language, from runtime data (HLR-060)"/>
+        <field name="modules" type="LanguageModule *" desc="Loaded languages, cached after first use"/>
+        <field name="parser" type="TSParser *" desc="One for the whole run; reuse needs only ts_parser_set_language() per file"/>
+        <field name="cursor" type="TSQueryCursor *" desc="One for the whole run, for the same reason"/>
+      </type>
+      <type name="ExtensionMapping" header="inc/registry.h" summary="One extension-to-language association read from runtime data.">
+        <field name="extension" type="char *" desc="Including its leading period; matched without regard to case"/>
+        <field name="language" type="char *" desc="Names the parser and query directory to load"/>
+      </type>
       <type name="LanguageModule" header="inc/elc.h" summary="One dynamically loaded language, cached by the registry after first use.">
         <field name="language_name" type="char *" desc="Resolved from the extension map"/>
         <field name="dl_handle" type="void *" desc="Handle from dlopen(); closed last at teardown"/>
@@ -801,6 +828,11 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="file_count" type="size_t" desc="Files analysed in the run"/>
         <field name="physical_lines" type="uint64_t" desc="Combined physical line count; wider than the per-file field because it sums over the whole project"/>
       </type>
+      <type name="PathList" header="inc/report.h" summary="A sorted, owned list of paths. Used for the files discovered but not analysed, so the report accounts for every discovered file (HLR-012).">
+        <field name="paths" type="char **" desc="Dynamic array, grown by doubling"/>
+        <field name="count" type="size_t" desc="Populated entries"/>
+        <field name="capacity" type="size_t" desc="Allocated entries"/>
+      </type>
       <type name="Report" header="inc/elc.h" summary="The format-independent model every renderer consumes. Every collection is sorted before a renderer sees it.">
         <field name="summary" type="ProjectSummary" desc="Combined and per-language totals, and the most-complex callouts"/>
         <field name="files" type="FileMetrics **" desc="Sorted by path"/>
@@ -829,7 +861,7 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
 | Module | Wrapped symbols | Reaches |
 | ------ | --------------- | ------- |
 | `analyze.c` | `mmap`, `open`, `fstat`, `read`, `realloc` | Read failure, zero-length file, failed array growth (LLR-ANL-04, ANL-28, ANL-34) |
-| `registry.c` | `dlopen`, `dlsym`, `dlerror`, `ts_query_new` | Malformed module tolerance without a corrupt `.so` on disk (HLR-070, LLR-RFP-06) |
+| `registry.c` | *(none)* | Every module failure the requirement names — an absent `.so`, one exporting no entry point, a missing query file, an unparseable one — is a file a fixture can create in two lines. A wrapped `dlopen` would verify the wrapper. The wrap is available if a failure appears that a filesystem cannot produce (HLR-070, LLR-RFP-06). |
 | `discover.c` | `realpath`, `git_repository_open_ext` | Canonicalisation failure, repository inapplicability (LLR-DSC-07, GIT-04). `stat` is deliberately absent: every invalid target class — absent, unreadable, FIFO, device node — can be produced on a real filesystem, and a test that builds one verifies the requirement rather than the mock. |
 | `graph.c`, `arch.c`, `calltree.c`, `state.c` | `realloc`, the graph library's allocating entry points | Allocation failure on graph paths (HLR-124, HLR-125) |
 | `report.c` | `realloc` | Checked collection growth (LLR-RPT-16) |
@@ -840,6 +872,10 @@ Wrapping is confined to the unit level; every other level links and runs the rea
 The lists are **per module** in the build as well as here. A `--wrap` applies to every object in the binary being linked, and every unit binary links every module, so a symbol wrapped for one module's tests would oblige every other test file to define a `__wrap_` for it whether or not it mocks anything.
 
 Interception and `ptrace` do not compose. LeakSanitizer stops the world at exit through a `clone`d tracer and `ptrace`, which collides with `strace`'s own attachment and aborts the process; an instrumented run observed under `strace` therefore disables leak detection for that run alone. Every other run in the same sanitized pass still has it on, so HLR-125 stays verified — but a test that asserts a syscall never appears would otherwise pass because the process died before reaching the interesting part, which is worse than failing.
+
+**Delivering the grammars.** A grammar is runtime data, not an object: it is `dlopen`'d by name from `runtime/parsers/` and never linked, so it cannot be a build product in the ordinary sense. It is nonetheless a project deliverable (HLR-011), and the build produces it: each grammar is pinned to an upstream release, fetched, and compiled from the `parser.c` that release ships. **No code generation is involved** — the generated parser is what upstream publishes, which is what makes HLR-040's no-code-generation rule satisfiable while still shipping a parser.
+
+Two consequences follow. A grammar's ABI must lie inside the range the linked `libtree-sitter` supports, and a mismatch fails at *load* with a version error rather than at build, so the pin is checked against the library rather than assumed. And because grammars are gitignored build products that no `clean` should discard, `make clean` deliberately leaves them: the sanitized pass cleans twice, and refetching an upstream tarball on each is a network round trip for nothing.
 
 **Dependency selection.** HLR-112 defers library choice to this document. The selections below were made after confirming the maintenance status of each candidate named in the PVD:
 
@@ -2321,6 +2357,13 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
           <trace target="HLR" ref="HLR-120" name="Distinct Exit Status Classes"/>
         </traces>
       </llr>
+      <llr id="LLR-MAIN-18">
+        <text><![CDATA[`main` shall record a file skipped for want of a usable language module in the report's skipped-file list and emit a diagnostic naming it, and shall not count the skip as a per-file failure.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-012"/>
+          <trace target="HLR" ref="HLR-037"/>
+        </traces>
+      </llr>
       <llr id="LLR-MAIN-16">
         <text><![CDATA[`main` shall release every resource it acquired before returning, on the success path and on every error path alike, so that a completed run leaves no allocation, mapping, or handle outstanding.]]></text>
         <traces>
@@ -2697,6 +2740,13 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
           <trace target="HLR" ref="HLR-011" name="Initial Delivered Language Set"/>
         </traces>
       </llr>
+      <llr id="LLR-ROP-07">
+        <text><![CDATA[`registry_open` shall make the resolved runtime location available to every other module that needs runtime data, so that the precedence rule of HLR-059 is implemented once rather than repeated wherever runtime data is read.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-059"/>
+          <trace target="HLR" ref="HLR-005"/>
+        </traces>
+      </llr>
       <llr id="LLR-ROP-06">
         <text><![CDATA[`registry_open` shall read no configuration file or dotfile outside the runtime location.]]></text>
         <traces>
@@ -2746,6 +2796,13 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <text><![CDATA[An unusable language module shall not by itself cause `elc` to terminate or to return a non-zero exit status.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-070" name="Malformed Language Module Tolerance"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RFP-09">
+        <text><![CDATA[`registry_for_path` shall state, in the diagnostic for a query that will not compile, the language, the query file, and the reason in words rather than as a numeric code, since the author of the query file is who acts on that diagnostic.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-070"/>
+          <trace target="HLR" ref="HLR-038"/>
         </traces>
       </llr>
       <llr id="LLR-RFP-08">
@@ -2862,7 +2919,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
       <llr id="LLR-ANL-07">
-        <text><![CDATA[`analyze_file` shall report, for each function it discovers, that function's name and its start and end line numbers, converting from the parser's zero-based rows exactly once.]]></text>
+        <text><![CDATA[`analyze_file` shall report, for each function it discovers, that function's name and its start and end line numbers, converting from the parser's zero-based rows exactly once, and shall copy the name out of the mapping into its own storage before that mapping is released.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-014" name="Per-Function Identity"/>
         </traces>
@@ -3052,6 +3109,27 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-ANL-35">
+        <text><![CDATA[`analyze_file` shall report a function's line span from the start of its captured name to the end of its captured body, so that the span begins at the signature a reader sees rather than at the body's opening delimiter. Where a language's query captures the name after the body, the span shall be the body's alone rather than an inverted one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-014"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-36">
+        <text><![CDATA[`analyze_file` shall report a function only for a query match supplying both the name capture and the body capture, and shall discard a match carrying one without the other rather than reporting a function with no line range or a line range with no name.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-014"/>
+          <trace target="HLR" ref="HLR-121"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-37">
+        <text><![CDATA[`analyze_file` shall distinguish a file skipped for want of a usable language module from a file that failed to be read or parsed, and shall report the two as different outcomes, so that a skip leaves the exit status at zero and a failure does not.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-012"/>
+          <trace target="HLR" ref="HLR-035"/>
+          <trace target="HLR" ref="HLR-037"/>
+        </traces>
+      </llr>
       <llr id="LLR-ANL-34">
         <text><![CDATA[`analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.]]></text>
         <traces>
@@ -3622,7 +3700,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
       <llr id="LLR-RPT-11">
-        <text><![CDATA[`report_assemble` shall order files by path, functions within a file by start line, findings by severity then kind then location, cycles by their lowest-ordered member, and unreachable functions by file then line.]]></text>
+        <text><![CDATA[`report_assemble` shall order files by path, functions within a file by start line and then by name, skipped files by path, findings by severity then kind then location, cycles by their lowest-ordered member, and unreachable functions by file then line. The name shall break a tie between two functions sharing a start line, since the sort is not otherwise stable and their order would then be the implementation's choice.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-033" name="Traversal-Order Independence"/>
         </traces>
@@ -4029,6 +4107,14 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-124" name="Memory Safety"/>
         </traces>
       </llr>
+      <llr id="LLR-BLD-12">
+        <text><![CDATA[The build shall produce each delivered language grammar from a pinned upstream release, compiling the generated parser that release publishes, so that no code-generation step is required at build time and the version delivered is a recorded decision rather than whatever was current.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-040"/>
+          <trace target="HLR" ref="HLR-011"/>
+          <trace target="HLR" ref="HLR-009"/>
+        </traces>
+      </llr>
       <llr id="LLR-BLD-09">
         <text><![CDATA[The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.]]></text>
         <traces>
@@ -4176,7 +4262,105 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/unit/analyze.c" role="unit" count="7">
+  <file path="test/unit/registry.c" role="unit" count="15">
+    <test name="the_environment_variable_names_the_runtime_location">
+      <purpose><![CDATA[The environment variable names the runtime location, and wins over the path adjacent to the executable — which for a unit binary does not exist at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-01"/>
+        <trace target="LLR" ref="LLR-ROP-02"/>
+      </traces>
+    </test>
+    <test name="an_absent_runtime_location_is_fatal">
+      <purpose><![CDATA[A runtime location that does not exist ends the run: no analysis is possible without one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-04"/>
+      </traces>
+    </test>
+    <test name="a_runtime_location_that_is_a_file_is_fatal">
+      <purpose><![CDATA[A runtime location that is a regular file is the same unusable state as a missing one, and is treated the same way.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-04"/>
+      </traces>
+    </test>
+    <test name="an_extension_map_naming_no_language_is_fatal">
+      <purpose><![CDATA[An extension map naming no language leaves nothing that can be routed to a module, which is the state HLR-036 calls fatal.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-04"/>
+      </traces>
+    </test>
+    <test name="the_extension_map_is_runtime_data">
+      <purpose><![CDATA[Pointing an unrelated extension at a language resolves, and an extension the data does not name does not — so the mapping is read from runtime data rather than compiled in.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-03"/>
+      </traces>
+    </test>
+    <test name="the_extension_map_tolerates_comments_and_bare_extensions">
+      <purpose><![CDATA[Comments and blank lines are not entries, an extension written without its leading period still matches, and matching ignores case.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-03"/>
+      </traces>
+    </test>
+    <test name="a_module_is_loaded_on_first_use_of_its_extension">
+      <purpose><![CDATA[A file's language comes from its extension alone, and first use loads the grammar and compiles all six queries.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-01"/>
+        <trace target="LLR" ref="LLR-RFP-03"/>
+        <trace target="LLR" ref="LLR-RFP-08"/>
+      </traces>
+    </test>
+    <test name="a_language_is_loaded_at_most_once">
+      <purpose><![CDATA[A second lookup returns the cached module, so a language is loaded at most once per run and a mixed-language target needs one pass.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-02"/>
+      </traces>
+    </test>
+    <test name="an_unmapped_extension_yields_no_module">
+      <purpose><![CDATA[An extension the map does not name, and a file name with no extension at all, both yield no module — so the caller skips rather than fails.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-05"/>
+      </traces>
+    </test>
+    <test name="an_absent_grammar_makes_the_language_unusable">
+      <purpose><![CDATA[A module whose grammar is missing is excluded rather than fatal, and opening the registry does not load any grammar up front.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-06"/>
+      </traces>
+    </test>
+    <test name="a_missing_query_file_makes_the_language_unusable">
+      <purpose><![CDATA[A module omitting one of the six required query files is handled as unusable, not as undefined behaviour.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-06"/>
+        <trace target="LLR" ref="LLR-RFP-08"/>
+      </traces>
+    </test>
+    <test name="an_invalid_query_makes_the_language_unusable">
+      <purpose><![CDATA[A query file that will not compile makes its language unusable rather than crashing the run or being silently ignored.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-06"/>
+      </traces>
+    </test>
+    <test name="an_unusable_language_is_not_retried">
+      <purpose><![CDATA[A language that failed to load is recorded once, so the diagnostic is emitted once rather than once per file that would have used it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-06"/>
+        <trace target="LLR" ref="LLR-RFP-07"/>
+      </traces>
+    </test>
+    <test name="no_particular_language_is_required">
+      <purpose><![CDATA[The registry opens over whatever the runtime location holds and verifies no particular language up front.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-05"/>
+      </traces>
+    </test>
+    <test name="close_is_safe_on_null_and_on_a_zeroed_registry">
+      <purpose><![CDATA[Teardown is safe on a null and on a never-opened registry, so every error path can release unconditionally.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RCL-01"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/analyze.c" role="unit" count="12">
     <test name="physical_lines_are_counted">
       <purpose><![CDATA[The physical line count comes from the mapped contents.]]></purpose>
       <traces>
@@ -4195,22 +4379,54 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="LLR" ref="LLR-ANL-04"/>
       </traces>
     </test>
-    <test name="the_metrics_carry_the_path">
-      <purpose><![CDATA[The returned metrics carry the path they were measured from, which the report is later ordered by.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-ANL-06"/>
-      </traces>
-    </test>
-    <test name="an_unreadable_file_is_reported_without_metrics">
-      <purpose><![CDATA[A file that cannot be read yields a non-zero return and no metrics for the caller to release, so the run can continue leak-free.]]></purpose>
+    <test name="an_unreadable_file_is_a_failure_without_metrics">
+      <purpose><![CDATA[A file that cannot be read yields a failure and no metrics for the caller to release, so the run continues leak-free.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-02"/>
       </traces>
     </test>
-    <test name="a_file_in_an_unwritable_directory_is_still_measured">
-      <purpose><![CDATA[Measurement succeeds where nothing may be written, which is the observable consequence of opening read-only.]]></purpose>
+    <test name="the_metrics_carry_the_path_and_language">
+      <purpose><![CDATA[The returned metrics carry the path measured and the language resolved for it.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-02"/>
+      </traces>
+    </test>
+    <test name="a_function_is_reported_with_its_name_and_line_range">
+      <purpose><![CDATA[A function is reported with its name and its line range, the span beginning at the signature rather than at the body's opening brace.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-07"/>
+        <trace target="LLR" ref="LLR-ANL-35"/>
+      </traces>
+    </test>
+    <test name="a_nested_function_is_reported_in_its_own_right">
+      <purpose><![CDATA[A named function declared inside another is reported as a function of its own, with its own name and line range, rather than folded into its enclosing function.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-09"/>
+      </traces>
+    </test>
+    <test name="a_prototype_is_not_a_function">
+      <purpose><![CDATA[A declaration without a body contributes no function: what counts as one is the query file's decision, and it supplies no body capture for a prototype.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-08"/>
+        <trace target="LLR" ref="LLR-ANL-36"/>
+      </traces>
+    </test>
+    <test name="a_function_name_outlives_the_mapping">
+      <purpose><![CDATA[A name is still readable after analyze_file returns, so it was copied out of the mapping rather than pointed into it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-07"/>
+      </traces>
+    </test>
+    <test name="a_file_that_fails_to_parse_is_a_failure">
+      <purpose><![CDATA[A file whose tree contains an error node is skipped whole and reported as a failure, rather than reported from a partially valid tree.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-01"/>
+      </traces>
+    </test>
+    <test name="an_unmapped_extension_is_a_skip_not_a_failure">
+      <purpose><![CDATA[A file whose extension maps to no language is a skip, a distinct outcome from a failure, so the exit status stays 0.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-37"/>
       </traces>
     </test>
     <test name="filemetrics_free_is_safe_on_null">
@@ -4714,6 +4930,223 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
+  <file path="test/integration/language.bats" role="integration" count="18">
+    <test name="HLR-007: the language is determined from the extension, unprompted">
+      <purpose><![CDATA[A file's language is detected from its extension with no user declaration, and is shown in the report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-007"/>
+      </traces>
+    </test>
+    <test name="HLR-007: a header is detected as well as a source file">
+      <purpose><![CDATA[A header maps to a language and its definitions are reported, so a project's headers are not silently uncovered.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-007"/>
+      </traces>
+    </test>
+    <test name="HLR-008: files sharing a language are analysed in one invocation">
+      <purpose><![CDATA[Several files are analysed in a single invocation and a single pass, with no per-language re-invocation.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-008"/>
+      </traces>
+    </test>
+    <test name="HLR-014: each function is reported with its name and line range">
+      <purpose><![CDATA[Every function discovered is reported with its name and its start and end lines.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-014"/>
+      </traces>
+    </test>
+    <test name="HLR-014: the line range starts at the signature, not the brace">
+      <purpose><![CDATA[The reported span begins where a reader says the function begins, rather than at the body's opening delimiter.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-014"/>
+      </traces>
+    </test>
+    <test name="HLR-033: functions are presented in start-line order">
+      <purpose><![CDATA[Functions appear in start-line order rather than in the order the query happened to match them.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="HLR-012: a file with no language module is listed as skipped">
+      <purpose><![CDATA[A file whose extension maps to no language appears in the report's skipped list, so the report accounts for every discovered file.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-012"/>
+      </traces>
+    </test>
+    <test name="HLR-012: a skipped file is also reported on stderr">
+      <purpose><![CDATA[The skip is reported through both observables the requirement names: the list and a diagnostic.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-012"/>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="HLR-037: a skip does not make the exit status non-zero">
+      <purpose><![CDATA[A skipped file is not a failure and does not by itself make the status non-zero.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-037"/>
+        <trace target="HLR" ref="HLR-120"/>
+      </traces>
+    </test>
+    <test name="HLR-012: a skipped file does not contribute to the totals">
+      <purpose><![CDATA[A skipped file is accounted for without being counted: the project totals are unchanged by its presence.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-012"/>
+        <trace target="HLR" ref="HLR-024"/>
+      </traces>
+    </test>
+    <test name="HLR-035: a file that fails to parse does not abort the run">
+      <purpose><![CDATA[A file that fails to parse leaves the rest of the run intact and the report covers the files that succeeded.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-035"/>
+      </traces>
+    </test>
+    <test name="HLR-120: a parse failure degrades the run to 1">
+      <purpose><![CDATA[A parse failure produces the status reserved for a run that completed but did not process every file.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-035"/>
+        <trace target="HLR" ref="HLR-037"/>
+        <trace target="HLR" ref="HLR-120"/>
+      </traces>
+    </test>
+    <test name="HLR-035: a parse failure names the file on stderr">
+      <purpose><![CDATA[The diagnostic identifies the file that failed and reaches the diagnostic stream.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-035"/>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="HLR-035: a file with a syntax error is skipped whole, not partially reported">
+      <purpose><![CDATA[A file carrying an error node is discarded entirely rather than reported from the sound part of its tree, since metrics from a damaged tree are indistinguishable from sound ones once rendered.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-035"/>
+      </traces>
+    </test>
+    <test name="HLR-019: each file reports its own line and function counts">
+      <purpose><![CDATA[Each file's row carries its own physical line count and the number of functions it defines.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-019"/>
+      </traces>
+    </test>
+    <test name="HLR-066: a target of only skipped files still reports zero totals">
+      <purpose><![CDATA[A run in which nothing could be analysed still emits a well-formed report with zero totals, and names what it skipped.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-066"/>
+        <trace target="HLR" ref="HLR-012"/>
+      </traces>
+    </test>
+    <test name="HLR-006: the report has the same sections whatever the target type">
+      <purpose><![CDATA[A file target and a directory target produce the same sections in the same order.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-006"/>
+      </traces>
+    </test>
+    <test name="HLR-032: two runs over a parsed tree are byte-identical">
+      <purpose><![CDATA[Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/runtime.bats" role="fixture" count="15">
+    <test name="an intact runtime analyses the subject">
+      <purpose><![CDATA[The control the rest of the group is read against: an unbroken runtime directory analyses the subject and reports its function.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-009"/>
+      </traces>
+    </test>
+    <test name="HLR-036: an absent runtime directory is fatal before any file is read">
+      <purpose><![CDATA[A missing runtime location ends the run with no report, since no analysis is possible in that state.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-036"/>
+        <trace target="HLR" ref="HLR-120"/>
+      </traces>
+    </test>
+    <test name="HLR-036: a runtime location that is a file is fatal">
+      <purpose><![CDATA[The same unusable state reached differently is treated the same way.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-036"/>
+      </traces>
+    </test>
+    <test name="HLR-036: an absent extension map is fatal">
+      <purpose><![CDATA[Without the extension map nothing can be routed to a language, which is the fatal state.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-036"/>
+        <trace target="HLR" ref="HLR-060"/>
+      </traces>
+    </test>
+    <test name="HLR-036: an extension map naming no language is fatal">
+      <purpose><![CDATA[A map present but naming nothing is as unusable as one that is missing.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-036"/>
+      </traces>
+    </test>
+    <test name="HLR-036: a fatal runtime failure is diagnosed on stderr">
+      <purpose><![CDATA[The fatal diagnostic names the location and reaches the diagnostic stream.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-036"/>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="HLR-070: an absent grammar degrades that language only">
+      <purpose><![CDATA[A language whose grammar is missing is excluded, the run completes, the status stays 0, and the affected file is listed as skipped.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-070"/>
+        <trace target="HLR" ref="HLR-012"/>
+      </traces>
+    </test>
+    <test name="HLR-070: a grammar exposing no entry point degrades that language only">
+      <purpose><![CDATA[A shared object that loads but exposes no grammar entry point is unusable rather than fatal.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-070"/>
+      </traces>
+    </test>
+    <test name="HLR-070: a grammar that is not a shared object degrades that language only">
+      <purpose><![CDATA[A parser file that cannot be loaded at all is unusable rather than fatal.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-070"/>
+      </traces>
+    </test>
+    <test name="HLR-121: a module missing a required query file is unusable, not undefined">
+      <purpose><![CDATA[A module omitting one of the six required query files is handled under HLR-070 rather than producing undefined behaviour.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-121"/>
+        <trace target="HLR" ref="HLR-070"/>
+      </traces>
+    </test>
+    <test name="HLR-070: an unparseable query degrades that language only">
+      <purpose><![CDATA[A query file that will not compile excludes its language and leaves the run otherwise intact.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-070"/>
+      </traces>
+    </test>
+    <test name="HLR-070: the diagnostic names the language and the reason">
+      <purpose><![CDATA[The diagnostic identifies the language, the query file, and the reason in words rather than as a numeric code.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-070"/>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="HLR-070: an unusable module is reported once, not once per file">
+      <purpose><![CDATA[The load failure is diagnosed once for the language rather than once for every file that would have used it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-070"/>
+      </traces>
+    </test>
+    <test name="HLR-059: the environment variable takes precedence over the adjacent runtime">
+      <purpose><![CDATA[Pointing the environment variable at a broken runtime degrades the run even though a working one sits beside the executable, which it can only do if the variable was preferred.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-059"/>
+      </traces>
+    </test>
+    <test name="HLR-059: the runtime adjacent to the executable is used when the variable is unset">
+      <purpose><![CDATA[With the variable unset, the runtime beside the executable is found and used.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-059"/>
+      </traces>
+    </test>
+  </file>
+
   <file path="test/fixtures/traversal.bats" role="fixture" count="11">
     <test name="the walk yields exactly the three source files">
       <purpose><![CDATA[The analysed file set for the hand-counted traversal tree is exactly the three files its header states, and nothing else.]]></purpose>
@@ -4832,7 +5265,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="11">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="14">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -4881,6 +5314,13 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-041" name="Single-Threaded Execution"/>
       </traces>
     </test>
+    <test name="every runtime data file the build does not produce is tracked">
+      <purpose><![CDATA[Every file under the runtime location that the build does not itself produce is tracked by the repository, so that a version-control ignore rule cannot silently exclude product data. `.gitignore` carries `*.map` for linker map files, which also matched the extension table: it worked locally, was absent from the clone CI made, and every parsing test then failed naming the missing file rather than the rule that hid it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-060"/>
+        <trace target="HLR" ref="HLR-121"/>
+      </traces>
+    </test>
     <test name="HLR-043: elc does not modify the tree it analyses">
       <purpose><![CDATA[The analysed tree checksums identically before and after a run.]]></purpose>
       <traces>
@@ -4891,6 +5331,19 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-043"/>
+      </traces>
+    </test>
+    <test name="HLR-076: each source file is opened exactly once">
+      <purpose><![CDATA[No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-076"/>
+      </traces>
+    </test>
+    <test name="HLR-009: the grammar is loaded from the runtime location, not linked">
+      <purpose><![CDATA[No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-009"/>
+        <trace target="HLR" ref="HLR-010"/>
       </traces>
     </test>
     <test name="HLR-043: elc runs against a read-only directory">
