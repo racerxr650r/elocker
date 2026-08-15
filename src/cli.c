@@ -27,7 +27,14 @@ void cli_usage(FILE *stream)
 "for the given targets. A TARGET is a source file or a directory.\n"
 "\n"
 "Options:\n"
-"  -h, --help     display this help and exit\n"
+"  -o, --output FILE  write the report to FILE instead of standard output\n"
+"  -h, --help         display this help and exit\n"
+"\n"
+"Output:\n"
+"  An aligned table of the discovered files and their physical line counts,\n"
+"  preceded by the project totals. Files are listed by canonical absolute\n"
+"  path, in ascending byte order, each exactly once however many targets\n"
+"  reach it.\n"
 "\n"
 "Exit status:\n"
 "  0  every discovered file was processed, or skipped for want of a\n"
@@ -44,8 +51,9 @@ void cli_usage(FILE *stream)
 int cli_parse(int argc, char *argv[], ElcOptions *out)
 {
 	static const struct option longopts[] = {
-		{ "help", no_argument, NULL, 'h' },
-		{ NULL,   0,           NULL, 0   }
+		{ "output", required_argument, NULL, 'o' },
+		{ "help",   no_argument,       NULL, 'h' },
+		{ NULL,     0,                 NULL, 0   }
 	};
 
 	memset(out, 0, sizeof(*out));
@@ -57,8 +65,14 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	optind = 1;
 
 	int c;
-	while ((c = getopt_long(argc, argv, ":h", longopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, ":ho:", longopts, NULL)) != -1) {
 		switch (c) {
+		case 'o':
+			/* Borrowed from argv, which outlives the run. Recording
+			 * standard output as the destination is the default:
+			 * output_path stays NULL (LLR-CLI-03). */
+			out->output_path = optarg;
+			break;
 		case 'h':
 			cli_usage(stdout);
 			return CLI_HELP;

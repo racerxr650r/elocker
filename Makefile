@@ -19,9 +19,18 @@ WARNINGS    := -Wall -Wextra -Wpedantic
 # set before any include; they live here rather than in the .c files.
 CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE
 CFLAGS      ?= -O2 -g
-CFLAGS      += -std=c11 $(WARNINGS) -MMD -MP
 LDFLAGS     +=
 LDLIBS      +=
+
+# Flags the build requires whatever the caller chose, appended in the recipes
+# rather than folded into CFLAGS.
+#
+# `CFLAGS += ...` here would look equivalent and is not: a variable set on the
+# command line overrides every assignment in the makefile, `+=` included. So
+# `make all CFLAGS="-O2 -g -Werror"` — which is exactly what the CI build job
+# runs — would drop -std=c11, the warning set, and the header-dependency
+# generation, leaving -Werror with almost nothing left to fail on.
+ELC_CFLAGS  := -std=c11 $(WARNINGS) -MMD -MP
 
 # ------------------------------------------------------------------- layout
 BUILD       := build
@@ -42,12 +51,22 @@ UNIT_BIN    := $(patsubst test/unit/%.c,$(BUILD)/unit/%,$(UNIT_SRC))
 # confined to the unit level; every other level links the real binary.
 # The canonical per-module inventory lives in doc/SDD.md's data dictionary.
 #
+# The lists are per module, matching that inventory. A wrap applies to every
+# object in the binary being linked, and every unit binary links every module,
+# so a symbol wrapped globally would oblige every test file to define a
+# `__wrap_` for it whether or not it mocks anything. WRAP_SYMS stays for a
+# symbol that genuinely must be intercepted everywhere; it is empty today.
+#
 # `comma` must be defined before WRAP_FLAGS: `:=` expands immediately, so a
 # later definition would leave the separator empty and silently produce
-# `-Wl--wrap=...`, which the compiler rejects.
-comma       := ,
-WRAP_SYMS   ?= malloc
-WRAP_FLAGS  := $(addprefix -Wl$(comma)--wrap=,$(WRAP_SYMS))
+# `-Wl--wrap=...`, which the compiler rejects. WRAP_FLAGS itself must be `=`
+# rather than `:=`, since `$*` only has a value inside the pattern recipe.
+comma              := ,
+WRAP_SYMS          ?=
+WRAP_SYMS_cli      ?= malloc
+WRAP_SYMS_discover ?= realpath
+WRAP_SYMS_report   ?= realloc
+WRAP_FLAGS          = $(addprefix -Wl$(comma)--wrap=,$(WRAP_SYMS) $(WRAP_SYMS_$*))
 
 # --------------------------------------------------------------------- help
 .PHONY: help
@@ -232,10 +251,10 @@ _check-min:
 all: $(BIN) $(BUILD)/runtime ## Build elc and the runtime symlink
 
 $(BIN): $(OBJ) | $(BUILD)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+	$(CC) $(CFLAGS) $(ELC_CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILD)/%.o: src/%.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(ELC_CFLAGS) -c -o $@ $<
 
 $(BUILD):
 	@mkdir -p $(BUILD)
@@ -265,7 +284,7 @@ unit: $(UNIT_BIN) ## Build and run the Criterion unit binaries
 $(BUILD)/unit/%: test/unit/%.c $(LIB_OBJ) | $(BUILD)/unit
 	@$(PKG_CONFIG) --exists criterion 2>/dev/null || { \
 		echo "make: Criterion not found — install libcriterion-dev" >&2; exit 1; }
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $< $(LIB_OBJ) \
+	$(CC) $(CPPFLAGS) $(CFLAGS) $(ELC_CFLAGS) -o $@ $< $(LIB_OBJ) \
 		$(shell $(PKG_CONFIG) --cflags --libs criterion) \
 		$(LDFLAGS) $(WRAP_FLAGS)
 
@@ -276,6 +295,10 @@ $(BUILD)/unit:
 integration: all ## Run the CLI-level Bats suites
 	@$(BATS) test/integration
 
+# The fixture data lives in one directory per property under test/fixtures/;
+# the suites themselves stay flat beside them, so bats needs no recursive
+# discovery — which uses `find -L` and would walk the cyclic symlink the
+# traversal fixture deliberately contains.
 .PHONY: fixtures
 fixtures: all ## Run the fixture-conformance suites
 	@$(BATS) test/fixtures

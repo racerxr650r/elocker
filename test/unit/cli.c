@@ -137,6 +137,46 @@ Test(cli, mode_defaults_to_analyse)
 	cli_options_free(&o);
 }
 
+Test(cli, the_output_destination_defaults_to_standard_output)
+{
+	char *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_null(o.output_path,
+	               "a null output path records standard output as the "
+	               "destination (HLR-030)");
+	cli_options_free(&o);
+}
+
+Test(cli, an_output_path_is_collected)
+{
+	char *argv[] = { "elc", "--output", "report.txt", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_str_eq(o.output_path, "report.txt");
+	cr_assert_eq(o.target_count, 1,
+	             "the option's argument is not mistaken for a target");
+	cli_options_free(&o);
+}
+
+Test(cli, the_short_output_option_behaves_as_the_long_one)
+{
+	char *argv[] = { "elc", "-o", "report.txt", "a.c", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_str_eq(o.output_path, "report.txt");
+	cli_options_free(&o);
+}
+
+Test(cli, an_output_option_without_its_argument_is_a_usage_error)
+{
+	char *argv[] = { "elc", "-o", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_ERROR,
+	             "an option requiring an argument must be given one "
+	             "(HLR-063)");
+}
+
 Test(cli, options_free_is_safe_on_null)
 {
 	cli_options_free(NULL);

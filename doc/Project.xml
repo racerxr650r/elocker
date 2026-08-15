@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="1.8" date="2026-08-14" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.1" date="2026-08-14" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="1.7" date="2026-08-14" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.1" date="2026-08-12" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.0" date="2026-08-14" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="1.9" date="2026-08-15" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.2" date="2026-08-15" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="1.8" date="2026-08-15" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.2" date="2026-08-15" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.1" date="2026-08-15" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="129"/>
-      <count name="llrs"       value="250"/>
-      <count name="tests"      value="44"/>
-      <count name="test_files" value="5"/>
+      <count name="llrs"       value="257"/>
+      <count name="tests"      value="128"/>
+      <count name="test_files" value="12"/>
     </counts>
   </metadata>
 
@@ -159,6 +159,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
               <step><![CDATA[For each discovered file call `analyze_file()`, appending its `FileMetrics` to the accumulator and its `FileFacts` to the fact list; record but do not propagate per-file failures.]]></step>
               <step><![CDATA[Call `graph_build()` over the fact list.]]></step>
               <step><![CDATA[Call `arch_analyse()`, `calltree_analyse()`, `state_analyse()`, then `thresholds_apply()`, then `report_assemble()`.]]></step>
+              <step><![CDATA[Open the output destination — the file named by the options, or standard output when none was named — and on a failure to open it emit a diagnostic and return 2 without writing a partial report (HLR-030).]]></step>
               <step><![CDATA[Dispatch to the selected renderer, then to `graph_write_dot()` when the companion artefact is warranted.]]></step>
               <step><![CDATA[Tear down in reverse order and return the computed status.]]></step>
             </logic>
@@ -170,6 +171,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
         </dependencies>
         <error_handling>
           <case name="Stage returns fatal"><![CDATA[Tear down what has been acquired, ensure the diagnostic has reached `stderr`, and return 2. No partial report is written.]]></case>
+          <case name="Output destination cannot be opened or written"><![CDATA[Diagnostic to `stderr` naming the destination, and return 2. A truncated report is never reported as success, and the diagnostic never enters the results stream (HLR-030, HLR-038).]]></case>
           <case name="Per-file failure recorded"><![CDATA[Continue the run; the report is complete for the files that succeeded, and the exit status becomes 1 (HLR-035, HLR-037).]]></case>
         </error_handling>
       </module>
@@ -224,33 +226,40 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
         <responsibility><![CDATA[Validate every target argument before any traversal begins.]]></responsibility>
         <responsibility><![CDATA[Classify each target with `stat(2)` and route it to direct handling, Git enumeration, or filesystem traversal.]]></responsibility>
         <responsibility><![CDATA[Establish whether a discovered repository is *applicable* to the target before using it, and fall back to filesystem traversal when it is not.]]></responsibility>
-        <responsibility><![CDATA[Enumerate tracked, non-binary blobs at or beneath the target for an applicable Git target; walk the tree with `fts(3)` otherwise, excluding binary extensions, hidden directories, and symlinked directories.]]></responsibility>
+        <responsibility><![CDATA[Enumerate tracked, non-binary blobs at or beneath the target for an applicable Git target; walk the tree with `fts(3)` otherwise, excluding binary extensions, hidden entries, and anything reached through a symbolic link.]]></responsibility>
+        <responsibility><![CDATA[Load the binary-extension exclusion list from the runtime location and pass it into the walk, so that no extension is compiled into the executable.]]></responsibility>
         <responsibility><![CDATA[Record which route each directory target took, for reporting.]]></responsibility>
         <responsibility><![CDATA[De-duplicate by resolved absolute path and sort the result into a stable order.]]></responsibility>
         <interfaces>
           <interface title="File System"><![CDATA[Reads directory structure and file metadata only; never opens a source file for content. Opening is `analyze.c`'s responsibility.]]></interface>
-          <interface title="Symbolic Links"><![CDATA[Target arguments are classified with `stat(2)`, which follows links, so a symlink named directly on the command line is resolved and analysed. Traversal uses `FTS_PHYSICAL`, which does not, so a symlinked directory encountered during a walk is never descended into. The pairing is deliberate and implements both halves of HLR-069; changing either call to match the other breaks one half.]]></interface>
+          <interface title="Symbolic Links"><![CDATA[Target arguments are classified with `stat(2)`, which follows links, so a symlink named directly on the command line is resolved and analysed. Traversal uses `FTS_PHYSICAL`, which does not, so a link encountered during a walk is never followed — a linked directory is not descended into, and a linked file is not appended. The pairing is deliberate and implements both halves of HLR-069; changing either call to match the other breaks one half.
+
+Skipping linked *files* as well as linked directories follows from the same reasoning as the cycle case: a link to a file already inside the tree would otherwise contribute it twice, and a link out of the tree would silently widen what the target denotes. A link that the user means to analyse is named, and naming it resolves it.]]></interface>
+          <interface title="Runtime Data"><![CDATA[The binary-extension exclusion list is read from `binary.exts` in the runtime location — `$ELC_RUNTIME_DIR` when set, otherwise the `runtime/` directory adjacent to the executable (HLR-059). Until `registry.c` exists to supply that resolution, `discover.c` performs it for this one file; the language-module half of the runtime location remains the registry's.]]></interface>
         </interfaces>
         <functions>
-          <function signature="int discover_targets(const ElcOptions *opts, FileList *out)">
+          <function signature="int discover_targets(const ElcOptions *opts, FileList *out, size_t *failures)">
             <purpose><![CDATA[Produce the complete, ordered, de-duplicated analysis file list.]]></purpose>
             <pre><![CDATA[`opts` has been validated by `cli_parse()`.]]></pre>
             <post><![CDATA[`out` holds absolute paths in ascending byte order, each appearing exactly once.]]></post>
-            <returns><![CDATA[0 on success; non-zero if any target argument was invalid, in which case `out` is empty.]]></returns>
+            <returns><![CDATA[0 on success, with `*failures` holding the number of per-file failures the traversal encountered; non-zero if any target argument was invalid, in which case `out` is empty. The two are distinct outcomes: an invalid target is fatal and yields no report (HLR-062), whereas a per-file failure degrades the exit status to 1 and the report is still produced (HLR-035).]]></returns>
             <logic>
-              <step><![CDATA[Loop over every target argument calling `stat(2)`; on the first that does not exist, cannot be read, or is neither regular file nor directory, emit a diagnostic naming it and return non-zero (HLR-062).]]></step>
+              <step><![CDATA[Loop over every target argument calling `stat(2)` and `access(2)`; on the first that does not exist, cannot be read, or is neither regular file nor directory, emit a diagnostic naming it and return non-zero (HLR-062). The classification each target received is recorded, so the traversal pass does not re-`stat` a path already resolved.]]></step>
+              <step><![CDATA[Load the binary-extension exclusion list from the runtime location, once for the whole run.]]></step>
               <step><![CDATA[For each validated target: a regular file is appended directly; a directory is offered to `git_repository_open_ext()`, which searches the directory and then its ancestors.]]></step>
               <step><![CDATA[On a successful repository open, test applicability: does this repository track the target directory? A repository that does not — because the target is `.gitignore`d, or because the repository found several levels up is an unrelated one such as a version-controlled home directory — is discarded, and the target falls through to filesystem traversal.]]></step>
               <step><![CDATA[For an applicable repository, resolve `HEAD^{tree}` and walk it, appending each blob that `git_blob_is_binary()` reports as text **and** whose repository-relative path lies at or beneath the target directory.]]></step>
-              <step><![CDATA[Otherwise walk with `fts_open()`/`fts_read()` in `FTS_PHYSICAL` mode, skipping hidden directories, known binary extensions, and any directory reached through a symbolic link.]]></step>
+              <step><![CDATA[Otherwise walk with `fts_open()`/`fts_read()` in `FTS_PHYSICAL` mode, skipping hidden entries below the target, known binary extensions, and anything reached through a symbolic link.]]></step>
               <step><![CDATA[Canonicalise each accumulated path with `realpath()`, insert into a set keyed on the canonical path, and finally sort the set into byte order.]]></step>
             </logic>
             <notes><![CDATA[Canonicalising before de-duplication is what makes `elc src/main.c src/` count `main.c` once (HLR-072). Sorting here, rather than relying on `fts` or `libgit2` ordering, is what makes the output independent of filesystem enumeration order (HLR-033).]]></notes>
           </function>
-          <function signature="bool is_excluded_extension(const char *path)" summary="Test a path against the binary-extension exclusion list, which is runtime data (runtime/binary.exts), not a compiled-in table."/>
+          <function signature="bool is_excluded_extension(const char *path, const ExtensionList *exts)" summary="Test a path against the binary-extension exclusion list, which is runtime data (runtime/binary.exts), not a compiled-in table. The list is a parameter rather than a global, so every function that consults it receives it through its arguments."/>
+          <function signature="int binary_exts_load(ExtensionList *out)" summary="Read the exclusion list from the runtime location. An absent or unreadable file is a diagnostic and an empty list, not a fatal error: discovery still runs, and the user is told why nothing was excluded."/>
+          <function signature="void binary_exts_free(ExtensionList *list)" summary="Release the exclusion list and every extension it owns."/>
           <function signature="bool repo_tracks_target(git_repository *repo, const char *target)" summary="True when the discovered repository tracks the target directory; the applicability test that gates repository enumeration."/>
           <function signature="int walk_git_tree(git_repository *repo, const char *target, FileList *out)" summary="Enumerate text blobs tracked at HEAD whose path lies at or beneath target."/>
-          <function signature="int walk_filesystem(const char *root, FileList *out)" summary="fts(3) traversal with hidden, binary, and symlink filtering."/>
+          <function signature="int walk_filesystem(const char *root, const ExtensionList *exts, FileList *out, size_t *failures)" summary="fts(3) traversal with hidden-entry, binary-extension, and symbolic-link filtering. Returns non-zero only when the traversal could not be started; an entry that cannot be read increments the failure count and the walk continues."/>
           <function signature="void filelist_free(FileList *list)" summary="Release the list and every path it owns."/>
         </functions>
         <algorithm><![CDATA[Git tree traversal is preferred over filesystem traversal whenever an *applicable* repository is found, because tracked-file enumeration yields `.gitignore` compliance for free: an ignored or untracked path is simply absent from the tree, with no exclusion list to maintain (HLR-003).
@@ -264,11 +273,13 @@ Two constraints on that preference exist because `git_repository_open_ext()` sea
 `FTS_PHYSICAL` rather than `FTS_LOGICAL` is what prevents a cyclic directory symlink from causing unbounded traversal (HLR-069).]]></algorithm>
         <dependencies>
           <dep><![CDATA[`libgit2` — `git_repository_open_ext()`, `git_revparse_single()`, `git_tree_walk()`, `git_blob_is_binary()`.]]></dep>
-          <dep><![CDATA[POSIX — `stat(2)`, `fts(3)`, `realpath(3)`.]]></dep>
+          <dep><![CDATA[POSIX — `stat(2)`, `access(2)`, `fts(3)`, `realpath(3)`, `getline(3)`.]]></dep>
         </dependencies>
         <error_handling>
           <case name="Invalid target argument"><![CDATA[Diagnostic to `stderr` naming the target; the whole run aborts before any analysis, so no report can silently cover fewer targets than the user named (HLR-062).]]></case>
           <case name="Unreadable subdirectory during traversal"><![CDATA[Diagnostic to `stderr`, skip that subtree, continue; recorded as a per-file failure so the exit status reflects it.]]></case>
+          <case name="Binary-extension list absent or unreadable"><![CDATA[Diagnostic to `stderr` naming the file, and an empty exclusion list; discovery proceeds and nothing is excluded. Not fatal: HLR-036's fatality concerns a runtime location that yields no language module at all, which is a state in which no analysis is possible; an unfiltered walk is a degraded run, not an impossible one, and the diagnostic makes it visible.]]></case>
+          <case name="Path that cannot be canonicalised"><![CDATA[Diagnostic to `stderr`, the path is dropped from the list, and a per-file failure is recorded; the run continues over the rest.]]></case>
           <case name="Enclosing repository does not track the target"><![CDATA[Not an error. The repository is discarded and the target is traversed from the filesystem; the route taken is recorded and reported (HLR-127), so the fallback is visible rather than silent.]]></case>
         </error_handling>
       </module>
@@ -345,7 +356,7 @@ The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals
             <logic>
               <step><![CDATA[Obtain the language module; a `NULL` return means skip this file and report it skipped (HLR-012).]]></step>
               <step><![CDATA[`open`, `fstat`, and short-circuit a zero-length file to zero metrics, since `mmap` of an empty file fails with `EINVAL` (HLR-020).]]></step>
-              <step><![CDATA[`mmap` the file and count `\n` occurrences for the physical line total.]]></step>
+              <step><![CDATA[`mmap` the file and count `\n` occurrences for the physical line total, counting a final line that carries no terminating newline, since it is a line the reader sees. Every scan is bounded by the length from `fstat(2)`; the mapping is not NUL-terminated.]]></step>
               <step><![CDATA[`ts_parser_set_language()` and `ts_parser_parse_string()` with the explicit `st_size` length — the mapping is not NUL-terminated.]]></step>
               <step><![CDATA[Run `comments.scm`, collect spans, sort by start byte, and merge overlaps into a canonical excluded-line set (HLR-016).]]></step>
               <step><![CDATA[Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067).]]></step>
@@ -354,7 +365,9 @@ The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals
               <step><![CDATA[Run every loaded custom rule query and record its matches (HLR-109). A match's identity is the rule file's basename plus the capture name that matched, so one `.scm` file may express several distinct named rules.]]></step>
               <step><![CDATA[`ts_tree_delete()` and `munmap()` on every exit path.]]></step>
             </logic>
-            <notes><![CDATA[Identifier text is `memcpy`'d out of the mapping into NUL-terminated allocations before the mapping is released, since every name outlives it.]]></notes>
+            <notes><![CDATA[Identifier text is `memcpy`'d out of the mapping into NUL-terminated allocations before the mapping is released, since every name outlives it.
+
+The signature above is the complete one. The mapping-and-counting half of the function — steps 2, 3, and the `munmap` of step 10 — needs no grammar and is therefore built before the registry exists, as `int analyze_file(const char *path, FileMetrics **metrics)`; the registry parameter and the `FileFacts` output are added with the parse itself. The narrower form is the same function at an earlier stage of its construction, not a second entry point.]]></notes>
           </function>
           <function signature="uint32_t merge_comment_spans(SpanList *spans)" summary="Sort by start byte and coalesce overlapping and nested spans; returns the merged line count."/>
           <function signature="const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)" summary="Return the narrowest reported function containing a byte offset."/>
@@ -546,6 +559,7 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
       <module path="src/report.c">
         <purpose><![CDATA[assembles every metric, finding, and custom-rule match into a single format-independent report model, and imposes the stable ordering that makes the output deterministic.]]></purpose>
         <responsibility><![CDATA[Merge per-file metrics, project totals, per-language breakdowns, and every analysis result into one structure.]]></responsibility>
+        <responsibility><![CDATA[Accumulate per-file metrics as the analysis stage produces them, growing the collection through a checked reallocation, and take ownership of them at assembly.]]></responsibility>
         <responsibility><![CDATA[Carry every computed architectural *measurement* into the model, not only those that crossed a threshold, so that a value lying within its accepted band is still reported.]]></responsibility>
         <responsibility><![CDATA[Compute the project summary, including the most-complex callouts with their tie-break rule.]]></responsibility>
         <responsibility><![CDATA[Apply the complexity threshold to produce each file's over-threshold function list.]]></responsibility>
@@ -556,7 +570,7 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
         <functions>
           <function signature="int report_assemble(const MetricsAccumulator *acc, const ArchResults *a, const TreeResults *t, const StateResults *s, const FindingList *f, const ElcOptions *opts, Report *out)">
             <purpose><![CDATA[Produce the ordered, format-independent report model.]]></purpose>
-            <post><![CDATA[Every collection in `out` is sorted by its defined key; no renderer needs to sort anything.]]></post>
+            <post><![CDATA[Every collection in `out` is sorted by its defined key; no renderer needs to sort anything. The accumulator's per-file metrics have moved into the model, which owns them thereafter, and the accumulator is left empty — so releasing both, as `main()` does on every path, cannot free the same metrics twice.]]></post>
             <returns><![CDATA[0 on success.]]></returns>
             <logic>
               <step><![CDATA[Sum physical lines and ELOC across all files, both combined and per language (HLR-024, HLR-025).]]></step>
@@ -565,8 +579,12 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
               <step><![CDATA[Attach the architectural findings, custom-rule matches, and omission notices.]]></step>
               <step><![CDATA[Sort files by path; functions by start line; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033).]]></step>
             </logic>
-            <notes><![CDATA[Centralising every sort here is deliberate: it is the single place a reviewer must check to be satisfied that HLR-032's byte-identical guarantee holds, rather than auditing six renderers and three analysis modules.]]></notes>
+            <notes><![CDATA[Centralising every sort here is deliberate: it is the single place a reviewer must check to be satisfied that HLR-032's byte-identical guarantee holds, rather than auditing six renderers and three analysis modules.
+
+`discover.c` also sorts, and the two are not redundant. Its sort exists so that de-duplication can collapse equal canonical paths, and so that the *analysis* order is not the filesystem's; this one exists so that *presentation* order is a property of the model. A later phase that changes how files are discovered therefore cannot silently change how they are presented.]]></notes>
           </function>
+          <function signature="int metrics_add(MetricsAccumulator *acc, FileMetrics *m)" summary="Append one file's metrics, taking ownership of them. Grows by doubling through a checked reallocation; on failure the accumulator is left intact and the caller still owns the metrics, so nothing is leaked and nothing is freed twice."/>
+          <function signature="void metrics_free(MetricsAccumulator *acc)" summary="Release the accumulator and every FileMetrics it still owns."/>
           <function signature="void report_free(Report *r)" summary="Release the report model and everything it owns."/>
         </functions>
         <dependencies>
@@ -580,14 +598,31 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
       <module path="src/format_text.c">
         <purpose><![CDATA[renders the report model in the two human-facing formats: the aligned ASCII table that is the default, and GitHub-Flavored Markdown.]]></purpose>
         <responsibility><![CDATA[Compute column widths from the longest path and function name, and render the aligned table.]]></responsibility>
+        <responsibility><![CDATA[Render every tier in the fixed order, so that the report has the same shape whatever the type of the target was (HLR-006).]]></responsibility>
         <responsibility><![CDATA[Render Markdown with functions grouped under a per-file heading.]]></responsibility>
         <responsibility><![CDATA[Present every tier the uniform-composition rule requires, in both formats.]]></responsibility>
         <functions>
-          <function signature="int format_table(const Report *r, FILE *out)" summary="Render the aligned ASCII table."/>
+          <function signature="int format_table(const Report *r, FILE *out)" summary="Render the aligned ASCII table. Returns non-zero when the stream reported a write failure, checked once after the last write rather than at every call."/>
           <function signature="int format_markdown(const Report *r, FILE *out)" summary="Render GitHub-Flavored Markdown."/>
           <function signature="void render_summary(const Report *r, FILE *out, Style style)" summary="Shared project-summary rendering for both formats."/>
         </functions>
-        <algorithm><![CDATA[Both renderers walk the identical model in the identical order and emit the identical tiers — project summary, per-file totals and over-threshold list, per-function detail, architectural measurements and findings, custom-rule matches — differing only in decoration. The traversal also emits the discovery route of each directory target (HLR-127) ahead of the per-file detail, so that a reader sees how a target was enumerated before seeing what it yielded. Sharing the traversal is what keeps HLR-031's uniform-composition guarantee true by construction rather than by parallel maintenance.]]></algorithm>
+        <algorithm><![CDATA[The table is laid out in tiers, each introduced by a heading and indented beneath it:
+
+```text
+Project summary
+  Files             3
+  Physical lines   42
+
+Files
+  File                    Lines
+  ----------------------  -----
+  /home/u/proj/src/a.c       18
+  /home/u/proj/src/b.c       21
+```
+
+Each column is exactly as wide as its widest cell and no wider: the path column from the longest path, the numeric columns from the largest value. A run that analysed nothing renders the headings and the rule with no rows beneath them, rather than nothing at all (HLR-066).
+
+Both renderers walk the identical model in the identical order and emit the identical tiers — project summary, per-file totals and over-threshold list, per-function detail, architectural measurements and findings, custom-rule matches — differing only in decoration. The traversal also emits the discovery route of each directory target (HLR-127) ahead of the per-file detail, so that a reader sees how a target was enumerated before seeing what it yielded. Sharing the traversal is what keeps HLR-031's uniform-composition guarantee true by construction rather than by parallel maintenance.]]></algorithm>
         <dependencies>
           <dep><![CDATA[`src/report.c`. No third-party dependency; `printf`-family formatting only.]]></dep>
         </dependencies>
@@ -705,6 +740,16 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="rule_paths" type="PathList" desc="Custom rule query files (HLR-107)"/>
         <field name="targets" type="PathList" desc="One or more file or directory arguments (HLR-071)"/>
       </type>
+      <type name="FileList" header="inc/discover.h" summary="The discovered files: canonical absolute paths, each appearing exactly once, in ascending byte order. Owns every path it holds.">
+        <field name="paths" type="char **" desc="Dynamic array, grown by doubling"/>
+        <field name="count" type="size_t" desc="Populated entries"/>
+        <field name="capacity" type="size_t" desc="Allocated entries"/>
+      </type>
+      <type name="ExtensionList" header="inc/discover.h" summary="The binary-extension exclusion list read from runtime data (HLR-005). Passed explicitly to every function that consults it rather than held in a global.">
+        <field name="exts" type="char **" desc="Each including its leading dot; matched case-insensitively"/>
+        <field name="count" type="size_t" desc="Populated entries"/>
+        <field name="capacity" type="size_t" desc="Allocated entries"/>
+      </type>
       <type name="LanguageModule" header="inc/elc.h" summary="One dynamically loaded language, cached by the registry after first use.">
         <field name="language_name" type="char *" desc="Resolved from the extension map"/>
         <field name="dl_handle" type="void *" desc="Handle from dlopen(); closed last at teardown"/>
@@ -747,6 +792,15 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="location" type="Location" desc="File, line, and node where applicable"/>
         <field name="detail" type="char *" desc="Rendered description, including cycle members or chain steps"/>
       </type>
+      <type name="MetricsAccumulator" header="inc/report.h" summary="Per-file metrics as they accumulate during the run. Owns every FileMetrics handed to it, until report_assemble takes them.">
+        <field name="files" type="FileMetrics **" desc="Dynamic array, grown by doubling through a checked reallocation (LLR-RPT-16)"/>
+        <field name="count" type="size_t" desc="Populated entries"/>
+        <field name="capacity" type="size_t" desc="Allocated entries"/>
+      </type>
+      <type name="ProjectSummary" header="inc/report.h" summary="The project-level totals across every analysed file (HLR-024), and the most-complex callouts once there are metrics to compare (HLR-026).">
+        <field name="file_count" type="size_t" desc="Files analysed in the run"/>
+        <field name="physical_lines" type="uint64_t" desc="Combined physical line count; wider than the per-file field because it sums over the whole project"/>
+      </type>
       <type name="Report" header="inc/elc.h" summary="The format-independent model every renderer consumes. Every collection is sorted before a renderer sees it.">
         <field name="summary" type="ProjectSummary" desc="Combined and per-language totals, and the most-complex callouts"/>
         <field name="files" type="FileMetrics **" desc="Sorted by path"/>
@@ -776,12 +830,16 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
 | ------ | --------------- | ------- |
 | `analyze.c` | `mmap`, `open`, `fstat`, `read`, `realloc` | Read failure, zero-length file, failed array growth (LLR-ANL-04, ANL-28, ANL-34) |
 | `registry.c` | `dlopen`, `dlsym`, `dlerror`, `ts_query_new` | Malformed module tolerance without a corrupt `.so` on disk (HLR-070, LLR-RFP-06) |
-| `discover.c` | `stat`, `git_repository_open_ext`, `realpath` | Invalid target classes, repository inapplicability, canonicalisation failure (LLR-DSC-02, GIT-04) |
+| `discover.c` | `realpath`, `git_repository_open_ext` | Canonicalisation failure, repository inapplicability (LLR-DSC-07, GIT-04). `stat` is deliberately absent: every invalid target class — absent, unreadable, FIFO, device node — can be produced on a real filesystem, and a test that builds one verifies the requirement rather than the mock. |
 | `graph.c`, `arch.c`, `calltree.c`, `state.c` | `realloc`, the graph library's allocating entry points | Allocation failure on graph paths (HLR-124, HLR-125) |
 | `report.c` | `realloc` | Checked collection growth (LLR-RPT-16) |
 | `format_*.c` | `fwrite`, `fprintf`, `fopen` | Write-failure paths, companion file creation failure (LLR-DOT-05) |
 
 Wrapping is confined to the unit level; every other level links and runs the real binary.
+
+The lists are **per module** in the build as well as here. A `--wrap` applies to every object in the binary being linked, and every unit binary links every module, so a symbol wrapped for one module's tests would oblige every other test file to define a `__wrap_` for it whether or not it mocks anything.
+
+Interception and `ptrace` do not compose. LeakSanitizer stops the world at exit through a `clone`d tracer and `ptrace`, which collides with `strace`'s own attachment and aborts the process; an instrumented run observed under `strace` therefore disables leak detection for that run alone. Every other run in the same sanitized pass still has it on, so HLR-125 stays verified — but a test that asserts a syscall never appears would otherwise pass because the process died before reaching the interesting part, which is worse than failing.
 
 **Dependency selection.** HLR-112 defers library choice to this document. The selections below were made after confirming the maintenance status of each candidate named in the PVD:
 
@@ -798,6 +856,7 @@ Wrapping is confined to the unit level; every other level links and runs the rea
 
 *   A **`FileFacts`** is owned by the caller of `graph_build`, never by the graph. `graph_build` copies what it needs into the SDG's own tables, so the fact list is released with `filefacts_free` as soon as `graph_build` returns; it must not be kept alive for the analyses.
 *   **`ArchResults`**, **`TreeResults`**, **`StateResults`**, and the **`FindingList`** are owned by `main`. `report_assemble` copies from them into the report model rather than taking ownership, so `main` releases each with its `*_free` once assembly returns.
+*   The **`MetricsAccumulator`** is the exception, and is exceptional because its contents are the model rather than an input to it: `report_assemble` *moves* the per-file metrics into the `Report` and leaves the accumulator empty. `main` still calls `metrics_free` afterwards, which is then a no-op — teardown stays unconditional, and no path frees the same `FileMetrics` twice.
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.]]></other>
@@ -892,6 +951,12 @@ LDFLAGS += -Wl,--wrap=mmap -Wl,--wrap=realloc -Wl,--wrap=dlopen
 Each wrapped symbol `f` is then defined in the test as `__wrap_f`, which may consult the real implementation through `__real_f` when it wants to pass the call through. Nothing in `src/` changes: there are no injected function pointers, no `#ifdef TESTING`, and no seam maintained purely for the benefit of tests. The production build links exactly the code that shipped, which is the property that makes a unit test's result mean something about the delivered binary.
 
 This is what makes the failure paths testable at the unit level rather than only by contrivance. A wrapped `realloc` returning `NULL` exercises the checked-growth contracts of LLR-ANL-34 and LLR-RPT-16; a wrapped `mmap` returning `MAP_FAILED` exercises `analyze_file`'s read-failure path; a wrapped `dlopen` or `dlsym` returning failure exercises the malformed-module tolerance of HLR-070 without needing a deliberately corrupt `.so` on disk. Wrapping is confined to the unit level: the integration, fixture, and instrumented levels link and run the real binary, unwrapped.
+
+The wrapped symbols are listed **per module**, in the build as well as in the design. A `--wrap` applies to every object linked into the binary, and every unit binary links every module, so a symbol wrapped for one module's tests would oblige every other unit test file to define a `__wrap_` for it whether or not it mocks anything.
+
+**Not everything worth mocking should be mocked.** `stat(2)` is the example: every invalid target class the requirement names — absent, unreadable, a FIFO, a device node — can be created on a real filesystem in three lines of test, and a test that creates one verifies the requirement where a test that wraps `stat` verifies the wrapper. The wrapper earns its place where the failure cannot otherwise be produced: a `realloc` that fails, a `realpath` that fails on a path that exists.
+
+**Link-time interception and `ptrace` do not compose.** LeakSanitizer stops the world at exit through a `clone`d tracer and `ptrace`, which collides with `strace`'s own attachment and aborts the process. Under the sanitized pass that abort truncates the trace, so an instrumented test asserting "this syscall never appears" would pass because the process died before reaching the interesting part — passing for the wrong reason, which is worse than failing. Leak detection is therefore disabled for a traced run and for that run only; every other run in the same pass still has it on, so HLR-125 stays verified.
 
 **Every arm/disarm flag guarding a wrapper must be `volatile`.** The compiler treats the allocation and I/O functions as builtins that cannot read the caller's globals, so in the natural shape of such a test —
 
@@ -1002,9 +1067,9 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-002, HLR-003, HLR-006"/>
       </fixture>
       <fixture name="`traversal/`" source="[test/fixtures/traversal/](../test/fixtures/traversal/)">
-        <artefact key="inputs" label="Inputs" path="Hidden directories; binary extensions; a self-referential directory symlink; a symlink named directly as a target; overlapping targets naming one file twice"/>
+        <artefact key="inputs" label="Inputs" path="Hidden files and hidden directories; binary extensions; a self-referential directory symlink; a symlink to a file inside the tree; a symlink named directly as a target; overlapping targets naming one file twice"/>
         <artefact key="expected" label="Expected" path="The analysed file set, each file exactly once"/>
-        <artefact key="verifies" label="Verifies" path="HLR-004, HLR-005, HLR-069, HLR-071, HLR-072"/>
+        <artefact key="verifies" label="Verifies" path="HLR-004, HLR-005, HLR-043, HLR-069, HLR-071, HLR-072"/>
       </fixture>
       <fixture name="`runtime/`" source="[test/fixtures/runtime/](../test/fixtures/runtime/)">
         <artefact key="inputs" label="Inputs" path="An absent runtime directory; one with no valid module; a module missing its entry point; a module with an unparseable query; an invalid custom rule, both CLI-named and runtime-located"/>
@@ -1027,7 +1092,9 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-055 – HLR-058, HLR-061, HLR-122"/>
       </fixture>
 
-      <outro><![CDATA[**The fixture table is not the whole coverage plan.** A large group of requirements is verified at the integration level instead, because what they constrain is the command line and the shape of the report rather than the analysis of any particular source: the report formats and their uniform composition, companion-artefact naming and the GraphML default, the threshold listing and its default, help and usage handling, skipped-file reporting, the severity vocabulary, and the attribution strings. These need a target to run against, not a specially constructed one, and so are exercised by the integration suites over the simplest fixture available.
+      <outro><![CDATA[**Where a fixture group lives.** The hand-counted data of a group lives in the directory named above; the Bats suite that asserts against it lives *beside* that directory, as `test/fixtures/<group>.bats`, rather than inside it. The reason is specific rather than stylistic: recursive discovery in Bats enumerates suites with `find -L`, which follows symbolic links, and the `traversal/` group deliberately contains a self-referential one. Keeping the suites flat means the harness never has to walk a tree built to defeat walking.
+
+**The fixture table is not the whole coverage plan.** A large group of requirements is verified at the integration level instead, because what they constrain is the command line and the shape of the report rather than the analysis of any particular source: the report formats and their uniform composition, companion-artefact naming and the GraphML default, the threshold listing and its default, help and usage handling, skipped-file reporting, the severity vocabulary, and the attribution strings. These need a target to run against, not a specially constructed one, and so are exercised by the integration suites over the simplest fixture available.
 
 **The GraphML export carries the graph test suite.** The rendered findings report conclusions, not topology — they say a cycle exists, not which edges the graph holds. GraphML is therefore the only channel through which a test can assert that the SDG itself was built correctly, which makes HLR-106 a dependency of this plan and not merely a user-facing feature. The `graph/` fixture group asserts against `expected.graphml` for exactly this reason.]]></outro>
     </integration_environment>
@@ -1136,7 +1203,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
       </hlr>
 
       <hlr id="HLR-005" name="Filesystem-Fallback Exclusion">
-        <text><![CDATA[During the filesystem-level traversal of HLR-004, `elc` shall exclude files with recognized binary file extensions and shall exclude hidden directories from analysis. The set of recognized binary extensions shall be defined by data in the runtime location rather than compiled into the executable, so that the exclusion list may be adjusted without a rebuild, consistent with HLR-060.]]></text>
+        <text><![CDATA[During the filesystem-level traversal of HLR-004, `elc` shall exclude files with recognized binary file extensions, and shall exclude hidden files and hidden directories, from analysis. An entry is hidden when its name begins with a period; the exclusion applies below the target and not to the target itself, since naming a hidden path as the target is explicit. Excluding hidden *files* as well as hidden directories is what makes HLR-039 observable: a configuration-like file planted in the analysis target cannot change the output if the traversal never yields it. The set of recognized binary extensions shall be defined by data in the runtime location rather than compiled into the executable, so that the exclusion list may be adjusted without a rebuild, consistent with HLR-060.]]></text>
       <traces>
         <trace target="SDD" ref="5"/>
       </traces>
@@ -2246,6 +2313,14 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         </traces>
       </llr>
 
+      <llr id="LLR-MAIN-17">
+        <text><![CDATA[`main` shall open the output destination named by the options, or use standard output when none was named, and shall emit a diagnostic and return 2 when that destination cannot be opened or cannot be written, rather than reporting a truncated report as success.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-030" name="Optional Output-File Redirection"/>
+          <trace target="HLR" ref="HLR-038" name="Diagnostics on stderr, Results on stdout"/>
+          <trace target="HLR" ref="HLR-120" name="Distinct Exit Status Classes"/>
+        </traces>
+      </llr>
       <llr id="LLR-MAIN-16">
         <text><![CDATA[`main` shall release every resource it acquired before returning, on the success path and on every error path alike, so that a completed run leaves no allocation, mapping, or handle outstanding.]]></text>
         <traces>
@@ -2534,7 +2609,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         </traces>
       </llr>
       <llr id="LLR-FTS-02">
-        <text><![CDATA[`walk_filesystem` shall exclude hidden directories from the traversal.]]></text>
+        <text><![CDATA[`walk_filesystem` shall exclude hidden entries — files as well as directories — from the traversal, a hidden entry being one whose name begins with a period.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-005" name="Filesystem-Fallback Exclusion"/>
         </traces>
@@ -2551,6 +2626,19 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
           <trace target="HLR" ref="HLR-069" name="Symbolic Link Handling During Traversal"/>
         </traces>
       </llr>
+      <llr id="LLR-FTS-05">
+        <text><![CDATA[`walk_filesystem` shall not follow a symbolic link encountered during the traversal, whether it names a directory or a regular file, so that a link to a file already within the tree cannot contribute it a second time and a link out of the tree cannot widen what the target denotes.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-069" name="Symbolic Link Handling During Traversal"/>
+          <trace target="HLR" ref="HLR-072" name="Duplicate File Elimination Across Targets"/>
+        </traces>
+      </llr>
+      <llr id="LLR-FTS-06">
+        <text><![CDATA[`walk_filesystem` shall apply its hidden-entry exclusion below the target only, and shall not apply it to the target itself, so that a hidden directory named on the command line is traversed.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-005" name="Filesystem-Fallback Exclusion"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="9" title="`is_excluded_extension` ([src/discover.c](../src/discover.c))" name="is_excluded_extension" source="src/discover.c">
@@ -2559,6 +2647,20 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <traces>
           <trace target="HLR" ref="HLR-005" name="Filesystem-Fallback Exclusion"/>
           <trace target="HLR" ref="HLR-060" name="Extension Mapping Defined by Runtime Data"/>
+        </traces>
+      </llr>
+      <llr id="LLR-EXT-02">
+        <text><![CDATA[`binary_exts_load` shall read the exclusion list from the runtime location, ignoring blank lines and comment lines and accepting an entry written with or without its leading period, and shall match an extension without regard to case.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-005" name="Filesystem-Fallback Exclusion"/>
+          <trace target="HLR" ref="HLR-060" name="Extension Mapping Defined by Runtime Data"/>
+        </traces>
+      </llr>
+      <llr id="LLR-EXT-03">
+        <text><![CDATA[`binary_exts_load` shall emit a diagnostic and yield an empty list, rather than aborting the run, when the binary-extension file is absent or unreadable, so that discovery still completes and the reason nothing was excluded is visible.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-005" name="Filesystem-Fallback Exclusion"/>
+          <trace target="HLR" ref="HLR-038" name="Diagnostics on stderr, Results on stdout"/>
         </traces>
       </llr>
     </function>
@@ -2753,7 +2855,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
       <llr id="LLR-ANL-06">
-        <text><![CDATA[`analyze_file` shall count the file's physical lines from the mapped contents.]]></text>
+        <text><![CDATA[`analyze_file` shall count the file's physical lines from the mapped contents, counting a final line that carries no terminating newline, and bounding every scan by the mapped length rather than by a terminator.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-019" name="File-Level Totals"/>
         </traces>
@@ -3564,6 +3666,13 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-RPT-18">
+        <text><![CDATA[`report_assemble` shall take ownership of the accumulated per-file metrics and leave the accumulator empty, so that a caller releasing both the accumulator and the report — as it must on every exit path — cannot free the same metrics twice.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-124" name="Memory Safety"/>
+          <trace target="HLR" ref="HLR-125" name="Complete Resource Release"/>
+        </traces>
+      </llr>
       <llr id="LLR-RPT-16">
         <text><![CDATA[`report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.]]></text>
         <traces>
@@ -3914,6 +4023,12 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-BLD-11">
+        <text><![CDATA[The build shall apply the language standard, the warning set, and the header-dependency generation it requires in a way that a caller-supplied `CFLAGS` cannot displace, so that a build invoked with an added flag is compiled under the same rules as one invoked with none.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-124" name="Memory Safety"/>
+        </traces>
+      </llr>
       <llr id="LLR-BLD-09">
         <text><![CDATA[The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.]]></text>
         <traces>
@@ -3973,7 +4088,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
   <tests>
-  <file path="test/unit/cli.c" role="unit" count="11">
+  <file path="test/unit/cli.c" role="unit" count="15">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -4032,8 +4147,269 @@ Note on the division of labour, which determines where a failure lives: the requ
     <test name="mode_defaults_to_analyse">
       <purpose><![CDATA[The run mode defaults to analysis when no mode-selecting option is given.]]></purpose>
     </test>
+    <test name="the_output_destination_defaults_to_standard_output">
+      <purpose><![CDATA[A null output path records standard output as the destination when none was supplied.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-03"/>
+      </traces>
+    </test>
+    <test name="an_output_path_is_collected">
+      <purpose><![CDATA[An output file path is collected into the options, and its argument is not mistaken for a target.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-03"/>
+      </traces>
+    </test>
+    <test name="the_short_output_option_behaves_as_the_long_one">
+      <purpose><![CDATA[The short form of the redirection option is parsed as the long form is.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-03"/>
+      </traces>
+    </test>
+    <test name="an_output_option_without_its_argument_is_a_usage_error">
+      <purpose><![CDATA[An option requiring an argument and given none is a usage error.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-12"/>
+      </traces>
+    </test>
     <test name="options_free_is_safe_on_null">
       <purpose><![CDATA[Releasing a null options structure does not fault, so teardown is safe on every path.]]></purpose>
+    </test>
+  </file>
+
+  <file path="test/unit/analyze.c" role="unit" count="7">
+    <test name="physical_lines_are_counted">
+      <purpose><![CDATA[The physical line count comes from the mapped contents.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-06"/>
+      </traces>
+    </test>
+    <test name="an_unterminated_final_line_counts">
+      <purpose><![CDATA[A trailing fragment with no terminating newline is a line the reader sees, and is counted as one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-06"/>
+      </traces>
+    </test>
+    <test name="a_zero_length_file_reports_zero_without_error">
+      <purpose><![CDATA[A file of zero length reports zero metrics without error, rather than being mapped — mmap of an empty file fails with EINVAL.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-04"/>
+      </traces>
+    </test>
+    <test name="the_metrics_carry_the_path">
+      <purpose><![CDATA[The returned metrics carry the path they were measured from, which the report is later ordered by.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-06"/>
+      </traces>
+    </test>
+    <test name="an_unreadable_file_is_reported_without_metrics">
+      <purpose><![CDATA[A file that cannot be read yields a non-zero return and no metrics for the caller to release, so the run can continue leak-free.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-02"/>
+      </traces>
+    </test>
+    <test name="a_file_in_an_unwritable_directory_is_still_measured">
+      <purpose><![CDATA[Measurement succeeds where nothing may be written, which is the observable consequence of opening read-only.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-02"/>
+      </traces>
+    </test>
+    <test name="filemetrics_free_is_safe_on_null">
+      <purpose><![CDATA[Releasing a null metrics structure does not fault, so teardown is safe on every path.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-02"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/discover.c" role="unit" count="20">
+    <test name="excluded_extension_matches_the_runtime_list">
+      <purpose><![CDATA[An extension present in the runtime list is excluded and one absent from it is not, the list having been read from the runtime location rather than from any table in the binary.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-EXT-01"/>
+      </traces>
+    </test>
+    <test name="excluded_extension_ignores_case">
+      <purpose><![CDATA[One entry covers every spelling of an extension, so a list maintained in lower case still excludes an upper-case file name.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-EXT-02"/>
+      </traces>
+    </test>
+    <test name="a_name_without_an_extension_is_not_excluded">
+      <purpose><![CDATA[A dot occurring in a directory component, and a name that is nothing but a suffix, are both correctly read as having no extension to test.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-EXT-01"/>
+      </traces>
+    </test>
+    <test name="an_empty_exclusion_list_excludes_nothing">
+      <purpose><![CDATA[An empty list excludes nothing, which is the state discovery runs in when the runtime file is absent.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-EXT-03"/>
+      </traces>
+    </test>
+    <test name="extension_list_skips_comments_and_blank_lines">
+      <purpose><![CDATA[Comment and blank lines are not entries, and an entry written without its leading period still matches, so the data file can be maintained in either style.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-EXT-02"/>
+      </traces>
+    </test>
+    <test name="a_missing_extension_list_is_not_fatal">
+      <purpose><![CDATA[An absent binary-extension file yields an empty list rather than aborting the run, so discovery still completes.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-EXT-03"/>
+      </traces>
+    </test>
+    <test name="a_regular_file_target_is_appended_directly">
+      <purpose><![CDATA[A target that is a regular file is appended to the file list with no directory traversal performed for it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-04"/>
+      </traces>
+    </test>
+    <test name="a_missing_target_is_rejected_with_an_empty_list">
+      <purpose><![CDATA[A target that does not exist is rejected, and no partial file list survives the rejection.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-02"/>
+      </traces>
+    </test>
+    <test name="a_target_that_is_neither_file_nor_directory_is_rejected">
+      <purpose><![CDATA[A FIFO named as a target is rejected, covering the class of targets that exist but are neither regular file nor directory.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-02"/>
+      </traces>
+    </test>
+    <test name="every_target_is_validated_before_any_is_walked">
+      <purpose><![CDATA[A valid target given alongside an invalid one is not walked, so a report can never cover fewer targets than the user named.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-01"/>
+      </traces>
+    </test>
+    <test name="a_file_reached_through_two_targets_appears_once">
+      <purpose><![CDATA[A file named explicitly and also contained in a named directory is retained once, canonicalisation having preceded de-duplication.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-07"/>
+      </traces>
+    </test>
+    <test name="the_file_list_is_sorted_into_byte_order">
+      <purpose><![CDATA[The completed list is in ascending byte order whatever order the filesystem enumerated it in.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-08"/>
+      </traces>
+    </test>
+    <test name="hidden_entries_and_binary_extensions_are_excluded">
+      <purpose><![CDATA[A hidden file, a hidden directory's contents, and a file carrying an excluded extension are all absent from the walk's result.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FTS-02"/>
+        <trace target="LLR" ref="LLR-FTS-03"/>
+      </traces>
+    </test>
+    <test name="the_walk_descends_into_subdirectories">
+      <purpose><![CDATA[The traversal is recursive: a file several directories below the target is found.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FTS-01"/>
+      </traces>
+    </test>
+    <test name="a_hidden_directory_named_as_the_target_is_traversed">
+      <purpose><![CDATA[The hidden-entry exclusion applies below the target and not to the target itself, so a hidden directory named on the command line is walked.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FTS-06"/>
+      </traces>
+    </test>
+    <test name="files_and_directories_are_classified_independently">
+      <purpose><![CDATA[Each target is routed on its own type, so a file and a directory given together are both handled correctly.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-03"/>
+      </traces>
+    </test>
+    <test name="a_cyclic_directory_symlink_terminates">
+      <purpose><![CDATA[A self-referential directory link does not produce an unbounded traversal, and the linked directory is not descended into. Reaching the assertion is itself the result.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-FTS-04"/>
+        <trace target="LLR" ref="LLR-FTS-05"/>
+      </traces>
+    </test>
+    <test name="a_symbolic_link_named_as_a_target_is_resolved">
+      <purpose><![CDATA[A link named directly as a target is resolved to its referent, the other half of the symbolic-link policy from the one the walk applies.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-06"/>
+      </traces>
+    </test>
+    <test name="a_path_that_cannot_be_canonicalised_is_a_per_file_failure">
+      <purpose><![CDATA[A canonicalisation failure, provoked through a link-time wrapper, drops that path and records a per-file failure rather than ending the run.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-09"/>
+      </traces>
+    </test>
+    <test name="filelist_free_is_safe_on_null">
+      <purpose><![CDATA[Releasing a null file list or extension list does not fault, so teardown is safe on every path.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSC-01"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/report.c" role="unit" count="6">
+    <test name="totals_sum_across_every_file">
+      <purpose><![CDATA[The project totals are the sum of the per-file physical line counts across every analysed file.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-01"/>
+      </traces>
+    </test>
+    <test name="files_are_presented_in_ascending_path_order">
+      <purpose><![CDATA[Files are ordered by path in the model, so presentation order is a property of the report rather than of the order the files were discovered.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-10"/>
+        <trace target="LLR" ref="LLR-RPT-11"/>
+      </traces>
+    </test>
+    <test name="an_empty_run_yields_a_complete_model_with_zero_totals">
+      <purpose><![CDATA[A run in which no file was analysed still produces a complete model with zero totals, which renders normally.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-12"/>
+      </traces>
+    </test>
+    <test name="assembly_leaves_the_accumulator_empty">
+      <purpose><![CDATA[Ownership of the per-file metrics moves into the report, so releasing both the accumulator and the report cannot free the same metrics twice.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-18"/>
+      </traces>
+    </test>
+    <test name="a_failed_growth_leaves_the_accumulator_intact">
+      <purpose><![CDATA[A reallocation failure, provoked through a link-time wrapper, is reported and leaves the original allocation intact rather than overwriting it with a null pointer.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-16"/>
+      </traces>
+    </test>
+    <test name="free_is_safe_on_null">
+      <purpose><![CDATA[Releasing a null report or accumulator does not fault, so teardown is safe on every path.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-16"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/format_text.c" role="unit" count="4">
+    <test name="the_table_carries_the_summary_and_every_file">
+      <purpose><![CDATA[The rendered table contains the project summary tier and one row for each file in the model.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-TBL-01"/>
+      </traces>
+    </test>
+    <test name="columns_are_aligned_on_the_longest_path">
+      <purpose><![CDATA[Every file row is rendered to the same width, the path column having been sized from the longest path in the model.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-TBL-01"/>
+      </traces>
+    </test>
+    <test name="an_empty_report_still_renders_a_table">
+      <purpose><![CDATA[A model with no files still renders its headings and column rule, so an empty run is distinguishable from a crash.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-TBL-01"/>
+      </traces>
+    </test>
+    <test name="a_write_failure_is_reported">
+      <purpose><![CDATA[A stream that cannot absorb the report yields a non-zero return, so a truncated report is never reported as success.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-TBL-03"/>
+      </traces>
     </test>
   </file>
 
@@ -4128,7 +4504,7 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-071" name="Multiple Target Arguments"/>
       </traces>
     </test>
-    <test name="a run producing no report writes nothing to stdout">
+    <test name="an accepted invocation writes its report to stdout">
       <purpose><![CDATA[Nothing but results reaches the results stream.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-038" name="Diagnostics on stderr, Results on stdout"/>
@@ -4194,7 +4570,269 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="7">
+  <file path="test/integration/discovery.bats" role="integration" count="21">
+    <test name="a directory target prints a table of its files">
+      <purpose><![CDATA[A directory target produces the aligned table, listing the files found beneath it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-027"/>
+        <trace target="HLR" ref="HLR-004"/>
+      </traces>
+    </test>
+    <test name="the table reports physical line counts">
+      <purpose><![CDATA[The project total is the sum of the physical line counts of the files discovered.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-019"/>
+        <trace target="HLR" ref="HLR-024"/>
+      </traces>
+    </test>
+    <test name="a single file target reports that file alone">
+      <purpose><![CDATA[A regular-file target reports that file and performs no traversal for it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-001"/>
+      </traces>
+    </test>
+    <test name="files and directories may be intermixed on one command line">
+      <purpose><![CDATA[Files and directories given together are each classified on their own type and combined into one report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-071"/>
+      </traces>
+    </test>
+    <test name="the output shape does not depend on the type of the target">
+      <purpose><![CDATA[A file target and a directory target produce the same headings and the same columns, so results from different target types are directly comparable.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-006"/>
+      </traces>
+    </test>
+    <test name="a file named alongside a directory containing it is counted once">
+      <purpose><![CDATA[A file reached through two overlapping targets appears exactly once in the report and once in the totals.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-072"/>
+      </traces>
+    </test>
+    <test name="two runs over the same target are byte-identical">
+      <purpose><![CDATA[Repeating an unmodified run produces identical bytes.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="targets given in a different order produce identical output">
+      <purpose><![CDATA[The order the targets were named in does not show through into the report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="a target that does not exist exits 2">
+      <purpose><![CDATA[An absent target ends the run with the status reserved for a run that never happened.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-062"/>
+        <trace target="HLR" ref="HLR-120"/>
+      </traces>
+    </test>
+    <test name="a target that is neither a file nor a directory exits 2">
+      <purpose><![CDATA[A FIFO named as a target is rejected, covering the class of targets that exist but are of the wrong type.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-062"/>
+      </traces>
+    </test>
+    <test name="an unreadable target exits 2">
+      <purpose><![CDATA[A target that exists but cannot be read is rejected before any analysis, rather than becoming a per-file failure part-way through.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-062"/>
+      </traces>
+    </test>
+    <test name="an invalid target produces no report at all">
+      <purpose><![CDATA[A valid target given alongside an invalid one yields no output, so no report can silently cover fewer targets than were named.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-062"/>
+      </traces>
+    </test>
+    <test name="an invalid target is diagnosed on stderr, naming it">
+      <purpose><![CDATA[The diagnostic identifies the offending target and reaches the diagnostic stream, not the results stream.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-062"/>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="a target with no files reports zero totals and exits 0">
+      <purpose><![CDATA[A run that found nothing to analyse still emits a well-formed report with zero totals and succeeds.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-066"/>
+      </traces>
+    </test>
+    <test name="the report goes to stdout and nothing else does">
+      <purpose><![CDATA[A successful run writes its results to standard output and writes nothing to standard error.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="--output writes the report to the named file">
+      <purpose><![CDATA[The report is written to the named file, and standard output is left empty.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-030"/>
+      
+        <trace target="LLR" ref="LLR-MAIN-17"/>
+      </traces>
+    </test>
+    <test name="-o is the short form of --output">
+      <purpose><![CDATA[The short form of the redirection option behaves as the long form.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-030"/>
+      </traces>
+    </test>
+    <test name="a redirected report is byte-identical to the one on stdout">
+      <purpose><![CDATA[Redirection changes where the report goes, not what it says.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-030"/>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="an output file that cannot be opened exits 2">
+      <purpose><![CDATA[A destination that cannot be opened ends the run with the status reserved for a run that produced no report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-030"/>
+        <trace target="HLR" ref="HLR-120"/>
+      
+        <trace target="LLR" ref="LLR-MAIN-17"/>
+      </traces>
+    </test>
+    <test name="an output file that cannot be opened is diagnosed on stderr">
+      <purpose><![CDATA[The diagnostic names the destination and reaches the diagnostic stream.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-030"/>
+        <trace target="HLR" ref="HLR-038"/>
+      
+        <trace target="LLR" ref="LLR-MAIN-17"/>
+      </traces>
+    </test>
+    <test name="an unreadable file inside a target degrades the run to 1">
+      <purpose><![CDATA[A file within a target that cannot be read is a per-file failure: the report still covers the files that succeeded, and the exit status says so.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-035"/>
+        <trace target="HLR" ref="HLR-037"/>
+        <trace target="HLR" ref="HLR-120"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/traversal.bats" role="fixture" count="11">
+    <test name="the walk yields exactly the three source files">
+      <purpose><![CDATA[The analysed file set for the hand-counted traversal tree is exactly the three files its header states, and nothing else.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-004"/>
+        <trace target="HLR" ref="HLR-005"/>
+      </traces>
+    </test>
+    <test name="the hand-counted traversal totals match">
+      <purpose><![CDATA[The file count and physical line total match the values counted by hand in the fixture's header.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-019"/>
+        <trace target="HLR" ref="HLR-024"/>
+      </traces>
+    </test>
+    <test name="HLR-005: a binary extension is excluded">
+      <purpose><![CDATA[A file whose extension appears in the runtime exclusion list is absent from the walk's result.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-005"/>
+      </traces>
+    </test>
+    <test name="HLR-005: a hidden directory is excluded">
+      <purpose><![CDATA[The contents of a hidden directory are absent from the walk's result.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-005"/>
+      </traces>
+    </test>
+    <test name="HLR-005: a hidden file is excluded">
+      <purpose><![CDATA[A hidden file in the target is absent from the walk's result, which is what makes a configuration-like file planted there unable to change the output.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-005"/>
+        <trace target="HLR" ref="HLR-039"/>
+      </traces>
+    </test>
+    <test name="HLR-069: a symbolic link is not followed during the walk">
+      <purpose><![CDATA[A link to a file already inside the tree is not followed, so the file it names is not contributed a second time.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-069"/>
+      </traces>
+    </test>
+    <test name="HLR-069: a cyclic directory link does not hang the walk">
+      <purpose><![CDATA[A self-referential directory link is not descended into and the walk terminates with the expected file set.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-069"/>
+      </traces>
+    </test>
+    <test name="HLR-069: a symbolic link named as a target is resolved">
+      <purpose><![CDATA[A link named directly as a target is resolved and its referent analysed, the other half of the symbolic-link policy.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-069"/>
+      </traces>
+    </test>
+    <test name="HLR-072: naming a file and its directory analyses it once">
+      <purpose><![CDATA[Overlapping targets over the fixture tree yield the same file set as the directory alone.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-072"/>
+      </traces>
+    </test>
+    <test name="HLR-071: several targets combine into one report">
+      <purpose><![CDATA[Two targets produce a single report spanning both.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-071"/>
+      </traces>
+    </test>
+    <test name="HLR-043: the fixture tree is unchanged by a run">
+      <purpose><![CDATA[Every file in the fixture tree checksums identically before and after a run.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-043"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/determinism.bats" role="fixture" count="7">
+    <test name="the hand-counted determinism totals match">
+      <purpose><![CDATA[The file count and physical line total match the values counted by hand in the fixture's header.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-019"/>
+        <trace target="HLR" ref="HLR-024"/>
+      </traces>
+    </test>
+    <test name="HLR-033: files are presented in byte order, not creation order">
+      <purpose><![CDATA[The reported paths are in ascending byte order, though the tree was created in a different one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="HLR-032: two runs over the same target are byte-identical">
+      <purpose><![CDATA[Repeating an unmodified run over the fixture tree produces identical bytes.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="HLR-033: two directory targets in either order agree">
+      <purpose><![CDATA[Two overlapping directory targets produce the same report whichever order they are named in.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="HLR-033: a file target and a directory target in either order agree">
+      <purpose><![CDATA[The independence of target order holds across the two classification routes, not only within one of them.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="HLR-039: decoys in the working directory, the target, and an ancestor change nothing">
+      <purpose><![CDATA[Configuration-like files planted in all three locations produce output byte-identical to their absence.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-039"/>
+      </traces>
+    </test>
+    <test name="HLR-039: a decoy does not change the file count either">
+      <purpose><![CDATA[A decoy planted in the target does not appear in the report as a discovered file.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-039"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/instrumented/environment.bats" role="instrumented" count="11">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -4205,6 +4843,18 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[`strace -e trace=%network` over a full run logs no network syscall. This observes the syscalls directly rather than inferring the property from survival inside an isolated network namespace: it proves `elc` never *attempts* network access, and it runs in containers where unprivileged user namespaces are unavailable.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-040" name="Excluded Runtime Dependencies"/>
+      </traces>
+    </test>
+    <test name="HLR-041: /proc reports a single thread while elc runs">
+      <purpose><![CDATA[The running process reports exactly one thread. Redirecting the report into a FIFO removes the race that made this observation impossible before: opening a FIFO for writing blocks until a reader arrives, so the sample is taken while elc is certainly alive.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-041"/>
+      </traces>
+    </test>
+    <test name="HLR-041: elc issues no thread-creating syscall">
+      <purpose><![CDATA[No clone or clone3 syscall is observed for the whole run, which is stronger than sampling a thread count because it holds for every instant rather than the one sampled.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-041"/>
       </traces>
     </test>
     <test name="HLR-041: elc links no threading library">
@@ -4219,6 +4869,12 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-041" name="Single-Threaded Execution"/>
       </traces>
     </test>
+    <test name="the build's required flags survive an overridden CFLAGS">
+      <purpose><![CDATA[The language standard, the warning set, and the header-dependency generation all appear in the compile command when CFLAGS is overridden from the command line, so a build invoked with an added flag is compiled under the same rules as one invoked with none.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-11"/>
+      </traces>
+    </test>
     <test name="HLR-041: the build passes no threading flag">
       <purpose><![CDATA[The build never passes -pthread, which would silently license a future thread.]]></purpose>
       <traces>
@@ -4229,6 +4885,12 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[The analysed tree checksums identically before and after a run.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-043" name="Read-Only Operation"/>
+      </traces>
+    </test>
+    <test name="HLR-043: elc opens nothing for writing">
+      <purpose><![CDATA[No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-043"/>
       </traces>
     </test>
     <test name="HLR-043: elc runs against a read-only directory">

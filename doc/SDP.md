@@ -14,7 +14,7 @@ is ready to start.
 | Phase | Description | Status |
 | ----- | ----------- | ------ |
 | [0](#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | ✅ Complete |
-| [1](#phase-1--target-discovery-and-the-walking-skeleton) | Target discovery, ordering, table output — end to end | 🔲 Not started |
+| [1](#phase-1--target-discovery-and-the-walking-skeleton) | Target discovery, ordering, table output — end to end | ✅ Complete |
 | [2](#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | 🔲 Not started |
 | [3](#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | 🔲 Not started |
 | [4](#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | 🔲 Not started |
@@ -562,8 +562,9 @@ from §8.
 ### Phase 2 — Language Runtime and Function Discovery
 
 1. `registry.c`: runtime-location resolution with environment precedence,
-   `extensions.map` and `binary.exts` loading, lazy `dlopen`, query
-   compilation, teardown ordering.
+   `extensions.map` loading, lazy `dlopen`, query compilation, teardown
+   ordering. (`binary.exts` is already loaded by `discover.c`, which needed
+   it in Phase 1 and is its only consumer — see the note below.)
 2. The C grammar and its six query files, with `functions.scm` complete.
 3. `analyze.c`: `mmap`, single parse, function discovery, nested named
    functions, identifier extraction, line-number conversion.
@@ -596,6 +597,10 @@ Ship the C grammar and all six query files, with `functions.scm` complete.
 The other five may be stubs that capture nothing — later phases fill them.
 
 Watch for:
+* `discover.c` resolves the runtime location for itself today, because
+  Phase 1 needed `binary.exts` and no registry existed. Resolve it once in
+  `registry.c` per LLR-ROP-01/02 and have `discover.c` ask for it, rather
+  than leaving two copies of the same precedence rule.
 * **Teardown order is load-bearing**: delete every `TSQuery`, then the parser
   and cursor, then `dlclose`. A query holds pointers into the grammar the
   handle unmaps; the wrong order crashes at exit with a useless backtrace.

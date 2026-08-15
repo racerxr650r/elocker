@@ -1,11 +1,14 @@
 /* elc.h — types shared across the elc pipeline.
  *
- * Phase 0 defines only what the CLI and exit-status scheme require. Later
- * phases extend this header as the SDD's data dictionary describes; see
- * doc/SDD.md.
+ * The header grows one phase at a time: each phase adds the fields the SDD's
+ * data dictionary describes for the stage it builds, and no more, so that a
+ * field in this header always has code behind it. See doc/SDD.md §18.
  */
 #ifndef ELC_H
 #define ELC_H
+
+#include <stddef.h>
+#include <stdint.h>
 
 /* Process exit status (HLR-120).
  *
@@ -21,6 +24,10 @@ enum {
 	                       * saved record (HLR-062, HLR-063, HLR-036)      */
 };
 
+/* Name of the environment variable that overrides the runtime location
+ * adjacent to the executable (HLR-059). */
+#define ELC_RUNTIME_DIR_ENV "ELC_RUNTIME_DIR"
+
 /* What the run is being asked to do. Phase 5 adds MODE_REGENERATE. */
 typedef enum {
 	MODE_ANALYSE = 0
@@ -34,8 +41,19 @@ typedef enum {
  */
 typedef struct {
 	RunMode       mode;
+	const char   *output_path;  /* NULL when writing to stdout (HLR-030) */
 	const char  **targets;      /* borrowed from argv; not owned          */
 	size_t        target_count;
 } ElcOptions;
+
+/* Per-file totals and, from Phase 2, the functions the file defines.
+ *
+ * Phase 1 carries the physical line count only; `language`, `eloc`, and the
+ * function array arrive with the stages that compute them (doc/SDD.md §18).
+ */
+typedef struct {
+	char     *path;           /* canonical absolute path; owned          */
+	uint32_t  physical_lines; /* newline count from the mapping          */
+} FileMetrics;
 
 #endif /* ELC_H */

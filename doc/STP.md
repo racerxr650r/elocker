@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.1
-**Date:** 2026-08-12
+**Version:** 0.2
+**Date:** 2026-08-15
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -60,6 +60,12 @@ LDFLAGS += -Wl,--wrap=mmap -Wl,--wrap=realloc -Wl,--wrap=dlopen
 Each wrapped symbol `f` is then defined in the test as `__wrap_f`, which may consult the real implementation through `__real_f` when it wants to pass the call through. Nothing in `src/` changes: there are no injected function pointers, no `#ifdef TESTING`, and no seam maintained purely for the benefit of tests. The production build links exactly the code that shipped, which is the property that makes a unit test's result mean something about the delivered binary.
 
 This is what makes the failure paths testable at the unit level rather than only by contrivance. A wrapped `realloc` returning `NULL` exercises the checked-growth contracts of LLR-ANL-34 and LLR-RPT-16; a wrapped `mmap` returning `MAP_FAILED` exercises `analyze_file`'s read-failure path; a wrapped `dlopen` or `dlsym` returning failure exercises the malformed-module tolerance of HLR-070 without needing a deliberately corrupt `.so` on disk. Wrapping is confined to the unit level: the integration, fixture, and instrumented levels link and run the real binary, unwrapped.
+
+The wrapped symbols are listed **per module**, in the build as well as in the design. A `--wrap` applies to every object linked into the binary, and every unit binary links every module, so a symbol wrapped for one module's tests would oblige every other unit test file to define a `__wrap_` for it whether or not it mocks anything.
+
+**Not everything worth mocking should be mocked.** `stat(2)` is the example: every invalid target class the requirement names — absent, unreadable, a FIFO, a device node — can be created on a real filesystem in three lines of test, and a test that creates one verifies the requirement where a test that wraps `stat` verifies the wrapper. The wrapper earns its place where the failure cannot otherwise be produced: a `realloc` that fails, a `realpath` that fails on a path that exists.
+
+**Link-time interception and `ptrace` do not compose.** LeakSanitizer stops the world at exit through a `clone`d tracer and `ptrace`, which collides with `strace`'s own attachment and aborts the process. Under the sanitized pass that abort truncates the trace, so an instrumented test asserting "this syscall never appears" would pass because the process died before reaching the interesting part — passing for the wrong reason, which is worse than failing. Leak detection is therefore disabled for a traced run and for that run only; every other run in the same pass still has it on, so HLR-125 stays verified.
 
 **Every arm/disarm flag guarding a wrapper must be `volatile`.** The compiler treats the allocation and I/O functions as builtins that cannot read the caller's globals, so in the natural shape of such a test —
 
@@ -126,12 +132,12 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **44 test(s)** across
-**5 file(s)**.
+Snapshot: **128 test(s)** across
+**12 file(s)**.
 
 ### 3.1. [test/unit/cli.c](../test/unit/cli.c)
 
-Role: **unit**. **11 test(s).**
+Role: **unit**. **15 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -145,9 +151,78 @@ Role: **unit**. **11 test(s).**
 | 8 | <a id="several_targets_are_collected_in_order"></a>`several_targets_are_collected_in_order` | `LLR-CLI-01` | Several targets are collected in argument order, files and directories intermixed. |
 | 9 | <a id="help_takes_precedence_over_a_target"></a>`help_takes_precedence_over_a_target` | `LLR-CLI-13` | A help request is reported without validating the remaining arguments. |
 | 10 | <a id="mode_defaults_to_analyse"></a>`mode_defaults_to_analyse` | — | The run mode defaults to analysis when no mode-selecting option is given. |
-| 11 | <a id="options_free_is_safe_on_null"></a>`options_free_is_safe_on_null` | — | Releasing a null options structure does not fault, so teardown is safe on every path. |
+| 11 | <a id="the_output_destination_defaults_to_standard_output"></a>`the_output_destination_defaults_to_standard_output` | `LLR-CLI-03` | A null output path records standard output as the destination when none was supplied. |
+| 12 | <a id="an_output_path_is_collected"></a>`an_output_path_is_collected` | `LLR-CLI-03` | An output file path is collected into the options, and its argument is not mistaken for a target. |
+| 13 | <a id="the_short_output_option_behaves_as_the_long_one"></a>`the_short_output_option_behaves_as_the_long_one` | `LLR-CLI-03` | The short form of the redirection option is parsed as the long form is. |
+| 14 | <a id="an_output_option_without_its_argument_is_a_usage_error"></a>`an_output_option_without_its_argument_is_a_usage_error` | `LLR-CLI-12` | An option requiring an argument and given none is a usage error. |
+| 15 | <a id="options_free_is_safe_on_null"></a>`options_free_is_safe_on_null` | — | Releasing a null options structure does not fault, so teardown is safe on every path. |
 
-### 3.2. [test/integration/cli.bats](../test/integration/cli.bats)
+### 3.2. [test/unit/analyze.c](../test/unit/analyze.c)
+
+Role: **unit**. **7 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="physical_lines_are_counted"></a>`physical_lines_are_counted` | `LLR-ANL-06` | The physical line count comes from the mapped contents. |
+| 2 | <a id="an_unterminated_final_line_counts"></a>`an_unterminated_final_line_counts` | `LLR-ANL-06` | A trailing fragment with no terminating newline is a line the reader sees, and is counted as one. |
+| 3 | <a id="a_zero_length_file_reports_zero_without_error"></a>`a_zero_length_file_reports_zero_without_error` | `LLR-ANL-04` | A file of zero length reports zero metrics without error, rather than being mapped — mmap of an empty file fails with EINVAL. |
+| 4 | <a id="the_metrics_carry_the_path"></a>`the_metrics_carry_the_path` | `LLR-ANL-06` | The returned metrics carry the path they were measured from, which the report is later ordered by. |
+| 5 | <a id="an_unreadable_file_is_reported_without_metrics"></a>`an_unreadable_file_is_reported_without_metrics` | `LLR-ANL-02` | A file that cannot be read yields a non-zero return and no metrics for the caller to release, so the run can continue leak-free. |
+| 6 | <a id="a_file_in_an_unwritable_directory_is_still_measured"></a>`a_file_in_an_unwritable_directory_is_still_measured` | `LLR-ANL-02` | Measurement succeeds where nothing may be written, which is the observable consequence of opening read-only. |
+| 7 | <a id="filemetrics_free_is_safe_on_null"></a>`filemetrics_free_is_safe_on_null` | `LLR-ANL-02` | Releasing a null metrics structure does not fault, so teardown is safe on every path. |
+
+### 3.3. [test/unit/discover.c](../test/unit/discover.c)
+
+Role: **unit**. **20 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="excluded_extension_matches_the_runtime_list"></a>`excluded_extension_matches_the_runtime_list` | `LLR-EXT-01` | An extension present in the runtime list is excluded and one absent from it is not, the list having been read from the runtime location rather than from any table in the binary. |
+| 2 | <a id="excluded_extension_ignores_case"></a>`excluded_extension_ignores_case` | `LLR-EXT-02` | One entry covers every spelling of an extension, so a list maintained in lower case still excludes an upper-case file name. |
+| 3 | <a id="a_name_without_an_extension_is_not_excluded"></a>`a_name_without_an_extension_is_not_excluded` | `LLR-EXT-01` | A dot occurring in a directory component, and a name that is nothing but a suffix, are both correctly read as having no extension to test. |
+| 4 | <a id="an_empty_exclusion_list_excludes_nothing"></a>`an_empty_exclusion_list_excludes_nothing` | `LLR-EXT-03` | An empty list excludes nothing, which is the state discovery runs in when the runtime file is absent. |
+| 5 | <a id="extension_list_skips_comments_and_blank_lines"></a>`extension_list_skips_comments_and_blank_lines` | `LLR-EXT-02` | Comment and blank lines are not entries, and an entry written without its leading period still matches, so the data file can be maintained in either style. |
+| 6 | <a id="a_missing_extension_list_is_not_fatal"></a>`a_missing_extension_list_is_not_fatal` | `LLR-EXT-03` | An absent binary-extension file yields an empty list rather than aborting the run, so discovery still completes. |
+| 7 | <a id="a_regular_file_target_is_appended_directly"></a>`a_regular_file_target_is_appended_directly` | `LLR-DSC-04` | A target that is a regular file is appended to the file list with no directory traversal performed for it. |
+| 8 | <a id="a_missing_target_is_rejected_with_an_empty_list"></a>`a_missing_target_is_rejected_with_an_empty_list` | `LLR-DSC-02` | A target that does not exist is rejected, and no partial file list survives the rejection. |
+| 9 | <a id="a_target_that_is_neither_file_nor_directory_is_rejected"></a>`a_target_that_is_neither_file_nor_directory_is_rejected` | `LLR-DSC-02` | A FIFO named as a target is rejected, covering the class of targets that exist but are neither regular file nor directory. |
+| 10 | <a id="every_target_is_validated_before_any_is_walked"></a>`every_target_is_validated_before_any_is_walked` | `LLR-DSC-01` | A valid target given alongside an invalid one is not walked, so a report can never cover fewer targets than the user named. |
+| 11 | <a id="a_file_reached_through_two_targets_appears_once"></a>`a_file_reached_through_two_targets_appears_once` | `LLR-DSC-07` | A file named explicitly and also contained in a named directory is retained once, canonicalisation having preceded de-duplication. |
+| 12 | <a id="the_file_list_is_sorted_into_byte_order"></a>`the_file_list_is_sorted_into_byte_order` | `LLR-DSC-08` | The completed list is in ascending byte order whatever order the filesystem enumerated it in. |
+| 13 | <a id="hidden_entries_and_binary_extensions_are_excluded"></a>`hidden_entries_and_binary_extensions_are_excluded` | `LLR-FTS-02`, `LLR-FTS-03` | A hidden file, a hidden directory's contents, and a file carrying an excluded extension are all absent from the walk's result. |
+| 14 | <a id="the_walk_descends_into_subdirectories"></a>`the_walk_descends_into_subdirectories` | `LLR-FTS-01` | The traversal is recursive: a file several directories below the target is found. |
+| 15 | <a id="a_hidden_directory_named_as_the_target_is_traversed"></a>`a_hidden_directory_named_as_the_target_is_traversed` | `LLR-FTS-06` | The hidden-entry exclusion applies below the target and not to the target itself, so a hidden directory named on the command line is walked. |
+| 16 | <a id="files_and_directories_are_classified_independently"></a>`files_and_directories_are_classified_independently` | `LLR-DSC-03` | Each target is routed on its own type, so a file and a directory given together are both handled correctly. |
+| 17 | <a id="a_cyclic_directory_symlink_terminates"></a>`a_cyclic_directory_symlink_terminates` | `LLR-FTS-04`, `LLR-FTS-05` | A self-referential directory link does not produce an unbounded traversal, and the linked directory is not descended into. Reaching the assertion is itself the result. |
+| 18 | <a id="a_symbolic_link_named_as_a_target_is_resolved"></a>`a_symbolic_link_named_as_a_target_is_resolved` | `LLR-DSC-06` | A link named directly as a target is resolved to its referent, the other half of the symbolic-link policy from the one the walk applies. |
+| 19 | <a id="a_path_that_cannot_be_canonicalised_is_a_per_file_failure"></a>`a_path_that_cannot_be_canonicalised_is_a_per_file_failure` | `LLR-DSC-09` | A canonicalisation failure, provoked through a link-time wrapper, drops that path and records a per-file failure rather than ending the run. |
+| 20 | <a id="filelist_free_is_safe_on_null"></a>`filelist_free_is_safe_on_null` | `LLR-DSC-01` | Releasing a null file list or extension list does not fault, so teardown is safe on every path. |
+
+### 3.4. [test/unit/report.c](../test/unit/report.c)
+
+Role: **unit**. **6 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="totals_sum_across_every_file"></a>`totals_sum_across_every_file` | `LLR-RPT-01` | The project totals are the sum of the per-file physical line counts across every analysed file. |
+| 2 | <a id="files_are_presented_in_ascending_path_order"></a>`files_are_presented_in_ascending_path_order` | `LLR-RPT-10`, `LLR-RPT-11` | Files are ordered by path in the model, so presentation order is a property of the report rather than of the order the files were discovered. |
+| 3 | <a id="an_empty_run_yields_a_complete_model_with_zero_totals"></a>`an_empty_run_yields_a_complete_model_with_zero_totals` | `LLR-RPT-12` | A run in which no file was analysed still produces a complete model with zero totals, which renders normally. |
+| 4 | <a id="assembly_leaves_the_accumulator_empty"></a>`assembly_leaves_the_accumulator_empty` | `LLR-RPT-18` | Ownership of the per-file metrics moves into the report, so releasing both the accumulator and the report cannot free the same metrics twice. |
+| 5 | <a id="a_failed_growth_leaves_the_accumulator_intact"></a>`a_failed_growth_leaves_the_accumulator_intact` | `LLR-RPT-16` | A reallocation failure, provoked through a link-time wrapper, is reported and leaves the original allocation intact rather than overwriting it with a null pointer. |
+| 6 | <a id="free_is_safe_on_null"></a>`free_is_safe_on_null` | `LLR-RPT-16` | Releasing a null report or accumulator does not fault, so teardown is safe on every path. |
+
+### 3.5. [test/unit/format_text.c](../test/unit/format_text.c)
+
+Role: **unit**. **4 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the_table_carries_the_summary_and_every_file"></a>`the_table_carries_the_summary_and_every_file` | `LLR-TBL-01` | The rendered table contains the project summary tier and one row for each file in the model. |
+| 2 | <a id="columns_are_aligned_on_the_longest_path"></a>`columns_are_aligned_on_the_longest_path` | `LLR-TBL-01` | Every file row is rendered to the same width, the path column having been sized from the longest path in the model. |
+| 3 | <a id="an_empty_report_still_renders_a_table"></a>`an_empty_report_still_renders_a_table` | `LLR-TBL-01` | A model with no files still renders its headings and column rule, so an empty run is distinguishable from a crash. |
+| 4 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-TBL-03` | A stream that cannot absorb the report yields a non-zero return, so a truncated report is never reported as success. |
+
+### 3.6. [test/integration/cli.bats](../test/integration/cli.bats)
 
 Role: **integration**. **16 test(s).**
 
@@ -167,10 +242,10 @@ Role: **integration**. **16 test(s).**
 | 12 | <a id="no target is diagnosed explicitly"></a>`no target is diagnosed explicitly` | — | The missing-target case is diagnosed in its own words rather than as a generic failure. |
 | 13 | <a id="a single target is accepted"></a>`a single target is accepted` | — | A single file target is accepted. |
 | 14 | <a id="several targets are accepted, files and directories intermixed"></a>`several targets are accepted, files and directories intermixed` | — | Several targets are accepted in one invocation, files and directories freely mixed. |
-| 15 | <a id="a run producing no report writes nothing to stdout"></a>`a run producing no report writes nothing to stdout` | — | Nothing but results reaches the results stream. |
+| 15 | <a id="an accepted invocation writes its report to stdout"></a>`an accepted invocation writes its report to stdout` | — | Nothing but results reaches the results stream. |
 | 16 | <a id="a decoy dotfile in the working directory changes nothing"></a>`a decoy dotfile in the working directory changes nothing` | — | Configuration-like files planted beside the invocation produce byte-identical output to their absence. |
 
-### 3.3. [test/integration/docs.bats](../test/integration/docs.bats)
+### 3.7. [test/integration/docs.bats](../test/integration/docs.bats)
 
 Role: **integration**. **8 test(s).**
 
@@ -185,21 +260,85 @@ Role: **integration**. **8 test(s).**
 | 7 | <a id="every long option the man page documents is accepted by elc"></a>`every long option the man page documents is accepted by elc` | — | No documented option is unimplemented. |
 | 8 | <a id="both documents describe the exit-status scheme"></a>`both documents describe the exit-status scheme` | — | Both documents describe the exit-status classes. |
 
-### 3.4. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.8. [test/integration/discovery.bats](../test/integration/discovery.bats)
 
-Role: **instrumented**. **7 test(s).**
+Role: **integration**. **21 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="a directory target prints a table of its files"></a>`a directory target prints a table of its files` | — | A directory target produces the aligned table, listing the files found beneath it. |
+| 2 | <a id="the table reports physical line counts"></a>`the table reports physical line counts` | — | The project total is the sum of the physical line counts of the files discovered. |
+| 3 | <a id="a single file target reports that file alone"></a>`a single file target reports that file alone` | — | A regular-file target reports that file and performs no traversal for it. |
+| 4 | <a id="files and directories may be intermixed on one command line"></a>`files and directories may be intermixed on one command line` | — | Files and directories given together are each classified on their own type and combined into one report. |
+| 5 | <a id="the output shape does not depend on the type of the target"></a>`the output shape does not depend on the type of the target` | — | A file target and a directory target produce the same headings and the same columns, so results from different target types are directly comparable. |
+| 6 | <a id="a file named alongside a directory containing it is counted once"></a>`a file named alongside a directory containing it is counted once` | — | A file reached through two overlapping targets appears exactly once in the report and once in the totals. |
+| 7 | <a id="two runs over the same target are byte-identical"></a>`two runs over the same target are byte-identical` | — | Repeating an unmodified run produces identical bytes. |
+| 8 | <a id="targets given in a different order produce identical output"></a>`targets given in a different order produce identical output` | — | The order the targets were named in does not show through into the report. |
+| 9 | <a id="a target that does not exist exits 2"></a>`a target that does not exist exits 2` | — | An absent target ends the run with the status reserved for a run that never happened. |
+| 10 | <a id="a target that is neither a file nor a directory exits 2"></a>`a target that is neither a file nor a directory exits 2` | — | A FIFO named as a target is rejected, covering the class of targets that exist but are of the wrong type. |
+| 11 | <a id="an unreadable target exits 2"></a>`an unreadable target exits 2` | — | A target that exists but cannot be read is rejected before any analysis, rather than becoming a per-file failure part-way through. |
+| 12 | <a id="an invalid target produces no report at all"></a>`an invalid target produces no report at all` | — | A valid target given alongside an invalid one yields no output, so no report can silently cover fewer targets than were named. |
+| 13 | <a id="an invalid target is diagnosed on stderr, naming it"></a>`an invalid target is diagnosed on stderr, naming it` | — | The diagnostic identifies the offending target and reaches the diagnostic stream, not the results stream. |
+| 14 | <a id="a target with no files reports zero totals and exits 0"></a>`a target with no files reports zero totals and exits 0` | — | A run that found nothing to analyse still emits a well-formed report with zero totals and succeeds. |
+| 15 | <a id="the report goes to stdout and nothing else does"></a>`the report goes to stdout and nothing else does` | — | A successful run writes its results to standard output and writes nothing to standard error. |
+| 16 | <a id="--output writes the report to the named file"></a>`--output writes the report to the named file` | `LLR-MAIN-17` | The report is written to the named file, and standard output is left empty. |
+| 17 | <a id="-o is the short form of --output"></a>`-o is the short form of --output` | — | The short form of the redirection option behaves as the long form. |
+| 18 | <a id="a redirected report is byte-identical to the one on stdout"></a>`a redirected report is byte-identical to the one on stdout` | — | Redirection changes where the report goes, not what it says. |
+| 19 | <a id="an output file that cannot be opened exits 2"></a>`an output file that cannot be opened exits 2` | `LLR-MAIN-17` | A destination that cannot be opened ends the run with the status reserved for a run that produced no report. |
+| 20 | <a id="an output file that cannot be opened is diagnosed on stderr"></a>`an output file that cannot be opened is diagnosed on stderr` | `LLR-MAIN-17` | The diagnostic names the destination and reaches the diagnostic stream. |
+| 21 | <a id="an unreadable file inside a target degrades the run to 1"></a>`an unreadable file inside a target degrades the run to 1` | — | A file within a target that cannot be read is a per-file failure: the report still covers the files that succeeded, and the exit status says so. |
+
+### 3.9. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
+
+Role: **fixture**. **11 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the walk yields exactly the three source files"></a>`the walk yields exactly the three source files` | — | The analysed file set for the hand-counted traversal tree is exactly the three files its header states, and nothing else. |
+| 2 | <a id="the hand-counted traversal totals match"></a>`the hand-counted traversal totals match` | — | The file count and physical line total match the values counted by hand in the fixture's header. |
+| 3 | <a id="HLR-005: a binary extension is excluded"></a>`HLR-005: a binary extension is excluded` | — | A file whose extension appears in the runtime exclusion list is absent from the walk's result. |
+| 4 | <a id="HLR-005: a hidden directory is excluded"></a>`HLR-005: a hidden directory is excluded` | — | The contents of a hidden directory are absent from the walk's result. |
+| 5 | <a id="HLR-005: a hidden file is excluded"></a>`HLR-005: a hidden file is excluded` | — | A hidden file in the target is absent from the walk's result, which is what makes a configuration-like file planted there unable to change the output. |
+| 6 | <a id="HLR-069: a symbolic link is not followed during the walk"></a>`HLR-069: a symbolic link is not followed during the walk` | — | A link to a file already inside the tree is not followed, so the file it names is not contributed a second time. |
+| 7 | <a id="HLR-069: a cyclic directory link does not hang the walk"></a>`HLR-069: a cyclic directory link does not hang the walk` | — | A self-referential directory link is not descended into and the walk terminates with the expected file set. |
+| 8 | <a id="HLR-069: a symbolic link named as a target is resolved"></a>`HLR-069: a symbolic link named as a target is resolved` | — | A link named directly as a target is resolved and its referent analysed, the other half of the symbolic-link policy. |
+| 9 | <a id="HLR-072: naming a file and its directory analyses it once"></a>`HLR-072: naming a file and its directory analyses it once` | — | Overlapping targets over the fixture tree yield the same file set as the directory alone. |
+| 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
+| 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
+
+### 3.10. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+
+Role: **fixture**. **7 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the hand-counted determinism totals match"></a>`the hand-counted determinism totals match` | — | The file count and physical line total match the values counted by hand in the fixture's header. |
+| 2 | <a id="HLR-033: files are presented in byte order, not creation order"></a>`HLR-033: files are presented in byte order, not creation order` | — | The reported paths are in ascending byte order, though the tree was created in a different one. |
+| 3 | <a id="HLR-032: two runs over the same target are byte-identical"></a>`HLR-032: two runs over the same target are byte-identical` | — | Repeating an unmodified run over the fixture tree produces identical bytes. |
+| 4 | <a id="HLR-033: two directory targets in either order agree"></a>`HLR-033: two directory targets in either order agree` | — | Two overlapping directory targets produce the same report whichever order they are named in. |
+| 5 | <a id="HLR-033: a file target and a directory target in either order agree"></a>`HLR-033: a file target and a directory target in either order agree` | — | The independence of target order holds across the two classification routes, not only within one of them. |
+| 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
+| 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
+
+### 3.11. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+
+Role: **instrumented**. **11 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
 | 1 | <a id="HLR-040: the binary links no interpreter or virtual machine"></a>`HLR-040: the binary links no interpreter or virtual machine` | — | The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids. |
 | 2 | <a id="HLR-040: elc makes no network syscall"></a>`HLR-040: elc makes no network syscall` | — | `strace -e trace=%network` over a full run logs no network syscall. This observes the syscalls directly rather than inferring the property from survival inside an isolated network namespace: it proves `elc` never *attempts* network access, and it runs in containers where unprivileged user namespaces are unavailable. |
-| 3 | <a id="HLR-041: elc links no threading library"></a>`HLR-041: elc links no threading library` | — | No threading library appears on the link line. |
-| 4 | <a id="HLR-041: elc references no thread-creation symbol"></a>`HLR-041: elc references no thread-creation symbol` | — | No thread-creation symbol is referenced by the binary. |
-| 5 | <a id="HLR-041: the build passes no threading flag"></a>`HLR-041: the build passes no threading flag` | — | The build never passes -pthread, which would silently license a future thread. |
-| 6 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
-| 7 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
+| 3 | <a id="HLR-041: /proc reports a single thread while elc runs"></a>`HLR-041: /proc reports a single thread while elc runs` | — | The running process reports exactly one thread. Redirecting the report into a FIFO removes the race that made this observation impossible before: opening a FIFO for writing blocks until a reader arrives, so the sample is taken while elc is certainly alive. |
+| 4 | <a id="HLR-041: elc issues no thread-creating syscall"></a>`HLR-041: elc issues no thread-creating syscall` | — | No clone or clone3 syscall is observed for the whole run, which is stronger than sampling a thread count because it holds for every instant rather than the one sampled. |
+| 5 | <a id="HLR-041: elc links no threading library"></a>`HLR-041: elc links no threading library` | — | No threading library appears on the link line. |
+| 6 | <a id="HLR-041: elc references no thread-creation symbol"></a>`HLR-041: elc references no thread-creation symbol` | — | No thread-creation symbol is referenced by the binary. |
+| 7 | <a id="the build's required flags survive an overridden CFLAGS"></a>`the build's required flags survive an overridden CFLAGS` | `LLR-BLD-11` | The language standard, the warning set, and the header-dependency generation all appear in the compile command when CFLAGS is overridden from the command line, so a build invoked with an added flag is compiled under the same rules as one invoked with none. |
+| 8 | <a id="HLR-041: the build passes no threading flag"></a>`HLR-041: the build passes no threading flag` | — | The build never passes -pthread, which would silently license a future thread. |
+| 9 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
+| 10 | <a id="HLR-043: elc opens nothing for writing"></a>`HLR-043: elc opens nothing for writing` | — | No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial. |
+| 11 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 
-### 3.5. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.12. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -232,10 +371,11 @@ verified by code review — see
 | `LLR-MAIN-13` | `main` | `HLR-036` | **(no direct test)** |
 | `LLR-MAIN-14` | `main` | `HLR-041` | **(no direct test)** |
 | `LLR-MAIN-15` | `main` | `HLR-103`, `HLR-104` | **(no direct test)** |
+| `LLR-MAIN-17` | `main` | `HLR-030`, `HLR-038`, `HLR-120` | `--output writes the report to the named file`, `an output file that cannot be opened exits 2`, `an output file that cannot be opened is diagnosed on stderr` |
 | `LLR-MAIN-16` | `main` | `HLR-125`, `HLR-036` | **(no direct test)** |
 | `LLR-CLI-01` | `cli_parse` | `HLR-071`, `HLR-063` | `missing_target_is_a_usage_error`, `single_target_is_collected`, `several_targets_are_collected_in_order` |
 | `LLR-CLI-02` | `cli_parse` | `HLR-027`, `HLR-028`, `HLR-054`, `HLR-029` | **(no direct test)** |
-| `LLR-CLI-03` | `cli_parse` | `HLR-030` | **(no direct test)** |
+| `LLR-CLI-03` | `cli_parse` | `HLR-030` | `the_output_destination_defaults_to_standard_output`, `an_output_path_is_collected`, `the_short_output_option_behaves_as_the_long_one` |
 | `LLR-CLI-04` | `cli_parse` | `HLR-022` | **(no direct test)** |
 | `LLR-CLI-05` | `cli_parse` | `HLR-081` | **(no direct test)** |
 | `LLR-CLI-06` | `cli_parse` | `HLR-103` | **(no direct test)** |
@@ -244,7 +384,7 @@ verified by code review — see
 | `LLR-CLI-09` | `cli_parse` | `HLR-107`, `HLR-063` | **(no direct test)** |
 | `LLR-CLI-10` | `cli_parse` | `HLR-055`, `HLR-122` | **(no direct test)** |
 | `LLR-CLI-11` | `cli_parse` | `HLR-057` | **(no direct test)** |
-| `LLR-CLI-12` | `cli_parse` | `HLR-063` | `unrecognised_option_is_a_usage_error`, `missing_target_is_a_usage_error` |
+| `LLR-CLI-12` | `cli_parse` | `HLR-063` | `unrecognised_option_is_a_usage_error`, `missing_target_is_a_usage_error`, `an_output_option_without_its_argument_is_a_usage_error` |
 | `LLR-CLI-13` | `cli_parse` | `HLR-117` | `help_short_option_reports_help`, `help_long_option_reports_help`, `help_takes_precedence_over_a_target` |
 | `LLR-CLI-14` | `cli_parse` | `HLR-039` | **(no direct test)** |
 | `LLR-CLI-15` | `cli_parse` | `HLR-122`, `HLR-063` | **(no direct test)** |
@@ -255,25 +395,29 @@ verified by code review — see
 | `LLR-STR-03` | `parse_stratum` | `HLR-063`, `HLR-078` | **(no direct test)** |
 | `LLR-SCP-01` | `parse_scope` | `HLR-094` | **(no direct test)** |
 | `LLR-SCP-02` | `parse_scope` | `HLR-063`, `HLR-094` | **(no direct test)** |
-| `LLR-DSC-01` | `discover_targets` | `HLR-062` | **(no direct test)** |
-| `LLR-DSC-02` | `discover_targets` | `HLR-062` | **(no direct test)** |
-| `LLR-DSC-03` | `discover_targets` | `HLR-071`, `HLR-001`, `HLR-126` | **(no direct test)** |
-| `LLR-DSC-04` | `discover_targets` | `HLR-001` | **(no direct test)** |
+| `LLR-DSC-01` | `discover_targets` | `HLR-062` | `every_target_is_validated_before_any_is_walked`, `filelist_free_is_safe_on_null` |
+| `LLR-DSC-02` | `discover_targets` | `HLR-062` | `a_missing_target_is_rejected_with_an_empty_list`, `a_target_that_is_neither_file_nor_directory_is_rejected` |
+| `LLR-DSC-03` | `discover_targets` | `HLR-071`, `HLR-001`, `HLR-126` | `files_and_directories_are_classified_independently` |
+| `LLR-DSC-04` | `discover_targets` | `HLR-001` | `a_regular_file_target_is_appended_directly` |
 | `LLR-DSC-05` | `discover_targets` | `HLR-002`, `HLR-004` | **(no direct test)** |
-| `LLR-DSC-06` | `discover_targets` | `HLR-069` | **(no direct test)** |
-| `LLR-DSC-07` | `discover_targets` | `HLR-072` | **(no direct test)** |
-| `LLR-DSC-08` | `discover_targets` | `HLR-033` | **(no direct test)** |
+| `LLR-DSC-06` | `discover_targets` | `HLR-069` | `a_symbolic_link_named_as_a_target_is_resolved` |
+| `LLR-DSC-07` | `discover_targets` | `HLR-072` | `a_file_reached_through_two_targets_appears_once` |
+| `LLR-DSC-08` | `discover_targets` | `HLR-033` | `the_file_list_is_sorted_into_byte_order` |
 | `LLR-DSC-10` | `discover_targets` | `HLR-127` | **(no direct test)** |
-| `LLR-DSC-09` | `discover_targets` | `HLR-035` | **(no direct test)** |
+| `LLR-DSC-09` | `discover_targets` | `HLR-035` | `a_path_that_cannot_be_canonicalised_is_a_per_file_failure` |
 | `LLR-GIT-01` | `walk_git_tree` | `HLR-002`, `HLR-126` | **(no direct test)** |
 | `LLR-GIT-04` | `walk_git_tree` | `HLR-002`, `HLR-004` | **(no direct test)** |
 | `LLR-GIT-02` | `walk_git_tree` | `HLR-003` | **(no direct test)** |
 | `LLR-GIT-03` | `walk_git_tree` | `HLR-003` | **(no direct test)** |
-| `LLR-FTS-01` | `walk_filesystem` | `HLR-004` | **(no direct test)** |
-| `LLR-FTS-02` | `walk_filesystem` | `HLR-005` | **(no direct test)** |
-| `LLR-FTS-03` | `walk_filesystem` | `HLR-005` | **(no direct test)** |
-| `LLR-FTS-04` | `walk_filesystem` | `HLR-069` | **(no direct test)** |
-| `LLR-EXT-01` | `is_excluded_extension` | `HLR-005`, `HLR-060` | **(no direct test)** |
+| `LLR-FTS-01` | `walk_filesystem` | `HLR-004` | `the_walk_descends_into_subdirectories` |
+| `LLR-FTS-02` | `walk_filesystem` | `HLR-005` | `hidden_entries_and_binary_extensions_are_excluded` |
+| `LLR-FTS-03` | `walk_filesystem` | `HLR-005` | `hidden_entries_and_binary_extensions_are_excluded` |
+| `LLR-FTS-04` | `walk_filesystem` | `HLR-069` | `a_cyclic_directory_symlink_terminates` |
+| `LLR-FTS-05` | `walk_filesystem` | `HLR-069`, `HLR-072` | `a_cyclic_directory_symlink_terminates` |
+| `LLR-FTS-06` | `walk_filesystem` | `HLR-005` | `a_hidden_directory_named_as_the_target_is_traversed` |
+| `LLR-EXT-01` | `is_excluded_extension` | `HLR-005`, `HLR-060` | `excluded_extension_matches_the_runtime_list`, `a_name_without_an_extension_is_not_excluded` |
+| `LLR-EXT-02` | `is_excluded_extension` | `HLR-005`, `HLR-060` | `excluded_extension_ignores_case`, `extension_list_skips_comments_and_blank_lines` |
+| `LLR-EXT-03` | `is_excluded_extension` | `HLR-005`, `HLR-038` | `an_empty_exclusion_list_excludes_nothing`, `a_missing_extension_list_is_not_fatal` |
 | `LLR-ROP-01` | `registry_open` | `HLR-059` | **(no direct test)** |
 | `LLR-ROP-02` | `registry_open` | `HLR-059` | **(no direct test)** |
 | `LLR-ROP-03` | `registry_open` | `HLR-060` | **(no direct test)** |
@@ -297,11 +441,11 @@ verified by code review — see
 | `LLR-RLR-07` | `registry_load_rules` | `HLR-116`, `HLR-070` | **(no direct test)** |
 | `LLR-RCL-01` | `registry_close` | `HLR-124`, `HLR-125`, `HLR-009` | **(no direct test)** |
 | `LLR-ANL-01` | `analyze_file` | `HLR-013` | **(no direct test)** |
-| `LLR-ANL-02` | `analyze_file` | `HLR-043` | **(no direct test)** |
+| `LLR-ANL-02` | `analyze_file` | `HLR-043` | `an_unreadable_file_is_reported_without_metrics`, `a_file_in_an_unwritable_directory_is_still_measured`, `filemetrics_free_is_safe_on_null` |
 | `LLR-ANL-03` | `analyze_file` | `HLR-076` | **(no direct test)** |
-| `LLR-ANL-04` | `analyze_file` | `HLR-020` | **(no direct test)** |
+| `LLR-ANL-04` | `analyze_file` | `HLR-020` | `a_zero_length_file_reports_zero_without_error` |
 | `LLR-ANL-05` | `analyze_file` | `HLR-013` | **(no direct test)** |
-| `LLR-ANL-06` | `analyze_file` | `HLR-019` | **(no direct test)** |
+| `LLR-ANL-06` | `analyze_file` | `HLR-019` | `physical_lines_are_counted`, `an_unterminated_final_line_counts`, `the_metrics_carry_the_path` |
 | `LLR-ANL-07` | `analyze_file` | `HLR-014` | **(no direct test)** |
 | `LLR-ANL-08` | `analyze_file` | `HLR-014` | **(no direct test)** |
 | `LLR-ANL-09` | `analyze_file` | `HLR-067` | **(no direct test)** |
@@ -396,7 +540,7 @@ verified by code review — see
 | `LLR-THR-08` | `thresholds_apply` | `HLR-098` | **(no direct test)** |
 | `LLR-THR-09` | `thresholds_apply` | `HLR-101` | **(no direct test)** |
 | `LLR-THR-10` | `thresholds_apply` | `HLR-111` | **(no direct test)** |
-| `LLR-RPT-01` | `report_assemble` | `HLR-024` | **(no direct test)** |
+| `LLR-RPT-01` | `report_assemble` | `HLR-024` | `totals_sum_across_every_file` |
 | `LLR-RPT-02` | `report_assemble` | `HLR-025` | **(no direct test)** |
 | `LLR-RPT-03` | `report_assemble` | `HLR-026` | **(no direct test)** |
 | `LLR-RPT-04` | `report_assemble` | `HLR-026`, `HLR-033` | **(no direct test)** |
@@ -405,17 +549,18 @@ verified by code review — see
 | `LLR-RPT-07` | `report_assemble` | `HLR-012` | **(no direct test)** |
 | `LLR-RPT-08` | `report_assemble` | `HLR-077` | **(no direct test)** |
 | `LLR-RPT-09` | `report_assemble` | `HLR-115` | **(no direct test)** |
-| `LLR-RPT-10` | `report_assemble` | `HLR-033`, `HLR-032` | **(no direct test)** |
-| `LLR-RPT-11` | `report_assemble` | `HLR-033` | **(no direct test)** |
-| `LLR-RPT-12` | `report_assemble` | `HLR-066` | **(no direct test)** |
+| `LLR-RPT-10` | `report_assemble` | `HLR-033`, `HLR-032` | `files_are_presented_in_ascending_path_order` |
+| `LLR-RPT-11` | `report_assemble` | `HLR-033` | `files_are_presented_in_ascending_path_order` |
+| `LLR-RPT-12` | `report_assemble` | `HLR-066` | `an_empty_run_yields_a_complete_model_with_zero_totals` |
 | `LLR-RPT-13` | `report_assemble` | `HLR-006` | **(no direct test)** |
 | `LLR-RPT-14` | `report_assemble` | `HLR-109` | **(no direct test)** |
 | `LLR-RPT-15` | `report_assemble` | `HLR-080`, `HLR-082`, `HLR-085`, `HLR-031` | **(no direct test)** |
 | `LLR-RPT-17` | `report_assemble` | `HLR-127` | **(no direct test)** |
-| `LLR-RPT-16` | `report_assemble` | `HLR-124`, `HLR-125` | **(no direct test)** |
-| `LLR-TBL-01` | `format_table` | `HLR-027` | **(no direct test)** |
+| `LLR-RPT-18` | `report_assemble` | `HLR-124`, `HLR-125` | `assembly_leaves_the_accumulator_empty` |
+| `LLR-RPT-16` | `report_assemble` | `HLR-124`, `HLR-125` | `a_failed_growth_leaves_the_accumulator_intact`, `free_is_safe_on_null` |
+| `LLR-TBL-01` | `format_table` | `HLR-027` | `the_table_carries_the_summary_and_every_file`, `columns_are_aligned_on_the_longest_path`, `an_empty_report_still_renders_a_table` |
 | `LLR-TBL-02` | `format_table` | `HLR-027` | **(no direct test)** |
-| `LLR-TBL-03` | `format_table` | `HLR-038` | **(no direct test)** |
+| `LLR-TBL-03` | `format_table` | `HLR-038` | `a_write_failure_is_reported` |
 | `LLR-MKD-01` | `format_markdown` | `HLR-029` | **(no direct test)** |
 | `LLR-SUM-01` | `render_summary` | `HLR-031`, `HLR-127`, `HLR-012`, `HLR-115` | **(no direct test)** |
 | `LLR-SUM-02` | `render_summary` | `HLR-031` | **(no direct test)** |
@@ -460,6 +605,7 @@ verified by code review — see
 | `LLR-BLD-07` | `build_configuration` | `HLR-011` | **(no direct test)** |
 | `LLR-BLD-08` | `build_configuration` | `HLR-121`, `HLR-010` | **(no direct test)** |
 | `LLR-BLD-10` | `build_configuration` | `HLR-113`, `HLR-124` | `wrap_passes_through_when_not_armed`, `wrap_intercepts_when_armed` |
+| `LLR-BLD-11` | `build_configuration` | `HLR-124` | `the build's required flags survive an overridden CFLAGS` |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | **(no direct test)** |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |
@@ -484,11 +630,13 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `calltree/` | [test/fixtures/calltree/](../test/fixtures/calltree/) | Functions with fan-out at each band boundary — 2, 3, 7, 8, 10, 11, 15, and 16; a chain of known depth; a chain continuing through an unresolved indirect call; a recursive cycle | `expected-findings.tsv` — the classification of every boundary value, the deepest chain in full, and the recursion report standing in place of a depth figure | HLR-085 – HLR-090, HLR-086's exhaustive bands in particular |
 | `rules/` | [test/fixtures/rules/](../test/fixtures/rules/) | A valid rule file with several named captures, supplied both from the runtime location and from the command line; a rule naming a language with no module | Each match reported with its identity as basename plus capture name, and the file and line range | HLR-107 – HLR-111 |
 | `repo/` | [test/fixtures/repo/](../test/fixtures/repo/) | A repository constructed in `$BATS_TEST_TMPDIR` by `git init` with pinned identity, holding ignored, untracked, and binary files | The tracked, non-binary subset | HLR-002, HLR-003, HLR-006 |
-| `traversal/` | [test/fixtures/traversal/](../test/fixtures/traversal/) | Hidden directories; binary extensions; a self-referential directory symlink; a symlink named directly as a target; overlapping targets naming one file twice | The analysed file set, each file exactly once | HLR-004, HLR-005, HLR-069, HLR-071, HLR-072 |
+| `traversal/` | [test/fixtures/traversal/](../test/fixtures/traversal/) | Hidden files and hidden directories; binary extensions; a self-referential directory symlink; a symlink to a file inside the tree; a symlink named directly as a target; overlapping targets naming one file twice | The analysed file set, each file exactly once | HLR-004, HLR-005, HLR-043, HLR-069, HLR-071, HLR-072 |
 | `runtime/` | [test/fixtures/runtime/](../test/fixtures/runtime/) | An absent runtime directory; one with no valid module; a module missing its entry point; a module with an unparseable query; an invalid custom rule, both CLI-named and runtime-located | Expected diagnostic text and exit status per case | HLR-036, HLR-059, HLR-070, HLR-116, HLR-120 |
 | `escaping/` | [test/fixtures/escaping/](../test/fixtures/escaping/) | Identifiers containing commas, quotes, ampersands, and angle brackets — C++ template signatures being the natural source | CSV parsed back to the original field count; XML and GraphML parsed without error | HLR-064, HLR-065 |
 | `determinism/` | [test/fixtures/determinism/](../test/fixtures/determinism/) | A tree analysed twice; reached via differing target order; with decoy `.elcrc` and dotfiles planted in the working directory, the target, and an ancestor | Byte-identical output in every case | HLR-032, HLR-033, HLR-039 |
 | `regeneration/` | [test/fixtures/regeneration/](../test/fixtures/regeneration/) | A saved XML record; the same record with an unsupported version; a malformed record; a well-formed but structurally foreign document | Markdown byte-identical to direct analysis at the same threshold; rejection with exit 2 for the rest | HLR-055 – HLR-058, HLR-061, HLR-122 |
+**Where a fixture group lives.** The hand-counted data of a group lives in the directory named above; the Bats suite that asserts against it lives *beside* that directory, as `test/fixtures/<group>.bats`, rather than inside it. The reason is specific rather than stylistic: recursive discovery in Bats enumerates suites with `find -L`, which follows symbolic links, and the `traversal/` group deliberately contains a self-referential one. Keeping the suites flat means the harness never has to walk a tree built to defeat walking.
+
 **The fixture table is not the whole coverage plan.** A large group of requirements is verified at the integration level instead, because what they constrain is the command line and the shape of the report rather than the analysis of any particular source: the report formats and their uniform composition, companion-artefact naming and the GraphML default, the threshold listing and its default, help and usage handling, skipped-file reporting, the severity vocabulary, and the attribution strings. These need a target to run against, not a specially constructed one, and so are exercised by the integration suites over the simplest fixture available.
 
 **The GraphML export carries the graph test suite.** The rendered findings report conclusions, not topology — they say a cycle exists, not which edges the graph holds. GraphML is therefore the only channel through which a test can assert that the SDG itself was built correctly, which makes HLR-106 a dependency of this plan and not merely a user-facing feature. The `graph/` fixture group asserts against `expected.graphml` for exactly this reason.

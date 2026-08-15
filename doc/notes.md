@@ -244,6 +244,55 @@ None is a defect; each is a judgement that could go the other way.
     were unavailable, so the unit level is verified in CI only (§1.2).
     Anything that passes review without a local Criterion run has had
     its unit level checked by a machine and not by a person.
+    *Update, Phase 1:* Criterion 2.4.1 was present in the environment
+    Phase 1 was written in, and `make unit` ran locally throughout. The
+    constraint is environment-specific, not a property of the project.
+*   **`discover.c` resolves the runtime location for itself**
+    (Phase 1). `binary.exts` is runtime data (HLR-005), so discovery
+    needs the runtime location — and the module that owns that
+    resolution, `registry.c`, does not exist until Phase 2. Rather than
+    hold discovery to a compiled-in list until then, `discover.c`
+    performs the `$ELC_RUNTIME_DIR`-then-adjacent-to-the-executable
+    resolution for that one file. Phase 2 should resolve it once in
+    `registry.c` per LLR-ROP-01/02 and have `discover.c` ask; two copies
+    of one precedence rule is exactly the sort of thing that drifts.
+    Noted in the SDP's Phase 2 prompt so it is not forgotten.
+*   **A symbolic link to a *file* is skipped during traversal**, not
+    only a link to a directory (LLR-FTS-05). HLR-069's text is about
+    unbounded traversal and double-counting, both of which the
+    directory case covers; extending it to files was a judgement, made
+    because a link to a file inside the tree double-counts it and a
+    link out of the tree silently widens what the target denotes. The
+    cost is that a repository which uses file symlinks as its normal
+    layout will under-report on the filesystem route. The Git route
+    (Phase 7) sees the link as a tracked blob, so the two routes may
+    disagree there — worth checking against HLR-126 when Phase 7 lands.
+*   **Hidden *files* are excluded from the walk, not just hidden
+    directories** (HLR-005, amended in Phase 1). The reason is
+    HLR-039: it states observably that a configuration-like file in
+    the analysis target must produce output byte-identical to its
+    absence, and a walk that yields `.elcrc` as a discovered file
+    cannot satisfy that. Excluding hidden entries wholesale is the
+    smaller change, and dotfiles are not source. A hidden path named
+    *as* the target is still walked; naming it is explicit.
+*   **The fixture suites are flat, the fixture data is not.**
+    `test/fixtures/traversal/` holds the tree; `test/fixtures/traversal.bats`
+    sits beside it rather than inside. Bats' recursive discovery
+    (`bats -r`) enumerates suites with `find -L`, which follows
+    symbolic links — and the traversal fixture contains a deliberate
+    self-referential one. GNU find detects the loop and warns rather
+    than hanging, but a harness that has to survive a tree built to
+    defeat walking is a harness waiting to break. Keeping the suites
+    flat means no recursion is needed at all.
+*   **LeakSanitizer and `strace` cannot both watch the same run.**
+    LSan stops the world at exit through a `clone`d tracer and
+    `ptrace`, which collides with `strace`'s attachment and aborts the
+    process. The instrumented suite therefore disables leak detection
+    for a traced run and for that run only (`strace_elc` in
+    `test/helpers/common.bash`). This was found in Phase 1 and was
+    already affecting Phase 0's network-syscall test under `make asan`:
+    the trace was being truncated by the abort, so the test passed
+    because elc had died, not because it made no network call.
 
 ---
 
