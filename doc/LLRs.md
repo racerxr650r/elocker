@@ -495,6 +495,18 @@ Cross-file resolution of the per-file facts into the System Dependence Graph.
 *   <a id="LLR-SDG-10"></a>**LLR-SDG-10** — `graph_build` shall derive a component projection in which an edge exists from one source file to another whenever a function in the first calls a function in the second, or writes a global that a function in the second reads.
     *Trace:* HLR-114 (Definition of a Component).
 
+*   <a id="LLR-SDG-12"></a>**LLR-SDG-12** — `graph_build` shall own every string the graph refers to that originates in the fact list — the names of global objects and of unresolved callees — copying them rather than aliasing the facts. The fact list is released as soon as the graph is built, and an edge or an unresolved record holding a freed string does not crash: it renders as a plausible object name, which is the worst way for a graph to be wrong. Strings that originate in the *report* model are borrowed rather than copied, since the report outlives the graph.
+    *Trace:* HLR-124 (Memory Safety), HLR-074 (Global State Edges).
+
+*   <a id="LLR-SDG-13"></a>**LLR-SDG-13** — `graph_build` shall treat an identifier captured as a global read or write as global state only when some analysed file declares that name at file scope, and shall treat an identifier captured as address-taken as a reachability root only when it resolves to a defined function. Both classes of capture are deliberately over-broad in every language module, because neither question can be answered from one file's syntax; resolving them here is what allows the query files to capture identifiers in value position without encoding scope rules they cannot express.
+    *Trace:* HLR-074 (Global State Edges), HLR-096, HLR-121 (Language Module Interface Is a Stable Contract).
+
+*   <a id="LLR-SDG-14"></a>**LLR-SDG-14** — `graph_build` shall collapse repeated calls between one pair of functions into a single edge, and shall not collapse global-state edges between the same pair: a global edge is per object, and merging two would lose which shared state couples the functions. It shall record a call site whose enclosing function is file scope as unresolved rather than dropping it silently, since the graph does not represent it and the reader is judging completeness.
+    *Trace:* HLR-085, HLR-074 (Global State Edges), HLR-077 (Unresolvable Call Handling).
+
+*   <a id="LLR-SDG-15"></a>**LLR-SDG-15** — `graph_build` shall install a non-aborting error handler on the graph library before making any call to it. The library's default handler calls `abort()`, which makes every return-value check unreachable and turns an allocation failure inside the library into a crash rather than the diagnostic and exit status the run promises. It matters beyond allocation: asking a cyclic graph for a topological ordering is an ordinary, expected error return — and is exactly how the call-depth analysis detects recursion — which the default handler would turn into a crash on a perfectly valid program.
+    *Trace:* HLR-124 (Memory Safety), HLR-113, HLR-120 (Distinct Exit Status Classes).
+
 *   <a id="LLR-SDG-11"></a>**LLR-SDG-11** — `graph_build` shall validate every node index against the node table's extent before dereferencing it, so that an unresolved or out-of-range symbol lookup cannot index outside the table.
     *Trace:* HLR-124 (Memory Safety), HLR-077 (Unresolvable Call Handling).
 
@@ -718,6 +730,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-11"></a>**LLR-RPT-11** — `report_assemble` shall order files by path, functions within a file by start line and then by name, skipped files by path, findings by severity then kind then location, cycles by their lowest-ordered member, and unreachable functions by file then line. The name shall break a tie between two functions sharing a start line, since the sort is not otherwise stable and their order would then be the implementation's choice.
     *Trace:* HLR-033 (Traversal-Order Independence).
 
+*   <a id="LLR-RPT-23"></a>**LLR-RPT-23** — `report_set_unresolved` shall record the count of unresolved call sites on the assembled report, so that every format presenting the project summary states how complete the graph is (HLR-077). It is set after assembly rather than passed into it because the graph is built *from* the assembled model — its node order is the report's file order — so the count does not exist when `report_assemble` runs.
+    *Trace:* HLR-077 (Unresolvable Call Handling), HLR-024.
+
 *   <a id="LLR-RPT-12"></a>**LLR-RPT-12** — `report_assemble` shall produce a complete model with zero totals for a run in which no file was analysed.
     *Trace:* HLR-066 (Run With No Analyzable Files).
 
@@ -810,6 +825,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XWR-06"></a>**LLR-XWR-06** — `xml_write_report` shall write each target's discovery route to the record. A record that omitted it would regenerate into a report with an empty Discovery section — well-formed, carrying every measurement, and not the same report — which is the one thing HLR-056 forbids.
     *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity), HLR-127 (Discovery Route Reported).
+
+*   <a id="LLR-XWR-07"></a>**LLR-XWR-07** — `xml_write_report` shall write the unresolved-call count to the record, and `xml_read_report` shall restore it. It is a measurement of the run like any other and cannot be recomputed later: regeneration has no graph, and no source from which to build one.
+    *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity), HLR-077 (Unresolvable Call Handling).
 
 *   <a id="LLR-XWR-04"></a>**LLR-XWR-04** — `xml_write_report` shall emit well-formed XML.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).
@@ -923,7 +941,7 @@ Requirements satisfied by the build rather than by any single function. Verified
 *   <a id="LLR-BLD-04"></a>**LLR-BLD-04** — The build shall select the third-party libraries `elc` links against, any of which may be substituted for another satisfying the same role, save for the parsing library whose query language and grammar format are a product contract.
     *Trace:* HLR-112 (Library Selection Deferred to Design).
 
-*   <a id="LLR-BLD-05"></a>**LLR-BLD-05** — The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents.
+*   <a id="LLR-BLD-05"></a>**LLR-BLD-05** — The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents. Every optional feature of that library that would alter `elc`'s link line shall be pinned explicitly rather than left to the library's configure-time detection: a default of "use it if it is installed" makes the binary a function of the build machine, which the instrumented dependency allowlist — a fixed list — cannot express.
     *Trace:* HLR-113 (Graph Algorithms From an Established Library).
 
 *   <a id="LLR-BLD-06"></a>**LLR-BLD-06** — The build shall configure the graph library so that it does not itself introduce a dependency on an unmaintained XML library.

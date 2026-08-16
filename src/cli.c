@@ -43,6 +43,10 @@ void cli_usage(FILE *stream)
 "                     is N or greater (default 15). Listing only: no\n"
 "                     threshold affects the exit status\n"
 "  -o, --output FILE  write the report to FILE instead of standard output\n"
+"      --graphml      also write the System Dependence Graph as GraphML,\n"
+"                     beside the report and named from it: an --output of\n"
+"                     report.md yields report.graphml. Requires --output,\n"
+"                     since there is otherwise no name to derive\n"
 "  -h, --help         display this help and exit\n"
 "\n"
 "Output:\n"
@@ -67,13 +71,14 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 {
 	/* A value above any printable character, so a long-only option cannot
 	 * collide with a short one. */
-	enum { OPT_FROM_XML = 1000 };
+	enum { OPT_FROM_XML = 1000, OPT_GRAPHML };
 
 	static const struct option longopts[] = {
 		{ "format",               required_argument, NULL, 'f' },
 		{ "from-xml",             required_argument, NULL, OPT_FROM_XML },
 		{ "complexity-threshold", required_argument, NULL, 'c' },
 		{ "output",               required_argument, NULL, 'o' },
+		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
 		{ "help",                 no_argument,       NULL, 'h' },
 		{ NULL,                   0,                 NULL, 0   }
 	};
@@ -147,6 +152,15 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			 * standard output as the destination is the default:
 			 * output_path stays NULL (LLR-CLI-03). */
 			out->output_path = optarg;
+			break;
+		case OPT_GRAPHML:
+			/* Recorded, not validated against --output here. A
+			 * request for GraphML with the report on stdout is not
+			 * a usage error — it produces no companion, which is
+			 * what HLR-106 says happens, and rejecting it would
+			 * make `elc --graphml src/` fail where the requirement
+			 * says it should simply not write a file. */
+			out->graphml = true;
 			break;
 		case 'h':
 			cli_usage(stdout);

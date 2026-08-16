@@ -315,6 +315,12 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	             sum->function_count);
 	summary_pair(out, style, label, value, "Skipped",
 	             (uint64_t)report->skipped_files.count);
+	/* Not a failure and not a defect — a measure of how complete the graph
+	 * is. A project calling into libc has unresolved calls by definition,
+	 * and a reader comparing fan-out against the source needs to know how
+	 * many calls the graph could not represent (HLR-077). */
+	summary_pair(out, style, label, value, "Unresolved calls",
+	             (uint64_t)report->unresolved_calls);
 }
 
 /* -------------------------------------------------------- the traversal --

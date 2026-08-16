@@ -46,12 +46,36 @@ setup() {
 	# libz arrives with libgit2 rather than by our choice; git object
 	# storage is deflate-compressed, so reading a blob at all requires it.
 	#
+	# igraph holds the dependence graph's topology so that the traversals
+	# of Phases 9 to 11 are a mature library's algorithms rather than ours
+	# (HLR-113). It brings libstdc++ and libgcc_s with it — parts of it are
+	# C++ internally — which is why those are on the list without elc
+	# containing a line of C++.
+	#
+	# Two libraries are deliberately *absent*, and this list is what
+	# noticed both.
+	#
+	# libgomp — igraph's default build links OpenMP, whose runtime
+	# allocates a thread pool during the dynamic linker's init, before
+	# main is entered. elc is single-threaded by requirement (HLR-041),
+	# so igraph is built with -DIGRAPH_OPENMP_SUPPORT=OFF. If libgomp
+	# appears here again, that flag was lost.
+	#
+	# libgmp — igraph's IGRAPH_USE_INTERNAL_GMP defaults to AUTO, which
+	# takes system GMP when its headers are present and a bundled Mini-GMP
+	# otherwise. That made the link line depend on what was installed on
+	# the build machine: a developer box without gmp.h produced one binary
+	# and CI produced another, and this test failed only in CI. A fixed
+	# allowlist cannot accept "it depends", so the choice is pinned to the
+	# bundled copy. igraph uses GMP only for graph-isomorphism automorphism
+	# counts, which no elc analysis performs.
+	#
 	# The sanitizer runtimes are allowed because `make asan` re-runs this
 	# very suite against an instrumented build, and libasan is test
 	# instrumentation rather than a product dependency: it is absent from
 	# the binary `make all` produces and `make install` ships. Excluding
 	# them here would make the sanitized pass fail on its own scaffolding.
-	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libasan|libubsan|ld-linux|/lib64/ld-linux)'
+	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libigraph|libasan|libubsan|ld-linux|/lib64/ld-linux)'
 	while read -r line; do
 		[ -n "$line" ] || continue
 		local lib

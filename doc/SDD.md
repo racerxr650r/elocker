@@ -530,17 +530,20 @@ The SDG is a **simple** directed graph: repeated calls from one function to the 
 
 #### 8.3.2 Key Functions
 
-*   **`int graph_build(const FactList *facts, const FileList *files, Sdg *out)`**
+*   **`int graph_build(const FactList *facts, const Report *report, Sdg *out)`**
     *   Purpose: Construct the SDG from the accumulated per-file facts.
-    *   Pre-condition: `facts` covers every successfully analysed file; `files` is in its final sorted order.
+    *   Pre-condition: `facts` covers every successfully analysed file; `report` has been assembled, so its files are in their final sorted order and carry the per-function metrics. The assembled report rather than the raw file list, for two reasons: the node attributes GraphML exports — name, line range, ELOC, complexity, component — all live in the report model, and the report's file order *is* the sorted order the stable node identifiers depend on (LLR-SDG-09). Facts are matched to files by path.
     *   Post-condition: `out` holds a fully populated graph; no source file has been reopened (HLR-076).
     *   Return Value: 0 on success; non-zero only on allocation failure.
     *   Logic:
         1.  Walk every `FileFacts` in file order, assigning each defined function a node index and inserting it into the symbol table.
-        2.  Walk every recorded call site; look its target up in the symbol table and add an edge on a hit.
-        3.  On a miss — an external library call, a system call, or an indirect call through a pointer — increment the unresolved tally and record the site for reporting rather than failing (HLR-077).
-        4.  For each global object, add an edge from every writing function and to every reading function (HLR-074).
-        5.  Build the component projection: an edge from component X to Y whenever any function in X calls a function in Y, or writes a global that a function in Y reads (HLR-114).
+        2.  Copy the set of names some file declares at file scope into the graph, de-duplicated. Owned rather than borrowed: the fact list is released the moment `graph_build` returns, and an edge naming a string that has been freed renders as a plausible object name rather than crashing — the worst way for it to be wrong.
+        3.  Walk every recorded call site; look its target up in the symbol table and add an edge on a hit.
+        4.  On a miss — an external library call, a system call, or an indirect call through a pointer — increment the unresolved tally and record the site for reporting rather than failing (HLR-077).
+        5.  Resolve each captured `@global.read` and `@global.write` against the declared set, discarding the names that are not globals. The query files capture identifiers wherever they appear and cannot decide this: a name is global only if *some file in the project* declares it so, which is whole-project knowledge no single file's facts hold.
+        6.  For each global object, add an edge from every writing function and to every reading function (HLR-074). Unlike call edges, global edges are per object: two objects shared between one pair of functions are two edges, since merging them would lose which state couples them.
+        7.  Resolve each captured `@call.address_taken` name against the symbol table, marking the node when it resolves and discarding the name when it does not. The captures are deliberately over-broad — most identifiers in value position are variables — and this step is what makes that safe, which is why the query files need not decide, and could not.
+        8.  Build the component projection: an edge from component X to Y whenever any function in X calls a function in Y, or writes a global that a function in Y reads (HLR-114).
     *   Notes: Resolution is name-and-arity based within the analysed target. Indirect calls through a function pointer are not resolved to a destination, but the *address-taken* fact is retained and carried into reachability (§11). The asymmetry matters: a **missing** edge causes a live function to be reported as provably dead, which is a correctness failure against HLR-097, whereas an **extra** root merely shrinks the unreachable set and costs nothing but a missed pruning opportunity. `elc` therefore errs toward reachable — an interrupt vector or callback table entry is never reported as dead merely because no direct call to it exists.
 
         **Call-edge precision is language-dependent, and over-approximation is not uniformly safe.** The paragraph above concerns *missing* edges; the opposite error also occurs. Some languages make a call syntactically indistinguishable from something else without semantic analysis a grammar does not perform — Ada's `Foo (X)` is a function call or an array index, and the grammar manages the ambiguity with precedence rules rather than resolving it. Where a language's `calls.scm` cannot separate the two, the graph carries edges that do not correspond to calls. `elc` does not attempt to disambiguate in C: doing so would place language knowledge in the binary, which the design forbids outright.
@@ -955,7 +958,9 @@ Both companion files derive their names from the report's output path by extensi
 
 *   **`bool graph_dot_warranted(const ElcOptions *opts)`** — True only when .dot generation is enabled and the report goes to a named file.
 *   **`int graph_write_dot(const Sdg *g, const Report *r, const char *path)`** — Write the annotated call tree in DOT format.
-*   **`int graph_write_graphml(const Sdg *g, const char *path)`** — Write the SDG in GraphML.
+*   **`int graph_write_graphml(const Sdg *g, const char *path)`** — Write the SDG in GraphML, nodes in ascending identifier order and each node's edges by ascending target. Reuses `write_escaped` from `format_xml.c` rather than carrying a second escaper: one implementation of HLR-065 means one place for it to be wrong.
+*   **`bool graph_graphml_warranted(const ElcOptions *opts)`** — True only when the export was requested *and* the report goes to a named file. Both halves matter: the export is off by default (HLR-106), and requesting it with the report on standard output writes nothing, because there is no path to derive a name from (HLR-104).
+*   **`char *graph_companion_path(const char *output_path, const char *extension)`** — The companion's name, by extension substitution on the report's output path. The extension search is scoped to the last path component, so a dot in a directory name is not mistaken for one.
 *   **`const char *node_style(const Report *r, uint32_t node)`** — Return the Graphviz attributes for a node given the findings that apply to it.
 
 #### 17.3.2 Parsing Strategy / Algorithm

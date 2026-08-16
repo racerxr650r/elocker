@@ -431,16 +431,19 @@ The `1 +` base is added in C and not in the query, so that a query capturing the
         </interfaces>
         <data_structures><![CDATA[`Sdg` (see the Data Dictionary) wraps the graph object, the node table, the symbol table, the component projection, and the unresolved-call tally.]]></data_structures>
         <functions>
-          <function signature="int graph_build(const FactList *facts, const FileList *files, Sdg *out)">
+          <function signature="int graph_build(const FactList *facts, const Report *report, Sdg *out)">
             <purpose><![CDATA[Construct the SDG from the accumulated per-file facts.]]></purpose>
-            <pre><![CDATA[`facts` covers every successfully analysed file; `files` is in its final sorted order.]]></pre>
+            <pre><![CDATA[`facts` covers every successfully analysed file; `report` has been assembled, so its files are in their final sorted order and carry the per-function metrics. The assembled report rather than the raw file list, for two reasons: the node attributes GraphML exports — name, line range, ELOC, complexity, component — all live in the report model, and the report's file order *is* the sorted order the stable node identifiers depend on (LLR-SDG-09). Facts are matched to files by path.]]></pre>
             <post><![CDATA[`out` holds a fully populated graph; no source file has been reopened (HLR-076).]]></post>
             <returns><![CDATA[0 on success; non-zero only on allocation failure.]]></returns>
             <logic>
               <step><![CDATA[Walk every `FileFacts` in file order, assigning each defined function a node index and inserting it into the symbol table.]]></step>
+              <step><![CDATA[Copy the set of names some file declares at file scope into the graph, de-duplicated. Owned rather than borrowed: the fact list is released the moment `graph_build` returns, and an edge naming a string that has been freed renders as a plausible object name rather than crashing — the worst way for it to be wrong.]]></step>
               <step><![CDATA[Walk every recorded call site; look its target up in the symbol table and add an edge on a hit.]]></step>
               <step><![CDATA[On a miss — an external library call, a system call, or an indirect call through a pointer — increment the unresolved tally and record the site for reporting rather than failing (HLR-077).]]></step>
-              <step><![CDATA[For each global object, add an edge from every writing function and to every reading function (HLR-074).]]></step>
+              <step><![CDATA[Resolve each captured `@global.read` and `@global.write` against the declared set, discarding the names that are not globals. The query files capture identifiers wherever they appear and cannot decide this: a name is global only if *some file in the project* declares it so, which is whole-project knowledge no single file's facts hold.]]></step>
+              <step><![CDATA[For each global object, add an edge from every writing function and to every reading function (HLR-074). Unlike call edges, global edges are per object: two objects shared between one pair of functions are two edges, since merging them would lose which state couples them.]]></step>
+              <step><![CDATA[Resolve each captured `@call.address_taken` name against the symbol table, marking the node when it resolves and discarding the name when it does not. The captures are deliberately over-broad — most identifiers in value position are variables — and this step is what makes that safe, which is why the query files need not decide, and could not.]]></step>
               <step><![CDATA[Build the component projection: an edge from component X to Y whenever any function in X calls a function in Y, or writes a global that a function in Y reads (HLR-114).]]></step>
             </logic>
             <notes><![CDATA[Resolution is name-and-arity based within the analysed target. Indirect calls through a function pointer are not resolved to a destination, but the *address-taken* fact is retained and carried into reachability (§11). The asymmetry matters: a **missing** edge causes a live function to be reported as provably dead, which is a correctness failure against HLR-097, whereas an **extra** root merely shrinks the unreachable set and costs nothing but a missed pruning opportunity. `elc` therefore errs toward reachable — an interrupt vector or callback table entry is never reported as dead merely because no direct call to it exists.
@@ -774,7 +777,9 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <functions>
           <function signature="bool graph_dot_warranted(const ElcOptions *opts)" summary="True only when .dot generation is enabled and the report goes to a named file."/>
           <function signature="int graph_write_dot(const Sdg *g, const Report *r, const char *path)" summary="Write the annotated call tree in DOT format."/>
-          <function signature="int graph_write_graphml(const Sdg *g, const char *path)" summary="Write the SDG in GraphML."/>
+          <function signature="int graph_write_graphml(const Sdg *g, const char *path)" summary="Write the SDG in GraphML, nodes in ascending identifier order and each node's edges by ascending target. Reuses `write_escaped` from `format_xml.c` rather than carrying a second escaper: one implementation of HLR-065 means one place for it to be wrong."/>
+          <function signature="bool graph_graphml_warranted(const ElcOptions *opts)" summary="True only when the export was requested *and* the report goes to a named file. Both halves matter: the export is off by default (HLR-106), and requesting it with the report on standard output writes nothing, because there is no path to derive a name from (HLR-104)."/>
+          <function signature="char *graph_companion_path(const char *output_path, const char *extension)" summary="The companion's name, by extension substitution on the report's output path. The extension search is scoped to the last path component, so a dot in a directory name is not mistaken for one."/>
           <function signature="const char *node_style(const Report *r, uint32_t node)" summary="Return the Graphviz attributes for a node given the findings that apply to it."/>
         </functions>
         <algorithm><![CDATA[Both writers are plain text emission, which keeps Graphviz a tool the user may run on the output rather than a library `elc` links against (HLR-102), and keeps GraphML generation independent of any XML library. Unlike the report renderers, these two walk the `Sdg` rather than the sorted report model, so they impose their own order explicitly: nodes are emitted in ascending stable node-id order and each node's adjacency in ascending target-id order. Without that the graph library's internal enumeration would leak into the output and break HLR-032. Annotations use colour and shape attributes that a renderer ignoring them will simply drop, leaving a valid call tree (HLR-105).]]></algorithm>
@@ -1130,9 +1135,9 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-014, HLR-018, HLR-067, HLR-068"/>
       </fixture>
       <fixture name="`graph/`" source="[test/fixtures/graph/](../test/fixtures/graph/)">
-        <artefact key="inputs" label="Inputs" path="Mutual recursion within one file and across two; a function reachable only via an address-taken pointer; a clique of unused functions calling one another; a component dependency cycle; a global written in one region and read in another; a global read and written by a single function; a global read by unreachable functions only; and, for a language whose grammar cannot separate a call from an index, a construct that is ambiguous between the two"/>
-        <artefact key="expected" label="Expected" path="`expected.graphml` and `expected-findings.tsv`. The ambiguous-call case pins whichever edge the grammar yields, so that over-approximation is a recorded decision rather than a later surprise — and so that a *false cycle* arising from it is visible in the fixture rather than in a user's report"/>
-        <artefact key="verifies" label="Verifies" path="HLR-073 – HLR-077, HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-096, HLR-097, HLR-114"/>
+        <artefact key="inputs" label="Inputs" path="**Phase 8**: a repeated call between one pair of functions; a global written in one file and read in another; a function assigned without being called; a call into a library; and, in Ada, a construct the grammar cannot separate from a call. **Phases 9–11 add**: mutual recursion within one file and across two; a clique of unused functions calling one another; a component dependency cycle; a global read and written by a single function; a global read by unreachable functions only"/>
+        <artefact key="expected" label="Expected" path="`expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. The ambiguous-call case pins what the grammar yields, so that the imprecision is a recorded decision rather than a later surprise — and so that a *false cycle* arising from it would be visible in the fixture rather than in a user's report. As of Phase 8 the Ada ambiguity resolves against no subprogram and lands in the unresolved count rather than becoming an edge, which is better than predicted and is pinned as such"/>
+        <artefact key="verifies" label="Verifies" path="Phase 8: HLR-010, HLR-032, HLR-033, HLR-073 – HLR-077, HLR-085, HLR-096, HLR-104, HLR-106, HLR-114. Later phases add HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-097"/>
       </fixture>
       <fixture name="`arch/`" source="[test/fixtures/arch/](../test/fixtures/arch/)">
         <artefact key="inputs" label="Inputs" path="A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all"/>
@@ -1148,11 +1153,6 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="inputs" label="Inputs" path="A valid rule file with several named captures, supplied both from the runtime location and from the command line; a rule naming a language with no module"/>
         <artefact key="expected" label="Expected" path="Each match reported with its identity as basename plus capture name, and the file and line range"/>
         <artefact key="verifies" label="Verifies" path="HLR-107 – HLR-111"/>
-      </fixture>
-      <fixture name="`repo/`" source="[test/fixtures/repo/](../test/fixtures/repo/)">
-        <artefact key="inputs" label="Inputs" path="A repository constructed in `$BATS_TEST_TMPDIR` by `git init` with pinned identity, holding ignored, untracked, and binary files"/>
-        <artefact key="expected" label="Expected" path="The tracked, non-binary subset"/>
-        <artefact key="verifies" label="Verifies" path="HLR-002, HLR-003, HLR-006"/>
       </fixture>
       <fixture name="`traversal/`" source="[test/fixtures/traversal/](../test/fixtures/traversal/)">
         <artefact key="inputs" label="Inputs" path="Hidden files and hidden directories; binary extensions; a self-referential directory symlink; a symlink to a file inside the tree; a symlink named directly as a target; overlapping targets naming one file twice"/>
@@ -3367,6 +3367,41 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-SDG-12">
+        <text><![CDATA[`graph_build` shall own every string the graph refers to that originates in the fact list — the names of global objects and of unresolved callees — copying them rather than aliasing the facts. The fact list is released as soon as the graph is built, and an edge or an unresolved record holding a freed string does not crash: it renders as a plausible object name, which is the worst way for a graph to be wrong. Strings that originate in the *report* model are borrowed rather than copied, since the report outlives the graph.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-124" name="Memory Safety"/>
+          <trace target="HLR" ref="HLR-074" name="Global State Edges"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-SDG-13">
+        <text><![CDATA[`graph_build` shall treat an identifier captured as a global read or write as global state only when some analysed file declares that name at file scope, and shall treat an identifier captured as address-taken as a reachability root only when it resolves to a defined function. Both classes of capture are deliberately over-broad in every language module, because neither question can be answered from one file's syntax; resolving them here is what allows the query files to capture identifiers in value position without encoding scope rules they cannot express.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-074" name="Global State Edges"/>
+          <trace target="HLR" ref="HLR-096"/>
+          <trace target="HLR" ref="HLR-121" name="Language Module Interface Is a Stable Contract"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-SDG-14">
+        <text><![CDATA[`graph_build` shall collapse repeated calls between one pair of functions into a single edge, and shall not collapse global-state edges between the same pair: a global edge is per object, and merging two would lose which shared state couples the functions. It shall record a call site whose enclosing function is file scope as unresolved rather than dropping it silently, since the graph does not represent it and the reader is judging completeness.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-085"/>
+          <trace target="HLR" ref="HLR-074" name="Global State Edges"/>
+          <trace target="HLR" ref="HLR-077" name="Unresolvable Call Handling"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-SDG-15">
+        <text><![CDATA[`graph_build` shall install a non-aborting error handler on the graph library before making any call to it. The library's default handler calls `abort()`, which makes every return-value check unreachable and turns an allocation failure inside the library into a crash rather than the diagnostic and exit status the run promises. It matters beyond allocation: asking a cyclic graph for a topological ordering is an ordinary, expected error return — and is exactly how the call-depth analysis detects recursion — which the default handler would turn into a crash on a perfectly valid program.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-124" name="Memory Safety"/>
+          <trace target="HLR" ref="HLR-113"/>
+          <trace target="HLR" ref="HLR-120" name="Distinct Exit Status Classes"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-SDG-11">
         <text><![CDATA[`graph_build` shall validate every node index against the node table's extent before dereferencing it, so that an unresolved or out-of-range symbol lookup cannot index outside the table.]]></text>
         <traces>
@@ -3811,6 +3846,14 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-RPT-23">
+        <text><![CDATA[`report_set_unresolved` shall record the count of unresolved call sites on the assembled report, so that every format presenting the project summary states how complete the graph is (HLR-077). It is set after assembly rather than passed into it because the graph is built *from* the assembled model — its node order is the report's file order — so the count does not exist when `report_assemble` runs.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-077" name="Unresolvable Call Handling"/>
+          <trace target="HLR" ref="HLR-024"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-RPT-12">
         <text><![CDATA[`report_assemble` shall produce a complete model with zero totals for a run in which no file was analysed.]]></text>
         <traces>
@@ -4013,6 +4056,15 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-054" name="Complete Analysis Record"/>
           <trace target="HLR" ref="HLR-056" name="Regeneration Fidelity"/>
           <trace target="HLR" ref="HLR-127" name="Discovery Route Reported"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-XWR-07">
+        <text><![CDATA[`xml_write_report` shall write the unresolved-call count to the record, and `xml_read_report` shall restore it. It is a measurement of the run like any other and cannot be recomputed later: regeneration has no graph, and no source from which to build one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-054" name="Complete Analysis Record"/>
+          <trace target="HLR" ref="HLR-056" name="Regeneration Fidelity"/>
+          <trace target="HLR" ref="HLR-077" name="Unresolvable Call Handling"/>
         </traces>
       </llr>
 
@@ -4243,7 +4295,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
       <llr id="LLR-BLD-05">
-        <text><![CDATA[The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents.]]></text>
+        <text><![CDATA[The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents. Every optional feature of that library that would alter `elc`'s link line shall be pinned explicitly rather than left to the library's configure-time detection: a default of "use it if it is installed" makes the binary a function of the build machine, which the instrumented dependency allowlist — a fixed list — cannot express.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-113" name="Graph Algorithms From an Established Library"/>
         </traces>
@@ -4981,6 +5033,153 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Releasing a null file list or extension list does not fault, so teardown is safe on every path.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-DSC-01"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/graph.c" role="unit" count="16">
+    <test name="every_discovered_function_becomes_a_node">
+      <purpose><![CDATA[Every function across every analysed file receives a node, so the graph spans the project rather than any one file.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-01"/>
+      </traces>
+    </test>
+    <test name="node_identifiers_follow_sorted_file_order">
+      <purpose><![CDATA[Files handed over in unsorted order still number their functions by sorted path, so node identifiers are a property of the source tree and not of discovery order.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-09"/>
+      </traces>
+    </test>
+    <test name="a_call_resolves_across_files">
+      <purpose><![CDATA[A call whose definition lies in another file resolves to an edge, which is the cross-file resolution the graph exists to perform.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-02"/>
+      </traces>
+    </test>
+    <test name="repeated_calls_collapse_to_one_edge_with_a_count">
+      <purpose><![CDATA[Three call sites between one pair of functions produce one edge carrying a count of three, so out-degree is distinct callees rather than call sites.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-04"/>
+        <trace target="LLR" ref="LLR-SDG-14"/>
+      </traces>
+    </test>
+    <test name="an_unresolvable_call_is_counted_and_does_not_abort">
+      <purpose><![CDATA[A call into a library is counted, produces no edge, and does not fail the build — no destination is invented for it, which is what keeps a later dead-code proof sound.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-07"/>
+        <trace target="LLR" ref="LLR-SDG-08"/>
+      </traces>
+    </test>
+    <test name="a_call_from_file_scope_has_no_caller_node">
+      <purpose><![CDATA[A call outside every reported function draws no edge and is counted as unresolved, because the graph does not represent it and the reader is judging completeness.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-14"/>
+      </traces>
+    </test>
+    <test name="a_global_links_its_writer_to_its_reader">
+      <purpose><![CDATA[A global written in one file and read in another produces an edge between the two functions, and that edge names the object through the graph's own copy of the string.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-03"/>
+        <trace target="LLR" ref="LLR-SDG-12"/>
+      </traces>
+    </test>
+    <test name="an_undeclared_name_is_not_global_state">
+      <purpose><![CDATA[An identifier written in one function and read in another, declared nowhere at file scope, produces no edge — the over-broad capture is resolved away rather than believed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-13"/>
+      </traces>
+    </test>
+    <test name="two_objects_between_one_pair_are_two_edges">
+      <purpose><![CDATA[Global edges are per object and do not collapse the way call edges do, since merging them would lose which shared state couples the two functions.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-14"/>
+      </traces>
+    </test>
+    <test name="an_address_taken_function_is_marked">
+      <purpose><![CDATA[A function assigned without being called is marked as a reachability root, captured in this phase though Phase 10 is what consumes it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-13"/>
+      </traces>
+    </test>
+    <test name="an_address_taken_name_that_is_not_a_function_is_discarded">
+      <purpose><![CDATA[An ordinary variable captured by the deliberately over-broad address-taken patterns resolves to nothing and marks no node, which is what allows the query files not to decide.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-13"/>
+      </traces>
+    </test>
+    <test name="the_component_projection_is_file_level">
+      <purpose><![CDATA[A call between functions in two files yields one component edge between those files, a component being a source file.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-10"/>
+      </traces>
+    </test>
+    <test name="a_call_within_one_file_is_no_component_dependency">
+      <purpose><![CDATA[A call inside one file adds no component edge, so a file is not recorded as depending on itself.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-10"/>
+      </traces>
+    </test>
+    <test name="an_empty_project_builds_an_empty_graph">
+      <purpose><![CDATA[A run that analysed nothing builds a valid empty graph, including the library structure, rather than failing or leaving a null handle.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-01"/>
+      </traces>
+    </test>
+    <test name="the_library_returns_errors_instead_of_aborting">
+      <purpose><![CDATA[Asking a cyclic graph for a topological ordering returns an error rather than aborting the process, so the library's default abort-on-error handler has been replaced. Reaching the assertion is itself the result: without the handler the test dies rather than fails.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-15"/>
+      </traces>
+    </test>
+    <test name="graph_free_is_safe_on_null_and_twice">
+      <purpose><![CDATA[Releasing a null or an already-released graph does not fault, so teardown is unconditional on every exit path.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-12"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/format_graph.c" role="unit" count="7">
+    <test name="graphml_is_off_unless_asked_for">
+      <purpose><![CDATA[With an output path but no request, no export is warranted: the export is opt-in, unlike the .dot companion.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GML-02"/>
+      </traces>
+    </test>
+    <test name="graphml_needs_an_output_path">
+      <purpose><![CDATA[With the export requested but the report going to standard output, nothing is warranted — there is no path to derive the companion's name from.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GML-03"/>
+      </traces>
+    </test>
+    <test name="graphml_is_written_when_asked_for_and_named">
+      <purpose><![CDATA[Both conditions together warrant the export.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GML-02"/>
+      </traces>
+    </test>
+    <test name="the_companion_replaces_the_extension">
+      <purpose><![CDATA[report.md yields report.graphml rather than report.md.graphml: the extension is substituted, not appended.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GML-03"/>
+      </traces>
+    </test>
+    <test name="a_path_without_an_extension_gains_one">
+      <purpose><![CDATA[An output path with no extension gains the companion's rather than being left unnamed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GML-03"/>
+      </traces>
+    </test>
+    <test name="a_dot_in_a_directory_is_not_an_extension">
+      <purpose><![CDATA[A dot in a directory name is not mistaken for the file's extension, which would otherwise truncate the path at the directory.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GML-03"/>
+      </traces>
+    </test>
+    <test name="a_directory_dot_with_an_extension_still_substitutes">
+      <purpose><![CDATA[A dotted directory alongside a real extension substitutes the extension and leaves the directory alone.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GML-03"/>
       </traces>
     </test>
   </file>
@@ -6549,6 +6748,108 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
+  <file path="test/fixtures/graph.bats" role="fixture" count="16">
+    <test name="HLR-106: the exported graph matches the expected topology exactly">
+      <purpose><![CDATA[The emitted GraphML is compared node for node and edge for edge against a file written from the source, so a change in what elc believes about the code appears as a diff rather than as a number nobody questions.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-106"/>
+        <trace target="HLR" ref="HLR-073"/>
+      </traces>
+    </test>
+    <test name="HLR-106: the export is off unless asked for">
+      <purpose><![CDATA[No GraphML file appears without the option, whatever the output path.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-106"/>
+      </traces>
+    </test>
+    <test name="HLR-106: no companion is written when the report goes to stdout">
+      <purpose><![CDATA[Requesting the export while the report goes to standard output writes no file, since there is no output path from which to derive its name.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-106"/>
+        <trace target="HLR" ref="HLR-104"/>
+      </traces>
+    </test>
+    <test name="LLR-GML-03: the companion is named from the report by substitution">
+      <purpose><![CDATA[An output of analysis.md yields analysis.graphml and not analysis.md.graphml.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-106"/>
+      </traces>
+    </test>
+    <test name="HLR-085: repeated calls are one edge carrying a call-site count">
+      <purpose><![CDATA[Two calls from one function to one helper produce a single edge with a count of two, so fan-out is distinct callees.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-085"/>
+      </traces>
+    </test>
+    <test name="HLR-074: a global links its writer to its reader across files">
+      <purpose><![CDATA[A writer in one file and a reader in another are joined by an edge naming the object, though neither names the other.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-074"/>
+      </traces>
+    </test>
+    <test name="HLR-074: call edges and global edges are distinguishable">
+      <purpose><![CDATA[The export carries the two kinds separately and never merged, so an analysis can tell coupling through state from coupling through calls.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-074"/>
+      </traces>
+    </test>
+    <test name="HLR-096: a function whose address is taken is marked">
+      <purpose><![CDATA[A function assigned to a pointer without being called is marked a reachability root, and the function that installs it is not.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="HLR-077: an unresolvable call is counted, not fatal">
+      <purpose><![CDATA[A library call and an ambiguous Ada construct are counted as unresolved and the run still succeeds.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-077"/>
+      </traces>
+    </test>
+    <test name="HLR-077: the unresolved count reaches the report">
+      <purpose><![CDATA[The project summary states the count, so a reader can judge the graph's completeness without reading the export.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-077"/>
+      </traces>
+    </test>
+    <test name="HLR-077: no destination is invented for an unresolved call">
+      <purpose><![CDATA[The edge count is exactly what the fixture header accounts for; a tool guessing at an unresolved target would have more.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-077"/>
+      </traces>
+    </test>
+    <test name="the Ada array-index ambiguity is unresolved, not a spurious edge">
+      <purpose><![CDATA[An Ada array index that the grammar cannot distinguish from a call resolves against no subprogram and lands in the unresolved count rather than becoming an edge — pinning behaviour that is better than doc/notes.md §2.2 predicted.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-077"/>
+        <trace target="HLR" ref="HLR-010"/>
+      </traces>
+    </test>
+    <test name="an Ada call resolves like any other">
+      <purpose><![CDATA[An unambiguous Ada call still produces its edge, so the language's ambiguity costs precision on the ambiguous construct alone.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-073"/>
+      </traces>
+    </test>
+    <test name="HLR-033: node identifiers follow sorted file order">
+      <purpose><![CDATA[The exported node order is the sorted-path order of the files, which is not the order a directory walk yields them in.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="HLR-032: two runs over the same tree produce identical GraphML">
+      <purpose><![CDATA[The export is byte-identical across runs, so no container's internal enumeration reaches the output.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="HLR-076: the graph is built without reopening a source file">
+      <purpose><![CDATA[Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-076"/>
+      </traces>
+    </test>
+  </file>
+
   <file path="test/fixtures/repo.bats" role="fixture" count="19">
     <test name="HLR-002: the repository route yields exactly the tracked source files">
       <purpose><![CDATA[The analysed set of a repository target is exactly the tracked, non-binary, non-hidden source files, matching the set counted by hand in the fixture's header.]]></purpose>
@@ -6859,7 +7160,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     <test name="the fixture level is wired and elc is runnable">
       <purpose><![CDATA[The fixture-conformance level is wired and green before the first real fixture is written.]]></purpose>
     </test>
-    <test name="fixture directories carry no generated expected values yet">
+    <test name="every expected-value file has a fixture header beside it">
       <purpose><![CDATA[Guards the convention that expected values are hand-counted, never generated from elc's own output.]]></purpose>
     </test>
   </file>

@@ -315,6 +315,11 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 	return 0;
 }
 
+void report_set_unresolved(Report *report, size_t unresolved)
+{
+	report->unresolved_calls = unresolved;
+}
+
 void report_free(Report *report)
 {
 	if (!report)

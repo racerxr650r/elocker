@@ -7,6 +7,7 @@
 #ifndef ELC_H
 #define ELC_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -68,6 +69,9 @@ typedef struct {
 	const char   *output_path;  /* NULL when writing to stdout (HLR-030) */
 	uint32_t      complexity_threshold; /* listing only; never the exit
 	                                     * status (HLR-022, HLR-023)     */
+	bool          graphml;      /* export the SDG (HLR-106); off unless
+	                             * asked for, and silently nothing when
+	                             * the report goes to stdout             */
 	const char  **targets;      /* borrowed from argv; not owned          */
 	size_t        target_count;
 } ElcOptions;
@@ -102,5 +106,64 @@ typedef struct {
 	FunctionMetric *functions;      /* dynamic array, grown by doubling  */
 	size_t          function_count;
 } FileMetrics;
+
+/* ------------------------------------------------------- the graph facts --
+ *
+ * What the single parse records for the System Dependence Graph, alongside
+ * the metrics. They are *facts*, not edges: a call site names a callee that
+ * may or may not be defined in this project, and resolving it needs the
+ * whole-project symbol table that only exists once every file is analysed
+ * (HLR-073, HLR-076).
+ *
+ * Enclosing functions are recorded as an index into the same file's
+ * FileMetrics.functions, so the two structures are read together and neither
+ * repeats what the other holds.
+ */
+
+/* An index meaning "outside every reported function" — a call or a global
+ * access at file scope, which belongs to the file and to no node. */
+#define ELC_NO_FUNCTION SIZE_MAX
+
+typedef struct {
+	char     *callee;   /* the identifier at the call site; owned      */
+	size_t    caller;   /* into FileMetrics.functions, or ELC_NO_FUNCTION */
+	uint32_t  line;     /* 1-based                                     */
+} CallSite;
+
+/* How a function touches a global object. A declaration is recorded too:
+ * without it there is no way to tell a global from any other identifier the
+ * read and write patterns happen to match. */
+typedef enum {
+	GLOBAL_DECLARATION = 0,
+	GLOBAL_READ,
+	GLOBAL_WRITE
+} GlobalAccessKind;
+
+typedef struct {
+	char            *name;     /* the object's identifier; owned       */
+	size_t           function; /* into functions, or ELC_NO_FUNCTION   */
+	uint32_t         line;     /* 1-based                              */
+	GlobalAccessKind kind;
+} GlobalAccess;
+
+/* The raw graph facts from one file's parse (doc/SDD.md §18). */
+typedef struct {
+	char         *path;            /* canonical absolute path; owned   */
+	CallSite     *calls;
+	size_t        call_count;
+	size_t        call_capacity;
+	GlobalAccess *globals;
+	size_t        global_count;
+	size_t        global_capacity;
+	char        **address_taken;   /* identifiers used as values; owned */
+	size_t        address_taken_count;
+	size_t        address_taken_capacity;
+} FileFacts;
+
+typedef struct {
+	FileFacts **items;   /* one per analysed file; owned              */
+	size_t      count;
+	size_t      capacity;
+} FactList;
 
 #endif /* ELC_H */

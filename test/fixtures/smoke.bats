@@ -26,9 +26,28 @@ setup() {
 	assert_success
 }
 
-@test "fixture directories carry no generated expected values yet" {
-	# Guards the convention above: if a future phase adds an expected.tsv
-	# here, it must arrive with a fixture header justifying its numbers.
-	run bash -c 'find "$0" -name "expected*" -type f | wc -l' "$BATS_TEST_DIRNAME"
-	assert_output "0"
+@test "every expected-value file has a fixture header beside it" {
+	# Guards the convention above. Phase 0 wrote this as "there are none
+	# yet", with a note that a future phase adding one must bring a header
+	# justifying its numbers. Phase 8 is that phase: graph/expected.graphml
+	# is the first, because a graph's *topology* cannot be asserted from a
+	# rendered report — the report states conclusions, and two different
+	# graphs can reach the same conclusion.
+	#
+	# So the guard now checks the invariant its own comment describes,
+	# rather than the count that happened to satisfy it while no expected
+	# file existed. An expected file with no README beside it is a set of
+	# numbers with nothing to justify them, which is the thing being
+	# forbidden.
+	local orphaned=0
+
+	while read -r expected; do
+		[ -n "$expected" ] || continue
+		if [ ! -f "$(dirname "$expected")/README.md" ]; then
+			echo "no fixture header beside $expected" >&2
+			orphaned=1
+		fi
+	done < <(find "$BATS_TEST_DIRNAME" -name "expected*" -type f)
+
+	[ "$orphaned" -eq 0 ]
 }

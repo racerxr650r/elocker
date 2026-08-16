@@ -253,11 +253,12 @@ preprocessor, so a disabled block is ordinary source to it.
 
 ```
 Project summary
-  Files             2
-  Physical lines   42
-  ELOC             18
-  Functions         3
-  Skipped           1
+  Files               2
+  Physical lines     42
+  ELOC               18
+  Functions           3
+  Skipped             1
+  Unresolved calls    4
 
 Callouts
   What          Value  Where
@@ -513,6 +514,97 @@ It takes no `TARGET`, and produces Markdown alone. A saved record carries the
 findings of a run rather than the graph behind them, so asking for another
 format is a usage error rather than a request quietly ignored.
 
+## The dependence graph
+
+From Phase 8 `elc` resolves the calls between your functions into one
+project-wide directed graph — the **System Dependence Graph**. Every analysis
+from here on reads it: fan-out, call depth, dead code, coupling, cycles.
+
+Nothing is re-read to build it. The graph comes from the same single parse
+that produced the metrics, which is why analysing a project costs one pass
+over each file however many questions are asked of the result.
+
+### What is in it
+
+**Nodes** are functions — the same ones the report lists.
+
+**Call edges** join a caller to a callee, across files. Two calls to the same
+helper are **one edge** carrying a count of two, not two edges. That is what
+makes fan-out the number of distinct subroutines a function invokes: a
+function calling one helper in a loop and again in its error path is coupled
+to one thing, not two.
+
+**Global edges** join a function that writes a global to every function that
+reads it. Two functions can be tightly coupled without either naming the
+other, and this is how that shows up. The two kinds of edge are kept separate
+and never merged.
+
+### Unresolved calls
+
+The project summary reports a count:
+
+```text
+Project summary
+  Files               3
+  ...
+  Unresolved calls    2
+```
+
+A call is unresolved when `elc` cannot find a definition for it in what you
+asked it to analyse — a call into a library, a system call, an indirect call
+through a pointer. **This is not an error and not a defect in your code.** A
+project that calls `printf` has unresolved calls by definition.
+
+It is reported because it tells you how complete the graph is. If you analyse
+one directory of a larger project, most calls leave it, the count is high,
+and the fan-out figures describe that directory rather than the program. If
+you expect a small number and see a large one, you probably scoped the run
+more narrowly than you meant to.
+
+`elc` never guesses at a destination. An edge that does not exist would be
+worse than a missing one: the dead-code analysis of a later phase proves that
+nothing calls a function, and one invented edge would make that proof wrong.
+
+### Exporting it
+
+```sh
+elc --graphml -o report.md src/     # writes report.md and report.graphml
+```
+
+GraphML is a standard graph format that igraph, NetworkX, Gephi and yEd all
+read, so the graph can be queried and drawn by tools that already know how.
+The export is off unless you ask for it, and its name comes from `--output`
+by substituting the extension — it takes no path of its own. With the report
+going to standard output there is no name to derive, so no file is written.
+
+The node attributes are `name`, `file`, `line-start`, `line-end`,
+`component`, `eloc`, `complexity`, `fan-out` and `address-taken`; edges carry
+`kind` (`call` or `global`), the object's name on a global edge, and
+`call-sites` on a call edge.
+
+### Where the graph is imprecise, and in which direction
+
+`elc` resolves calls by name across the files you gave it. Three consequences
+are worth knowing, because they affect how much weight to put on a number:
+
+- **A name defined twice resolves to the first definition** in sorted file
+  order, and `elc` says so on standard error. Two `static` helpers of the
+  same name in two files is ordinary C; the edge may go to the other one.
+- **A method call resolves on the method name**, not on the receiver's type.
+  Working out which class a call lands on needs type resolution, which a
+  grammar does not do.
+- **Ada writes an array index exactly like a function call.** `Table (2)`
+  and `Scale (2)` are the same syntax, and the grammar manages the ambiguity
+  rather than resolving it. In practice the index resolves against no
+  subprogram and is counted as *unresolved*, which is visible. It becomes a
+  wrong edge only if an array shares its name with a subprogram somewhere in
+  the project.
+
+`elc` does not correct for any of these, and the reason is the same each
+time: the correction would have to live in the binary and would encode one
+language's semantics there, which is exactly what makes adding a language a
+data change rather than a code change.
+
 ## Languages
 
 `elc` works out each file's language from its extension and loads the parser
@@ -627,6 +719,7 @@ comparable.
 | `--from-xml` | `FILE` | — | Rebuild a report from a saved record; takes no `TARGET` |
 | `-c`, `--complexity-threshold` | `N` | `15` | List functions whose complexity is `N` or greater |
 | `-o`, `--output` | `FILE` | standard output | Write the report to `FILE` |
+| `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 
 ```sh
