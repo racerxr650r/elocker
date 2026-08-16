@@ -72,6 +72,9 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-CLI-02"></a>**LLR-CLI-02** — `cli_parse` shall accept a report format selection of `table`, `csv`, `xml`, or `md`, defaulting to `table` when none is supplied.
     *Trace:* HLR-027 (Default Human-Readable Output), HLR-028 (CSV Output), HLR-054 (XML Output), HLR-029 (Markdown Output).
 
+*   <a id="LLR-CLI-18"></a>**LLR-CLI-18** — `cli_parse` shall accept `--entry` repeatedly, accumulating one entry-point symbol per occurrence, and shall never infer an entry point from any other source. The symbols are borrowed from `argv`; only the array holding them is owned.
+    *Trace:* HLR-095 (User-Declared Entry Points), HLR-039.
+
 *   <a id="LLR-CLI-03"></a>**LLR-CLI-03** — `cli_parse` shall accept an output file path, and shall record standard output as the destination when none is supplied.
     *Trace:* HLR-030 (Optional Output-File Redirection).
 
@@ -613,6 +616,15 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
 *   <a id="LLR-CTR-04"></a>**LLR-CTR-04** — `calltree_analyse` shall report the recursive cycles in place of a depth figure, rather than a finite number or a non-terminating computation, when recursion is present.
     *Trace:* HLR-090 (Depth Reporting Under Recursion).
 
+*   <a id="LLR-CTR-07"></a>**LLR-CTR-07** — `calltree_analyse` shall measure fan-out, recursion, and call depth over the graph's call-edge view alone, never over the whole System Dependence Graph. A global-state edge records that one function writes an object another reads; it is coupling and not invocation. Counting one as a callee would inflate fan-out, following one would extend a call chain through a call that never happens, and a pair of functions sharing two objects in opposite directions forms a cycle in the SDG that is not recursion — which would be reported as a critical MISRA C Rule 17.2 violation against ordinary code.
+    *Trace:* HLR-085, HLR-089, HLR-074 (Global State Edges).
+
+*   <a id="LLR-CTR-08"></a>**LLR-CTR-08** — `calltree_analyse` shall distinguish, in the omission it records, between no entry points having been declared and declared entry points naming no analysed function, since the two call for different actions from the reader. A declared symbol that matches no analysed function shall be diagnosed and skipped rather than ending the run: analysing one directory of a project whose entry point is defined in another is ordinary use, and rejecting it would make the option unusable there.
+    *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-095 (User-Declared Entry Points).
+
+*   <a id="LLR-CTR-09"></a>**LLR-CTR-09** — `calltree_analyse` shall continue to produce the measurements that need no user declaration — fan-out and recursion — when the depth analysis is omitted for want of one. Omitting an analysis is not a reason to omit its neighbours, and a report that fell silent about recursion because no entry point was declared would withhold the finding that matters most on a stack-constrained target.
+    *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-089.
+
 *   <a id="LLR-CTR-05"></a>**LLR-CTR-05** — `calltree_analyse` shall compute the maximum call-chain depth reachable from the declared entry points when the function graph is acyclic.
     *Trace:* HLR-087 (Maximum Call-Chain Depth).
 
@@ -623,6 +635,9 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
 
 *   <a id="LLR-LPD-01"></a>**LLR-LPD-01** — `longest_path_dag` shall compute the longest path from the declared entry points by memoised traversal in reverse topological order.
     *Trace:* HLR-087 (Maximum Call-Chain Depth).
+
+*   <a id="LLR-LPD-04"></a>**LLR-LPD-04** — `longest_path_dag` shall count the entry point itself as the first layer, so that an entry point calling nothing has a depth of one rather than zero, and shall resolve a tie between two chains of equal length in favour of the lower node identifier — which is sorted-file order — so that equal candidates yield the same report on every run.
+    *Trace:* HLR-087 (Maximum Call-Chain Depth), HLR-032.
 
 *   <a id="LLR-LPD-02"></a>**LLR-LPD-02** — `longest_path_dag` shall retain the predecessor of each node so that the deepest chain can be reconstructed.
     *Trace:* HLR-088 (Deepest Call Stack Reported in Full).
@@ -757,6 +772,12 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-23"></a>**LLR-RPT-23** — `report_set_unresolved` shall record the count of unresolved call sites on the assembled report, so that every format presenting the project summary states how complete the graph is (HLR-077). It is set after assembly rather than passed into it because the graph is built *from* the assembled model — its node order is the report's file order — so the count does not exist when `report_assemble` runs.
     *Trace:* HLR-077 (Unresolvable Call Handling), HLR-024.
 
+*   <a id="LLR-RPT-24"></a>**LLR-RPT-24** — `report_set_calltree` shall copy the call-tree measurements into the model, resolving every node identifier to the function name, file, and line a reader can act on. A node identifier indexes a table that exists only while the graph does, and the model outlives it, is rendered in four formats, and round-trips through a saved record — so carrying identifiers into it would make each of those a lookup against a structure that has been released.
+    *Trace:* HLR-085, HLR-088, HLR-089.
+
+*   <a id="LLR-RPT-25"></a>**LLR-RPT-25** — The report shall state, wherever a depth figure is absent, which of the three reasons applies: the call graph is recursive and no finite depth exists; no entry points were declared; or the declared entry points name no analysed function. An absence with no stated cause is indistinguishable from a measurement of zero (HLR-115).
+    *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-090 (Depth Reporting Under Recursion).
+
 *   <a id="LLR-RPT-12"></a>**LLR-RPT-12** — `report_assemble` shall produce a complete model with zero totals for a run in which no file was analysed.
     *Trace:* HLR-066 (Run With No Analyzable Files).
 
@@ -858,6 +879,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XWR-07"></a>**LLR-XWR-07** — `xml_write_report` shall write the unresolved-call count to the record, and `xml_read_report` shall restore it. It is a measurement of the run like any other and cannot be recomputed later: regeneration has no graph, and no source from which to build one.
     *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity), HLR-077 (Unresolvable Call Handling).
+
+*   <a id="LLR-XWR-08"></a>**LLR-XWR-08** — `xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one.
+    *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity).
 
 *   <a id="LLR-XWR-10"></a>**LLR-XWR-10** — `xml_write_report` shall emit the definitions in force and the count of undecided regions, so that a record states the configuration it was taken under.
     *Trace:* HLR-136, HLR-054.

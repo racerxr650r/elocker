@@ -79,6 +79,22 @@ typedef struct {
 	void          *graph;       /* igraph_t *; opaque here so that no
 	                             * consumer of the SDG links the graph
 	                             * library merely to read a node table  */
+	void          *call_graph;  /* igraph_t * over the call edges alone.
+	                             *
+	                             * A second view rather than a filter at
+	                             * each use, because the distinction is
+	                             * not a detail: a global edge from a
+	                             * writer to a reader is not a call. A
+	                             * cycle through one is not recursion, and
+	                             * a chain through one is not a call
+	                             * chain — measuring either over the full
+	                             * graph would report a program as
+	                             * recursive because two of its functions
+	                             * touch the same variable (HLR-089).
+	                             *
+	                             * Node identifiers are the same in both,
+	                             * so a result from one indexes the node
+	                             * table directly.                      */
 	SdgNode       *nodes;
 	size_t         node_count;
 	SdgEdge       *edges;

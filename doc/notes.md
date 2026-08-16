@@ -592,6 +592,26 @@ None is a defect; each is a judgement that could go the other way.
     are normally run once on a new machine and the coupling has not
     otherwise bitten. Worth doing the next time the prereq recipes are
     touched.
+*   **The SDG has two views, and using the wrong one is a silent
+    error** (Phase 9). `graph.c` holds the full graph and a call-only
+    view; every call-tree analysis reads the second. A global-state
+    edge joins a writer to a reader, and two functions that share two
+    objects in opposite directions form a cycle in the *full* graph —
+    which, measured there, is reported as mutual recursion and a
+    critical MISRA C Rule 17.2 violation against perfectly ordinary
+    code. Depth has the same shape of bug: a chain following a global
+    edge counts a stack frame for a call that never happens. Neither
+    would look wrong in the output. Phase 10's reachability analysis
+    faces the same choice and should reach for `call_graph` as well —
+    with the nuance that a function reachable only through a global is
+    still not *called*, so reachability is a call question too.
+*   **Depth counts the entry point as a layer** (Phase 9). An entry
+    point calling nothing is depth 1. The alternative — counting edges
+    rather than functions — reads more naturally as "how many calls
+    deep", but makes a leaf entry point depth 0, which is
+    indistinguishable from "not measured" in a report where omission is
+    a real outcome. Recorded because the choice is arbitrary and a
+    later reader will wonder.
 *   **Calls resolve by name alone** (Phase 8). There is no type
     resolution, so a method call resolves on the method name and a name
     defined twice resolves to its first definition in sorted file order

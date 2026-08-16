@@ -520,12 +520,12 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
             <post><![CDATA[Either a depth and a deepest chain are present, or the recursion list is non-empty and the depth is marked unbounded.]]></post>
             <returns><![CDATA[0 on success.]]></returns>
             <logic>
-              <step><![CDATA[Compute out-degree per function node; classify against the healthy, warning, and critical bands (HLR-086).]]></step>
-              <step><![CDATA[Decompose the *function* graph into strongly connected components; every non-trivial one, and every self-loop, is a recursive cycle (HLR-089).]]></step>
-              <step><![CDATA[If no entry points were declared, mark depth omitted and stop (HLR-115).]]></step>
+              <step><![CDATA[Compute out-degree over the *call* edges per function node. The classification of that number against the healthy, warning, and critical bands is `thresholds.c`'s (HLR-086 traces to Section 12); this module measures and does not judge, so that one catalogue of thresholds exists rather than one per analysis.]]></step>
+              <step><![CDATA[Decompose the *call view* of the function graph into strongly connected components; every non-trivial one, and every self-loop, is a recursive cycle (HLR-089). The call view and not the whole SDG: a global-state edge joins a function that writes an object to one that reads it, and two functions sharing a variable in both directions form a cycle in the SDG that is not recursion. Reporting it as such would be a critical finding against MISRA C Rule 17.2 on ordinary code.]]></step>
+              <step><![CDATA[If no entry points were declared, mark depth omitted and stop (HLR-115). If entry points were declared but none names an analysed function, mark depth omitted with a *different* reason and stop: "you declared nothing" and "what you declared is not in what you analysed" call for different actions from the reader, and a single omission message would send them to the wrong one. A symbol matching nothing is diagnosed and skipped rather than failing the run, since analysing one directory of a project whose entry point lives in another is ordinary.]]></step>
               <step><![CDATA[If any recursion was found, mark the depth unbounded, attach the recursive cycles, and stop — no finite deepest chain exists (HLR-090).]]></step>
               <step><![CDATA[Otherwise the graph is a DAG: compute the longest path from each entry point by memoised traversal in reverse topological order, retaining the predecessor of each node.]]></step>
-              <step><![CDATA[Walk the retained predecessors back from the deepest leaf to reconstruct the ordered chain, and record it in full (HLR-088).]]></step>
+              <step><![CDATA[Walk the retained successors out from the deepest entry point to reconstruct the ordered chain, and record it in full (HLR-088). A tie between two chains of equal length resolves to the lower node identifier, which is sorted-file order, so equal candidates always yield the same report (HLR-032).]]></step>
             </logic>
             <notes><![CDATA[Establishing acyclicity before measuring depth is what makes the longest-path computation terminate; on a cyclic graph the question has no finite answer, which is precisely why MISRA C Rule 17.2 exists. The measured depth is a lower bound on true worst-case depth: a chain that continues through an unresolved indirect call is not followed. The report therefore presents the depth alongside the unresolved-call count of HLR-077, so the reader can judge how completely the graph covers the program.]]></notes>
           </function>
@@ -1148,6 +1148,11 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="inputs" label="Inputs" path="Ada nested subprograms; lambdas and closures; methods and constructors; a nested function inside a lambda"/>
         <artefact key="expected" label="Expected" path="`expected.tsv` — per-function attribution showing no statement counted twice"/>
         <artefact key="verifies" label="Verifies" path="HLR-014, HLR-018, HLR-067, HLR-068"/>
+      </fixture>
+      <fixture name="`calltree/`" source="[test/fixtures/calltree/](../test/fixtures/calltree/)">
+        <artefact key="inputs" label="Inputs" path="One function per fan-out band boundary — 2, 3, 7, 8, 10, 11, 15, 16 — each also calling one helper twice; a four-deep call chain with a shallower branch listed first; direct and mutual recursion in their smallest forms"/>
+        <artefact key="expected" label="Expected" path="The exact fan-out at every boundary, the deepest chain as an ordered sequence, both recursive cycles by kind and members, and the stated reason wherever a depth figure is absent"/>
+        <artefact key="verifies" label="Verifies" path="HLR-032, HLR-033, HLR-038, HLR-056, HLR-077, HLR-085, HLR-087 – HLR-090, HLR-095, HLR-115"/>
       </fixture>
       <fixture name="`graph/`" source="[test/fixtures/graph/](../test/fixtures/graph/)">
         <artefact key="inputs" label="Inputs" path="**Phase 8**: a repeated call between one pair of functions; a global written in one file and read in another; a function assigned without being called; a call into a library; and, in Ada, a construct the grammar cannot separate from a call. **Phases 9–11 add**: mutual recursion within one file and across two; a clique of unused functions calling one another; a component dependency cycle; a global read and written by a single function; a global read by unreachable functions only"/>
@@ -2523,6 +2528,14 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         </traces>
       </llr>
 
+      <llr id="LLR-CLI-18">
+        <text><![CDATA[`cli_parse` shall accept `--entry` repeatedly, accumulating one entry-point symbol per occurrence, and shall never infer an entry point from any other source. The symbols are borrowed from `argv`; only the array holding them is owned.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-095" name="User-Declared Entry Points"/>
+          <trace target="HLR" ref="HLR-039"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-CLI-03">
         <text><![CDATA[`cli_parse` shall accept an output file path, and shall record standard output as the destination when none is supplied.]]></text>
         <traces>
@@ -3689,6 +3702,31 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-090" name="Depth Reporting Under Recursion"/>
         </traces>
       </llr>
+      <llr id="LLR-CTR-07">
+        <text><![CDATA[`calltree_analyse` shall measure fan-out, recursion, and call depth over the graph's call-edge view alone, never over the whole System Dependence Graph. A global-state edge records that one function writes an object another reads; it is coupling and not invocation. Counting one as a callee would inflate fan-out, following one would extend a call chain through a call that never happens, and a pair of functions sharing two objects in opposite directions forms a cycle in the SDG that is not recursion — which would be reported as a critical MISRA C Rule 17.2 violation against ordinary code.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-085"/>
+          <trace target="HLR" ref="HLR-089"/>
+          <trace target="HLR" ref="HLR-074" name="Global State Edges"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-CTR-08">
+        <text><![CDATA[`calltree_analyse` shall distinguish, in the omission it records, between no entry points having been declared and declared entry points naming no analysed function, since the two call for different actions from the reader. A declared symbol that matches no analysed function shall be diagnosed and skipped rather than ending the run: analysing one directory of a project whose entry point is defined in another is ordinary use, and rejecting it would make the option unusable there.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-115" name="Analyses Requiring User Declarations"/>
+          <trace target="HLR" ref="HLR-095" name="User-Declared Entry Points"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-CTR-09">
+        <text><![CDATA[`calltree_analyse` shall continue to produce the measurements that need no user declaration — fan-out and recursion — when the depth analysis is omitted for want of one. Omitting an analysis is not a reason to omit its neighbours, and a report that fell silent about recursion because no entry point was declared would withhold the finding that matters most on a stack-constrained target.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-115" name="Analyses Requiring User Declarations"/>
+          <trace target="HLR" ref="HLR-089"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-CTR-05">
         <text><![CDATA[`calltree_analyse` shall compute the maximum call-chain depth reachable from the declared entry points when the function graph is acyclic.]]></text>
         <traces>
@@ -3711,6 +3749,14 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-087" name="Maximum Call-Chain Depth"/>
         </traces>
       </llr>
+      <llr id="LLR-LPD-04">
+        <text><![CDATA[`longest_path_dag` shall count the entry point itself as the first layer, so that an entry point calling nothing has a depth of one rather than zero, and shall resolve a tie between two chains of equal length in favour of the lower node identifier — which is sorted-file order — so that equal candidates yield the same report on every run.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-087" name="Maximum Call-Chain Depth"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-LPD-02">
         <text><![CDATA[`longest_path_dag` shall retain the predecessor of each node so that the deepest chain can be reconstructed.]]></text>
         <traces>
@@ -3982,6 +4028,23 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-RPT-24">
+        <text><![CDATA[`report_set_calltree` shall copy the call-tree measurements into the model, resolving every node identifier to the function name, file, and line a reader can act on. A node identifier indexes a table that exists only while the graph does, and the model outlives it, is rendered in four formats, and round-trips through a saved record — so carrying identifiers into it would make each of those a lookup against a structure that has been released.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-085"/>
+          <trace target="HLR" ref="HLR-088"/>
+          <trace target="HLR" ref="HLR-089"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-RPT-25">
+        <text><![CDATA[The report shall state, wherever a depth figure is absent, which of the three reasons applies: the call graph is recursive and no finite depth exists; no entry points were declared; or the declared entry points name no analysed function. An absence with no stated cause is indistinguishable from a measurement of zero (HLR-115).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-115" name="Analyses Requiring User Declarations"/>
+          <trace target="HLR" ref="HLR-090" name="Depth Reporting Under Recursion"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-RPT-12">
         <text><![CDATA[`report_assemble` shall produce a complete model with zero totals for a run in which no file was analysed.]]></text>
         <traces>
@@ -4211,6 +4274,14 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-XWR-08">
+        <text><![CDATA[`xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-054" name="Complete Analysis Record"/>
+          <trace target="HLR" ref="HLR-056" name="Regeneration Fidelity"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-XWR-10">
         <text><![CDATA[`xml_write_report` shall emit the definitions in force and the count of undecided regions, so that a record states the configuration it was taken under.]]></text>
         <traces>
@@ -4218,6 +4289,7 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-054"/>
         </traces>
       </llr>
+
       <llr id="LLR-XWR-04">
         <text><![CDATA[`xml_write_report` shall emit well-formed XML.]]></text>
         <traces>
@@ -5023,6 +5095,108 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Releasing a null metrics structure does not fault, so teardown is safe on every path.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-02"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/calltree.c" role="unit" count="16">
+    <test name="fan_out_counts_distinct_callees">
+      <purpose><![CDATA[Four call sites to two functions give a fan-out of two, so the measure is of subroutines invoked and not of invocations.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-01"/>
+      </traces>
+    </test>
+    <test name="fan_out_ignores_global_edges">
+      <purpose><![CDATA[A function that writes a global another reads has a fan-out of zero: coupling through shared state is not invocation.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-07"/>
+      </traces>
+    </test>
+    <test name="direct_recursion_is_detected">
+      <purpose><![CDATA[A function calling itself is reported as a one-member cycle.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-02"/>
+      </traces>
+    </test>
+    <test name="mutual_recursion_is_detected">
+      <purpose><![CDATA[A mutually recursive pair is one cycle of two members rather than two cycles of one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-02"/>
+      </traces>
+    </test>
+    <test name="a_straight_line_program_has_no_cycles">
+      <purpose><![CDATA[An acyclic call graph reports no recursion, so the trivial single-node components every decomposition produces are not mistaken for self-calls.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-02"/>
+      </traces>
+    </test>
+    <test name="a_global_cycle_is_not_recursion">
+      <purpose><![CDATA[Two functions each writing a global the other reads form a cycle in the SDG and no recursion at all, which is the case that would otherwise produce a false critical MISRA C Rule 17.2 finding on ordinary code.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-07"/>
+      </traces>
+    </test>
+    <test name="depth_is_the_length_of_the_deepest_chain">
+      <purpose><![CDATA[A three-function chain from a declared entry point measures three, the entry point counting as the first layer.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-05"/>
+        <trace target="LLR" ref="LLR-LPD-04"/>
+      </traces>
+    </test>
+    <test name="the_deepest_chain_is_an_ordered_sequence">
+      <purpose><![CDATA[With a shallow branch listed first and a deep one second, the reported chain is the deep one in order — a search taking the first edge would give the wrong path and the wrong length.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LPD-01"/>
+        <trace target="LLR" ref="LLR-LPD-03"/>
+      </traces>
+    </test>
+    <test name="depth_measures_from_the_deepest_entry_point">
+      <purpose><![CDATA[Given two entry points of different depths, the reported figure and chain are the worst case across them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-05"/>
+      </traces>
+    </test>
+    <test name="recursion_yields_no_depth_and_terminates">
+      <purpose><![CDATA[A recursive call graph reports its cycle, no depth figure, and no chain — and the run terminates, which a longest-path search over a cyclic graph would not.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-04"/>
+      </traces>
+    </test>
+    <test name="no_entry_points_omits_depth_with_a_reason">
+      <purpose><![CDATA[With no declaration the depth analysis is omitted rather than failed, `main` is not inferred despite being present, and the measurements needing no declaration are still produced.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-03"/>
+        <trace target="LLR" ref="LLR-CTR-09"/>
+      </traces>
+    </test>
+    <test name="an_entry_point_matching_nothing_is_a_distinct_omission">
+      <purpose><![CDATA[A declared entry point naming no analysed function yields a different omission from declaring none, because the two call for different actions.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-08"/>
+      </traces>
+    </test>
+    <test name="depth_carries_the_unresolved_count">
+      <purpose><![CDATA[The unresolved-call count travels with the depth, since a chain through an unresolved call is not followed and the figure is a lower bound.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-06"/>
+      </traces>
+    </test>
+    <test name="a_chain_does_not_travel_along_a_global_edge">
+      <purpose><![CDATA[A chain stops at the last function actually called, rather than continuing to one that merely reads a global the callee wrote.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-07"/>
+      </traces>
+    </test>
+    <test name="an_empty_project_measures_nothing_without_failing">
+      <purpose><![CDATA[A run that analysed nothing produces an empty but valid set of measurements.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-01"/>
+      </traces>
+    </test>
+    <test name="tree_results_free_is_safe_on_null_and_twice">
+      <purpose><![CDATA[Releasing a null or already-released result set does not fault, so teardown is unconditional on every path.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-01"/>
       </traces>
     </test>
   </file>
@@ -6901,6 +7075,131 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Every file in the fixture tree checksums identically before and after a run.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-043"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/calltree.bats" role="fixture" count="20">
+    <test name="HLR-085: fan-out is exact at every band boundary">
+      <purpose><![CDATA[Fan-out is correct for 2, 3, 7, 8, 10, 11, 15 and 16 distinct callees — the values Phase 12 will band, asserted individually so a failure names the boundary that moved.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-085"/>
+      </traces>
+    </test>
+    <test name="HLR-085: a repeated call does not raise fan-out">
+      <purpose><![CDATA[Every caller in the fixture invokes one helper twice; the figures are unchanged, which is what the whole boundary table rests on.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-085"/>
+      </traces>
+    </test>
+    <test name="HLR-085: a function that calls nothing has fan-out zero">
+      <purpose><![CDATA[A leaf reports zero rather than being omitted.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-085"/>
+      </traces>
+    </test>
+    <test name="HLR-085: every function appears, not only the interesting ones">
+      <purpose><![CDATA[All twenty-four functions are listed: this is a measurement table, not a finding list.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-085"/>
+      </traces>
+    </test>
+    <test name="HLR-087: the hand-counted depth matches">
+      <purpose><![CDATA[The four-layer chain measures four.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-087"/>
+      </traces>
+    </test>
+    <test name="HLR-088: the deepest chain is reported in full, in order">
+      <purpose><![CDATA[The ordered sequence from entry point to deepest leaf is reported, not merely its length.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-088"/>
+      </traces>
+    </test>
+    <test name="HLR-088: the deepest branch is taken, not the first">
+      <purpose><![CDATA[The entry point calls the shallow branch first; the reported chain is the deep one, so the traversal is a longest-path search and not a first-path one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-088"/>
+      </traces>
+    </test>
+    <test name="HLR-087: the depth is presented with the unresolved count">
+      <purpose><![CDATA[The depth heading states the unresolved count, so the figure is read as the lower bound it is.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-087"/>
+        <trace target="HLR" ref="HLR-077"/>
+      </traces>
+    </test>
+    <test name="HLR-089: direct and mutual recursion are both reported">
+      <purpose><![CDATA[One decomposition finds both kinds, and labels which is which.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-089"/>
+      </traces>
+    </test>
+    <test name="HLR-089: the recursive functions are named">
+      <purpose><![CDATA[The members of each cycle are named, since MISRA C Rule 17.2 is about which functions are involved.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-089"/>
+      </traces>
+    </test>
+    <test name="HLR-090: recursion yields no depth figure, and the run terminates">
+      <purpose><![CDATA[A recursive graph reports unbounded depth with no chain, and the run completes — a longest-path search over it would not.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-090"/>
+      </traces>
+    </test>
+    <test name="HLR-090: no finite depth is invented for a recursive graph">
+      <purpose><![CDATA[No layer count appears anywhere in the report for a recursive graph.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-090"/>
+      </traces>
+    </test>
+    <test name="HLR-115: with no entry points, depth is omitted with its reason">
+      <purpose><![CDATA[The run succeeds and the report states that no entry points were declared, rather than reporting an empty or zero result.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="HLR-115: an omitted depth does not omit the other measurements">
+      <purpose><![CDATA[Fan-out is still reported when the depth analysis is omitted; omitting one analysis does not silence its neighbours.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="HLR-095: main is not inferred, however obvious it looks">
+      <purpose><![CDATA[A file containing an obvious entry point still omits the analysis, because entry points are declared and never guessed at.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-095"/>
+      </traces>
+    </test>
+    <test name="HLR-115: an entry point matching nothing is a distinct omission">
+      <purpose><![CDATA[A declared symbol matching no analysed function produces its own omission message, distinct from having declared none.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="an unmatched entry point is diagnosed on stderr">
+      <purpose><![CDATA[The unmatched symbol is named on standard error, and the run still succeeds.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-095"/>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="HLR-032: two runs over the same tree agree">
+      <purpose><![CDATA[Two runs produce identical reports.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="HLR-033: the targets may be given in either order">
+      <purpose><![CDATA[The report does not depend on the order the targets were named in.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="HLR-056: the measurements survive a record round trip">
+      <purpose><![CDATA[A report regenerated from a record is byte-identical and still carries the depth, since none of the call-tree measurements can be recomputed without the source.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-056"/>
       </traces>
     </test>
   </file>

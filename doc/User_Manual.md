@@ -298,10 +298,11 @@ Skipped files (no language module)
   /home/u/proj/src/notes.md
 ```
 
-Eight sections: the project totals, the callouts, the discovery route applied
+Eleven sections: the project totals, the callouts, the discovery route applied
 to each directory target, those totals broken down by language, one row per
 file, one row per function, the functions at or over the complexity threshold,
-and whatever was skipped. Paths are canonical and absolute, and each column is
+each function's fan-out, any recursion, the deepest call chain, and whatever
+was skipped. Paths are canonical and absolute, and each column is
 padded to its longest value.
 
 `Discovery` has a row per *directory* target only; a file named directly is
@@ -565,6 +566,90 @@ more narrowly than you meant to.
 worse than a missing one: the dead-code analysis of a later phase proves that
 nothing calls a function, and one invented edge would make that proof wrong.
 
+### Fan-out
+
+For every function, the number of **distinct subroutines it invokes**:
+
+```text
+Fan-out (distinct callees)
+  File                  Function  Fan-out
+  --------------------  --------  -------
+  /home/u/proj/src/a.c  parse           7
+```
+
+Distinct, not call sites. A function that calls one helper in a loop body and
+again in its error path is coupled to *one* thing, and reports a fan-out of 1.
+
+`elc` reports the number and does not judge it. What counts as too many
+arrives in a later phase, along with the rest of the threshold catalogue.
+
+### Recursion
+
+```text
+Recursion
+  Kind    Functions
+  ------  -----------
+  direct  fact
+  mutual  ping, pong
+```
+
+Direct recursion is a function that calls itself; mutual recursion is a group
+that can reach each other. Both are found the same way, and both matter for
+the same reason: MISRA C Rule 17.2 forbids recursion because it makes worst-
+case stack depth unpredictable, which on a target with a few kilobytes of
+stack is a crash waiting for the wrong input.
+
+The **Functions** column is a set, not a path. `elc` can tell you which
+functions are mutually recursive; it does not claim a particular cycle through
+them, because the analysis that finds them does not produce one. Breaking any
+call among the listed functions breaks the recursion.
+
+### The deepest call chain
+
+```text
+Deepest call chain (4 layers; a lower bound, 3 calls unresolved)
+  Step  File                  Function
+  ----  --------------------  --------
+  1     /home/u/proj/src/a.c  main
+  2     /home/u/proj/src/a.c  parse
+  3     /home/u/proj/src/b.c  lex
+  4     /home/u/proj/src/b.c  next_token
+```
+
+The chain itself, not just its length — because knowing the depth is 4 tells
+you nothing about which path to shorten.
+
+**This needs entry points, and `elc` will not guess at them:**
+
+```sh
+elc --entry main --entry timer_isr --entry usb_rx src/
+```
+
+Repeat `--entry` for each. There is no default, and none is inferred: `main`
+is the right answer for an application, the wrong answer for a library, and
+badly wrong for firmware whose interrupt handlers are reached from a vector
+table and called by nothing.
+
+Four things can appear in that heading, and each says exactly what happened:
+
+| Heading | Meaning |
+| ------- | ------- |
+| `(N layers; a lower bound, M calls unresolved)` | measured |
+| `(unbounded: the call graph is recursive)` | recursion makes depth infinite; see the Recursion section |
+| `(omitted: no entry points declared, see --entry)` | you did not say where execution starts |
+| `(omitted: no declared entry point matches an analysed function)` | you did, but the named functions are not in what you analysed |
+
+**Why it is a lower bound.** A chain that continues through a call `elc` could
+not resolve is not followed, so the true worst case may be deeper. That is why
+the unresolved count sits in the heading: a depth of 4 with 0 unresolved calls
+is a measurement, and a depth of 4 with 300 unresolved calls is a lower bound
+you should not rely on.
+
+**Why recursion gives no number.** On a cyclic call graph the longest path has
+no finite answer. `elc` reports the cycle instead of a number, rather than
+picking some finite value that would be wrong, or looping forever trying to
+find one.
+
 ### Exporting it
 
 ```sh
@@ -719,6 +804,7 @@ comparable.
 | `--from-xml` | `FILE` | — | Rebuild a report from a saved record; takes no `TARGET` |
 | `-c`, `--complexity-threshold` | `N` | `15` | List functions whose complexity is `N` or greater |
 | `-o`, `--output` | `FILE` | standard output | Write the report to `FILE` |
+| `--entry` | `SYMBOL` | none | Declare `SYMBOL` an entry point for call-depth analysis; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 

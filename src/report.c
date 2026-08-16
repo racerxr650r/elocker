@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "analyze.h"
+#include "calltree.h"
 #include "discover.h"
 #include "elc.h"
 #include "report.h"
@@ -315,6 +316,97 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 	return 0;
 }
 
+/* Copy the call-tree measurements into the model, resolving node identifiers
+ * to the names and locations a reader can act on.
+ *
+ * The translation is the point. A node id is an index into a table that only
+ * exists while the graph does; the report outlives it, is rendered in four
+ * formats, and round-trips through a record. Carrying identifiers into it
+ * would make every one of those a lookup against a structure that has been
+ * freed.
+ */
+int report_set_calltree(Report *report, const TreeResults *tree, const Sdg *g)
+{
+	if (!tree || !g)
+		return 0;
+
+	report->depth_state = tree->depth_state;
+	report->depth       = tree->depth;
+
+	/* --- fan-out, one row per function -------------------------------- */
+
+	report->fan_out = calloc(g->node_count ? g->node_count : 1,
+	                         sizeof *report->fan_out);
+	if (!report->fan_out)
+		return -1;
+
+	for (size_t i = 0; i < g->node_count && i < tree->node_count; i++) {
+		FanOutRow *row = &report->fan_out[report->fan_out_count];
+
+		row->function = strdup(g->nodes[i].name);
+		row->file     = strdup(g->nodes[i].file);
+		if (!row->function || !row->file)
+			return -1;
+		row->line    = g->nodes[i].line_start;
+		row->fan_out = tree->fan_out[i];
+		report->fan_out_count++;
+	}
+
+	/* --- recursive cycles --------------------------------------------- */
+
+	if (tree->cycle_count > 0) {
+		report->cycles = calloc(tree->cycle_count, sizeof *report->cycles);
+		if (!report->cycles)
+			return -1;
+
+		for (size_t c = 0; c < tree->cycle_count; c++) {
+			const RecursiveCycle *cycle = &tree->cycles[c];
+			CycleRow             *row   = &report->cycles[c];
+
+			row->members = calloc(cycle->count, sizeof *row->members);
+			if (!row->members)
+				return -1;
+			for (size_t m = 0; m < cycle->count; m++) {
+				if (cycle->members[m] >= g->node_count)
+					continue;
+				row->members[row->count] =
+					strdup(g->nodes[cycle->members[m]].name);
+				if (!row->members[row->count])
+					return -1;
+				row->count++;
+			}
+			report->cycle_count++;
+		}
+	}
+
+	/* --- the deepest chain, in order ---------------------------------- */
+
+	if (tree->deepest.count > 0) {
+		report->deepest = calloc(tree->deepest.count,
+		                         sizeof *report->deepest);
+		if (!report->deepest)
+			return -1;
+
+		for (size_t i = 0; i < tree->deepest.count; i++) {
+			uint32_t node = tree->deepest.nodes[i];
+
+			if (node >= g->node_count)
+				continue;
+
+			ChainRow *row = &report->deepest[report->deepest_count];
+
+			row->function = strdup(g->nodes[node].name);
+			row->file     = strdup(g->nodes[node].file);
+			if (!row->function || !row->file)
+				return -1;
+			row->line = g->nodes[node].line_start;
+			report->deepest_count++;
+		}
+	}
+
+	return 0;
+}
+
 void report_set_unresolved(Report *report, size_t unresolved)
 {
 	report->unresolved_calls = unresolved;
@@ -331,6 +423,28 @@ void report_free(Report *report)
 	report->files      = NULL;
 	report->file_count = 0;
 	routelist_free(&report->routes);
+	for (size_t i = 0; i < report->fan_out_count; i++) {
+		free(report->fan_out[i].function);
+		free(report->fan_out[i].file);
+	}
+	free(report->fan_out);
+	report->fan_out       = NULL;
+	report->fan_out_count = 0;
+	for (size_t i = 0; i < report->cycle_count; i++) {
+		for (size_t m = 0; m < report->cycles[i].count; m++)
+			free(report->cycles[i].members[m]);
+		free(report->cycles[i].members);
+	}
+	free(report->cycles);
+	report->cycles      = NULL;
+	report->cycle_count = 0;
+	for (size_t i = 0; i < report->deepest_count; i++) {
+		free(report->deepest[i].function);
+		free(report->deepest[i].file);
+	}
+	free(report->deepest);
+	report->deepest       = NULL;
+	report->deepest_count = 0;
 	free(report->languages.items);
 	report->languages.items    = NULL;
 	report->languages.count    = 0;
