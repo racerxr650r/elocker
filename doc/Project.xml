@@ -312,6 +312,8 @@ runtime/
 ```
 The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060). `binary.exts` lives here too and is read by `discover.c`, which is given this location rather than resolving it (HLR-005).
 
+Installed, that same tree lives at `<prefix>/share/elc/runtime`; in the build tree it is reached through a `runtime` symlink `make all` creates beside the binary. The directory's *contents* are identical in both, which is what lets one resolution rule serve them.
+
 `conditionals.scm` is a **seventh, optional** file. A module that supplies one gains conditional-region pruning; a module that omits one has no conditional compilation, which is the truth for a language that has none. The required set stays at six, so adding this breaks no module that already exists (HLR-121, HLR-134).
 
 `deadcode.scm` is the **eighth**, and optional for the same reason. A module supplying one gains dead-code detection within functions; a module omitting one is analysed for every other measurement, and the report states that the analysis was *not performed* for that language rather than that none was found (HLR-139). Four of the five shipped modules supply one. Ada does not, deliberately: it writes its false literal as an ordinary identifier the grammar cannot distinguish from one the program declared, so capturing it would assert a resolution nothing performed — and shipping the terminator half alone would report Ada as *analysed* while quietly finding no literal branches, which is the confident-and-wrong outcome the whole design avoids.
@@ -322,7 +324,18 @@ A query file that compiles and captures nothing is valid, and is how an unimplem
 
 The contract this directory embodies — the filenames, the capture names, and what each means — is published with the runtime as `runtime/queries/README.md`. That document, not this section, is what a third party codes against (HLR-121).]]></interface>
           <interface title="Custom Rule Binding"><![CDATA[A Tree-sitter query compiles against one specific `TSLanguage`, so every custom rule must name the language it applies to. Rules found under `runtime/queries/<lang>/rules/` are bound by their location; rules named on the command line are bound by the `lang:path` argument form. A rule naming a language with no available module is a diagnostic, not a compile attempt.]]></interface>
-          <interface title="Environment"><![CDATA[`ELC_RUNTIME_DIR`, when set, takes precedence over the path adjacent to the executable (HLR-059). The adjacent path is derived from the executable itself rather than from `argv[0]`, which a caller controls.
+          <interface title="Environment"><![CDATA[`ELC_RUNTIME_DIR`, when set, takes precedence over every path derived from the executable (HLR-059), and is used exactly as given: a variable naming a location that is not there is reported against that path rather than quietly falling back to one the user did not ask for.
+
+With the variable unset, two paths relative to the executable are tried in order, and the first that exists and is a directory wins:
+
+| Path | Layout it serves |
+| ---- | ---------------- |
+| `<exedir>/runtime` | an unpacked self-contained distribution, and the build tree |
+| `<exedir>/../share/elc/runtime` | the installed layout `make install` produces |
+
+**Both, because HLR-059 says "relative to the executable" and not "adjacent to" it, and the difference is the whole of a working installation.** The install target puts the binary in `<prefix>/bin` and the runtime in `<prefix>/share/elc/runtime`, since a tree of grammars and query files does not belong in a directory of executables. A resolver looking only beside the binary fails on every installed copy — while working perfectly in the build tree, where `make all` creates a `runtime` symlink next to `elc`. That asymmetry is why the defect survived: every test level ran against a layout that flattered it, and producing a *working* installation was a release criterion nothing checked. The fixture group now installs into a staging root and runs the result.
+
+Each path derived from the executable is derived from the executable itself rather than from `argv[0]`, which a caller controls.
 
 This resolution happens once per run and is the module's alone. `discover.c` also needs the runtime location, for `binary.exts`, and asks for it through `registry_runtime_dir()` rather than repeating the rule — one precedence rule, one implementation.]]></interface>
         </interfaces>
@@ -3032,7 +3045,7 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
     <function number="10" title="`registry_open` ([src/registry.c](../src/registry.c))" name="registry_open" source="src/registry.c">
       <intro><![CDATA[Runtime location resolution and registry initialisation. The boundary that keeps language knowledge out of the binary.]]></intro>
       <llr id="LLR-ROP-01">
-        <text><![CDATA[`registry_open` shall resolve the runtime location from the dedicated environment variable when that variable is set, and from a path relative to the executable otherwise.]]></text>
+        <text><![CDATA[`registry_open` shall resolve the runtime location from the dedicated environment variable when that variable is set, and otherwise from the first of an ordered set of paths relative to the executable that exists and is a directory.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-059" name="Runtime Location Discovery and Precedence"/>
         </traces>
@@ -3072,6 +3085,21 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
         <text><![CDATA[`registry_open` shall read no configuration file or dotfile outside the runtime location.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-039" name="Zero Configuration"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ROP-09">
+        <text><![CDATA[The paths `registry_open` tries relative to the executable shall include both the directory beside it and the installed layout the build's install target produces, and the location the install target writes the runtime to shall be one of them. HLR-059 requires a path *relative to* the executable rather than one adjacent to it, and the two are not the same: a tree of grammars and query files does not belong in a directory of executables, so an installed `elc` finds its runtime a level up and across rather than beside itself.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-059" name="Runtime Location Discovery and Precedence"/>
+          <trace target="HLR" ref="HLR-009"/>
+          <trace target="HLR" ref="HLR-119"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ROP-10">
+        <text><![CDATA[`registry_open` shall name every path it examined in the diagnostic for a runtime location it could not find, and shall report a location given through the environment variable against that path alone rather than falling back. The reader's next action is to place the runtime or to set the variable, and a message quoting one path they never chose sends them to the wrong directory.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-036" name="Setup-Failure Fatality"/>
+          <trace target="HLR" ref="HLR-059"/>
         </traces>
       </llr>
     </function>
@@ -7754,7 +7782,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/fixtures/runtime.bats" role="fixture" count="15">
+  <file path="test/fixtures/runtime.bats" role="fixture" count="19">
     <test name="an intact runtime analyses the subject">
       <purpose><![CDATA[The control the rest of the group is read against: an unbroken runtime directory analyses the subject and reports its function.]]></purpose>
       <traces>
@@ -7851,7 +7879,35 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-059"/>
       </traces>
     </test>
-  </file>
+      <test name="HLR-059: an installed elc finds the runtime under share/elc">
+      <purpose><![CDATA[A binary installed into a staging root analyses a file with no environment variable set. The build tree flatters the adjacent path with a symlink beside the binary, so this is the only level at which the installed layout is exercised at all — and it failed outright before the resolver tried the second path.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-09"/>
+        <trace target="HLR" ref="HLR-059"/>
+      </traces>
+    </test>
+    <test name="HLR-059: the install puts the runtime where the binary looks for it">
+      <purpose><![CDATA[The staged layout is asserted directly, so a regression names the disagreement between the install target and the resolver rather than only its symptom, and so that moving the runtime into the binary's own directory would fail rather than pass.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-09"/>
+        <trace target="HLR" ref="HLR-009"/>
+      </traces>
+    </test>
+    <test name="HLR-059: the environment variable still wins over the installed layout">
+      <purpose><![CDATA[The variable takes precedence over a runtime the installed layout would otherwise have found, as it does over the adjacent one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-02"/>
+        <trace target="HLR" ref="HLR-059"/>
+      </traces>
+    </test>
+    <test name="HLR-036: a binary with no runtime anywhere names every path it tried">
+      <purpose><![CDATA[The diagnostic lists each candidate and the variable that overrides them. The message it replaced quoted one path no layout uses, sending the reader to look for a runtime directory inside a directory of executables.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-10"/>
+        <trace target="HLR" ref="HLR-036"/>
+      </traces>
+    </test>
+</file>
 
   <file path="test/fixtures/traversal.bats" role="fixture" count="11">
     <test name="the walk yields exactly the three source files">

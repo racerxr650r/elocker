@@ -1200,12 +1200,29 @@ language grammars and their query files:
 ELC_RUNTIME_DIR=/opt/elc/runtime elc src/
 ```
 
-When unset, `elc` looks for a `runtime/` directory beside the executable. When
-set, it takes precedence.
+When set, it takes precedence over everything below, and is used exactly as
+given — a variable naming a directory that is not there is reported against
+that path rather than quietly falling back to one you did not ask for.
+
+When unset, `elc` looks in two places relative to the executable and uses the
+first that exists:
+
+| Path | Layout |
+| ---- | ------ |
+| `<dir of elc>/runtime` | an unpacked self-contained copy |
+| `<dir of elc>/../share/elc/runtime` | what `make install` produces |
+
+So an `elc` installed to `/usr/local/bin/elc` finds its runtime at
+`/usr/local/share/elc/runtime`, and one unpacked into a directory beside its
+own `runtime/` finds it there. If neither exists, the diagnostic names both
+paths it tried.
 
 ## The runtime directory
 
-Everything language-specific lives here as data, never in the binary:
+Everything language-specific lives here as data, never in the binary. Installed
+it sits at `<prefix>/share/elc/runtime`; in a source checkout it is `runtime/`
+at the top, reached through a symlink the build creates beside `build/elc`. The
+contents are identical either way:
 
 ```text
 runtime/
@@ -1302,8 +1319,17 @@ was found but its modules are not loading. The first diagnostic names the
 language and the reason.
 
 **`elc: <path>: No such file or directory` naming a runtime directory, exit
-2** — `ELC_RUNTIME_DIR` points somewhere that is not there, or `elc` was run
-from a location with no `runtime/` beside it.
+2** — `ELC_RUNTIME_DIR` points somewhere that is not there. The path is
+reported exactly as you gave it.
+
+**`elc: no runtime directory at <path>, <path>; set ELC_RUNTIME_DIR to name
+one`, exit 2** — the variable is unset and neither path relative to the binary
+exists. The message names both. Either put the runtime at one of them, or set
+the variable:
+
+```sh
+ELC_RUNTIME_DIR=/path/to/runtime elc src/
+```
 
 ## Getting more detail
 

@@ -148,3 +148,58 @@ assert_degraded_not_failed() {
 	assert_success
 	assert_output --partial "only"
 }
+
+# --- HLR-059: the *installed* layout ---------------------------------------
+#
+# The build tree flatters this: `make all` creates a `runtime` symlink beside
+# `build/elc`, so the adjacent path always resolves here and an installed copy
+# — where the runtime lives in `share/elc/` and never beside the binary — was
+# never exercised by anything. `elc .` after `make install` failed outright.
+#
+# These run against a real staging root for that reason. Producing the
+# deliverable is a release criterion (SDP §5), and "the files are present" is
+# not the same claim as "the installed binary runs".
+
+# Install into a staging root under the test's own temporary directory.
+staged_install() {
+	run make -C "$REPO_ROOT" install DESTDIR="$BATS_TEST_TMPDIR/stage" \
+		PREFIX=/usr/local
+	assert_success
+	STAGED="$BATS_TEST_TMPDIR/stage/usr/local"
+}
+
+@test "HLR-059: an installed elc finds the runtime under share/elc" {
+	staged_install
+	run env -u ELC_RUNTIME_DIR "$STAGED/bin/elc" "$SUBJECT"
+	assert_success
+	assert_output --partial "only"
+}
+
+@test "HLR-059: the install puts the runtime where the binary looks for it" {
+	# Asserted as a location rather than only as a working run, so a
+	# regression names the disagreement rather than only its symptom.
+	staged_install
+	assert [ -d "$STAGED/share/elc/runtime" ]
+	assert [ ! -e "$STAGED/bin/runtime" ]
+}
+
+@test "HLR-059: the environment variable still wins over the installed layout" {
+	staged_install
+	rm "$RT/parsers/c.so"
+	ELC_RUNTIME_DIR="$RT" run "$STAGED/bin/elc" "$SUBJECT"
+	assert_degraded_not_failed
+}
+
+@test "HLR-036: a binary with no runtime anywhere names every path it tried" {
+	# The diagnostic is the whole of the user's next action, and the one
+	# this replaced quoted a single path that no layout ever uses — sending
+	# the reader to look in a directory of executables.
+	mkdir -p "$BATS_TEST_TMPDIR/lonely/bin"
+	cp "$ELC" "$BATS_TEST_TMPDIR/lonely/bin/elc"
+
+	run env -u ELC_RUNTIME_DIR "$BATS_TEST_TMPDIR/lonely/bin/elc" "$SUBJECT"
+	assert_equal "$status" 2
+	assert_output --partial "lonely/bin/runtime"
+	assert_output --partial "share/elc/runtime"
+	assert_output --partial "ELC_RUNTIME_DIR"
+}

@@ -717,7 +717,7 @@ Role: **fixture**. **16 test(s).**
 
 ### 3.25. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
 
-Role: **fixture**. **15 test(s).**
+Role: **fixture**. **19 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -736,6 +736,10 @@ Role: **fixture**. **15 test(s).**
 | 13 | <a id="HLR-070: an unusable module is reported once, not once per file"></a>`HLR-070: an unusable module is reported once, not once per file` | — | The load failure is diagnosed once for the language rather than once for every file that would have used it. |
 | 14 | <a id="HLR-059: the environment variable takes precedence over the adjacent runtime"></a>`HLR-059: the environment variable takes precedence over the adjacent runtime` | — | Pointing the environment variable at a broken runtime degrades the run even though a working one sits beside the executable, which it can only do if the variable was preferred. |
 | 15 | <a id="HLR-059: the runtime adjacent to the executable is used when the variable is unset"></a>`HLR-059: the runtime adjacent to the executable is used when the variable is unset` | — | With the variable unset, the runtime beside the executable is found and used. |
+| 16 | <a id="HLR-059: an installed elc finds the runtime under share/elc"></a>`HLR-059: an installed elc finds the runtime under share/elc` | `LLR-ROP-09` | A binary installed into a staging root analyses a file with no environment variable set. The build tree flatters the adjacent path with a symlink beside the binary, so this is the only level at which the installed layout is exercised at all — and it failed outright before the resolver tried the second path. |
+| 17 | <a id="HLR-059: the install puts the runtime where the binary looks for it"></a>`HLR-059: the install puts the runtime where the binary looks for it` | `LLR-ROP-09` | The staged layout is asserted directly, so a regression names the disagreement between the install target and the resolver rather than only its symptom, and so that moving the runtime into the binary's own directory would fail rather than pass. |
+| 18 | <a id="HLR-059: the environment variable still wins over the installed layout"></a>`HLR-059: the environment variable still wins over the installed layout` | `LLR-ROP-02` | The variable takes precedence over a runtime the installed layout would otherwise have found, as it does over the adjacent one. |
+| 19 | <a id="HLR-036: a binary with no runtime anywhere names every path it tried"></a>`HLR-036: a binary with no runtime anywhere names every path it tried` | `LLR-ROP-10` | The diagnostic lists each candidate and the variable that overrides them. The message it replaced quoted one path no layout uses, sending the reader to look for a runtime directory inside a directory of executables. |
 
 ### 3.26. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
 
@@ -1064,12 +1068,14 @@ verified by code review — see
 | `LLR-EXT-02` | `is_excluded_extension` | `HLR-005`, `HLR-060` | `excluded_extension_ignores_case`, `extension_list_skips_comments_and_blank_lines` |
 | `LLR-EXT-03` | `is_excluded_extension` | `HLR-005`, `HLR-038` | `an_empty_exclusion_list_excludes_nothing`, `a_missing_extension_list_is_not_fatal` |
 | `LLR-ROP-01` | `registry_open` | `HLR-059` | `the_environment_variable_names_the_runtime_location` |
-| `LLR-ROP-02` | `registry_open` | `HLR-059` | `the_environment_variable_names_the_runtime_location` |
+| `LLR-ROP-02` | `registry_open` | `HLR-059` | `the_environment_variable_names_the_runtime_location`, `HLR-059: the environment variable still wins over the installed layout` |
 | `LLR-ROP-03` | `registry_open` | `HLR-060` | `the_extension_map_is_runtime_data`, `the_extension_map_tolerates_comments_and_bare_extensions` |
 | `LLR-ROP-04` | `registry_open` | `HLR-036` | `an_absent_runtime_location_is_fatal`, `a_runtime_location_that_is_a_file_is_fatal`, `an_extension_map_naming_no_language_is_fatal` |
 | `LLR-ROP-05` | `registry_open` | `HLR-011` | `no_particular_language_is_required` |
 | `LLR-ROP-07` | `registry_open` | `HLR-059`, `HLR-005` | **(no direct test)** |
 | `LLR-ROP-06` | `registry_open` | `HLR-039` | **(no direct test)** |
+| `LLR-ROP-09` | `registry_open` | `HLR-059`, `HLR-009`, `HLR-119` | `HLR-059: an installed elc finds the runtime under share/elc`, `HLR-059: the install puts the runtime where the binary looks for it` |
+| `LLR-ROP-10` | `registry_open` | `HLR-036`, `HLR-059` | `HLR-036: a binary with no runtime anywhere names every path it tried` |
 | `LLR-RFP-01` | `registry_for_path` | `HLR-007` | `a_module_is_loaded_on_first_use_of_its_extension` |
 | `LLR-RFP-02` | `registry_for_path` | `HLR-008` | `a_language_is_loaded_at_most_once` |
 | `LLR-RFP-03` | `registry_for_path` | `HLR-009` | `a_module_is_loaded_on_first_use_of_its_extension` |

@@ -254,7 +254,7 @@ Target validation, classification, and file discovery. Produces the de-duplicate
 
 Runtime location resolution and registry initialisation. The boundary that keeps language knowledge out of the binary.
 
-*   <a id="LLR-ROP-01"></a>**LLR-ROP-01** — `registry_open` shall resolve the runtime location from the dedicated environment variable when that variable is set, and from a path relative to the executable otherwise.
+*   <a id="LLR-ROP-01"></a>**LLR-ROP-01** — `registry_open` shall resolve the runtime location from the dedicated environment variable when that variable is set, and otherwise from the first of an ordered set of paths relative to the executable that exists and is a directory.
     *Trace:* HLR-059 (Runtime Location Discovery and Precedence).
 
 *   <a id="LLR-ROP-02"></a>**LLR-ROP-02** — `registry_open` shall prefer the environment variable when both it and a runtime directory adjacent to the executable are present.
@@ -274,6 +274,12 @@ Runtime location resolution and registry initialisation. The boundary that keeps
 
 *   <a id="LLR-ROP-06"></a>**LLR-ROP-06** — `registry_open` shall read no configuration file or dotfile outside the runtime location.
     *Trace:* HLR-039 (Zero Configuration).
+
+*   <a id="LLR-ROP-09"></a>**LLR-ROP-09** — The paths `registry_open` tries relative to the executable shall include both the directory beside it and the installed layout the build's install target produces, and the location the install target writes the runtime to shall be one of them. HLR-059 requires a path *relative to* the executable rather than one adjacent to it, and the two are not the same: a tree of grammars and query files does not belong in a directory of executables, so an installed `elc` finds its runtime a level up and across rather than beside itself.
+    *Trace:* HLR-059 (Runtime Location Discovery and Precedence), HLR-009, HLR-119.
+
+*   <a id="LLR-ROP-10"></a>**LLR-ROP-10** — `registry_open` shall name every path it examined in the diagnostic for a runtime location it could not find, and shall report a location given through the environment variable against that path alone rather than falling back. The reader's next action is to place the runtime or to set the variable, and a message quoting one path they never chose sends them to the wrong directory.
+    *Trace:* HLR-036 (Setup-Failure Fatality), HLR-059.
 
 ## 11. `registry_for_path` ([src/registry.c](../src/registry.c))
 
