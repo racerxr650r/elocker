@@ -1147,6 +1147,9 @@ Requirements satisfied by the build rather than by any single function. Verified
 *   <a id="LLR-BLD-17"></a>**LLR-BLD-17** — The build shall report, for each delivered grammar, the reference it is pinned to and the reference upstream carries now, so that a pin which is immutable is not thereby invisible when it falls behind.
     *Trace:* HLR-011.
 
+*   <a id="LLR-BLD-18"></a>**LLR-BLD-18** — The sanitized build target shall set the sanitizer options it runs under rather than inheriting whatever the invoking environment supplies, and shall set the same ones the pipeline does. `abort_on_error` is what makes a leak reported inside a forked test child reach the parent's exit status; without it a leaking unit test is reported and the run still succeeds. A local gate weaker than the pipeline's is worse than none, because it is trusted — Phase 11 shipped two leaking tests past a green local run and was caught only by CI.
+    *Trace:* HLR-125 (Complete Resource Release), HLR-124, HLR-119.
+
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 

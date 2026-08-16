@@ -944,7 +944,7 @@ Role: **fixture**. **7 test(s).**
 
 ### 3.34. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
-Role: **instrumented**. **21 test(s).**
+Role: **instrumented**. **22 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -969,6 +969,7 @@ Role: **instrumented**. **21 test(s).**
 | 19 | <a id="HLR-076: each source file is opened exactly once"></a>`HLR-076: each source file is opened exactly once` | — | No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it. |
 | 20 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
 | 21 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
+| 22 | <a id="HLR-125: the local sanitizer gate is as strong as the pipeline's"></a>`HLR-125: the local sanitizer gate is as strong as the pipeline's` | `LLR-BLD-18` | The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them. |
 
 ### 3.35. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
@@ -1329,6 +1330,7 @@ verified by code review — see
 | `LLR-BLD-15` | `build_configuration` | `HLR-010`, `HLR-011` | `the grammar build takes its owner and reference as parameters`, `every grammar the build declares is one the build can produce` |
 | `LLR-BLD-16` | `build_configuration` | `HLR-009`, `HLR-011` | `every grammar is linked with the scanner it requires` |
 | `LLR-BLD-17` | `build_configuration` | `HLR-011` | `check-prereqs reports every grammar against upstream`, `check-prereqs survives an unreachable upstream` |
+| `LLR-BLD-18` | `build_configuration` | `HLR-125`, `HLR-124`, `HLR-119` | `HLR-125: the local sanitizer gate is as strong as the pipeline's` |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | **(no direct test)** |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |

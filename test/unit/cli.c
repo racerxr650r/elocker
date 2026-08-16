@@ -418,6 +418,10 @@ Test(cli, stratum_order_naming_an_undeclared_layer_is_an_error)
 	ElcOptions o;
 
 	cr_assert_eq(cli_parse(6, argv, &o), CLI_ERROR);
+	/* Released even on the error path: the stratum accepted before the bad
+	 * order has already allocated, and the caller still owns it. main()
+	 * does the same (LLR-MAIN-19). */
+	cli_options_free(&o);
 }
 
 Test(cli, a_partial_stratum_order_is_an_error)
@@ -430,6 +434,7 @@ Test(cli, a_partial_stratum_order_is_an_error)
 	ElcOptions o;
 
 	cr_assert_eq(cli_parse(8, argv, &o), CLI_ERROR);
+	cli_options_free(&o);
 }
 
 Test(cli, stratum_order_without_any_stratum_is_an_error)

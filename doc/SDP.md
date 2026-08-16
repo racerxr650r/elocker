@@ -13,7 +13,7 @@ between components reported as both the entangled group and a concrete loop
 through it, and layering validated against user-declared strata. Skip-level
 and direction-inverted calls fall out of one ordinal comparison as
 **independent** findings, so a call ascending two layers is reported as both.
-599 catalogued tests verify 295 of 486 requirements and the coverage baseline
+600 catalogued tests verify 296 of 487 requirements and the coverage baseline
 falls from 215 to 191. The conditional-compilation set HLR-131 to HLR-136
 remains the only specified-and-unbuilt group, and Phase 15 builds it. Phase
 12 — thresholds, severity, and attribution — is ready to start.

@@ -4987,6 +4987,14 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-011"/>
         </traces>
       </llr>
+      <llr id="LLR-BLD-18">
+        <text><![CDATA[The sanitized build target shall set the sanitizer options it runs under rather than inheriting whatever the invoking environment supplies, and shall set the same ones the pipeline does. `abort_on_error` is what makes a leak reported inside a forked test child reach the parent's exit status; without it a leaking unit test is reported and the run still succeeds. A local gate weaker than the pipeline's is worse than none, because it is trusted — Phase 11 shipped two leaking tests past a green local run and was caught only by CI.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-125" name="Complete Resource Release"/>
+          <trace target="HLR" ref="HLR-124"/>
+          <trace target="HLR" ref="HLR-119"/>
+        </traces>
+      </llr>
       <llr id="LLR-BLD-09">
         <text><![CDATA[The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.]]></text>
         <traces>
@@ -8861,7 +8869,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="21">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="22">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -8990,7 +8998,14 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-043" name="Read-Only Operation"/>
       </traces>
     </test>
-  </file>
+      <test name="HLR-125: the local sanitizer gate is as strong as the pipeline's">
+      <purpose><![CDATA[The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-18"/>
+        <trace target="HLR" ref="HLR-125"/>
+      </traces>
+    </test>
+</file>
 
   <file path="test/fixtures/smoke.bats" role="fixture" count="2">
     <test name="the fixture level is wired and elc is runnable">
