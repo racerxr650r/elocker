@@ -56,6 +56,25 @@ typedef enum {
 	FORMAT_MARKDOWN   /* GitHub-Flavored Markdown (HLR-029)              */
 } OutputFormat;
 
+/* One declared execution scope: a name, and the component patterns belonging
+ * to it (HLR-094).
+ *
+ * A component is a file, so the patterns are matched against file paths with
+ * fnmatch(3) — the same shape `--stratum` will use, which is why the two are
+ * parsed by sibling functions rather than by one that guesses which it is.
+ */
+typedef struct {
+	char   *name;          /* owned */
+	char  **patterns;      /* owned, each and the array */
+	size_t  pattern_count;
+} ScopeDecl;
+
+typedef struct {
+	ScopeDecl *items;
+	size_t     count;
+	size_t     capacity;
+} ScopeList;
+
 /* The complete, validated configuration of one run.
  *
  * Populated only by cli_parse() and read-only thereafter (HLR-039): there is
@@ -81,6 +100,12 @@ typedef struct {
 	const char  **entry_points;
 	size_t        entry_point_count;
 	size_t        entry_point_capacity;
+	/* The execution scopes cross-scope access is measured against
+	 * (HLR-094). Empty means the analysis is omitted with a stated
+	 * reason, exactly as an empty entry-point set does. Owned outright,
+	 * unlike the entry points: a declaration is split into a name and a
+	 * pattern list, and neither substring exists in argv. */
+	ScopeList     scopes;
 	bool          graphml;      /* export the SDG (HLR-106); off unless
 	                             * asked for, and silently nothing when
 	                             * the report goes to stdout             */
@@ -133,6 +158,33 @@ typedef enum {
 	DEPTH_UNBOUNDED_RECURSION        /* no finite answer exists        */
 } DepthState;
 
+/* Whether reachability was measured, and if not, why not.
+ *
+ * The same three-way distinction the depth carries, and for the same reason:
+ * "nothing was declared" and "what you declared is not here" send a reader to
+ * different actions. Reporting nothing unreachable in both cases is required
+ * either way — `elc` never calls a function dead for want of a declaration
+ * (HLR-115, LLR-STA-01).
+ */
+typedef enum {
+	REACH_MEASURED = 0,
+	REACH_OMITTED_NO_ENTRY_POINTS,  /* none declared (HLR-115)        */
+	REACH_OMITTED_ENTRY_UNRESOLVED  /* declared, none of them found   */
+} ReachState;
+
+/* Whether cross-scope access was measured (HLR-094, HLR-115). */
+typedef enum {
+	SCOPES_MEASURED = 0,
+	SCOPES_OMITTED_NONE_DECLARED
+} ScopeState;
+
+/* What `classify_globals` concluded about one global object. */
+typedef enum {
+	GLOBAL_ORDINARY = 0,     /* shared within one call-connected region */
+	GLOBAL_SCOPE_REDUCTION,  /* touched by a single function (HLR-092)  */
+	GLOBAL_HIDDEN_CHANNEL    /* spans disconnected regions (HLR-093)    */
+} GlobalVerdict;
+
 /* ------------------------------------------------------- the graph facts --
  *
  * What the single parse records for the System Dependence Graph, alongside
@@ -172,6 +224,29 @@ typedef struct {
 	GlobalAccessKind kind;
 } GlobalAccess;
 
+/* Why a statement cannot execute.
+ *
+ * The two are kept apart because the reader's next action differs: a
+ * statement after a `return` is deleted, while a branch under `if (0)` is
+ * usually a switch someone meant to flip back (HLR-137).
+ */
+typedef enum {
+	DEAD_AFTER_TERMINATOR = 0, /* a sibling of an unconditional exit    */
+	DEAD_LITERAL_CONDITION     /* the branch a written literal excludes */
+} DeadCause;
+
+/* One span within a function that cannot execute (HLR-137).
+ *
+ * Line-ranged rather than byte-ranged: the reader's next action is to open
+ * the file, and a byte offset is not where they look.
+ */
+typedef struct {
+	size_t    function;   /* into functions, or ELC_NO_FUNCTION       */
+	uint32_t  start_line; /* 1-based                                  */
+	uint32_t  end_line;   /* 1-based; a dead branch may span many     */
+	DeadCause cause;
+} DeadSpan;
+
 /* The raw graph facts from one file's parse (doc/SDD.md §18). */
 typedef struct {
 	char         *path;            /* canonical absolute path; owned   */
@@ -184,6 +259,13 @@ typedef struct {
 	char        **address_taken;   /* identifiers used as values; owned */
 	size_t        address_taken_count;
 	size_t        address_taken_capacity;
+	DeadSpan     *dead;            /* statements that cannot execute   */
+	size_t        dead_count;
+	size_t        dead_capacity;
+	/* False when the language supplied no dead-code query. "Not looked
+	 * for" and "none found" are different claims, and a reader who
+	 * cannot tell them apart has been told nothing (HLR-139). */
+	bool          dead_analysed;
 } FileFacts;
 
 typedef struct {

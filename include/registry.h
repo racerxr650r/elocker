@@ -19,9 +19,20 @@
 
 #include "elc.h"
 
-/* The six queries every language module supplies, in the order they are
- * loaded. The names are the contract; the order is an implementation detail
- * of this array. */
+/* The queries a language module may supply, in the order they are loaded.
+ * The names are the contract; the order is an implementation detail of this
+ * array.
+ *
+ * The first `QUERY_REQUIRED_COUNT` are **required**: a module omitting one is
+ * unusable. Everything at or beyond that mark is **optional**, and its absence
+ * leaves a NULL in `queries` for the consumer to notice. Making an optional
+ * query required would invalidate every language module already shipped, which
+ * is the thing the contract exists to prevent (HLR-121, HLR-139).
+ *
+ * A file that is *present* and will not compile is a defect either way, and
+ * makes the module unusable whichever side of the mark it falls on: omitting a
+ * file is a choice, writing a broken one is not.
+ */
 typedef enum {
 	QUERY_FUNCTIONS = 0,
 	QUERY_COMMENTS,
@@ -29,6 +40,8 @@ typedef enum {
 	QUERY_ELOC,
 	QUERY_CALLS,
 	QUERY_GLOBALS,
+	QUERY_REQUIRED_COUNT,
+	QUERY_DEADCODE = QUERY_REQUIRED_COUNT, /* optional (HLR-139) */
 	QUERY_COUNT
 } QueryKind;
 

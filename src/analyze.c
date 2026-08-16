@@ -15,6 +15,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <regex.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +42,9 @@
 #define CAPTURE_GLOBAL_DECL   "global.declaration"
 #define CAPTURE_GLOBAL_READ   "global.read"
 #define CAPTURE_GLOBAL_WRITE  "global.write"
+#define CAPTURE_DEAD_TERM     "dead.terminator"
+#define CAPTURE_DEAD_REENTRY  "dead.reentry"
+#define CAPTURE_DEAD_BRANCH   "dead.branch"
 
 /* One counted statement: the line it starts on, and the function it belongs
  * to. `function` is SIZE_MAX for a statement outside every reported function,
@@ -85,6 +89,7 @@ void filefacts_free(FileFacts *facts)
 	for (size_t i = 0; i < facts->address_taken_count; i++)
 		free(facts->address_taken[i]);
 	free(facts->address_taken);
+	free(facts->dead);
 	free(facts->path);
 	free(facts);
 }
@@ -266,6 +271,214 @@ static bool capture_is(const TSQuery *query, uint32_t index, const char *name)
 	       memcmp(actual, name, length) == 0;
 }
 
+/* --------------------------------------------------- query predicates --
+ *
+ * **Tree-sitter's C library does not evaluate predicates.** It parses
+ * `(#eq? @c "0")` into a step list and hands it back; deciding whether the
+ * match survives is the caller's job, and a caller that never asks accepts
+ * every match as though the predicate were not written.
+ *
+ * That is a silent failure with teeth. A `deadcode.scm` distinguishes the
+ * literal `0` from the variable `x` with exactly such a predicate, so ignoring
+ * one turns "`if (0)` is dead" into "every `if` is dead" — the false claim
+ * HLR-138 forbids outright. The evaluation belongs here because it is generic:
+ * it compares the text a capture spans against a string the query file wrote,
+ * and knows no language.
+ *
+ * An unrecognised `?`-predicate **rejects** the match rather than being
+ * ignored. The query author wrote a filter and this build cannot apply it, so
+ * the honest outcome is no match: under-reporting is the safe direction, and
+ * accepting would apply a filter's *inverse*. A `!`-directive carries
+ * information rather than filtering, and is ignored as tree-sitter intends.
+ */
+
+/* The bytes a node spans, as a NUL-terminated string the caller frees, or
+ * NULL on allocation failure. Nodes reaching here are literals and
+ * identifiers, so the copy is short. */
+static char *node_text(const char *data, TSNode node)
+{
+	uint32_t start = ts_node_start_byte(node);
+	uint32_t end   = ts_node_end_byte(node);
+	size_t   len   = end > start ? (size_t)(end - start) : 0;
+	char    *copy  = malloc(len + 1);
+
+	if (!copy)
+		return NULL;
+	memcpy(copy, data + start, len);
+	copy[len] = '\0';
+	return copy;
+}
+
+/* The first node a match captured under `capture`, or a zeroed node.
+ *
+ * The first rather than all of them: a predicate over a quantified capture has
+ * no defined meaning in the contract, and testing one representative is what
+ * every other implementation does.
+ */
+static bool match_capture(const TSQueryMatch *match, uint32_t capture,
+                          TSNode *out)
+{
+	for (uint16_t i = 0; i < match->capture_count; i++)
+		if (match->captures[i].index == capture) {
+			*out = match->captures[i].node;
+			return true;
+		}
+	return false;
+}
+
+/* Compare a counted string from the query against a literal.
+ *
+ * The trailing NULs are trimmed first, because tree-sitter counts the
+ * terminator in a *string value*'s length and not in a capture name's. Making
+ * the comparison independent of which is cheaper than depending on a detail of
+ * the library's symbol table.
+ */
+static bool text_is(const char *text, uint32_t length, const char *want)
+{
+	size_t n = length;
+
+	while (n > 0 && text[n - 1] == '\0')
+		n--;
+	return strlen(want) == n && memcmp(text, want, n) == 0;
+}
+
+/* A string step's value, NUL-terminated, or NULL if the step is a capture. */
+static const char *step_string(const TSQuery *query,
+                               const TSQueryPredicateStep *step)
+{
+	uint32_t length = 0;
+
+	if (step->type != TSQueryPredicateStepTypeString)
+		return NULL;
+	return ts_query_string_value_for_id(query, step->value_id, &length);
+}
+
+/* One predicate's steps, minus its trailing sentinel, evaluated against the
+ * match. `steps[0]` is the predicate name. */
+static bool predicate_holds(const TSQuery *query, const TSQueryMatch *match,
+                            const char *data,
+                            const TSQueryPredicateStep *steps, size_t count)
+{
+	uint32_t    length = 0;
+	const char *name;
+	char       *text   = NULL;
+	bool        result = false;
+
+	if (count == 0 || steps[0].type != TSQueryPredicateStepTypeString)
+		return false;
+
+	name = ts_query_string_value_for_id(query, steps[0].value_id, &length);
+	if (!name || length == 0)
+		return false;
+
+	/* A directive is not a filter. `#set!` and its relatives attach
+	 * metadata for a consumer that wants it, and rejecting a match for
+	 * carrying one would turn a note into a deletion. */
+	{
+		size_t n = length;
+
+		while (n > 0 && name[n - 1] == '\0')
+			n--;
+		if (n > 0 && name[n - 1] == '!')
+			return true;
+	}
+
+	if (count < 2 || steps[1].type != TSQueryPredicateStepTypeCapture)
+		return false;
+
+	TSNode node;
+
+	if (!match_capture(match, steps[1].value_id, &node))
+		return false;
+
+	text = node_text(data, node);
+	if (!text)
+		return false;
+
+	bool eq      = text_is(name, length, "eq?");
+	bool not_eq  = text_is(name, length, "not-eq?");
+	bool any_of  = text_is(name, length, "any-of?");
+	bool match_p = text_is(name, length, "match?");
+	bool not_mat = text_is(name, length, "not-match?");
+
+	if (eq || not_eq || any_of) {
+		bool found = false;
+
+		for (size_t i = 2; i < count && !found; i++) {
+			const char *value = step_string(query, &steps[i]);
+
+			if (value) {
+				found = strcmp(text, value) == 0;
+				continue;
+			}
+
+			/* A capture on the right-hand side compares two spans
+			 * of the source against each other, which is how a
+			 * query asks whether two identifiers are the same. */
+			TSNode other;
+
+			if (match_capture(match, steps[i].value_id, &other)) {
+				char *rhs = node_text(data, other);
+
+				found = rhs && strcmp(text, rhs) == 0;
+				free(rhs);
+			}
+		}
+		result = not_eq ? !found : found;
+	} else if (match_p || not_mat) {
+		const char *pattern = count >= 3 ? step_string(query, &steps[2])
+		                                 : NULL;
+		regex_t     re;
+
+		if (pattern &&
+		    regcomp(&re, pattern, REG_EXTENDED | REG_NOSUB) == 0) {
+			bool hit = regexec(&re, text, 0, NULL, 0) == 0;
+
+			regfree(&re);
+			result = match_p ? hit : !hit;
+		} else {
+			/* An uncompilable pattern is the query author's
+			 * defect, and the safe reading of a filter that cannot
+			 * be applied is that nothing passes it. */
+			result = false;
+		}
+	} else {
+		result = false;   /* an unrecognised filter rejects the match */
+	}
+
+	free(text);
+	return result;
+}
+
+/* Whether every predicate on the match's pattern holds. */
+static bool predicates_hold(const TSQuery *query, const TSQueryMatch *match,
+                            const char *data)
+{
+	uint32_t                    step_count = 0;
+	const TSQueryPredicateStep *steps =
+		ts_query_predicates_for_pattern(query, match->pattern_index,
+		                                &step_count);
+
+	if (!steps || step_count == 0)
+		return true;
+
+	for (uint32_t i = 0; i < step_count; ) {
+		uint32_t end = i;
+
+		while (end < step_count &&
+		       steps[end].type != TSQueryPredicateStepTypeDone)
+			end++;
+
+		if (!predicate_holds(query, match, data, &steps[i],
+		                     (size_t)(end - i)))
+			return false;
+
+		i = end + 1;   /* past the sentinel */
+	}
+
+	return true;
+}
+
 static int functions_grow(FileMetrics *metrics, size_t *capacity)
 {
 	size_t          next   = *capacity ? *capacity * 2 : 8;
@@ -316,6 +529,9 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		if (!predicates_hold(query, &match, data))
+			continue;
+
 		TSNode name_node;
 		TSNode body_node;
 		bool   have_name = false;
@@ -395,7 +611,7 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 
 /* Collect every comment span, then sort and coalesce them. */
 static int collect_comments(const LanguageModule *module, Registry *reg,
-                            TSNode root, SpanList *spans)
+                            const char *data, TSNode root, SpanList *spans)
 {
 	TSQuery      *query = module->queries[QUERY_COMMENTS];
 	TSQueryMatch  match;
@@ -403,6 +619,9 @@ static int collect_comments(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		if (!predicates_hold(query, &match, data))
+			continue;
+
 		for (uint16_t i = 0; i < match.capture_count; i++) {
 			if (!capture_is(query, match.captures[i].index,
 			                CAPTURE_COMMENT))
@@ -462,7 +681,8 @@ static bool byte_is_comment(const SpanList *spans, uint32_t byte)
 /* Record every counted statement with the line it starts on and the function
  * it belongs to. */
 static int collect_statements(const LanguageModule *module, Registry *reg,
-                              TSNode root, const FnRangeIndex *ranges,
+                              const char *data, TSNode root,
+                              const FnRangeIndex *ranges,
                               const SpanList *comments, SiteList *sites)
 {
 	TSQuery      *query = module->queries[QUERY_ELOC];
@@ -471,6 +691,9 @@ static int collect_statements(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		if (!predicates_hold(query, &match, data))
+			continue;
+
 		for (uint16_t i = 0; i < match.capture_count; i++) {
 			if (!capture_is(query, match.captures[i].index,
 			                CAPTURE_ELOC))
@@ -523,7 +746,8 @@ static int collect_statements(const LanguageModule *module, Registry *reg,
  * its nested functions do, and need a subtraction to undo it.
  */
 static int collect_complexity(const LanguageModule *module, Registry *reg,
-                              TSNode root, const FnRangeIndex *ranges,
+                              const char *data, TSNode root,
+                              const FnRangeIndex *ranges,
                               FileMetrics *metrics)
 {
 	TSQuery      *query = module->queries[QUERY_COMPLEXITY];
@@ -537,6 +761,9 @@ static int collect_complexity(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		if (!predicates_hold(query, &match, data))
+			continue;
+
 		for (uint16_t i = 0; i < match.capture_count; i++) {
 			if (!capture_is(query, match.captures[i].index,
 			                CAPTURE_COMPLEXITY))
@@ -583,6 +810,9 @@ static int collect_calls(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		if (!predicates_hold(query, &match, data))
+			continue;
+
 		for (uint16_t i = 0; i < match.capture_count; i++) {
 			uint32_t index = match.captures[i].index;
 			TSNode   node  = match.captures[i].node;
@@ -647,6 +877,9 @@ static int collect_globals(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		if (!predicates_hold(query, &match, data))
+			continue;
+
 		for (uint16_t i = 0; i < match.capture_count; i++) {
 			uint32_t         index = match.captures[i].index;
 			TSNode           node  = match.captures[i].node;
@@ -684,6 +917,237 @@ static int collect_globals(const LanguageModule *module, Registry *reg,
 	}
 
 	return 0;
+}
+
+/* ----------------------------------------------------------- dead code --
+ *
+ * The intra-procedural half of the dead-code question: statements that cannot
+ * execute whatever the call graph says (HLR-137). Two shapes, and the split
+ * between this file and the query file is the design.
+ *
+ * **What ends control flow, what can be re-entered, and what counts as a false
+ * literal are language knowledge and live in `deadcode.scm`.** Walking the
+ * siblings of a node is structural and lives here. There is no node type in
+ * this function, and if one ever appears the split has gone wrong.
+ *
+ * **Nothing is evaluated.** A branch is dead only where the source writes a
+ * literal, which is why `if (0)` is found and `x = 0; if (x)` is not — that
+ * needs data flow, and data flow is how this analysis would begin to be wrong
+ * (HLR-138, LLR-DED-03).
+ */
+
+/* The captured nodes of one file's dead-code query, kept apart because the
+ * three are used differently: branches are recorded outright, terminators are
+ * walked from, and re-entry points are only ever asked about. */
+typedef struct {
+	TSNode   *items;
+	size_t    count;
+	size_t    capacity;
+} NodeList;
+
+static int nodelist_add(NodeList *list, TSNode node)
+{
+	if (list->count == list->capacity &&
+	    grow((void **)&list->items, &list->capacity, sizeof *list->items) != 0)
+		return -1;
+	list->items[list->count++] = node;
+	return 0;
+}
+
+/* Whether a node was captured as a re-entry point.
+ *
+ * Compared by **start byte alone**, not by the whole extent. A query may
+ * capture the label rather than the labelled statement, in which case the
+ * sibling the walk is looking at is the outer node and the two agree only on
+ * where they begin. Matching on the start is the forgiving comparison, and
+ * forgiving is the right direction here: a re-entry point missed produces a
+ * false claim of dead code, which HLR-138 forbids, while one recognised too
+ * eagerly merely stops the walk early.
+ */
+static bool is_reentry(const NodeList *reentries, TSNode node)
+{
+	uint32_t start = ts_node_start_byte(node);
+
+	for (size_t i = 0; i < reentries->count; i++)
+		if (ts_node_start_byte(reentries->items[i]) == start)
+			return true;
+	return false;
+}
+
+static int dead_add(FileFacts *facts, const FnRangeIndex *ranges, TSNode node,
+                    DeadCause cause)
+{
+	uint32_t       byte  = ts_node_start_byte(node);
+	const FnRange *owner = innermost_enclosing(ranges, byte);
+
+	/* HLR-137 asks about statements *within a function*. A span outside
+	 * every reported one — module-level code in a language that allows it
+	 * — has no enclosing function to report it against, and inventing a
+	 * placeholder would put a row in the table that answers no question
+	 * the requirement asks. */
+	if (!owner)
+		return 0;
+
+	if (facts->dead_count == facts->dead_capacity &&
+	    grow((void **)&facts->dead, &facts->dead_capacity,
+	         sizeof *facts->dead) != 0)
+		return -1;
+
+	DeadSpan *span = &facts->dead[facts->dead_count++];
+
+	span->function   = owner->index;
+	span->start_line = ts_node_start_point(node).row + 1;
+	span->end_line   = ts_node_end_point(node).row + 1;
+	span->cause      = cause;
+	return 0;
+}
+
+static int by_dead_span(const void *a, const void *b)
+{
+	const DeadSpan *x = a;
+	const DeadSpan *y = b;
+
+	if (x->function != y->function)
+		return x->function < y->function ? -1 : 1;
+	if (x->start_line != y->start_line)
+		return x->start_line < y->start_line ? -1 : 1;
+	if (x->end_line != y->end_line)
+		return x->end_line < y->end_line ? -1 : 1;
+	return x->cause < y->cause ? -1 : x->cause > y->cause;
+}
+
+/* Collapse spans that name the same lines of the same function.
+ *
+ * Two terminators in one block record their shared tail twice — `return 1;
+ * return 2; n++;` reaches `n++` from both — and two statements written on one
+ * line are one line to a reader either way. Sorting first is what makes the
+ * collapse independent of the order the query matched, so the report is the
+ * same on every run (HLR-032).
+ */
+static void dedupe_dead(FileFacts *facts)
+{
+	size_t kept = 0;
+
+	if (facts->dead_count < 2) {
+		return;
+	}
+
+	qsort(facts->dead, facts->dead_count, sizeof *facts->dead,
+	      by_dead_span);
+
+	for (size_t i = 0; i < facts->dead_count; i++) {
+		const DeadSpan *previous = kept ? &facts->dead[kept - 1] : NULL;
+
+		if (previous && previous->function == facts->dead[i].function &&
+		    previous->start_line == facts->dead[i].start_line &&
+		    previous->end_line == facts->dead[i].end_line)
+			continue;
+		facts->dead[kept++] = facts->dead[i];
+	}
+	facts->dead_count = kept;
+}
+
+int collect_dead_code(const LanguageModule *module, Registry *reg,
+                      const char *data, TSNode root,
+                      const FnRangeIndex *ranges, const SpanList *comments,
+                      FileFacts *facts)
+{
+	TSQuery      *query = module->queries[QUERY_DEADCODE];
+	NodeList      terminators = { 0 };
+	NodeList      reentries   = { 0 };
+	NodeList      branches    = { 0 };
+	TSQueryMatch  match;
+	int           status = -1;
+
+	/* A language with no dead-code query is not a failure and is not
+	 * clean. The flag stays false and the report says the analysis was not
+	 * performed for that language — a different claim from "none found",
+	 * and the only honest one (HLR-139, LLR-DED-05). */
+	if (!query) {
+		facts->dead_analysed = false;
+		return 0;
+	}
+	facts->dead_analysed = true;
+
+	/* Collected in full before anything is walked. The sibling walk asks
+	 * "is this one a re-entry point?", and a query cursor answers only in
+	 * the order it matched — which is not the order the walk needs. */
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		if (!predicates_hold(query, &match, data))
+			continue;
+
+		for (uint16_t i = 0; i < match.capture_count; i++) {
+			uint32_t index = match.captures[i].index;
+			TSNode   node  = match.captures[i].node;
+			int      rc    = 0;
+
+			if (capture_is(query, index, CAPTURE_DEAD_TERM))
+				rc = nodelist_add(&terminators, node);
+			else if (capture_is(query, index, CAPTURE_DEAD_REENTRY))
+				rc = nodelist_add(&reentries, node);
+			else if (capture_is(query, index, CAPTURE_DEAD_BRANCH))
+				rc = nodelist_add(&branches, node);
+
+			if (rc != 0)
+				goto cleanup;
+		}
+	}
+
+	/* The branch a literal condition excludes. The query decided both
+	 * which condition is literal and which branch it excludes, because
+	 * both are language-specific: `0` is false in C, `false` in Rust,
+	 * `False` in Python (LLR-DED-02). */
+	for (size_t i = 0; i < branches.count; i++)
+		if (dead_add(facts, ranges, branches.items[i],
+		             DEAD_LITERAL_CONDITION) != 0)
+			goto cleanup;
+
+	/* The named siblings following each terminator, up to the first that
+	 * can be entered without falling into it (LLR-DED-01). */
+	for (size_t i = 0; i < terminators.count; i++) {
+		TSNode sibling = ts_node_next_named_sibling(terminators.items[i]);
+
+		while (!ts_node_is_null(sibling)) {
+			if (is_reentry(&reentries, sibling))
+				break;
+
+			/* **A comment is a named sibling**, and skipping it is
+			 * not cosmetic. Without this the walk records the
+			 * trailing comment on the terminator's own line as
+			 * dead code — so a `return` annotated in passing
+			 * reports itself, and every commented line after one
+			 * becomes a finding. Skipped rather than stopped at: a
+			 * note between two dead statements does not make the
+			 * second one run.
+			 *
+			 * What a comment *is* stays where it already lives.
+			 * This asks the merged set `comments.scm` produced,
+			 * the same set the ELOC exclusion consults, so no node
+			 * type enters this file and one answer serves both
+			 * (HLR-016). */
+			if (byte_is_comment(comments,
+			                    ts_node_start_byte(sibling))) {
+				sibling = ts_node_next_named_sibling(sibling);
+				continue;
+			}
+
+			if (dead_add(facts, ranges, sibling,
+			             DEAD_AFTER_TERMINATOR) != 0)
+				goto cleanup;
+			sibling = ts_node_next_named_sibling(sibling);
+		}
+	}
+
+	dedupe_dead(facts);
+	status = 0;
+
+cleanup:
+	free(terminators.items);
+	free(reentries.items);
+	free(branches.items);
+	return status;
 }
 
 static int by_function_then_line(const void *a, const void *b)
@@ -862,12 +1326,14 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out,
 	}
 
 	if (collect_functions(module, reg, map, root, metrics, &ranges) != 0 ||
-	    collect_comments(module, reg, root, &comments) != 0 ||
-	    collect_statements(module, reg, root, &ranges, &comments,
+	    collect_comments(module, reg, map, root, &comments) != 0 ||
+	    collect_statements(module, reg, map, root, &ranges, &comments,
 	                       &sites) != 0 ||
-	    collect_complexity(module, reg, root, &ranges, metrics) != 0 ||
+	    collect_complexity(module, reg, map, root, &ranges, metrics) != 0 ||
 	    collect_calls(module, reg, map, root, &ranges, facts) != 0 ||
-	    collect_globals(module, reg, map, root, &ranges, facts) != 0) {
+	    collect_globals(module, reg, map, root, &ranges, facts) != 0 ||
+	    collect_dead_code(module, reg, map, root, &ranges, &comments,
+	                      facts) != 0) {
 		fprintf(stderr, "elc: out of memory analysing %s\n", path);
 		goto cleanup;
 	}

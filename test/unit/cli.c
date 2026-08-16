@@ -238,3 +238,81 @@ Test(cli, options_free_is_safe_on_null)
 	cli_options_free(NULL);
 	cr_assert(1, "releasing a null options structure must not fault");
 }
+
+/* ------------------------------------------------- execution scopes (HLR-094) */
+
+Test(cli, a_scope_declaration_is_parsed_into_a_name_and_patterns)
+{
+	ElcOptions o;
+
+	memset(&o, 0, sizeof o);
+	cr_assert_eq(parse_scope("host:src/host/*,src/shared/*", &o), 0);
+	cr_assert_eq(o.scopes.count, 1);
+	cr_assert_str_eq(o.scopes.items[0].name, "host");
+	cr_assert_eq(o.scopes.items[0].pattern_count, 2);
+	cr_assert_str_eq(o.scopes.items[0].patterns[0], "src/host/*");
+	cr_assert_str_eq(o.scopes.items[0].patterns[1], "src/shared/*");
+	cli_options_free(&o);
+}
+
+Test(cli, scope_declarations_accumulate)
+{
+	ElcOptions o;
+
+	memset(&o, 0, sizeof o);
+	cr_assert_eq(parse_scope("a:one/*", &o), 0);
+	cr_assert_eq(parse_scope("b:two/*", &o), 0);
+	cr_assert_eq(o.scopes.count, 2);
+	cr_assert_str_eq(o.scopes.items[1].name, "b");
+	cli_options_free(&o);
+}
+
+Test(cli, a_malformed_scope_declaration_is_rejected)
+{
+	/* A scope with no name, a name with no components, and an empty
+	 * pattern between separators. Each would otherwise become a scope
+	 * matching nothing, which reports nothing and looks like a clean
+	 * result (LLR-SCP-02). */
+	const char *bad[] = { "no-colon", ":patterns", "name:", "", ":",
+	                      "name:a,,b" };
+
+	for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
+		ElcOptions o;
+
+		memset(&o, 0, sizeof o);
+		cr_assert_eq(parse_scope(bad[i], &o), -1,
+		             "'%s' is not a scope declaration", bad[i]);
+		cli_options_free(&o);
+	}
+}
+
+Test(cli, the_scope_option_reaches_the_options_structure)
+{
+	char      *argv[] = { "elc", "--scope", "host:a/*", "t.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_eq(o.scopes.count, 1);
+	cr_assert_str_eq(o.scopes.items[0].name, "host");
+	cli_options_free(&o);
+}
+
+Test(cli, a_malformed_scope_option_is_a_usage_error)
+{
+	char      *argv[] = { "elc", "--scope", "broken", "t.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_ERROR);
+}
+
+Test(cli, no_scope_declared_leaves_the_list_empty)
+{
+	/* Empty means the analysis is omitted with a stated reason, not that
+	 * everything belongs to one scope (HLR-115). */
+	char      *argv[] = { "elc", "t.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_eq(o.scopes.count, 0);
+	cli_options_free(&o);
+}

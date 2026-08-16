@@ -137,7 +137,7 @@ Snapshot: **357 test(s)** across
 
 ### 3.1. [test/unit/cli.c](../test/unit/cli.c)
 
-Role: **unit**. **20 test(s).**
+Role: **unit**. **26 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -161,6 +161,12 @@ Role: **unit**. **20 test(s).**
 | 18 | <a id="a_threshold_of_zero_is_accepted"></a>`a_threshold_of_zero_is_accepted` | `LLR-CLI-04` | Zero lists every function, which is a legitimate request and must not be read as absent. |
 | 19 | <a id="a_malformed_threshold_is_a_usage_error"></a>`a_malformed_threshold_is_a_usage_error` | `LLR-CLI-16`, `LLR-CLI-12` | A sign, a trailing tail, leading whitespace, an empty string, and a hexadecimal literal are each rejected — every one of which a permissive conversion would accept, silently yielding a threshold the user did not write. |
 | 20 | <a id="options_free_is_safe_on_null"></a>`options_free_is_safe_on_null` | — | Releasing a null options structure does not fault, so teardown is safe on every path. |
+| 21 | <a id="a_scope_declaration_is_parsed_into_a_name_and_patterns"></a>`a_scope_declaration_is_parsed_into_a_name_and_patterns` | `LLR-SCP-01` | A name:glob[,glob…] declaration yields the scope name and each component pattern separately. |
+| 22 | <a id="scope_declarations_accumulate"></a>`scope_declarations_accumulate` | `LLR-SCP-01` | The option is repeatable and each declaration adds a scope rather than replacing the last. |
+| 23 | <a id="a_malformed_scope_declaration_is_rejected"></a>`a_malformed_scope_declaration_is_rejected` | `LLR-SCP-02` | A scope with no name, a name with no components, and an empty pattern between separators are each a usage error rather than a scope matching nothing — which would report nothing and read as a clean result. |
+| 24 | <a id="the_scope_option_reaches_the_options_structure"></a>`the_scope_option_reaches_the_options_structure` | `LLR-SCP-01` | --scope is parsed by cli_parse into the options structure the analyses read. |
+| 25 | <a id="a_malformed_scope_option_is_a_usage_error"></a>`a_malformed_scope_option_is_a_usage_error` | `LLR-SCP-02` | A malformed --scope argument fails the parse rather than being ignored. |
+| 26 | <a id="no_scope_declared_leaves_the_list_empty"></a>`no_scope_declared_leaves_the_list_empty` | `LLR-STA-02` | An empty scope list means the analysis is omitted with a stated reason, not that every file belongs to one scope. |
 
 ### 3.2. [test/unit/registry.c](../test/unit/registry.c)
 
@@ -186,7 +192,7 @@ Role: **unit**. **15 test(s).**
 
 ### 3.3. [test/unit/analyze.c](../test/unit/analyze.c)
 
-Role: **unit**. **34 test(s).**
+Role: **unit**. **41 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -224,6 +230,13 @@ Role: **unit**. **34 test(s).**
 | 32 | <a id="an_unreported_scope_attributes_to_the_named_function_around_it"></a>`an_unreported_scope_attributes_to_the_named_function_around_it` | `LLR-ANL-22` | An offset inside a scope that is not a reported function resolves to the nearest named function containing it. This is the anonymous-callable rule, whose language-level observable waits for a language with lambdas; the mechanism it constrains is verified here. |
 | 33 | <a id="a_file_scope_decision_belongs_to_no_function"></a>`a_file_scope_decision_belongs_to_no_function` | `LLR-ANL-41` | A conditional in a file-scope initialiser is charged to no function rather than to an arbitrary one. |
 | 34 | <a id="filemetrics_free_is_safe_on_null"></a>`filemetrics_free_is_safe_on_null` | `LLR-ANL-02` | Releasing a null metrics structure does not fault, so teardown is safe on every path. |
+| 35 | <a id="statements_after_a_terminator_are_recorded"></a>`statements_after_a_terminator_are_recorded` | `LLR-DED-01` | The named siblings following a captured terminator are recorded as unreachable, with the after-terminator cause. |
+| 36 | <a id="a_label_after_a_terminator_is_not_recorded"></a>`a_label_after_a_terminator_is_not_recorded` | `LLR-DED-01` | A goto label following a return is a sibling of it and is reachable. Recording it would be a false claim inviting the deletion of a live branch target — the single case that decides whether this analysis can be trusted. |
+| 37 | <a id="a_branch_guarded_by_a_variable_is_never_recorded"></a>`a_branch_guarded_by_a_variable_is_never_recorded` | `LLR-DED-03` | A condition holding a variable is not claimed dead however evidently its value could be inferred: deciding it needs data flow, and elc performs none. |
+| 38 | <a id="a_literal_branch_is_recorded_with_its_whole_span"></a>`a_literal_branch_is_recorded_with_its_whole_span` | `LLR-DED-02` | The branch a literal condition excludes is recorded as its full line range, because the span is what the reader deletes. |
+| 39 | <a id="a_predicate_that_does_not_hold_rejects_the_match"></a>`a_predicate_that_does_not_hold_rejects_the_match` | `LLR-ANL-46` | A query predicate is evaluated rather than ignored. The parser library returns predicates as data, so without evaluation every conditional would match the literal-condition pattern. |
+| 40 | <a id="a_dead_span_is_attributed_to_the_innermost_function"></a>`a_dead_span_is_attributed_to_the_innermost_function` | `LLR-DED-04` | Each recorded span belongs to the reported function containing it, by the rule ELOC and complexity already use. |
+| 41 | <a id="a_language_with_no_dead_code_query_is_unanalysed_not_clean"></a>`a_language_with_no_dead_code_query_is_unanalysed_not_clean` | `LLR-DED-05` | A language module supplying no dead-code query records that the analysis was not performed, rather than recording that no dead code was found. |
 
 ### 3.4. [test/unit/calltree.c](../test/unit/calltree.c)
 
@@ -282,7 +295,33 @@ Role: **unit**. **27 test(s).**
 | 26 | <a id="the_route_list_owns_the_target_it_records"></a>`the_route_list_owns_the_target_it_records` | `LLR-DSC-10` | Mutating the caller's buffer after recording does not change the record, so the report can outlive the strings discovery was given. |
 | 27 | <a id="filelist_free_is_safe_on_null"></a>`filelist_free_is_safe_on_null` | `LLR-DSC-01` | Releasing a null file list or extension list does not fault, so teardown is safe on every path. |
 
-### 3.6. [test/unit/graph.c](../test/unit/graph.c)
+### 3.6. [test/unit/state.c](../test/unit/state.c)
+
+Role: **unit**. **19 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="roots_are_entry_points_and_address_taken_functions"></a>`roots_are_entry_points_and_address_taken_functions` | `LLR-RTS-01` | The root set is the union of the two and nothing else: a function neither declared nor address-taken is not a root. |
+| 2 | <a id="a_declared_symbol_naming_nothing_is_skipped_not_fatal"></a>`a_declared_symbol_naming_nothing_is_skipped_not_fatal` | `LLR-STA-01` | A declared entry point matching no analysed function is skipped rather than failing the run, since analysing one directory of a project whose entry point lives in another is ordinary. |
+| 3 | <a id="a_root_declared_twice_is_one_root"></a>`a_root_declared_twice_is_one_root` | `LLR-RTS-01` | The root set is de-duplicated, so a symbol declared twice and also address-taken contributes one root. |
+| 4 | <a id="a_clique_of_unused_functions_is_unreachable"></a>`a_clique_of_unused_functions_is_unreachable` | `LLR-RCH-03` | Two unused functions calling one another are both reported: each has a caller, so a textual rule finds neither, and no path reaches the pair from any root. |
+| 5 | <a id="an_address_taken_function_and_its_callees_are_reachable"></a>`an_address_taken_function_and_its_callees_are_reachable` | `LLR-RTS-02` | An address-taken function is a root rather than an exemption: what it calls is reached through it. An implementation that merely excluded it from the report would report its callee dead. |
+| 6 | <a id="reachability_does_not_travel_along_a_global_edge"></a>`reachability_does_not_travel_along_a_global_edge` | `LLR-STA-03` | A function reachable only by reading an object another function wrote is still unreachable: control never travels along a state edge, and following one would rescue genuinely dead code from the report. |
+| 7 | <a id="with_no_entry_points_nothing_is_unreachable"></a>`with_no_entry_points_nothing_is_unreachable` | `LLR-STA-01` | With no declaration the analysis is omitted with its reason, and no function is reported unreachable. |
+| 8 | <a id="a_declaration_matching_nothing_is_its_own_omission"></a>`a_declaration_matching_nothing_is_its_own_omission` | `LLR-STA-01` | Declaring an entry point that matches nothing is a different omission from declaring none, because the two call for different actions from the reader. |
+| 9 | <a id="a_global_touched_by_one_function_is_a_scope_reduction_candidate"></a>`a_global_touched_by_one_function_is_a_scope_reduction_candidate` | `LLR-GLB-02`, `LLR-SDG-16` | An object one function writes and reads is flagged, and the graph carries no edge for it at all — which is why the finding is computed from the access records rather than from the edge table. |
+| 10 | <a id="a_global_spanning_disconnected_regions_is_a_hidden_channel"></a>`a_global_spanning_disconnected_regions_is_a_hidden_channel` | `LLR-GLB-03` | An object written in one region of the call graph and read in another that never calls it is flagged, with the region count establishing the disconnection. |
+| 11 | <a id="shared_state_within_one_region_is_ordinary"></a>`shared_state_within_one_region_is_ordinary` | `LLR-GLB-05` | The same sharing between two functions joined by a call edge carries no finding. Without this distinction the warning would fire on every shared variable. |
+| 12 | <a id="an_undeclared_identifier_is_not_global_state"></a>`an_undeclared_identifier_is_not_global_state` | `LLR-SDG-13` | An identifier no file declares at file scope is not global state, however the over-broad read and write patterns captured it. |
+| 13 | <a id="a_global_touched_only_by_dead_functions_is_unreachable"></a>`a_global_touched_only_by_dead_functions_is_unreachable` | `LLR-UGL-01` | An object every one of whose accessors is unreachable is itself reported unreachable. |
+| 14 | <a id="a_global_no_function_touches_is_not_claimed_dead"></a>`a_global_no_function_touches_is_not_claimed_dead` | `LLR-UGL-02` | An object no analysed function accesses is not claimed: it may be touched from file scope or from a translation unit outside the target. |
+| 15 | <a id="an_edge_crossing_a_declared_boundary_is_reported"></a>`an_edge_crossing_a_declared_boundary_is_reported` | `LLR-ISO-01` | A call from a function in one declared scope to a function in another is reported as a crossing. |
+| 16 | <a id="a_shared_global_crossing_a_boundary_is_reported"></a>`a_shared_global_crossing_a_boundary_is_reported` | `LLR-ISO-01` | A scope that never calls into another but writes a variable the other reads has not been isolated. An implementation checking call edges alone would report the arrangement clean. |
+| 17 | <a id="a_component_matching_no_declaration_is_outside_the_partition"></a>`a_component_matching_no_declaration_is_outside_the_partition` | `LLR-ISO-02` | An edge touching a file no declaration names is not a crossing: inventing a boundary would report violations against a division nobody drew. |
+| 18 | <a id="with_no_scopes_declared_the_analysis_is_omitted"></a>`with_no_scopes_declared_the_analysis_is_omitted` | `LLR-STA-02` | With no execution scopes declared the analysis is omitted with its reason rather than reporting an empty result. |
+| 19 | <a id="an_empty_graph_analyses_without_incident"></a>`an_empty_graph_analyses_without_incident` | `LLR-STA-04` | A run that analysed nothing produces empty state results rather than faulting. |
+
+### 3.7. [test/unit/graph.c](../test/unit/graph.c)
 
 Role: **unit**. **16 test(s).**
 
@@ -305,7 +344,7 @@ Role: **unit**. **16 test(s).**
 | 15 | <a id="the_library_returns_errors_instead_of_aborting"></a>`the_library_returns_errors_instead_of_aborting` | `LLR-SDG-15` | Asking a cyclic graph for a topological ordering returns an error rather than aborting the process, so the library's default abort-on-error handler has been replaced. Reaching the assertion is itself the result: without the handler the test dies rather than fails. |
 | 16 | <a id="graph_free_is_safe_on_null_and_twice"></a>`graph_free_is_safe_on_null_and_twice` | `LLR-SDG-12` | Releasing a null or an already-released graph does not fault, so teardown is unconditional on every exit path. |
 
-### 3.7. [test/unit/format_graph.c](../test/unit/format_graph.c)
+### 3.8. [test/unit/format_graph.c](../test/unit/format_graph.c)
 
 Role: **unit**. **7 test(s).**
 
@@ -319,7 +358,7 @@ Role: **unit**. **7 test(s).**
 | 6 | <a id="a_dot_in_a_directory_is_not_an_extension"></a>`a_dot_in_a_directory_is_not_an_extension` | `LLR-GML-03` | A dot in a directory name is not mistaken for the file's extension, which would otherwise truncate the path at the directory. |
 | 7 | <a id="a_directory_dot_with_an_extension_still_substitutes"></a>`a_directory_dot_with_an_extension_still_substitutes` | `LLR-GML-03` | A dotted directory alongside a real extension substitutes the extension and leaves the directory alone. |
 
-### 3.8. [test/unit/report.c](../test/unit/report.c)
+### 3.9. [test/unit/report.c](../test/unit/report.c)
 
 Role: **unit**. **6 test(s).**
 
@@ -332,7 +371,7 @@ Role: **unit**. **6 test(s).**
 | 5 | <a id="a_failed_growth_leaves_the_accumulator_intact"></a>`a_failed_growth_leaves_the_accumulator_intact` | `LLR-RPT-16` | A reallocation failure, provoked through a link-time wrapper, is reported and leaves the original allocation intact rather than overwriting it with a null pointer. |
 | 6 | <a id="free_is_safe_on_null"></a>`free_is_safe_on_null` | `LLR-RPT-16` | Releasing a null report or accumulator does not fault, so teardown is safe on every path. |
 
-### 3.9. [test/unit/format_text.c](../test/unit/format_text.c)
+### 3.10. [test/unit/format_text.c](../test/unit/format_text.c)
 
 Role: **unit**. **4 test(s).**
 
@@ -343,7 +382,7 @@ Role: **unit**. **4 test(s).**
 | 3 | <a id="an_empty_report_still_renders_a_table"></a>`an_empty_report_still_renders_a_table` | `LLR-TBL-01` | A model with no files still renders its headings and column rule, so an empty run is distinguishable from a crash. |
 | 4 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-TBL-03` | A stream that cannot absorb the report yields a non-zero return, so a truncated report is never reported as success. |
 
-### 3.10. [test/integration/cli.bats](../test/integration/cli.bats)
+### 3.11. [test/integration/cli.bats](../test/integration/cli.bats)
 
 Role: **integration**. **16 test(s).**
 
@@ -366,7 +405,7 @@ Role: **integration**. **16 test(s).**
 | 15 | <a id="an accepted invocation writes its report to stdout"></a>`an accepted invocation writes its report to stdout` | — | Nothing but results reaches the results stream. |
 | 16 | <a id="a decoy dotfile in the working directory changes nothing"></a>`a decoy dotfile in the working directory changes nothing` | — | Configuration-like files planted beside the invocation produce byte-identical output to their absence. |
 
-### 3.11. [test/integration/docs.bats](../test/integration/docs.bats)
+### 3.12. [test/integration/docs.bats](../test/integration/docs.bats)
 
 Role: **integration**. **8 test(s).**
 
@@ -381,7 +420,7 @@ Role: **integration**. **8 test(s).**
 | 7 | <a id="every long option the man page documents is accepted by elc"></a>`every long option the man page documents is accepted by elc` | — | No documented option is unimplemented. |
 | 8 | <a id="both documents describe the exit-status scheme"></a>`both documents describe the exit-status scheme` | — | Both documents describe the exit-status classes. |
 
-### 3.12. [test/integration/discovery.bats](../test/integration/discovery.bats)
+### 3.13. [test/integration/discovery.bats](../test/integration/discovery.bats)
 
 Role: **integration**. **21 test(s).**
 
@@ -409,7 +448,7 @@ Role: **integration**. **21 test(s).**
 | 20 | <a id="an output file that cannot be opened is diagnosed on stderr"></a>`an output file that cannot be opened is diagnosed on stderr` | `LLR-MAIN-17` | The diagnostic names the destination and reaches the diagnostic stream. |
 | 21 | <a id="an unreadable file inside a target degrades the run to 1"></a>`an unreadable file inside a target degrades the run to 1` | — | A file within a target that cannot be read is a per-file failure: the report still covers the files that succeeded, and the exit status says so. |
 
-### 3.13. [test/integration/language.bats](../test/integration/language.bats)
+### 3.14. [test/integration/language.bats](../test/integration/language.bats)
 
 Role: **integration**. **27 test(s).**
 
@@ -443,7 +482,7 @@ Role: **integration**. **27 test(s).**
 | 26 | <a id="HLR-025: each language's contribution is separately visible"></a>`HLR-025: each language's contribution is separately visible` | — | A two-language target reports both languages, in name order. |
 | 27 | <a id="HLR-011: elc requires no particular language to be present"></a>`HLR-011: elc requires no particular language to be present` | — | A target of one language runs exactly as a mixed one does; nothing verifies that the other four are installed. |
 
-### 3.14. [test/integration/complexity.bats](../test/integration/complexity.bats)
+### 3.15. [test/integration/complexity.bats](../test/integration/complexity.bats)
 
 Role: **integration**. **13 test(s).**
 
@@ -463,7 +502,7 @@ Role: **integration**. **13 test(s).**
 | 12 | <a id="HLR-032: two runs with a threshold are byte-identical"></a>`HLR-032: two runs with a threshold are byte-identical` | — | Repeating a run with a threshold produces identical bytes. |
 | 13 | <a id="HLR-066: an empty run still renders the callouts and the listing"></a>`HLR-066: an empty run still renders the callouts and the listing` | — | A run that analysed nothing renders both new sections with no rows, rather than omitting them and changing the report's shape. |
 
-### 3.15. [test/unit/format_csv.c](../test/unit/format_csv.c)
+### 3.16. [test/unit/format_csv.c](../test/unit/format_csv.c)
 
 Role: **unit**. **11 test(s).**
 
@@ -481,7 +520,7 @@ Role: **unit**. **11 test(s).**
 | 10 | <a id="an_empty_report_is_a_header_alone"></a>`an_empty_report_is_a_header_alone` | `LLR-CSV-01` | A run with no functions produces the header and nothing else, rather than no output at all. |
 | 11 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-CSV-01` | A stream that cannot absorb the document yields a non-zero return, so a truncated file is never reported as success. |
 
-### 3.16. [test/unit/format_xml.c](../test/unit/format_xml.c)
+### 3.17. [test/unit/format_xml.c](../test/unit/format_xml.c)
 
 Role: **unit**. **17 test(s).**
 
@@ -505,7 +544,7 @@ Role: **unit**. **17 test(s).**
 | 16 | <a id="a_truncated_record_is_rejected"></a>`a_truncated_record_is_rejected` | `LLR-XRD-03`, `LLR-XRD-06` | A record whose root never closes is not well-formed and is rejected rather than read as far as it goes. |
 | 17 | <a id="an_absent_record_is_rejected"></a>`an_absent_record_is_rejected` | `LLR-XRD-03` | A record that cannot be opened is a rejection rather than a crash. |
 
-### 3.17. [test/integration/formats.bats](../test/integration/formats.bats)
+### 3.18. [test/integration/formats.bats](../test/integration/formats.bats)
 
 Role: **integration**. **16 test(s).**
 
@@ -528,7 +567,7 @@ Role: **integration**. **16 test(s).**
 | 15 | <a id="HLR-032: every format is byte-identical across runs"></a>`HLR-032: every format is byte-identical across runs` | — | Repeating a run in any format produces identical bytes. |
 | 16 | <a id="HLR-066: every format renders an empty run"></a>`HLR-066: every format renders an empty run` | — | A run that analysed nothing still produces output in every format. |
 
-### 3.18. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
+### 3.19. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
 
 Role: **fixture**. **20 test(s).**
 
@@ -555,7 +594,7 @@ Role: **fixture**. **20 test(s).**
 | 19 | <a id="HLR-048: a catch clause is a decision point"></a>`HLR-048: a catch clause is a decision point` | — | A handler is a path out of the guarded block and raises complexity; `try` and `throw` choose nothing and do not. |
 | 20 | <a id="HLR-011: a language with no exception construct still reports"></a>`HLR-011: a language with no exception construct still reports` | — | C has no exception handling and analysing it is not thereby an error — no language is required to have every category. |
 
-### 3.19. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
+### 3.20. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -569,7 +608,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-016: inline syntax inside a block comment excludes no line twice"></a>`HLR-016: inline syntax inside a block comment excludes no line twice` | — | Comment-like openers inside a block comment do not cause any line to be excluded more than once. |
 | 7 | <a id="HLR-020: a file of only comments reports zero ELOC"></a>`HLR-020: a file of only comments reports zero ELOC` | — | A file with nothing but comments reports zero, without error. |
 
-### 3.20. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
+### 3.21. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
 
 Role: **fixture**. **17 test(s).**
 
@@ -593,7 +632,7 @@ Role: **fixture**. **17 test(s).**
 | 16 | <a id="HLR-018: a C++ lambda's conditional lands on the enclosing function"></a>`HLR-018: a C++ lambda's conditional lands on the enclosing function` | — | The conditional expression inside a lambda raises the enclosing function's complexity. |
 | 17 | <a id="HLR-067: a nested named function is reported where a lambda is not"></a>`HLR-067: a nested named function is reported where a lambda is not` | — | The distinction the two requirements draw, in one language and one function body: Rust's nested `fn` is reported and the closure beside it is not. |
 
-### 3.21. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
+### 3.22. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
 
 Role: **fixture**. **13 test(s).**
 
@@ -613,7 +652,7 @@ Role: **fixture**. **13 test(s).**
 | 12 | <a id="HLR-065: XML carrying such an identifier is well-formed"></a>`HLR-065: XML carrying such an identifier is well-formed` | — | An independent parser accepts the document, so the escaping is correct rather than merely present. |
 | 13 | <a id="HLR-056: such an identifier survives a record round trip"></a>`HLR-056: such an identifier survives a record round trip` | — | Regeneration matches a direct run, so escaping on the way out and reading on the way in agree about the identifier. |
 
-### 3.22. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
+### 3.23. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
 
 Role: **fixture**. **16 test(s).**
 
@@ -636,7 +675,7 @@ Role: **fixture**. **16 test(s).**
 | 15 | <a id="HLR-063: an explicit Markdown selection is accepted"></a>`HLR-063: an explicit Markdown selection is accepted` | — | Saying the default out loud is not an error; only asking for something else is. |
 | 16 | <a id="HLR-063: a target alongside --from-xml is a usage error"></a>`HLR-063: a target alongside --from-xml is a usage error` | — | The record is the input; a target would name a second source of truth for one report. |
 
-### 3.23. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
+### 3.24. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
 
 Role: **fixture**. **15 test(s).**
 
@@ -658,7 +697,7 @@ Role: **fixture**. **15 test(s).**
 | 14 | <a id="HLR-059: the environment variable takes precedence over the adjacent runtime"></a>`HLR-059: the environment variable takes precedence over the adjacent runtime` | — | Pointing the environment variable at a broken runtime degrades the run even though a working one sits beside the executable, which it can only do if the variable was preferred. |
 | 15 | <a id="HLR-059: the runtime adjacent to the executable is used when the variable is unset"></a>`HLR-059: the runtime adjacent to the executable is used when the variable is unset` | — | With the variable unset, the runtime beside the executable is found and used. |
 
-### 3.24. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
+### 3.25. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
 
 Role: **fixture**. **11 test(s).**
 
@@ -676,7 +715,67 @@ Role: **fixture**. **11 test(s).**
 | 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
 | 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
 
-### 3.25. [test/fixtures/calltree.bats](../test/fixtures/calltree.bats)
+### 3.26. [test/fixtures/deadcode.bats](../test/fixtures/deadcode.bats)
+
+Role: **fixture**. **22 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-137: statements after a return are reported"></a>`HLR-137: statements after a return are reported` | `LLR-DED-01` | The statements following a return in the same block are reported, with their line ranges. |
+| 2 | <a id="HLR-138: a label following a return is NOT reported"></a>`HLR-138: a label following a return is NOT reported` | `LLR-DED-01` | A labeled_statement is a sibling of the return and is reachable. Reporting it would invite deleting a live goto target, and the count is taken against the extracted rows rather than the whole output so the assertion cannot pass vacuously. |
+| 3 | <a id="HLR-137: statements after a break are reported"></a>`HLR-137: statements after a break are reported` | `LLR-DED-01` | A break terminates its block for the sibling walk exactly as a return does. |
+| 4 | <a id="HLR-137: statements after a continue are reported"></a>`HLR-137: statements after a continue are reported` | `LLR-DED-01` | A continue terminates its block for the sibling walk exactly as a return does. |
+| 5 | <a id="LLR-DED-01: the walk does not leave the terminator's own block"></a>`LLR-DED-01: the walk does not leave the terminator's own block` | `LLR-DED-01` | A statement after the loop containing the break is live: the walk visits siblings within one parent and does not climb. |
+| 6 | <a id="HLR-138: a switch arm does not leak into the next"></a>`HLR-138: a switch arm does not leak into the next` | `LLR-DED-01` | In this grammar a case construct contains the statements of its arm, so a return in one arm has no sibling to leak into and the following case is not reported. |
+| 7 | <a id="LLR-DED-01: a statement following two terminators is reported once"></a>`LLR-DED-01: a statement following two terminators is reported once` | `LLR-DED-09` | A statement the walk reaches from two terminators appears once, so the report does not depend on how many ways it was found. |
+| 8 | <a id="HLR-137: the consequence of if (0) and the else of if (1) are reported"></a>`HLR-137: the consequence of if (0) and the else of if (1) are reported` | `LLR-DED-02` | Both literal-condition shapes are found, each as its whole span. |
+| 9 | <a id="HLR-137: the body of a literally false loop is reported"></a>`HLR-137: the body of a literally false loop is reported` | `LLR-DED-02` | A loop whose condition is written as a false literal has an unreachable body. |
+| 10 | <a id="HLR-138: a do-while(0) body is NOT reported"></a>`HLR-138: a do-while(0) body is NOT reported` | `LLR-DED-02` | A do-while body runs exactly once, and it is one of the commonest idioms in C. Reporting it would be a false claim against ordinary code. |
+| 11 | <a id="HLR-138: a branch guarded by a variable is NOT reported"></a>`HLR-138: a branch guarded by a variable is NOT reported` | `LLR-DED-03` | Neither a plain variable nor a const one holding zero makes its branch dead: deciding either needs data flow, and elc performs none. |
+| 12 | <a id="LLR-DED-03: a zero the source did not write as one is undecided"></a>`LLR-DED-03: a zero the source did not write as one is undecided` | `LLR-DED-03` | Hexadecimal and octal zeroes fall through as undecided rather than being judged, while the decimal zero beside them is reported — the contrast being what shows the query is narrow rather than merely quiet. |
+| 13 | <a id="HLR-137: the two causes are distinguished"></a>`HLR-137: the two causes are distinguished` | `LLR-DED-01` | A statement after a terminator and a branch under a literal condition are reported with different causes, because the reader's next action differs. |
+| 14 | <a id="HLR-016: a comment is not dead code"></a>`HLR-016: a comment is not dead code` | `LLR-DED-07` | A comment is a named sibling, so without the merged-comment exclusion the walk would report the trailing note on the terminator's own line. The exact row count pins it. |
+| 15 | <a id="HLR-139: a language supplying a dead-code query reports every language analysed"></a>`HLR-139: a language supplying a dead-code query reports every language analysed` | `LLR-DED-05` | The section heading states that nothing was left unanalysed, so an empty table means none found. |
+| 16 | <a id="HLR-139: a language with no dead-code query is reported not analysed"></a>`HLR-139: a language with no dead-code query is reported not analysed` | `LLR-DED-05` | Ada ships without one on purpose, and the heading names it rather than leaving a clean-looking table. |
+| 17 | <a id="HLR-139: removing a query file makes that language unanalysed, not clean"></a>`HLR-139: removing a query file makes that language unanalysed, not clean` | `LLR-RFP-11` | The same distinction against a language that does ship one: with the file removed the findings vanish and the heading says the analysis was not performed. |
+| 18 | <a id="HLR-070: a module missing an optional query is still usable"></a>`HLR-070: a module missing an optional query is still usable` | `LLR-RFP-11` | Every other measurement survives the absence of an optional query file, which is the whole point of the file being optional. |
+| 19 | <a id="HLR-070: an optional query that will not compile is a defect, not a choice"></a>`HLR-070: an optional query that will not compile is a defect, not a choice` | `LLR-RFP-12` | An optional file that is present and will not compile is diagnosed like a required one. Omitting a file is a decision the contract allows; writing a broken one is not. |
+| 20 | <a id="HLR-137: dead statements inside an unreachable function are still reported"></a>`HLR-137: dead statements inside an unreachable function are still reported` | `LLR-DED-06` | Neither dead-code analysis suppresses the other: the function is reported unreachable by traversal and its dead statement is reported by syntax in the same run. |
+| 21 | <a id="HLR-139: dead code is found in every language supplying a query"></a>`HLR-139: dead code is found in every language supplying a query` | `LLR-DED-01` | Python, Rust and C++ each find the statement after a terminator, so the mechanism is not C's alone. |
+| 22 | <a id="HLR-138: no language claims a branch guarded by a variable"></a>`HLR-138: no language claims a branch guarded by a variable` | `LLR-DED-03` | The restraint holds in Python and Rust as it does in C: no language module is permitted to infer a value. |
+
+### 3.27. [test/fixtures/reachability.bats](../test/fixtures/reachability.bats)
+
+Role: **fixture**. **24 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-097: a clique of unused functions calling one another is reported"></a>`HLR-097: a clique of unused functions calling one another is reported` | `LLR-RCH-03` | The case textual linters get wrong. Each of the pair has a caller, so a no-caller rule finds neither; traversal reaches neither from any root. |
+| 2 | <a id="HLR-096: a function reachable only through an address-taken pointer is NOT reported"></a>`HLR-096: a function reachable only through an address-taken pointer is NOT reported` | `LLR-RTS-02` | A function appearing only as an initialiser of a vector table is a root, and reporting it dead would tell a user to delete an interrupt handler. |
+| 3 | <a id="LLR-RTS-02: an address-taken function is a root, not merely an exception"></a>`LLR-RTS-02: an address-taken function is a root, not merely an exception` | `LLR-RTS-02` | A function called only from an address-taken one is reachable through it. An implementation that excluded address-taken functions from the report without traversing from them would report it dead. |
+| 4 | <a id="HLR-096: functions reached from the declared entry point are not reported"></a>`HLR-096: functions reached from the declared entry point are not reported` | `LLR-RCH-01` | The declared root and what it calls are absent from the unreachable list. |
+| 5 | <a id="HLR-115: with no entry points declared, nothing is reported unreachable"></a>`HLR-115: with no entry points declared, nothing is reported unreachable` | `LLR-STA-01` | The list is empty and the heading states the omission and its reason, rather than reporting the whole program dead. |
+| 6 | <a id="HLR-115: a declared entry point matching nothing says so differently"></a>`HLR-115: a declared entry point matching nothing says so differently` | `LLR-STA-01` | The two absences carry different headings, because they call for different actions from the reader. |
+| 7 | <a id="LLR-CTR-09: omitting reachability does not omit its neighbours"></a>`LLR-CTR-09: omitting reachability does not omit its neighbours` | `LLR-STA-04` | A run with no entry points still reports its global-access map. |
+| 8 | <a id="HLR-096: a global touched only by unreachable functions is unreachable"></a>`HLR-096: a global touched only by unreachable functions is unreachable` | `LLR-UGL-01` | The storage goes the way of the code that touches it. |
+| 9 | <a id="LLR-UGL-01: a global a reachable function touches is not condemned"></a>`LLR-UGL-01: a global a reachable function touches is not condemned` | `LLR-UGL-01` | One live accessor is enough to keep an object out of the unreachable list. |
+| 10 | <a id="HLR-115: with no entry points, no global is reported unreachable either"></a>`HLR-115: with no entry points, no global is reported unreachable either` | `LLR-STA-01` | The data half of the analysis is omitted with the function half, rather than condemning every object. |
+| 11 | <a id="HLR-091: every global reports its writers and its readers"></a>`HLR-091: every global reports its writers and its readers` | `LLR-GLB-01` | Both sets are present for every object, whether or not the object carries a finding. |
+| 12 | <a id="HLR-092: a global touched by one function is flagged for scope reduction"></a>`HLR-092: a global touched by one function is flagged for scope reduction` | `LLR-GLB-02` | The finding appears with its published source, for the object no state edge exists for. |
+| 13 | <a id="HLR-093: a global spanning disconnected regions is a hidden channel"></a>`HLR-093: a global spanning disconnected regions is a hidden channel` | `LLR-GLB-03` | The finding names the disconnected participants, grouped by region, because the grouping is the finding. |
+| 14 | <a id="HLR-093: shared state within one call-connected region is not a channel"></a>`HLR-093: shared state within one call-connected region is not a channel` | `LLR-GLB-05` | An object shared across a call edge carries no finding at all, asserted on the row rather than on the output — which does carry both phrases for the other objects. |
+| 15 | <a id="LLR-GLB-04: both findings carry their published source"></a>`LLR-GLB-04: both findings carry their published source` | `LLR-GLB-04` | Each of the two verdicts is attributed to MISRA C Rule 8.9 in the report. |
+| 16 | <a id="HLR-094: a call crossing a declared scope boundary is reported"></a>`HLR-094: a call crossing a declared scope boundary is reported` | `LLR-ISO-01` | A call from one declared scope into another appears as a crossing naming both ends. |
+| 17 | <a id="HLR-094: a shared global crossing a boundary is reported too"></a>`HLR-094: a shared global crossing a boundary is reported too` | `LLR-ISO-01` | A scope sharing a variable with another without calling it has not been isolated, and the crossing names the object. |
+| 18 | <a id="HLR-094: exactly the two crossings are reported"></a>`HLR-094: exactly the two crossings are reported` | `LLR-ISO-01` | The count in the heading matches the rows, so neither kind is reported twice nor an intra-scope edge counted. |
+| 19 | <a id="HLR-115: with no scopes declared the analysis is omitted with a reason"></a>`HLR-115: with no scopes declared the analysis is omitted with a reason` | `LLR-STA-02` | The heading states the omission rather than leaving an empty table to be read as isolation verified. |
+| 20 | <a id="HLR-094: an edge within one scope is not a crossing"></a>`HLR-094: an edge within one scope is not a crossing` | `LLR-ISO-01` | The same calls and the same shared variable, with both files in one declared scope, produce nothing. |
+| 21 | <a id="HLR-094: a file matching no declaration is outside the partition"></a>`HLR-094: a file matching no declaration is outside the partition` | `LLR-ISO-02` | A file no declaration names lies outside the partition rather than in a scope of its own. |
+| 22 | <a id="HLR-063: a malformed scope declaration is a usage error"></a>`HLR-063: a malformed scope declaration is a usage error` | `LLR-SCP-02` | A declaration that cannot be parsed ends the run with the fatal status and a diagnostic, rather than becoming a scope matching nothing. |
+| 23 | <a id="HLR-032: the state sections survive a record round trip byte-identically"></a>`HLR-032: the state sections survive a record round trip byte-identically` | `LLR-XWR-11` | A report regenerated from the saved record is byte-identical to the live one, with the reachability and global-state sections included. |
+| 24 | <a id="HLR-032: a global-state finding survives the round trip"></a>`HLR-032: a global-state finding survives the round trip` | `LLR-XWR-12` | The verdict and its participants are carried in the record, and the citation is derived from the verdict on both paths rather than stored. |
+
+### 3.28. [test/fixtures/calltree.bats](../test/fixtures/calltree.bats)
 
 Role: **fixture**. **20 test(s).**
 
@@ -703,7 +802,7 @@ Role: **fixture**. **20 test(s).**
 | 19 | <a id="HLR-033: the targets may be given in either order"></a>`HLR-033: the targets may be given in either order` | — | The report does not depend on the order the targets were named in. |
 | 20 | <a id="HLR-056: the measurements survive a record round trip"></a>`HLR-056: the measurements survive a record round trip` | — | A report regenerated from a record is byte-identical and still carries the depth, since none of the call-tree measurements can be recomputed without the source. |
 
-### 3.26. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
+### 3.29. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
 Role: **fixture**. **16 test(s).**
 
@@ -726,7 +825,7 @@ Role: **fixture**. **16 test(s).**
 | 15 | <a id="HLR-032: two runs over the same tree produce identical GraphML"></a>`HLR-032: two runs over the same tree produce identical GraphML` | — | The export is byte-identical across runs, so no container's internal enumeration reaches the output. |
 | 16 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | — | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
-### 3.27. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+### 3.30. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -752,7 +851,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | — | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
 | 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | — | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
 
-### 3.28. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.31. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -766,7 +865,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.29. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.32. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **21 test(s).**
 
@@ -794,7 +893,7 @@ Role: **instrumented**. **21 test(s).**
 | 20 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
 | 21 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 
-### 3.30. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.33. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -856,8 +955,9 @@ verified by code review — see
 | `LLR-STR-01` | `parse_stratum` | `HLR-078` | **(no direct test)** |
 | `LLR-STR-02` | `parse_stratum` | `HLR-078`, `HLR-118` | **(no direct test)** |
 | `LLR-STR-03` | `parse_stratum` | `HLR-063`, `HLR-078` | **(no direct test)** |
-| `LLR-SCP-01` | `parse_scope` | `HLR-094` | **(no direct test)** |
-| `LLR-SCP-02` | `parse_scope` | `HLR-063`, `HLR-094` | **(no direct test)** |
+| `LLR-SCP-01` | `parse_scope` | `HLR-094` | `a_scope_declaration_is_parsed_into_a_name_and_patterns`, `scope_declarations_accumulate`, `the_scope_option_reaches_the_options_structure` |
+| `LLR-SCP-02` | `parse_scope` | `HLR-063`, `HLR-094` | `a_malformed_scope_declaration_is_rejected`, `a_malformed_scope_option_is_a_usage_error`, `HLR-063: a malformed scope declaration is a usage error` |
+| `LLR-SCP-03` | `parse_scope` | `HLR-094`, `HLR-125` | **(no direct test)** |
 | `LLR-DSC-01` | `discover_targets` | `HLR-062` | `every_target_is_validated_before_any_is_walked`, `filelist_free_is_safe_on_null` |
 | `LLR-DSC-02` | `discover_targets` | `HLR-062` | `a_missing_target_is_rejected_with_an_empty_list`, `a_target_that_is_neither_file_nor_directory_is_rejected` |
 | `LLR-DSC-03` | `discover_targets` | `HLR-071`, `HLR-001`, `HLR-126` | `files_and_directories_are_classified_independently` |
@@ -897,6 +997,8 @@ verified by code review — see
 | `LLR-RFP-07` | `registry_for_path` | `HLR-070` | `an_unusable_language_is_not_retried` |
 | `LLR-RFP-09` | `registry_for_path` | `HLR-070`, `HLR-038` | **(no direct test)** |
 | `LLR-RFP-10` | `registry_for_path` | `HLR-134`, `HLR-121`, `HLR-070` | **(no direct test)** |
+| `LLR-RFP-11` | `registry_for_path` | `HLR-139`, `HLR-121`, `HLR-070` | `HLR-139: removing a query file makes that language unanalysed, not clean`, `HLR-070: a module missing an optional query is still usable` |
+| `LLR-RFP-12` | `registry_for_path` | `HLR-070`, `HLR-121` | `HLR-070: an optional query that will not compile is a defect, not a choice` |
 | `LLR-RFP-08` | `registry_for_path` | `HLR-121` | `a_module_is_loaded_on_first_use_of_its_extension`, `a_missing_query_file_makes_the_language_unusable` |
 | `LLR-RLR-01` | `registry_load_rules` | `HLR-107` | **(no direct test)** |
 | `LLR-RLR-02` | `registry_load_rules` | `HLR-107` | **(no direct test)** |
@@ -950,13 +1052,18 @@ verified by code review — see
 | `LLR-ANL-43` | `analyze_file` | `HLR-132` | **(no direct test)** |
 | `LLR-ANL-44` | `analyze_file` | `HLR-133`, `HLR-135`, `HLR-013` | **(no direct test)** |
 | `LLR-ANL-45` | `analyze_file` | `HLR-131`, `HLR-032` | **(no direct test)** |
+| `LLR-ANL-46` | `analyze_file` | `HLR-121`, `HLR-138`, `HLR-013` | `a_predicate_that_does_not_hold_rejects_the_match` |
+| `LLR-ANL-47` | `analyze_file` | `HLR-121`, `HLR-138` | **(no direct test)** |
 | `LLR-ANL-34` | `analyze_file` | `HLR-124`, `HLR-125` | **(no direct test)** |
-| `LLR-DED-01` | `collect_dead_code` | `HLR-137` | **(no direct test)** |
-| `LLR-DED-02` | `collect_dead_code` | `HLR-137` | **(no direct test)** |
-| `LLR-DED-03` | `collect_dead_code` | `HLR-138`, `HLR-013` | **(no direct test)** |
-| `LLR-DED-04` | `collect_dead_code` | `HLR-137`, `HLR-068` | **(no direct test)** |
-| `LLR-DED-05` | `collect_dead_code` | `HLR-139`, `HLR-121` | **(no direct test)** |
-| `LLR-DED-06` | `collect_dead_code` | `HLR-137`, `HLR-096` | **(no direct test)** |
+| `LLR-DED-01` | `collect_dead_code` | `HLR-137` | `statements_after_a_terminator_are_recorded`, `a_label_after_a_terminator_is_not_recorded`, `HLR-137: statements after a return are reported`, `HLR-138: a label following a return is NOT reported`, `HLR-137: statements after a break are reported`, `HLR-137: statements after a continue are reported`, `LLR-DED-01: the walk does not leave the terminator's own block`, `HLR-138: a switch arm does not leak into the next`, `HLR-137: the two causes are distinguished`, `HLR-139: dead code is found in every language supplying a query` |
+| `LLR-DED-02` | `collect_dead_code` | `HLR-137` | `a_literal_branch_is_recorded_with_its_whole_span`, `HLR-137: the consequence of if (0) and the else of if (1) are reported`, `HLR-137: the body of a literally false loop is reported`, `HLR-138: a do-while(0) body is NOT reported` |
+| `LLR-DED-03` | `collect_dead_code` | `HLR-138`, `HLR-013` | `a_branch_guarded_by_a_variable_is_never_recorded`, `HLR-138: a branch guarded by a variable is NOT reported`, `LLR-DED-03: a zero the source did not write as one is undecided`, `HLR-138: no language claims a branch guarded by a variable` |
+| `LLR-DED-04` | `collect_dead_code` | `HLR-137`, `HLR-068` | `a_dead_span_is_attributed_to_the_innermost_function` |
+| `LLR-DED-05` | `collect_dead_code` | `HLR-139`, `HLR-121` | `a_language_with_no_dead_code_query_is_unanalysed_not_clean`, `HLR-139: a language supplying a dead-code query reports every language analysed`, `HLR-139: a language with no dead-code query is reported not analysed` |
+| `LLR-DED-06` | `collect_dead_code` | `HLR-137`, `HLR-096` | `HLR-137: dead statements inside an unreachable function are still reported` |
+| `LLR-DED-07` | `collect_dead_code` | `HLR-137`, `HLR-138`, `HLR-016` | `HLR-016: a comment is not dead code` |
+| `LLR-DED-08` | `collect_dead_code` | `HLR-137` | **(no direct test)** |
+| `LLR-DED-09` | `collect_dead_code` | `HLR-137`, `HLR-032` | `LLR-DED-01: a statement following two terminators is reported once` |
 | `LLR-MRG-01` | `merge_comment_spans` | `HLR-016` | `spans_are_sorted_before_merging` |
 | `LLR-MRG-02` | `merge_comment_spans` | `HLR-016` | `overlapping_spans_coalesce`, `a_nested_span_is_absorbed_not_counted_twice` |
 | `LLR-MRG-03` | `merge_comment_spans` | `HLR-016`, `HLR-034` | `a_nested_span_is_absorbed_not_counted_twice`, `a_shared_line_is_counted_once` |
@@ -975,8 +1082,9 @@ verified by code review — see
 | `LLR-SDG-09` | `graph_build` | `HLR-033` | `node_identifiers_follow_sorted_file_order` |
 | `LLR-SDG-10` | `graph_build` | `HLR-114` | `the_component_projection_is_file_level`, `a_call_within_one_file_is_no_component_dependency` |
 | `LLR-SDG-12` | `graph_build` | `HLR-124`, `HLR-074` | `a_global_links_its_writer_to_its_reader`, `graph_free_is_safe_on_null_and_twice` |
-| `LLR-SDG-13` | `graph_build` | `HLR-074`, `HLR-096`, `HLR-121` | `an_undeclared_name_is_not_global_state`, `an_address_taken_function_is_marked`, `an_address_taken_name_that_is_not_a_function_is_discarded` |
+| `LLR-SDG-13` | `graph_build` | `HLR-074`, `HLR-096`, `HLR-121` | `an_undeclared_identifier_is_not_global_state`, `an_undeclared_name_is_not_global_state`, `an_address_taken_function_is_marked`, `an_address_taken_name_that_is_not_a_function_is_discarded` |
 | `LLR-SDG-14` | `graph_build` | `HLR-085`, `HLR-074`, `HLR-077` | `repeated_calls_collapse_to_one_edge_with_a_count`, `a_call_from_file_scope_has_no_caller_node`, `two_objects_between_one_pair_are_two_edges` |
+| `LLR-SDG-16` | `graph_build` | `HLR-091`, `HLR-092`, `HLR-032` | `a_global_touched_by_one_function_is_a_scope_reduction_candidate` |
 | `LLR-SDG-15` | `graph_build` | `HLR-124`, `HLR-113`, `HLR-120` | `the_library_returns_errors_instead_of_aborting` |
 | `LLR-SDG-11` | `graph_build` | `HLR-124`, `HLR-077` | **(no direct test)** |
 | `LLR-ARC-01` | `arch_analyse` | `HLR-081` | **(no direct test)** |
@@ -1009,19 +1117,24 @@ verified by code review — see
 | `LLR-LPD-04` | `longest_path_dag` | `HLR-087`, `HLR-032` | `depth_is_the_length_of_the_deepest_chain` |
 | `LLR-LPD-02` | `longest_path_dag` | `HLR-088` | **(no direct test)** |
 | `LLR-LPD-03` | `longest_path_dag` | `HLR-088` | `the_deepest_chain_is_an_ordered_sequence` |
-| `LLR-STA-01` | `state_analyse` | `HLR-115`, `HLR-096` | **(no direct test)** |
-| `LLR-STA-02` | `state_analyse` | `HLR-115`, `HLR-094` | **(no direct test)** |
-| `LLR-GLB-01` | `classify_globals` | `HLR-091` | **(no direct test)** |
-| `LLR-GLB-02` | `classify_globals` | `HLR-092` | **(no direct test)** |
-| `LLR-GLB-03` | `classify_globals` | `HLR-093` | **(no direct test)** |
-| `LLR-GLB-04` | `classify_globals` | `HLR-099`, `HLR-092`, `HLR-093` | **(no direct test)** |
-| `LLR-RTS-01` | `collect_roots` | `HLR-096`, `HLR-095` | **(no direct test)** |
-| `LLR-RTS-02` | `collect_roots` | `HLR-096`, `HLR-097` | **(no direct test)** |
-| `LLR-RCH-01` | `reachability` | `HLR-096` | **(no direct test)** |
+| `LLR-STA-01` | `state_analyse` | `HLR-115`, `HLR-096` | `a_declared_symbol_naming_nothing_is_skipped_not_fatal`, `with_no_entry_points_nothing_is_unreachable`, `a_declaration_matching_nothing_is_its_own_omission`, `HLR-115: with no entry points declared, nothing is reported unreachable`, `HLR-115: a declared entry point matching nothing says so differently`, `HLR-115: with no entry points, no global is reported unreachable either` |
+| `LLR-STA-02` | `state_analyse` | `HLR-115`, `HLR-094` | `no_scope_declared_leaves_the_list_empty`, `with_no_scopes_declared_the_analysis_is_omitted`, `HLR-115: with no scopes declared the analysis is omitted with a reason` |
+| `LLR-STA-03` | `state_analyse` | `HLR-096`, `HLR-097`, `HLR-074` | `reachability_does_not_travel_along_a_global_edge` |
+| `LLR-STA-04` | `state_analyse` | `HLR-115`, `HLR-091` | `an_empty_graph_analyses_without_incident`, `LLR-CTR-09: omitting reachability does not omit its neighbours` |
+| `LLR-GLB-01` | `classify_globals` | `HLR-091` | `HLR-091: every global reports its writers and its readers` |
+| `LLR-GLB-02` | `classify_globals` | `HLR-092` | `a_global_touched_by_one_function_is_a_scope_reduction_candidate`, `HLR-092: a global touched by one function is flagged for scope reduction` |
+| `LLR-GLB-03` | `classify_globals` | `HLR-093` | `a_global_spanning_disconnected_regions_is_a_hidden_channel`, `HLR-093: a global spanning disconnected regions is a hidden channel` |
+| `LLR-GLB-04` | `classify_globals` | `HLR-099`, `HLR-092`, `HLR-093` | `LLR-GLB-04: both findings carry their published source` |
+| `LLR-GLB-05` | `classify_globals` | `HLR-093`, `HLR-074` | `shared_state_within_one_region_is_ordinary`, `HLR-093: shared state within one call-connected region is not a channel` |
+| `LLR-RTS-01` | `collect_roots` | `HLR-096`, `HLR-095` | `roots_are_entry_points_and_address_taken_functions`, `a_root_declared_twice_is_one_root` |
+| `LLR-RTS-02` | `collect_roots` | `HLR-096`, `HLR-097` | `an_address_taken_function_and_its_callees_are_reachable`, `HLR-096: a function reachable only through an address-taken pointer is NOT reported`, `LLR-RTS-02: an address-taken function is a root, not merely an exception` |
+| `LLR-RCH-01` | `reachability` | `HLR-096` | `HLR-096: functions reached from the declared entry point are not reported` |
 | `LLR-RCH-02` | `reachability` | `HLR-097` | **(no direct test)** |
-| `LLR-RCH-03` | `reachability` | `HLR-097` | **(no direct test)** |
-| `LLR-UGL-01` | `unreachable_globals` | `HLR-096` | **(no direct test)** |
-| `LLR-ISO-01` | `check_scopes` | `HLR-094` | **(no direct test)** |
+| `LLR-RCH-03` | `reachability` | `HLR-097` | `a_clique_of_unused_functions_is_unreachable`, `HLR-097: a clique of unused functions calling one another is reported` |
+| `LLR-UGL-01` | `unreachable_globals` | `HLR-096` | `a_global_touched_only_by_dead_functions_is_unreachable`, `HLR-096: a global touched only by unreachable functions is unreachable`, `LLR-UGL-01: a global a reachable function touches is not condemned` |
+| `LLR-UGL-02` | `unreachable_globals` | `HLR-096`, `HLR-138` | `a_global_no_function_touches_is_not_claimed_dead` |
+| `LLR-ISO-01` | `check_scopes` | `HLR-094` | `an_edge_crossing_a_declared_boundary_is_reported`, `a_shared_global_crossing_a_boundary_is_reported`, `HLR-094: a call crossing a declared scope boundary is reported`, `HLR-094: a shared global crossing a boundary is reported too`, `HLR-094: exactly the two crossings are reported`, `HLR-094: an edge within one scope is not a crossing` |
+| `LLR-ISO-02` | `check_scopes` | `HLR-094`, `HLR-115` | `a_component_matching_no_declaration_is_outside_the_partition`, `HLR-094: a file matching no declaration is outside the partition` |
 | `LLR-THR-01` | `thresholds_apply` | `HLR-098` | **(no direct test)** |
 | `LLR-THR-02` | `thresholds_apply` | `HLR-099` | **(no direct test)** |
 | `LLR-THR-03` | `thresholds_apply` | `HLR-123` | **(no direct test)** |
@@ -1057,6 +1170,8 @@ verified by code review — see
 | `LLR-RPT-20` | `report_assemble` | `HLR-021`, `HLR-023` | **(no direct test)** |
 | `LLR-RPT-21` | `report_assemble` | `HLR-026`, `HLR-032`, `HLR-033` | **(no direct test)** |
 | `LLR-RPT-27` | `report_assemble` | `HLR-136`, `HLR-133`, `HLR-033` | **(no direct test)** |
+| `LLR-RPT-28` | `report_assemble` | `HLR-137`, `HLR-068`, `HLR-032` | **(no direct test)** |
+| `LLR-RPT-29` | `report_assemble` | `HLR-032`, `HLR-033` | **(no direct test)** |
 | `LLR-RPT-16` | `report_assemble` | `HLR-124`, `HLR-125` | `a_failed_growth_leaves_the_accumulator_intact`, `free_is_safe_on_null` |
 | `LLR-TBL-01` | `format_table` | `HLR-027` | `the_table_carries_the_summary_and_every_file`, `columns_are_aligned_on_the_longest_path`, `an_empty_report_still_renders_a_table` |
 | `LLR-TBL-02` | `format_table` | `HLR-027` | **(no direct test)** |
@@ -1080,6 +1195,8 @@ verified by code review — see
 | `LLR-XWR-09` | `xml_write_report` | `HLR-054`, `HLR-056`, `HLR-137` | **(no direct test)** |
 | `LLR-XWR-08` | `xml_write_report` | `HLR-054`, `HLR-056` | **(no direct test)** |
 | `LLR-XWR-10` | `xml_write_report` | `HLR-136`, `HLR-054` | **(no direct test)** |
+| `LLR-XWR-11` | `xml_write_report` | `HLR-054`, `HLR-056`, `HLR-096`, `HLR-137` | `HLR-032: the state sections survive a record round trip byte-identically` |
+| `LLR-XWR-12` | `xml_write_report` | `HLR-139`, `HLR-056`, `HLR-099` | `HLR-032: a global-state finding survives the round trip` |
 | `LLR-XWR-04` | `xml_write_report` | `HLR-065` | `the_record_carries_its_format_version`, `an_empty_report_is_still_a_complete_record`, `a_write_failure_is_reported` |
 | `LLR-ESC-01` | `write_escaped` | `HLR-065` | `an_ampersand_is_escaped`, `angle_brackets_are_escaped`, `quotation_marks_are_escaped`, `an_ampersand_in_an_entity_is_escaped_once`, `ordinary_text_is_unchanged`, `escaping_null_emits_nothing` |
 | `LLR-ESC-02` | `write_escaped` | `HLR-065` | **(no direct test)** |

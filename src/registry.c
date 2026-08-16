@@ -25,15 +25,17 @@
 #include "elc.h"
 #include "registry.h"
 
-/* The six required query files, indexed by QueryKind. Order matches the
- * enum; the names are the contract. */
+/* The query files, indexed by QueryKind. Order matches the enum; the names are
+ * the contract. Everything below QUERY_REQUIRED_COUNT must be present; the
+ * rest may be absent (HLR-139). */
 static const char *const QUERY_FILES[QUERY_COUNT] = {
 	[QUERY_FUNCTIONS]  = "functions.scm",
 	[QUERY_COMMENTS]   = "comments.scm",
 	[QUERY_COMPLEXITY] = "complexity.scm",
 	[QUERY_ELOC]       = "eloc.scm",
 	[QUERY_CALLS]      = "calls.scm",
-	[QUERY_GLOBALS]    = "globals.scm"
+	[QUERY_GLOBALS]    = "globals.scm",
+	[QUERY_DEADCODE]   = "deadcode.scm"
 };
 
 /* What ts_query_new() reported, in words. The numeric code alone tells the
@@ -281,7 +283,8 @@ static void module_release(LanguageModule *module)
 	module->usable        = false;
 }
 
-/* Load the grammar and compile the six queries.
+/* Load the grammar and compile the query files: the six required ones, and
+ * whichever optional ones the module supplies.
  *
  * Returns 0 with `module` populated and usable, or non-zero after a
  * diagnostic — in which case `module` is left named but unusable, so the
@@ -359,6 +362,15 @@ static int module_load(const Registry *reg, LanguageModule *module,
 
 		source = read_file(path, &length);
 		if (!source) {
+			/* An optional query simply is not there. The language
+			 * loses the analysis that reads it and keeps every
+			 * other one; the consumer sees a NULL and says so in
+			 * the report rather than reporting a clean result
+			 * (HLR-139, LLR-RFP-10). */
+			if (i >= QUERY_REQUIRED_COUNT) {
+				module->queries[i] = NULL;
+				continue;
+			}
 			/* A module is required to supply all six. One missing
 			 * makes the language unusable — reported, excluded, and
 			 * survivable, never undefined (HLR-121, HLR-070). */

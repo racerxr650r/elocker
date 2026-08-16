@@ -4,15 +4,19 @@
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Phase 9 complete. `elc` measures fan-out, detects direct and
-mutual recursion, and reports the deepest call chain in full from
-user-declared entry points — omitting what it cannot honestly answer rather
-than guessing; 458 catalogued tests verify 214 requirements and the coverage
-baseline stands at 239 — *raised*, not lowered, because two specification
-changes landed without their implementations: the conditional-compilation
-requirements HLR-131 to HLR-136, which Phase 15 builds, and the dead-code
-requirements HLR-137 to HLR-139, which Phase 10 does. Phase 10 — dead code,
-reachability, and global state — is ready to start.
+**Status:** Phase 10 complete. `elc` now answers the question the product
+exists for — *what code does not run?* — at both scales: unreachable
+functions and objects by traversal from the declared entry points **together
+with every address-taken function**, and unreachable statements within a
+function from the syntax tree alone. It reports each global object's writers
+and readers, flags single-function objects for scope reduction and
+cross-region ones as hidden channels, and reports every call and shared
+global by which one declared execution scope reaches another. 536 catalogued
+tests verify 261 of 476 requirements and the coverage baseline falls from 239
+to 215 — the dead-code requirements HLR-137 to HLR-139 now have
+implementations, while the conditional-compilation set HLR-131 to HLR-136
+still awaits Phase 15. Phase 11 — coupling, layering, and cycles — is ready
+to start.
 
 ## Status
 
@@ -28,7 +32,7 @@ reachability, and global state — is ready to start.
 | [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
 | [8](#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
 | [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
-| [10](#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | 🔲 Not started |
+| [10](#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | ✅ Complete |
 | [11](#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | 🔲 Not started |
 | [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
 | [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |

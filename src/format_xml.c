@@ -171,6 +171,75 @@ int xml_write_report(const Report *report, FILE *out)
 	}
 	fputs("  </calltree>\n", out);
 
+	/* The global-state and reachability measurements. Carried for the same
+	 * reason the call-tree ones are: regeneration has no graph and no
+	 * source to build one from, so a value not written here is a value the
+	 * regenerated report cannot have (HLR-054, HLR-056).
+	 *
+	 * The attribution of a verdict is deliberately *not* written. It is
+	 * derived from the verdict by one function both paths call, so a
+	 * record cannot carry a citation that disagrees with a live run's
+	 * (LLR-GLB-04). */
+	fprintf(out, "  <state reach-state=\"%d\" scope-state=\"%d\">\n",
+	        (int)report->reach_state, (int)report->scope_state);
+	for (size_t i = 0; i < report->global_state_count; i++) {
+		const GlobalStateRow *r = &report->global_state[i];
+
+		fputs("    <global", out);
+		write_attribute(out, "object", r->object);
+		write_attribute(out, "writers", r->writers);
+		write_attribute(out, "readers", r->readers);
+		write_attribute(out, "participants", r->participants);
+		fprintf(out, " verdict=\"%d\"/>\n", (int)r->verdict);
+	}
+	for (size_t i = 0; i < report->unreachable_count; i++) {
+		fputs("    <unreachable-function", out);
+		write_attribute(out, "function", report->unreachable[i].function);
+		write_attribute(out, "file", report->unreachable[i].file);
+		fprintf(out, " line=\"%" PRIu32 "\"/>\n",
+		        report->unreachable[i].line);
+	}
+	for (size_t i = 0; i < report->unreachable_global_count; i++) {
+		fputs("    <unreachable-global", out);
+		write_attribute(out, "object", report->unreachable_globals[i]);
+		fputs("/>\n", out);
+	}
+	for (size_t i = 0; i < report->cross_scope_count; i++) {
+		const CrossScopeRow *r = &report->cross_scope[i];
+
+		fputs("    <cross-scope", out);
+		write_attribute(out, "from-scope", r->from_scope);
+		write_attribute(out, "from", r->from_function);
+		write_attribute(out, "to-scope", r->to_scope);
+		write_attribute(out, "to", r->to_function);
+		write_attribute(out, "object", r->object ? r->object : "");
+		fputs("/>\n", out);
+	}
+	fputs("  </state>\n", out);
+
+	/* The languages dead code was *not* looked for in are written beside
+	 * the findings, because the two together are the claim: a record
+	 * carrying the spans alone would regenerate into a report that reads
+	 * as a clean bill of health for a language nobody analysed
+	 * (HLR-139). */
+	fputs("  <deadcode>\n", out);
+	for (size_t i = 0; i < report->dead_unanalysed.count; i++) {
+		fputs("    <unanalysed", out);
+		write_attribute(out, "language", report->dead_unanalysed.paths[i]);
+		fputs("/>\n", out);
+	}
+	for (size_t i = 0; i < report->dead_count; i++) {
+		const DeadRow *r = &report->dead[i];
+
+		fputs("    <span", out);
+		write_attribute(out, "file", r->file);
+		write_attribute(out, "function", r->function);
+		fprintf(out, " start-line=\"%" PRIu32 "\" end-line=\"%" PRIu32
+		        "\" cause=\"%d\"/>\n", r->start_line, r->end_line,
+		        (int)r->cause);
+	}
+	fputs("  </deadcode>\n", out);
+
 	fputs("  <discovery>\n", out);
 	for (size_t i = 0; i < report->routes.count; i++) {
 		fputs("    <route", out);
@@ -218,6 +287,19 @@ typedef struct {
 	size_t              cycle_count;
 	ChainRow           *deepest;
 	size_t              deepest_count;
+	ReachState          reach_state;
+	ScopeState          scope_state;
+	GlobalStateRow     *global_state;
+	size_t              global_state_count;
+	UnreachableRow     *unreachable;
+	size_t              unreachable_count;
+	char              **unreachable_globals;
+	size_t              unreachable_global_count;
+	CrossScopeRow      *cross_scope;
+	size_t              cross_scope_count;
+	DeadRow            *dead;
+	size_t              dead_count;
+	PathList            dead_unanalysed;
 	MetricsAccumulator *acc;
 	FileMetrics        *current;      /* the <file> being populated */
 	size_t              capacity;     /* of current->functions      */
@@ -486,6 +568,222 @@ static void on_start(void *user, const XML_Char *name,
 		return;
 	}
 
+	if (strcmp(name, "state") == 0) {
+		const char *reach = attribute(atts, "reach-state");
+		const char *scope = attribute(atts, "scope-state");
+
+		if (!reach || !scope) {
+			fail(state, "a state element is incomplete");
+			return;
+		}
+		state->reach_state = (ReachState)strtol(reach, NULL, 10);
+		state->scope_state = (ScopeState)strtol(scope, NULL, 10);
+		return;
+	}
+
+	if (strcmp(name, "global") == 0) {
+		const char *object  = attribute(atts, "object");
+		const char *writers = attribute(atts, "writers");
+		const char *readers = attribute(atts, "readers");
+		const char *parts   = attribute(atts, "participants");
+		const char *verdict = attribute(atts, "verdict");
+
+		if (!object || !writers || !readers || !parts || !verdict) {
+			fail(state, "a global element is incomplete");
+			return;
+		}
+
+		GlobalStateRow *grown =
+			realloc(state->global_state,
+			        (state->global_state_count + 1) * sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->global_state = grown;
+
+		GlobalStateRow *row = &state->global_state[state->global_state_count];
+
+		memset(row, 0, sizeof *row);
+		row->object       = strdup(object);
+		row->writers      = strdup(writers);
+		row->readers      = strdup(readers);
+		row->participants = strdup(parts);
+		if (!row->object || !row->writers || !row->readers ||
+		    !row->participants) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->verdict = (GlobalVerdict)strtol(verdict, NULL, 10);
+		state->global_state_count++;
+		return;
+	}
+
+	if (strcmp(name, "unreachable-function") == 0) {
+		const char *fn   = attribute(atts, "function");
+		const char *file = attribute(atts, "file");
+		const char *line = attribute(atts, "line");
+
+		if (!fn || !file || !line) {
+			fail(state, "an unreachable-function element is incomplete");
+			return;
+		}
+
+		UnreachableRow *grown =
+			realloc(state->unreachable,
+			        (state->unreachable_count + 1) * sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->unreachable = grown;
+
+		UnreachableRow *row = &state->unreachable[state->unreachable_count];
+
+		memset(row, 0, sizeof *row);
+		row->function = strdup(fn);
+		row->file     = strdup(file);
+		if (!row->function || !row->file) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->line = (uint32_t)strtoul(line, NULL, 10);
+		state->unreachable_count++;
+		return;
+	}
+
+	if (strcmp(name, "unreachable-global") == 0) {
+		const char *object = attribute(atts, "object");
+
+		if (!object) {
+			fail(state, "an unreachable-global element has no object");
+			return;
+		}
+
+		char **grown = realloc(state->unreachable_globals,
+		                       (state->unreachable_global_count + 1) *
+		                               sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->unreachable_globals = grown;
+		state->unreachable_globals[state->unreachable_global_count] =
+			strdup(object);
+		if (!state->unreachable_globals[state->unreachable_global_count]) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->unreachable_global_count++;
+		return;
+	}
+
+	if (strcmp(name, "cross-scope") == 0) {
+		const char *from_scope = attribute(atts, "from-scope");
+		const char *from       = attribute(atts, "from");
+		const char *to_scope   = attribute(atts, "to-scope");
+		const char *to         = attribute(atts, "to");
+		const char *object     = attribute(atts, "object");
+
+		if (!from_scope || !from || !to_scope || !to || !object) {
+			fail(state, "a cross-scope element is incomplete");
+			return;
+		}
+
+		CrossScopeRow *grown =
+			realloc(state->cross_scope,
+			        (state->cross_scope_count + 1) * sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->cross_scope = grown;
+
+		CrossScopeRow *row = &state->cross_scope[state->cross_scope_count];
+
+		memset(row, 0, sizeof *row);
+		row->from_scope    = strdup(from_scope);
+		row->from_function = strdup(from);
+		row->to_scope      = strdup(to_scope);
+		row->to_function   = strdup(to);
+		row->object        = strdup(object);
+		if (!row->from_scope || !row->from_function || !row->to_scope ||
+		    !row->to_function || !row->object) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->cross_scope_count++;
+		return;
+	}
+
+	if (strcmp(name, "unanalysed") == 0) {
+		const char *language = attribute(atts, "language");
+
+		if (!language) {
+			fail(state, "an unanalysed element names no language");
+			return;
+		}
+
+		PathList *list = &state->dead_unanalysed;
+
+		if (list->count == list->capacity) {
+			size_t next   = list->capacity ? list->capacity * 2 : 4;
+			char **bigger = realloc(list->paths, next * sizeof *bigger);
+
+			if (!bigger) {
+				fail(state, "out of memory");
+				return;
+			}
+			list->paths    = bigger;
+			list->capacity = next;
+		}
+		list->paths[list->count] = strdup(language);
+		if (!list->paths[list->count]) {
+			fail(state, "out of memory");
+			return;
+		}
+		list->count++;
+		return;
+	}
+
+	if (strcmp(name, "span") == 0) {
+		const char *file = attribute(atts, "file");
+		const char *fn   = attribute(atts, "function");
+
+		if (!file || !fn) {
+			fail(state, "a span element is incomplete");
+			return;
+		}
+
+		DeadRow *grown = realloc(state->dead,
+		                         (state->dead_count + 1) * sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->dead = grown;
+
+		DeadRow *row = &state->dead[state->dead_count];
+
+		memset(row, 0, sizeof *row);
+		row->file     = strdup(file);
+		row->function = strdup(fn);
+		if (!row->file || !row->function) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->start_line = uint_attribute(state, atts, "start-line");
+		row->end_line   = uint_attribute(state, atts, "end-line");
+		row->cause      = (DeadCause)uint_attribute(state, atts, "cause");
+		state->dead_count++;
+		return;
+	}
+
 	if (strcmp(name, "graph") == 0) {
 		const char *value = attribute(atts, "unresolved-calls");
 
@@ -680,6 +978,31 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	state.deepest       = NULL;
 	state.deepest_count = 0;
 
+	out->reach_state              = state.reach_state;
+	out->scope_state              = state.scope_state;
+	out->global_state             = state.global_state;
+	out->global_state_count       = state.global_state_count;
+	out->unreachable              = state.unreachable;
+	out->unreachable_count        = state.unreachable_count;
+	out->unreachable_globals      = state.unreachable_globals;
+	out->unreachable_global_count = state.unreachable_global_count;
+	out->cross_scope              = state.cross_scope;
+	out->cross_scope_count        = state.cross_scope_count;
+	out->dead                     = state.dead;
+	out->dead_count               = state.dead_count;
+	out->dead_unanalysed          = state.dead_unanalysed;
+	state.global_state             = NULL;
+	state.global_state_count       = 0;
+	state.unreachable              = NULL;
+	state.unreachable_count        = 0;
+	state.unreachable_globals      = NULL;
+	state.unreachable_global_count = 0;
+	state.cross_scope              = NULL;
+	state.cross_scope_count        = 0;
+	state.dead                     = NULL;
+	state.dead_count               = 0;
+	memset(&state.dead_unanalysed, 0, sizeof state.dead_unanalysed);
+
 	status = 0;
 
 cleanup:
@@ -709,6 +1032,37 @@ cleanup:
 		free(state.deepest[i].file);
 	}
 	free(state.deepest);
+	for (size_t i = 0; i < state.global_state_count; i++) {
+		free(state.global_state[i].object);
+		free(state.global_state[i].writers);
+		free(state.global_state[i].readers);
+		free(state.global_state[i].participants);
+	}
+	free(state.global_state);
+	for (size_t i = 0; i < state.unreachable_count; i++) {
+		free(state.unreachable[i].function);
+		free(state.unreachable[i].file);
+	}
+	free(state.unreachable);
+	for (size_t i = 0; i < state.unreachable_global_count; i++)
+		free(state.unreachable_globals[i]);
+	free(state.unreachable_globals);
+	for (size_t i = 0; i < state.cross_scope_count; i++) {
+		free(state.cross_scope[i].from_scope);
+		free(state.cross_scope[i].from_function);
+		free(state.cross_scope[i].to_scope);
+		free(state.cross_scope[i].to_function);
+		free(state.cross_scope[i].object);
+	}
+	free(state.cross_scope);
+	for (size_t i = 0; i < state.dead_count; i++) {
+		free(state.dead[i].file);
+		free(state.dead[i].function);
+	}
+	free(state.dead);
+	for (size_t i = 0; i < state.dead_unanalysed.count; i++)
+		free(state.dead_unanalysed.paths[i]);
+	free(state.dead_unanalysed.paths);
 	routelist_free(&state.routes);
 	if (parser)
 		XML_ParserFree(parser);

@@ -650,6 +650,177 @@ no finite answer. `elc` reports the cycle instead of a number, rather than
 picking some finite value that would be wrong, or looping forever trying to
 find one.
 
+### Dead code between functions
+
+```text
+Unreachable functions (3; from the declared entry points and every address-taken function)
+  File                  Function   Line
+  --------------------  ---------  ----
+  /home/u/proj/src/a.c  clique_a     41
+  /home/u/proj/src/a.c  clique_b     47
+  /home/u/proj/src/c.c  orphan       12
+```
+
+`elc` traverses the call graph forward from a root set and reports everything
+the traversal never reaches. This is the analysis a grep cannot do, and the
+two properties below are why.
+
+**A clique of unused functions is correctly reported.** If `clique_a` and
+`clique_b` call each other and nothing else calls either, a rule looking for
+"a function nothing calls" finds a caller for each and reports neither. A
+traversal finds both, because no path leads into the pair from any root.
+
+**The root set is the declared entry points *together with* every function
+whose address is taken**, and that second half is what makes the claim worth
+acting on. A handler installed in an interrupt vector table, or a callback
+stored in an array, is never called by name — it has no resolved caller
+anywhere in the graph. Without it in the root set, `elc` would report your
+interrupt handlers as provably dead. The asymmetry is deliberate: an extra
+root can only shrink the unreachable set, whereas a missing one produces a
+false claim that costs you working code.
+
+Functions reached *through* an address-taken root are reachable too. It is a
+root, not an exemption.
+
+```sh
+elc --entry main --entry timer_isr src/
+```
+
+**With no `--entry` at all, nothing is reported unreachable** — the section
+says the analysis was omitted and why. `elc` never reports your whole program
+as dead because you did not tell it where execution starts.
+
+Storage goes the same way as the code:
+
+```text
+Unreachable globals (touched only by unreachable functions)
+  Object
+  ------------
+  orphan_state
+```
+
+An object every one of whose accessing functions is unreachable is unreachable
+itself. An object *no* analysed function touches is deliberately not claimed:
+it may be written from file scope, or from a translation unit outside what you
+pointed `elc` at.
+
+### Global state
+
+```text
+Global state
+  Object       Writers   Readers     Finding
+  -----------  --------  ----------  ------------------------------------------------------------
+  channel      producer  consumer    hidden channel — {producer} {consumer} never call each other (MISRA C Rule 8.9)
+  config       loader    loader      scope reduction — one function names it (MISRA C Rule 8.9)
+  shared_flag  set_flag  check_flag
+```
+
+Every global object, with the functions that write it and the functions that
+read it. Two arrangements carry a finding, both attributed to MISRA C Rule 8.9:
+
+**Scope reduction.** Only one function names the object, so it belongs at
+block scope inside that function. Note that this case produces no edge in the
+graph at all — a state edge joins a writer to a reader, and there is only one
+function here — which is why the finding is computed from the access sets
+rather than from the edges.
+
+**Hidden channel.** The object is shared between functions lying in
+*disconnected* regions of the call graph. The functions never call each other,
+so nothing in either region says that one must run before the other, and yet
+the program depends on it. That is temporal coupling, and it is the failure
+mode that survives every code review because no single file shows it. The
+finding names the disconnected groups, because the grouping is the finding.
+
+Sharing *within* one call-connected region is ordinary — `producer` calling
+`consumer` and handing state through a variable is a design, not a defect —
+and is reported as a measurement with no finding. Without that distinction the
+warning would fire on every shared variable and mean nothing.
+
+### Dead code within a function
+
+```text
+Dead code within functions (every language analysed)
+  File                  Function  Lines  Cause
+  --------------------  --------  -----  ------------------
+  /home/u/proj/src/a.c  parse     88-88  after a terminator
+  /home/u/proj/src/b.c  lex       12-14  literal condition
+```
+
+A different question from the one above, answered by different means, and
+neither subsumes the other: a function reached from an entry point may contain
+statements that cannot execute, and an unreachable function may contain none.
+Both are reported.
+
+Two classes are detected, from the syntax tree alone:
+
+* **After a terminator.** Statements following a `return`, `break`, `continue`
+  or unconditional transfer, in the same block, up to the first construct that
+  can be entered without falling into it.
+* **Literal condition.** The branch a condition *written as a literal*
+  excludes — the body of `if (0)`, the `else` of `if (1)`, the body of a loop
+  whose condition is literally false. The whole span is reported, because the
+  span is what you delete.
+
+**What `elc` deliberately will not tell you.** There is no data-flow analysis,
+no constant propagation, and no evaluation of expressions. `x = 0; if (x)` is
+not reported, and neither is `const int zero = 0; if (zero)`, however clearly
+you can see the answer. Nor is `if (0x0)`, because the query matches a decimal
+zero and nothing else.
+
+That is a deliberate trade and it runs one way: a missed statement costs you a
+cleanup opportunity, and a false claim invites you to delete code that runs —
+a defect this tool would have introduced. Where both cannot be had, `elc`
+reports nothing.
+
+A `goto` label following a `return` is *not* reported, for the same reason. It
+is reachable, and a tool that flagged it would be telling you to delete a live
+branch target.
+
+**Support is per language, and its absence is stated.** A language module may
+supply a dead-code query or not; the four that do are C, C++, Python and Rust.
+Ada does not, on purpose — it writes its false literal as an ordinary
+identifier the grammar cannot distinguish from one your program declared, and
+guessing would risk exactly the false claim above. When a language has no
+query the heading says so:
+
+```text
+Dead code within functions (not analysed for: ada)
+```
+
+*Not analysed* and *none found* are different claims. A reader who cannot tell
+them apart has been told nothing, so `elc` never renders the first as the
+second.
+
+### Execution scopes
+
+Some targets run several components that share one memory map and one symbol
+table — a host-driven sequential test harness, or a bootloader beside the
+application it starts. Nothing in the source says where one ends and the next
+begins, so you say it:
+
+```sh
+elc --scope 'host:*/harness/*' --scope 'target:*/firmware/*' src/
+```
+
+```text
+Cross-scope access (2)
+  From  Function     To      Function      Via
+  ----  -----------  ------  ------------  -------
+  host  host_drives  target  target_entry  call
+  host  host_writes  target  target_reads  mailbox
+```
+
+Every call and every shared global object by which one scope reaches another.
+**Both kinds, and the second is the reason this exists** — a scope that never
+calls into another but writes a variable the other reads has not been
+isolated, and a check that looked only at calls would call the arrangement
+clean.
+
+A file matching no declaration lies outside the partition rather than in a
+scope of its own: you said nothing about it, and inventing a boundary would
+report violations against a division nobody drew. With no `--scope` at all the
+analysis is omitted with the reason stated.
+
 ### Exporting it
 
 ```sh
@@ -689,6 +860,24 @@ are worth knowing, because they affect how much weight to put on a number:
 time: the correction would have to live in the binary and would encode one
 language's semantics there, which is exactly what makes adding a language a
 data change rather than a code change.
+
+**The first of the three can produce a false unreachable claim, and that is
+worth knowing before you delete anything.** If two files each define a
+`static` helper called `grow`, every call to either resolves to the first,
+and the second has no incoming edge — so reachability reports it dead when it
+is not. This is the one place `elc` errs toward *un*reachable rather than
+toward reachable, and it is a limit of name-only resolution rather than a
+finding.
+
+It is visible, and the diagnostic is how:
+
+```text
+elc: grow is defined 5 times; calls to it resolve to /home/u/proj/src/analyze.c:127
+```
+
+**Read standard error before acting on the unreachable list.** A function
+named there and reported unreachable is a duplicate-name artefact, not dead
+code. `elc` analysing its own source reports exactly this and nothing else.
 
 ## Languages
 
@@ -804,7 +993,8 @@ comparable.
 | `--from-xml` | `FILE` | — | Rebuild a report from a saved record; takes no `TARGET` |
 | `-c`, `--complexity-threshold` | `N` | `15` | List functions whose complexity is `N` or greater |
 | `-o`, `--output` | `FILE` | standard output | Write the report to `FILE` |
-| `--entry` | `SYMBOL` | none | Declare `SYMBOL` an entry point for call-depth analysis; repeatable |
+| `--entry` | `SYMBOL` | none | Declare `SYMBOL` an entry point for call-depth and reachability analysis; repeatable |
+| `--scope` | `NAME:GLOB[,GLOB…]` | none | Declare an execution scope named `NAME` holding the matching files; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 

@@ -803,3 +803,213 @@ Test(analyze, filemetrics_free_is_safe_on_null)
 	filemetrics_free(NULL);
 	cr_assert(1, "releasing a null metrics structure must not fault");
 }
+
+/* ------------------------------------------------------ dead code (HLR-137) --
+ *
+ * Driven through `analyze_file`, so the query file, the predicate evaluator,
+ * the sibling walk, and the attribution are all exercised together — which is
+ * the combination the requirement is about. The `deadcode/` fixture group
+ * covers the report shape.
+ */
+
+/* analyze_file keeping the facts and discarding the metrics. */
+static FileFacts *analyze_facts(Registry *reg, const char *path)
+{
+	FileMetrics *metrics = NULL;
+	FileFacts   *facts   = NULL;
+
+	cr_assert_eq(analyze_file(reg, path, &metrics, &facts), ANALYZE_OK);
+	filemetrics_free(metrics);
+	return facts;
+}
+
+static bool dead_at(const FileFacts *facts, uint32_t line)
+{
+	for (size_t i = 0; i < facts->dead_count; i++)
+		if (facts->dead[i].start_line == line)
+			return true;
+	return false;
+}
+
+Test(analyze, statements_after_a_terminator_are_recorded)
+{
+	Registry   reg;
+	FileFacts *facts;
+
+	registry_for_tests(&reg);
+	facts = analyze_facts(&reg, source_holding(
+		"int f(void)\n"
+		"{\n"
+		"\treturn 0;\n"
+		"\tint n = 1;\n"
+		"\tn++;\n"
+		"}\n"));
+
+	cr_assert(facts->dead_analysed);
+	cr_assert_eq(facts->dead_count, 2);
+	cr_assert(dead_at(facts, 4));
+	cr_assert(dead_at(facts, 5));
+	cr_assert_eq(facts->dead[0].cause, DEAD_AFTER_TERMINATOR);
+
+	filefacts_free(facts);
+	registry_close(&reg);
+}
+
+Test(analyze, a_label_after_a_terminator_is_not_recorded)
+{
+	Registry   reg;
+	FileFacts *facts;
+
+	registry_for_tests(&reg);
+
+	/* The single case that decides whether this analysis can be trusted:
+	 * a labeled_statement is a *sibling* of the return, and a walk without
+	 * the re-entry capture reports a live goto target (HLR-138). */
+	facts = analyze_facts(&reg, source_holding(
+		"int f(void)\n"
+		"{\n"
+		"\tgoto done;\n"
+		"\treturn 0;\n"
+		"done:\n"
+		"\treturn 3;\n"
+		"}\n"));
+
+	cr_assert(dead_at(facts, 4), "the statement after the goto is dead");
+	cr_assert_not(dead_at(facts, 5), "the label is reachable");
+	cr_assert_not(dead_at(facts, 6), "and so is what it labels");
+
+	filefacts_free(facts);
+	registry_close(&reg);
+}
+
+Test(analyze, a_branch_guarded_by_a_variable_is_never_recorded)
+{
+	Registry   reg;
+	FileFacts *facts;
+
+	registry_for_tests(&reg);
+
+	/* Deciding this needs data flow. elc performs none, and a query that
+	 * tried would be claiming knowledge it does not have (HLR-138). */
+	facts = analyze_facts(&reg, source_holding(
+		"int f(void)\n"
+		"{\n"
+		"\tint x = 0;\n"
+		"\tif (x) {\n"
+		"\t\treturn 1;\n"
+		"\t}\n"
+		"\treturn 0;\n"
+		"}\n"));
+
+	cr_assert(facts->dead_analysed);
+	cr_assert_eq(facts->dead_count, 0);
+
+	filefacts_free(facts);
+	registry_close(&reg);
+}
+
+Test(analyze, a_literal_branch_is_recorded_with_its_whole_span)
+{
+	Registry   reg;
+	FileFacts *facts;
+
+	registry_for_tests(&reg);
+	facts = analyze_facts(&reg, source_holding(
+		"int f(void)\n"
+		"{\n"
+		"\tif (0) {\n"
+		"\t\treturn 1;\n"
+		"\t}\n"
+		"\treturn 0;\n"
+		"}\n"));
+
+	/* The span is what the reader deletes, so it is reported in full
+	 * rather than as its first line. */
+	cr_assert_eq(facts->dead_count, 1);
+	cr_assert_eq(facts->dead[0].start_line, 3);
+	cr_assert_eq(facts->dead[0].end_line, 5);
+	cr_assert_eq(facts->dead[0].cause, DEAD_LITERAL_CONDITION);
+
+	filefacts_free(facts);
+	registry_close(&reg);
+}
+
+Test(analyze, a_predicate_that_does_not_hold_rejects_the_match)
+{
+	Registry   reg;
+	FileFacts *facts;
+
+	registry_for_tests(&reg);
+
+	/* Tree-sitter's C library hands predicates back as data rather than
+	 * evaluating them. Without the evaluator every `if` would match the
+	 * literal-condition pattern, so this asserts the evaluator runs at all:
+	 * `if (1)` has no `else`, and its consequence must not be reported. */
+	facts = analyze_facts(&reg, source_holding(
+		"int f(void)\n"
+		"{\n"
+		"\tif (1) {\n"
+		"\t\treturn 1;\n"
+		"\t}\n"
+		"\treturn 0;\n"
+		"}\n"));
+
+	cr_assert_eq(facts->dead_count, 0);
+
+	filefacts_free(facts);
+	registry_close(&reg);
+}
+
+Test(analyze, a_dead_span_is_attributed_to_the_innermost_function)
+{
+	Registry   reg;
+	FileFacts *facts;
+
+	registry_for_tests(&reg);
+	facts = analyze_facts(&reg, source_holding(
+		"int outer(void)\n"
+		"{\n"
+		"\treturn 0;\n"
+		"\tint n = 1;\n"
+		"}\n"
+		"int second(void)\n"
+		"{\n"
+		"\treturn 0;\n"
+		"\tint m = 2;\n"
+		"}\n"));
+
+	cr_assert_eq(facts->dead_count, 2);
+	cr_assert_neq(facts->dead[0].function, facts->dead[1].function,
+	              "each span belongs to the function containing it");
+
+	filefacts_free(facts);
+	registry_close(&reg);
+}
+
+Test(analyze, a_language_with_no_dead_code_query_is_unanalysed_not_clean)
+{
+	Registry   reg;
+	FileFacts *facts;
+
+	/* Ada ships without one on purpose. "Not looked for" and "none found"
+	 * are different claims, and the flag is what keeps them apart
+	 * (HLR-139, LLR-DED-05). */
+	static char path[1024];
+	FILE       *fp;
+
+	registry_for_tests(&reg);
+	source_holding("");   /* create the scratch directory */
+	snprintf(path, sizeof path, "%s/subject.adb", scratch);
+	fp = fopen(path, "w");
+	cr_assert_not_null(fp);
+	fputs("procedure P is\nbegin\n   null;\nend P;\n", fp);
+	fclose(fp);
+
+	facts = analyze_facts(&reg, path);
+
+	cr_assert_not(facts->dead_analysed);
+	cr_assert_eq(facts->dead_count, 0);
+
+	filefacts_free(facts);
+	registry_close(&reg);
+}

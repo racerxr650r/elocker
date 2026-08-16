@@ -33,6 +33,15 @@ int cli_parse(int argc, char *argv[], ElcOptions *out);
  * its default — to `stream` (LLR-USG-01, LLR-USG-02). */
 void cli_usage(FILE *stream);
 
+/* Parse one `name:glob[,glob…]` execution-scope declaration, appending it to
+ * `out->scopes`, which takes ownership of every string it copies.
+ *
+ * Returns 0, or -1 after a diagnostic for a declaration that cannot be parsed
+ * (LLR-SCP-01, LLR-SCP-02). Exposed so the unit level can drive the grammar of
+ * the declaration directly rather than through a whole run.
+ */
+int parse_scope(const char *arg, ElcOptions *out);
+
 /* Release every heap allocation owned by the options structure. */
 void cli_options_free(ElcOptions *opts);
 

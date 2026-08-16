@@ -68,6 +68,24 @@ typedef struct {
 	uint32_t    line;
 } UnresolvedCall;
 
+/* One function's access to one global object.
+ *
+ * Carried **beside** the global edges, not derived from them, and the reason
+ * is the case the requirement is most interested in. A global edge joins a
+ * writer to a reader, so an object touched by exactly one function produces no
+ * edge at all — and that object is precisely the scope-reduction candidate of
+ * HLR-092. An analysis reading only the edge table would find none of them,
+ * and would find no object that is written but never read either.
+ *
+ * The set is what HLR-091 asks for in its own right: the functions that write
+ * each object and the functions that read it.
+ */
+typedef struct {
+	const char *object; /* into the graph's own name table  */
+	uint32_t    node;   /* the accessing function           */
+	bool        write;  /* true writes the object, false reads it */
+} GlobalTouch;
+
 /* An edge between two components, the file-level projection arch.c consumes
  * (HLR-114). Simple, like the function graph. */
 typedef struct {
@@ -109,6 +127,10 @@ typedef struct {
 	                                 * use-after-free that renders as
 	                                 * plausible garbage                */
 	size_t         global_name_count;
+	GlobalTouch   *touches;         /* sorted by object then node, and
+	                                 * de-duplicated; owned (HLR-091)   */
+	size_t         touch_count;
+	size_t         touch_capacity;
 	char         **component_paths; /* borrowed from the report model   */
 	size_t         component_count;
 	ComponentEdge *component_edges;
