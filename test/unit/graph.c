@@ -8,6 +8,7 @@
  */
 
 #include <criterion/criterion.h>
+#include <igraph.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -482,6 +483,46 @@ Test(graph, an_empty_project_builds_an_empty_graph)
 	cr_assert_eq(g.node_count, 0);
 	cr_assert_eq(g.edge_count, 0);
 	cr_assert_not_null(g.graph, "the library's structure exists even so");
+
+	graph_free(&g);
+	factlist_free(&facts);
+	report_free(&report);
+}
+
+Test(graph, the_library_returns_errors_instead_of_aborting)
+{
+	/* igraph's default error handler calls abort(). Every return-value
+	 * check in graph.c is unreachable until that is changed, and from
+	 * Phase 9 the consequence is worse than unreachable code: detecting
+	 * recursion means asking for a topological sort of a cyclic graph,
+	 * which is an error return — and would be a crash.
+	 *
+	 * Reaching the assertion is the result. If the handler is not
+	 * installed, this test dies rather than fails, which Criterion
+	 * reports as a crash against this name.
+	 */
+	const char  *a[]     = { "ping", "pong" };
+	FileMetrics *files[] = { file_with("/p/a.c", a, 2) };
+	Report       report  = report_of(files, 1);
+	FactList     facts   = { 0 };
+	FileFacts   *fa      = facts_for("/p/a.c");
+	Sdg          g       = { 0 };
+
+	add_call(fa, "pong", 0, 3);
+	add_call(fa, "ping", 1, 9);
+	cr_assert_eq(factlist_add(&facts, fa), 0);
+
+	cr_assert_eq(graph_build(&facts, &report, &g), 0);
+
+	igraph_vector_int_t order;
+
+	cr_assert_eq(igraph_vector_int_init(&order, 0), IGRAPH_SUCCESS);
+	cr_assert_neq(igraph_topological_sorting((igraph_t *)g.graph, &order,
+	                                         IGRAPH_OUT),
+	              IGRAPH_SUCCESS,
+	              "a cyclic graph has no topological order, and saying so "
+	              "must be a return value rather than an abort");
+	igraph_vector_int_destroy(&order);
 
 	graph_free(&g);
 	factlist_free(&facts);

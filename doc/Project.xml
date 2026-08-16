@@ -3393,6 +3393,15 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-SDG-15">
+        <text><![CDATA[`graph_build` shall install a non-aborting error handler on the graph library before making any call to it. The library's default handler calls `abort()`, which makes every return-value check unreachable and turns an allocation failure inside the library into a crash rather than the diagnostic and exit status the run promises. It matters beyond allocation: asking a cyclic graph for a topological ordering is an ordinary, expected error return — and is exactly how the call-depth analysis detects recursion — which the default handler would turn into a crash on a perfectly valid program.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-124" name="Memory Safety"/>
+          <trace target="HLR" ref="HLR-113"/>
+          <trace target="HLR" ref="HLR-120" name="Distinct Exit Status Classes"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-SDG-11">
         <text><![CDATA[`graph_build` shall validate every node index against the node table's extent before dereferencing it, so that an unresolved or out-of-range symbol lookup cannot index outside the table.]]></text>
         <traces>
@@ -4286,7 +4295,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
       <llr id="LLR-BLD-05">
-        <text><![CDATA[The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents.]]></text>
+        <text><![CDATA[The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents. Every optional feature of that library that would alter `elc`'s link line shall be pinned explicitly rather than left to the library's configure-time detection: a default of "use it if it is installed" makes the binary a function of the build machine, which the instrumented dependency allowlist — a fixed list — cannot express.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-113" name="Graph Algorithms From an Established Library"/>
         </traces>
@@ -5028,7 +5037,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/unit/graph.c" role="unit" count="15">
+  <file path="test/unit/graph.c" role="unit" count="16">
     <test name="every_discovered_function_becomes_a_node">
       <purpose><![CDATA[Every function across every analysed file receives a node, so the graph spans the project rather than any one file.]]></purpose>
       <traces>
@@ -5114,6 +5123,12 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[A run that analysed nothing builds a valid empty graph, including the library structure, rather than failing or leaving a null handle.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-SDG-01"/>
+      </traces>
+    </test>
+    <test name="the_library_returns_errors_instead_of_aborting">
+      <purpose><![CDATA[Asking a cyclic graph for a topological ordering returns an error rather than aborting the process, so the library's default abort-on-error handler has been replaced. Reaching the assertion is itself the result: without the handler the test dies rather than fails.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-15"/>
       </traces>
     </test>
     <test name="graph_free_is_safe_on_null_and_twice">

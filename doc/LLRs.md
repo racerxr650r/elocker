@@ -504,6 +504,9 @@ Cross-file resolution of the per-file facts into the System Dependence Graph.
 *   <a id="LLR-SDG-14"></a>**LLR-SDG-14** — `graph_build` shall collapse repeated calls between one pair of functions into a single edge, and shall not collapse global-state edges between the same pair: a global edge is per object, and merging two would lose which shared state couples the functions. It shall record a call site whose enclosing function is file scope as unresolved rather than dropping it silently, since the graph does not represent it and the reader is judging completeness.
     *Trace:* HLR-085, HLR-074 (Global State Edges), HLR-077 (Unresolvable Call Handling).
 
+*   <a id="LLR-SDG-15"></a>**LLR-SDG-15** — `graph_build` shall install a non-aborting error handler on the graph library before making any call to it. The library's default handler calls `abort()`, which makes every return-value check unreachable and turns an allocation failure inside the library into a crash rather than the diagnostic and exit status the run promises. It matters beyond allocation: asking a cyclic graph for a topological ordering is an ordinary, expected error return — and is exactly how the call-depth analysis detects recursion — which the default handler would turn into a crash on a perfectly valid program.
+    *Trace:* HLR-124 (Memory Safety), HLR-113, HLR-120 (Distinct Exit Status Classes).
+
 *   <a id="LLR-SDG-11"></a>**LLR-SDG-11** — `graph_build` shall validate every node index against the node table's extent before dereferencing it, so that an unresolved or out-of-range symbol lookup cannot index outside the table.
     *Trace:* HLR-124 (Memory Safety), HLR-077 (Unresolvable Call Handling).
 
@@ -938,7 +941,7 @@ Requirements satisfied by the build rather than by any single function. Verified
 *   <a id="LLR-BLD-04"></a>**LLR-BLD-04** — The build shall select the third-party libraries `elc` links against, any of which may be substituted for another satisfying the same role, save for the parsing library whose query language and grammar format are a product contract.
     *Trace:* HLR-112 (Library Selection Deferred to Design).
 
-*   <a id="LLR-BLD-05"></a>**LLR-BLD-05** — The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents.
+*   <a id="LLR-BLD-05"></a>**LLR-BLD-05** — The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents. Every optional feature of that library that would alter `elc`'s link line shall be pinned explicitly rather than left to the library's configure-time detection: a default of "use it if it is installed" makes the binary a function of the build machine, which the instrumented dependency allowlist — a fixed list — cannot express.
     *Trace:* HLR-113 (Graph Algorithms From an Established Library).
 
 *   <a id="LLR-BLD-06"></a>**LLR-BLD-06** — The build shall configure the graph library so that it does not itself introduce a dependency on an unmaintained XML library.

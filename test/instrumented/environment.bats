@@ -52,13 +52,23 @@ setup() {
 	# C++ internally — which is why those are on the list without elc
 	# containing a line of C++.
 	#
-	# What is deliberately *absent* is libgomp. igraph's default build
-	# links OpenMP, whose runtime allocates a thread pool during the
-	# dynamic linker's init, before main is entered. elc is single-threaded
-	# by requirement (HLR-041), and this list is the guard that noticed:
-	# the project builds igraph with -DIGRAPH_OPENMP_SUPPORT=OFF so that a
-	# thread runtime is not linked into a binary that promises one thread.
-	# If libgomp ever appears here again, that build flag was lost.
+	# Two libraries are deliberately *absent*, and this list is what
+	# noticed both.
+	#
+	# libgomp — igraph's default build links OpenMP, whose runtime
+	# allocates a thread pool during the dynamic linker's init, before
+	# main is entered. elc is single-threaded by requirement (HLR-041),
+	# so igraph is built with -DIGRAPH_OPENMP_SUPPORT=OFF. If libgomp
+	# appears here again, that flag was lost.
+	#
+	# libgmp — igraph's IGRAPH_USE_INTERNAL_GMP defaults to AUTO, which
+	# takes system GMP when its headers are present and a bundled Mini-GMP
+	# otherwise. That made the link line depend on what was installed on
+	# the build machine: a developer box without gmp.h produced one binary
+	# and CI produced another, and this test failed only in CI. A fixed
+	# allowlist cannot accept "it depends", so the choice is pinned to the
+	# bundled copy. igraph uses GMP only for graph-isomorphism automorphism
+	# counts, which no elc analysis performs.
 	#
 	# The sanitizer runtimes are allowed because `make asan` re-runs this
 	# very suite against an instrumented build, and libasan is test

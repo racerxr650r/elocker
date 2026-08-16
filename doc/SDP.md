@@ -43,7 +43,7 @@ the graph — is ready to start.
 | GNU ld or LLVM lld | — | `--wrap` link-time interception (STP §2.2) |
 | `libtree-sitter` | ≥ 0.25 | Parsing and query execution. **Built from source** — see below |
 | `libgit2` | ≥ 1.7 | Repository-aware discovery (Phase 7) |
-| `igraph` | ≥ 1.0 | Graph algorithms (Phase 8). **Built from source** with `-DIGRAPH_GRAPHML_SUPPORT=OFF -DIGRAPH_OPENMP_SUPPORT=OFF` |
+| `igraph` | ≥ 1.0 | Graph algorithms (Phase 8). **Built from source** with `-DIGRAPH_GRAPHML_SUPPORT=OFF -DIGRAPH_OPENMP_SUPPORT=OFF -DIGRAPH_USE_INTERNAL_GMP=ON` |
 | Expat | ≥ 2.6 | Streaming XML read for regeneration mode (Phase 5) |
 | Criterion | ≥ 2.4 | Unit test framework |
 | Bats | ≥ 1.10 | Integration, fixture, and instrumented levels |
@@ -413,7 +413,7 @@ requirements and no others.
 | Expat | Phase 5 | Only the regeneration read path needs it |
 | Additional grammars | Phase 6 | Ada's is community-maintained but vetted and accepted ([notes.md](notes.md) §2.2) |
 | `libgit2` | Phase 7 | Isolated to one discovery route |
-| `igraph` | Phase 8 | With GraphML **and** OpenMP support off |
+| `igraph` | Phase 8 | With GraphML and OpenMP off, and its GMP choice pinned |
 
 **Ordering constraints beyond the obvious:**
 

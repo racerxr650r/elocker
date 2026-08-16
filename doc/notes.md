@@ -64,6 +64,19 @@ requirements:
     and would have linked a second XML library the project has no need
     for. Debian's `libigraph-dev` has it on, which is why the
     distribution package is not used.
+*   **igraph's GMP choice is pinned to the bundled copy**
+    (`-DIGRAPH_USE_INTERNAL_GMP=ON`), added in Phase 8. The option
+    defaults to `AUTO`, which links system GMP when its headers are
+    present and a bundled Mini-GMP otherwise — so elc's link line
+    depended on what happened to be installed on the machine that built
+    igraph. A developer box without `gmp.h` and a CI runner with
+    `libgmp-dev` produced *different binaries from the same commit*, and
+    the instrumented allowlist failed in CI alone. A fixed allowlist
+    cannot accept "it depends". Pinning the bundled copy also keeps the
+    dependency inside the pinned-source story above rather than taking a
+    distribution library; igraph uses GMP only in bliss, for the
+    automorphism-group counts of graph isomorphism, which no elc
+    analysis performs.
 *   **igraph's OpenMP support is switched off too**
     (`-DIGRAPH_OPENMP_SUPPORT=OFF`), added in Phase 8. The default build
     links `libgomp`, which allocates its thread pool during the dynamic

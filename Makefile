@@ -268,16 +268,27 @@ prereqs-libgit2:
 #            true the first time a parallel algorithm is called. It also puts
 #            104 bytes of load-time state in every run, which the project's
 #            valgrind flags count as an error.
+#
+# And one pinned rather than switched off. IGRAPH_USE_INTERNAL_GMP defaults to
+# AUTO: system GMP when its headers are present, bundled Mini-GMP otherwise.
+# That makes elc's link line depend on what happened to be installed when
+# igraph was built — it differed between a developer machine and CI, and the
+# instrumented allowlist is a fixed list, so "it depends" is the one answer it
+# cannot accept. Pinned to the bundled copy, which also keeps it inside the
+# pinned-source story of doc/notes.md §1.1 rather than taking a distribution
+# library. igraph uses GMP only in bliss, for the automorphism-group counts of
+# graph isomorphism, which no elc analysis performs.
 .PHONY: prereqs-igraph
 prereqs-igraph:
-	@echo "igraph $(IGRAPH_VER) (GraphML off, OpenMP off)"
+	@echo "igraph $(IGRAPH_VER) (GraphML off, OpenMP off, internal GMP)"
 	$(call fetch,https://github.com/igraph/igraph/releases/download/$(IGRAPH_VER)/igraph-$(IGRAPH_VER).tar.gz,igraph-$(IGRAPH_VER))
 	@cmake -S $(SRC_WORK)/igraph-$(IGRAPH_VER) -B $(SRC_WORK)/igraph-build \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_INSTALL_PREFIX=$(SRC_PREFIX) \
 		-DBUILD_SHARED_LIBS=ON \
 		-DIGRAPH_GRAPHML_SUPPORT=OFF \
-		-DIGRAPH_OPENMP_SUPPORT=OFF
+		-DIGRAPH_OPENMP_SUPPORT=OFF \
+		-DIGRAPH_USE_INTERNAL_GMP=ON
 	@cmake --build $(SRC_WORK)/igraph-build --parallel
 	@sudo cmake --install $(SRC_WORK)/igraph-build
 

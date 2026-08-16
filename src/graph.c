@@ -308,6 +308,22 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 
 	memset(out, 0, sizeof *out);
 
+	/* **igraph aborts the process on error unless told not to.** Its
+	 * default handler calls abort(), so every `!= IGRAPH_SUCCESS` check
+	 * below is unreachable without this line — an allocation failure
+	 * inside the library would kill the run rather than produce the
+	 * diagnostic and exit status main promises (HLR-125).
+	 *
+	 * It matters more from Phase 9 on. `igraph_topological_sorting`
+	 * returns an error on a cyclic graph, which is exactly how the call
+	 * depth analysis will detect recursion — an ordinary, expected answer
+	 * that the default handler turns into a crash.
+	 *
+	 * Set here rather than in main() because this module is the only one
+	 * that touches igraph, and a global whose setting lives in a different
+	 * file from its use is a global waiting to be unset. */
+	igraph_set_error_handler(igraph_error_handler_ignore);
+
 	if (build_nodes(report, out) != 0)
 		goto cleanup;
 

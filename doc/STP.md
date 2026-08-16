@@ -261,7 +261,7 @@ Role: **unit**. **27 test(s).**
 
 ### 3.5. [test/unit/graph.c](../test/unit/graph.c)
 
-Role: **unit**. **15 test(s).**
+Role: **unit**. **16 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -279,7 +279,8 @@ Role: **unit**. **15 test(s).**
 | 12 | <a id="the_component_projection_is_file_level"></a>`the_component_projection_is_file_level` | `LLR-SDG-10` | A call between functions in two files yields one component edge between those files, a component being a source file. |
 | 13 | <a id="a_call_within_one_file_is_no_component_dependency"></a>`a_call_within_one_file_is_no_component_dependency` | `LLR-SDG-10` | A call inside one file adds no component edge, so a file is not recorded as depending on itself. |
 | 14 | <a id="an_empty_project_builds_an_empty_graph"></a>`an_empty_project_builds_an_empty_graph` | `LLR-SDG-01` | A run that analysed nothing builds a valid empty graph, including the library structure, rather than failing or leaving a null handle. |
-| 15 | <a id="graph_free_is_safe_on_null_and_twice"></a>`graph_free_is_safe_on_null_and_twice` | `LLR-SDG-12` | Releasing a null or an already-released graph does not fault, so teardown is unconditional on every exit path. |
+| 15 | <a id="the_library_returns_errors_instead_of_aborting"></a>`the_library_returns_errors_instead_of_aborting` | `LLR-SDG-15` | Asking a cyclic graph for a topological ordering returns an error rather than aborting the process, so the library's default abort-on-error handler has been replaced. Reaching the assertion is itself the result: without the handler the test dies rather than fails. |
+| 16 | <a id="graph_free_is_safe_on_null_and_twice"></a>`graph_free_is_safe_on_null_and_twice` | `LLR-SDG-12` | Releasing a null or an already-released graph does not fault, so teardown is unconditional on every exit path. |
 
 ### 3.6. [test/unit/format_graph.c](../test/unit/format_graph.c)
 
@@ -911,6 +912,7 @@ verified by code review — see
 | `LLR-SDG-12` | `graph_build` | `HLR-124`, `HLR-074` | `a_global_links_its_writer_to_its_reader`, `graph_free_is_safe_on_null_and_twice` |
 | `LLR-SDG-13` | `graph_build` | `HLR-074`, `HLR-096`, `HLR-121` | `an_undeclared_name_is_not_global_state`, `an_address_taken_function_is_marked`, `an_address_taken_name_that_is_not_a_function_is_discarded` |
 | `LLR-SDG-14` | `graph_build` | `HLR-085`, `HLR-074`, `HLR-077` | `repeated_calls_collapse_to_one_edge_with_a_count`, `a_call_from_file_scope_has_no_caller_node`, `two_objects_between_one_pair_are_two_edges` |
+| `LLR-SDG-15` | `graph_build` | `HLR-124`, `HLR-113`, `HLR-120` | `the_library_returns_errors_instead_of_aborting` |
 | `LLR-SDG-11` | `graph_build` | `HLR-124`, `HLR-077` | **(no direct test)** |
 | `LLR-ARC-01` | `arch_analyse` | `HLR-081` | **(no direct test)** |
 | `LLR-ARC-02` | `arch_analyse` | `HLR-081`, `HLR-099` | **(no direct test)** |
