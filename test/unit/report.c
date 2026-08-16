@@ -55,7 +55,7 @@ Test(report, totals_sum_across_every_file)
 	cr_assert_eq(metrics_add(&acc, metrics_for("/a.c", 10)), 0);
 	cr_assert_eq(metrics_add(&acc, metrics_for("/b.c", 32)), 0);
 
-	cr_assert_eq(report_assemble(&acc, &opts, &report), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
 	cr_assert_eq(report.summary.file_count, 2);
 	cr_assert_eq(report.summary.physical_lines, 42);
 
@@ -73,7 +73,7 @@ Test(report, files_are_presented_in_ascending_path_order)
 	cr_assert_eq(metrics_add(&acc, metrics_for("/a.c", 1)), 0);
 	cr_assert_eq(metrics_add(&acc, metrics_for("/m.c", 1)), 0);
 
-	cr_assert_eq(report_assemble(&acc, &opts, &report), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
 	cr_assert_eq(report.file_count, 3);
 	cr_assert_str_eq(report.files[0]->path, "/a.c");
 	cr_assert_str_eq(report.files[1]->path, "/m.c");
@@ -91,7 +91,7 @@ Test(report, an_empty_run_yields_a_complete_model_with_zero_totals)
 	Report             report = { 0 };
 	ElcOptions         opts   = { 0 };
 
-	cr_assert_eq(report_assemble(&acc, &opts, &report), 0,
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0,
 	             "a run that analysed nothing still produces a model "
 	             "(HLR-066)");
 	cr_assert_eq(report.file_count, 0);
@@ -109,7 +109,7 @@ Test(report, assembly_leaves_the_accumulator_empty)
 	ElcOptions         opts   = { 0 };
 
 	cr_assert_eq(metrics_add(&acc, metrics_for("/a.c", 1)), 0);
-	cr_assert_eq(report_assemble(&acc, &opts, &report), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
 
 	cr_assert_eq(acc.count, 0,
 	             "ownership moves to the report, so releasing both cannot "

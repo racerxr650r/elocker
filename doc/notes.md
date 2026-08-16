@@ -497,6 +497,39 @@ None is a defect; each is a judgement that could go the other way.
     than hanging, but a harness that has to survive a tree built to
     defeat walking is a harness waiting to break. Keeping the suites
     flat means no recursion is needed at all.
+*   **Repository applicability is decided by the result of the walk,
+    not by a question asked first** (Phase 7). `walk_git_tree` returns
+    the number of files it appended, and a negative return means
+    *inapplicable*; the caller falls back on that. The alternative —
+    asking libgit2 whether the target is tracked, then walking — is two
+    traversals that can disagree, and the disagreement would show as an
+    empty report rather than as an error.
+
+    The subtlety, which was got wrong first: the walk counts blobs at
+    or beneath the target *before* the exclusions, and applicability
+    turns on that count rather than on how many files survived. Deciding
+    it on the survivors makes a tracked directory holding only excluded
+    files look untracked, so the run falls back to the filesystem and
+    analyses the untracked files this route exists to exclude. An
+    applicable repository can therefore legitimately return 0, and the
+    two zeroes — "tracked, nothing to analyse" and "not tracked" — are
+    what the sign distinguishes. The cost of the choice is
+    that "the repository tracks nothing under this target" and "the
+    repository has no commits" are indistinguishable to the caller.
+    That is acceptable because both mean the same thing to the user and
+    both take the same action, but a future need to tell them apart is
+    a change to this return convention, not an addition to it.
+*   **`libgit2` is the only linked library that can open a socket**
+    (Phase 7). It speaks smart-HTTP and SSH. `elc` calls only its local
+    object-database entry points, and the instrumented allowlist in
+    `test/instrumented/environment.bats` says so — but that is a claim
+    about our code, which the allowlist cannot check. What holds it is
+    the no-network-syscall test observing a real run. Before Phase 7
+    that test guarded against a dependency nobody had; now it guards
+    against a dependency we have. Note also that the library is built
+    with its transports disabled (`Makefile`), so the claim has a
+    second, independent guard — and if that build flag is ever dropped
+    for convenience, the syscall test is the one that will notice.
 *   **LeakSanitizer and `strace` cannot both watch the same run.**
     LSan stops the world at exit through a `clone`d tracer and
     `ptrace`, which collides with `strace`'s attachment and aborts the

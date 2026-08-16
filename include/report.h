@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "discover.h"
 #include "elc.h"
 
 /* Files discovered but not analysed, for want of a language module. The
@@ -101,6 +102,7 @@ typedef struct {
 	FileMetrics  **files;         /* sorted by path; owned            */
 	size_t         file_count;
 	LanguageList   languages;     /* sorted by name; owned (HLR-025)  */
+	RouteList      routes;        /* per directory target (HLR-127)   */
 	ThresholdList  over_threshold; /* the per-file listing (HLR-021)  */
 	uint32_t       complexity_threshold; /* the value it was built at */
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
@@ -125,8 +127,8 @@ void metrics_free(MetricsAccumulator *acc);
  * analysed yields a complete model with zero totals, which renders normally
  * (HLR-066, LLR-RPT-12). Returns 0 on success.
  */
-int report_assemble(MetricsAccumulator *acc, const ElcOptions *opts,
-                    Report *out);
+int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
+                    const ElcOptions *opts, Report *out);
 
 /* Release the report model and everything it owns. Safe on NULL. */
 void report_free(Report *report);

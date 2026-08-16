@@ -46,6 +46,7 @@ int main(int argc, char *argv[])
 	ElcOptions         opts;
 	Registry           registry = { 0 };
 	FileList           files    = { 0 };
+	RouteList          routes   = { 0 };
 	MetricsAccumulator acc      = { 0 };
 	Report             report   = { 0 };
 	FILE              *out      = NULL;
@@ -91,7 +92,7 @@ int main(int argc, char *argv[])
 	 * (HLR-062, LLR-MAIN-10). Discovery asks the registry where the
 	 * runtime location is rather than resolving it a second time. */
 	if (discover_targets(&opts, registry_runtime_dir(&registry), &files,
-	                     &failures) != 0) {
+	                     &routes, &failures) != 0) {
 		status = ELC_EXIT_FATAL;
 		goto cleanup;
 	}
@@ -125,7 +126,7 @@ int main(int argc, char *argv[])
 		}
 	}
 
-	if (report_assemble(&acc, &opts, &report) != 0) {
+	if (report_assemble(&acc, &routes, &opts, &report) != 0) {
 		status = ELC_EXIT_FATAL;
 		goto cleanup;
 	}
@@ -163,6 +164,7 @@ cleanup:
 		fclose(out);
 	report_free(&report);
 	metrics_free(&acc);
+	routelist_free(&routes);
 	filelist_free(&files);
 	registry_close(&registry);
 	cli_options_free(&opts);

@@ -81,7 +81,7 @@ static Report report_of(FileMetrics **files, size_t count)
 
 	for (size_t i = 0; i < count; i++)
 		cr_assert_eq(metrics_add(&acc, files[i]), 0);
-	cr_assert_eq(report_assemble(&acc, &opts, &report), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
 	metrics_free(&acc);
 	return report;
 }

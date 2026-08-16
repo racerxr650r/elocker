@@ -256,7 +256,7 @@ The set of accepted options appears in three places: this module's `getopt_long`
 
 *   Validate every target argument before any traversal begins.
 *   Classify each target with `stat(2)` and route it to direct handling, Git enumeration, or filesystem traversal.
-*   Establish whether a discovered repository is *applicable* to the target before using it, and fall back to filesystem traversal when it is not.
+*   Establish whether a discovered repository is *applicable* to the target — that it tracks something at or beneath it — and fall back to filesystem traversal when it is not.
 *   Enumerate tracked, non-binary blobs at or beneath the target for an applicable Git target; walk the tree with `fts(3)` otherwise, excluding binary extensions, hidden entries, and anything reached through a symbolic link.
 *   Load the binary-extension exclusion list from the runtime location and pass it into the walk, so that no extension is compiled into the executable.
 *   Record which route each directory target took, for reporting.
@@ -273,7 +273,13 @@ Target arguments are classified with `stat(2)`, which follows links, so a symlin
 
 Skipping linked *files* as well as linked directories follows from the same reasoning as the cycle case: a link to a file already inside the tree would otherwise contribute it twice, and a link out of the tree would silently widen what the target denotes. A link that the user means to analyse is named, and naming it resolves it.
 
-#### 5.2.3 Runtime Data
+#### 5.2.3 Repository
+
+Only libgit2's local object-database entry points are used: open a repository, resolve `HEAD`, walk a tree, read a blob. No remote-bearing call is made, and the library is built with its HTTPS and SSH transports disabled. The claim that `elc` reaches no network is not held by either of those facts on its own — it is held by the instrumented test that observes a real run making no `connect(2)` (HLR-040).
+
+Every handle the route acquires is acquired and released inside `walk_git_tree`, including the repository itself. The alternative — opening in the caller and passing the handle down — spreads the teardown across two functions and makes the fallback path, which is the common one, the path most likely to leak.
+
+#### 5.2.4 Runtime Data
 
 The binary-extension exclusion list is read from `binary.exts` in the runtime location. `discover.c` does not resolve that location: `registry_open()` does, and hands it over. The precedence rule of HLR-059 therefore exists once, in one module, and a change to it cannot leave a second copy behind.
 
@@ -281,17 +287,17 @@ The binary-extension exclusion list is read from `binary.exts` in the runtime lo
 ### 5.3 Internal Structure
 #### 5.3.1 Key Functions
 
-*   **`int discover_targets(const ElcOptions *opts, const char *runtime_dir, FileList *out, size_t *failures)`**
+*   **`int discover_targets(const ElcOptions *opts, const char *runtime_dir, FileList *out, RouteList *routes, size_t *failures)`**
     *   Purpose: Produce the complete, ordered, de-duplicated analysis file list.
     *   Pre-condition: `opts` has been validated by `cli_parse()`.
-    *   Post-condition: `out` holds absolute paths in ascending byte order, each appearing exactly once.
+    *   Post-condition: `out` holds absolute paths in ascending byte order, each appearing exactly once, and `routes` holds one record per directory target, naming its canonical path and the route applied to it.
     *   Return Value: 0 on success, with `*failures` holding the number of per-file failures the traversal encountered; non-zero if any target argument was invalid, in which case `out` is empty. The two are distinct outcomes: an invalid target is fatal and yields no report (HLR-062), whereas a per-file failure degrades the exit status to 1 and the report is still produced (HLR-035).
     *   Logic:
         1.  Loop over every target argument calling `stat(2)` and `access(2)`; on the first that does not exist, cannot be read, or is neither regular file nor directory, emit a diagnostic naming it and return non-zero (HLR-062). The classification each target received is recorded, so the traversal pass does not re-`stat` a path already resolved.
         2.  Load the binary-extension exclusion list from the runtime location, once for the whole run.
         3.  For each validated target: a regular file is appended directly; a directory is offered to `git_repository_open_ext()`, which searches the directory and then its ancestors.
-        4.  On a successful repository open, test applicability: does this repository track the target directory? A repository that does not — because the target is `.gitignore`d, or because the repository found several levels up is an unrelated one such as a version-controlled home directory — is discarded, and the target falls through to filesystem traversal.
-        5.  For an applicable repository, resolve `HEAD^{tree}` and walk it, appending each blob that `git_blob_is_binary()` reports as text **and** whose repository-relative path lies at or beneath the target directory.
+        4.  Offer the directory to `walk_git_tree()`, which opens the repository, resolves `HEAD^{tree}`, and walks it, appending each blob that `git_blob_is_binary()` reports as text **and** whose repository-relative path lies at or beneath the target directory. A negative return means the repository is inapplicable — no repository, none tracking the target, or no commit to resolve — and is not a failure.
+        5.  On a negative return, walk the target at the filesystem level instead, and record which of the two routes was used.
         6.  Otherwise walk with `fts_open()`/`fts_read()` in `FTS_PHYSICAL` mode, skipping hidden entries below the target, known binary extensions, and anything reached through a symbolic link.
         7.  Canonicalise each accumulated path with `realpath()`, insert into a set keyed on the canonical path, and finally sort the set into byte order.
     *   Notes: Canonicalising before de-duplication is what makes `elc src/main.c src/` count `main.c` once (HLR-072). Sorting here, rather than relying on `fts` or `libgit2` ordering, is what makes the output independent of filesystem enumeration order (HLR-033).
@@ -299,8 +305,9 @@ The binary-extension exclusion list is read from `binary.exts` in the runtime lo
 *   **`bool is_excluded_extension(const char *path, const ExtensionList *exts)`** — Test a path against the binary-extension exclusion list, which is runtime data (runtime/binary.exts), not a compiled-in table. The list is a parameter rather than a global, so every function that consults it receives it through its arguments.
 *   **`int binary_exts_load(const char *runtime_dir, ExtensionList *out)`** — Read the exclusion list from the runtime location the registry resolved. An absent or unreadable file is a diagnostic and an empty list, not a fatal error: discovery still runs, and the user is told why nothing was excluded.
 *   **`void binary_exts_free(ExtensionList *list)`** — Release the exclusion list and every extension it owns.
-*   **`bool repo_tracks_target(git_repository *repo, const char *target)`** — True when the discovered repository tracks the target directory; the applicability test that gates repository enumeration.
-*   **`int walk_git_tree(git_repository *repo, const char *target, FileList *out)`** — Enumerate text blobs tracked at HEAD whose path lies at or beneath target.
+*   **`long walk_git_tree(const char *target, const ExtensionList *exts, FileList *out, size_t *failures)`** — Open the repository enclosing target, resolve HEAD^{tree}, and enumerate the tracked text blobs at or beneath target, applying the same hidden-entry and binary-extension exclusions the filesystem route applies. Returns the number of files appended, or a negative value when the repository is inapplicable — which is not a failure, and is what sends the caller to the filesystem walk. Opening the repository here rather than in the caller keeps every libgit2 handle inside one function, so the teardown path is one `goto cleanup` and cannot be got wrong by a caller. The target and the reported working directory are both canonicalised before the repository-relative prefix is derived from them, and the prefix test checks the component boundary: a string prefix is not a path prefix, and a working tree at `/src/proj` would otherwise claim a target at `/src/project`. On any inapplicable outcome the function leaves `out` exactly as it found it, including when the tree walk is abandoned part-way — the caller is about to traverse the same directory, and the union of a partial enumeration with a full traversal is a file set neither route would produce.
+*   **`int routelist_add(RouteList *list, const char *target, DiscoveryRoute route)`** — Record the route applied to one directory target, owning a copy of its canonical path. A target already recorded is recorded once.
+*   **`void routelist_free(RouteList *list)`** — Release the route list and every target it owns, leaving it usable rather than stale.
 *   **`int walk_filesystem(const char *root, const ExtensionList *exts, FileList *out, size_t *failures)`** — fts(3) traversal with hidden-entry, binary-extension, and symbolic-link filtering. Returns non-zero only when the traversal could not be started; an entry that cannot be read increments the failure count and the walk continues.
 *   **`void filelist_free(FileList *list)`** — Release the list and every path it owns.
 
@@ -1117,7 +1124,7 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | ------ | --------------- | ------- |
 | `analyze.c` | `mmap`, `open`, `fstat`, `read`, `realloc` | Read failure, zero-length file, failed array growth (LLR-ANL-04, ANL-28, ANL-34) |
 | `registry.c` | *(none)* | Every module failure the requirement names — an absent `.so`, one exporting no entry point, a missing query file, an unparseable one — is a file a fixture can create in two lines. A wrapped `dlopen` would verify the wrapper. The wrap is available if a failure appears that a filesystem cannot produce (HLR-070, LLR-RFP-06). |
-| `discover.c` | `realpath`, `git_repository_open_ext` | Canonicalisation failure, repository inapplicability (LLR-DSC-07, GIT-04). `stat` is deliberately absent: every invalid target class — absent, unreadable, FIFO, device node — can be produced on a real filesystem, and a test that builds one verifies the requirement rather than the mock. |
+| `discover.c` | `realpath` | Canonicalisation failure on a path that exists (LLR-DSC-07). `stat` is deliberately absent: every invalid target class — absent, unreadable, FIFO, device node — can be produced on a real filesystem, and a test that builds one verifies the requirement rather than the mock. `git_repository_open_ext` was listed here through Phase 6 and proved unnecessary for the same reason: every form of repository inapplicability — no repository, one tracking nothing beneath the target, one with no commits, one whose tracked files are all excluded — is a repository `git init` can build in three lines (LLR-GIT-04). |
 | `graph.c`, `arch.c`, `calltree.c`, `state.c` | `realloc`, the graph library's allocating entry points | Allocation failure on graph paths (HLR-124, HLR-125) |
 | `report.c` | `realloc` | Checked collection growth (LLR-RPT-16) |
 | `format_*.c` | `fwrite`, `fprintf`, `fopen` | Write-failure paths, companion file creation failure (LLR-DOT-05) |

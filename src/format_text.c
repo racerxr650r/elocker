@@ -351,6 +351,18 @@ int render_report(const Report *report, Style style, FILE *out)
 	}
 
 	{
+		static const char *const names[]   = { "Target", "Route" };
+
+		grid_begin(&grid, "Discovery", 2, names, NULL);
+		for (size_t i = 0; i < report->routes.count; i++)
+			grid_row(&grid, report->routes.items[i].target,
+			         report->routes.items[i].route == ROUTE_REPOSITORY
+			                 ? "repository" : "filesystem");
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
 		static const char *const names[]   = { "Language", "Files",
 		                                       "Lines", "ELOC" };
 		static const bool        numeric[] = { false, true, true, true };

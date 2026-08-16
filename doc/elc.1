@@ -153,11 +153,37 @@ continues over the remaining languages. Only a runtime directory that yields
 no language at all is fatal.
 .SS Discovery
 A target that is a regular file is analysed directly, with no traversal. A
-target that is a directory is walked recursively. During that walk
+target that is a directory is discovered by one of two routes.
+.PP
+When the target directory is tracked by a Git repository,
+.B elc
+analyses the files tracked at
+.BR HEAD .
+A file that is not committed is therefore not analysed, whether it was never
+added or is merely a change not yet committed; the analysis is of the tree at
+.BR HEAD ,
+not of the working directory. Files are excluded because git does not track
+them and not because
+.I .gitignore
+was consulted \(em
+.B elc
+never reads that file \(em and a tracked blob is excluded when git reports its
+content as binary, whatever its name. Naming a subdirectory analyses that
+subdirectory alone, not the repository around it.
+.PP
+When the target is in no repository, or in one that does not track it \(em a
+.IR .gitignore d
+build directory, or a directory under a version-controlled home directory \(em
+the directory is walked recursively instead.
+.PP
+By either route
 .B elc
 excludes hidden files and hidden directories, and files whose extension
 appears in
 .IR runtime/binary.exts .
+The route applied to each directory target is named in the report, so that a
+result which is unexpectedly empty, or unexpectedly larger than the target,
+can be diagnosed rather than guessed at.
 .PP
 A symbolic link encountered during the walk is not followed, so a directory
 reached through a link is never descended into and a self-referential link
@@ -207,7 +233,11 @@ to the Markdown a direct analysis would have produced at the same threshold.
 It is identical rather than merely equivalent because the record carries the
 measurements and nothing derived from them: the totals, the callouts, the
 ordering, and the threshold listing are all computed when the report is
-assembled, by the same code on both paths.
+assembled, by the same code on both paths. The discovery route applied to
+each target is in the record for the same reason a measurement is: the run
+observed it, the report presents it, and it cannot be established again later
+\(em by the time the record is read the tree may no longer be a repository, or
+may no longer exist.
 .PP
 The threshold is therefore
 .I not
@@ -295,10 +325,11 @@ diagnostics are written to standard error. Nothing else is written to the
 results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
-The default format is an aligned table in seven sections: the project
-summary, the project-wide callouts, the totals broken down by language, one
-row per analysed file, one row per function, the functions at or over the
-complexity threshold, and the files that were skipped. Column widths are taken from the longest value in each column so the
+The default format is an aligned table in eight sections: the project
+summary, the project-wide callouts, the discovery route applied to each
+directory target, the totals broken down by language, one row per analysed
+file, one row per function, the functions at or over the complexity threshold,
+and the files that were skipped. Column widths are taken from the longest value in each column so the
 figures line up:
 .PP
 .EX
@@ -314,6 +345,11 @@ Callouts
   ------------  -----  ---------------------------------
   Largest file     12  /home/u/proj/src/a.c
   Most complex      7  parse in /home/u/proj/src/a.c
+
+Discovery
+  Target                Route
+  --------------------  ----------
+  /home/u/proj/src      repository
 
 Languages
   Language  Files  Lines  ELOC
