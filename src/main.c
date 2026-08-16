@@ -18,6 +18,8 @@
 #include <string.h>
 
 #include "analyze.h"
+#include "format_graph.h"
+#include "graph.h"
 #include "cli.h"
 #include "discover.h"
 #include "elc.h"
@@ -46,6 +48,9 @@ int main(int argc, char *argv[])
 	ElcOptions         opts;
 	Registry           registry = { 0 };
 	FileList           files    = { 0 };
+	FactList           facts_list = { 0 };
+	Sdg                sdg      = { 0 };
+	bool               graph_built = false;
 	RouteList          routes   = { 0 };
 	MetricsAccumulator acc      = { 0 };
 	Report             report   = { 0 };
@@ -99,13 +104,15 @@ int main(int argc, char *argv[])
 
 	for (size_t i = 0; i < files.count; i++) {
 		FileMetrics *metrics = NULL;
+		FileFacts   *facts   = NULL;
 
 		/* A per-file failure is recorded, not propagated: the run
 		 * continues over the remaining files and the status reflects it
 		 * at the end (HLR-035, LLR-MAIN-07). A skip is not a failure —
 		 * it is reported and leaves the status at 0 (HLR-012,
 		 * HLR-037). */
-		switch (analyze_file(&registry, files.paths[i], &metrics)) {
+		switch (analyze_file(&registry, files.paths[i], &metrics,
+		                     &facts)) {
 		case ANALYZE_SKIPPED:
 			fprintf(stderr,
 			        "elc: %s: no usable language module; skipped\n",
@@ -122,6 +129,12 @@ int main(int argc, char *argv[])
 
 		if (metrics_add(&acc, metrics) != 0) {
 			filemetrics_free(metrics);
+			filefacts_free(facts);
+			failures++;
+			continue;
+		}
+		if (factlist_add(&facts_list, facts) != 0) {
+			filefacts_free(facts);
 			failures++;
 		}
 	}
@@ -130,6 +143,25 @@ int main(int argc, char *argv[])
 		status = ELC_EXIT_FATAL;
 		goto cleanup;
 	}
+
+	/* The graph is built from the assembled report, not from the raw file
+	 * list: its node identifiers run in the report's sorted file order,
+	 * which is what makes them a property of the source tree rather than
+	 * of the order discovery happened to walk it (LLR-SDG-09).
+	 *
+	 * The facts are released immediately afterwards. graph_build copies
+	 * what it keeps, and holding the whole project's call sites alive for
+	 * the rest of the run would be memory spent on data nothing reads
+	 * (SDD §18). */
+	if (graph_build(&facts_list, &report, &sdg) != 0) {
+		fputs("elc: out of memory building the dependence graph\n",
+		      stderr);
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+	factlist_free(&facts_list);
+	report_set_unresolved(&report, graph_unresolved_count(&sdg));
+	graph_built = true;
 
 render:
 	out = stdout;
@@ -153,6 +185,24 @@ render:
 		goto cleanup;
 	}
 
+	/* After the report, and never instead of it. A companion that cannot
+	 * be written is a recorded failure, not a reason to withhold the
+	 * results the user asked for (LLR-DOT-05). */
+	if (graph_built && graph_graphml_warranted(&opts)) {
+		char *companion = graph_companion_path(opts.output_path,
+		                                       "graphml");
+
+		if (!companion) {
+			fputs("elc: out of memory naming the GraphML file\n",
+			      stderr);
+			failures++;
+		} else {
+			if (graph_write_graphml(&sdg, companion) != 0)
+				failures++;
+			free(companion);
+		}
+	}
+
 	if (failures > 0)
 		status = ELC_EXIT_FAILURE;
 
@@ -162,8 +212,10 @@ cleanup:
 	 * leak-clean as one that succeeds (HLR-125, LLR-MAIN-16). */
 	if (out && out != stdout)
 		fclose(out);
+	graph_free(&sdg);
 	report_free(&report);
 	metrics_free(&acc);
+	factlist_free(&facts_list);
 	routelist_free(&routes);
 	filelist_free(&files);
 	registry_close(&registry);

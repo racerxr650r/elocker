@@ -64,6 +64,15 @@ requirements:
     and would have linked a second XML library the project has no need
     for. Debian's `libigraph-dev` has it on, which is why the
     distribution package is not used.
+*   **igraph's OpenMP support is switched off too**
+    (`-DIGRAPH_OPENMP_SUPPORT=OFF`), added in Phase 8. The default build
+    links `libgomp`, which allocates its thread pool during the dynamic
+    linker's init — before `main` runs — putting 104 bytes of
+    still-reachable state in every process and a thread runtime in the
+    link line of a binary that promises one thread (HLR-041). The
+    single-thread tests happened to pass, because nothing elc calls
+    enters a parallel region *yet*; the instrumented allowlist is what
+    actually caught it, and is now the guard against its return.
 
 It also settles a version problem: Debian carries `libtree-sitter` at
 0.22 and `igraph` at 0.10, both below the SDP §0 minimums, with no
@@ -180,6 +189,15 @@ are present matter, and neither is visible from "it builds":
     `-DIGRAPH_GRAPHML_SUPPORT=OFF`, so the condition is worth
     re-checking then rather than assumed settled.
 
+**Update, Phase 8 (2026-08-16).** The libraries have since been built
+from source and `check-prereqs` reports tree-sitter 0.26.2, expat 2.8.3,
+libgit2 1.9.0 and igraph 1.0.1, all conforming. One outstanding action
+on this machine: the installed igraph predates the
+`-DIGRAPH_OPENMP_SUPPORT=OFF` flag added in Phase 8, so it still links
+`libgomp` and `make instrumented` will fail on the dependency allowlist
+until `make prereqs-igraph` is re-run. `check-prereqs` now warns about
+exactly this condition, so it does not have to be remembered.
+
 Criterion 2.4.1 is installed and `make unit` runs locally, which the
 Phase 0 note in §3 recorded as unavailable. That entry is annotated.
 
@@ -233,6 +251,21 @@ unreachable set, exactly as HLR-096 reasons about address-taken
 functions. But Ada's coupling and fan-out figures will be noisier than
 C's, and the `graph/` fixture group needs an Ada case pinning the
 behaviour rather than leaving it to be discovered.
+
+**What Phase 8 found, which is better than this predicted.** An array
+index is captured as a call site, its name is then resolved against the
+project symbol table, and — because an array is not a subprogram — it
+resolves to *nothing*. So the ambiguity lands in the **unresolved
+count**, which is reported, rather than becoming an edge, which would
+not be. The visible cost is an inflated unresolved figure, not a
+corrupted graph.
+
+A spurious *edge* survives in one case only: an array whose name is also
+a subprogram's somewhere in the project. That is rarer than "every
+indexing expression", and it is the case the fan-out and cycle warnings
+above actually apply to. Pinned by the Ada case in
+`test/fixtures/graph/`, so a regression either way is a diff rather than
+a discovery.
 
 ---
 
@@ -497,6 +530,36 @@ None is a defect; each is a judgement that could go the other way.
     than hanging, but a harness that has to survive a tree built to
     defeat walking is a harness waiting to break. Keeping the suites
     flat means no recursion is needed at all.
+*   **`make clean` destroys the prerequisite source builds** (Phase 8).
+    `SRC_WORK` defaults to `$(BUILD)/prereq-src`, so a `make clean`
+    between building a library and installing it throws away the build
+    — which is minutes of `cmake` for igraph. It was found the obvious
+    way. The fix is to move `SRC_WORK` outside `$(BUILD)`, or to have
+    `clean` spare it; neither has been done, because the prereq targets
+    are normally run once on a new machine and the coupling has not
+    otherwise bitten. Worth doing the next time the prereq recipes are
+    touched.
+*   **Calls resolve by name alone** (Phase 8). There is no type
+    resolution, so a method call resolves on the method name and a name
+    defined twice resolves to its first definition in sorted file order
+    (with a diagnostic). For C this is nearly exact — two `static`
+    helpers sharing a name is the main case. For C++ and Rust it is a
+    real approximation: two classes with a `size()` method are one node
+    as far as resolution is concerned. Doing better needs a symbol table
+    with scope and type information, which is a different kind of tool
+    from a query-driven one; the honest position is that the graph is
+    name-resolved and the manual says so. Revisit if the C++ numbers
+    turn out to be useless in practice rather than merely approximate.
+*   **The over-broad captures are load-bearing, not sloppy** (Phase 8).
+    `@call.address_taken`, `@global.read` and `@global.write` capture
+    identifiers in value position, most of which are variables. This
+    looks wrong in a query file until you notice that neither question
+    — is this a function? is this a global? — can be answered from one
+    file's syntax, which is all a query sees. Resolution against the
+    project tables is what filters them, in `graph.c`. Anyone tightening
+    these patterns to "only capture real globals" will be encoding scope
+    rules the grammar cannot express, and will silently lose the
+    cross-file cases that motivate the analysis.
 *   **Repository applicability is decided by the result of the walk,
     not by a question asked first** (Phase 7). `walk_git_tree` returns
     the number of files it appended, and a negative return means

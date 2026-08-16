@@ -36,6 +36,11 @@
 #define CAPTURE_COMMENT       "comment"
 #define CAPTURE_ELOC          "eloc.statement"
 #define CAPTURE_COMPLEXITY    "complexity.decision"
+#define CAPTURE_CALL_NAME     "call.name"
+#define CAPTURE_CALL_ADDRESS  "call.address_taken"
+#define CAPTURE_GLOBAL_DECL   "global.declaration"
+#define CAPTURE_GLOBAL_READ   "global.read"
+#define CAPTURE_GLOBAL_WRITE  "global.write"
 
 /* One counted statement: the line it starts on, and the function it belongs
  * to. `function` is SIZE_MAX for a statement outside every reported function,
@@ -64,6 +69,52 @@ void filemetrics_free(FileMetrics *metrics)
 	free(metrics->language);
 	free(metrics->path);
 	free(metrics);
+}
+
+void filefacts_free(FileFacts *facts)
+{
+	if (!facts)
+		return;
+
+	for (size_t i = 0; i < facts->call_count; i++)
+		free(facts->calls[i].callee);
+	free(facts->calls);
+	for (size_t i = 0; i < facts->global_count; i++)
+		free(facts->globals[i].name);
+	free(facts->globals);
+	for (size_t i = 0; i < facts->address_taken_count; i++)
+		free(facts->address_taken[i]);
+	free(facts->address_taken);
+	free(facts->path);
+	free(facts);
+}
+
+int factlist_add(FactList *list, FileFacts *facts)
+{
+	if (list->count == list->capacity) {
+		size_t      next   = list->capacity ? list->capacity * 2 : 32;
+		FileFacts **bigger = realloc(list->items, next * sizeof *bigger);
+
+		if (!bigger)
+			return -1;
+		list->items    = bigger;
+		list->capacity = next;
+	}
+	list->items[list->count++] = facts;
+	return 0;
+}
+
+void factlist_free(FactList *list)
+{
+	if (!list)
+		return;
+
+	for (size_t i = 0; i < list->count; i++)
+		filefacts_free(list->items[i]);
+	free(list->items);
+	list->items    = NULL;
+	list->count    = 0;
+	list->capacity = 0;
 }
 
 /* Grow any of the analyser's arrays by doubling, with the realloc result
@@ -505,6 +556,136 @@ static int collect_complexity(const LanguageModule *module, Registry *reg,
 	return 0;
 }
 
+/* ------------------------------------------------------- the graph facts --
+ *
+ * Recorded, not resolved. A call site names an identifier; whether that
+ * identifier is a function this project defines cannot be known until every
+ * file has been analysed, so the decision belongs to graph.c and the parse
+ * records only what it saw (HLR-073, HLR-076).
+ */
+
+/* Record every call site and every identifier used as a value.
+ *
+ * The address-taken captures are deliberately over-broad — most of what they
+ * match is an ordinary variable — and the query files say so. Filtering them
+ * here would need to know which identifiers are functions, which is exactly
+ * the whole-project knowledge this stage does not have. graph.c discards the
+ * ones that resolve to nothing, and the cost of carrying them this far is a
+ * few strings.
+ */
+static int collect_calls(const LanguageModule *module, Registry *reg,
+                         const char *data, TSNode root,
+                         const FnRangeIndex *ranges, FileFacts *facts)
+{
+	TSQuery      *query = module->queries[QUERY_CALLS];
+	TSQueryMatch  match;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		for (uint16_t i = 0; i < match.capture_count; i++) {
+			uint32_t index = match.captures[i].index;
+			TSNode   node  = match.captures[i].node;
+			uint32_t byte  = ts_node_start_byte(node);
+
+			if (capture_is(query, index, CAPTURE_CALL_NAME)) {
+				if (facts->call_count == facts->call_capacity &&
+				    grow((void **)&facts->calls,
+				         &facts->call_capacity,
+				         sizeof *facts->calls) != 0)
+					return -1;
+
+				const FnRange *owner =
+					innermost_enclosing(ranges, byte);
+				CallSite      *site =
+					&facts->calls[facts->call_count];
+
+				site->callee = name_from(data, node);
+				if (!site->callee)
+					return -1;
+				site->caller = owner ? owner->index
+				                     : ELC_NO_FUNCTION;
+				site->line   = ts_node_start_point(node).row + 1;
+				facts->call_count++;
+			} else if (capture_is(query, index,
+			                      CAPTURE_CALL_ADDRESS)) {
+				if (facts->address_taken_count ==
+				        facts->address_taken_capacity &&
+				    grow((void **)&facts->address_taken,
+				         &facts->address_taken_capacity,
+				         sizeof *facts->address_taken) != 0)
+					return -1;
+
+				char *name = name_from(data, node);
+
+				if (!name)
+					return -1;
+				facts->address_taken[
+					facts->address_taken_count++] = name;
+			}
+		}
+	}
+
+	return 0;
+}
+
+/* Record every global declaration, read and write.
+ *
+ * Same division of labour as the calls: the read and write patterns capture
+ * identifiers wherever they appear, and which of them name globals is settled
+ * against the declarations — by graph.c, which can see the declarations of
+ * every file rather than only this one. A global declared in a header and
+ * written in three translation units is the case that makes the difference.
+ */
+static int collect_globals(const LanguageModule *module, Registry *reg,
+                           const char *data, TSNode root,
+                           const FnRangeIndex *ranges, FileFacts *facts)
+{
+	TSQuery      *query = module->queries[QUERY_GLOBALS];
+	TSQueryMatch  match;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		for (uint16_t i = 0; i < match.capture_count; i++) {
+			uint32_t         index = match.captures[i].index;
+			TSNode           node  = match.captures[i].node;
+			GlobalAccessKind kind;
+
+			if (capture_is(query, index, CAPTURE_GLOBAL_DECL))
+				kind = GLOBAL_DECLARATION;
+			else if (capture_is(query, index, CAPTURE_GLOBAL_READ))
+				kind = GLOBAL_READ;
+			else if (capture_is(query, index, CAPTURE_GLOBAL_WRITE))
+				kind = GLOBAL_WRITE;
+			else
+				continue;
+
+			if (facts->global_count == facts->global_capacity &&
+			    grow((void **)&facts->globals,
+			         &facts->global_capacity,
+			         sizeof *facts->globals) != 0)
+				return -1;
+
+			uint32_t       byte  = ts_node_start_byte(node);
+			const FnRange *owner = innermost_enclosing(ranges, byte);
+			GlobalAccess  *access =
+				&facts->globals[facts->global_count];
+
+			access->name = name_from(data, node);
+			if (!access->name)
+				return -1;
+			access->function = owner ? owner->index
+			                         : ELC_NO_FUNCTION;
+			access->line     = ts_node_start_point(node).row + 1;
+			access->kind     = kind;
+			facts->global_count++;
+		}
+	}
+
+	return 0;
+}
+
 static int by_function_then_line(const void *a, const void *b)
 {
 	const StatementSite *x = a;
@@ -576,10 +757,12 @@ static void apply_eloc(FileMetrics *metrics, SiteList *sites)
 	metrics->eloc = total;
 }
 
-int analyze_file(Registry *reg, const char *path, FileMetrics **out)
+int analyze_file(Registry *reg, const char *path, FileMetrics **out,
+                 FileFacts **facts_out)
 {
 	const LanguageModule *module;
 	FileMetrics          *metrics  = NULL;
+	FileFacts            *facts    = NULL;
 	FnRangeIndex          ranges   = { 0 };
 	SpanList              comments = { 0 };
 	SiteList              sites    = { 0 };
@@ -590,7 +773,8 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out)
 	int                   fd     = -1;
 	int                   status = ANALYZE_FAILED;
 
-	*out = NULL;
+	*out       = NULL;
+	*facts_out = NULL;
 
 	/* No module for this extension is a skip, not a failure: the caller
 	 * records it and the exit status stays 0 (HLR-012, HLR-037). */
@@ -610,7 +794,14 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out)
 	}
 
 	metrics = calloc(1, sizeof *metrics);
-	if (!metrics) {
+	facts   = calloc(1, sizeof *facts);
+	if (!metrics || !facts) {
+		fprintf(stderr, "elc: out of memory measuring %s\n", path);
+		goto cleanup;
+	}
+
+	facts->path = strdup(path);
+	if (!facts->path) {
 		fprintf(stderr, "elc: out of memory measuring %s\n", path);
 		goto cleanup;
 	}
@@ -630,9 +821,11 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out)
 	 * empty file fails with EINVAL, and an empty file is not an error
 	 * (LLR-ANL-04). */
 	if (st.st_size == 0) {
-		*out    = metrics;
-		metrics = NULL;
-		status  = ANALYZE_OK;
+		*out       = metrics;
+		*facts_out = facts;
+		metrics    = NULL;
+		facts      = NULL;
+		status     = ANALYZE_OK;
 		goto cleanup;
 	}
 
@@ -672,16 +865,20 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out)
 	    collect_comments(module, reg, root, &comments) != 0 ||
 	    collect_statements(module, reg, root, &ranges, &comments,
 	                       &sites) != 0 ||
-	    collect_complexity(module, reg, root, &ranges, metrics) != 0) {
+	    collect_complexity(module, reg, root, &ranges, metrics) != 0 ||
+	    collect_calls(module, reg, map, root, &ranges, facts) != 0 ||
+	    collect_globals(module, reg, map, root, &ranges, facts) != 0) {
 		fprintf(stderr, "elc: out of memory analysing %s\n", path);
 		goto cleanup;
 	}
 
 	apply_eloc(metrics, &sites);
 
-	*out    = metrics;
-	metrics = NULL;
-	status  = ANALYZE_OK;
+	*out       = metrics;
+	*facts_out = facts;
+	metrics    = NULL;
+	facts      = NULL;
+	status     = ANALYZE_OK;
 
 cleanup:
 	/* Every acquired resource released on every path, in order: the tree
@@ -695,6 +892,7 @@ cleanup:
 	if (map != MAP_FAILED)
 		munmap(map, len);
 	filemetrics_free(metrics);
+	filefacts_free(facts);
 	if (fd >= 0)
 		close(fd);
 	return status;

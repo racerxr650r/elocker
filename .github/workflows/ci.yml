@@ -57,7 +57,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter and libgit2 from source
+      - name: Build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -72,8 +72,15 @@ jobs:
           # that it has none — and the instrumented allowlist would still
           # pass, because it checks which libraries are linked and not how
           # they were built.
+          #
+          # igraph is built with GraphML *and* OpenMP off. GraphML because
+          # elc writes it itself and igraph's would link a second XML
+          # library; OpenMP because its runtime allocates a thread pool
+          # during the dynamic linker's init, and elc is single-threaded by
+          # requirement (HLR-041). The distribution package has both on.
           make prereqs-tree-sitter
           make prereqs-libgit2
+          make prereqs-igraph
           sudo ldconfig
       - name: Build
         run: make all CFLAGS="-O2 -g -Werror"
@@ -86,7 +93,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter and libgit2 from source
+      - name: Build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -101,8 +108,15 @@ jobs:
           # that it has none — and the instrumented allowlist would still
           # pass, because it checks which libraries are linked and not how
           # they were built.
+          #
+          # igraph is built with GraphML *and* OpenMP off. GraphML because
+          # elc writes it itself and igraph's would link a second XML
+          # library; OpenMP because its runtime allocates a thread pool
+          # during the dynamic linker's init, and elc is single-threaded by
+          # requirement (HLR-041). The distribution package has both on.
           make prereqs-tree-sitter
           make prereqs-libgit2
+          make prereqs-igraph
           sudo ldconfig
       - name: Install Criterion
         run: |
@@ -117,7 +131,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter and libgit2 from source
+      - name: Build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -132,8 +146,15 @@ jobs:
           # that it has none — and the instrumented allowlist would still
           # pass, because it checks which libraries are linked and not how
           # they were built.
+          #
+          # igraph is built with GraphML *and* OpenMP off. GraphML because
+          # elc writes it itself and igraph's would link a second XML
+          # library; OpenMP because its runtime allocates a thread pool
+          # during the dynamic linker's init, and elc is single-threaded by
+          # requirement (HLR-041). The distribution package has both on.
           make prereqs-tree-sitter
           make prereqs-libgit2
+          make prereqs-igraph
           sudo ldconfig
       - name: Run the integration suites
         run: make integration
@@ -144,7 +165,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter and libgit2 from source
+      - name: Build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -159,8 +180,15 @@ jobs:
           # that it has none — and the instrumented allowlist would still
           # pass, because it checks which libraries are linked and not how
           # they were built.
+          #
+          # igraph is built with GraphML *and* OpenMP off. GraphML because
+          # elc writes it itself and igraph's would link a second XML
+          # library; OpenMP because its runtime allocates a thread pool
+          # during the dynamic linker's init, and elc is single-threaded by
+          # requirement (HLR-041). The distribution package has both on.
           make prereqs-tree-sitter
           make prereqs-libgit2
+          make prereqs-igraph
           sudo ldconfig
       - name: Run the fixture suites
         run: make fixtures
@@ -171,7 +199,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter and libgit2 from source
+      - name: Build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -186,8 +214,15 @@ jobs:
           # that it has none — and the instrumented allowlist would still
           # pass, because it checks which libraries are linked and not how
           # they were built.
+          #
+          # igraph is built with GraphML *and* OpenMP off. GraphML because
+          # elc writes it itself and igraph's would link a second XML
+          # library; OpenMP because its runtime allocates a thread pool
+          # during the dynamic linker's init, and elc is single-threaded by
+          # requirement (HLR-041). The distribution package has both on.
           make prereqs-tree-sitter
           make prereqs-libgit2
+          make prereqs-igraph
           sudo ldconfig
       - name: Install observation tools
         run: |
@@ -211,7 +246,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter and libgit2 from source
+      - name: Build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -226,8 +261,15 @@ jobs:
           # that it has none — and the instrumented allowlist would still
           # pass, because it checks which libraries are linked and not how
           # they were built.
+          #
+          # igraph is built with GraphML *and* OpenMP off. GraphML because
+          # elc writes it itself and igraph's would link a second XML
+          # library; OpenMP because its runtime allocates a thread pool
+          # during the dynamic linker's init, and elc is single-threaded by
+          # requirement (HLR-041). The distribution package has both on.
           make prereqs-tree-sitter
           make prereqs-libgit2
+          make prereqs-igraph
           sudo ldconfig
       - name: Install Criterion
         run: |
@@ -245,7 +287,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter and libgit2 from source
+      - name: Build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -260,8 +302,15 @@ jobs:
           # that it has none — and the instrumented allowlist would still
           # pass, because it checks which libraries are linked and not how
           # they were built.
+          #
+          # igraph is built with GraphML *and* OpenMP off. GraphML because
+          # elc writes it itself and igraph's would link a second XML
+          # library; OpenMP because its runtime allocates a thread pool
+          # during the dynamic linker's init, and elc is single-threaded by
+          # requirement (HLR-041). The distribution package has both on.
           make prereqs-tree-sitter
           make prereqs-libgit2
+          make prereqs-igraph
           sudo ldconfig
       - name: Install valgrind
         run: |

@@ -132,6 +132,12 @@ int xml_write_report(const Report *report, FILE *out)
 	 * routes would regenerate into a report with an empty Discovery
 	 * section, which is a different report — and HLR-056 says it must not
 	 * be (LLR-XWR-06). */
+	/* A measurement of the run, so it lives in the record beside the
+	 * others: it cannot be recomputed later, since regeneration has no
+	 * graph and no source to build one from (HLR-054, HLR-056). */
+	fprintf(out, "  <graph unresolved-calls=\"%zu\"/>\n",
+	        report->unresolved_calls);
+
 	fputs("  <discovery>\n", out);
 	for (size_t i = 0; i < report->routes.count; i++) {
 		fputs("    <route", out);
@@ -168,6 +174,7 @@ int xml_write_report(const Report *report, FILE *out)
 
 typedef struct {
 	RouteList           routes;
+	size_t              unresolved;
 	MetricsAccumulator *acc;
 	FileMetrics        *current;      /* the <file> being populated */
 	size_t              capacity;     /* of current->functions      */
@@ -308,6 +315,17 @@ static void on_start(void *user, const XML_Char *name,
 
 		state->current  = file;
 		state->capacity = 0;
+		return;
+	}
+
+	if (strcmp(name, "graph") == 0) {
+		const char *value = attribute(atts, "unresolved-calls");
+
+		if (!value) {
+			fail(state, "a graph element is incomplete");
+			return;
+		}
+		state->unresolved = strtoull(value, NULL, 10);
 		return;
 	}
 
@@ -474,6 +492,7 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	 * value is derived once and the two paths cannot drift (HLR-056). */
 	if (report_assemble(&acc, &state.routes, opts, out) != 0)
 		goto cleanup;
+	report_set_unresolved(out, state.unresolved);
 
 	status = 0;
 
