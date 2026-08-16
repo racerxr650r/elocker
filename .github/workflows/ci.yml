@@ -57,14 +57,23 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter from source
+      - name: Build libtree-sitter and libgit2 from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
           # generator than the linked library understands fails at *load*
           # with a version error rather than at build. Building the pinned
           # release is what keeps the two in step (doc/notes.md §1.1).
+          #
+          # libgit2 comes from source for the reason §1.1 gives and one
+          # more: this build compiles the HTTPS and SSH transports out.
+          # The distribution package has them in, so an apt install would
+          # link network capability into a binary whose whole claim is
+          # that it has none — and the instrumented allowlist would still
+          # pass, because it checks which libraries are linked and not how
+          # they were built.
           make prereqs-tree-sitter
+          make prereqs-libgit2
           sudo ldconfig
       - name: Build
         run: make all CFLAGS="-O2 -g -Werror"
@@ -77,14 +86,23 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter from source
+      - name: Build libtree-sitter and libgit2 from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
           # generator than the linked library understands fails at *load*
           # with a version error rather than at build. Building the pinned
           # release is what keeps the two in step (doc/notes.md §1.1).
+          #
+          # libgit2 comes from source for the reason §1.1 gives and one
+          # more: this build compiles the HTTPS and SSH transports out.
+          # The distribution package has them in, so an apt install would
+          # link network capability into a binary whose whole claim is
+          # that it has none — and the instrumented allowlist would still
+          # pass, because it checks which libraries are linked and not how
+          # they were built.
           make prereqs-tree-sitter
+          make prereqs-libgit2
           sudo ldconfig
       - name: Install Criterion
         run: |
@@ -99,14 +117,23 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter from source
+      - name: Build libtree-sitter and libgit2 from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
           # generator than the linked library understands fails at *load*
           # with a version error rather than at build. Building the pinned
           # release is what keeps the two in step (doc/notes.md §1.1).
+          #
+          # libgit2 comes from source for the reason §1.1 gives and one
+          # more: this build compiles the HTTPS and SSH transports out.
+          # The distribution package has them in, so an apt install would
+          # link network capability into a binary whose whole claim is
+          # that it has none — and the instrumented allowlist would still
+          # pass, because it checks which libraries are linked and not how
+          # they were built.
           make prereqs-tree-sitter
+          make prereqs-libgit2
           sudo ldconfig
       - name: Run the integration suites
         run: make integration
@@ -117,14 +144,23 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter from source
+      - name: Build libtree-sitter and libgit2 from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
           # generator than the linked library understands fails at *load*
           # with a version error rather than at build. Building the pinned
           # release is what keeps the two in step (doc/notes.md §1.1).
+          #
+          # libgit2 comes from source for the reason §1.1 gives and one
+          # more: this build compiles the HTTPS and SSH transports out.
+          # The distribution package has them in, so an apt install would
+          # link network capability into a binary whose whole claim is
+          # that it has none — and the instrumented allowlist would still
+          # pass, because it checks which libraries are linked and not how
+          # they were built.
           make prereqs-tree-sitter
+          make prereqs-libgit2
           sudo ldconfig
       - name: Run the fixture suites
         run: make fixtures
@@ -135,14 +171,23 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter from source
+      - name: Build libtree-sitter and libgit2 from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
           # generator than the linked library understands fails at *load*
           # with a version error rather than at build. Building the pinned
           # release is what keeps the two in step (doc/notes.md §1.1).
+          #
+          # libgit2 comes from source for the reason §1.1 gives and one
+          # more: this build compiles the HTTPS and SSH transports out.
+          # The distribution package has them in, so an apt install would
+          # link network capability into a binary whose whole claim is
+          # that it has none — and the instrumented allowlist would still
+          # pass, because it checks which libraries are linked and not how
+          # they were built.
           make prereqs-tree-sitter
+          make prereqs-libgit2
           sudo ldconfig
       - name: Install observation tools
         run: |
@@ -166,14 +211,23 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter from source
+      - name: Build libtree-sitter and libgit2 from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
           # generator than the linked library understands fails at *load*
           # with a version error rather than at build. Building the pinned
           # release is what keeps the two in step (doc/notes.md §1.1).
+          #
+          # libgit2 comes from source for the reason §1.1 gives and one
+          # more: this build compiles the HTTPS and SSH transports out.
+          # The distribution package has them in, so an apt install would
+          # link network capability into a binary whose whole claim is
+          # that it has none — and the instrumented allowlist would still
+          # pass, because it checks which libraries are linked and not how
+          # they were built.
           make prereqs-tree-sitter
+          make prereqs-libgit2
           sudo ldconfig
       - name: Install Criterion
         run: |
@@ -191,14 +245,23 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter from source
+      - name: Build libtree-sitter and libgit2 from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
           # generator than the linked library understands fails at *load*
           # with a version error rather than at build. Building the pinned
           # release is what keeps the two in step (doc/notes.md §1.1).
+          #
+          # libgit2 comes from source for the reason §1.1 gives and one
+          # more: this build compiles the HTTPS and SSH transports out.
+          # The distribution package has them in, so an apt install would
+          # link network capability into a binary whose whole claim is
+          # that it has none — and the instrumented allowlist would still
+          # pass, because it checks which libraries are linked and not how
+          # they were built.
           make prereqs-tree-sitter
+          make prereqs-libgit2
           sudo ldconfig
       - name: Install valgrind
         run: |
