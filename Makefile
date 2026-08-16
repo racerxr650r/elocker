@@ -72,12 +72,18 @@ TS_LIBS     ?= $(shell $(PKG_CONFIG) --libs tree-sitter 2>/dev/null || echo -ltr
 # text emission and needs nothing (doc/SDD.md §16).
 EXPAT_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags expat 2>/dev/null)
 EXPAT_LIBS   ?= $(shell $(PKG_CONFIG) --libs expat 2>/dev/null || echo -lexpat)
+
+# libgit2 gives tracked-file enumeration. Not .gitignore evaluation: files are
+# excluded because git does not track them, which is the answer `git ls-files`
+# gives and needs no ignore rules interpreted (doc/SDD.md §5).
+GIT2_CFLAGS  ?= $(shell $(PKG_CONFIG) --cflags libgit2 2>/dev/null)
+GIT2_LIBS    ?= $(shell $(PKG_CONFIG) --libs libgit2 2>/dev/null || echo -lgit2)
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
 # set before any include; they live here rather than in the .c files.
-CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS)
+CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
-LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) -ldl
+LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) -ldl
 
 # Flags the build requires whatever the caller chose, appended in the recipes
 # rather than folded into CFLAGS.
@@ -279,7 +285,7 @@ prereqs-clean:
 .PHONY: check-prereqs
 check-prereqs:
 	@echo "== tools =="
-	@for t in cc ld make python3 pkg-config valgrind strace dot xmllint nm; do \
+	@for t in cc ld make python3 pkg-config valgrind strace dot xmllint nm git; do \
 		if command -v $$t >/dev/null 2>&1; then \
 			printf '  %-12s ok\n' "$$t"; \
 		else \

@@ -172,7 +172,7 @@ Target validation, classification, and file discovery. Produces the de-duplicate
 *   <a id="LLR-DSC-08"></a>**LLR-DSC-08** — `discover_targets` shall sort the completed file list into a defined order that does not depend on the enumeration order of the filesystem or of the repository.
     *Trace:* HLR-033 (Traversal-Order Independence).
 
-*   <a id="LLR-DSC-10"></a>**LLR-DSC-10** — `discover_targets` shall record, for each directory target, whether it was enumerated from a repository or traversed from the filesystem, and shall pass that record forward for reporting.
+*   <a id="LLR-DSC-10"></a>**LLR-DSC-10** — `discover_targets` shall record, for each directory target, whether it was enumerated from a repository or traversed from the filesystem, and shall pass that record forward for reporting. Each record shall name the target's canonical absolute path, as every other path in the report does, and shall hold one record per directory: two spellings of one directory reach the same route by definition, so a second record would report a run over two targets that was a run over one. Each record shall own a copy of the target it names rather than aliasing the caller's string. Aliasing would happen to work on the analysis path, where targets are `argv` entries that outlive the run, and would fail on the regeneration path, where they are parsed out of a record and released — the kind of difference that shows up as a corrupted Discovery section in one mode only.
     *Trace:* HLR-127 (Discovery Route Reported).
 
 *   <a id="LLR-DSC-09"></a>**LLR-DSC-09** — `discover_targets` shall emit a diagnostic and record a per-file failure for a subdirectory that cannot be read, and shall continue the traversal.
@@ -183,7 +183,7 @@ Target validation, classification, and file discovery. Produces the de-duplicate
 *   <a id="LLR-GIT-01"></a>**LLR-GIT-01** — `walk_git_tree` shall resolve the tree at `HEAD` and enumerate only those blobs whose repository-relative path lies at or beneath the target directory, so that a subdirectory target does not draw in the rest of the repository.
     *Trace:* HLR-002 (Git-Repository Target Detection), HLR-126 (Repository Enumeration Scoped to the Target).
 
-*   <a id="LLR-GIT-04"></a>**LLR-GIT-04** — `walk_git_tree` shall determine whether the discovered repository tracks the target directory before enumerating anything, and shall report the repository inapplicable when it does not, so that the caller falls back to filesystem traversal rather than returning an empty file list.
+*   <a id="LLR-GIT-04"></a>**LLR-GIT-04** — `walk_git_tree` shall report the repository inapplicable when it tracks nothing at or beneath the target directory, so that the caller falls back to filesystem traversal rather than returning an empty file list. Applicability shall be determined from the tree walk itself rather than by a separate query made beforehand: two traversals can disagree, and a disagreement between them would present as an empty report rather than as an error. It shall be determined from what the repository *tracks* and not from what survived the exclusion filters, since a tracked directory holding only excluded files is still tracked — judging it otherwise would fall back to the filesystem and analyse the untracked files this route exists to exclude. An applicable repository may therefore yield no files at all.
     *Trace:* HLR-002 (Git-Repository Target Detection), HLR-004 (Plain-Directory Fallback Traversal).
 
 *   <a id="LLR-GIT-02"></a>**LLR-GIT-02** — `walk_git_tree` shall include only files tracked at `HEAD`, so that ignored and untracked paths are excluded without a separate exclusion list.
@@ -730,8 +730,8 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-15"></a>**LLR-RPT-15** — `report_assemble` shall carry into the model every architectural measurement computed during the run — per-component afferent and efferent coupling and Instability, and per-function fan-out — ordered by component or by function, so that a measurement lying within its accepted band is reported rather than discarded for want of a finding.
     *Trace:* HLR-080 (Afferent and Efferent Coupling), HLR-082 (Instability Metric), HLR-085 (Function Fan-Out Measurement), HLR-031 (Uniform Report Composition Across Formats).
 
-*   <a id="LLR-RPT-17"></a>**LLR-RPT-17** — `report_assemble` shall carry the discovery route of each directory target into the model, so that every report format can state which route was applied.
-    *Trace:* HLR-127 (Discovery Route Reported).
+*   <a id="LLR-RPT-17"></a>**LLR-RPT-17** — `report_assemble` shall carry the discovery route of each directory target into the model, so that every report format can state which route was applied, and shall order the routes by target so that the Discovery section does not present them in the order they were given on the command line. The routes shall be copied into the model rather than referenced: discovery owns its list and releases it once analysis is complete, while the model outlives both, and regeneration from a saved record has no discovery to own anything and builds the same collection from the record.
+    *Trace:* HLR-033 (Traversal-Order Independence), HLR-127 (Discovery Route Reported).
 
 *   <a id="LLR-RPT-18"></a>**LLR-RPT-18** — `report_assemble` shall take ownership of the accumulated per-file metrics and leave the accumulator empty, so that a caller releasing both the accumulator and the report — as it must on every exit path — cannot free the same metrics twice.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
@@ -808,6 +808,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-05"></a>**LLR-XWR-05** — `xml_write_report` shall omit an element it has nothing to record rather than emit it empty, and the format-version identifier shall be incremented for a removal or a change of meaning and not for an addition, so that a record written by a later build remains readable by an earlier one of the same version.
     *Trace:* HLR-061, HLR-054.
 
+*   <a id="LLR-XWR-06"></a>**LLR-XWR-06** — `xml_write_report` shall write each target's discovery route to the record. A record that omitted it would regenerate into a report with an empty Discovery section — well-formed, carrying every measurement, and not the same report — which is the one thing HLR-056 forbids.
+    *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity), HLR-127 (Discovery Route Reported).
+
 *   <a id="LLR-XWR-04"></a>**LLR-XWR-04** — `xml_write_report` shall emit well-formed XML.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).
 
@@ -841,6 +844,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XRD-10"></a>**LLR-XRD-10** — `xml_read_report` shall treat an attribute that should be numeric and is not as a malformed record rather than as a zero, since a record accepted on those terms renders cleanly and reports the wrong figures.
     *Trace:* HLR-058.
+
+*   <a id="LLR-XRD-12"></a>**LLR-XRD-12** — `xml_read_report` shall rebuild the discovery routes from the record and hand them to `report_assemble`, so that a regenerated report presents the same Discovery section as the run that produced the record. A route element lacking either its target or its route, or naming a route this build does not recognise, shall be rejected as a malformed record rather than defaulted: a defaulted route is not an unknown answer but a confident wrong one, in the section whose whole purpose is explaining a surprising file set.
+    *Trace:* HLR-055 (Report Regeneration From a Record), HLR-056 (Regeneration Fidelity), HLR-127 (Discovery Route Reported).
 
 *   <a id="LLR-XRD-06"></a>**LLR-XRD-06** — `xml_read_report` shall attempt no best-effort partial conversion of a rejected input.
     *Trace:* HLR-058 (Malformed or Unsupported Saved-XML Rejection).

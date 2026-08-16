@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "analyze.h"
+#include "discover.h"
 #include "elc.h"
 #include "report.h"
 
@@ -146,6 +147,19 @@ static int by_language(const void *a, const void *b)
 	return strcmp(x->language, y->language);
 }
 
+/* Routes are ordered by target, not by the order they were named. A section
+ * listing targets in command-line order makes `elc a b` and `elc b a`
+ * different reports, which is exactly what HLR-033 forbids — and it is the
+ * kind of thing that only shows up as a determinism failure, never as a
+ * wrong number. */
+static int by_route_target(const void *a, const void *b)
+{
+	const RouteRecord *x = a;
+	const RouteRecord *y = b;
+
+	return strcmp(x->target, y->target);
+}
+
 static int by_string(const void *a, const void *b)
 {
 	return strcmp(*(char *const *)a, *(char *const *)b);
@@ -221,10 +235,20 @@ static void select_callouts(Report *out)
 	}
 }
 
-int report_assemble(MetricsAccumulator *acc, const ElcOptions *opts,
-                    Report *out)
+int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
+                    const ElcOptions *opts, Report *out)
 {
 	memset(out, 0, sizeof *out);
+
+	/* Copied rather than moved: discovery owns its list until the run
+	 * ends, and a regenerated report has none to move (LLR-RPT-17). */
+	for (size_t i = 0; routes && i < routes->count; i++)
+		if (routelist_add(&out->routes, routes->items[i].target,
+		                  routes->items[i].route) != 0) {
+			fputs("elc: out of memory recording a discovery route\n",
+			      stderr);
+			return -1;
+		}
 	out->complexity_threshold = opts->complexity_threshold;
 
 	out->files      = acc->files;
@@ -266,6 +290,10 @@ int report_assemble(MetricsAccumulator *acc, const ElcOptions *opts,
 		qsort(out->languages.items, out->languages.count,
 		      sizeof *out->languages.items, by_language);
 
+	if (out->routes.count > 1)
+		qsort(out->routes.items, out->routes.count,
+		      sizeof *out->routes.items, by_route_target);
+
 	/* Both of these read the model *after* it is ordered, so the listing
 	 * comes out in presentation order and the callouts break their ties
 	 * by it (HLR-021, HLR-026). */
@@ -297,6 +325,7 @@ void report_free(Report *report)
 	free(report->files);
 	report->files      = NULL;
 	report->file_count = 0;
+	routelist_free(&report->routes);
 	free(report->languages.items);
 	report->languages.items    = NULL;
 	report->languages.count    = 0;

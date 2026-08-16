@@ -30,6 +30,35 @@ typedef struct {
 	size_t  capacity;
 } ExtensionList;
 
+/* How a directory target was enumerated. Reported, so that a result which is
+ * unexpectedly empty — or unexpectedly larger than the target — can be
+ * diagnosed rather than guessed at (HLR-127). */
+typedef enum {
+	ROUTE_FILESYSTEM = 0,
+	ROUTE_REPOSITORY
+} DiscoveryRoute;
+
+typedef struct {
+	char           *target; /* canonical, as every reported path is; owned */
+	DiscoveryRoute  route;
+} RouteRecord;
+
+typedef struct {
+	RouteRecord *items;
+	size_t       count;
+	size_t       capacity;
+} RouteList;
+
+/* Append one target and the route that enumerated it, copying the target. A
+ * target already recorded is recorded once, so two spellings of one directory
+ * do not read as a run over two. Returns 0 on success. Exposed because the
+ * report keeps its own copy: the list discovery builds is released with the
+ * run, and a report outlives it. */
+int routelist_add(RouteList *list, const char *target, DiscoveryRoute route);
+
+/* Release the route list and every target it owns. Safe on NULL. */
+void routelist_free(RouteList *list);
+
 /* Produce the complete, ordered, de-duplicated analysis file list.
  *
  * Every target is validated with stat(2) before any of them is walked, so an
@@ -43,11 +72,22 @@ typedef struct {
  * which case `*out` is empty.
  */
 int discover_targets(const ElcOptions *opts, const char *runtime_dir,
-                     FileList *out, size_t *failures);
+                     FileList *out, RouteList *routes, size_t *failures);
 
 /* Release the list and every path it owns. Safe on NULL and on a zeroed
  * list, so teardown is unconditional on every exit path. */
 void filelist_free(FileList *list);
+
+/* Enumerate the text blobs tracked at HEAD whose repository-relative path
+ * lies at or beneath `target` (LLR-GIT-01 – LLR-GIT-03).
+ *
+ * Returns the number of files appended, or -1 when the repository is not
+ * *applicable* to the target — when it tracks nothing there — which is not an
+ * error but an instruction to the caller to traverse the filesystem instead
+ * (LLR-GIT-04).
+ */
+long walk_git_tree(const char *target, const ExtensionList *exts,
+                   FileList *out, size_t *failures);
 
 /* fts(3) traversal of one directory, with hidden-entry, binary-extension and
  * symbolic-link filtering (LLR-FTS-01 – LLR-FTS-06).

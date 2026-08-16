@@ -87,7 +87,40 @@ twice.
 ### What gets discovered
 
 A target that is a regular file is analysed directly. A target that is a
-directory is walked recursively, and the walk leaves out:
+directory is discovered by one of two routes, and `elc` tells you which one it
+used — see [The discovery route](#the-discovery-route) below.
+
+#### In a Git repository
+
+If the target directory is tracked by a Git repository, `elc` analyses **the
+files tracked at `HEAD`**. That is usually what you want, and it is the reason
+the two routes exist: a source tree with a build directory in it has more
+generated code than written code, and a filesystem walk counts all of it.
+
+The consequences are worth stating plainly, because they are what makes this
+route different rather than merely faster:
+
+- **A file you have not committed is not analysed.** A new file you have
+  written but not `git add`ed is invisible to `elc`, and so is an
+  uncommitted change to a tracked file — the analysis is of the tree at
+  `HEAD`, not of your working directory.
+- **Nothing consults `.gitignore`.** Files are excluded because git does not
+  track them, which is the same answer `git ls-files` gives and is not an
+  interpretation of the ignore rules.
+- **Binary files are excluded by content**, not by name, so a tracked blob
+  that happens to end in `.c` is still left out.
+- **Naming a subdirectory analyses that subdirectory**, not the repository
+  around it.
+
+Hidden entries and binary extensions are excluded here exactly as they are
+below. Both routes answer the same question about a given directory; they
+differ only in which files they can see.
+
+#### Anywhere else
+
+If the target is not in a repository, or is in one that does not track it — a
+`.gitignore`d build directory, or anything under a version-controlled home
+directory — the directory is walked recursively, and the walk leaves out:
 
 - **hidden files and hidden directories** — anything whose name starts with a
   dot, below the target. A hidden directory named *as* the target is walked:
@@ -101,6 +134,23 @@ directory is walked recursively, and the walk leaves out:
 
 A symbolic link named *directly* as a target is the exception: it is resolved
 and its referent analysed, because naming it says which file you mean.
+
+#### The discovery route
+
+Every report names, for each directory target, which route was applied:
+
+```text
+Discovery
+  Target  Route
+  ------  ----------
+  src/    repository
+```
+
+It is there so that a surprising result can be diagnosed rather than guessed
+at. A count far smaller than you expected next to `repository` usually means
+the files are not committed; a count far larger next to `filesystem` usually
+means a build directory got swept in, and that the repository does not track
+the directory you named.
 
 Every target is checked before any of them is walked. If one is missing,
 unreadable, or is something other than a file or a directory — a socket, a
@@ -215,6 +265,11 @@ Callouts
   Largest file     12  /home/u/proj/src/a.c
   Most complex      7  parse in /home/u/proj/src/a.c
 
+Discovery
+  Target                Route
+  --------------------  ----------
+  /home/u/proj/src      repository
+
 Languages
   Language  Files  Lines  ELOC
   --------  -----  -----  ----
@@ -242,10 +297,14 @@ Skipped files (no language module)
   /home/u/proj/src/notes.md
 ```
 
-Seven sections: the project totals, the callouts, those totals broken down by
-language, one row per file, one row per function, the functions at or over the
-complexity threshold, and whatever was skipped. Paths are
-canonical and absolute, and each column is padded to its longest value.
+Eight sections: the project totals, the callouts, the discovery route applied
+to each directory target, those totals broken down by language, one row per
+file, one row per function, the functions at or over the complexity threshold,
+and whatever was skipped. Paths are canonical and absolute, and each column is
+padded to its longest value.
+
+`Discovery` has a row per *directory* target only; a file named directly is
+analysed with no traversal, so there is no route to report for it.
 
 The `Languages` section is a partition of the totals, not a second count of
 them: with one language present its row equals the summary exactly.
@@ -414,6 +473,12 @@ That is achievable because the record carries the *measurements* and nothing
 derived from them. The totals, the callouts, the ordering, and the threshold
 listing are all worked out when the report is assembled, by the same code on
 both paths. There is no second implementation to drift.
+
+The discovery route is in the record for the same reason a measurement is:
+it is something the run observed and the report presents, and it cannot be
+worked out again later — by the time you regenerate, the tree may not be a
+repository, or may not exist. So a regenerated report still tells you how the
+files it describes were found.
 
 ### The threshold is not in the record
 

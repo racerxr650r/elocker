@@ -4,10 +4,12 @@
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Phase 0 complete. The build system, the nine-job CI gate, all
-four test levels, and a skeleton `elc` are in place; 44 catalogued tests
-verify 17 requirements and the coverage baseline stands at 361. Phase 1
-is ready to start.
+**Status:** Phase 7 complete. `elc` discovers its targets by repository
+enumeration or filesystem traversal, reports which route it used, and
+measures ELOC and cyclomatic complexity per function across five languages in
+four formats; 380 catalogued tests verify 175 requirements and the coverage
+baseline stands at 238. Phase 8 — the System Dependence Graph — is ready to
+start.
 
 ## Status
 
@@ -20,7 +22,7 @@ is ready to start.
 | [4](#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
 | [5](#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | ✅ Complete |
 | [6](#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | ✅ Complete |
-| [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | 🔲 Not started |
+| [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
 | [8](#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | 🔲 Not started |
 | [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | 🔲 Not started |
 | [10](#phase-10--reachability-and-global-state) | Dead code, global coupling, hidden channels, scopes | 🔲 Not started |
@@ -46,6 +48,7 @@ is ready to start.
 | Criterion | ≥ 2.4 | Unit test framework |
 | Bats | ≥ 1.10 | Integration, fixture, and instrumented levels |
 | `bats-support`, `bats-assert` | — | Assertion helpers; vendored under `test/helpers/` |
+| `git` | ≥ 2.20 | Building the repository fixtures the discovery tests run against (Phase 7). `elc` itself needs only `libgit2` at run time |
 | Python 3 | ≥ 3.9 | `tools/render_doc.py`, `tools/lint_project.py` |
 | `pkg-config` | — | Library discovery in the Makefile |
 

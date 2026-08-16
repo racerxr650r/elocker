@@ -18,14 +18,16 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 6 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 7 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, Python, and
 Ada**, in one invocation over a mixed target, as a table, Markdown, CSV, or
-XML. Those four languages were added *without one line of change under
-`src/`* — which is the extensibility claim demonstrated rather than asserted.
-The System Dependence Graph is next, from Phase 7.
+XML. Inside a Git repository it analyses **the files tracked at `HEAD`**,
+which keeps build directories and generated output out of the numbers without
+anyone maintaining an exclusion list; a directory the repository does not
+track is traversed instead, and every report names the route it used. The
+System Dependence Graph is next, from Phase 8.
 
-**Progress: 7 of 16 phases complete.**
+**Progress: 8 of 16 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -39,7 +41,7 @@ The System Dependence Graph is next, from Phase 7.
 | [4](doc/SDP.md#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
 | [5](doc/SDP.md#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | ✅ Complete |
 | [6](doc/SDP.md#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | ✅ Complete |
-| [7](doc/SDP.md#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | 🔲 Not started |
+| [7](doc/SDP.md#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
 | [8](doc/SDP.md#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | 🔲 Not started |
 | [9](doc/SDP.md#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | 🔲 Not started |
 | [10](doc/SDP.md#phase-10--reachability-and-global-state) | Dead code, global coupling, hidden channels, scopes | 🔲 Not started |
@@ -52,8 +54,8 @@ The System Dependence Graph is next, from Phase 7.
 </details>
 
 **Metrics land in Phases 3–4, the call graph in Phase 8, and the architectural
-analyses in Phases 9–13.** If you only want ELOC and complexity, Phase 4 is the
-one to watch.
+analyses in Phases 9–13.** If you only want ELOC and complexity, everything
+through Phase 7 is already in place.
 
 ---
 

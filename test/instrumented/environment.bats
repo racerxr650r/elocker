@@ -34,12 +34,24 @@ setup() {
 	# The grammars elc loads are dlopen'd at run time and so never appear
 	# in ldd output; HLR-009 is what makes that the right place for them.
 	#
+	# libgit2 is the one entry on this list that can open a socket: it
+	# speaks the smart-HTTP and SSH transports. elc uses only its local
+	# object-database side — open a repository, resolve HEAD, walk a tree,
+	# read a blob — and never calls a remote-bearing entry point. That is a
+	# claim about our code, not about the library, so it is not this test
+	# that holds it: the no-network-syscall test below does, by observing
+	# that a real run makes no connect(2) at all. Linking a library that
+	# *could* reach the network is precisely why that test earns its keep.
+	#
+	# libz arrives with libgit2 rather than by our choice; git object
+	# storage is deflate-compressed, so reading a blob at all requires it.
+	#
 	# The sanitizer runtimes are allowed because `make asan` re-runs this
 	# very suite against an instrumented build, and libasan is test
 	# instrumentation rather than a product dependency: it is absent from
 	# the binary `make all` produces and `make install` ships. Excluding
 	# them here would make the sanitized pass fail on its own scaffolding.
-	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libasan|libubsan|ld-linux|/lib64/ld-linux)'
+	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libasan|libubsan|ld-linux|/lib64/ld-linux)'
 	while read -r line; do
 		[ -n "$line" ] || continue
 		local lib

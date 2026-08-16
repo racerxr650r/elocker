@@ -227,7 +227,7 @@ Role: **unit**. **34 test(s).**
 
 ### 3.4. [test/unit/discover.c](../test/unit/discover.c)
 
-Role: **unit**. **20 test(s).**
+Role: **unit**. **27 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -250,7 +250,14 @@ Role: **unit**. **20 test(s).**
 | 17 | <a id="a_cyclic_directory_symlink_terminates"></a>`a_cyclic_directory_symlink_terminates` | `LLR-FTS-04`, `LLR-FTS-05` | A self-referential directory link does not produce an unbounded traversal, and the linked directory is not descended into. Reaching the assertion is itself the result. |
 | 18 | <a id="a_symbolic_link_named_as_a_target_is_resolved"></a>`a_symbolic_link_named_as_a_target_is_resolved` | `LLR-DSC-06` | A link named directly as a target is resolved to its referent, the other half of the symbolic-link policy from the one the walk applies. |
 | 19 | <a id="a_path_that_cannot_be_canonicalised_is_a_per_file_failure"></a>`a_path_that_cannot_be_canonicalised_is_a_per_file_failure` | `LLR-DSC-09` | A canonicalisation failure, provoked through a link-time wrapper, drops that path and records a per-file failure rather than ending the run. |
-| 20 | <a id="filelist_free_is_safe_on_null"></a>`filelist_free_is_safe_on_null` | `LLR-DSC-01` | Releasing a null file list or extension list does not fault, so teardown is safe on every path. |
+| 20 | <a id="git_walk_yields_the_tracked_files"></a>`git_walk_yields_the_tracked_files` | `LLR-GIT-02` | The walk enumerates the files committed at `HEAD` and not a file that exists in the working tree but was never added, which is the exclusion the route exists to perform. |
+| 21 | <a id="git_walk_is_scoped_to_the_target"></a>`git_walk_is_scoped_to_the_target` | `LLR-GIT-01` | Naming a subdirectory enumerates that subdirectory alone, though the tree at `HEAD` is the whole repository. |
+| 22 | <a id="git_walk_declines_a_directory_in_no_repository"></a>`git_walk_declines_a_directory_in_no_repository` | `LLR-GIT-04` | A directory outside any repository is declined rather than failed: nothing is appended, no failure is recorded, and the negative return is what sends the caller to the filesystem walk. |
+| 23 | <a id="git_walk_declines_a_target_the_repository_does_not_track"></a>`git_walk_declines_a_target_the_repository_does_not_track` | `LLR-GIT-04` | A directory inside a work tree that `HEAD` knows nothing about — a build directory, or a home directory under version control — is declined, so the target is analysed by traversal instead of reported as empty. |
+| 24 | <a id="a_tracked_directory_of_excluded_files_stays_on_the_git_route"></a>`a_tracked_directory_of_excluded_files_stays_on_the_git_route` | `LLR-GIT-04` | A tracked directory whose every tracked file is excluded yields nothing and is still judged applicable, so the run does not fall back and analyse the untracked files beside them. Distinguishes "the repository tracks this directory" from "the repository yielded a file". |
+| 25 | <a id="a_route_is_recorded_for_each_target"></a>`a_route_is_recorded_for_each_target` | `LLR-DSC-10` | Each target's route is recorded in the order given, naming the same target twice records it once, and releasing the list leaves it usable rather than stale. |
+| 26 | <a id="the_route_list_owns_the_target_it_records"></a>`the_route_list_owns_the_target_it_records` | `LLR-DSC-10` | Mutating the caller's buffer after recording does not change the record, so the report can outlive the strings discovery was given. |
+| 27 | <a id="filelist_free_is_safe_on_null"></a>`filelist_free_is_safe_on_null` | `LLR-DSC-01` | Releasing a null file list or extension list does not fault, so teardown is safe on every path. |
 
 ### 3.5. [test/unit/report.c](../test/unit/report.c)
 
@@ -609,7 +616,33 @@ Role: **fixture**. **11 test(s).**
 | 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
 | 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
 
-### 3.22. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.22. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+
+Role: **fixture**. **19 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-002: the repository route yields exactly the tracked source files"></a>`HLR-002: the repository route yields exactly the tracked source files` | — | The analysed set of a repository target is exactly the tracked, non-binary, non-hidden source files, matching the set counted by hand in the fixture's header. |
+| 2 | <a id="the hand-counted repository totals match"></a>`the hand-counted repository totals match` | — | The file count and physical line total for the repository target match the values counted by hand in the fixture's header. |
+| 3 | <a id="HLR-003: an untracked file is excluded"></a>`HLR-003: an untracked file is excluded` | — | A perfectly ordinary source file that the filesystem walk would find is absent from the result, its only disqualification being that it is not in the tree at `HEAD`. |
+| 4 | <a id="HLR-003: a gitignored build directory is excluded"></a>`HLR-003: a gitignored build directory is excluded` | — | Generated output under an ignored directory is excluded, which is where a filesystem walk goes wrong by the largest margin. |
+| 5 | <a id="HLR-003: .gitignore is never read to decide this"></a>`HLR-003: .gitignore is never read to decide this` | — | Deleting `.gitignore` changes nothing about the result, so the exclusion follows from what git tracks rather than from elc parsing the ignore rules — which it would then have to keep in agreement with git across nested files, negations, and `core.excludesFile`. |
+| 6 | <a id="HLR-003: a tracked file with binary content is excluded despite its extension"></a>`HLR-003: a tracked file with binary content is excluded despite its extension` | — | A tracked file named `.c` whose content is binary is excluded, and the extension list is shown not to contain `.c`, so git's own content check is what excluded it. |
+| 7 | <a id="HLR-005: the exclusions of the filesystem walk apply to this route too"></a>`HLR-005: the exclusions of the filesystem walk apply to this route too` | — | A tracked file with an excluded extension, and tracked hidden entries, are absent from the repository route's result, so the two routes agree about exclusions git is happy to report. |
+| 8 | <a id="HLR-126: naming a subdirectory analyses that subdirectory and nothing above it"></a>`HLR-126: naming a subdirectory analyses that subdirectory and nothing above it` | — | A subdirectory target yields the files beneath it alone, though the tree at `HEAD` is the whole repository. |
+| 9 | <a id="HLR-126: the scoped totals are the subdirectory's, not the repository's"></a>`HLR-126: the scoped totals are the subdirectory's, not the repository's` | — | The scoped file count and line total differ from the whole repository's, so a missing scope test fails here rather than inflating a figure nobody questions. |
+| 10 | <a id="HLR-126: a directory denotes the same files by either route"></a>`HLR-126: a directory denotes the same files by either route` | — | The same directory enumerated from the repository and then, with the repository removed, traversed from the filesystem, yields the same file set — the property the scoping requirement exists to guarantee, asserted against both routes rather than inferred from one. |
+| 11 | <a id="HLR-004: a directory in no repository is walked at the filesystem level"></a>`HLR-004: a directory in no repository is walked at the filesystem level` | — | A directory outside any repository reports the filesystem route. |
+| 12 | <a id="HLR-002: an enclosing repository that does not track the target is disregarded"></a>`HLR-002: an enclosing repository that does not track the target is disregarded` | — | A gitignored build directory inside a work tree reports the filesystem route and yields its contents, rather than reporting an empty result indistinguishable from a directory with no source in it. |
+| 13 | <a id="HLR-002: a directory tracked by no repository above it falls back"></a>`HLR-002: a directory tracked by no repository above it falls back` | — | A freshly created directory inside a work tree — the version-controlled home directory reduced to its essential shape — reports the filesystem route and is analysed. |
+| 14 | <a id="HLR-002: a repository with no commits falls back rather than failing"></a>`HLR-002: a repository with no commits falls back rather than failing` | — | A repository whose `HEAD` resolves to nothing is treated as inapplicable rather than as an error, since a freshly initialised repository is an ordinary state. |
+| 15 | <a id="HLR-127: the route is reported for each directory target"></a>`HLR-127: the route is reported for each directory target` | — | A run over a repository target and a plain directory reports a Discovery section naming each target with the route applied to it. |
+| 16 | <a id="HLR-072: one directory named twice is one row, canonically spelled"></a>`HLR-072: one directory named twice is one row, canonically spelled` | — | Two spellings of one directory produce a single Discovery row naming its canonical path, so the section reports directories rather than arguments and agrees with a Files section that has already collapsed them. |
+| 17 | <a id="HLR-033: the discovery section does not depend on the order of the targets"></a>`HLR-033: the discovery section does not depend on the order of the targets` | — | The same two targets in either order produce identical reports, so the Discovery section is ordered by a key rather than by the order the user typed. |
+| 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | — | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
+| 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | — | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
+
+### 3.23. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -623,7 +656,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.23. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.24. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **21 test(s).**
 
@@ -651,7 +684,7 @@ Role: **instrumented**. **21 test(s).**
 | 20 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
 | 21 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 
-### 3.24. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.25. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -719,11 +752,11 @@ verified by code review — see
 | `LLR-DSC-06` | `discover_targets` | `HLR-069` | `a_symbolic_link_named_as_a_target_is_resolved` |
 | `LLR-DSC-07` | `discover_targets` | `HLR-072` | `a_file_reached_through_two_targets_appears_once` |
 | `LLR-DSC-08` | `discover_targets` | `HLR-033` | `the_file_list_is_sorted_into_byte_order` |
-| `LLR-DSC-10` | `discover_targets` | `HLR-127` | **(no direct test)** |
+| `LLR-DSC-10` | `discover_targets` | `HLR-127` | `a_route_is_recorded_for_each_target`, `the_route_list_owns_the_target_it_records` |
 | `LLR-DSC-09` | `discover_targets` | `HLR-035` | `a_path_that_cannot_be_canonicalised_is_a_per_file_failure` |
-| `LLR-GIT-01` | `walk_git_tree` | `HLR-002`, `HLR-126` | **(no direct test)** |
-| `LLR-GIT-04` | `walk_git_tree` | `HLR-002`, `HLR-004` | **(no direct test)** |
-| `LLR-GIT-02` | `walk_git_tree` | `HLR-003` | **(no direct test)** |
+| `LLR-GIT-01` | `walk_git_tree` | `HLR-002`, `HLR-126` | `git_walk_is_scoped_to_the_target` |
+| `LLR-GIT-04` | `walk_git_tree` | `HLR-002`, `HLR-004` | `git_walk_declines_a_directory_in_no_repository`, `git_walk_declines_a_target_the_repository_does_not_track`, `a_tracked_directory_of_excluded_files_stays_on_the_git_route` |
+| `LLR-GIT-02` | `walk_git_tree` | `HLR-003` | `git_walk_yields_the_tracked_files` |
 | `LLR-GIT-03` | `walk_git_tree` | `HLR-003` | **(no direct test)** |
 | `LLR-FTS-01` | `walk_filesystem` | `HLR-004` | `the_walk_descends_into_subdirectories` |
 | `LLR-FTS-02` | `walk_filesystem` | `HLR-005` | `hidden_entries_and_binary_extensions_are_excluded` |
@@ -881,7 +914,7 @@ verified by code review — see
 | `LLR-RPT-13` | `report_assemble` | `HLR-006` | **(no direct test)** |
 | `LLR-RPT-14` | `report_assemble` | `HLR-109` | **(no direct test)** |
 | `LLR-RPT-15` | `report_assemble` | `HLR-080`, `HLR-082`, `HLR-085`, `HLR-031` | **(no direct test)** |
-| `LLR-RPT-17` | `report_assemble` | `HLR-127` | **(no direct test)** |
+| `LLR-RPT-17` | `report_assemble` | `HLR-033`, `HLR-127` | **(no direct test)** |
 | `LLR-RPT-18` | `report_assemble` | `HLR-124`, `HLR-125` | `assembly_leaves_the_accumulator_empty` |
 | `LLR-RPT-19` | `report_assemble` | `HLR-025`, `HLR-033` | **(no direct test)** |
 | `LLR-RPT-20` | `report_assemble` | `HLR-021`, `HLR-023` | **(no direct test)** |
@@ -903,6 +936,7 @@ verified by code review — see
 | `LLR-XWR-02` | `xml_write_report` | `HLR-054` | **(no direct test)** |
 | `LLR-XWR-03` | `xml_write_report` | `HLR-061` | `the_record_carries_its_format_version` |
 | `LLR-XWR-05` | `xml_write_report` | `HLR-061`, `HLR-054` | **(no direct test)** |
+| `LLR-XWR-06` | `xml_write_report` | `HLR-054`, `HLR-056`, `HLR-127` | **(no direct test)** |
 | `LLR-XWR-04` | `xml_write_report` | `HLR-065` | `the_record_carries_its_format_version`, `an_empty_report_is_still_a_complete_record`, `a_write_failure_is_reported` |
 | `LLR-ESC-01` | `write_escaped` | `HLR-065` | `an_ampersand_is_escaped`, `angle_brackets_are_escaped`, `quotation_marks_are_escaped`, `an_ampersand_in_an_entity_is_escaped_once`, `ordinary_text_is_unchanged`, `escaping_null_emits_nothing` |
 | `LLR-ESC-02` | `write_escaped` | `HLR-065` | **(no direct test)** |
@@ -913,6 +947,7 @@ verified by code review — see
 | `LLR-XRD-05` | `xml_read_report` | `HLR-058`, `HLR-061` | `an_unsupported_format_version_is_rejected` |
 | `LLR-XRD-09` | `xml_read_report` | `HLR-056`, `HLR-032` | `the_model_is_reconstructed_from_the_record` |
 | `LLR-XRD-10` | `xml_read_report` | `HLR-058` | **(no direct test)** |
+| `LLR-XRD-12` | `xml_read_report` | `HLR-055`, `HLR-056`, `HLR-127` | **(no direct test)** |
 | `LLR-XRD-06` | `xml_read_report` | `HLR-058` | `well_formed_but_foreign_input_is_rejected`, `a_truncated_record_is_rejected` |
 | `LLR-XRD-07` | `xml_read_report` | `HLR-057` | `the_threshold_supplied_now_is_the_one_applied` |
 | `LLR-XRD-08` | `xml_read_report` | `HLR-056` | **(no direct test)** |
@@ -971,6 +1006,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `rules/` | [test/fixtures/rules/](../test/fixtures/rules/) | A valid rule file with several named captures, supplied both from the runtime location and from the command line; a rule naming a language with no module | Each match reported with its identity as basename plus capture name, and the file and line range | HLR-107 – HLR-111 |
 | `repo/` | [test/fixtures/repo/](../test/fixtures/repo/) | A repository constructed in `$BATS_TEST_TMPDIR` by `git init` with pinned identity, holding ignored, untracked, and binary files | The tracked, non-binary subset | HLR-002, HLR-003, HLR-006 |
 | `traversal/` | [test/fixtures/traversal/](../test/fixtures/traversal/) | Hidden files and hidden directories; binary extensions; a self-referential directory symlink; a symlink to a file inside the tree; a symlink named directly as a target; overlapping targets naming one file twice | The analysed file set, each file exactly once | HLR-004, HLR-005, HLR-043, HLR-069, HLR-071, HLR-072 |
+| `repo/` | [test/fixtures/repo/](../test/fixtures/repo/) | A repository built into the test's own temporary directory, holding tracked source, an untracked file, a gitignored build directory, a tracked blob with binary content, a tracked file with an excluded extension, and tracked hidden entries; a subdirectory target; a repository with no commits; targets an enclosing repository does not track | The analysed file set and the route reported for each target; the scoped totals; the same file set by either route | HLR-002, HLR-003, HLR-004, HLR-005, HLR-033, HLR-055, HLR-056, HLR-126, HLR-127 |
 | `runtime/` | [test/fixtures/runtime/](../test/fixtures/runtime/) | An absent runtime directory; one with no valid module; a module missing its entry point; a module with an unparseable query; an invalid custom rule, both CLI-named and runtime-located | Expected diagnostic text and exit status per case | HLR-036, HLR-059, HLR-070, HLR-116, HLR-120 |
 | `escaping/` | [test/fixtures/escaping/](../test/fixtures/escaping/) | Identifiers containing commas, quotes, ampersands, and angle brackets — C++ template signatures being the natural source | CSV parsed back to the original field count; XML and GraphML parsed without error | HLR-064, HLR-065 |
 | `determinism/` | [test/fixtures/determinism/](../test/fixtures/determinism/) | A tree analysed twice; reached via differing target order; with decoy `.elcrc` and dotfiles planted in the working directory, the target, and an ancestor | Byte-identical output in every case | HLR-032, HLR-033, HLR-039 |
