@@ -491,6 +491,15 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-47"></a>**LLR-ANL-47** — `analyze_file` shall ignore a directive, which carries information rather than filtering, and shall discard the match on encountering a filtering predicate it does not implement. A filter the build cannot apply is a condition the query author wrote and this build cannot honour; accepting the match would apply that condition's inverse, and under-reporting is the direction every capture in the contract errs in.
     *Trace:* HLR-121 (Language Module Interface Is a Stable Contract), HLR-138.
 
+*   <a id="LLR-ANL-48"></a>**LLR-ANL-48** — `analyze_file` shall analyse a file whose syntax tree contains error nodes from the parts the grammar could follow, rather than discarding it, and shall record the number of distinct lines the error regions span. Two unparsable constructs on one line are one line, by the rule the comment exclusion already counts by.
+    *Trace:* HLR-035 (Per-File Read- and Parse-Failure Tolerance), HLR-016.
+
+*   <a id="LLR-ANL-49"></a>**LLR-ANL-49** — `analyze_file` shall report a partly unparsed file as an outcome distinct from both a clean analysis and a failure, so that its metrics are used and the run is still counted as degraded. A file measured around damage is not a clean run — something in it went unanalysed — and an exit status saying otherwise would not be truthful.
+    *Trace:* HLR-035 (Per-File Read- and Parse-Failure Tolerance), HLR-037 (Truthful Exit Status).
+
+*   <a id="LLR-ANL-50"></a>**LLR-ANL-50** — The diagnostic for a partly unparsed file shall state the line the damage begins at, how many lines it spans, and that the remainder was measured. The scale is the whole of what a reader needs in order to decide whether to trust the figures, and a message saying only that something failed withholds it.
+    *Trace:* HLR-035 (Per-File Read- and Parse-Failure Tolerance), HLR-038.
+
 *   <a id="LLR-ANL-34"></a>**LLR-ANL-34** — `analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -905,6 +914,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-RPT-27"></a>**LLR-RPT-27** — `report_assemble` shall carry the definitions in force and the count of undecided regions into the report model, ordered by symbol name, so that every format states the configuration the figures describe.
     *Trace:* HLR-136, HLR-133, HLR-033.
+
+*   <a id="LLR-RPT-30"></a>**LLR-RPT-30** — The report shall carry each file's unparsed-line count, shall total it across the project in the summary, and shall list the partly parsed files in a section of their own. The total sits beside the figures it qualifies rather than below them, because a reader comparing an ELOC against a line count of their own must know of the shortfall before they start looking for its cause; and the per-file list is a section rather than a column because the count is zero for almost every file in almost every project, and a column of zeros hides the rows that matter.
+    *Trace:* HLR-035 (Per-File Read- and Parse-Failure Tolerance), HLR-031, HLR-054.
 
 *   <a id="LLR-RPT-28"></a>**LLR-RPT-28** — The report shall resolve a dead-code span to its enclosing function by containment over the assembled model, rather than by the index the parse recorded. The index is into the array the parse produced, and that array has since been ordered for presentation; reading the index would name the right function only for as long as the two orders happened to agree. The rule applied is the one the parse applied — the narrowest reported function containing the span.
     *Trace:* HLR-137 (Intra-Procedural Dead Code Detection), HLR-068, HLR-032.

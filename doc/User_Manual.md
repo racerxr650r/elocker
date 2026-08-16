@@ -1318,6 +1318,25 @@ continues and exits 1.
 was found but its modules are not loading. The first diagnostic names the
 language and the reason.
 
+**`elc: <file>:<line>: N lines could not be parsed; the rest of the file is
+measured`, exit 1** — the grammar could not follow something at that line.
+`elc` runs no preprocessor, so a macro that expands to something syntactically
+significant is the usual cause. The file is still measured: only those N lines
+are missing, they are listed under **Partially parsed files**, and the project
+total appears as **Unparsed lines** in the summary.
+
+The commonest case in embedded C is a run of macros standing in for string
+literals:
+
+```c
+printf(BOLD FG_BLUE "%-16s", name);   /* two macros before the first string */
+```
+
+`tree-sitter-c` accepts one identifier before the first string literal of a
+concatenation but not two, so this does not parse — though `printf(BOLD "%s"
+FG_BLUE)` does. It is a limitation of the grammar rather than of your code,
+which the compiler accepts happily. Nothing is lost but those lines.
+
 **`elc: <path>: No such file or directory` naming a runtime directory, exit
 2** — `ELC_RUNTIME_DIR` points somewhere that is not there. The path is
 reported exactly as you gave it.
@@ -1330,6 +1349,45 @@ the variable:
 ```sh
 ELC_RUNTIME_DIR=/path/to/runtime elc src/
 ```
+
+## When the parser cannot follow your code
+
+`elc` parses source as written and runs no preprocessor (that is deliberate —
+see below). A grammar occasionally meets something it cannot follow, and when
+that happens **only the lines it could not read are lost**:
+
+```text
+Project summary
+  Physical lines  5151
+  ELOC            1006
+  Unparsed lines    35
+
+Partially parsed files (measured except for these lines)
+  File                Unparsed lines
+  ------------------  --------------
+  drv/mem.c                       13
+  drv/uart.c                       5
+```
+
+Every function around the damage is measured normally and appears in the usual
+tables. The count is what tells you how far to trust the figures: 35 unparsed
+lines in 5151 is noise, and 35 in 60 is not.
+
+**Why not simply reject the file?** `elc` used to, and it was badly wrong. A
+single unparsable macro damages one line; discarding its file cost every metric
+in it. On one embedded project that turned 0.1%–1.4% damage per file into the
+loss of half the codebase and 137 correctly parsed functions. Parsing a
+language without compiling it means grammar gaps are permanent, so tolerating
+one locally is the general defence rather than a patch for one grammar.
+
+There is a limit worth knowing. An **unbalanced delimiter** — a stray `(` or
+`{` — leaves the parser nothing to resynchronise on, so everything after it
+counts as damaged. That is not silent: the line count covers what was
+swallowed, so a large figure beside a small file is telling you the metrics are
+thin.
+
+The run's exit status is 1 whenever any file was partly unparsed, because
+something in it went unanalysed.
 
 ## Getting more detail
 

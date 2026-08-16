@@ -573,6 +573,19 @@ exit status, never a reason to withhold the report itself.
 .BR \-h ", " \-\-help
 Display a usage summary on standard output and exit successfully. Requesting
 help is not an error, so the exit status is 0 rather than a failure code.
+.SS Partly unparsable files
+.B elc
+parses source as written and runs no preprocessor, so a grammar occasionally
+meets a construct it cannot follow \(em a macro standing in for a string
+literal is the usual cause in embedded C. Only the lines it could not read are
+lost. The file is measured from the parts the grammar understood, the lines it
+could not are counted, and the figure is reported per file and in the project
+summary, so a partial measurement is never mistaken for a complete one.
+.PP
+An unbalanced delimiter is the limit of that recovery: it leaves the parser
+nothing to resynchronise on, so everything after it counts as damaged. The line
+count covers what was lost, so the scale remains visible. Any file partly
+unparsed makes the exit status 1.
 .SH EXIT STATUS
 The three classes are distinct so that a caller can tell a degraded run from a
 run that never happened. No finding severity ever contributes to the exit

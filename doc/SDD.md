@@ -451,6 +451,7 @@ Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage`
 *   Attribute each statement and decision point to its innermost enclosing reported function.
 *   Emit `FileFacts` — the call sites, global accesses, and address-taken functions — for later cross-file resolution.
 *   Record the statements within each function that cannot execute, and whether the language supplied the data needed to look (HLR-137, HLR-139).
+*   Measure a file the parser only partly understood from the parts it did, and record how many lines it did not, so that a grammar gap costs the lines it touches and not the file (HLR-035).
 *   Evaluate custom rule queries and record their matches.
 
 ### 7.2 External Interfaces
@@ -543,7 +544,13 @@ The `1 +` base is added in C and not in the query, so that a query capturing the
 ### 7.5 Error Handling and Logging
 
 *   **File unreadable or undecodable** Diagnostic to `stderr` naming the file; return non-zero; the run continues (HLR-035).
-*   **Parse produces an error tree** Tree-sitter always returns a tree, so this means the root reports an ERROR node. `elc` treats **any** error node as a whole-file parse failure: diagnostic, skip, continue. This is deliberately conservative — one syntax error discards a large file — because partial metrics from a damaged tree would be indistinguishable from sound ones once rendered, and a silently undercounted file is worse than a visibly skipped one. If experience shows this to be too blunt, the tolerance belongs in this one place.
+*   **Parse produces an error tree** Tree-sitter always returns a tree, and its error recovery keeps the well-formed parts of a damaged one intact. The error regions are measured in lines and set aside; everything around them is analysed normally, and the line count travels with the file so the report can qualify its figures.
+
+    **This discarded the whole file until experience showed it too blunt**, which this section had anticipated as the one place the tolerance would be relaxed. The cost was not marginal: a single macro-built `printf` the C grammar cannot follow damages one line, and the rule discarded every metric in the file around it. Measured across one embedded project, 0.1%–1.4% damage per file cost half the codebase.
+
+    The objection that motivated discarding — that partial metrics are indistinguishable from sound ones once rendered — is answered rather than abandoned. It is met by making them distinguishable, in the way the call depth is presented beside its unresolved-call count.
+
+    Recovery has a limit worth stating: an unbalanced delimiter leaves the parser nothing to resynchronise on, so everything after it is one damaged region. That is not a silent loss — the line count covers what was swallowed, so a reader sees the scale.
 *   **Zero-length file** Not an error. Reported with zero ELOC and no functions (HLR-020).
 
 ## 8. Detailed Design for [src/graph.c](../src/graph.c)
@@ -1106,6 +1113,7 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `path` | `char *` | Canonical absolute path |
 | `language` | `const char *` | Borrowed from the language module |
 | `physical_lines` | `uint32_t` | Newline count from the mapping |
+| `unparsed_lines` | `uint32_t` | Distinct lines the grammar could not follow; non-zero means every other figure covers the rest of the file and not this part (HLR-035) |
 | `eloc` | `uint32_t` | File-level ELOC including code outside any function |
 | `functions` | `FunctionMetric *` | Dynamic array, grown by doubling |
 | `function_count` | `size_t` | Populated entries |

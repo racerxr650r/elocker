@@ -273,19 +273,136 @@ Test(analyze, an_unreadable_file_is_a_failure_without_metrics)
 
 /* Verifies LLR-ANL-01: a file whose tree contains an error node is skipped
  * whole, rather than reported from a partially valid tree. */
-Test(analyze, a_file_that_fails_to_parse_is_a_failure)
+Test(analyze, a_partly_unparsable_file_is_measured_around_the_damage)
 {
 	Registry     reg;
 	FileMetrics *m = NULL;
 
+	/* This used to discard the file whole. One construct the grammar
+	 * cannot follow must not cost every metric around it: on real embedded
+	 * code a single macro-built printf damaged under 1% of a file and lost
+	 * all of it (HLR-035). */
 	registry_for_tests(&reg);
 	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int fine(void) { return 0; }\n"
-		"this is not C at all ((( \n"), &m), ANALYZE_FAILED,
-		"metrics from a damaged tree are indistinguishable from sound "
-		"ones once rendered (HLR-035)");
-	cr_assert_null(m);
+		"@@@ ###\n"
+		"int also_fine(void) { return 1; }\n"), &m), ANALYZE_DAMAGED);
+	cr_assert_not_null(m);
 
+	/* Both sound functions measured — the one *after* the damage
+	 * especially, since recovering only what precedes it would leave the
+	 * back of every damaged file unmeasured. */
+	cr_assert_not_null(function_named(m, "fine"));
+	cr_assert_not_null(function_named(m, "also_fine"));
+	cr_assert_eq(m->unparsed_lines, 1);
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+Test(analyze, damage_that_swallows_the_rest_of_a_file_is_counted_as_such)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	/* Recovery is not magic, and this is where it stops: an unbalanced
+	 * delimiter leaves the parser no way to resynchronise, so everything
+	 * after it is part of one damaged region.
+	 *
+	 * The property under test is not that the trailing function survives —
+	 * it cannot — but that the line count **covers what was lost**. A
+	 * reader seeing three unparsed lines in a four-line file knows not to
+	 * trust the function count; one seeing "1 line" while a function
+	 * vanished would have been misled, which is the failure the old
+	 * discard-everything policy was guarding against (HLR-035). */
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
+		"int fine(void) { return 0; }\n"
+		"this is not C at all ((( \n"
+		"int lost(void) { return 1; }\n"), &m), ANALYZE_DAMAGED);
+
+	cr_assert_not_null(function_named(m, "fine"));
+	cr_assert_null(function_named(m, "lost"),
+	               "an unbalanced delimiter genuinely destroys what follows");
+	cr_assert_eq(m->unparsed_lines, 2,
+	             "and the damage count covers the lines it destroyed");
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+Test(analyze, a_damaged_file_is_a_degraded_outcome_not_a_clean_one)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	/* Distinct from ANALYZE_OK so the caller counts it against the exit
+	 * status: something in the file went unanalysed, and a run that says
+	 * otherwise is not truthful (HLR-037). */
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
+		"int fine(void) { return 0; }\n"
+		"((( \n"), &m), ANALYZE_DAMAGED);
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+Test(analyze, a_sound_file_reports_no_damage)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	/* The other half of the pair: without it, an implementation reporting
+	 * damage everywhere would pass the tests above. */
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
+		"int fine(void) { return 0; }\n"), &m), ANALYZE_OK);
+	cr_assert_eq(m->unparsed_lines, 0);
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+Test(analyze, damage_is_counted_in_distinct_lines)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	/* Two unparsable constructs on one line are one line a reader has to
+	 * look at, for the reason two comments on one line are one commented
+	 * line (HLR-016's counting rule, applied to a different set). */
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
+		"int fine(void) { return 0; }\n"
+		"((( )))\n"), &m), ANALYZE_DAMAGED);
+	cr_assert_eq(m->unparsed_lines, 1);
+
+	filemetrics_free(m);
+	registry_close(&reg);
+}
+
+Test(analyze, the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable)
+{
+	Registry     reg;
+	FileMetrics *m = NULL;
+
+	/* The exact idiom that prompted this: `tree-sitter-c` accepts one
+	 * identifier before the first string literal of a concatenation and
+	 * not two, so the ANSI-colour macro convention common in embedded C
+	 * does not parse. The function around it must still be measured. */
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
+		"int before(void) { return 0; }\n"
+		"void middle(void) { printf(BOLD FG_BLUE \"%s\", x); }\n"
+		"int after(void) { return 1; }\n"), &m), ANALYZE_DAMAGED);
+
+	cr_assert_not_null(function_named(m, "before"));
+	cr_assert_not_null(function_named(m, "after"));
+	cr_assert_eq(m->unparsed_lines, 1,
+	             "one line of damage, not the whole file");
+
+	filemetrics_free(m);
 	registry_close(&reg);
 }
 

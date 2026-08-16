@@ -380,6 +380,7 @@ It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Alloca
         <responsibility><![CDATA[Attribute each statement and decision point to its innermost enclosing reported function.]]></responsibility>
         <responsibility><![CDATA[Emit `FileFacts` — the call sites, global accesses, and address-taken functions — for later cross-file resolution.]]></responsibility>
         <responsibility><![CDATA[Record the statements within each function that cannot execute, and whether the language supplied the data needed to look (HLR-137, HLR-139).]]></responsibility>
+        <responsibility><![CDATA[Measure a file the parser only partly understood from the parts it did, and record how many lines it did not, so that a grammar gap costs the lines it touches and not the file (HLR-035).]]></responsibility>
         <responsibility><![CDATA[Evaluate custom rule queries and record their matches.]]></responsibility>
         <interfaces>
           <interface title="Query Capture Contract"><![CDATA[The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A pattern may also carry **predicates**, and this module evaluates them: the parser library returns a predicate as data rather than applying it, so a stage that never asks accepts every match as though none were written. Five filters are honoured — equality, inequality, membership, and match and its negation against a POSIX extended regular expression — each comparing the text a capture spans against a string the query file wrote. A directive, which carries information rather than filtering, is ignored; a filter this build does not implement discards the match. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).]]></interface>
@@ -459,7 +460,13 @@ The `1 +` base is added in C and not in the query, so that a query capturing the
         </dependencies>
         <error_handling>
           <case name="File unreadable or undecodable"><![CDATA[Diagnostic to `stderr` naming the file; return non-zero; the run continues (HLR-035).]]></case>
-          <case name="Parse produces an error tree"><![CDATA[Tree-sitter always returns a tree, so this means the root reports an ERROR node. `elc` treats **any** error node as a whole-file parse failure: diagnostic, skip, continue. This is deliberately conservative — one syntax error discards a large file — because partial metrics from a damaged tree would be indistinguishable from sound ones once rendered, and a silently undercounted file is worse than a visibly skipped one. If experience shows this to be too blunt, the tolerance belongs in this one place.]]></case>
+          <case name="Parse produces an error tree"><![CDATA[Tree-sitter always returns a tree, and its error recovery keeps the well-formed parts of a damaged one intact. The error regions are measured in lines and set aside; everything around them is analysed normally, and the line count travels with the file so the report can qualify its figures.
+
+**This discarded the whole file until experience showed it too blunt**, which this section had anticipated as the one place the tolerance would be relaxed. The cost was not marginal: a single macro-built `printf` the C grammar cannot follow damages one line, and the rule discarded every metric in the file around it. Measured across one embedded project, 0.1%–1.4% damage per file cost half the codebase.
+
+The objection that motivated discarding — that partial metrics are indistinguishable from sound ones once rendered — is answered rather than abandoned. It is met by making them distinguishable, in the way the call depth is presented beside its unresolved-call count.
+
+Recovery has a limit worth stating: an unbalanced delimiter leaves the parser nothing to resynchronise on, so everything after it is one damaged region. That is not a silent loss — the line count covers what was swallowed, so a reader sees the scale.]]></case>
           <case name="Zero-length file"><![CDATA[Not an error. Reported with zero ELOC and no functions (HLR-020).]]></case>
         </error_handling>
       </module>
@@ -908,6 +915,7 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="path" type="char *" desc="Canonical absolute path"/>
         <field name="language" type="const char *" desc="Borrowed from the language module"/>
         <field name="physical_lines" type="uint32_t" desc="Newline count from the mapping"/>
+        <field name="unparsed_lines" type="uint32_t" desc="Distinct lines the grammar could not follow; non-zero means every other figure covers the rest of the file and not this part (HLR-035)"/>
         <field name="eloc" type="uint32_t" desc="File-level ELOC including code outside any function"/>
         <field name="functions" type="FunctionMetric *" desc="Dynamic array, grown by doubling"/>
         <field name="function_count" type="size_t" desc="Populated entries"/>
@@ -1805,7 +1813,11 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
       <intro><![CDATA[Requirements governing how `elc` responds to failures and what its process exit status communicates (PVD §6 Principle 6).]]></intro>
 
       <hlr id="HLR-035" name="Per-File Read- and Parse-Failure Tolerance">
-        <text><![CDATA[A file that cannot be read — for example because permission is denied or its contents cannot be decoded — or that fails to parse, shall not abort the run; `elc` shall emit a diagnostic identifying that file to standard error and shall continue processing the remaining files in the target. A file shall be deemed to have failed to parse when its syntax tree contains any error node, and the whole file shall then be skipped rather than reported from a partially valid tree, since metrics derived from a damaged tree are indistinguishable from sound ones once rendered.]]></text>
+        <text><![CDATA[A file that cannot be read — for example because permission is denied or its contents cannot be decoded — or that cannot be parsed in whole or in part, shall not abort the run; `elc` shall emit a diagnostic identifying that file to standard error and shall continue processing the remaining files in the target.
+
+Where a syntax tree contains error nodes, `elc` shall measure the file from the parts the grammar could follow, shall record how many lines it could not, and shall report that figure beside the measurements it qualifies. A file wholly unreadable yields no metrics; a file the parser recovered from yields the metrics of its sound parts.
+
+**This requirement previously discarded any file containing an error node**, on the grounds that metrics from a damaged tree are indistinguishable from sound ones once rendered. That objection is sound and is met by reporting the damage rather than by discarding the file. Discarding proved wrong by two orders of magnitude: a single construct a grammar cannot follow damages a fraction of a percent of a file, and on real embedded code the rule turned 0.1%–1.4% damage into the loss of half a project's metrics and 137 correctly parsed functions. A grammar gap is a permanent condition of parsing a language without compiling it, so tolerating one locally is the general defence rather than a concession to one grammar's shortcomings.]]></text>
       <traces>
         <trace target="SDD" ref="3"/>
         <trace target="SDD" ref="5"/>
@@ -3573,7 +3585,28 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-138"/>
         </traces>
       </llr>
-      <llr id="LLR-ANL-34">
+            <llr id="LLR-ANL-48">
+        <text><![CDATA[`analyze_file` shall analyse a file whose syntax tree contains error nodes from the parts the grammar could follow, rather than discarding it, and shall record the number of distinct lines the error regions span. Two unparsable constructs on one line are one line, by the rule the comment exclusion already counts by.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-035" name="Per-File Read- and Parse-Failure Tolerance"/>
+          <trace target="HLR" ref="HLR-016"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-49">
+        <text><![CDATA[`analyze_file` shall report a partly unparsed file as an outcome distinct from both a clean analysis and a failure, so that its metrics are used and the run is still counted as degraded. A file measured around damage is not a clean run — something in it went unanalysed — and an exit status saying otherwise would not be truthful.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-035" name="Per-File Read- and Parse-Failure Tolerance"/>
+          <trace target="HLR" ref="HLR-037" name="Truthful Exit Status"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-50">
+        <text><![CDATA[The diagnostic for a partly unparsed file shall state the line the damage begins at, how many lines it spans, and that the remainder was measured. The scale is the whole of what a reader needs in order to decide whether to trust the figures, and a message saying only that something failed withholds it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-035" name="Per-File Read- and Parse-Failure Tolerance"/>
+          <trace target="HLR" ref="HLR-038"/>
+        </traces>
+      </llr>
+<llr id="LLR-ANL-34">
         <text><![CDATA[`analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-124" name="Memory Safety"/>
@@ -4478,7 +4511,15 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-033"/>
         </traces>
       </llr>
-      <llr id="LLR-RPT-28">
+            <llr id="LLR-RPT-30">
+        <text><![CDATA[The report shall carry each file's unparsed-line count, shall total it across the project in the summary, and shall list the partly parsed files in a section of their own. The total sits beside the figures it qualifies rather than below them, because a reader comparing an ELOC against a line count of their own must know of the shortfall before they start looking for its cause; and the per-file list is a section rather than a column because the count is zero for almost every file in almost every project, and a column of zeros hides the rows that matter.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-035" name="Per-File Read- and Parse-Failure Tolerance"/>
+          <trace target="HLR" ref="HLR-031"/>
+          <trace target="HLR" ref="HLR-054"/>
+        </traces>
+      </llr>
+<llr id="LLR-RPT-28">
         <text><![CDATA[The report shall resolve a dead-code span to its enclosing function by containment over the assembled model, rather than by the index the parse recorded. The index is into the array the parse produced, and that array has since been ordered for presentation; reading the index would name the right function only for as long as the two orders happened to agree. The rule applied is the one the parse applied — the narrowest reported function containing the span.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
@@ -5422,7 +5463,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/unit/analyze.c" role="unit" count="41">
+  <file path="test/unit/analyze.c" role="unit" count="46">
     <test name="physical_lines_are_counted">
       <purpose><![CDATA[The physical line count comes from the mapped contents.]]></purpose>
       <traces>
@@ -5479,13 +5520,7 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="LLR" ref="LLR-ANL-07"/>
       </traces>
     </test>
-    <test name="a_file_that_fails_to_parse_is_a_failure">
-      <purpose><![CDATA[A file whose tree contains an error node is skipped whole and reported as a failure, rather than reported from a partially valid tree.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-ANL-01"/>
-      </traces>
-    </test>
-    <test name="an_unmapped_extension_is_a_skip_not_a_failure">
+        <test name="an_unmapped_extension_is_a_skip_not_a_failure">
       <purpose><![CDATA[A file whose extension maps to no language is a skip, a distinct outcome from a failure, so the exit status stays 0.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-37"/>
@@ -5682,6 +5717,49 @@ Note on the division of labour, which determines where a failure lives: the requ
       <traces>
         <trace target="LLR" ref="LLR-DED-05"/>
         <trace target="HLR" ref="HLR-139"/>
+      </traces>
+    </test>
+    <test name="a_partly_unparsable_file_is_measured_around_the_damage">
+      <purpose><![CDATA[A file with a recoverable error yields the metrics of its sound parts, including the function *after* the damaged region — recovering only what precedes it would leave the back of every damaged file unmeasured.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-48"/>
+        <trace target="LLR" ref="LLR-ANL-01"/>
+        <trace target="HLR" ref="HLR-035"/>
+      </traces>
+    </test>
+    <test name="damage_that_swallows_the_rest_of_a_file_is_counted_as_such">
+      <purpose><![CDATA[An unbalanced delimiter leaves the parser nothing to resynchronise on, so what follows is genuinely lost. The property under test is that the reported line count covers what was destroyed, so the reader is not misled about the function count.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-48"/>
+        <trace target="HLR" ref="HLR-035"/>
+      </traces>
+    </test>
+    <test name="a_damaged_file_is_a_degraded_outcome_not_a_clean_one">
+      <purpose><![CDATA[A partly unparsed file is an outcome distinct from a clean analysis, so its metrics are used and the run is still counted against the exit status.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-49"/>
+        <trace target="HLR" ref="HLR-037"/>
+      </traces>
+    </test>
+    <test name="a_sound_file_reports_no_damage">
+      <purpose><![CDATA[Paired with the tests above so that an implementation reporting damage everywhere cannot pass them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-48"/>
+        <trace target="HLR" ref="HLR-035"/>
+      </traces>
+    </test>
+    <test name="damage_is_counted_in_distinct_lines">
+      <purpose><![CDATA[Two unparsable constructs on one line are one line, by the rule the comment exclusion already counts by.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-48"/>
+        <trace target="HLR" ref="HLR-016"/>
+      </traces>
+    </test>
+    <test name="the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable">
+      <purpose><![CDATA[The exact idiom that prompted the change: tree-sitter-c accepts one identifier before the first string literal of a concatenation and not two, so the ANSI-colour macro convention common in embedded C does not parse. One line of damage, and the functions around it measured.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-48"/>
+        <trace target="HLR" ref="HLR-035"/>
       </traces>
     </test>
 </file>
@@ -6757,7 +6835,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/integration/language.bats" role="integration" count="27">
+  <file path="test/integration/language.bats" role="integration" count="30">
     <test name="HLR-007: the language is determined from the extension, unprompted">
       <purpose><![CDATA[A file's language is detected from its extension with no user declaration, and is shown in the report.]]></purpose>
       <traces>
@@ -6842,13 +6920,7 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-038"/>
       </traces>
     </test>
-    <test name="HLR-035: a file with a syntax error is skipped whole, not partially reported">
-      <purpose><![CDATA[A file carrying an error node is discarded entirely rather than reported from the sound part of its tree, since metrics from a damaged tree are indistinguishable from sound ones once rendered.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-035"/>
-      </traces>
-    </test>
-    <test name="HLR-019: each file reports its own line and function counts">
+        <test name="HLR-019: each file reports its own line and function counts">
       <purpose><![CDATA[Each file's row carries its own physical line count and the number of functions it defines.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-019"/>
@@ -6931,7 +7003,35 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-011"/>
       </traces>
     </test>
-  </file>
+      <test name="HLR-035: a file with a syntax error is measured around it">
+      <purpose><![CDATA[The report covers the functions the grammar could follow in a damaged file. This asserted the opposite until a real project showed that the discard-everything rule cost half its metrics.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-48"/>
+        <trace target="HLR" ref="HLR-035"/>
+      </traces>
+    </test>
+    <test name="HLR-035: the damage is reported beside the figures it qualifies">
+      <purpose><![CDATA[The safety property that makes measuring a damaged file acceptable: the file is named in a section of its own and the unparsed total appears in the summary, so a partial measurement never reads as a complete one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-30"/>
+        <trace target="HLR" ref="HLR-035"/>
+      </traces>
+    </test>
+    <test name="HLR-035: an undamaged run says so, with nothing in the section">
+      <purpose><![CDATA[The summary reports zero unparsed lines and the section is empty for a sound run, so the damage reporting has to be earned.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-30"/>
+        <trace target="HLR" ref="HLR-031"/>
+      </traces>
+    </test>
+    <test name="HLR-035: the diagnostic gives the line, the scale, and what was kept">
+      <purpose><![CDATA[The stderr diagnostic names the line the damage begins at, how many lines it spans, and that the remainder was measured. "Parse error; file skipped" withheld the scale, which on a file damaged in one line reads far worse than it is.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-50"/>
+        <trace target="HLR" ref="HLR-035"/>
+      </traces>
+    </test>
+</file>
 
   <file path="test/integration/complexity.bats" role="integration" count="13">
     <test name="HLR-017: complexity is reported per function">
