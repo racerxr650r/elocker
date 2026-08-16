@@ -21,7 +21,12 @@
 enum {
 	ANALYZE_OK      = 0,
 	ANALYZE_FAILED  = 1,
-	ANALYZE_SKIPPED = 2
+	ANALYZE_SKIPPED = 2,
+	/* Metrics were produced, and part of the file could not be parsed.
+	 * The caller uses the metrics *and* counts the outcome against the
+	 * exit status: something in the file went unanalysed, which is a
+	 * degraded run rather than a clean one (HLR-035, HLR-037). */
+	ANALYZE_DAMAGED = 3
 };
 
 /* Analyse one file.

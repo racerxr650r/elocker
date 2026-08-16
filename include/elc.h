@@ -185,6 +185,11 @@ typedef struct {
 	                                 * no module exists — releases it the
 	                                 * same way                          */
 	uint32_t        physical_lines; /* newline count from the mapping    */
+	/* Lines the grammar could not follow, counted distinctly. Non-zero
+	 * means every figure below covers the rest of the file and not this
+	 * part of it — carried so that a partial measurement can never be
+	 * mistaken for a complete one (HLR-035). */
+	uint32_t        unparsed_lines;
 	uint32_t        eloc;           /* file-level ELOC, including code
 	                                 * outside any function (HLR-019)    */
 	FunctionMetric *functions;      /* dynamic array, grown by doubling  */

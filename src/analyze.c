@@ -15,6 +15,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <regex.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -234,6 +235,80 @@ const FnRange *innermost_enclosing(const FnRangeIndex *index, uint32_t byte)
 	}
 
 	return best;
+}
+
+/* ------------------------------------------------------- parse damage --
+ *
+ * How much of a file the grammar could not follow, in lines.
+ *
+ * Lines rather than bytes or node counts, because every other figure in the
+ * report is a line count and the reader's question is "how much of this file
+ * did you not see". A region spanning four lines is four lines whether the
+ * parser produced one error node for it or three.
+ */
+
+/* Add an error node's extent to the running total, without descending into it:
+ * whatever the parser built inside a region it could not follow is not a
+ * second, separate piece of damage. */
+static void tally_errors(TSNode node, uint32_t *first_line, uint32_t *last_line,
+                         uint32_t *lines)
+{
+	if (ts_node_is_error(node) || ts_node_is_missing(node)) {
+		uint32_t from = ts_node_start_point(node).row + 1;
+		uint32_t to   = ts_node_end_point(node).row + 1;
+
+		/* Counted as *distinct* lines, for the reason the comment
+		 * exclusion counts distinct lines: two errors on one line are
+		 * one line a reader has to look at, and error regions arrive in
+		 * document order so remembering the last one covered is
+		 * enough. */
+		if (*last_line && from <= *last_line)
+			from = *last_line + 1;
+		if (to >= from)
+			*lines += to - from + 1;
+		if (to > *last_line)
+			*last_line = to;
+		if (!*first_line)
+			*first_line = ts_node_start_point(node).row + 1;
+		return;
+	}
+
+	/* `has_error` is true for every ancestor of an error, so descending
+	 * only where it holds walks straight to the damage and skips the
+	 * sound majority of the tree. */
+	if (!ts_node_has_error(node))
+		return;
+
+	for (uint32_t i = 0; i < ts_node_child_count(node); i++)
+		tally_errors(ts_node_child(node, i), first_line, last_line, lines);
+}
+
+static uint32_t count_unparsed_lines(TSNode root)
+{
+	uint32_t first = 0;
+	uint32_t last  = 0;
+	uint32_t lines = 0;
+
+	if (!ts_node_has_error(root))
+		return 0;
+
+	tally_errors(root, &first, &last, &lines);
+	return lines;
+}
+
+/* The line the first unparsed region starts on, for the diagnostic: a reader
+ * told a file is partly unparsed wants somewhere to look. */
+static uint32_t first_unparsed_line(TSNode root)
+{
+	uint32_t first = 0;
+	uint32_t last  = 0;
+	uint32_t lines = 0;
+
+	if (!ts_node_has_error(root))
+		return 0;
+
+	tally_errors(root, &first, &last, &lines);
+	return first;
 }
 
 /* Count the lines in a mapping.
@@ -1314,15 +1389,37 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out,
 
 	TSNode root = ts_tree_root_node(tree);
 
-	/* Tree-sitter always returns a tree, so a parse failure means the root
-	 * reports an error node. Any error node skips the whole file: metrics
-	 * from a damaged tree are indistinguishable from sound ones once
-	 * rendered, and a silently undercounted file is worse than a visibly
-	 * skipped one (HLR-035). This is the single place that tolerance would
-	 * be relaxed, if experience shows it too blunt. */
-	if (ts_node_has_error(root)) {
-		fprintf(stderr, "elc: %s: parse error; file skipped\n", path);
-		goto cleanup;
+	/* Tree-sitter always returns a tree, and error recovery keeps the
+	 * well-formed parts of a damaged one intact. What cannot be parsed is
+	 * measured and set aside; everything around it is analysed normally
+	 * (HLR-035).
+	 *
+	 * **This used to discard the whole file, and that was too blunt by two
+	 * orders of magnitude.** A single macro the grammar cannot follow — the
+	 * `printf(BOLD FG_BLUE "%s")` idiom is one, since `tree-sitter-c`
+	 * accepts only one identifier before the first string literal of a
+	 * concatenation — damages a fraction of a percent of a file and cost
+	 * every metric in it. On one embedded project that turned 0.1%–1.4%
+	 * damage into the loss of half the codebase and 137 perfectly parsed
+	 * functions.
+	 *
+	 * The original objection stands and is answered rather than dismissed:
+	 * metrics from a damaged tree must not be mistakable for sound ones. So
+	 * the damage is measured in lines, carried on the file, and reported
+	 * beside the figures it qualifies — the same way the call depth is
+	 * presented beside its unresolved-call count. A reader can see exactly
+	 * how much of the file `elc` could not see. */
+	metrics->unparsed_lines = count_unparsed_lines(root);
+
+	if (metrics->unparsed_lines) {
+		/* Names what was lost and where, rather than only that
+		 * something was: "skipped" told a reader nothing about the
+		 * scale, and the scale is usually a line or two. */
+		fprintf(stderr,
+		        "elc: %s:%" PRIu32 ": %" PRIu32 " line%s could not be "
+		        "parsed; the rest of the file is measured\n",
+		        path, first_unparsed_line(root), metrics->unparsed_lines,
+		        metrics->unparsed_lines == 1 ? "" : "s");
 	}
 
 	if (collect_functions(module, reg, map, root, metrics, &ranges) != 0 ||
@@ -1342,9 +1439,9 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out,
 
 	*out       = metrics;
 	*facts_out = facts;
+	status     = metrics->unparsed_lines ? ANALYZE_DAMAGED : ANALYZE_OK;
 	metrics    = NULL;
 	facts      = NULL;
-	status     = ANALYZE_OK;
 
 cleanup:
 	/* Every acquired resource released on every path, in order: the tree

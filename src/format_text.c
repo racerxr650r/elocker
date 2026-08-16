@@ -282,6 +282,16 @@ static void summary_pair(FILE *out, Style style, int label, int value,
 		        number);
 }
 
+/* Lines the grammar could not follow, across every analysed file. */
+static uint64_t unparsed_total(const Report *report)
+{
+	uint64_t total = 0;
+
+	for (size_t i = 0; i < report->file_count; i++)
+		total += report->files[i]->unparsed_lines;
+	return total;
+}
+
 static void summary_section(const Report *report, Style style, FILE *out)
 {
 	const ProjectSummary *sum   = &report->summary;
@@ -316,6 +326,12 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	             sum->function_count);
 	summary_pair(out, style, label, value, "Skipped",
 	             (uint64_t)report->skipped_files.count);
+	/* Beside the totals it qualifies, not buried below them. Every figure
+	 * above covers the file *minus* these lines, and a reader comparing
+	 * ELOC against a line count of their own needs to know that before
+	 * they start looking for the discrepancy (HLR-035). */
+	summary_pair(out, style, label, value, "Unparsed lines",
+	             (uint64_t)unparsed_total(report));
 	/* Not a failure and not a defect — a measure of how complete the graph
 	 * is. A project calling into libc has unresolved calls by definition,
 	 * and a reader comparing fan-out against the source needs to know how
@@ -818,6 +834,34 @@ int render_report(const Report *report, Style style, FILE *out)
 			grid_row(&grid, r->from_scope, r->from_function,
 			         r->to_scope, r->to_function,
 			         r->object && *r->object ? r->object : "call");
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* The files whose measurements are partial, and by how much.
+		 * A file here *is* measured — its functions appear in every
+		 * table above — and this says how much of it the grammar could
+		 * not follow, so a partial figure is never mistaken for a
+		 * complete one (HLR-035).
+		 *
+		 * A section rather than a column on the Files table: the
+		 * number is zero for almost every file in almost every
+		 * project, and a column of zeros hides the rows that matter. */
+		static const char *const names[]   = { "File", "Unparsed lines" };
+		static const bool        numeric[] = { false, true };
+
+		grid_begin(&grid,
+		           "Partially parsed files (measured except for these "
+		           "lines)", 2, names, numeric);
+		for (size_t i = 0; i < report->file_count; i++) {
+			const FileMetrics *f = report->files[i];
+
+			if (!f->unparsed_lines)
+				continue;
+			snprintf(a, sizeof a, "%" PRIu32, f->unparsed_lines);
+			grid_row(&grid, f->path, a);
 		}
 		if (grid_render(&grid, style, out) != 0)
 			return -1;

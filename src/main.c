@@ -135,6 +135,16 @@ int main(int argc, char *argv[])
 			if (metrics_add_skipped(&acc, files.paths[i]) != 0)
 				failures++;
 			continue;
+		case ANALYZE_DAMAGED:
+			/* Metrics were produced and part of the file was not
+			 * parsed. Both facts are kept: the measurements go into
+			 * the report, and the run is a degraded one — the
+			 * diagnostic is already on stderr and the exit status
+			 * says so (HLR-035, HLR-037). Falls through, because
+			 * the metrics are as usable as any other file's for
+			 * the part they cover. */
+			failures++;
+			break;
 		case ANALYZE_OK:
 			break;
 		default:

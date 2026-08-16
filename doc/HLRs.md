@@ -265,7 +265,11 @@ Requirements governing the determinism and correctness of `elc`'s output (PVD §
 Requirements governing how `elc` responds to failures and what its process exit status communicates (PVD §6 Principle 6).
 
 *   <a id="HLR-035"></a>**HLR-035: Per-File Read- and Parse-Failure Tolerance.**
-    A file that cannot be read — for example because permission is denied or its contents cannot be decoded — or that fails to parse, shall not abort the run; `elc` shall emit a diagnostic identifying that file to standard error and shall continue processing the remaining files in the target. A file shall be deemed to have failed to parse when its syntax tree contains any error node, and the whole file shall then be skipped rather than reported from a partially valid tree, since metrics derived from a damaged tree are indistinguishable from sound ones once rendered.
+    A file that cannot be read — for example because permission is denied or its contents cannot be decoded — or that cannot be parsed in whole or in part, shall not abort the run; `elc` shall emit a diagnostic identifying that file to standard error and shall continue processing the remaining files in the target.
+
+    Where a syntax tree contains error nodes, `elc` shall measure the file from the parts the grammar could follow, shall record how many lines it could not, and shall report that figure beside the measurements it qualifies. A file wholly unreadable yields no metrics; a file the parser recovered from yields the metrics of its sound parts.
+
+    **This requirement previously discarded any file containing an error node**, on the grounds that metrics from a damaged tree are indistinguishable from sound ones once rendered. That objection is sound and is met by reporting the damage rather than by discarding the file. Discarding proved wrong by two orders of magnitude: a single construct a grammar cannot follow damages a fraction of a percent of a file, and on real embedded code the rule turned 0.1%–1.4% damage into the loss of half a project's metrics and 137 correctly parsed functions. A grammar gap is a permanent condition of parsing a language without compiling it, so tolerating one locally is the general defence rather than a concession to one grammar's shortcomings.
     *Trace:* [SDD Section 3](SDD.md), [SDD Section 5](SDD.md), [SDD Section 7](SDD.md), [SDD Section 17](SDD.md).
 
 *   <a id="HLR-036"></a>**HLR-036: Setup-Failure Fatality.**

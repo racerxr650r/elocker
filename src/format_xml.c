@@ -112,7 +112,8 @@ int xml_write_report(const Report *report, FILE *out)
 		write_attribute(out, "path", f->path);
 		write_attribute(out, "language", f->language ? f->language : "");
 		fprintf(out, " physical-lines=\"%" PRIu32 "\" eloc=\"%" PRIu32
-		        "\">\n", f->physical_lines, f->eloc);
+		        "\" unparsed-lines=\"%" PRIu32 "\">\n",
+		        f->physical_lines, f->eloc, f->unparsed_lines);
 
 		for (size_t j = 0; j < f->function_count; j++) {
 			const FunctionMetric *fn = &f->functions[j];
@@ -489,6 +490,11 @@ static void on_start(void *user, const XML_Char *name,
 		file->physical_lines = uint_attribute(state, atts,
 		                                      "physical-lines");
 		file->eloc           = uint_attribute(state, atts, "eloc");
+		/* Absent in a record written before the field existed, which
+		 * reads back as zero — no damage — and is the right answer for
+		 * a build that could not have measured any. */
+		file->unparsed_lines = uint_attribute(state, atts,
+		                                      "unparsed-lines");
 
 		state->current  = file;
 		state->capacity = 0;

@@ -126,13 +126,50 @@ alpha"
 	assert_output --partial "broken.c"
 }
 
-@test "HLR-035: a file with a syntax error is skipped whole, not partially reported" {
-	# The file defines a function before the error. Reporting it from a
-	# damaged tree is what HLR-035 forbids.
+@test "HLR-035: the diagnostic gives the line, the scale, and what was kept" {
+	# The scale is the whole of what a reader needs to decide whether to
+	# trust the figures. "Parse error" withheld it, and on a file damaged
+	# in one line that reads far worse than it is.
+	printf 'int sound(void) { return 0; }\n@@@ ###\nint more(void) { return 1; }\n' \
+		> "$TREE/half.c"
+	run bash -c '"$0" "$1" 2>&1 >/dev/null' "$ELC" "$TREE/half.c"
+	assert_output --regexp "half\.c:2: 1 line could not be parsed"
+	assert_output --partial "the rest of the file is measured"
+}
+
+@test "HLR-035: a file with a syntax error is measured around it" {
+	# This asserted the opposite until a real project showed the cost: a
+	# single macro-built printf damaged under 1% of a file and discarded
+	# every metric in it. What the grammar can follow is measured.
 	printf 'int sound(void) { return 0; }\nint broken(void) { ((( \n' \
 		> "$TREE/half.c"
 	run bash -c '"$0" "$1" 2>/dev/null' "$ELC" "$TREE/half.c"
-	refute_output --partial "sound"
+	assert_output --partial "sound"
+}
+
+@test "HLR-035: the damage is reported beside the figures it qualifies" {
+	# The safety property that makes measuring a damaged file acceptable:
+	# a partial measurement must never read as a complete one.
+	printf 'int sound(void) { return 0; }\nint broken(void) { ((( \n' \
+		> "$TREE/half.c"
+	run bash -c '"$0" "$1" 2>/dev/null' "$ELC" "$TREE/half.c"
+	assert_output --partial "Partially parsed files"
+	assert_output --partial "half.c"
+	assert_output --regexp "Unparsed lines +[1-9]"
+}
+
+@test "HLR-035: an undamaged run says so, with nothing in the section" {
+	# Paired with the test above, so that an implementation reporting
+	# damage everywhere cannot pass it.
+	elc "$TREE/pair.c"
+	assert_success
+	assert_output --regexp "Unparsed lines +0"
+
+	local rows
+	rows="$(printf '%s\n' "$output" |
+		awk '/^Partially parsed/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && /^  \// { n++ } END { print n + 0 }')"
+	assert_equal "$rows" "0"
 }
 
 # --- the report (HLR-006, HLR-019) -----------------------------------------
