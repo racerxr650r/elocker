@@ -74,31 +74,105 @@ static int grow(void **items, size_t *capacity, size_t item_size)
 
 /* ------------------------------------------------- the runtime location -- */
 
-static int runtime_dir_resolve(char *buf, size_t len)
+/* The paths tried relative to the executable, in order, when the environment
+ * variable is unset.
+ *
+ * **Two, not one, and the second is the installed layout.** `make install`
+ * puts the binary in `<prefix>/bin` and the runtime in
+ * `<prefix>/share/elc/runtime`, because a tree of grammars and query files does
+ * not belong in a directory of executables. A resolver that only looked beside
+ * the binary would therefore fail on every installed copy while working
+ * perfectly in the build tree, where the build creates a `runtime` symlink next
+ * to `elc` — which is exactly how this went unnoticed.
+ *
+ * HLR-059 says "a path relative to the executable" and not "adjacent to" it,
+ * so both are the requirement rather than an extension of it.
+ *
+ * The adjacent path is tried first: it is what a self-contained unpacked
+ * distribution uses, and someone who has deliberately placed a runtime beside
+ * the binary means it.
+ */
+static const char *const RUNTIME_RELATIVE[] = {
+	"runtime",              /* unpacked beside the binary, and the build tree */
+	"../share/elc/runtime"  /* the installed layout                           */
+};
+
+/* The directory holding this executable, or non-zero if it cannot be found. */
+static int executable_dir(char *buf, size_t len)
 {
-	const char *env = getenv(ELC_RUNTIME_DIR_ENV);
-
-	/* The environment variable wins when both are present (HLR-059,
-	 * LLR-ROP-02). */
-	if (env && *env) {
-		int n = snprintf(buf, len, "%s", env);
-		return (n < 0 || (size_t)n >= len) ? -1 : 0;
-	}
-
 	char    exe[PATH_MAX];
 	ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+	char   *slash;
 
 	if (n < 0)
 		return -1;
 	exe[n] = '\0';
 
-	char *slash = strrchr(exe, '/');
+	/* Derived from the executable rather than from argv[0], which a caller
+	 * controls and can set to anything. */
+	slash = strrchr(exe, '/');
 	if (!slash)
 		return -1;
 	*slash = '\0';
 
-	int m = snprintf(buf, len, "%s/runtime", exe);
+	int m = snprintf(buf, len, "%s", exe);
+
 	return (m < 0 || (size_t)m >= len) ? -1 : 0;
+}
+
+/* Resolve the runtime location, writing it to `buf`.
+ *
+ * Returns 0 with a location that exists, or non-zero. On failure `tried`
+ * receives the candidates that were examined, so the diagnostic can name them:
+ * a message quoting only the last one sends the reader to look in a directory
+ * `elc` never expected the runtime to be in.
+ */
+static int runtime_dir_resolve(char *buf, size_t len, char *tried,
+                               size_t tried_len)
+{
+	const char *env = getenv(ELC_RUNTIME_DIR_ENV);
+	char        dir[PATH_MAX];
+	size_t      at = 0;
+
+	if (tried_len)
+		tried[0] = '\0';
+
+	/* The environment variable wins when both are present, and is used as
+	 * given without being tested for existence: naming a location that is
+	 * not there is a mistake worth reporting against that exact path
+	 * rather than silently falling back to a directory the user did not
+	 * ask for (HLR-059, LLR-ROP-02). */
+	if (env && *env) {
+		int n = snprintf(buf, len, "%s", env);
+
+		return (n < 0 || (size_t)n >= len) ? -1 : 0;
+	}
+
+	if (executable_dir(dir, sizeof dir) != 0)
+		return -1;
+
+	for (size_t i = 0; i < sizeof RUNTIME_RELATIVE / sizeof *RUNTIME_RELATIVE;
+	     i++) {
+		struct stat st;
+		int         n = snprintf(buf, len, "%s/%s", dir,
+		                         RUNTIME_RELATIVE[i]);
+
+		if (n < 0 || (size_t)n >= len)
+			continue;
+
+		if (at < tried_len) {
+			int w = snprintf(tried + at, tried_len - at, "%s%s",
+			                 at ? ", " : "", buf);
+
+			if (w > 0 && (size_t)w < tried_len - at)
+				at += (size_t)w;
+		}
+
+		if (stat(buf, &st) == 0 && S_ISDIR(st.st_mode))
+			return 0;
+	}
+
+	return -1;
 }
 
 const char *registry_runtime_dir(const Registry *reg)
@@ -444,10 +518,20 @@ int registry_open(const ElcOptions *opts, Registry *out)
 
 	memset(out, 0, sizeof *out);
 
-	if (runtime_dir_resolve(dir, sizeof dir) != 0) {
-		fputs("elc: cannot locate the runtime directory; set "
-		      ELC_RUNTIME_DIR_ENV " or install elc alongside it\n",
-		      stderr);
+	char tried[PATH_MAX * 2];
+
+	if (runtime_dir_resolve(dir, sizeof dir, tried, sizeof tried) != 0) {
+		/* Naming every candidate, because the reader's next action is
+		 * to put the runtime in one of them or to set the variable,
+		 * and a message quoting a single path they never chose sends
+		 * them to the wrong place. */
+		if (tried[0])
+			fprintf(stderr,
+			        "elc: no runtime directory at %s; set %s to "
+			        "name one\n", tried, ELC_RUNTIME_DIR_ENV);
+		else
+			fputs("elc: cannot locate the runtime directory; set "
+			      ELC_RUNTIME_DIR_ENV " to name one\n", stderr);
 		return -1;
 	}
 

@@ -365,6 +365,8 @@ runtime/
 ```
 The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060). `binary.exts` lives here too and is read by `discover.c`, which is given this location rather than resolving it (HLR-005).
 
+Installed, that same tree lives at `<prefix>/share/elc/runtime`; in the build tree it is reached through a `runtime` symlink `make all` creates beside the binary. The directory's *contents* are identical in both, which is what lets one resolution rule serve them.
+
 `conditionals.scm` is a **seventh, optional** file. A module that supplies one gains conditional-region pruning; a module that omits one has no conditional compilation, which is the truth for a language that has none. The required set stays at six, so adding this breaks no module that already exists (HLR-121, HLR-134).
 
 `deadcode.scm` is the **eighth**, and optional for the same reason. A module supplying one gains dead-code detection within functions; a module omitting one is analysed for every other measurement, and the report states that the analysis was *not performed* for that language rather than that none was found (HLR-139). Four of the five shipped modules supply one. Ada does not, deliberately: it writes its false literal as an ordinary identifier the grammar cannot distinguish from one the program declared, so capturing it would assert a resolution nothing performed — and shipping the terminator half alone would report Ada as *analysed* while quietly finding no literal branches, which is the confident-and-wrong outcome the whole design avoids.
@@ -381,7 +383,18 @@ A Tree-sitter query compiles against one specific `TSLanguage`, so every custom 
 
 #### 6.2.3 Environment
 
-`ELC_RUNTIME_DIR`, when set, takes precedence over the path adjacent to the executable (HLR-059). The adjacent path is derived from the executable itself rather than from `argv[0]`, which a caller controls.
+`ELC_RUNTIME_DIR`, when set, takes precedence over every path derived from the executable (HLR-059), and is used exactly as given: a variable naming a location that is not there is reported against that path rather than quietly falling back to one the user did not ask for.
+
+With the variable unset, two paths relative to the executable are tried in order, and the first that exists and is a directory wins:
+
+| Path | Layout it serves |
+| ---- | ---------------- |
+| `<exedir>/runtime` | an unpacked self-contained distribution, and the build tree |
+| `<exedir>/../share/elc/runtime` | the installed layout `make install` produces |
+
+**Both, because HLR-059 says "relative to the executable" and not "adjacent to" it, and the difference is the whole of a working installation.** The install target puts the binary in `<prefix>/bin` and the runtime in `<prefix>/share/elc/runtime`, since a tree of grammars and query files does not belong in a directory of executables. A resolver looking only beside the binary fails on every installed copy — while working perfectly in the build tree, where `make all` creates a `runtime` symlink next to `elc`. That asymmetry is why the defect survived: every test level ran against a layout that flattered it, and producing a *working* installation was a release criterion nothing checked. The fixture group now installs into a staging root and runs the result.
+
+Each path derived from the executable is derived from the executable itself rather than from `argv[0]`, which a caller controls.
 
 This resolution happens once per run and is the module's alone. `discover.c` also needs the runtime location, for `binary.exts`, and asks for it through `registry_runtime_dir()` rather than repeating the rule — one precedence rule, one implementation.
 

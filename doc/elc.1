@@ -678,10 +678,34 @@ the same columns.
 .TP
 .B ELC_RUNTIME_DIR
 Location of the runtime directory holding language grammars and their query
-files. When set, it takes precedence over the
-.B runtime
-directory adjacent to the executable.
+files. When set, it takes precedence over every path derived from the
+executable, and is used exactly as given: a value naming a directory that is
+not there is reported against that path rather than falling back to one the
+user did not choose.
+.IP
+When unset, two paths relative to the executable are tried in order and the
+first that exists is used \(em
+.I runtime
+beside the binary, then
+.I ../share/elc/runtime
+\(em so an
+.B elc
+installed to
+.I /usr/local/bin
+finds its runtime at
+.IR /usr/local/share/elc/runtime .
+Where neither exists the diagnostic names both.
 .SH FILES
+.TP
+.I <prefix>/share/elc/runtime/
+The runtime language-support directory of an installed
+.BR elc ,
+and the second of the two paths tried relative to the executable. The first is
+.I runtime/
+beside the binary, which serves an unpacked self-contained copy and the build
+tree.
+.B ELC_RUNTIME_DIR
+overrides both. The paths below are relative to whichever of these is in use.
 .TP
 .I runtime/parsers/<lang>.so
 Tree-sitter grammar for a language, loaded on first use.
