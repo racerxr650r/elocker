@@ -37,7 +37,7 @@ call graph is recursive the depth is unbounded and the cycle is reported
 instead, and where a declaration is missing the analysis is omitted with the
 reason stated. Reachability and global state are next, from Phase 10.
 
-**Progress: 10 of 16 phases complete.**
+**Progress: 10 of 17 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -59,7 +59,8 @@ reason stated. Reachability and global state are next, from Phase 10.
 | [12](doc/SDP.md#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
 | [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |
 | [14](doc/SDP.md#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |
-| [15](doc/SDP.md#phase-15--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
+| [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
+| [16](doc/SDP.md#phase-16--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 
 </details>
 
@@ -182,12 +183,12 @@ documents below are generated from it.
 | Document | Answers |
 | -------- | ------- |
 | [PVD.md](doc/PVD.md) | *Why* does this exist, who is it for, how do we know it is succeeding? |
-| [HLRs.md](doc/HLRs.md) | *What* must it do — 129 high-level requirements |
+| [HLRs.md](doc/HLRs.md) | *What* must it do — 135 high-level requirements |
 | [SDD.md](doc/SDD.md) | *How is it structured* — modules, data, algorithms, dependency selection |
-| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 284 low-level requirements |
+| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 296 low-level requirements |
 | [STP.md](doc/STP.md) | *How is it verified* — test levels, fixtures, the sanitizer gate |
 | [Traceability.md](doc/Traceability.md) | *Where are the gaps*, end to end |
-| [SDP.md](doc/SDP.md) | *How is it built* — the 16 phases below |
+| [SDP.md](doc/SDP.md) | *How is it built* — the 17 phases below |
 
 ## Building
 

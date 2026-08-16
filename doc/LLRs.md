@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.3
-**Date:** 2026-08-20
+**Version:** 2.4
+**Date:** 2026-08-21
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -116,6 +116,15 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-CLI-17"></a>**LLR-CLI-17** — `cli_parse` shall reject a target given alongside a regeneration-mode input path, since the record is the input and a target would name a second source for one report.
     *Trace:* HLR-055, HLR-063.
+
+*   <a id="LLR-CLI-19"></a>**LLR-CLI-19** — `cli_parse` shall accept zero or more conditional-compilation definitions, each naming a symbol and optionally a value, and shall leave the definition set empty when none is supplied.
+    *Trace:* HLR-131.
+
+*   <a id="LLR-CLI-20"></a>**LLR-CLI-20** — `cli_parse` shall report a usage error for a definition naming no symbol, rather than recording an empty name that can never match.
+    *Trace:* HLR-131, HLR-063.
+
+*   <a id="LLR-CLI-21"></a>**LLR-CLI-21** — `cli_parse` shall reject a command line combining a conditional-compilation definition with the regeneration-mode input path, since a saved record holds measurements already taken and no definition supplied afterwards can change them.
+    *Trace:* HLR-136, HLR-063.
 
 *   <a id="LLR-CLI-15"></a>**LLR-CLI-15** — `cli_parse` shall reject as a usage error a command line that combines regeneration mode with an explicit request for a companion artefact, since a saved record does not carry the graph from which either could be produced.
     *Trace:* HLR-122 (No Companion Artefacts From a Saved Record), HLR-063 (Invalid Command-Line Rejection).
@@ -277,6 +286,9 @@ Runtime location resolution and registry initialisation. The boundary that keeps
 *   <a id="LLR-RFP-09"></a>**LLR-RFP-09** — `registry_for_path` shall state, in the diagnostic for a query that will not compile, the language, the query file, and the reason in words rather than as a numeric code, since the author of the query file is who acts on that diagnostic.
     *Trace:* HLR-070, HLR-038.
 
+*   <a id="LLR-RFP-10"></a>**LLR-RFP-10** — `registry_for_path` shall load a language's conditional-region query when the module supplies one, and shall treat its absence as the language having no conditional compilation rather than as the module being unusable, since the required set of query files is unchanged by this addition.
+    *Trace:* HLR-134, HLR-121, HLR-070.
+
 *   <a id="LLR-RFP-08"></a>**LLR-RFP-08** — `registry_for_path` shall require of a language module only the documented set of query files and capture names, and a module supplying exactly that set shall function without further configuration.
     *Trace:* HLR-121 (Language Module Interface Is a Stable Contract).
 
@@ -433,6 +445,18 @@ Note on the division of labour, which determines where a failure lives: the requ
 
 *   <a id="LLR-ANL-41"></a>**LLR-ANL-41** — `analyze_file` shall attribute a decision point lying outside every reported function to no function, so that a branch in a file-scope initialiser is charged to nothing.
     *Trace:* HLR-017, HLR-018.
+
+*   <a id="LLR-ANL-42"></a>**LLR-ANL-42** — `analyze_file` shall determine, before running any metric query, the byte ranges of each region the supplied definitions render inactive, from the captures of the language's conditional-region query applied to the tree already parsed.
+    *Trace:* HLR-132, HLR-135.
+
+*   <a id="LLR-ANL-43"></a>**LLR-ANL-43** — `analyze_file` shall exclude from every metric and every recorded fact any capture whose position lies within an inactive range, by the same exclusion the merged comment set uses, so that one mechanism governs both and neither can remove a byte range twice.
+    *Trace:* HLR-132.
+
+*   <a id="LLR-ANL-44"></a>**LLR-ANL-44** — `analyze_file` shall evaluate a region's condition from the captured condition nodes alone, deciding a region active or inactive only where the condition tests the definedness of symbols the user named or is a literal; any other condition shall leave both branches active and shall increment the count of undecided regions.
+    *Trace:* HLR-133, HLR-135, HLR-013.
+
+*   <a id="LLR-ANL-45"></a>**LLR-ANL-45** — `analyze_file` shall report zero inactive ranges when no definition was supplied, so that a run without the option yields byte-identical output to one made before the option existed.
+    *Trace:* HLR-131, HLR-032.
 
 *   <a id="LLR-ANL-34"></a>**LLR-ANL-34** — `analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
@@ -781,6 +805,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-21"></a>**LLR-RPT-21** — `report_assemble` shall select each most-complex callout by scanning the ordered model and replacing the incumbent only on a strictly greater value, so that a tie resolves to whichever candidate sorts first under the presentation order and resolves the same way on every run.
     *Trace:* HLR-026, HLR-032, HLR-033.
 
+*   <a id="LLR-RPT-27"></a>**LLR-RPT-27** — `report_assemble` shall carry the definitions in force and the count of undecided regions into the report model, ordered by symbol name, so that every format states the configuration the figures describe.
+    *Trace:* HLR-136, HLR-133, HLR-033.
+
 *   <a id="LLR-RPT-16"></a>**LLR-RPT-16** — `report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -810,6 +837,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-SUM-04"></a>**LLR-SUM-04** — The aligned format shall not pad a left-aligned final column, so that no line carries trailing whitespace.
     *Trace:* HLR-027, HLR-032.
+
+*   <a id="LLR-SUM-05"></a>**LLR-SUM-05** — `render_summary` shall present the definitions in force and the count of undecided regions in every format that presents the project summary, since a metric whose value depends on a configuration is not interpretable without it.
+    *Trace:* HLR-136, HLR-031.
 
 *   <a id="LLR-SUM-02"></a>**LLR-SUM-02** — `render_summary` shall traverse the report model in a single shared order for both the table and Markdown renderers, so that the two present the same tiers.
     *Trace:* HLR-031 (Uniform Report Composition Across Formats).
@@ -853,6 +883,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-08"></a>**LLR-XWR-08** — `xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one.
     *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity).
 
+*   <a id="LLR-XWR-10"></a>**LLR-XWR-10** — `xml_write_report` shall emit the definitions in force and the count of undecided regions, so that a record states the configuration it was taken under.
+    *Trace:* HLR-136, HLR-054.
+
 *   <a id="LLR-XWR-04"></a>**LLR-XWR-04** — `xml_write_report` shall emit well-formed XML.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).
 
@@ -889,6 +922,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XRD-12"></a>**LLR-XRD-12** — `xml_read_report` shall rebuild the discovery routes from the record and hand them to `report_assemble`, so that a regenerated report presents the same Discovery section as the run that produced the record. A route element lacking either its target or its route, or naming a route this build does not recognise, shall be rejected as a malformed record rather than defaulted: a defaulted route is not an unknown answer but a confident wrong one, in the section whose whole purpose is explaining a surprising file set.
     *Trace:* HLR-055 (Report Regeneration From a Record), HLR-056 (Regeneration Fidelity), HLR-127 (Discovery Route Reported).
+
+*   <a id="LLR-XRD-13"></a>**LLR-XRD-13** — `xml_read_report` shall reconstruct the definitions a record was taken under and present them unchanged, rather than applying any supplied afterwards, so that a regenerated report describes the configuration actually measured.
+    *Trace:* HLR-136, HLR-056.
 
 *   <a id="LLR-XRD-06"></a>**LLR-XRD-06** — `xml_read_report` shall attempt no best-effort partial conversion of a rejected input.
     *Trace:* HLR-058 (Malformed or Unsupported Saved-XML Rejection).

@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.4
-**Date:** 2026-08-20
+**Version:** 2.5
+**Date:** 2026-08-21
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -221,6 +221,7 @@ The set of accepted options appears in three places: this module's `getopt_long`
 | `--scope` | `name:glob[,glob…]` | none | HLR-094 |
 | `--rules` | `lang:path` | none | HLR-107 |
 | `--from-xml` | path | — | HLR-055 |
+| `-D`, `--define` | `name[=value]` | none | HLR-131 |
 | `-h`, `--help` | — | — | HLR-117 |
 
 
@@ -362,6 +363,8 @@ runtime/
 ```
 The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060). `binary.exts` lives here too and is read by `discover.c`, which is given this location rather than resolving it (HLR-005).
 
+`conditionals.scm` is a **seventh, optional** file. A module that supplies one gains conditional-region pruning; a module that omits one has no conditional compilation, which is the truth for a language that has none. The required set stays at six, so adding this breaks no module that already exists (HLR-121, HLR-134).
+
 A query file that compiles and captures nothing is valid, and is how an unimplemented query is expressed. The registry reads captures; it never asks whether a file is "filled in". That is what lets a phase ship a language with one query complete and the rest as documented stubs, without either a special case in the loader or a module that fails to load.
 
 The contract this directory embodies — the filenames, the capture names, and what each means — is published with the runtime as `runtime/queries/README.md`. That document, not this section, is what a third party codes against (HLR-121).
@@ -484,6 +487,14 @@ The merged set is applied as a **byte-granular** exclusion, not a line-granular 
 The merged line count is likewise a count of *distinct* lines. Two comments on one line are two disjoint byte ranges that do not coalesce, and summing their line counts would report that one line twice.
 
 **The innermost-enclosing lookup is the analogous safeguard for nested named functions.** Attributing each statement to exactly one reported function is what prevents a nested subprogram's lines from being counted twice (HLR-068), and *narrowest* rather than *first* is what makes the answer independent of the order the query matched — an implementation returning the first containing range would also break HLR-032.
+
+**Conditional-compilation pruning is the comment exclusion, applied to a different set of ranges.** When definitions are supplied, `conditionals.scm` is run over the same tree and each region's condition evaluated; the byte ranges of the branches the definitions render inactive join the merged comment set as ranges a capture may not lie within. One exclusion mechanism governs both, so neither can remove a range twice and a later reader has one thing to understand rather than two (HLR-132, LLR-ANL-43).
+
+**What can be decided, and what deliberately cannot.** `elc` runs no preprocessor (HLR-135): there is no macro expansion, no include resolution, and no arithmetic over macro values, because each of those needs a toolchain whose presence and configuration `elc` cannot reproduce. A region is therefore decided only when its condition is a literal, or tests the definedness of symbols the user named — possibly negated, possibly combined. Anything else is **undecidable, not false**: both branches stay active and the region is counted as undecided (HLR-133).
+
+That asymmetry is the whole safety argument. Treating an unrecognised condition as false would silently delete code, producing a report that is confidently wrong and looks exactly like a correct one. Treating it as true over-counts, which is visible in the undecided count beside the figures.
+
+With no definitions supplied nothing is inactive and no condition is evaluated, so a run without the option is byte-identical to one made before the option existed (HLR-131, LLR-ANL-45).
 
 **Cyclomatic complexity reuses that lookup rather than scoping the query.** `complexity.scm` is run once over the whole tree and each capture attributed by `innermost_enclosing`, which makes both halves of the requirement fall out of one pass. A nested *named* function is reported, so it is its own innermost enclosing function and owns its decision points (HLR-068). An anonymous callable is *not* reported, so the nearest reported function containing it is the named one, and its decision points land there (HLR-018). Running the query against each `@function.body` separately — the obvious reading — would instead give an enclosing function everything its nested functions branch on, and need a subtraction to undo it.
 
@@ -732,6 +743,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 *   Apply the complexity threshold to produce each file's over-threshold function list.
 *   Sort every collection in the model by an explicit key before any renderer sees it.
 *   Record which analyses were omitted, and why.
+*   Record the conditional-compilation definitions in force and the number of regions whose condition could not be decided, so that a figure which depends on a configuration is reported alongside it (HLR-136, HLR-133).
 *   Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).
 *   Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).
 
@@ -992,6 +1004,7 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `entry_points` | `SymbolList` | Empty when undeclared (HLR-095) |
 | `scopes` | `ScopeList` | Empty when undeclared (HLR-094) |
 | `rule_paths` | `PathList` | Custom rule query files (HLR-107) |
+| `definitions` | `DefineList` | Conditional-compilation symbols; empty when none supplied, and an empty set prunes nothing (HLR-131) |
 | `targets` | `PathList` | One or more file or directory arguments (HLR-071) |
 *   **`FileList`** (defined in [inc/discover.h](../inc/discover.h)) — The discovered files: canonical absolute paths, each appearing exactly once, in ascending byte order. Owns every path it holds.
 
@@ -1109,6 +1122,8 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `skipped_files` | `PathList` | Discovered files with no available language module, sorted by path (HLR-012) |
 | `routes` | `RouteList` | Per directory target, whether it was enumerated from a repository or traversed from the filesystem (HLR-127) |
 | `unresolved_calls` | `size_t` | Call sites with no resolvable target, reported so graph completeness is visible (HLR-077) |
+| `definitions` | `DefineList` | The configuration the figures describe, sorted by symbol (HLR-136) |
+| `undecided_regions` | `size_t` | Conditional regions left active because their condition could not be decided, reported so the completeness of the pruning is visible (HLR-133) |
 *   **Compile-time constants** (in [inc/elc.h](../inc/elc.h)):
 
     | Name | Value | Purpose |

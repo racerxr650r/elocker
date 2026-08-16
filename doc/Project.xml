@@ -11,14 +11,14 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.4" date="2026-08-20" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.2" date="2026-08-15" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.3" date="2026-08-20" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.7" date="2026-08-20" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.6" date="2026-08-20" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.5" date="2026-08-21" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.3" date="2026-08-21" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.4" date="2026-08-21" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.8" date="2026-08-21" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.7" date="2026-08-21" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="129"/>
-      <count name="llrs"       value="284"/>
+      <count name="hlrs"       value="135"/>
+      <count name="llrs"       value="296"/>
       <count name="tests"      value="357"/>
       <count name="test_files" value="24"/>
     </counts>
@@ -200,6 +200,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
 | `--scope` | `name:glob[,glob…]` | none | HLR-094 |
 | `--rules` | `lang:path` | none | HLR-107 |
 | `--from-xml` | path | — | HLR-055 |
+| `-D`, `--define` | `name[=value]` | none | HLR-131 |
 | `-h`, `--help` | — | — | HLR-117 |
 ]]></interface>
         </interfaces>
@@ -309,6 +310,8 @@ runtime/
 ```
 The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060). `binary.exts` lives here too and is read by `discover.c`, which is given this location rather than resolving it (HLR-005).
 
+`conditionals.scm` is a **seventh, optional** file. A module that supplies one gains conditional-region pruning; a module that omits one has no conditional compilation, which is the truth for a language that has none. The required set stays at six, so adding this breaks no module that already exists (HLR-121, HLR-134).
+
 A query file that compiles and captures nothing is valid, and is how an unimplemented query is expressed. The registry reads captures; it never asks whether a file is "filled in". That is what lets a phase ship a language with one query complete and the rest as documented stubs, without either a special case in the loader or a module that fails to load.
 
 The contract this directory embodies — the filenames, the capture names, and what each means — is published with the runtime as `runtime/queries/README.md`. That document, not this section, is what a third party codes against (HLR-121).]]></interface>
@@ -402,6 +405,14 @@ The merged set is applied as a **byte-granular** exclusion, not a line-granular 
 The merged line count is likewise a count of *distinct* lines. Two comments on one line are two disjoint byte ranges that do not coalesce, and summing their line counts would report that one line twice.
 
 **The innermost-enclosing lookup is the analogous safeguard for nested named functions.** Attributing each statement to exactly one reported function is what prevents a nested subprogram's lines from being counted twice (HLR-068), and *narrowest* rather than *first* is what makes the answer independent of the order the query matched — an implementation returning the first containing range would also break HLR-032.
+
+**Conditional-compilation pruning is the comment exclusion, applied to a different set of ranges.** When definitions are supplied, `conditionals.scm` is run over the same tree and each region's condition evaluated; the byte ranges of the branches the definitions render inactive join the merged comment set as ranges a capture may not lie within. One exclusion mechanism governs both, so neither can remove a range twice and a later reader has one thing to understand rather than two (HLR-132, LLR-ANL-43).
+
+**What can be decided, and what deliberately cannot.** `elc` runs no preprocessor (HLR-135): there is no macro expansion, no include resolution, and no arithmetic over macro values, because each of those needs a toolchain whose presence and configuration `elc` cannot reproduce. A region is therefore decided only when its condition is a literal, or tests the definedness of symbols the user named — possibly negated, possibly combined. Anything else is **undecidable, not false**: both branches stay active and the region is counted as undecided (HLR-133).
+
+That asymmetry is the whole safety argument. Treating an unrecognised condition as false would silently delete code, producing a report that is confidently wrong and looks exactly like a correct one. Treating it as true over-counts, which is visible in the undecided count beside the figures.
+
+With no definitions supplied nothing is inactive and no condition is evaluated, so a run without the option is byte-identical to one made before the option existed (HLR-131, LLR-ANL-45).
 
 **Cyclomatic complexity reuses that lookup rather than scoping the query.** `complexity.scm` is run once over the whole tree and each capture attributed by `innermost_enclosing`, which makes both halves of the requirement fall out of one pass. A nested *named* function is reported, so it is its own innermost enclosing function and owns its decision points (HLR-068). An anonymous callable is *not* reported, so the nearest reported function containing it is the named one, and its decision points land there (HLR-018). Running the query against each `@function.body` separately — the obvious reading — would instead give an enclosing function everything its nested functions branch on, and need a subtraction to undo it.
 
@@ -599,6 +610,7 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
         <responsibility><![CDATA[Apply the complexity threshold to produce each file's over-threshold function list.]]></responsibility>
         <responsibility><![CDATA[Sort every collection in the model by an explicit key before any renderer sees it.]]></responsibility>
         <responsibility><![CDATA[Record which analyses were omitted, and why.]]></responsibility>
+        <responsibility><![CDATA[Record the conditional-compilation definitions in force and the number of regions whose condition could not be decided, so that a figure which depends on a configuration is reported alongside it (HLR-136, HLR-133).]]></responsibility>
         <responsibility><![CDATA[Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).]]></responsibility>
         <responsibility><![CDATA[Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).]]></responsibility>
         <functions>
@@ -807,6 +819,7 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="entry_points" type="SymbolList" desc="Empty when undeclared (HLR-095)"/>
         <field name="scopes" type="ScopeList" desc="Empty when undeclared (HLR-094)"/>
         <field name="rule_paths" type="PathList" desc="Custom rule query files (HLR-107)"/>
+        <field name="definitions" type="DefineList" desc="Conditional-compilation symbols; empty when none supplied, and an empty set prunes nothing (HLR-131)"/>
         <field name="targets" type="PathList" desc="One or more file or directory arguments (HLR-071)"/>
       </type>
       <type name="FileList" header="inc/discover.h" summary="The discovered files: canonical absolute paths, each appearing exactly once, in ascending byte order. Owns every path it holds.">
@@ -896,6 +909,8 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="skipped_files" type="PathList" desc="Discovered files with no available language module, sorted by path (HLR-012)"/>
         <field name="routes" type="RouteList" desc="Per directory target, whether it was enumerated from a repository or traversed from the filesystem (HLR-127)"/>
         <field name="unresolved_calls" type="size_t" desc="Call sites with no resolvable target, reported so graph completeness is visible (HLR-077)"/>
+        <field name="definitions" type="DefineList" desc="The configuration the figures describe, sorted by symbol (HLR-136)"/>
+        <field name="undecided_regions" type="size_t" desc="Conditional regions left active because their condition could not be decided, reported so the completeness of the pruning is visible (HLR-133)"/>
       </type>
       <constants header="inc/elc.h">
         <constant name="ELC_DEFAULT_COMPLEXITY_THRESHOLD" value="15" purpose="Per-file over-threshold listing (HLR-022, HLR-057)"/>
@@ -1173,6 +1188,11 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="inputs" label="Inputs" path="An absent runtime directory; one with no valid module; a module missing its entry point; a module with an unparseable query; an invalid custom rule, both CLI-named and runtime-located"/>
         <artefact key="expected" label="Expected" path="Expected diagnostic text and exit status per case"/>
         <artefact key="verifies" label="Verifies" path="HLR-036, HLR-059, HLR-070, HLR-116, HLR-120"/>
+      </fixture>
+      <fixture name="`conditional/`" source="[test/fixtures/conditional/](../test/fixtures/conditional/)">
+        <artefact key="inputs" label="Inputs" path="A C source with `#if 0`, `#ifdef`, `#ifndef`, and a nested conditional; the same logic under a Rust `cfg` attribute; a condition depending on a symbol no definition names; a run with no definitions at all"/>
+        <artefact key="expected" label="Expected" path="Hand-counted ELOC and complexity for each configuration; identical figures to a run made without the option when no definition is supplied; both branches counted and the region reported undecided where the condition names an unknown symbol"/>
+        <artefact key="verifies" label="Verifies" path="HLR-131 – HLR-136"/>
       </fixture>
       <fixture name="`escaping/`" source="[test/fixtures/escaping/](../test/fixtures/escaping/)">
         <artefact key="inputs" label="Inputs" path="Identifiers containing commas, quotes, ampersands, and angle brackets — C++ template signatures being the natural source"/>
@@ -2292,6 +2312,58 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
       </hlr>
     </section>
 
+    <section number="18" title="Conditional Compilation">
+      <intro><![CDATA[Requirements governing how `elc` reports a code base whose source is conditionally compiled, so that a metric describes the configuration a user names rather than the union of every configuration the source can express.]]></intro>
+
+      <hlr id="HLR-131" name="Conditional-Compilation Configuration">
+        <text><![CDATA[`elc` shall accept zero or more conditional-compilation symbol definitions as command-line arguments, and shall use them to decide which branches of a conditionally compiled region are active. When no definition is supplied, no region shall be treated as inactive and the reported metrics shall be exactly those `elc` reports for the same source with the option absent, so that the capability is opt-in and adding it changes no existing result.]]></text>
+      <traces>
+        <trace target="SDD" ref="4"/>
+        <trace target="SDD" ref="7"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-132" name="Inactive-Region Exclusion">
+        <text><![CDATA[Every statement, decision point, call site, and global access lying within a region the supplied definitions render inactive shall be excluded from every reported metric and every graph fact derived from that file. A code base in which a substantial part of each file is compiled out for a given target otherwise reports the union of all its configurations, which describes no build that exists and overstates every measure taken from it.]]></text>
+      <traces>
+        <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="8"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-133" name="Undecidable Conditions Left Active">
+        <text><![CDATA[When the condition governing a region cannot be decided from the supplied definitions alone, `elc` shall treat both branches as active, and shall report the number of regions so treated, so that the completeness of the pruning is visible in the same way the completeness of the graph is (HLR-077). Silently discarding code whose condition was not understood would produce a report that is confidently wrong and indistinguishable from a correct one; over-counting is visible and is the safe direction.]]></text>
+      <traces>
+        <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="13"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-134" name="Conditional Constructs Defined by Runtime Data">
+        <text><![CDATA[The constructs that introduce a conditionally compiled region, the location of the condition governing it, and the branches it selects between, shall be identified by the language's runtime query configuration (HLR-009) rather than by logic compiled into the executable, so that a language whose conditional compilation differs in form — a C preprocessor conditional, a Rust `cfg` attribute — is supported by the same mechanism and requires no change to the executable (HLR-010).]]></text>
+      <traces>
+        <trace target="SDD" ref="6"/>
+        <trace target="SDD" ref="7"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-135" name="No External Preprocessor">
+        <text><![CDATA[`elc` shall determine which regions are active from the syntax tree it has already parsed, and shall not invoke a language toolchain's preprocessor, compiler, or build system, nor read any file the analysed source refers to for the purpose of resolving a condition. Requiring a toolchain would make the result depend on which one is installed and on a build environment `elc` cannot reproduce, would breach the runtime-dependency exclusions of HLR-040, and would re-read a file the single-parse rule (HLR-076) says is read once. It follows that a condition whose value depends on definitions `elc` was not given is undecidable rather than false (HLR-133).]]></text>
+      <traces>
+        <trace target="SDD" ref="7"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-136" name="Configuration Recorded and Reported">
+        <text><![CDATA[The set of definitions in force shall appear in the report and in the saved XML record (HLR-054), so that a report states the configuration it describes and a report regenerated from a record remains byte-identical to the one produced directly (HLR-056). Because pruning is applied when a file is measured and not when a report is rendered, supplying a definition together with the regeneration mode of HLR-055 shall be rejected as a usage error (HLR-063) rather than silently ignored.]]></text>
+      <traces>
+        <trace target="SDD" ref="4"/>
+        <trace target="SDD" ref="13"/>
+        <trace target="SDD" ref="16"/>
+      </traces>
+      </hlr>
+
+    </section>
   </hlrs>
 
   <!-- Low-Level Requirements (see tools/Developers_Guide.md §6). -->
@@ -2562,6 +2634,26 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <text><![CDATA[`cli_parse` shall reject a target given alongside a regeneration-mode input path, since the record is the input and a target would name a second source for one report.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-055"/>
+          <trace target="HLR" ref="HLR-063"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLI-19">
+        <text><![CDATA[`cli_parse` shall accept zero or more conditional-compilation definitions, each naming a symbol and optionally a value, and shall leave the definition set empty when none is supplied.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-131"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLI-20">
+        <text><![CDATA[`cli_parse` shall report a usage error for a definition naming no symbol, rather than recording an empty name that can never match.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-131"/>
+          <trace target="HLR" ref="HLR-063"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLI-21">
+        <text><![CDATA[`cli_parse` shall reject a command line combining a conditional-compilation definition with the regeneration-mode input path, since a saved record holds measurements already taken and no definition supplied afterwards can change them.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-136"/>
           <trace target="HLR" ref="HLR-063"/>
         </traces>
       </llr>
@@ -2887,6 +2979,14 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <traces>
           <trace target="HLR" ref="HLR-070"/>
           <trace target="HLR" ref="HLR-038"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RFP-10">
+        <text><![CDATA[`registry_for_path` shall load a language's conditional-region query when the module supplies one, and shall treat its absence as the language having no conditional compilation rather than as the module being unusable, since the required set of query files is unchanged by this addition.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-134"/>
+          <trace target="HLR" ref="HLR-121"/>
+          <trace target="HLR" ref="HLR-070"/>
         </traces>
       </llr>
       <llr id="LLR-RFP-08">
@@ -3240,6 +3340,34 @@ Note on the division of labour, which determines where a failure lives: the requ
         <traces>
           <trace target="HLR" ref="HLR-017"/>
           <trace target="HLR" ref="HLR-018"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-42">
+        <text><![CDATA[`analyze_file` shall determine, before running any metric query, the byte ranges of each region the supplied definitions render inactive, from the captures of the language's conditional-region query applied to the tree already parsed.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-132"/>
+          <trace target="HLR" ref="HLR-135"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-43">
+        <text><![CDATA[`analyze_file` shall exclude from every metric and every recorded fact any capture whose position lies within an inactive range, by the same exclusion the merged comment set uses, so that one mechanism governs both and neither can remove a byte range twice.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-132"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-44">
+        <text><![CDATA[`analyze_file` shall evaluate a region's condition from the captured condition nodes alone, deciding a region active or inactive only where the condition tests the definedness of symbols the user named or is a literal; any other condition shall leave both branches active and shall increment the count of undecided regions.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-133"/>
+          <trace target="HLR" ref="HLR-135"/>
+          <trace target="HLR" ref="HLR-013"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-45">
+        <text><![CDATA[`analyze_file` shall report zero inactive ranges when no definition was supplied, so that a run without the option yields byte-identical output to one made before the option existed.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-131"/>
+          <trace target="HLR" ref="HLR-032"/>
         </traces>
       </llr>
       <llr id="LLR-ANL-34">
@@ -3985,6 +4113,14 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-033"/>
         </traces>
       </llr>
+      <llr id="LLR-RPT-27">
+        <text><![CDATA[`report_assemble` shall carry the definitions in force and the count of undecided regions into the report model, ordered by symbol name, so that every format states the configuration the figures describe.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-136"/>
+          <trace target="HLR" ref="HLR-133"/>
+          <trace target="HLR" ref="HLR-033"/>
+        </traces>
+      </llr>
       <llr id="LLR-RPT-16">
         <text><![CDATA[`report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.]]></text>
         <traces>
@@ -4046,6 +4182,13 @@ Note on the division of labour, which determines where a failure lives: the requ
         <traces>
           <trace target="HLR" ref="HLR-027"/>
           <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SUM-05">
+        <text><![CDATA[`render_summary` shall present the definitions in force and the count of undecided regions in every format that presents the project summary, since a metric whose value depends on a configuration is not interpretable without it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-136"/>
+          <trace target="HLR" ref="HLR-031"/>
         </traces>
       </llr>
       <llr id="LLR-SUM-02">
@@ -4139,6 +4282,14 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-XWR-10">
+        <text><![CDATA[`xml_write_report` shall emit the definitions in force and the count of undecided regions, so that a record states the configuration it was taken under.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-136"/>
+          <trace target="HLR" ref="HLR-054"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-XWR-04">
         <text><![CDATA[`xml_write_report` shall emit well-formed XML.]]></text>
         <traces>
@@ -4216,6 +4367,13 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-XRD-13">
+        <text><![CDATA[`xml_read_report` shall reconstruct the definitions a record was taken under and present them unchanged, rather than applying any supplied afterwards, so that a regenerated report describes the configuration actually measured.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-136"/>
+          <trace target="HLR" ref="HLR-056"/>
+        </traces>
+      </llr>
       <llr id="LLR-XRD-06">
         <text><![CDATA[`xml_read_report` shall attempt no best-effort partial conversion of a rejected input.]]></text>
         <traces>

@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.2
-**Date:** 2026-08-15
+**Version:** 3.3
+**Date:** 2026-08-21
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -587,3 +587,31 @@ Requirements governing the end-user documentation delivered with `elc`. These co
 *   <a id="HLR-130"></a>**HLR-130: Documentation Updated With the Behaviour It Describes.**
     Documentation shall be updated in the same change as the behaviour it describes, never in a subsequent one. A change that adds, removes, or alters an option, a format, an artefact, or a finding category and does not update both documents is incomplete.
     *Trace:* [SDD Section 1.2](SDD.md).
+
+## 18. Conditional Compilation
+
+Requirements governing how `elc` reports a code base whose source is conditionally compiled, so that a metric describes the configuration a user names rather than the union of every configuration the source can express.
+
+*   <a id="HLR-131"></a>**HLR-131: Conditional-Compilation Configuration.**
+    `elc` shall accept zero or more conditional-compilation symbol definitions as command-line arguments, and shall use them to decide which branches of a conditionally compiled region are active. When no definition is supplied, no region shall be treated as inactive and the reported metrics shall be exactly those `elc` reports for the same source with the option absent, so that the capability is opt-in and adding it changes no existing result.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 7](SDD.md).
+
+*   <a id="HLR-132"></a>**HLR-132: Inactive-Region Exclusion.**
+    Every statement, decision point, call site, and global access lying within a region the supplied definitions render inactive shall be excluded from every reported metric and every graph fact derived from that file. A code base in which a substantial part of each file is compiled out for a given target otherwise reports the union of all its configurations, which describes no build that exists and overstates every measure taken from it.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 8](SDD.md).
+
+*   <a id="HLR-133"></a>**HLR-133: Undecidable Conditions Left Active.**
+    When the condition governing a region cannot be decided from the supplied definitions alone, `elc` shall treat both branches as active, and shall report the number of regions so treated, so that the completeness of the pruning is visible in the same way the completeness of the graph is (HLR-077). Silently discarding code whose condition was not understood would produce a report that is confidently wrong and indistinguishable from a correct one; over-counting is visible and is the safe direction.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-134"></a>**HLR-134: Conditional Constructs Defined by Runtime Data.**
+    The constructs that introduce a conditionally compiled region, the location of the condition governing it, and the branches it selects between, shall be identified by the language's runtime query configuration (HLR-009) rather than by logic compiled into the executable, so that a language whose conditional compilation differs in form — a C preprocessor conditional, a Rust `cfg` attribute — is supported by the same mechanism and requires no change to the executable (HLR-010).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 7](SDD.md).
+
+*   <a id="HLR-135"></a>**HLR-135: No External Preprocessor.**
+    `elc` shall determine which regions are active from the syntax tree it has already parsed, and shall not invoke a language toolchain's preprocessor, compiler, or build system, nor read any file the analysed source refers to for the purpose of resolving a condition. Requiring a toolchain would make the result depend on which one is installed and on a build environment `elc` cannot reproduce, would breach the runtime-dependency exclusions of HLR-040, and would re-read a file the single-parse rule (HLR-076) says is read once. It follows that a condition whose value depends on definitions `elc` was not given is undecidable rather than false (HLR-133).
+    *Trace:* [SDD Section 7](SDD.md).
+
+*   <a id="HLR-136"></a>**HLR-136: Configuration Recorded and Reported.**
+    The set of definitions in force shall appear in the report and in the saved XML record (HLR-054), so that a report states the configuration it describes and a report regenerated from a record remains byte-identical to the one produced directly (HLR-056). Because pruning is applied when a file is measured and not when a report is rendered, supplying a definition together with the regeneration mode of HLR-055 shall be rejected as a usage error (HLR-063) rather than silently ignored.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 13](SDD.md), [SDD Section 16](SDD.md).

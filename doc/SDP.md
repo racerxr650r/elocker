@@ -8,8 +8,10 @@
 mutual recursion, and reports the deepest call chain in full from
 user-declared entry points — omitting what it cannot honestly answer rather
 than guessing; 458 catalogued tests verify 214 requirements and the coverage
-baseline stands at 210. Phase 10 — reachability and global state — is ready
-to start.
+baseline stands at 228 — *raised* from 210, not lowered, because this change
+specifies the conditional-compilation requirements HLR-131 to HLR-136 and they
+have no tests until Phase 15 builds them. Phase 10 — reachability and global
+state — is ready to start.
 
 ## Status
 
@@ -30,7 +32,8 @@ to start.
 | [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
 | [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |
 | [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |
-| [15](#phase-15--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
+| [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
+| [16](#phase-16--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 
 ## 0. Required Tools for Development
 
@@ -255,7 +258,7 @@ Notes that matter:
     falls monotonically and can only fall. A phase that adds requirements
     without tests raises the count and fails the job — which is precisely the
     incompleteness §6 describes. The baseline starts at **378** and must reach
-    the review-verified residue by Phase 15.
+    the review-verified residue by Phase 16.
 *   **The runner is Linux.** `/proc`, `strace`, and `unshare` are Linux
     facilities; the instrumented level skips explicitly elsewhere and a
     silent skip is a failure (STP §2.2).
@@ -334,8 +337,10 @@ whole cycle runs from the working copy.
         Status table (🔄 if the phase is genuinely partial — that should be
         rare, since a phase is not done until §6's rule is satisfied).
     *   In **`README.md`**, make the identical change to its own copy of the
-        table, and update the `**Progress: N of 16 phases complete.**` line
-        to match.
+        table, and update the `**Progress: N of M phases complete.**` line
+        to match, where `M` is the number of rows in the table — inserting a
+        phase changes it, and the instruction naming a fixed total is how it
+        gets missed.
     The two tables must read the same after this step. A phase that changes
     what a user can see but leaves either Status section unstated as
     "Not started" is misleading anyone who reads the README instead of the
@@ -352,7 +357,7 @@ whole cycle runs from the working copy.
 
 ### 5.5 Release Process
 
-No release is cut before Phase 15. From then on:
+No release is cut before Phase 16. From then on:
 
 1. `develop` merges to `main` when all phases through the release's scope are
    complete and the gap list is empty but for review-verified items. `main`
@@ -383,7 +388,7 @@ reported in the [STP](STP.md) and the [Traceability Matrix](Traceability.md).
 **The phase-completion rule:** a phase is not done when its code works. It is
 done when every HLR and LLR it claims has a passing test tracing to it, and
 `Traceability.md` shows no new gap. This is what keeps the gap list falling
-monotonically rather than being deferred to Phase 15.
+monotonically rather than being deferred to Phase 16.
 
 **Progressively-satisfied requirements — the one sanctioned exception.** Four
 requirements are assigned to the phase that introduces their mechanism, but
@@ -399,7 +404,7 @@ their text spans report content that later phases add:
 Each is verified at its assigned phase **against the report content that exists
 at that phase**, re-verified automatically as each later phase extends the
 report — the fixture suites re-run on every PR regardless — and finally closed
-at Phase 15. Read strictly, the completion rule would make these four phases
+at Phase 16. Read strictly, the completion rule would make these four phases
 uncloseable; this paragraph is the exception, and it extends to these four
 requirements and no others.
 
@@ -780,7 +785,7 @@ Watch for:
   be something `elc` wrote.
 * The XML record must carry **everything a report can present**, so the
   regenerated Markdown can be byte-identical. Anything omitted here is a
-  Phase 15 defect.
+  Phase 16 defect.
 * Reject a malformed, foreign, or unsupported-version record outright. No
   best-effort partial conversion — a partly reconstructed report is
   indistinguishable from a complete one once rendered.
@@ -1266,11 +1271,80 @@ When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
 update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
-before you push. Close by opening the issue for Phase 15
+before you push. Close by opening the issue for Phase 16
 from §8.
 ```
 
-### Phase 15 — Hardening and Release Readiness
+### Phase 15 — Conditional Compilation
+
+1. `cli.c`: the `-D` option, its definition list, and its rejection alongside
+   regeneration mode.
+2. `conditionals.scm` for C and Rust — the optional seventh query file — and
+   the contract entry describing it.
+3. `registry.c`: loading that file where a module supplies one, and treating
+   its absence as "this language has none".
+4. `analyze.c`: evaluating each region's condition from the parsed condition
+   nodes, and joining the inactive byte ranges to the exclusion the merged
+   comment set already uses.
+5. The undecided-region count, and the definitions, carried into the report
+   model, every format, and the saved record.
+6. The `conditional/` fixture group, with hand-counted values per
+   configuration.
+
+**Requirements:** HLR-131 – HLR-136.
+
+**Acceptance:** `elc -DFOO src/` reports the metrics of the configuration in
+which `FOO` is defined, and `elc src/` reports byte-identically to a build
+made before the option existed. `#if 0` prunes with no definitions supplied.
+A condition naming a symbol no `-D` mentions leaves both branches counted and
+raises the undecided count. The same source under a Rust `cfg` attribute
+prunes by the same mechanism, with no change to `src/` beyond what C needed.
+`-D` with `--from-xml` is a usage error.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 15 — Conditional Compilation**, tracked by issue #<N>.
+
+Read first: `doc/SDD.md` §7 (`analyze.c`, its Algorithm section), §4
+(`cli.c`), and §6 (`registry.c`); HLR-131 through HLR-136; and the
+`conditionals.scm` entry in `runtime/queries/README.md`.
+
+This reverses a judgement recorded in `doc/notes.md` §3 — that code inside
+`#if 0` counts, because elc does not preprocess. It still does not
+preprocess. What changed is that a condition can be *decided from the parsed
+tree* for the cases that matter, which is a different thing from running a
+preprocessor over the text.
+
+Watch for:
+* **No toolchain, ever** (HLR-135). No `cpp`, no `rustc --cfg`, no build
+  system, and no reading a file the source `#include`s. The result must not
+  depend on which compiler is installed.
+* **Undecidable is not false** (HLR-133). A condition elc cannot decide
+  leaves *both* branches counted and increments the undecided count.
+  Treating it as false silently deletes code and produces a report that is
+  confidently wrong and indistinguishable from a right one.
+* **With no `-D`, nothing changes.** Every existing fixture must report the
+  same numbers it does today; that is the cheapest regression test available
+  and it is already written.
+* **The exclusion already exists.** Inactive ranges join the merged comment
+  set rather than becoming a second mechanism — one thing to understand, and
+  neither can remove a range twice.
+* **`conditionals.scm` is optional, and the required six are unchanged.** A
+  module without one has no conditional compilation. Do not make it a
+  seventh required file; that would break every module already shipped.
+* The definitions belong in the report *and* in the saved record, or a
+  regenerated report describes a configuration it does not name (HLR-136).
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. Close by opening the issue for Phase 16
+from §8.
+```
+
+### Phase 16 — Hardening and Release Readiness
 
 1. Full sanitizer sweep across every fixture and target type, including every
    error path.
@@ -1376,7 +1450,8 @@ T-shirt sizes; no calendar commitment implied.
 | 12 | S | A table and its evaluation |
 | 13 | S | Text emission over an ordered model |
 | 14 | M | Binding and provenance-split error handling |
-| 15 | M | Sweeping and closing, plus whatever Phase 15 uncovers |
+| 15 | M | Conditional-region pruning; the evaluator and its fixtures |
+| 16 | M | Sweeping and closing, plus whatever Phase 16 uncovers |
 
 Phase 8 is the one worth splitting if it proves oversized: symbol resolution
 and graph construction could ship separately from the GraphML writer, though
@@ -1401,7 +1476,7 @@ that would leave the first half untestable until the second lands.
 **AI prompt.** Run after issue #<N> exists; `<N>` is its number.
 
 ```text
-Implement **Phase 15 — Hardening and Release Readiness**, tracked by
+Implement **Phase 16 — Hardening and Release Readiness**, tracked by
 issue #<N>. The final phase.
 
 Read first: `doc/STP.md` §2 and §7, `doc/Traceability.md` §6 for the
