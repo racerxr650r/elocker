@@ -24,19 +24,28 @@ runtime/
 └── queries/<lang>/
     ├── functions.scm  comments.scm  complexity.scm
     ├── eloc.scm       calls.scm     globals.scm
-    ├── deadcode.scm            # optional                          (HLR-139)
-    └── rules/*.scm             # optional custom rules             (HLR-107)
+    ├── conditionals.scm        # optional                         (HLR-134)
+    ├── deadcode.scm            # optional                         (HLR-139)
+    └── rules/*.scm             # optional custom rules            (HLR-107)
 ```
 
 All six query files are **required**. A module that omits one is reported as
 unusable, excluded from the run, and does not stop it (HLR-070) — it is not
 undefined behaviour, and it is not fatal.
 
-`deadcode.scm` is **optional**, and deliberately so: making it required would
-invalidate every language module already shipped, which is the thing this
-contract exists to prevent. A module without it is analysed for everything
-else, and `elc` reports that dead-code analysis was *not performed* for that
-language — never that none was found (HLR-139).
+Two further files are **optional**, and deliberately so: making either
+required would invalidate every language module already shipped, which is the
+thing this contract exists to prevent.
+
+`conditionals.scm` gains the language conditional-region pruning. Omitting one
+means the language has no conditional compilation, which is simply true of
+most of them.
+
+`deadcode.scm` gains the language dead-code detection. A module without it is
+analysed for everything else, and `elc` reports that dead-code analysis was
+*not performed* for that language — never that none was found (HLR-139). The
+distinction matters: they are different claims, and a reader who cannot tell
+them apart has been told nothing.
 
 A query file that captures nothing is valid, and is how an unimplemented
 query is expressed. `elc` reads captures; it never asks whether a file is
@@ -60,9 +69,36 @@ a language name, a file extension, or a grammar node type — if you are typing
 | `globals.scm` | `@global.declaration` | A global's declaration |
 | | `@global.read` | An identifier reading a global |
 | | `@global.write` | An identifier writing a global |
+| `conditionals.scm` | `@conditional.symbol` | A symbol whose definedness the condition tests |
+| | `@conditional.negated` | Present when the region is active while the symbol is *un*defined |
+| | `@conditional.literal` | A condition that is a constant, such as C's `#if 0` |
+| | `@conditional.consequence` | The region active when the condition holds |
+| | `@conditional.alternative` | The region active when it does not |
 | `deadcode.scm` | `@dead.terminator` | A statement after which control does not continue in this block |
 | | `@dead.reentry` | A construct that can be entered *without* falling into it |
 | | `@dead.branch` | A branch a literal condition excludes |
+
+### Conditional compilation, and what it deliberately cannot do
+
+`elc` runs **no preprocessor** (HLR-135). There is no macro expansion, no
+include resolution, and no arithmetic over macro values, because each needs a
+toolchain whose presence and configuration `elc` cannot reproduce — and the
+answer would then depend on the machine rather than on the source.
+
+So a region is decided only when its condition is a **literal**, or tests the
+**definedness** of symbols the user named with `-D`. A C `#if VERSION > 2` is
+**undecidable, not false**: both branches stay active and the region is
+counted as undecided (HLR-133).
+
+That asymmetry is the safety argument, and it is worth understanding before
+writing one of these files. Treating an unrecognised condition as false would
+silently delete code and produce a report that is confidently wrong and looks
+exactly like a correct one. Treating it as true over-counts, which is visible
+in the undecided count printed beside the figures.
+
+A query file expresses only the *shape*: which node introduces a region, where
+its condition sits, and which branch each is. It never decides the answer.
+That is what keeps a C `#if` and a Rust `#[cfg]` the same mechanism.
 
 ### Writing a `deadcode.scm`
 
