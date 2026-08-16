@@ -146,6 +146,44 @@ than becoming an edge.
 .B elc
 does not correct for any of these, because the correction would place one
 language's semantics in the executable.
+.SS Call-tree analyses
+For every function,
+.B elc
+reports its
+.B fan-out
+\(em the number of
+.I distinct
+subroutines it invokes. A function calling one helper twice is coupled to one
+thing and reports 1. The figure is reported and not judged; the thresholds
+that turn it into a finding arrive with a later phase.
+.PP
+.B Recursion
+is detected statically, direct and mutual alike, in accordance with MISRA C
+Rule 17.2 \(em under which recursion is forbidden because it makes worst-case
+stack depth unpredictable. The functions of each recursive group are listed as
+a
+.IR set ,
+not as a path: the analysis establishes that they can reach one another, and
+does not produce a particular cycle through them.
+.PP
+The
+.B deepest call chain
+is reported in full \(em the ordered sequence of functions from entry point to
+deepest leaf \(em rather than only its length, since the length alone does not
+say which path to shorten. It requires entry points declared with
+.BR \-\-entry .
+.PP
+Two properties of the depth are stated in its heading rather than left to be
+assumed. It is a
+.B lower bound:
+a chain continuing through a call that could not be resolved is not followed,
+so the unresolved-call count is presented beside it and a depth measured
+against many unresolved calls should not be relied upon. And where the call
+graph is
+.BR recursive ,
+no depth is reported at all: the longest path has no finite answer, so
+.B elc
+reports the cycle in place of a number rather than a misleading finite value.
 .SS Language support
 .B elc
 determines each file's language from its extension, and loads the parser and
@@ -335,6 +373,17 @@ Write the report to
 instead of to standard output. Diagnostics continue to go to standard error,
 so the file holds results and nothing else. The default is standard output.
 .TP
+.BI \-\-entry " SYMBOL"
+Declare
+.I SYMBOL
+an entry point, from which call depth is measured. Repeatable; give one for
+each. There is no default and none is inferred \(em
+.B main
+is right for an application, wrong for a library, and badly wrong for firmware
+whose interrupt handlers are reached from a vector table and called by nothing.
+With none declared, the analyses needing them are omitted with the reason
+stated in the report rather than reported as an empty result.
+.TP
 .B \-\-graphml
 Also write the System Dependence Graph as GraphML. The file is named from the
 report's own output path by extension substitution, so an
@@ -374,11 +423,12 @@ diagnostics are written to standard error. Nothing else is written to the
 results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
-The default format is an aligned table in eight sections: the project
+The default format is an aligned table in eleven sections: the project
 summary, the project-wide callouts, the discovery route applied to each
 directory target, the totals broken down by language, one row per analysed
 file, one row per function, the functions at or over the complexity threshold,
-and the files that were skipped. Column widths are taken from the longest value in each column so the
+each function's fan-out, any recursion detected, the deepest call chain, and
+the files that were skipped. Column widths are taken from the longest value in each column so the
 figures line up:
 .PP
 .EX

@@ -69,6 +69,18 @@ typedef struct {
 	const char   *output_path;  /* NULL when writing to stdout (HLR-030) */
 	uint32_t      complexity_threshold; /* listing only; never the exit
 	                                     * status (HLR-022, HLR-023)     */
+	/* The entry points reachability and depth are measured from
+	 * (HLR-095). Never inferred and never read from a file: a tool that
+	 * guessed at `main` would be wrong for a library, an interrupt table,
+	 * or a plugin, and would be wrong silently. Empty means the analyses
+	 * that need it are omitted with a stated reason, not that everything
+	 * is unreachable (HLR-115).
+	 *
+	 * The symbols are borrowed from argv; the array holding them is
+	 * owned, because getopt hands them over one at a time. */
+	const char  **entry_points;
+	size_t        entry_point_count;
+	size_t        entry_point_capacity;
 	bool          graphml;      /* export the SDG (HLR-106); off unless
 	                             * asked for, and silently nothing when
 	                             * the report goes to stdout             */
@@ -106,6 +118,20 @@ typedef struct {
 	FunctionMetric *functions;      /* dynamic array, grown by doubling  */
 	size_t          function_count;
 } FileMetrics;
+
+/* Why a depth figure is or is not present.
+ *
+ * Three of the four are absences with different causes, and they are kept
+ * distinct because a reader who sees no depth deserves to know which one
+ * happened. "You declared nothing" and "what you declared does not exist
+ * here" call for different actions.
+ */
+typedef enum {
+	DEPTH_MEASURED = 0,
+	DEPTH_OMITTED_NO_ENTRY_POINTS,   /* none declared (HLR-115)        */
+	DEPTH_OMITTED_ENTRY_UNRESOLVED,  /* declared, none of them found   */
+	DEPTH_UNBOUNDED_RECURSION        /* no finite answer exists        */
+} DepthState;
 
 /* ------------------------------------------------------- the graph facts --
  *

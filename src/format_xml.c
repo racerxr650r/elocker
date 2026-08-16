@@ -31,6 +31,7 @@
 #include <expat.h>
 
 #include "analyze.h"
+#include "calltree.h"
 #include "discover.h"
 #include "elc.h"
 #include "format_xml.h"
@@ -138,6 +139,38 @@ int xml_write_report(const Report *report, FILE *out)
 	fprintf(out, "  <graph unresolved-calls=\"%zu\"/>\n",
 	        report->unresolved_calls);
 
+	/* The call-tree measurements. Every one is a fact about the run that
+	 * regeneration cannot recompute — there is no graph and no source to
+	 * build one from — so the record carries them exactly as it carries
+	 * the metrics (HLR-054, HLR-056). */
+	fprintf(out, "  <calltree depth-state=\"%d\" depth=\"%" PRIu32 "\">\n",
+	        (int)report->depth_state, report->depth);
+	for (size_t i = 0; i < report->fan_out_count; i++) {
+		fputs("    <fanout", out);
+		write_attribute(out, "function", report->fan_out[i].function);
+		write_attribute(out, "file", report->fan_out[i].file);
+		fprintf(out, " line=\"%" PRIu32 "\" value=\"%" PRIu32 "\"/>\n",
+		        report->fan_out[i].line, report->fan_out[i].fan_out);
+	}
+	for (size_t i = 0; i < report->cycle_count; i++) {
+		fputs("    <cycle>\n", out);
+		for (size_t m = 0; m < report->cycles[i].count; m++) {
+			fputs("      <member", out);
+			write_attribute(out, "function",
+			                report->cycles[i].members[m]);
+			fputs("/>\n", out);
+		}
+		fputs("    </cycle>\n", out);
+	}
+	for (size_t i = 0; i < report->deepest_count; i++) {
+		fputs("    <step", out);
+		write_attribute(out, "function", report->deepest[i].function);
+		write_attribute(out, "file", report->deepest[i].file);
+		fprintf(out, " line=\"%" PRIu32 "\"/>\n",
+		        report->deepest[i].line);
+	}
+	fputs("  </calltree>\n", out);
+
 	fputs("  <discovery>\n", out);
 	for (size_t i = 0; i < report->routes.count; i++) {
 		fputs("    <route", out);
@@ -175,6 +208,16 @@ int xml_write_report(const Report *report, FILE *out)
 typedef struct {
 	RouteList           routes;
 	size_t              unresolved;
+	/* Rebuilt into the report after assembly, exactly as a live run does
+	 * it, so the two paths converge on one model (HLR-056). */
+	DepthState          depth_state;
+	uint32_t            depth;
+	FanOutRow          *fan_out;
+	size_t              fan_out_count;
+	CycleRow           *cycles;
+	size_t              cycle_count;
+	ChainRow           *deepest;
+	size_t              deepest_count;
 	MetricsAccumulator *acc;
 	FileMetrics        *current;      /* the <file> being populated */
 	size_t              capacity;     /* of current->functions      */
@@ -315,6 +358,131 @@ static void on_start(void *user, const XML_Char *name,
 
 		state->current  = file;
 		state->capacity = 0;
+		return;
+	}
+
+	if (strcmp(name, "calltree") == 0) {
+		const char *which = attribute(atts, "depth-state");
+		const char *depth = attribute(atts, "depth");
+
+		if (!which || !depth) {
+			fail(state, "a calltree element is incomplete");
+			return;
+		}
+		state->depth_state = (DepthState)strtol(which, NULL, 10);
+		state->depth       = (uint32_t)strtoul(depth, NULL, 10);
+		return;
+	}
+
+	if (strcmp(name, "fanout") == 0) {
+		const char *fn   = attribute(atts, "function");
+		const char *file = attribute(atts, "file");
+		const char *line = attribute(atts, "line");
+		const char *val  = attribute(atts, "value");
+
+		if (!fn || !file || !line || !val) {
+			fail(state, "a fanout element is incomplete");
+			return;
+		}
+
+		FanOutRow *grown = realloc(state->fan_out,
+		                           (state->fan_out_count + 1) *
+		                                   sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->fan_out = grown;
+
+		FanOutRow *row = &state->fan_out[state->fan_out_count];
+
+		memset(row, 0, sizeof *row);
+		row->function = strdup(fn);
+		row->file     = strdup(file);
+		if (!row->function || !row->file) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->line    = (uint32_t)strtoul(line, NULL, 10);
+		row->fan_out = (uint32_t)strtoul(val, NULL, 10);
+		state->fan_out_count++;
+		return;
+	}
+
+	if (strcmp(name, "cycle") == 0) {
+		CycleRow *grown = realloc(state->cycles,
+		                          (state->cycle_count + 1) *
+		                                  sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->cycles = grown;
+		memset(&state->cycles[state->cycle_count], 0,
+		       sizeof *state->cycles);
+		state->cycle_count++;
+		return;
+	}
+
+	if (strcmp(name, "member") == 0) {
+		const char *fn = attribute(atts, "function");
+
+		if (!fn || state->cycle_count == 0) {
+			fail(state, "a cycle member outside any cycle");
+			return;
+		}
+
+		CycleRow *row    = &state->cycles[state->cycle_count - 1];
+		char    **members = realloc(row->members,
+		                            (row->count + 1) * sizeof *members);
+
+		if (!members) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->members = members;
+		row->members[row->count] = strdup(fn);
+		if (!row->members[row->count]) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->count++;
+		return;
+	}
+
+	if (strcmp(name, "step") == 0) {
+		const char *fn   = attribute(atts, "function");
+		const char *file = attribute(atts, "file");
+		const char *line = attribute(atts, "line");
+
+		if (!fn || !file || !line) {
+			fail(state, "a step element is incomplete");
+			return;
+		}
+
+		ChainRow *grown = realloc(state->deepest,
+		                          (state->deepest_count + 1) *
+		                                  sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->deepest = grown;
+
+		ChainRow *row = &state->deepest[state->deepest_count];
+
+		memset(row, 0, sizeof *row);
+		row->function = strdup(fn);
+		row->file     = strdup(file);
+		if (!row->function || !row->file) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->line = (uint32_t)strtoul(line, NULL, 10);
+		state->deepest_count++;
 		return;
 	}
 
@@ -494,6 +662,24 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 		goto cleanup;
 	report_set_unresolved(out, state.unresolved);
 
+	/* Moved, not copied. The parser owns these until assembly succeeds,
+	 * and the report owns them after — one transfer, so neither path
+	 * frees what the other holds. */
+	out->depth_state    = state.depth_state;
+	out->depth          = state.depth;
+	out->fan_out        = state.fan_out;
+	out->fan_out_count  = state.fan_out_count;
+	out->cycles         = state.cycles;
+	out->cycle_count    = state.cycle_count;
+	out->deepest        = state.deepest;
+	out->deepest_count  = state.deepest_count;
+	state.fan_out       = NULL;
+	state.fan_out_count = 0;
+	state.cycles        = NULL;
+	state.cycle_count   = 0;
+	state.deepest       = NULL;
+	state.deepest_count = 0;
+
 	status = 0;
 
 cleanup:
@@ -506,6 +692,23 @@ cleanup:
 		report_free(out);
 		memset(out, 0, sizeof *out);
 	}
+	/* Released only on the paths where assembly did not take them. */
+	for (size_t i = 0; i < state.fan_out_count; i++) {
+		free(state.fan_out[i].function);
+		free(state.fan_out[i].file);
+	}
+	free(state.fan_out);
+	for (size_t i = 0; i < state.cycle_count; i++) {
+		for (size_t m = 0; m < state.cycles[i].count; m++)
+			free(state.cycles[i].members[m]);
+		free(state.cycles[i].members);
+	}
+	free(state.cycles);
+	for (size_t i = 0; i < state.deepest_count; i++) {
+		free(state.deepest[i].function);
+		free(state.deepest[i].file);
+	}
+	free(state.deepest);
 	routelist_free(&state.routes);
 	if (parser)
 		XML_ParserFree(parser);

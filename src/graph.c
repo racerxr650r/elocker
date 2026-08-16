@@ -304,6 +304,7 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 	const char **declared    = NULL;
 	size_t       declared_count = 0;
 	igraph_t    *ig          = NULL;
+	igraph_t    *call_ig     = NULL;
 	int          status      = -1;
 
 	memset(out, 0, sizeof *out);
@@ -583,14 +584,54 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 	}
 	igraph_vector_int_destroy(&edges);
 
-	out->graph = ig;
-	ig         = NULL;
-	status     = 0;
+	/* The call-only view. Built here rather than by each consumer so that
+	 * every analysis asking "what calls what" asks the same question of
+	 * the same structure (see graph.h). */
+	call_ig = calloc(1, sizeof *call_ig);
+	if (!call_ig)
+		goto cleanup;
+
+	size_t call_edges = 0;
+
+	for (size_t i = 0; i < out->edge_count; i++)
+		if (out->edges[i].kind == EDGE_CALL)
+			call_edges++;
+
+	igraph_vector_int_t only_calls;
+
+	if (igraph_vector_int_init(&only_calls,
+	                           (igraph_integer_t)(call_edges * 2)) !=
+	    IGRAPH_SUCCESS)
+		goto cleanup;
+
+	size_t at = 0;
+
+	for (size_t i = 0; i < out->edge_count; i++) {
+		if (out->edges[i].kind != EDGE_CALL)
+			continue;
+		VECTOR(only_calls)[at++] = out->edges[i].from;
+		VECTOR(only_calls)[at++] = out->edges[i].to;
+	}
+
+	if (igraph_create(call_ig, &only_calls,
+	                  (igraph_integer_t)out->node_count,
+	                  IGRAPH_DIRECTED) != IGRAPH_SUCCESS) {
+		igraph_vector_int_destroy(&only_calls);
+		goto cleanup;
+	}
+	igraph_vector_int_destroy(&only_calls);
+
+	out->graph      = ig;
+	out->call_graph = call_ig;
+	ig              = NULL;
+	call_ig         = NULL;
+	status          = 0;
 
 cleanup:
 	free(symbols);
 	free(declared);
 	free(ig);
+	free(call_ig);
 	if (status != 0)
 		graph_free(out);
 	return status;
@@ -609,6 +650,10 @@ void graph_free(Sdg *g)
 	if (g->graph) {
 		igraph_destroy((igraph_t *)g->graph);
 		free(g->graph);
+	}
+	if (g->call_graph) {
+		igraph_destroy((igraph_t *)g->call_graph);
+		free(g->call_graph);
 	}
 	for (size_t i = 0; i < g->global_name_count; i++)
 		free(g->global_names[i]);
