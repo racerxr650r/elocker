@@ -424,16 +424,17 @@ Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage`
 [src/analyze.c](../src/analyze.c) performs the single parse of each source file and extracts everything any later stage will need from it: per-function identity and metrics, and the raw call and global-access facts from which the SDG is built. No other module reads source text.
 
 *   Map the file read-only, count physical lines, and hand a zero-copy buffer to the parser. Files are opened `O_RDONLY` and mapped `PROT_READ`; no module in `src/` ever opens a source file for writing, which is how HLR-043 is satisfied structurally rather than by convention.
-*   Run the comment, function, ELOC, complexity, call, and global queries against the parsed tree.
+*   Run the comment, function, ELOC, complexity, call, global, and dead-code queries against the parsed tree.
 *   Merge comment spans and classify statements to compute ELOC per function and per file.
 *   Attribute each statement and decision point to its innermost enclosing reported function.
 *   Emit `FileFacts` — the call sites, global accesses, and address-taken functions — for later cross-file resolution.
+*   Record the statements within each function that cannot execute, and whether the language supplied the data needed to look (HLR-137, HLR-139).
 *   Evaluate custom rule queries and record their matches.
 
 ### 7.2 External Interfaces
 #### 7.2.1 Query Capture Contract
 
-The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).
+The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).
 
 
 ### 7.3 Internal Structure
@@ -467,6 +468,20 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
         **A skip and a failure are different outcomes, and the return value distinguishes them.** A file whose extension maps to no usable language was never attempted: it is reported skipped and leaves the exit status at 0 (HLR-012, HLR-037). A file that was attempted and could not be read or parsed makes it 1 (HLR-035). A single non-zero return would collapse the two and make every unsupported file look like a failure.
 
         **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.
+
+*   **`int collect_dead_code(const LanguageModule *m, Registry *reg, TSNode root, const FnRangeIndex *ranges, FileFacts *facts)`**
+    *   Purpose: Record every statement within a function that cannot execute (HLR-137).
+    *   Pre-condition: `ranges` holds the reported functions of this file, so each finding can be attributed to the one containing it.
+    *   Post-condition: `facts` holds one span per unreachable statement, and a flag recording whether the language supplied a `deadcode.scm` at all.
+    *   Return Value: 0 on success; non-zero only on allocation failure. A language with no dead-code query is not a failure (HLR-139).
+    *   Logic:
+        1.  If the language module supplies no dead-code query, record that fact and return. The absence is reported as "not analysed for this language", never as "none found" — the two are different claims (HLR-139).
+        2.  For each `@dead.branch` capture, record the captured node's line range. The query decides what a literal condition is and which branch it excludes, because both are language-specific: `0` is false in C, `false` in Rust, `False` in Python, and a query predicate can compare the literal's text where C could not without knowing the language.
+        3.  For each `@dead.terminator` capture, walk the *following named siblings* of the captured node and record each as unreachable, stopping at the first sibling carrying a `@dead.reentry` capture. Sibling traversal is structural and needs no language knowledge; what terminates a block and what can be re-entered are language knowledge, and both stay in the query file.
+        4.  Attribute each recorded span to its innermost enclosing reported function, by the same rule ELOC and complexity use, so a dead statement inside a nested function belongs to that function and not to the one around it.
+    *   Notes: **The re-entry capture is what keeps the analysis sound, and it is easy to leave out.** In C a `goto` label following a `return` is a sibling of it and is perfectly reachable; recording it as dead would be a false claim of the kind HLR-138 forbids outright. The shape differs by language and even by grammar — in `tree-sitter-c` a `case` label is a *child* of the case construct rather than a sibling of the statements before it, so switch arms need no re-entry pattern there, while a `labeled_statement` does. That a grammar happens to make one case safe is not a reason to omit the pattern for the other; the `deadcode/` fixture group pins both.
+
+        Nothing here evaluates an expression. A branch is dead only where the source writes a literal, which is why `if (0)` is found and `x = 0; if (x)` is not (HLR-138).
 
 *   **`uint32_t merge_comment_spans(SpanList *spans)`** — Sort by start byte and coalesce overlapping and nested spans, in place; returns the number of distinct lines the merged set covers.
 *   **`const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)`** — Return the narrowest reported function containing a byte offset, or NULL when the offset lies outside every one of them. Only *reported* functions are in the index, which is what makes an anonymous callable transparent to the lookup: an offset inside one resolves to the named function around it (HLR-018).
@@ -1058,6 +1073,16 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `calls` | `CallSite *` | Call sites with their enclosing function and callee name |
 | `globals` | `GlobalAccess *` | Global reads and writes with their enclosing function |
 | `rule_matches` | `RuleMatch *` | Custom rule matches with rule identity and line range |
+| `dead` | `DeadSpan *` | Statements within a function that cannot execute (HLR-137) |
+| `dead_analysed` | `bool` | False when the language supplied no dead-code query, so that "not looked for" is distinguishable from "none found" (HLR-139) |
+*   **`DeadSpan`** (defined in [inc/elc.h](../inc/elc.h)) — One statement that cannot execute, and why.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `function` | `size_t` | Into FileMetrics.functions, or ELC_NO_FUNCTION for file scope |
+| `start_line` | `uint32_t` | 1-based |
+| `end_line` | `uint32_t` | 1-based; a dead branch may span many lines |
+| `cause` | `DeadCause` | after-terminator or literal-condition — the reader's next action differs, so the two are not merged |
 *   **`Sdg`** (defined in [inc/elc.h](../inc/elc.h)) — The System Dependence Graph and the tables needed to interpret it.
 
     | Field | Type | Description |
