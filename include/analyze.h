@@ -102,4 +102,25 @@ typedef struct {
  */
 const FnRange *innermost_enclosing(const FnRangeIndex *index, uint32_t byte);
 
+/* Record every statement within a function that cannot execute (HLR-137).
+ *
+ * `ranges` holds the file's reported functions, so each finding is attributed
+ * to the one containing it by the rule ELOC and complexity already use
+ * (LLR-DED-04). On return `facts` holds one span per unreachable statement,
+ * sorted and de-duplicated, and `facts->dead_analysed` records whether the
+ * language supplied a `deadcode.scm` at all — the absence being "not looked
+ * for" rather than "none found" (HLR-139, LLR-DED-05).
+ *
+ * Returns 0 on success; non-zero only on allocation failure. A language with
+ * no dead-code query is not a failure.
+ *
+ * Exposed rather than static so the unit level can drive it against a tree it
+ * built, which is the level at which the false-claim cases — a label after a
+ * return, a branch guarded by a variable — are cheapest to pin.
+ */
+int collect_dead_code(const LanguageModule *module, Registry *reg,
+                      const char *data, TSNode root,
+                      const FnRangeIndex *ranges, const SpanList *comments,
+                      FileFacts *facts);
+
 #endif /* ELC_ANALYZE_H */

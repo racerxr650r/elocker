@@ -173,6 +173,72 @@ deepest leaf \(em rather than only its length, since the length alone does not
 say which path to shorten. It requires entry points declared with
 .BR \-\-entry .
 .PP
+.B Unreachable functions
+are found by traversing the call graph forward from a root set, and reporting
+everything the traversal never visits. The root set is the declared entry
+points
+.I together with
+every function whose address is taken. That second half is what makes the claim
+sound rather than merely plausible: a handler installed in an interrupt vector
+or stored in a callback table has no resolved caller anywhere in the graph, and
+omitting it would report live code as provably dead. The asymmetry is
+deliberate \(em an extra root can only shrink the unreachable set, whereas a
+missing one produces a false claim of death.
+.PP
+Because the answer comes from traversal alone and from no textual heuristic, a
+clique of unused functions that call one another is correctly reported: each
+has a caller, so a "nothing calls this" rule finds neither, and no path reaches
+the pair from any root. A global object every one of whose accessing functions
+is unreachable is reported unreachable too. Where no entry points are declared,
+nothing at all is reported unreachable.
+.PP
+One caveat belongs with that list, and it runs against the direction
+everything above errs in. Calls resolve by name, so where two files each
+define a
+.B static
+helper of the same name, every call resolves to the first and the second has
+no incoming edge \(em and is reported unreachable when it is not. The
+duplicate definition is diagnosed on standard error where it occurs, so read
+that before acting on the list.
+.PP
+.B Global state
+is reported for every object: the set of functions that write it and the set
+that read it. Two arrangements are flagged, both under MISRA C Rule 8.9. An
+object whose identifier appears in a single function belongs at block scope. An
+object shared between functions lying in
+.I disconnected
+regions of the call graph is a hidden channel \(em temporal coupling in which
+execution order silently governs whether the system works, with nothing in
+either region saying so. Sharing within one call-connected region is ordinary
+and is reported as a measurement without a finding.
+.PP
+.B Dead code within a function
+is a different question answered by different means, and neither analysis
+subsumes the other: a function reached from an entry point may contain
+statements that cannot execute, and an unreachable function may contain none.
+Two classes are detected from the syntax tree alone \(em statements following a
+.BR return ", " break ", " continue
+or unconditional transfer, up to the first construct that can be entered
+without falling into it; and the branch a
+.I literally written
+condition excludes, such as the body of
+.B if (0)
+or the
+.B else
+of
+.BR "if (1)" .
+.PP
+.B elc
+performs no data-flow analysis, no constant propagation, and no evaluation of
+expressions here. A branch guarded by a variable is never claimed dead however
+clearly a reader can infer its value: a missed statement costs a cleanup
+opportunity, while a false claim invites deleting code that runs. Support is
+per language and its absence is stated \(em a language module supplying no
+dead-code query has its files analysed for everything else, and the report says
+the analysis was
+.I not performed
+for that language rather than that none was found.
+.PP
 Two properties of the depth are stated in its heading rather than left to be
 assumed. It is a
 .B lower bound:
@@ -376,13 +442,28 @@ so the file holds results and nothing else. The default is standard output.
 .BI \-\-entry " SYMBOL"
 Declare
 .I SYMBOL
-an entry point, from which call depth is measured. Repeatable; give one for
-each. There is no default and none is inferred \(em
+an entry point, from which call depth and reachability are measured.
+Repeatable; give one for each. There is no default and none is inferred \(em
 .B main
 is right for an application, wrong for a library, and badly wrong for firmware
 whose interrupt handlers are reached from a vector table and called by nothing.
 With none declared, the analyses needing them are omitted with the reason
-stated in the report rather than reported as an empty result.
+stated in the report rather than reported as an empty result, and nothing
+whatsoever is reported unreachable.
+.TP
+.BI \-\-scope " NAME:GLOB[,GLOB...]"
+Declare an execution scope called
+.I NAME
+containing the files matching the given shell patterns. Repeatable; give one
+for each scope. Intended for targets whose components share an overlapping
+memory map and symbol table \(em a host-driven sequential test harness, or a
+bootloader and the application it starts. With two or more declared,
+.B elc
+reports every call and every shared global object by which one scope reaches a
+function or object belonging to another. A file matching no declaration lies
+outside the partition rather than in a scope of its own, and edges touching it
+are not crossings. With none declared the analysis is omitted with the reason
+stated.
 .TP
 .B \-\-graphml
 Also write the System Dependence Graph as GraphML. The file is named from the

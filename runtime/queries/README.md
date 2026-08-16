@@ -47,6 +47,18 @@ analysed for everything else, and `elc` reports that dead-code analysis was
 distinction matters: they are different claims, and a reader who cannot tell
 them apart has been told nothing.
 
+Four of the five shipped modules supply one. **Ada deliberately does not**, and
+the reason is the same one `ada/calls.scm` gives for leaving `Foo (X)` alone.
+Ada writes its false literal as `False`, which the grammar parses as an
+ordinary identifier — indistinguishable from a name the program declared
+itself, and case-insensitively spelled besides. Capturing it would mean
+asserting that an identifier resolves to `Standard.Boolean'False` without
+having resolved anything, and the cost of being wrong is a claim that live code
+is dead. The terminator half alone would be sound, but shipping half a query
+would report Ada as *analysed* and quietly find no literal branches, which is
+the confident-and-wrong outcome the whole design avoids. Ada is reported
+unanalysed instead, which is the true statement.
+
 A query file that captures nothing is valid, and is how an unimplemented
 query is expressed. `elc` reads captures; it never asks whether a file is
 "filled in".
@@ -77,6 +89,41 @@ a language name, a file extension, or a grammar node type — if you are typing
 | `deadcode.scm` | `@dead.terminator` | A statement after which control does not continue in this block |
 | | `@dead.reentry` | A construct that can be entered *without* falling into it |
 | | `@dead.branch` | A branch a literal condition excludes |
+
+## Predicates
+
+A pattern may carry predicates, and `elc` evaluates them. That is worth stating
+because it is not free: **tree-sitter's C library treats a predicate as data**
+— it parses `(#eq? @c "0")` and hands the steps back, leaving the decision to
+the caller. A tool that never asks accepts every match as though the predicate
+were not written, which for a `deadcode.scm` would turn "`if (0)` is dead" into
+"every `if` is dead".
+
+Five filters are supported, and they are evaluated against the text a capture
+spans:
+
+| Predicate | Holds when |
+| --------- | ---------- |
+| `(#eq? @a "text")` | the capture's text equals the string |
+| `(#eq? @a @b)` | two captures span identical text |
+| `(#not-eq? @a "text")` | it does not |
+| `(#any-of? @a "x" "y")` | it equals any of the strings |
+| `(#match? @a "regex")` | it matches a POSIX **extended** regular expression |
+| `(#not-match? @a "regex")` | it does not |
+
+Two rules about what `elc` does with anything else, and they run in opposite
+directions on purpose. A **directive** — any name ending in `!`, such as
+`#set!` — attaches information rather than filtering, and is ignored. An
+**unrecognised filter** — any other name ending in `?` — *rejects* the match.
+The query author wrote a condition this build cannot apply, and accepting the
+match would apply that condition's inverse; under-reporting is the safe
+direction, and it is the direction every capture in this contract errs in.
+
+`#match?` is POSIX ERE rather than the Rust regex dialect tree-sitter's own
+tooling uses. The two agree on character classes, anchors, and repetition,
+which is the whole of what these query files need; a pattern relying on
+anything beyond that will not compile, and a pattern that does not compile
+matches nothing.
 
 ### Conditional compilation, and what it deliberately cannot do
 

@@ -553,6 +553,187 @@ int render_report(const Report *report, Style style, FILE *out)
 	}
 
 	{
+		/* Every global object, with the functions that write it and
+		 * the functions that read it, and the verdict on the pair
+		 * (HLR-091 – HLR-093). Reported whether or not anything
+		 * crossed a line: a value inside its accepted band is still a
+		 * measurement the reader asked for.
+		 *
+		 * The finding travels with its attribution, so a reader can
+		 * see what published rule the judgement rests on rather than
+		 * taking elc's word for it (HLR-099, LLR-GLB-04). */
+		static const char *const names[] = { "Object", "Writers",
+		                                     "Readers", "Finding" };
+
+		grid_begin(&grid, "Global state", 4, names, NULL);
+		for (size_t i = 0; i < report->global_state_count; i++) {
+			const GlobalStateRow *r     = &report->global_state[i];
+			const char           *where =
+				global_verdict_attribution(r->verdict);
+			char                  finding[1024];
+
+			switch (r->verdict) {
+			case GLOBAL_SCOPE_REDUCTION:
+				snprintf(finding, sizeof finding,
+				         "scope reduction — one function names "
+				         "it (%s)", where);
+				break;
+			case GLOBAL_HIDDEN_CHANNEL:
+				snprintf(finding, sizeof finding,
+				         "hidden channel — %s never call each "
+				         "other (%s)", r->participants, where);
+				break;
+			case GLOBAL_ORDINARY:
+			default:
+				finding[0] = '\0';
+				break;
+			}
+			grid_row(&grid, r->object, r->writers, r->readers,
+			         finding);
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* The headline claim, and the heading says on what basis it
+		 * was or was not made. With no entry points declared nothing
+		 * is listed here — and the heading says *that*, rather than
+		 * leaving an empty table that reads as a clean bill of health
+		 * (HLR-096, HLR-115). */
+		static const char *const names[]   = { "File", "Function",
+		                                       "Line" };
+		static const bool        numeric[] = { false, false, true };
+		char                     heading[192];
+
+		switch (report->reach_state) {
+		case REACH_MEASURED:
+			snprintf(heading, sizeof heading,
+			         "Unreachable functions (%zu; from the declared "
+			         "entry points and every address-taken "
+			         "function)", report->unreachable_count);
+			break;
+		case REACH_OMITTED_ENTRY_UNRESOLVED:
+			snprintf(heading, sizeof heading,
+			         "Unreachable functions (omitted: no declared "
+			         "entry point matches an analysed function)");
+			break;
+		case REACH_OMITTED_NO_ENTRY_POINTS:
+		default:
+			snprintf(heading, sizeof heading,
+			         "Unreachable functions (omitted: no entry "
+			         "points declared, see --entry)");
+			break;
+		}
+
+		grid_begin(&grid, heading, 3, names, numeric);
+		for (size_t i = 0; i < report->unreachable_count; i++) {
+			const UnreachableRow *r = &report->unreachable[i];
+
+			snprintf(a, sizeof a, "%" PRIu32, r->line);
+			grid_row(&grid, r->file, r->function, a);
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* Data the same traversal condemned: an object every one of
+		 * whose accessing functions is itself unreachable (HLR-096). */
+		static const char *const names[] = { "Object" };
+
+		grid_begin(&grid,
+		           "Unreachable globals (touched only by unreachable "
+		           "functions)", 1, names, NULL);
+		for (size_t i = 0; i < report->unreachable_global_count; i++)
+			grid_row(&grid, report->unreachable_globals[i]);
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* The other dead-code question, answered by a different means
+		 * against a different scope. A function may be perfectly
+		 * reachable and still contain statements that are not, so
+		 * neither analysis subsumes the other and both are reported
+		 * (HLR-137, LLR-DED-06).
+		 *
+		 * The heading names the languages the analysis was *not*
+		 * performed for. An empty table under a language with no
+		 * dead-code query would otherwise read as a clean file, which
+		 * is a claim elc has not made (HLR-139). */
+		static const char *const names[] = { "File", "Function",
+		                                     "Lines", "Cause" };
+		char                     heading[512];
+		char                     langs[256];
+		size_t                   at = 0;
+
+		langs[0] = '\0';
+		for (size_t i = 0; i < report->dead_unanalysed.count; i++) {
+			int n = snprintf(langs + at, sizeof langs - at, "%s%s",
+			                 i ? ", " : "",
+			                 report->dead_unanalysed.paths[i]);
+
+			if (n < 0 || (size_t)n >= sizeof langs - at)
+				break;
+			at += (size_t)n;
+		}
+
+		if (report->dead_unanalysed.count == 0)
+			snprintf(heading, sizeof heading,
+			         "Dead code within functions (every language "
+			         "analysed)");
+		else
+			snprintf(heading, sizeof heading,
+			         "Dead code within functions (not analysed "
+			         "for: %s)", langs);
+
+		grid_begin(&grid, heading, 4, names, NULL);
+		for (size_t i = 0; i < report->dead_count; i++) {
+			const DeadRow *r = &report->dead[i];
+
+			snprintf(a, sizeof a, "%" PRIu32 "-%" PRIu32,
+			         r->start_line, r->end_line);
+			grid_row(&grid, r->file, r->function, a,
+			         r->cause == DEAD_LITERAL_CONDITION
+			                 ? "literal condition"
+			                 : "after a terminator");
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* Every call and every shared global by which one declared
+		 * execution scope reaches another. Both kinds, because a scope
+		 * that never calls into another but writes a variable the
+		 * other reads has not been isolated (HLR-094). */
+		static const char *const names[] = { "From", "Function", "To",
+		                                     "Function", "Via" };
+		char                     heading[160];
+
+		if (report->scope_state == SCOPES_MEASURED)
+			snprintf(heading, sizeof heading,
+			         "Cross-scope access (%zu)",
+			         report->cross_scope_count);
+		else
+			snprintf(heading, sizeof heading,
+			         "Cross-scope access (omitted: no execution "
+			         "scopes declared, see --scope)");
+
+		grid_begin(&grid, heading, 5, names, NULL);
+		for (size_t i = 0; i < report->cross_scope_count; i++) {
+			const CrossScopeRow *r = &report->cross_scope[i];
+
+			grid_row(&grid, r->from_scope, r->from_function,
+			         r->to_scope, r->to_function,
+			         r->object && *r->object ? r->object : "call");
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
 		static const char *const names[] = { "File" };
 
 		grid_begin(&grid, "Skipped files (no language module)", 1,

@@ -139,6 +139,22 @@ static const char *global_intern(const char *const *names, size_t count,
 	                                                      : NULL;
 }
 
+/* Access records order by object, then by the function touching it, then by
+ * kind — every key a property of the source tree, so the sets a later analysis
+ * reads are the same on every run (HLR-032). */
+static int by_touch(const void *a, const void *b)
+{
+	const GlobalTouch *x = a;
+	const GlobalTouch *y = b;
+	int                c = strcmp(x->object, y->object);
+
+	if (c != 0)
+		return c;
+	if (x->node != y->node)
+		return x->node < y->node ? -1 : 1;
+	return (int)x->write - (int)y->write;
+}
+
 /* ---------------------------------------------------------------- edges -- */
 
 /* Add an edge, or increment the call-site count of the one already there.
@@ -550,6 +566,75 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 		node_base += fm->function_count;
 	}
 
+	/* --- the per-object access sets ----------------------------------- */
+	//
+	// Every read and every write, by the function that made it. Recorded
+	// separately from the edges because an edge needs both a writer and a
+	// reader, and the object touched by one function alone — the case
+	// HLR-092 is entirely about — produces none.
+
+	node_base = 0;
+	for (size_t f = 0; f < report->file_count; f++) {
+		const FileMetrics *fm = report->files[f];
+		const FileFacts   *ff = facts_for(facts, fm->path);
+
+		if (!ff) {
+			node_base += fm->function_count;
+			continue;
+		}
+
+		for (size_t a = 0; a < ff->global_count; a++) {
+			const GlobalAccess *access = &ff->globals[a];
+
+			if (access->kind == GLOBAL_DECLARATION ||
+			    access->function == ELC_NO_FUNCTION)
+				continue;
+
+			const char *object = global_intern(
+				(const char *const *)out->global_names,
+				out->global_name_count, access->name);
+
+			if (!object)
+				continue;
+
+			uint32_t node = (uint32_t)(node_base + access->function);
+
+			if (node >= out->node_count)
+				continue;
+
+			if (out->touch_count == out->touch_capacity &&
+			    grow((void **)&out->touches, &out->touch_capacity,
+			         sizeof *out->touches) != 0)
+				goto cleanup;
+
+			GlobalTouch *touch = &out->touches[out->touch_count++];
+
+			touch->object = object;
+			touch->node   = node;
+			touch->write  = access->kind == GLOBAL_WRITE;
+		}
+
+		node_base += fm->function_count;
+	}
+
+	/* Sorted and collapsed here rather than by each reader: a function
+	 * writing one object in four places is one writer, and every consumer
+	 * would otherwise have to say so again. The order is by object name
+	 * and then node id, both of which are properties of the source tree,
+	 * so the sets are the same on every run (HLR-032). */
+	if (out->touch_count > 1) {
+		qsort(out->touches, out->touch_count, sizeof *out->touches,
+		      by_touch);
+
+		size_t kept = 1;
+
+		for (size_t i = 1; i < out->touch_count; i++)
+			if (by_touch(&out->touches[kept - 1],
+			             &out->touches[i]) != 0)
+				out->touches[kept++] = out->touches[i];
+		out->touch_count = kept;
+	}
+
 	/* --- the library's structure -------------------------------------- */
 	//
 	// Built last, from the edge table this module already holds. igraph
@@ -658,6 +743,7 @@ void graph_free(Sdg *g)
 	for (size_t i = 0; i < g->global_name_count; i++)
 		free(g->global_names[i]);
 	free(g->global_names);
+	free(g->touches);
 	for (size_t i = 0; i < g->unresolved_name_count; i++)
 		free(g->unresolved_names[i]);
 	free(g->unresolved_names);

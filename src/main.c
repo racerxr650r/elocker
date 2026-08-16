@@ -29,6 +29,7 @@
 #include "format_xml.h"
 #include "registry.h"
 #include "report.h"
+#include "state.h"
 
 /* Dispatch to the renderer the options selected. Every one is a pure
  * consumer of the same assembled model, which is what makes the formats
@@ -52,6 +53,7 @@ int main(int argc, char *argv[])
 	FactList           facts_list = { 0 };
 	Sdg                sdg      = { 0 };
 	TreeResults        tree     = { 0 };
+	StateResults       state    = { 0 };
 	bool               graph_built = false;
 	RouteList          routes   = { 0 };
 	MetricsAccumulator acc      = { 0 };
@@ -146,6 +148,15 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
+	/* Before the facts are released, and before the graph is built: dead
+	 * code within a function is a property of one file's syntax, needs no
+	 * whole-project resolution, and is reported whether or not the graph
+	 * later finds the function reachable (HLR-137, LLR-DED-06). */
+	if (report_set_dead(&report, &facts_list) != 0) {
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
 	/* The graph is built from the assembled report, not from the raw file
 	 * list: its node identifiers run in the report's sorted file order,
 	 * which is what makes them a property of the source tree rather than
@@ -170,6 +181,13 @@ int main(int argc, char *argv[])
 	if (calltree_analyse(&sdg, &opts, &tree) != 0 ||
 	    report_set_calltree(&report, &tree, &sdg) != 0) {
 		fputs("elc: out of memory analysing the call tree\n", stderr);
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
+	if (state_analyse(&sdg, &opts, &state) != 0 ||
+	    report_set_state(&report, &state, &sdg, &opts) != 0) {
+		fputs("elc: out of memory analysing global state\n", stderr);
 		status = ELC_EXIT_FATAL;
 		goto cleanup;
 	}
@@ -223,6 +241,7 @@ cleanup:
 	 * leak-clean as one that succeeds (HLR-125, LLR-MAIN-16). */
 	if (out && out != stdout)
 		fclose(out);
+	state_results_free(&state);
 	tree_results_free(&tree);
 	graph_free(&sdg);
 	report_free(&report);

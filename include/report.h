@@ -42,6 +42,50 @@ typedef struct {
 	uint32_t  line;
 } ChainRow;
 
+/* One global object as the report presents it: by name, with the functions
+ * that write it and the functions that read it (HLR-091).
+ *
+ * The two sets arrive already joined into text. A node identifier means
+ * nothing to a reader and does not survive a record round trip, and the sets
+ * are read rather than computed with — the same reasoning that turns a cycle
+ * into a list of names.
+ */
+typedef struct {
+	char         *object;       /* owned */
+	char         *writers;      /* comma-separated names; owned */
+	char         *readers;      /* comma-separated names; owned */
+	/* The disconnected participants of a hidden channel, grouped by the
+	 * region of the call graph each belongs to (HLR-093). Empty for every
+	 * other verdict: the grouping is the finding. */
+	char         *participants; /* owned */
+	GlobalVerdict verdict;
+} GlobalStateRow;
+
+/* One function no path reaches from any root (HLR-096). */
+typedef struct {
+	char     *function;  /* owned */
+	char     *file;      /* owned */
+	uint32_t  line;
+} UnreachableRow;
+
+/* One statement within a function that cannot execute (HLR-137). */
+typedef struct {
+	char     *file;      /* owned */
+	char     *function;  /* owned */
+	uint32_t  start_line;
+	uint32_t  end_line;
+	DeadCause cause;
+} DeadRow;
+
+/* One edge by which a declared execution scope reaches another (HLR-094). */
+typedef struct {
+	char *from_scope;    /* owned */
+	char *from_function; /* owned */
+	char *to_scope;      /* owned */
+	char *to_function;   /* owned */
+	char *object;        /* the shared global, or NULL for a call; owned */
+} CrossScopeRow;
+
 /* Files discovered but not analysed, for want of a language module. The
  * report accounts for every discovered file, so a skip is visible rather
  * than a silent absence (HLR-012). */
@@ -143,6 +187,30 @@ typedef struct {
 	size_t         deepest_count;
 	ThresholdList  over_threshold; /* the per-file listing (HLR-021)  */
 	uint32_t       complexity_threshold; /* the value it was built at */
+
+	/* The global-state and reachability measurements, copied from the
+	 * StateResults main owns, for the reason the call-tree rows are:
+	 * the model outlives the analysis, and regeneration has none to
+	 * point at (SDD §18). */
+	GlobalStateRow *global_state;   /* sorted by object; owned (HLR-091) */
+	size_t          global_state_count;
+	ReachState      reach_state;
+	UnreachableRow *unreachable;    /* sorted by file, line; owned      */
+	size_t          unreachable_count;
+	char          **unreachable_globals; /* sorted; owned (HLR-096)     */
+	size_t          unreachable_global_count;
+	ScopeState      scope_state;
+	CrossScopeRow  *cross_scope;    /* sorted; owned (HLR-094)          */
+	size_t          cross_scope_count;
+
+	/* Dead code within functions, and the languages it was not looked for
+	 * in. The second is not a detail: a language with no dead-code query
+	 * is reported unanalysed, never clean, and the two are different
+	 * claims (HLR-137, HLR-139). */
+	DeadRow        *dead;           /* sorted by file, line; owned      */
+	size_t          dead_count;
+	PathList        dead_unanalysed; /* language names, sorted; owned   */
+
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;
 
@@ -175,6 +243,25 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
  * so the count does not exist yet when report_assemble runs (HLR-077).
  */
 void report_set_unresolved(Report *report, size_t unresolved);
+
+/* Copy the intra-procedural dead-code findings onto an assembled report,
+ * resolving each span's function index to the name a reader can act on.
+ *
+ * Reads the fact list rather than the graph: dead code within a function is a
+ * property of one file's syntax and needs no whole-project resolution, which
+ * is why it is recorded during the parse and carried straight through
+ * (HLR-137, LLR-DED-06). Must be called before the facts are released.
+ */
+int report_set_dead(Report *report, const FactList *facts);
+
+/* The published source a global-state verdict is attributed to, or NULL where
+ * there is no finding to attribute (HLR-099, LLR-GLB-04).
+ *
+ * Here rather than in a renderer so that one answer exists for every format,
+ * and so that a regenerated report attributes a verdict the same way as a live
+ * run without the record having to carry the citation.
+ */
+const char *global_verdict_attribution(GlobalVerdict verdict);
 
 /* Release the report model and everything it owns. Safe on NULL. */
 void report_free(Report *report);

@@ -21,6 +21,85 @@
 #include "cli.h"
 #include "elc.h"
 
+/* Parse one `name:glob[,glob…]` execution-scope declaration (LLR-SCP-01).
+ *
+ * Every string is copied. The declaration is split on two separators, so
+ * neither the name nor any pattern exists as a NUL-terminated substring of
+ * argv — the entry points can be borrowed because a symbol is the whole
+ * argument, and a scope cannot.
+ *
+ * Returns 0, or -1 after a diagnostic for a declaration that cannot be parsed:
+ * a scope with no name, or a name with no components, is a usage error rather
+ * than a silently empty scope that would match nothing and report nothing
+ * (HLR-063, LLR-SCP-02).
+ */
+int parse_scope(const char *arg, ElcOptions *out)
+{
+	const char *colon = strchr(arg, ':');
+	ScopeDecl   scope = { 0 };
+
+	if (!colon || colon == arg || colon[1] == '\0') {
+		fprintf(stderr,
+		        "elc: '%s' is not an execution scope; expected "
+		        "name:glob[,glob...]\n", arg);
+		return -1;
+	}
+
+	scope.name = strndup(arg, (size_t)(colon - arg));
+	if (!scope.name)
+		goto oom;
+
+	for (const char *p = colon + 1; *p; ) {
+		const char *comma = strchr(p, ',');
+		size_t      len   = comma ? (size_t)(comma - p) : strlen(p);
+
+		if (len == 0) {
+			fprintf(stderr,
+			        "elc: '%s' has an empty component pattern\n",
+			        arg);
+			goto invalid;
+		}
+
+		char **grown = realloc(scope.patterns,
+		                       (scope.pattern_count + 1) * sizeof *grown);
+
+		if (!grown)
+			goto oom;
+		scope.patterns = grown;
+
+		scope.patterns[scope.pattern_count] = strndup(p, len);
+		if (!scope.patterns[scope.pattern_count])
+			goto oom;
+		scope.pattern_count++;
+
+		p = comma ? comma + 1 : p + len;
+	}
+
+	if (out->scopes.count == out->scopes.capacity) {
+		size_t     next  = out->scopes.capacity ? out->scopes.capacity * 2
+		                                        : 4;
+		ScopeDecl *grown = realloc(out->scopes.items,
+		                           next * sizeof *grown);
+
+		if (!grown)
+			goto oom;
+		out->scopes.items    = grown;
+		out->scopes.capacity = next;
+	}
+
+	out->scopes.items[out->scopes.count++] = scope;
+	return 0;
+
+oom:
+	fputs("elc: out of memory\n", stderr);
+invalid:
+	for (size_t i = 0; i < scope.pattern_count; i++)
+		free(scope.patterns[i]);
+	free(scope.patterns);
+	free(scope.name);
+	return -1;
+}
+
 void cli_usage(FILE *stream)
 {
 	fputs(
@@ -44,9 +123,15 @@ void cli_usage(FILE *stream)
 "                     threshold affects the exit status\n"
 "  -o, --output FILE  write the report to FILE instead of standard output\n"
 "      --entry SYMBOL declare SYMBOL an entry point, from which call depth\n"
-"                     is measured. Repeatable. Entry points are never\n"
-"                     guessed at, so with none declared the analyses that\n"
-"                     need them are omitted with a stated reason\n"
+"                     and reachability are measured. Repeatable. Entry\n"
+"                     points are never guessed at, so with none declared the\n"
+"                     analyses that need them are omitted with a stated\n"
+"                     reason, and nothing is reported unreachable\n"
+"      --scope NAME:GLOB[,GLOB...]\n"
+"                     declare an execution scope named NAME containing the\n"
+"                     files matching GLOB. Repeatable. With two or more\n"
+"                     declared, every call and every shared global by which\n"
+"                     one reaches another is reported\n"
 "      --graphml      also write the System Dependence Graph as GraphML,\n"
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.graphml. Requires --output,\n"
@@ -75,7 +160,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 {
 	/* A value above any printable character, so a long-only option cannot
 	 * collide with a short one. */
-	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_ENTRY };
+	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_ENTRY, OPT_SCOPE };
 
 	static const struct option longopts[] = {
 		{ "format",               required_argument, NULL, 'f' },
@@ -84,6 +169,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "output",               required_argument, NULL, 'o' },
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },
+		{ "scope",                required_argument, NULL, OPT_SCOPE },
 		{ "help",                 no_argument,       NULL, 'h' },
 		{ NULL,                   0,                 NULL, 0   }
 	};
@@ -177,6 +263,14 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			 * array holding them is owned. */
 			out->entry_points[out->entry_point_count++] = optarg;
 			break;
+		case OPT_SCOPE:
+			/* Owned outright, unlike the entry points: the
+			 * declaration is split on two separators, so neither
+			 * the name nor any pattern is a substring of argv that
+			 * could be borrowed. */
+			if (parse_scope(optarg, out) != 0)
+				return CLI_ERROR;
+			break;
 		case OPT_GRAPHML:
 			/* Recorded, not validated against --output here. A
 			 * request for GraphML with the report on stdout is not
@@ -250,5 +344,12 @@ void cli_options_free(ElcOptions *opts)
 	/* The entry-point *array* is owned; the symbols in it are borrowed
 	 * from argv, as the targets are (HLR-125). */
 	free((void *)opts->entry_points);
+	for (size_t i = 0; i < opts->scopes.count; i++) {
+		for (size_t p = 0; p < opts->scopes.items[i].pattern_count; p++)
+			free(opts->scopes.items[i].patterns[p]);
+		free(opts->scopes.items[i].patterns);
+		free(opts->scopes.items[i].name);
+	}
+	free(opts->scopes.items);
 	memset(opts, 0, sizeof(*opts));
 }

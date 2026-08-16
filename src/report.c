@@ -20,6 +20,7 @@
 #include "analyze.h"
 #include "calltree.h"
 #include "discover.h"
+#include "state.h"
 #include "elc.h"
 #include "report.h"
 
@@ -412,6 +413,493 @@ void report_set_unresolved(Report *report, size_t unresolved)
 	report->unresolved_calls = unresolved;
 }
 
+/* ------------------------------------------------------- the report model --
+ *
+ * Node identifiers are translated to names here, for the reason the call-tree
+ * rows are: an identifier indexes a table that exists only while the graph
+ * does, and the report outlives it, renders in four formats, and round-trips
+ * through a record.
+ */
+
+static int by_object(const void *a, const void *b)
+{
+	const GlobalStateRow *x = a;
+	const GlobalStateRow *y = b;
+
+	return strcmp(x->object, y->object);
+}
+
+/* Cross-scope rows order by the boundary they cross, then by the functions at
+ * either end — every key something a reader can name, so two runs over one
+ * tree list them the same way (HLR-032). */
+static int by_cross_scope(const void *a, const void *b)
+{
+	const CrossScopeRow *x = a;
+	const CrossScopeRow *y = b;
+	int                  c = strcmp(x->from_scope, y->from_scope);
+
+	if (c != 0)
+		return c;
+	c = strcmp(x->to_scope, y->to_scope);
+	if (c != 0)
+		return c;
+	c = strcmp(x->from_function, y->from_function);
+	if (c != 0)
+		return c;
+	c = strcmp(x->to_function, y->to_function);
+	if (c != 0)
+		return c;
+	return strcmp(x->object, y->object);
+}
+
+/* A string built by appending, since the joined name lists have no bound. */
+typedef struct {
+	char  *text;
+	size_t length;
+	size_t capacity;
+} Joined;
+
+static int join(Joined *j, const char *separator, const char *text)
+{
+	size_t need = strlen(text) + (j->length ? strlen(separator) : 0);
+
+	if (j->length + need + 1 > j->capacity) {
+		size_t next  = j->capacity ? j->capacity * 2 : 64;
+		char  *grown;
+
+		while (next < j->length + need + 1)
+			next *= 2;
+		grown = realloc(j->text, next);
+		if (!grown)
+			return -1;
+		j->text     = grown;
+		j->capacity = next;
+		if (j->length == 0)
+			j->text[0] = '\0';
+	}
+
+	if (j->length)
+		j->length += (size_t)snprintf(j->text + j->length,
+		                              j->capacity - j->length, "%s",
+		                              separator);
+	j->length += (size_t)snprintf(j->text + j->length,
+	                              j->capacity - j->length, "%s", text);
+	return 0;
+}
+
+/* Hand the built string to the caller, or an empty owned string when nothing
+ * was appended — so no consumer has to distinguish NULL from "". */
+static char *joined_take(Joined *j)
+{
+	char *text = j->text ? j->text : strdup("");
+
+	memset(j, 0, sizeof *j);
+	return text;
+}
+
+/* The disconnected participants of a hidden channel, grouped by region.
+ *
+ * The grouping *is* the finding (HLR-093). "a, b, and c touch this object" is
+ * ordinary; "{a, b} never call {c}, and all three share it" is the temporal
+ * coupling, and only the second tells the reader where the boundary lies.
+ */
+static char *participants_of(const Sdg *g, const GlobalRow *row)
+{
+	Joined out = { 0 };
+
+	for (size_t a = 0; a < row->toucher_count; a++) {
+		bool seen = false;
+
+		for (size_t b = 0; b < a && !seen; b++)
+			seen = row->touchers[b].region == row->touchers[a].region;
+		if (seen)
+			continue;
+
+		Joined group = { 0 };
+
+		for (size_t m = 0; m < row->toucher_count; m++) {
+			if (row->touchers[m].region != row->touchers[a].region)
+				continue;
+			if (row->touchers[m].node >= g->node_count)
+				continue;
+			if (join(&group, ", ",
+			         g->nodes[row->touchers[m].node].name) != 0) {
+				free(group.text);
+				free(out.text);
+				return NULL;
+			}
+		}
+
+		char  *text = joined_take(&group);
+		size_t size = text ? strlen(text) + 3 : 0;
+		char  *cell = size ? malloc(size) : NULL;
+
+		if (!cell) {
+			free(text);
+			free(out.text);
+			return NULL;
+		}
+		snprintf(cell, size, "{%s}", text);
+		free(text);
+
+		if (join(&out, " ", cell) != 0) {
+			free(cell);
+			free(out.text);
+			return NULL;
+		}
+		free(cell);
+	}
+
+	return joined_take(&out);
+}
+
+static int set_globals(Report *report, const StateResults *state, const Sdg *g)
+{
+	if (state->global_count == 0)
+		return 0;
+
+	report->global_state = calloc(state->global_count,
+	                              sizeof *report->global_state);
+	if (!report->global_state)
+		return -1;
+
+	for (size_t i = 0; i < state->global_count; i++) {
+		const GlobalRow *src = &state->globals[i];
+		GlobalStateRow  *row = &report->global_state[i];
+		Joined           writers = { 0 };
+		Joined           readers = { 0 };
+
+		row->object  = strdup(src->object);
+		row->verdict = src->verdict;
+		if (!row->object)
+			return -1;
+
+		for (size_t t = 0; t < src->toucher_count; t++) {
+			const GlobalToucher *touch = &src->touchers[t];
+
+			if (touch->node >= g->node_count)
+				continue;
+			if (touch->writes &&
+			    join(&writers, ", ", g->nodes[touch->node].name) != 0)
+				return -1;
+			if (touch->reads &&
+			    join(&readers, ", ", g->nodes[touch->node].name) != 0)
+				return -1;
+		}
+
+		row->writers = joined_take(&writers);
+		row->readers = joined_take(&readers);
+		row->participants = src->verdict == GLOBAL_HIDDEN_CHANNEL
+		                            ? participants_of(g, src)
+		                            : strdup("");
+		if (!row->writers || !row->readers || !row->participants)
+			return -1;
+
+		report->global_state_count++;
+	}
+
+	return 0;
+}
+
+int report_set_state(Report *report, const StateResults *state, const Sdg *g,
+                     const ElcOptions *opts)
+{
+	if (!state || !g)
+		return 0;
+
+	report->reach_state = state->reach_state;
+	report->scope_state = state->scope_state;
+
+	if (set_globals(report, state, g) != 0)
+		return -1;
+
+	/* --- unreachable functions ---------------------------------------- */
+
+	if (state->unreachable_count > 0) {
+		report->unreachable = calloc(state->unreachable_count,
+		                             sizeof *report->unreachable);
+		if (!report->unreachable)
+			return -1;
+
+		for (size_t i = 0; i < state->unreachable_count; i++) {
+			uint32_t node = state->unreachable[i];
+
+			if (node >= g->node_count)
+				continue;
+
+			UnreachableRow *row =
+				&report->unreachable[report->unreachable_count];
+
+			row->function = strdup(g->nodes[node].name);
+			row->file     = strdup(g->nodes[node].file);
+			if (!row->function || !row->file)
+				return -1;
+			row->line = g->nodes[node].line_start;
+			report->unreachable_count++;
+		}
+	}
+
+	/* --- unreachable globals ------------------------------------------ */
+
+	if (state->dead_global_count > 0) {
+		report->unreachable_globals =
+			calloc(state->dead_global_count,
+			       sizeof *report->unreachable_globals);
+		if (!report->unreachable_globals)
+			return -1;
+
+		for (size_t i = 0; i < state->dead_global_count; i++) {
+			report->unreachable_globals[i] =
+				strdup(state->dead_globals[i]);
+			if (!report->unreachable_globals[i])
+				return -1;
+			report->unreachable_global_count++;
+		}
+	}
+
+	/* --- cross-scope access ------------------------------------------- */
+
+	if (state->violation_count > 0) {
+		report->cross_scope = calloc(state->violation_count,
+		                             sizeof *report->cross_scope);
+		if (!report->cross_scope)
+			return -1;
+
+		for (size_t i = 0; i < state->violation_count; i++) {
+			const ScopeViolation *v = &state->violations[i];
+
+			if (v->from >= g->node_count || v->to >= g->node_count ||
+			    v->from_scope >= opts->scopes.count ||
+			    v->to_scope >= opts->scopes.count)
+				continue;
+
+			CrossScopeRow *row =
+				&report->cross_scope[report->cross_scope_count];
+
+			row->from_scope =
+				strdup(opts->scopes.items[v->from_scope].name);
+			row->from_function = strdup(g->nodes[v->from].name);
+			row->to_scope =
+				strdup(opts->scopes.items[v->to_scope].name);
+			row->to_function = strdup(g->nodes[v->to].name);
+			row->object      = strdup(v->object ? v->object : "");
+			if (!row->from_scope || !row->from_function ||
+			    !row->to_scope || !row->to_function || !row->object)
+				return -1;
+			report->cross_scope_count++;
+		}
+	}
+
+	/* Every collection ordered by an explicit key before a renderer sees
+	 * it, as the rest of the model is. The globals and the unreachable
+	 * functions arrive in an order the graph already fixed; the cross-scope
+	 * rows arrive in edge order, which is deterministic but is not a key a
+	 * reader could name (LLR-RPT-10). */
+	if (report->cross_scope_count > 1)
+		qsort(report->cross_scope, report->cross_scope_count,
+		      sizeof *report->cross_scope, by_cross_scope);
+	if (report->global_state_count > 1)
+		qsort(report->global_state, report->global_state_count,
+		      sizeof *report->global_state, by_object);
+	if (report->unreachable_global_count > 1)
+		qsort(report->unreachable_globals,
+		      report->unreachable_global_count,
+		      sizeof *report->unreachable_globals, by_string);
+
+	return 0;
+}
+
+const char *global_verdict_attribution(GlobalVerdict verdict)
+{
+	switch (verdict) {
+	case GLOBAL_SCOPE_REDUCTION:
+	case GLOBAL_HIDDEN_CHANNEL:
+		/* Both verdicts come from one rule: an object should be
+		 * defined at block scope where only one function names it,
+		 * and an object shared between functions that never meet is
+		 * the temporal coupling the same rule guards against. */
+		return "MISRA C Rule 8.9";
+	case GLOBAL_ORDINARY:
+	default:
+		return NULL;
+	}
+}
+
+/* ------------------------------------------------------------- dead code --
+ *
+ * The intra-procedural findings, resolved from the per-file facts. A span
+ * carries the index of the function containing it; the report carries names,
+ * because an index into a table that no longer exists is not something a
+ * reader can act on.
+ */
+
+static int dead_row_add(Report *report, size_t *capacity, const char *file,
+                        const char *function, const DeadSpan *span)
+{
+	if (report->dead_count == *capacity) {
+		size_t   next   = *capacity ? *capacity * 2 : 16;
+		DeadRow *bigger = realloc(report->dead, next * sizeof *bigger);
+
+		if (!bigger) {
+			fputs("elc: out of memory listing dead code\n", stderr);
+			return -1;
+		}
+		report->dead = bigger;
+		*capacity    = next;
+	}
+
+	DeadRow *row = &report->dead[report->dead_count];
+
+	memset(row, 0, sizeof *row);
+	row->file     = strdup(file);
+	row->function = strdup(function);
+	if (!row->file || !row->function) {
+		free(row->file);
+		free(row->function);
+		fputs("elc: out of memory listing dead code\n", stderr);
+		return -1;
+	}
+	row->start_line = span->start_line;
+	row->end_line   = span->end_line;
+	row->cause      = span->cause;
+	report->dead_count++;
+	return 0;
+}
+
+/* Record a language whose module supplied no dead-code query, once. */
+static int unanalysed_add(PathList *list, const char *language)
+{
+	for (size_t i = 0; i < list->count; i++)
+		if (strcmp(list->paths[i], language) == 0)
+			return 0;
+
+	if (list->count == list->capacity) {
+		size_t next   = list->capacity ? list->capacity * 2 : 4;
+		char **bigger = realloc(list->paths, next * sizeof *bigger);
+
+		if (!bigger) {
+			fputs("elc: out of memory recording an unanalysed "
+			      "language\n", stderr);
+			return -1;
+		}
+		list->paths    = bigger;
+		list->capacity = next;
+	}
+
+	list->paths[list->count] = strdup(language);
+	if (!list->paths[list->count]) {
+		fputs("elc: out of memory recording an unanalysed language\n",
+		      stderr);
+		return -1;
+	}
+	list->count++;
+	return 0;
+}
+
+/* The narrowest reported function of `file` containing `line`, or NULL.
+ *
+ * Narrowest, not first, for the reason `innermost_enclosing` is: a nested
+ * named function is reported in its own right, and a finding inside one
+ * belongs to it rather than to the function around it (HLR-068).
+ */
+static const FunctionMetric *enclosing_function(const FileMetrics *file,
+                                                uint32_t line)
+{
+	const FunctionMetric *best = NULL;
+
+	for (size_t i = 0; i < file->function_count; i++) {
+		const FunctionMetric *fn = &file->functions[i];
+
+		if (line < fn->start_line || line > fn->end_line)
+			continue;
+		if (!best || (fn->end_line - fn->start_line) <
+		             (best->end_line - best->start_line))
+			best = fn;
+	}
+
+	return best;
+}
+
+static const FileFacts *facts_for_path(const FactList *facts, const char *path)
+{
+	for (size_t i = 0; facts && i < facts->count; i++)
+		if (strcmp(facts->items[i]->path, path) == 0)
+			return facts->items[i];
+	return NULL;
+}
+
+static int by_dead_row(const void *a, const void *b)
+{
+	const DeadRow *x = a;
+	const DeadRow *y = b;
+	int            c = strcmp(x->file, y->file);
+
+	if (c != 0)
+		return c;
+	if (x->start_line != y->start_line)
+		return x->start_line < y->start_line ? -1 : 1;
+	if (x->end_line != y->end_line)
+		return x->end_line < y->end_line ? -1 : 1;
+	return strcmp(x->function, y->function);
+}
+
+int report_set_dead(Report *report, const FactList *facts)
+{
+	size_t capacity = 0;
+
+	for (size_t f = 0; f < report->file_count; f++) {
+		const FileMetrics *file = report->files[f];
+		const FileFacts   *ff   = facts_for_path(facts, file->path);
+
+		if (!ff)
+			continue;
+
+		/* "Not looked for" and "none found" are different claims, and
+		 * only one of them is safe to act on. A language with no
+		 * dead-code query is named here so a clean table cannot be
+		 * mistaken for a clean file (HLR-139, LLR-DED-05). */
+		if (!ff->dead_analysed) {
+			if (unanalysed_add(&report->dead_unanalysed,
+			                   file->language ? file->language
+			                                  : "") != 0)
+				return -1;
+			continue;
+		}
+
+		for (size_t d = 0; d < ff->dead_count; d++) {
+			const DeadSpan       *span  = &ff->dead[d];
+			const FunctionMetric *owner =
+				enclosing_function(file, span->start_line);
+
+			/* Resolved by containment rather than by the span's
+			 * recorded index, and the distinction is not
+			 * pedantry: the index is into the array the parse
+			 * produced, and this array has since been sorted into
+			 * *presentation* order. Reading the index here would
+			 * name the right function only for as long as the two
+			 * orders happen to agree. The rule is the same one
+			 * the parse applied — the narrowest reported function
+			 * containing the span (LLR-DED-04). */
+			if (!owner)
+				continue;
+
+			if (dead_row_add(report, &capacity, file->path,
+			                 owner->name, span) != 0)
+				return -1;
+		}
+	}
+
+	if (report->dead_count > 1)
+		qsort(report->dead, report->dead_count, sizeof *report->dead,
+		      by_dead_row);
+	if (report->dead_unanalysed.count > 1)
+		qsort(report->dead_unanalysed.paths,
+		      report->dead_unanalysed.count,
+		      sizeof *report->dead_unanalysed.paths, by_string);
+
+	return 0;
+}
+
 void report_free(Report *report)
 {
 	if (!report)
@@ -453,6 +941,45 @@ void report_free(Report *report)
 	report->over_threshold.items    = NULL;
 	report->over_threshold.count    = 0;
 	report->over_threshold.capacity = 0;
+	for (size_t i = 0; i < report->global_state_count; i++) {
+		free(report->global_state[i].object);
+		free(report->global_state[i].writers);
+		free(report->global_state[i].readers);
+		free(report->global_state[i].participants);
+	}
+	free(report->global_state);
+	report->global_state       = NULL;
+	report->global_state_count = 0;
+	for (size_t i = 0; i < report->unreachable_count; i++) {
+		free(report->unreachable[i].function);
+		free(report->unreachable[i].file);
+	}
+	free(report->unreachable);
+	report->unreachable       = NULL;
+	report->unreachable_count = 0;
+	for (size_t i = 0; i < report->unreachable_global_count; i++)
+		free(report->unreachable_globals[i]);
+	free(report->unreachable_globals);
+	report->unreachable_globals      = NULL;
+	report->unreachable_global_count = 0;
+	for (size_t i = 0; i < report->cross_scope_count; i++) {
+		free(report->cross_scope[i].from_scope);
+		free(report->cross_scope[i].from_function);
+		free(report->cross_scope[i].to_scope);
+		free(report->cross_scope[i].to_function);
+		free(report->cross_scope[i].object);
+	}
+	free(report->cross_scope);
+	report->cross_scope       = NULL;
+	report->cross_scope_count = 0;
+	for (size_t i = 0; i < report->dead_count; i++) {
+		free(report->dead[i].file);
+		free(report->dead[i].function);
+	}
+	free(report->dead);
+	report->dead       = NULL;
+	report->dead_count = 0;
+	pathlist_free(&report->dead_unanalysed);
 	pathlist_free(&report->skipped_files);
 	memset(&report->summary, 0, sizeof report->summary);
 }

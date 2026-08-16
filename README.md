@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 8 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 10 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, Python, and
 Ada**, in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -35,9 +35,24 @@ full** from entry points you declare with `--entry`. It never guesses at an
 entry point, and never invents a number it cannot stand behind: where the
 call graph is recursive the depth is unbounded and the cycle is reported
 instead, and where a declaration is missing the analysis is omitted with the
-reason stated. Reachability and global state are next, from Phase 10.
+reason stated.
 
-**Progress: 10 of 17 phases complete.**
+It now also answers the question the whole tool is for — **what code does not
+run?** — at both scales. Between functions, `elc` traverses the call graph
+from a root set that is the entry points you declared **together with every
+function whose address is taken**, so a clique of unused functions calling
+one another is correctly reported dead while an interrupt handler installed
+in a vector table is not; globals every accessor of which is unreachable go
+the same way. Within a function, it reports statements after a `return` and
+branches a literally written condition excludes — from the syntax tree alone,
+with no data flow, so `if (0)` is found and `x = 0; if (x)` deliberately is
+not. It reports each global's writers and readers, flagging single-function
+objects for **scope reduction** and objects shared across disconnected
+regions as **hidden channels**, and with `--scope` it reports every call and
+shared variable by which one execution scope reaches another. Coupling,
+layering, and cycles are next, from Phase 11.
+
+**Progress: 11 of 17 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -54,7 +69,7 @@ reason stated. Reachability and global state are next, from Phase 10.
 | [7](doc/SDP.md#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
 | [8](doc/SDP.md#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
 | [9](doc/SDP.md#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
-| [10](doc/SDP.md#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | 🔲 Not started |
+| [10](doc/SDP.md#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | ✅ Complete |
 | [11](doc/SDP.md#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | 🔲 Not started |
 | [12](doc/SDP.md#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
 | [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |

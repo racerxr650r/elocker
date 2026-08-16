@@ -156,6 +156,9 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-SCP-02"></a>**LLR-SCP-02** — `parse_scope` shall report a usage error for a declaration that cannot be parsed.
     *Trace:* HLR-063 (Invalid Command-Line Rejection), HLR-094 (Memory Map Boundary Validation).
 
+*   <a id="LLR-SCP-03"></a>**LLR-SCP-03** — `parse_scope` shall copy the name and every pattern it records, rather than borrowing them from the argument vector as the entry-point symbols are. A declaration is split on two separators, so neither the name nor any pattern exists as a terminated substring of any argument.
+    *Trace:* HLR-094 (Memory Map Boundary Validation), HLR-125.
+
 ## 6. `discover_targets` ([src/discover.c](../src/discover.c))
 
 Target validation, classification, and file discovery. Produces the de-duplicated, stably ordered list every later stage consumes.
@@ -288,6 +291,12 @@ Runtime location resolution and registry initialisation. The boundary that keeps
 
 *   <a id="LLR-RFP-10"></a>**LLR-RFP-10** — `registry_for_path` shall load a language's conditional-region query when the module supplies one, and shall treat its absence as the language having no conditional compilation rather than as the module being unusable, since the required set of query files is unchanged by this addition.
     *Trace:* HLR-134, HLR-121, HLR-070.
+
+*   <a id="LLR-RFP-11"></a>**LLR-RFP-11** — `registry_for_path` shall load a language's dead-code query when the module supplies one, and shall treat its absence as the language having no dead-code support rather than as the module being unusable. Making the file required would invalidate every language module already shipped, which is what the stable contract exists to prevent.
+    *Trace:* HLR-139 (Dead-Code Support Is Per Language and Its Absence Is Stated), HLR-121, HLR-070.
+
+*   <a id="LLR-RFP-12"></a>**LLR-RFP-12** — `registry_for_path` shall treat an optional query file that is present and will not compile as it treats a required one — a diagnostic naming the language, the file and the reason, and the language excluded. Omitting a file is a decision the contract allows; writing a broken one is a defect, and the two must not have the same outcome.
+    *Trace:* HLR-070 (Language Module Failure Isolation), HLR-121.
 
 *   <a id="LLR-RFP-08"></a>**LLR-RFP-08** — `registry_for_path` shall require of a language module only the documented set of query files and capture names, and a module supplying exactly that set shall function without further configuration.
     *Trace:* HLR-121 (Language Module Interface Is a Stable Contract).
@@ -458,6 +467,12 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-45"></a>**LLR-ANL-45** — `analyze_file` shall report zero inactive ranges when no definition was supplied, so that a run without the option yields byte-identical output to one made before the option existed.
     *Trace:* HLR-131, HLR-032.
 
+*   <a id="LLR-ANL-46"></a>**LLR-ANL-46** — `analyze_file` shall evaluate the predicates a query pattern carries and discard any match whose predicates do not hold. The parser library treats a predicate as data — it parses one and returns its steps, leaving the decision to the caller — so a stage that never asks accepts every match as though the predicate were not written. For a dead-code query that turns “`if (0)` is dead” into “every `if` is dead”, which is the false claim HLR-138 forbids. The evaluation compares the text a capture spans against a string the query file wrote and knows no language.
+    *Trace:* HLR-121 (Language Module Interface Is a Stable Contract), HLR-138, HLR-013.
+
+*   <a id="LLR-ANL-47"></a>**LLR-ANL-47** — `analyze_file` shall ignore a directive, which carries information rather than filtering, and shall discard the match on encountering a filtering predicate it does not implement. A filter the build cannot apply is a condition the query author wrote and this build cannot honour; accepting the match would apply that condition's inverse, and under-reporting is the direction every capture in the contract errs in.
+    *Trace:* HLR-121 (Language Module Interface Is a Stable Contract), HLR-138.
+
 *   <a id="LLR-ANL-34"></a>**LLR-ANL-34** — `analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -480,6 +495,15 @@ Note on the division of labour, which determines where a failure lives: the requ
 
 *   <a id="LLR-DED-06"></a>**LLR-DED-06** — `collect_dead_code` shall record a statement's unreachability independently of whether the function containing it is reachable, so that neither dead-code analysis suppresses the other.
     *Trace:* HLR-137 (Intra-Procedural Dead Code Detection), HLR-096.
+
+*   <a id="LLR-DED-07"></a>**LLR-DED-07** — `collect_dead_code` shall skip, without stopping at, any following sibling lying within the merged comment set, so that a comment is never recorded as dead code. A comment is a *named* sibling in the grammars this contract addresses, so a walk that did not exclude one would report the trailing note on a terminator's own line — making every annotated `return` report itself. The exclusion consults the set `comments.scm` already produced rather than recognising a comment for itself, so one answer serves both this and the ELOC exclusion, and no node type enters the C.
+    *Trace:* HLR-137 (Intra-Procedural Dead Code Detection), HLR-138, HLR-016 (Comment Span Merging).
+
+*   <a id="LLR-DED-08"></a>**LLR-DED-08** — `collect_dead_code` shall record no span lying outside every reported function, since HLR-137 asks about statements within a function and a span at file scope has no enclosing function to be reported against.
+    *Trace:* HLR-137 (Intra-Procedural Dead Code Detection).
+
+*   <a id="LLR-DED-09"></a>**LLR-DED-09** — `collect_dead_code` shall collapse recorded spans naming the same lines of the same function into one, having first ordered them, so that a statement following two terminators is reported once and the result does not depend on the order the query matched.
+    *Trace:* HLR-137 (Intra-Procedural Dead Code Detection), HLR-032.
 
 ## 16. `merge_comment_spans` ([src/analyze.c](../src/analyze.c))
 
@@ -550,6 +574,9 @@ Cross-file resolution of the per-file facts into the System Dependence Graph.
 
 *   <a id="LLR-SDG-14"></a>**LLR-SDG-14** — `graph_build` shall collapse repeated calls between one pair of functions into a single edge, and shall not collapse global-state edges between the same pair: a global edge is per object, and merging two would lose which shared state couples the functions. It shall record a call site whose enclosing function is file scope as unresolved rather than dropping it silently, since the graph does not represent it and the reader is judging completeness.
     *Trace:* HLR-085, HLR-074 (Global State Edges), HLR-077 (Unresolvable Call Handling).
+
+*   <a id="LLR-SDG-16"></a>**LLR-SDG-16** — `graph_build` shall record, for every global object, the set of functions that write it and the set that read it, **beside** the global-state edges rather than as a projection of them. A global edge joins a writer to a reader, so an object touched by exactly one function produces no edge at all — and that object is precisely the scope-reduction candidate of HLR-092. An analysis reading only the edge table would find none of them, and would find no object that is written and never read either. The records shall be ordered by object and then by node identifier and de-duplicated, so that a function writing one object in four places is one writer.
+    *Trace:* HLR-091 (Global Access Mapping), HLR-092, HLR-032.
 
 *   <a id="LLR-SDG-15"></a>**LLR-SDG-15** — `graph_build` shall install a non-aborting error handler on the graph library before making any call to it. The library's default handler calls `abort()`, which makes every return-value check unreachable and turns an allocation failure inside the library into a crash rather than the diagnostic and exit status the run promises. It matters beyond allocation: asking a cyclic graph for a topological ordering is an ordinary, expected error return — and is exactly how the call-depth analysis detects recursion — which the default handler would turn into a crash on a perfectly valid program.
     *Trace:* HLR-124 (Memory Safety), HLR-113, HLR-120 (Distinct Exit Status Classes).
@@ -675,6 +702,12 @@ Global-state coupling, execution-scope isolation, and reachability.
 *   <a id="LLR-STA-02"></a>**LLR-STA-02** — `state_analyse` shall omit the execution-scope isolation analysis, and record the omission with its reason, when no execution scopes were declared.
     *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-094 (Memory Map Boundary Validation).
 
+*   <a id="LLR-STA-03"></a>**LLR-STA-03** — `state_analyse` shall compute reachability over the call view of the graph and not over the whole SDG. A global-state edge joins a function that writes an object to one that later reads it, and writing a variable another function reads is not calling it: control never travels along that edge, so a function reachable only through one has not been reached. Following it would quietly rescue genuinely dead code from the report, which is the error this analysis exists to avoid making in the other direction.
+    *Trace:* HLR-096 (Dead Code Detection by Reachability), HLR-097, HLR-074.
+
+*   <a id="LLR-STA-04"></a>**LLR-STA-04** — `state_analyse` shall perform the global-access mapping whether or not any declaration was supplied, so that omitting one analysis for want of a declaration does not omit its neighbours.
+    *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-091.
+
 ## 27. `classify_globals` ([src/state.c](../src/state.c))
 
 *   <a id="LLR-GLB-01"></a>**LLR-GLB-01** — `classify_globals` shall report, for every global object, the set of functions that write it and the set that read it.
@@ -688,6 +721,9 @@ Global-state coupling, execution-scope isolation, and reachability.
 
 *   <a id="LLR-GLB-04"></a>**LLR-GLB-04** — The scope-reduction and hidden-channel findings shall be attributed to their published source.
     *Trace:* HLR-099 (Threshold Attribution), HLR-092 (Scope-Reduction Candidates), HLR-093 (Hidden Channel Detection).
+
+*   <a id="LLR-GLB-05"></a>**LLR-GLB-05** — `classify_globals` shall determine the regions of the hidden-channel test as the *weakly* connected components of the call view, disregarding the object's own state edges. Weakly, because two functions in a one-directional calling relationship are still part of one design and requiring mutual reachability would report every ordinary caller and callee as disconnected; and over the call view, because including the object's own edges would join every pair sharing it and no object could ever be a channel.
+    *Trace:* HLR-093 (Hidden Channel Detection), HLR-074.
 
 ## 28. `collect_roots` ([src/state.c](../src/state.c))
 
@@ -713,10 +749,16 @@ Global-state coupling, execution-scope isolation, and reachability.
 *   <a id="LLR-UGL-01"></a>**LLR-UGL-01** — `unreachable_globals` shall report as unreachable every global object accessed solely by functions that are themselves unreachable.
     *Trace:* HLR-096 (Dead Code Detection by Reachability).
 
+*   <a id="LLR-UGL-02"></a>**LLR-UGL-02** — `unreachable_globals` shall not report as unreachable an object that no analysed function accesses. Such an object may be touched from file scope, from a language whose global captures record nothing, or from a translation unit outside the target, and the asymmetry that governs the functions governs the storage: an object wrongly called dead invites deleting memory something writes.
+    *Trace:* HLR-096 (Dead Code Detection by Reachability), HLR-138.
+
 ## 31. `check_scopes` ([src/state.c](../src/state.c))
 
 *   <a id="LLR-ISO-01"></a>**LLR-ISO-01** — `check_scopes` shall report every call edge and every global-state edge by which one declared execution scope reaches a function or object belonging to another.
     *Trace:* HLR-094 (Memory Map Boundary Validation).
+
+*   <a id="LLR-ISO-02"></a>**LLR-ISO-02** — `check_scopes` shall treat a component matching no declaration as lying outside the partition rather than in a scope of its own, so that an edge touching it is not a crossing. The user said nothing about it, and inventing a boundary would report violations against a division nobody drew.
+    *Trace:* HLR-094 (Memory Map Boundary Validation), HLR-115.
 
 ## 32. `thresholds_apply` ([src/thresholds.c](../src/thresholds.c))
 
@@ -831,6 +873,12 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-27"></a>**LLR-RPT-27** — `report_assemble` shall carry the definitions in force and the count of undecided regions into the report model, ordered by symbol name, so that every format states the configuration the figures describe.
     *Trace:* HLR-136, HLR-133, HLR-033.
 
+*   <a id="LLR-RPT-28"></a>**LLR-RPT-28** — The report shall resolve a dead-code span to its enclosing function by containment over the assembled model, rather than by the index the parse recorded. The index is into the array the parse produced, and that array has since been ordered for presentation; reading the index would name the right function only for as long as the two orders happened to agree. The rule applied is the one the parse applied — the narrowest reported function containing the span.
+    *Trace:* HLR-137 (Intra-Procedural Dead Code Detection), HLR-068, HLR-032.
+
+*   <a id="LLR-RPT-29"></a>**LLR-RPT-29** — The report shall order the cross-scope crossings by the boundary crossed and then by the functions at either end, and the global objects by name, so that no collection reaching a renderer carries the order a traversal happened to produce.
+    *Trace:* HLR-032 (Deterministic Output), HLR-033.
+
 *   <a id="LLR-RPT-16"></a>**LLR-RPT-16** — `report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -911,6 +959,12 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XWR-10"></a>**LLR-XWR-10** — `xml_write_report` shall emit the definitions in force and the count of undecided regions, so that a record states the configuration it was taken under.
     *Trace:* HLR-136, HLR-054.
+
+*   <a id="LLR-XWR-11"></a>**LLR-XWR-11** — The record shall carry the global-access map with its verdicts, the unreachable functions and objects, the cross-scope crossings, the dead-code spans, and the state of each analysis that may be omitted. None can be recomputed on regeneration, which has neither a graph nor a source tree to build one from.
+    *Trace:* HLR-054 (Complete Run Record), HLR-056, HLR-096, HLR-137.
+
+*   <a id="LLR-XWR-12"></a>**LLR-XWR-12** — The record shall carry the languages for which dead-code analysis was not performed, and shall not carry the published source a global-state verdict is attributed to. The first, because a record holding the findings alone would regenerate into a report reading as a clean bill of health for a language nobody analysed. The second, because the citation is derived from the verdict by one function both paths call, so a record cannot carry one that disagrees with a live run's.
+    *Trace:* HLR-139 (Dead-Code Support Is Per Language and Its Absence Is Stated), HLR-056, HLR-099.
 
 *   <a id="LLR-XWR-04"></a>**LLR-XWR-04** — `xml_write_report` shall emit well-formed XML.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).

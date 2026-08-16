@@ -306,11 +306,17 @@ runtime/
 └── queries/<lang>/
     ├── comments.scm  functions.scm  complexity.scm
     ├── eloc.scm  calls.scm  globals.scm
+    ├── conditionals.scm    # optional (HLR-134)
+    ├── deadcode.scm        # optional (HLR-139)
     └── rules/*.scm         # custom rules for this language (HLR-107)
 ```
 The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060). `binary.exts` lives here too and is read by `discover.c`, which is given this location rather than resolving it (HLR-005).
 
 `conditionals.scm` is a **seventh, optional** file. A module that supplies one gains conditional-region pruning; a module that omits one has no conditional compilation, which is the truth for a language that has none. The required set stays at six, so adding this breaks no module that already exists (HLR-121, HLR-134).
+
+`deadcode.scm` is the **eighth**, and optional for the same reason. A module supplying one gains dead-code detection within functions; a module omitting one is analysed for every other measurement, and the report states that the analysis was *not performed* for that language rather than that none was found (HLR-139). Four of the five shipped modules supply one. Ada does not, deliberately: it writes its false literal as an ordinary identifier the grammar cannot distinguish from one the program declared, so capturing it would assert a resolution nothing performed — and shipping the terminator half alone would report Ada as *analysed* while quietly finding no literal branches, which is the confident-and-wrong outcome the whole design avoids.
+
+The distinction between the two ways an optional file can be absent is load-bearing. A file that is **not there** is a choice the contract allows. A file that is there and **will not compile** is a defect, and makes the module unusable exactly as a broken required file does; treating the two alike would let a typo silently disable an analysis.
 
 A query file that compiles and captures nothing is valid, and is how an unimplemented query is expressed. The registry reads captures; it never asks whether a file is "filled in". That is what lets a phase ship a language with one query complete and the rest as documented stubs, without either a special case in the loader or a module that fails to load.
 
@@ -363,7 +369,7 @@ It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Alloca
         <responsibility><![CDATA[Record the statements within each function that cannot execute, and whether the language supplied the data needed to look (HLR-137, HLR-139).]]></responsibility>
         <responsibility><![CDATA[Evaluate custom rule queries and record their matches.]]></responsibility>
         <interfaces>
-          <interface title="Query Capture Contract"><![CDATA[The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).]]></interface>
+          <interface title="Query Capture Contract"><![CDATA[The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A pattern may also carry **predicates**, and this module evaluates them: the parser library returns a predicate as data rather than applying it, so a stage that never asks accepts every match as though none were written. Five filters are honoured — equality, inequality, membership, and match and its negation against a POSIX extended regular expression — each comparing the text a capture spans against a string the query file wrote. A directive, which carries information rather than filtering, is ignored; a filter this build does not implement discards the match. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).]]></interface>
         </interfaces>
         <data_structures><![CDATA[Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment merging, reused across files to avoid per-file allocation.]]></data_structures>
         <functions>
@@ -392,7 +398,7 @@ The signature above is the complete one. The `FileFacts` output arrives with the
 
 **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.]]></notes>
           </function>
-          <function signature="int collect_dead_code(const LanguageModule *m, Registry *reg, TSNode root, const FnRangeIndex *ranges, FileFacts *facts)">
+          <function signature="int collect_dead_code(const LanguageModule *m, Registry *reg, const char *data, TSNode root, const FnRangeIndex *ranges, const SpanList *comments, FileFacts *facts)">
             <purpose><![CDATA[Record every statement within a function that cannot execute (HLR-137).]]></purpose>
             <pre><![CDATA[`ranges` holds the reported functions of this file, so each finding can be attributed to the one containing it.]]></pre>
             <post><![CDATA[`facts` holds one span per unreachable statement, and a flag recording whether the language supplied a `deadcode.scm` at all.]]></post>
@@ -400,7 +406,7 @@ The signature above is the complete one. The `FileFacts` output arrives with the
             <logic>
               <step><![CDATA[If the language module supplies no dead-code query, record that fact and return. The absence is reported as "not analysed for this language", never as "none found" — the two are different claims (HLR-139).]]></step>
               <step><![CDATA[For each `@dead.branch` capture, record the captured node's line range. The query decides what a literal condition is and which branch it excludes, because both are language-specific: `0` is false in C, `false` in Rust, `False` in Python, and a query predicate can compare the literal's text where C could not without knowing the language.]]></step>
-              <step><![CDATA[For each `@dead.terminator` capture, walk the *following named siblings* of the captured node and record each as unreachable, stopping at the first sibling carrying a `@dead.reentry` capture. Sibling traversal is structural and needs no language knowledge; what terminates a block and what can be re-entered are language knowledge, and both stay in the query file.]]></step>
+              <step><![CDATA[For each `@dead.terminator` capture, walk the *following named siblings* of the captured node and record each as unreachable, stopping at the first sibling carrying a `@dead.reentry` capture and skipping any sibling lying within the merged comment set. **A comment is a named sibling**, so a walk that did not exclude one would report the trailing note on the terminator's own line — making every annotated `return` report itself. The exclusion asks the set `comments.scm` already produced rather than recognising a comment for itself, so one mechanism serves this and the ELOC exclusion alike. Sibling traversal is structural and needs no language knowledge; what terminates a block and what can be re-entered are language knowledge, and both stay in the query file.]]></step>
               <step><![CDATA[Attribute each recorded span to its innermost enclosing reported function, by the same rule ELOC and complexity use, so a dead statement inside a nested function belongs to that function and not to the one around it.]]></step>
             </logic>
             <notes><![CDATA[**The re-entry capture is what keeps the analysis sound, and it is easy to leave out.** In C a `goto` label following a `return` is a sibling of it and is perfectly reachable; recording it as dead would be a false claim of the kind HLR-138 forbids outright. The shape differs by language and even by grammar — in `tree-sitter-c` a `case` label is a *child* of the case construct rather than a sibling of the statements before it, so switch arms need no re-entry pattern there, while a `labeled_statement` does. That a grammar happens to make one case safe is not a reason to omit the pattern for the other; the `deadcode/` fixture group pins both.
@@ -565,16 +571,19 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
         <responsibility><![CDATA[Report cross-scope access paths when execution scopes were declared.]]></responsibility>
         <responsibility><![CDATA[Compute reachability from the declared entry points *together with* every address-taken function, and report everything unvisited as unreachable.]]></responsibility>
         <responsibility><![CDATA[Report as unreachable any global object accessed solely by functions that are themselves unreachable (HLR-096).]]></responsibility>
+        <responsibility><![CDATA[Perform the global-access mapping on every run, so that omitting an analysis for want of a declaration does not omit its neighbours (HLR-115).]]></responsibility>
         <functions>
           <function signature="int state_analyse(const Sdg *g, const ElcOptions *opts, StateResults *out)" summary="Run the global-state, scope-isolation, and reachability analyses, skipping those whose declarations are absent."/>
-          <function signature="void classify_globals(const Sdg *g, StateResults *out)" summary="Apply the scope-reduction and hidden-channel rules to each global."/>
-          <function signature="int reachability(const Sdg *g, const NodeSet *roots, NodeSet *unreachable)" summary="Breadth-first traversal from the root set; the complement is the unreachable set."/>
-          <function signature="void collect_roots(const Sdg *g, const ElcOptions *opts, NodeSet *roots)" summary="Union of the declared entry points and every address-taken function."/>
-          <function signature="void unreachable_globals(const Sdg *g, const NodeSet *unreachable, GlobalList *out)" summary="Globals accessed only by unreachable functions are themselves unreachable."/>
-          <function signature="int check_scopes(const Sdg *g, const ElcOptions *opts, ViolationList *out)" summary="Report every edge crossing a declared execution-scope boundary."/>
+          <function signature="int classify_globals(const Sdg *g, StateResults *out)" summary="Apply the scope-reduction and hidden-channel rules to each global."/>
+          <function signature="int reachability(const Sdg *g, const uint32_t *roots, size_t root_count, uint32_t **out, size_t *out_count)" summary="Breadth-first traversal from the root set; the complement is the unreachable set."/>
+          <function signature="int collect_roots(const Sdg *g, const ElcOptions *opts, uint32_t **out, size_t *out_count, size_t *resolved)" summary="Union of the declared entry points and every address-taken function, de-duplicated. Reports separately how many declared symbols named an analysed function, so the caller can tell &quot;you declared nothing&quot; from &quot;what you declared is not here&quot;."/>
+          <function signature="int unreachable_globals(const Sdg *g, const uint32_t *dead, size_t dead_count, StateResults *out)" summary="Globals accessed only by unreachable functions are themselves unreachable."/>
+          <function signature="int check_scopes(const Sdg *g, const ElcOptions *opts, StateResults *out)" summary="Report every edge crossing a declared execution-scope boundary."/>
           <function signature="void state_results_free(StateResults *r)" summary="Release the global access map, the hidden-channel and scope-reduction lists, and the unreachable sets."/>
         </functions>
-        <algorithm><![CDATA[The hidden-channel test asks whether the functions touching a global fall into more than one weakly connected region of the call graph once that global's own edges are disregarded. A global shared within one call-connected region is ordinary shared state; one shared across regions that never call each other is the temporal coupling MISRA C Rule 8.9 is concerned with. Dead-code detection is plain forward reachability, which is exactly why it is immune to the failure mode of textual linters: a clique of unused functions calling one another is still unvisited, because no path reaches it from any entry point (HLR-097).]]></algorithm>
+        <algorithm><![CDATA[The hidden-channel test asks whether the functions touching a global fall into more than one weakly connected region of the call graph once that global's own edges are disregarded. A global shared within one call-connected region is ordinary shared state; one shared across regions that never call each other is the temporal coupling MISRA C Rule 8.9 is concerned with. Dead-code detection is plain forward reachability, which is exactly why it is immune to the failure mode of textual linters: a clique of unused functions calling one another is still unvisited, because no path reaches it from any entry point (HLR-097). The traversal runs over the **call view**, and that is a decision rather than an inheritance: writing a variable another function later reads is not calling it, so control never travels along a state edge and a function reachable only through one has not been reached. Following it would quietly rescue genuinely dead code from the report.
+
+**The one place this analysis errs toward *un*reachable is not its own doing.** Call resolution is by name, so where two files each define a `static` helper of the same name every call resolves to the first and the second has no incoming edge — and is reported dead when it is not. That is a limit of the graph rather than of the traversal, and it is already diagnosed on standard error where it occurs (SDD §8.5); the report cannot suppress it without the type resolution the project does not perform. `elc` analysing its own source reports exactly this and nothing else, which makes the interaction easy to demonstrate and easy to forget.]]></algorithm>
         <dependencies>
           <dep><![CDATA[The graph library, for traversal and connectivity.]]></dep>
           <dep><![CDATA[`src/graph.c`.]]></dep>
@@ -582,6 +591,7 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
         <error_handling>
           <case name="No entry points declared"><![CDATA[Reachability analysis omitted with a stated reason. `elc` must never report every function as unreachable merely because nothing was declared (HLR-115).]]></case>
           <case name="No execution scopes declared"><![CDATA[Scope-isolation analysis omitted with a stated reason (HLR-094, HLR-115).]]></case>
+          <case name="A duplicate function name"><![CDATA[Not an error, and not suppressed. Every call to a name defined more than once resolves to the first definition, so the others are reported unreachable; the duplicate is diagnosed on standard error when the graph is built, and the two are read together.]]></case>
         </error_handling>
       </module>
 
@@ -626,6 +636,7 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
         <responsibility><![CDATA[Apply the complexity threshold to produce each file's over-threshold function list.]]></responsibility>
         <responsibility><![CDATA[Sort every collection in the model by an explicit key before any renderer sees it.]]></responsibility>
         <responsibility><![CDATA[Record which analyses were omitted, and why.]]></responsibility>
+        <responsibility><![CDATA[Resolve each dead-code span to its enclosing function by containment over the assembled model, rather than by the index the parse recorded against an array since reordered for presentation (LLR-RPT-28).]]></responsibility>
         <responsibility><![CDATA[Record the conditional-compilation definitions in force and the number of regions whose condition could not be decided, so that a figure which depends on a configuration is reported alongside it (HLR-136, HLR-133).]]></responsibility>
         <responsibility><![CDATA[Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).]]></responsibility>
         <responsibility><![CDATA[Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).]]></responsibility>
@@ -901,6 +912,25 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="symbols" type="SymbolTable" desc="Name to node id, for call resolution"/>
         <field name="components" type="ComponentProjection" desc="File-level projection used by arch.c (HLR-114)"/>
         <field name="unresolved" type="size_t" desc="Call sites with no resolvable target (HLR-077)"/>
+        <field name="touches" type="GlobalTouch *" desc="Per-object access records, carried beside the state edges rather than derived from them (HLR-091)"/>
+      </type>
+      <type name="GlobalTouch" header="inc/graph.h" summary="One function's access to one global object. Recorded beside the global-state edges, not derived from them: an edge joins a writer to a reader, so an object touched by exactly one function produces none — and that object is precisely the scope-reduction candidate of HLR-092.">
+        <field name="object" type="const char *" desc="Into the graph's own name table"/>
+        <field name="node" type="uint32_t" desc="The accessing function"/>
+        <field name="write" type="bool" desc="True writes the object, false reads it"/>
+      </type>
+      <type name="ScopeDecl" header="inc/elc.h" summary="One declared execution scope: a name, and the component patterns belonging to it (HLR-094). Owned outright, unlike the entry-point symbols: a declaration is split on two separators, so neither half is a terminated substring of any argument.">
+        <field name="name" type="char *" desc="Owned"/>
+        <field name="patterns" type="char **" desc="Owned; matched against component paths with fnmatch(3)"/>
+        <field name="pattern_count" type="size_t" desc="Populated entries"/>
+      </type>
+      <type name="StateResults" header="inc/state.h" summary="What the global-state, reachability, and scope-isolation analyses measured. Owned by main and copied into the report model, as the call-tree results are.">
+        <field name="globals" type="GlobalRow *" desc="One per object touched, with its writers, readers, and verdict (HLR-091 – HLR-093)"/>
+        <field name="reach_state" type="ReachState" desc="Measured, or omitted for want of a declaration or of a declaration that resolves (HLR-115)"/>
+        <field name="unreachable" type="uint32_t *" desc="Node identifiers no traversal reached, ascending (HLR-096)"/>
+        <field name="dead_globals" type="const char **" desc="Objects every accessor of which is unreachable (HLR-096)"/>
+        <field name="scope_state" type="ScopeState" desc="Measured, or omitted because no execution scopes were declared (HLR-094, HLR-115)"/>
+        <field name="violations" type="ScopeViolation *" desc="Every call and state edge crossing a declared boundary (HLR-094)"/>
       </type>
       <type name="Finding" header="inc/elc.h" summary="One reportable observation. Severity is data and never influences the exit status (HLR-100).">
         <field name="kind" type="MeasurementKind" desc="Which analysis produced it"/>
@@ -2778,6 +2808,13 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
           <trace target="HLR" ref="HLR-094" name="Memory Map Boundary Validation"/>
         </traces>
       </llr>
+      <llr id="LLR-SCP-03">
+        <text><![CDATA[`parse_scope` shall copy the name and every pattern it records, rather than borrowing them from the argument vector as the entry-point symbols are. A declaration is split on two separators, so neither the name nor any pattern exists as a terminated substring of any argument.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-094" name="Memory Map Boundary Validation"/>
+          <trace target="HLR" ref="HLR-125"/>
+        </traces>
+      </llr>
     </function>
     <function number="6" title="`discover_targets` ([src/discover.c](../src/discover.c))" name="discover_targets" source="src/discover.c">
       <intro><![CDATA[Target validation, classification, and file discovery. Produces the de-duplicated, stably ordered list every later stage consumes.]]></intro>
@@ -3044,6 +3081,21 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
           <trace target="HLR" ref="HLR-134"/>
           <trace target="HLR" ref="HLR-121"/>
           <trace target="HLR" ref="HLR-070"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RFP-11">
+        <text><![CDATA[`registry_for_path` shall load a language's dead-code query when the module supplies one, and shall treat its absence as the language having no dead-code support rather than as the module being unusable. Making the file required would invalidate every language module already shipped, which is what the stable contract exists to prevent.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-139" name="Dead-Code Support Is Per Language and Its Absence Is Stated"/>
+          <trace target="HLR" ref="HLR-121"/>
+          <trace target="HLR" ref="HLR-070"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RFP-12">
+        <text><![CDATA[`registry_for_path` shall treat an optional query file that is present and will not compile as it treats a required one — a diagnostic naming the language, the file and the reason, and the language excluded. Omitting a file is a decision the contract allows; writing a broken one is a defect, and the two must not have the same outcome.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-070" name="Language Module Failure Isolation"/>
+          <trace target="HLR" ref="HLR-121"/>
         </traces>
       </llr>
       <llr id="LLR-RFP-08">
@@ -3427,6 +3479,21 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-032"/>
         </traces>
       </llr>
+      <llr id="LLR-ANL-46">
+        <text><![CDATA[`analyze_file` shall evaluate the predicates a query pattern carries and discard any match whose predicates do not hold. The parser library treats a predicate as data — it parses one and returns its steps, leaving the decision to the caller — so a stage that never asks accepts every match as though the predicate were not written. For a dead-code query that turns “`if (0)` is dead” into “every `if` is dead”, which is the false claim HLR-138 forbids. The evaluation compares the text a capture spans against a string the query file wrote and knows no language.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-121" name="Language Module Interface Is a Stable Contract"/>
+          <trace target="HLR" ref="HLR-138"/>
+          <trace target="HLR" ref="HLR-013"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-47">
+        <text><![CDATA[`analyze_file` shall ignore a directive, which carries information rather than filtering, and shall discard the match on encountering a filtering predicate it does not implement. A filter the build cannot apply is a condition the query author wrote and this build cannot honour; accepting the match would apply that condition's inverse, and under-reporting is the direction every capture in the contract errs in.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-121" name="Language Module Interface Is a Stable Contract"/>
+          <trace target="HLR" ref="HLR-138"/>
+        </traces>
+      </llr>
       <llr id="LLR-ANL-34">
         <text><![CDATA[`analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.]]></text>
         <traces>
@@ -3476,6 +3543,27 @@ Note on the division of labour, which determines where a failure lives: the requ
         <traces>
           <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
           <trace target="HLR" ref="HLR-096"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DED-07">
+        <text><![CDATA[`collect_dead_code` shall skip, without stopping at, any following sibling lying within the merged comment set, so that a comment is never recorded as dead code. A comment is a *named* sibling in the grammars this contract addresses, so a walk that did not exclude one would report the trailing note on a terminator's own line — making every annotated `return` report itself. The exclusion consults the set `comments.scm` already produced rather than recognising a comment for itself, so one answer serves both this and the ELOC exclusion, and no node type enters the C.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+          <trace target="HLR" ref="HLR-138"/>
+          <trace target="HLR" ref="HLR-016" name="Comment Span Merging"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DED-08">
+        <text><![CDATA[`collect_dead_code` shall record no span lying outside every reported function, since HLR-137 asks about statements within a function and a span at file scope has no enclosing function to be reported against.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DED-09">
+        <text><![CDATA[`collect_dead_code` shall collapse recorded spans naming the same lines of the same function into one, having first ordered them, so that a statement following two terminators is reported once and the result does not depend on the order the query matched.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+          <trace target="HLR" ref="HLR-032"/>
         </traces>
       </llr>
     </function>
@@ -3634,6 +3722,14 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-SDG-16">
+        <text><![CDATA[`graph_build` shall record, for every global object, the set of functions that write it and the set that read it, **beside** the global-state edges rather than as a projection of them. A global edge joins a writer to a reader, so an object touched by exactly one function produces no edge at all — and that object is precisely the scope-reduction candidate of HLR-092. An analysis reading only the edge table would find none of them, and would find no object that is written and never read either. The records shall be ordered by object and then by node identifier and de-duplicated, so that a function writing one object in four places is one writer.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-091" name="Global Access Mapping"/>
+          <trace target="HLR" ref="HLR-092"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
       <llr id="LLR-SDG-15">
         <text><![CDATA[`graph_build` shall install a non-aborting error handler on the graph library before making any call to it. The library's default handler calls `abort()`, which makes every return-value check unreachable and turns an allocation failure inside the library into a crash rather than the diagnostic and exit status the run promises. It matters beyond allocation: asking a cyclic graph for a topological ordering is an ordinary, expected error return — and is exactly how the call-depth analysis detects recursion — which the default handler would turn into a crash on a perfectly valid program.]]></text>
         <traces>
@@ -3887,6 +3983,21 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-094" name="Memory Map Boundary Validation"/>
         </traces>
       </llr>
+      <llr id="LLR-STA-03">
+        <text><![CDATA[`state_analyse` shall compute reachability over the call view of the graph and not over the whole SDG. A global-state edge joins a function that writes an object to one that later reads it, and writing a variable another function reads is not calling it: control never travels along that edge, so a function reachable only through one has not been reached. Following it would quietly rescue genuinely dead code from the report, which is the error this analysis exists to avoid making in the other direction.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-096" name="Dead Code Detection by Reachability"/>
+          <trace target="HLR" ref="HLR-097"/>
+          <trace target="HLR" ref="HLR-074"/>
+        </traces>
+      </llr>
+      <llr id="LLR-STA-04">
+        <text><![CDATA[`state_analyse` shall perform the global-access mapping whether or not any declaration was supplied, so that omitting one analysis for want of a declaration does not omit its neighbours.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-115" name="Analyses Requiring User Declarations"/>
+          <trace target="HLR" ref="HLR-091"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="27" title="`classify_globals` ([src/state.c](../src/state.c))" name="classify_globals" source="src/state.c">
@@ -3914,6 +4025,13 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-099" name="Threshold Attribution"/>
           <trace target="HLR" ref="HLR-092" name="Scope-Reduction Candidates"/>
           <trace target="HLR" ref="HLR-093" name="Hidden Channel Detection"/>
+        </traces>
+      </llr>
+      <llr id="LLR-GLB-05">
+        <text><![CDATA[`classify_globals` shall determine the regions of the hidden-channel test as the *weakly* connected components of the call view, disregarding the object's own state edges. Weakly, because two functions in a one-directional calling relationship are still part of one design and requiring mutual reachability would report every ordinary caller and callee as disconnected; and over the call view, because including the object's own edges would join every pair sharing it and no object could ever be a channel.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-093" name="Hidden Channel Detection"/>
+          <trace target="HLR" ref="HLR-074"/>
         </traces>
       </llr>
     </function>
@@ -3963,6 +4081,13 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-096" name="Dead Code Detection by Reachability"/>
         </traces>
       </llr>
+      <llr id="LLR-UGL-02">
+        <text><![CDATA[`unreachable_globals` shall not report as unreachable an object that no analysed function accesses. Such an object may be touched from file scope, from a language whose global captures record nothing, or from a translation unit outside the target, and the asymmetry that governs the functions governs the storage: an object wrongly called dead invites deleting memory something writes.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-096" name="Dead Code Detection by Reachability"/>
+          <trace target="HLR" ref="HLR-138"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="31" title="`check_scopes` ([src/state.c](../src/state.c))" name="check_scopes" source="src/state.c">
@@ -3970,6 +4095,13 @@ Note on the division of labour, which determines where a failure lives: the requ
         <text><![CDATA[`check_scopes` shall report every call edge and every global-state edge by which one declared execution scope reaches a function or object belonging to another.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-094" name="Memory Map Boundary Validation"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ISO-02">
+        <text><![CDATA[`check_scopes` shall treat a component matching no declaration as lying outside the partition rather than in a scope of its own, so that an edge touching it is not a crossing. The user said nothing about it, and inventing a boundary would report violations against a division nobody drew.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-094" name="Memory Map Boundary Validation"/>
+          <trace target="HLR" ref="HLR-115"/>
         </traces>
       </llr>
     </function>
@@ -4230,6 +4362,21 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-033"/>
         </traces>
       </llr>
+      <llr id="LLR-RPT-28">
+        <text><![CDATA[The report shall resolve a dead-code span to its enclosing function by containment over the assembled model, rather than by the index the parse recorded. The index is into the array the parse produced, and that array has since been ordered for presentation; reading the index would name the right function only for as long as the two orders happened to agree. The rule applied is the one the parse applied — the narrowest reported function containing the span.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+          <trace target="HLR" ref="HLR-068"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RPT-29">
+        <text><![CDATA[The report shall order the cross-scope crossings by the boundary crossed and then by the functions at either end, and the global objects by name, so that no collection reaching a renderer carries the order a traversal happened to produce.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-032" name="Deterministic Output"/>
+          <trace target="HLR" ref="HLR-033"/>
+        </traces>
+      </llr>
       <llr id="LLR-RPT-16">
         <text><![CDATA[`report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.]]></text>
         <traces>
@@ -4405,6 +4552,23 @@ Note on the division of labour, which determines where a failure lives: the requ
         <traces>
           <trace target="HLR" ref="HLR-136"/>
           <trace target="HLR" ref="HLR-054"/>
+        </traces>
+      </llr>
+      <llr id="LLR-XWR-11">
+        <text><![CDATA[The record shall carry the global-access map with its verdicts, the unreachable functions and objects, the cross-scope crossings, the dead-code spans, and the state of each analysis that may be omitted. None can be recomputed on regeneration, which has neither a graph nor a source tree to build one from.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-054" name="Complete Run Record"/>
+          <trace target="HLR" ref="HLR-056"/>
+          <trace target="HLR" ref="HLR-096"/>
+          <trace target="HLR" ref="HLR-137"/>
+        </traces>
+      </llr>
+      <llr id="LLR-XWR-12">
+        <text><![CDATA[The record shall carry the languages for which dead-code analysis was not performed, and shall not carry the published source a global-state verdict is attributed to. The first, because a record holding the findings alone would regenerate into a report reading as a clean bill of health for a language nobody analysed. The second, because the citation is derived from the verdict by one function both paths call, so a record cannot carry one that disagrees with a live run's.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-139" name="Dead-Code Support Is Per Language and Its Absence Is Stated"/>
+          <trace target="HLR" ref="HLR-056"/>
+          <trace target="HLR" ref="HLR-099"/>
         </traces>
       </llr>
 
@@ -4785,7 +4949,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
   <tests>
-  <file path="test/unit/cli.c" role="unit" count="20">
+  <file path="test/unit/cli.c" role="unit" count="26">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -4902,7 +5066,48 @@ Note on the division of labour, which determines where a failure lives: the requ
     <test name="options_free_is_safe_on_null">
       <purpose><![CDATA[Releasing a null options structure does not fault, so teardown is safe on every path.]]></purpose>
     </test>
-  </file>
+      <test name="a_scope_declaration_is_parsed_into_a_name_and_patterns">
+      <purpose><![CDATA[A name:glob[,glob…] declaration yields the scope name and each component pattern separately.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SCP-01"/>
+      </traces>
+    </test>
+    <test name="scope_declarations_accumulate">
+      <purpose><![CDATA[The option is repeatable and each declaration adds a scope rather than replacing the last.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SCP-01"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="a_malformed_scope_declaration_is_rejected">
+      <purpose><![CDATA[A scope with no name, a name with no components, and an empty pattern between separators are each a usage error rather than a scope matching nothing — which would report nothing and read as a clean result.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SCP-02"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="the_scope_option_reaches_the_options_structure">
+      <purpose><![CDATA[--scope is parsed by cli_parse into the options structure the analyses read.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SCP-01"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="a_malformed_scope_option_is_a_usage_error">
+      <purpose><![CDATA[A malformed --scope argument fails the parse rather than being ignored.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SCP-02"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="no_scope_declared_leaves_the_list_empty">
+      <purpose><![CDATA[An empty scope list means the analysis is omitted with a stated reason, not that every file belongs to one scope.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-02"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+</file>
 
   <file path="test/unit/registry.c" role="unit" count="15">
     <test name="the_environment_variable_names_the_runtime_location">
@@ -5002,7 +5207,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/unit/analyze.c" role="unit" count="34">
+  <file path="test/unit/analyze.c" role="unit" count="41">
     <test name="physical_lines_are_counted">
       <purpose><![CDATA[The physical line count comes from the mapped contents.]]></purpose>
       <traces>
@@ -5215,7 +5420,56 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="LLR" ref="LLR-ANL-02"/>
       </traces>
     </test>
-  </file>
+      <test name="statements_after_a_terminator_are_recorded">
+      <purpose><![CDATA[The named siblings following a captured terminator are recorded as unreachable, with the after-terminator cause.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="a_label_after_a_terminator_is_not_recorded">
+      <purpose><![CDATA[A goto label following a return is a sibling of it and is reachable. Recording it would be a false claim inviting the deletion of a live branch target — the single case that decides whether this analysis can be trusted.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+    <test name="a_branch_guarded_by_a_variable_is_never_recorded">
+      <purpose><![CDATA[A condition holding a variable is not claimed dead however evidently its value could be inferred: deciding it needs data flow, and elc performs none.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-03"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+    <test name="a_literal_branch_is_recorded_with_its_whole_span">
+      <purpose><![CDATA[The branch a literal condition excludes is recorded as its full line range, because the span is what the reader deletes.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-02"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="a_predicate_that_does_not_hold_rejects_the_match">
+      <purpose><![CDATA[A query predicate is evaluated rather than ignored. The parser library returns predicates as data, so without evaluation every conditional would match the literal-condition pattern.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-46"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+    <test name="a_dead_span_is_attributed_to_the_innermost_function">
+      <purpose><![CDATA[Each recorded span belongs to the reported function containing it, by the rule ELOC and complexity already use.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-04"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="a_language_with_no_dead_code_query_is_unanalysed_not_clean">
+      <purpose><![CDATA[A language module supplying no dead-code query records that the analysis was not performed, rather than recording that no dead code was found.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-05"/>
+        <trace target="HLR" ref="HLR-139"/>
+      </traces>
+    </test>
+</file>
 
   <file path="test/unit/calltree.c" role="unit" count="16">
     <test name="fan_out_counts_distinct_callees">
@@ -5482,6 +5736,143 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Releasing a null file list or extension list does not fault, so teardown is safe on every path.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-DSC-01"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/state.c" role="unit" count="19">
+    <test name="roots_are_entry_points_and_address_taken_functions">
+      <purpose><![CDATA[The root set is the union of the two and nothing else: a function neither declared nor address-taken is not a root.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RTS-01"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="a_declared_symbol_naming_nothing_is_skipped_not_fatal">
+      <purpose><![CDATA[A declared entry point matching no analysed function is skipped rather than failing the run, since analysing one directory of a project whose entry point lives in another is ordinary.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-01"/>
+        <trace target="HLR" ref="HLR-095"/>
+      </traces>
+    </test>
+    <test name="a_root_declared_twice_is_one_root">
+      <purpose><![CDATA[The root set is de-duplicated, so a symbol declared twice and also address-taken contributes one root.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RTS-01"/>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="a_clique_of_unused_functions_is_unreachable">
+      <purpose><![CDATA[Two unused functions calling one another are both reported: each has a caller, so a textual rule finds neither, and no path reaches the pair from any root.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RCH-03"/>
+        <trace target="HLR" ref="HLR-097"/>
+      </traces>
+    </test>
+    <test name="an_address_taken_function_and_its_callees_are_reachable">
+      <purpose><![CDATA[An address-taken function is a root rather than an exemption: what it calls is reached through it. An implementation that merely excluded it from the report would report its callee dead.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RTS-02"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="reachability_does_not_travel_along_a_global_edge">
+      <purpose><![CDATA[A function reachable only by reading an object another function wrote is still unreachable: control never travels along a state edge, and following one would rescue genuinely dead code from the report.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-03"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="with_no_entry_points_nothing_is_unreachable">
+      <purpose><![CDATA[With no declaration the analysis is omitted with its reason, and no function is reported unreachable.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-01"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="a_declaration_matching_nothing_is_its_own_omission">
+      <purpose><![CDATA[Declaring an entry point that matches nothing is a different omission from declaring none, because the two call for different actions from the reader.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-01"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="a_global_touched_by_one_function_is_a_scope_reduction_candidate">
+      <purpose><![CDATA[An object one function writes and reads is flagged, and the graph carries no edge for it at all — which is why the finding is computed from the access records rather than from the edge table.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GLB-02"/>
+        <trace target="LLR" ref="LLR-SDG-16"/>
+        <trace target="HLR" ref="HLR-092"/>
+      </traces>
+    </test>
+    <test name="a_global_spanning_disconnected_regions_is_a_hidden_channel">
+      <purpose><![CDATA[An object written in one region of the call graph and read in another that never calls it is flagged, with the region count establishing the disconnection.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GLB-03"/>
+        <trace target="HLR" ref="HLR-093"/>
+      </traces>
+    </test>
+    <test name="shared_state_within_one_region_is_ordinary">
+      <purpose><![CDATA[The same sharing between two functions joined by a call edge carries no finding. Without this distinction the warning would fire on every shared variable.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GLB-05"/>
+        <trace target="HLR" ref="HLR-093"/>
+      </traces>
+    </test>
+    <test name="an_undeclared_identifier_is_not_global_state">
+      <purpose><![CDATA[An identifier no file declares at file scope is not global state, however the over-broad read and write patterns captured it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SDG-13"/>
+        <trace target="HLR" ref="HLR-091"/>
+      </traces>
+    </test>
+    <test name="a_global_touched_only_by_dead_functions_is_unreachable">
+      <purpose><![CDATA[An object every one of whose accessors is unreachable is itself reported unreachable.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-UGL-01"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="a_global_no_function_touches_is_not_claimed_dead">
+      <purpose><![CDATA[An object no analysed function accesses is not claimed: it may be touched from file scope or from a translation unit outside the target.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-UGL-02"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="an_edge_crossing_a_declared_boundary_is_reported">
+      <purpose><![CDATA[A call from a function in one declared scope to a function in another is reported as a crossing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ISO-01"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="a_shared_global_crossing_a_boundary_is_reported">
+      <purpose><![CDATA[A scope that never calls into another but writes a variable the other reads has not been isolated. An implementation checking call edges alone would report the arrangement clean.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ISO-01"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="a_component_matching_no_declaration_is_outside_the_partition">
+      <purpose><![CDATA[An edge touching a file no declaration names is not a crossing: inventing a boundary would report violations against a division nobody drew.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ISO-02"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="with_no_scopes_declared_the_analysis_is_omitted">
+      <purpose><![CDATA[With no execution scopes declared the analysis is omitted with its reason rather than reporting an empty result.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-02"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="an_empty_graph_analyses_without_incident">
+      <purpose><![CDATA[A run that analysed nothing produces empty state results rather than faulting.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-04"/>
+        <trace target="HLR" ref="HLR-066"/>
       </traces>
     </test>
   </file>
@@ -7193,6 +7584,334 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Every file in the fixture tree checksums identically before and after a run.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-043"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/deadcode.bats" role="fixture" count="22">
+    <test name="HLR-137: statements after a return are reported">
+      <purpose><![CDATA[The statements following a return in the same block are reported, with their line ranges.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="HLR-138: a label following a return is NOT reported">
+      <purpose><![CDATA[A labeled_statement is a sibling of the return and is reachable. Reporting it would invite deleting a live goto target, and the count is taken against the extracted rows rather than the whole output so the assertion cannot pass vacuously.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+    <test name="HLR-137: statements after a break are reported">
+      <purpose><![CDATA[A break terminates its block for the sibling walk exactly as a return does.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="HLR-137: statements after a continue are reported">
+      <purpose><![CDATA[A continue terminates its block for the sibling walk exactly as a return does.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="LLR-DED-01: the walk does not leave the terminator's own block">
+      <purpose><![CDATA[A statement after the loop containing the break is live: the walk visits siblings within one parent and does not climb.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+    <test name="HLR-138: a switch arm does not leak into the next">
+      <purpose><![CDATA[In this grammar a case construct contains the statements of its arm, so a return in one arm has no sibling to leak into and the following case is not reported.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+    <test name="LLR-DED-01: a statement following two terminators is reported once">
+      <purpose><![CDATA[A statement the walk reaches from two terminators appears once, so the report does not depend on how many ways it was found.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-09"/>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="HLR-137: the consequence of if (0) and the else of if (1) are reported">
+      <purpose><![CDATA[Both literal-condition shapes are found, each as its whole span.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-02"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="HLR-137: the body of a literally false loop is reported">
+      <purpose><![CDATA[A loop whose condition is written as a false literal has an unreachable body.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-02"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="HLR-138: a do-while(0) body is NOT reported">
+      <purpose><![CDATA[A do-while body runs exactly once, and it is one of the commonest idioms in C. Reporting it would be a false claim against ordinary code.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-02"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+    <test name="HLR-138: a branch guarded by a variable is NOT reported">
+      <purpose><![CDATA[Neither a plain variable nor a const one holding zero makes its branch dead: deciding either needs data flow, and elc performs none.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-03"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+    <test name="LLR-DED-03: a zero the source did not write as one is undecided">
+      <purpose><![CDATA[Hexadecimal and octal zeroes fall through as undecided rather than being judged, while the decimal zero beside them is reported — the contrast being what shows the query is narrow rather than merely quiet.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-03"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+    <test name="HLR-137: the two causes are distinguished">
+      <purpose><![CDATA[A statement after a terminator and a branch under a literal condition are reported with different causes, because the reader's next action differs.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="HLR-016: a comment is not dead code">
+      <purpose><![CDATA[A comment is a named sibling, so without the merged-comment exclusion the walk would report the trailing note on the terminator's own line. The exact row count pins it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-07"/>
+        <trace target="HLR" ref="HLR-016"/>
+      </traces>
+    </test>
+    <test name="HLR-139: a language supplying a dead-code query reports every language analysed">
+      <purpose><![CDATA[The section heading states that nothing was left unanalysed, so an empty table means none found.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-05"/>
+        <trace target="HLR" ref="HLR-139"/>
+      </traces>
+    </test>
+    <test name="HLR-139: a language with no dead-code query is reported not analysed">
+      <purpose><![CDATA[Ada ships without one on purpose, and the heading names it rather than leaving a clean-looking table.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-05"/>
+        <trace target="HLR" ref="HLR-139"/>
+      </traces>
+    </test>
+    <test name="HLR-139: removing a query file makes that language unanalysed, not clean">
+      <purpose><![CDATA[The same distinction against a language that does ship one: with the file removed the findings vanish and the heading says the analysis was not performed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-11"/>
+        <trace target="HLR" ref="HLR-139"/>
+      </traces>
+    </test>
+    <test name="HLR-070: a module missing an optional query is still usable">
+      <purpose><![CDATA[Every other measurement survives the absence of an optional query file, which is the whole point of the file being optional.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-11"/>
+        <trace target="HLR" ref="HLR-121"/>
+      </traces>
+    </test>
+    <test name="HLR-070: an optional query that will not compile is a defect, not a choice">
+      <purpose><![CDATA[An optional file that is present and will not compile is diagnosed like a required one. Omitting a file is a decision the contract allows; writing a broken one is not.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RFP-12"/>
+        <trace target="HLR" ref="HLR-070"/>
+      </traces>
+    </test>
+    <test name="HLR-137: dead statements inside an unreachable function are still reported">
+      <purpose><![CDATA[Neither dead-code analysis suppresses the other: the function is reported unreachable by traversal and its dead statement is reported by syntax in the same run.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-06"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+    <test name="HLR-139: dead code is found in every language supplying a query">
+      <purpose><![CDATA[Python, Rust and C++ each find the statement after a terminator, so the mechanism is not C's alone.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-01"/>
+        <trace target="HLR" ref="HLR-139"/>
+      </traces>
+    </test>
+    <test name="HLR-138: no language claims a branch guarded by a variable">
+      <purpose><![CDATA[The restraint holds in Python and Rust as it does in C: no language module is permitted to infer a value.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-03"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/reachability.bats" role="fixture" count="24">
+    <test name="HLR-097: a clique of unused functions calling one another is reported">
+      <purpose><![CDATA[The case textual linters get wrong. Each of the pair has a caller, so a no-caller rule finds neither; traversal reaches neither from any root.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RCH-03"/>
+        <trace target="HLR" ref="HLR-097"/>
+      </traces>
+    </test>
+    <test name="HLR-096: a function reachable only through an address-taken pointer is NOT reported">
+      <purpose><![CDATA[A function appearing only as an initialiser of a vector table is a root, and reporting it dead would tell a user to delete an interrupt handler.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RTS-02"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="LLR-RTS-02: an address-taken function is a root, not merely an exception">
+      <purpose><![CDATA[A function called only from an address-taken one is reachable through it. An implementation that excluded address-taken functions from the report without traversing from them would report it dead.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RTS-02"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="HLR-096: functions reached from the declared entry point are not reported">
+      <purpose><![CDATA[The declared root and what it calls are absent from the unreachable list.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RCH-01"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="HLR-115: with no entry points declared, nothing is reported unreachable">
+      <purpose><![CDATA[The list is empty and the heading states the omission and its reason, rather than reporting the whole program dead.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-01"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="HLR-115: a declared entry point matching nothing says so differently">
+      <purpose><![CDATA[The two absences carry different headings, because they call for different actions from the reader.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-01"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="LLR-CTR-09: omitting reachability does not omit its neighbours">
+      <purpose><![CDATA[A run with no entry points still reports its global-access map.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-04"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="HLR-096: a global touched only by unreachable functions is unreachable">
+      <purpose><![CDATA[The storage goes the way of the code that touches it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-UGL-01"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="LLR-UGL-01: a global a reachable function touches is not condemned">
+      <purpose><![CDATA[One live accessor is enough to keep an object out of the unreachable list.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-UGL-01"/>
+        <trace target="HLR" ref="HLR-096"/>
+      </traces>
+    </test>
+    <test name="HLR-115: with no entry points, no global is reported unreachable either">
+      <purpose><![CDATA[The data half of the analysis is omitted with the function half, rather than condemning every object.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-01"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="HLR-091: every global reports its writers and its readers">
+      <purpose><![CDATA[Both sets are present for every object, whether or not the object carries a finding.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GLB-01"/>
+        <trace target="HLR" ref="HLR-091"/>
+      </traces>
+    </test>
+    <test name="HLR-092: a global touched by one function is flagged for scope reduction">
+      <purpose><![CDATA[The finding appears with its published source, for the object no state edge exists for.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GLB-02"/>
+        <trace target="HLR" ref="HLR-092"/>
+      </traces>
+    </test>
+    <test name="HLR-093: a global spanning disconnected regions is a hidden channel">
+      <purpose><![CDATA[The finding names the disconnected participants, grouped by region, because the grouping is the finding.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GLB-03"/>
+        <trace target="HLR" ref="HLR-093"/>
+      </traces>
+    </test>
+    <test name="HLR-093: shared state within one call-connected region is not a channel">
+      <purpose><![CDATA[An object shared across a call edge carries no finding at all, asserted on the row rather than on the output — which does carry both phrases for the other objects.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GLB-05"/>
+        <trace target="HLR" ref="HLR-093"/>
+      </traces>
+    </test>
+    <test name="LLR-GLB-04: both findings carry their published source">
+      <purpose><![CDATA[Each of the two verdicts is attributed to MISRA C Rule 8.9 in the report.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-GLB-04"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-094: a call crossing a declared scope boundary is reported">
+      <purpose><![CDATA[A call from one declared scope into another appears as a crossing naming both ends.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ISO-01"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="HLR-094: a shared global crossing a boundary is reported too">
+      <purpose><![CDATA[A scope sharing a variable with another without calling it has not been isolated, and the crossing names the object.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ISO-01"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="HLR-094: exactly the two crossings are reported">
+      <purpose><![CDATA[The count in the heading matches the rows, so neither kind is reported twice nor an intra-scope edge counted.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ISO-01"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="HLR-115: with no scopes declared the analysis is omitted with a reason">
+      <purpose><![CDATA[The heading states the omission rather than leaving an empty table to be read as isolation verified.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-02"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="HLR-094: an edge within one scope is not a crossing">
+      <purpose><![CDATA[The same calls and the same shared variable, with both files in one declared scope, produce nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ISO-01"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="HLR-094: a file matching no declaration is outside the partition">
+      <purpose><![CDATA[A file no declaration names lies outside the partition rather than in a scope of its own.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ISO-02"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="HLR-063: a malformed scope declaration is a usage error">
+      <purpose><![CDATA[A declaration that cannot be parsed ends the run with the fatal status and a diagnostic, rather than becoming a scope matching nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SCP-02"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="HLR-032: the state sections survive a record round trip byte-identically">
+      <purpose><![CDATA[A report regenerated from the saved record is byte-identical to the live one, with the reachability and global-state sections included.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-11"/>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="HLR-032: a global-state finding survives the round trip">
+      <purpose><![CDATA[The verdict and its participants are carried in the record, and the citation is derived from the verdict on both paths rather than stored.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-12"/>
+        <trace target="HLR" ref="HLR-056"/>
       </traces>
     </test>
   </file>

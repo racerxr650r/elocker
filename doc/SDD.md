@@ -359,11 +359,17 @@ runtime/
 └── queries/<lang>/
     ├── comments.scm  functions.scm  complexity.scm
     ├── eloc.scm  calls.scm  globals.scm
+    ├── conditionals.scm    # optional (HLR-134)
+    ├── deadcode.scm        # optional (HLR-139)
     └── rules/*.scm         # custom rules for this language (HLR-107)
 ```
 The six per-language queries are required; `eloc.scm`, `calls.scm`, and `globals.scm` supply the ELOC statement classification and the graph facts. `extensions.map` is plain text so that associating a new extension with a language is a data edit, never a rebuild (HLR-060). `binary.exts` lives here too and is read by `discover.c`, which is given this location rather than resolving it (HLR-005).
 
 `conditionals.scm` is a **seventh, optional** file. A module that supplies one gains conditional-region pruning; a module that omits one has no conditional compilation, which is the truth for a language that has none. The required set stays at six, so adding this breaks no module that already exists (HLR-121, HLR-134).
+
+`deadcode.scm` is the **eighth**, and optional for the same reason. A module supplying one gains dead-code detection within functions; a module omitting one is analysed for every other measurement, and the report states that the analysis was *not performed* for that language rather than that none was found (HLR-139). Four of the five shipped modules supply one. Ada does not, deliberately: it writes its false literal as an ordinary identifier the grammar cannot distinguish from one the program declared, so capturing it would assert a resolution nothing performed — and shipping the terminator half alone would report Ada as *analysed* while quietly finding no literal branches, which is the confident-and-wrong outcome the whole design avoids.
+
+The distinction between the two ways an optional file can be absent is load-bearing. A file that is **not there** is a choice the contract allows. A file that is there and **will not compile** is a defect, and makes the module unusable exactly as a broken required file does; treating the two alike would let a typo silently disable an analysis.
 
 A query file that compiles and captures nothing is valid, and is how an unimplemented query is expressed. The registry reads captures; it never asks whether a file is "filled in". That is what lets a phase ship a language with one query complete and the rest as documented stubs, without either a special case in the loader or a module that fails to load.
 
@@ -437,7 +443,7 @@ Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage`
 ### 7.2 External Interfaces
 #### 7.2.1 Query Capture Contract
 
-The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).
+The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A pattern may also carry **predicates**, and this module evaluates them: the parser library returns a predicate as data rather than applying it, so a stage that never asks accepts every match as though none were written. Five filters are honoured — equality, inequality, membership, and match and its negation against a POSIX extended regular expression — each comparing the text a capture spans against a string the query file wrote. A directive, which carries information rather than filtering, is ignored; a filter this build does not implement discards the match. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).
 
 
 ### 7.3 Internal Structure
@@ -472,7 +478,7 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
 
         **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.
 
-*   **`int collect_dead_code(const LanguageModule *m, Registry *reg, TSNode root, const FnRangeIndex *ranges, FileFacts *facts)`**
+*   **`int collect_dead_code(const LanguageModule *m, Registry *reg, const char *data, TSNode root, const FnRangeIndex *ranges, const SpanList *comments, FileFacts *facts)`**
     *   Purpose: Record every statement within a function that cannot execute (HLR-137).
     *   Pre-condition: `ranges` holds the reported functions of this file, so each finding can be attributed to the one containing it.
     *   Post-condition: `facts` holds one span per unreachable statement, and a flag recording whether the language supplied a `deadcode.scm` at all.
@@ -480,7 +486,7 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
     *   Logic:
         1.  If the language module supplies no dead-code query, record that fact and return. The absence is reported as "not analysed for this language", never as "none found" — the two are different claims (HLR-139).
         2.  For each `@dead.branch` capture, record the captured node's line range. The query decides what a literal condition is and which branch it excludes, because both are language-specific: `0` is false in C, `false` in Rust, `False` in Python, and a query predicate can compare the literal's text where C could not without knowing the language.
-        3.  For each `@dead.terminator` capture, walk the *following named siblings* of the captured node and record each as unreachable, stopping at the first sibling carrying a `@dead.reentry` capture. Sibling traversal is structural and needs no language knowledge; what terminates a block and what can be re-entered are language knowledge, and both stay in the query file.
+        3.  For each `@dead.terminator` capture, walk the *following named siblings* of the captured node and record each as unreachable, stopping at the first sibling carrying a `@dead.reentry` capture and skipping any sibling lying within the merged comment set. **A comment is a named sibling**, so a walk that did not exclude one would report the trailing note on the terminator's own line — making every annotated `return` report itself. The exclusion asks the set `comments.scm` already produced rather than recognising a comment for itself, so one mechanism serves this and the ELOC exclusion alike. Sibling traversal is structural and needs no language knowledge; what terminates a block and what can be re-entered are language knowledge, and both stay in the query file.
         4.  Attribute each recorded span to its innermost enclosing reported function, by the same rule ELOC and complexity use, so a dead statement inside a nested function belongs to that function and not to the one around it.
     *   Notes: **The re-entry capture is what keeps the analysis sound, and it is easy to leave out.** In C a `goto` label following a `return` is a sibling of it and is perfectly reachable; recording it as dead would be a false claim of the kind HLR-138 forbids outright. The shape differs by language and even by grammar — in `tree-sitter-c` a `case` label is a *child* of the case construct rather than a sibling of the statements before it, so switch arms need no re-entry pattern there, while a `labeled_statement` does. That a grammar happens to make one case safe is not a reason to omit the pattern for the other; the `deadcode/` fixture group pins both.
 
@@ -679,22 +685,25 @@ Cycles are found as the non-trivial strongly connected components of the *compon
 *   Report cross-scope access paths when execution scopes were declared.
 *   Compute reachability from the declared entry points *together with* every address-taken function, and report everything unvisited as unreachable.
 *   Report as unreachable any global object accessed solely by functions that are themselves unreachable (HLR-096).
+*   Perform the global-access mapping on every run, so that omitting an analysis for want of a declaration does not omit its neighbours (HLR-115).
 
 
 ### 11.3 Internal Structure
 #### 11.3.1 Key Functions
 
 *   **`int state_analyse(const Sdg *g, const ElcOptions *opts, StateResults *out)`** — Run the global-state, scope-isolation, and reachability analyses, skipping those whose declarations are absent.
-*   **`void classify_globals(const Sdg *g, StateResults *out)`** — Apply the scope-reduction and hidden-channel rules to each global.
-*   **`int reachability(const Sdg *g, const NodeSet *roots, NodeSet *unreachable)`** — Breadth-first traversal from the root set; the complement is the unreachable set.
-*   **`void collect_roots(const Sdg *g, const ElcOptions *opts, NodeSet *roots)`** — Union of the declared entry points and every address-taken function.
-*   **`void unreachable_globals(const Sdg *g, const NodeSet *unreachable, GlobalList *out)`** — Globals accessed only by unreachable functions are themselves unreachable.
-*   **`int check_scopes(const Sdg *g, const ElcOptions *opts, ViolationList *out)`** — Report every edge crossing a declared execution-scope boundary.
+*   **`int classify_globals(const Sdg *g, StateResults *out)`** — Apply the scope-reduction and hidden-channel rules to each global.
+*   **`int reachability(const Sdg *g, const uint32_t *roots, size_t root_count, uint32_t **out, size_t *out_count)`** — Breadth-first traversal from the root set; the complement is the unreachable set.
+*   **`int collect_roots(const Sdg *g, const ElcOptions *opts, uint32_t **out, size_t *out_count, size_t *resolved)`** — Union of the declared entry points and every address-taken function, de-duplicated. Reports separately how many declared symbols named an analysed function, so the caller can tell "you declared nothing" from "what you declared is not here".
+*   **`int unreachable_globals(const Sdg *g, const uint32_t *dead, size_t dead_count, StateResults *out)`** — Globals accessed only by unreachable functions are themselves unreachable.
+*   **`int check_scopes(const Sdg *g, const ElcOptions *opts, StateResults *out)`** — Report every edge crossing a declared execution-scope boundary.
 *   **`void state_results_free(StateResults *r)`** — Release the global access map, the hidden-channel and scope-reduction lists, and the unreachable sets.
 
 #### 11.3.2 Parsing Strategy / Algorithm
 
-The hidden-channel test asks whether the functions touching a global fall into more than one weakly connected region of the call graph once that global's own edges are disregarded. A global shared within one call-connected region is ordinary shared state; one shared across regions that never call each other is the temporal coupling MISRA C Rule 8.9 is concerned with. Dead-code detection is plain forward reachability, which is exactly why it is immune to the failure mode of textual linters: a clique of unused functions calling one another is still unvisited, because no path reaches it from any entry point (HLR-097).
+The hidden-channel test asks whether the functions touching a global fall into more than one weakly connected region of the call graph once that global's own edges are disregarded. A global shared within one call-connected region is ordinary shared state; one shared across regions that never call each other is the temporal coupling MISRA C Rule 8.9 is concerned with. Dead-code detection is plain forward reachability, which is exactly why it is immune to the failure mode of textual linters: a clique of unused functions calling one another is still unvisited, because no path reaches it from any entry point (HLR-097). The traversal runs over the **call view**, and that is a decision rather than an inheritance: writing a variable another function later reads is not calling it, so control never travels along a state edge and a function reachable only through one has not been reached. Following it would quietly rescue genuinely dead code from the report.
+
+**The one place this analysis errs toward *un*reachable is not its own doing.** Call resolution is by name, so where two files each define a `static` helper of the same name every call resolves to the first and the second has no incoming edge — and is reported dead when it is not. That is a limit of the graph rather than of the traversal, and it is already diagnosed on standard error where it occurs (SDD §8.5); the report cannot suppress it without the type resolution the project does not perform. `elc` analysing its own source reports exactly this and nothing else, which makes the interaction easy to demonstrate and easy to forget.
 
 ### 11.4 Dependencies
 
@@ -705,6 +714,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 
 *   **No entry points declared** Reachability analysis omitted with a stated reason. `elc` must never report every function as unreachable merely because nothing was declared (HLR-115).
 *   **No execution scopes declared** Scope-isolation analysis omitted with a stated reason (HLR-094, HLR-115).
+*   **A duplicate function name** Not an error, and not suppressed. Every call to a name defined more than once resolves to the first definition, so the others are reported unreachable; the duplicate is diagnosed on standard error when the graph is built, and the two are read together.
 
 ## 12. Detailed Design for [src/thresholds.c](../src/thresholds.c)
 
@@ -758,6 +768,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 *   Apply the complexity threshold to produce each file's over-threshold function list.
 *   Sort every collection in the model by an explicit key before any renderer sees it.
 *   Record which analyses were omitted, and why.
+*   Resolve each dead-code span to its enclosing function by containment over the assembled model, rather than by the index the parse recorded against an array since reordered for presentation (LLR-RPT-28).
 *   Record the conditional-compilation definitions in force and the number of regions whose condition could not be decided, so that a figure which depends on a configuration is reported alongside it (HLR-136, HLR-133).
 *   Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).
 *   Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).
@@ -1105,6 +1116,31 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `symbols` | `SymbolTable` | Name to node id, for call resolution |
 | `components` | `ComponentProjection` | File-level projection used by arch.c (HLR-114) |
 | `unresolved` | `size_t` | Call sites with no resolvable target (HLR-077) |
+| `touches` | `GlobalTouch *` | Per-object access records, carried beside the state edges rather than derived from them (HLR-091) |
+*   **`GlobalTouch`** (defined in [inc/graph.h](../inc/graph.h)) — One function's access to one global object. Recorded beside the global-state edges, not derived from them: an edge joins a writer to a reader, so an object touched by exactly one function produces none — and that object is precisely the scope-reduction candidate of HLR-092.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `object` | `const char *` | Into the graph's own name table |
+| `node` | `uint32_t` | The accessing function |
+| `write` | `bool` | True writes the object, false reads it |
+*   **`ScopeDecl`** (defined in [inc/elc.h](../inc/elc.h)) — One declared execution scope: a name, and the component patterns belonging to it (HLR-094). Owned outright, unlike the entry-point symbols: a declaration is split on two separators, so neither half is a terminated substring of any argument.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `name` | `char *` | Owned |
+| `patterns` | `char **` | Owned; matched against component paths with fnmatch(3) |
+| `pattern_count` | `size_t` | Populated entries |
+*   **`StateResults`** (defined in [inc/state.h](../inc/state.h)) — What the global-state, reachability, and scope-isolation analyses measured. Owned by main and copied into the report model, as the call-tree results are.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `globals` | `GlobalRow *` | One per object touched, with its writers, readers, and verdict (HLR-091 – HLR-093) |
+| `reach_state` | `ReachState` | Measured, or omitted for want of a declaration or of a declaration that resolves (HLR-115) |
+| `unreachable` | `uint32_t *` | Node identifiers no traversal reached, ascending (HLR-096) |
+| `dead_globals` | `const char **` | Objects every accessor of which is unreachable (HLR-096) |
+| `scope_state` | `ScopeState` | Measured, or omitted because no execution scopes were declared (HLR-094, HLR-115) |
+| `violations` | `ScopeViolation *` | Every call and state edge crossing a declared boundary (HLR-094) |
 *   **`Finding`** (defined in [inc/elc.h](../inc/elc.h)) — One reportable observation. Severity is data and never influences the exit status (HLR-100).
 
     | Field | Type | Description |
