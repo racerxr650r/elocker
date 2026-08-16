@@ -25,15 +25,19 @@ XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
 a directory the repository does not track is traversed instead; every report
 names the route it used.
 
-It now also builds the **System Dependence Graph** — every call resolved
-across file boundaries, every global linked from its writers to its readers,
-all from the same single parse that produced the metrics. `--graphml` exports
-it. Calls it cannot resolve are counted and reported rather than guessed at,
-because an edge that does not exist would make the dead-code analysis of a
-later phase unsound. The call-tree analyses that read the graph are next,
-from Phase 9.
+It also builds the **System Dependence Graph** — every call resolved across
+file boundaries, every global linked from its writers to its readers, all
+from the same single parse that produced the metrics. `--graphml` exports it.
 
-**Progress: 9 of 16 phases complete.**
+Reading that graph, `elc` reports each function's **fan-out**, detects
+**recursion** both direct and mutual, and prints the **deepest call chain in
+full** from entry points you declare with `--entry`. It never guesses at an
+entry point, and never invents a number it cannot stand behind: where the
+call graph is recursive the depth is unbounded and the cycle is reported
+instead, and where a declaration is missing the analysis is omitted with the
+reason stated. Reachability and global state are next, from Phase 10.
+
+**Progress: 10 of 16 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -49,7 +53,7 @@ from Phase 9.
 | [6](doc/SDP.md#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | ✅ Complete |
 | [7](doc/SDP.md#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
 | [8](doc/SDP.md#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
-| [9](doc/SDP.md#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | 🔲 Not started |
+| [9](doc/SDP.md#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
 | [10](doc/SDP.md#phase-10--reachability-and-global-state) | Dead code, global coupling, hidden channels, scopes | 🔲 Not started |
 | [11](doc/SDP.md#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | 🔲 Not started |
 | [12](doc/SDP.md#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
@@ -61,7 +65,7 @@ from Phase 9.
 
 **Metrics land in Phases 3–4, the call graph in Phase 8, and the architectural
 analyses in Phases 9–13.** If you only want ELOC and complexity, everything
-through Phase 8 is already in place.
+through Phase 9 is already in place.
 
 ---
 

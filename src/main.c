@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "analyze.h"
+#include "calltree.h"
 #include "format_graph.h"
 #include "graph.h"
 #include "cli.h"
@@ -50,6 +51,7 @@ int main(int argc, char *argv[])
 	FileList           files    = { 0 };
 	FactList           facts_list = { 0 };
 	Sdg                sdg      = { 0 };
+	TreeResults        tree     = { 0 };
 	bool               graph_built = false;
 	RouteList          routes   = { 0 };
 	MetricsAccumulator acc      = { 0 };
@@ -163,6 +165,15 @@ int main(int argc, char *argv[])
 	report_set_unresolved(&report, graph_unresolved_count(&sdg));
 	graph_built = true;
 
+	/* The analyses that read the graph. They measure; what the numbers
+	 * mean is Phase 12's judgement (SDD §10). */
+	if (calltree_analyse(&sdg, &opts, &tree) != 0 ||
+	    report_set_calltree(&report, &tree, &sdg) != 0) {
+		fputs("elc: out of memory analysing the call tree\n", stderr);
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
 render:
 	out = stdout;
 	if (opts.output_path) {
@@ -212,6 +223,7 @@ cleanup:
 	 * leak-clean as one that succeeds (HLR-125, LLR-MAIN-16). */
 	if (out && out != stdout)
 		fclose(out);
+	tree_results_free(&tree);
 	graph_free(&sdg);
 	report_free(&report);
 	metrics_free(&acc);

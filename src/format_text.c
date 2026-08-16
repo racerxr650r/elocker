@@ -454,6 +454,105 @@ int render_report(const Report *report, Style style, FILE *out)
 	}
 
 	{
+		static const char *const names[]   = { "File", "Function",
+		                                       "Fan-out" };
+		static const bool        numeric[] = { false, false, true };
+
+		grid_begin(&grid, "Fan-out (distinct callees)", 3, names,
+		           numeric);
+		for (size_t i = 0; i < report->fan_out_count; i++) {
+			const FanOutRow *r = &report->fan_out[i];
+
+			snprintf(a, sizeof a, "%" PRIu32, r->fan_out);
+			grid_row(&grid, r->file, r->function, a);
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* Recursion is presented as the cycle itself, not as a count:
+		 * "two cycles" tells the reader nothing to act on, and the
+		 * members are what MISRA C Rule 17.2 is about (HLR-089). */
+		static const char *const names[] = { "Kind", "Functions" };
+
+		grid_begin(&grid, "Recursion", 2, names, NULL);
+		for (size_t i = 0; i < report->cycle_count; i++) {
+			const CycleRow *c  = &report->cycles[i];
+			char            buf[512];
+			size_t          at = 0;
+
+			/* Members, comma-separated — not joined with arrows.
+			 * A strongly connected component is a *set*: every
+			 * member can reach every other, but the decomposition
+			 * does not yield an order, and "a -> b -> c" would
+			 * assert a path that may not exist. The set is the
+			 * true statement, and it is the one a reader needs:
+			 * breaking any edge among these functions breaks the
+			 * recursion. */
+			buf[0] = '\0';
+			for (size_t m = 0; m < c->count; m++) {
+				int n = snprintf(buf + at, sizeof buf - at,
+				                 "%s%s", m ? ", " : "",
+				                 c->members[m]);
+
+				if (n < 0 || (size_t)n >= sizeof buf - at)
+					break;
+				at += (size_t)n;
+			}
+			grid_row(&grid, c->count == 1 ? "direct" : "mutual",
+			         buf);
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* The depth and the chain that achieves it. Four outcomes, and
+		 * the heading says which one happened: a reader who sees no
+		 * number must not have to guess whether the analysis was
+		 * omitted, unbounded, or simply zero (HLR-087, HLR-090,
+		 * HLR-115). */
+		static const char *const names[] = { "Step", "File", "Function" };
+		char                     heading[192];
+
+		switch (report->depth_state) {
+		case DEPTH_MEASURED:
+			snprintf(heading, sizeof heading,
+			         "Deepest call chain (%" PRIu32 " layers; a lower "
+			         "bound, %zu calls unresolved)",
+			         report->depth, report->unresolved_calls);
+			break;
+		case DEPTH_UNBOUNDED_RECURSION:
+			snprintf(heading, sizeof heading,
+			         "Deepest call chain (unbounded: the call graph "
+			         "is recursive)");
+			break;
+		case DEPTH_OMITTED_ENTRY_UNRESOLVED:
+			snprintf(heading, sizeof heading,
+			         "Deepest call chain (omitted: no declared entry "
+			         "point matches an analysed function)");
+			break;
+		case DEPTH_OMITTED_NO_ENTRY_POINTS:
+		default:
+			snprintf(heading, sizeof heading,
+			         "Deepest call chain (omitted: no entry points "
+			         "declared, see --entry)");
+			break;
+		}
+
+		grid_begin(&grid, heading, 3, names, NULL);
+		for (size_t i = 0; i < report->deepest_count; i++) {
+			const ChainRow *r = &report->deepest[i];
+
+			snprintf(a, sizeof a, "%zu", i + 1);
+			grid_row(&grid, a, r->file, r->function);
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
 		static const char *const names[] = { "File" };
 
 		grid_begin(&grid, "Skipped files (no language module)", 1,

@@ -4,12 +4,12 @@
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Phase 8 complete. `elc` resolves the calls and global-state
-accesses of every analysed file into one project-wide System Dependence
-Graph, reports how many call sites it could not resolve, and exports the
-graph as GraphML; 421 catalogued tests verify 195 requirements and the
-coverage baseline stands at 220. Phase 9 — the call-tree analyses that read
-the graph — is ready to start.
+**Status:** Phase 9 complete. `elc` measures fan-out, detects direct and
+mutual recursion, and reports the deepest call chain in full from
+user-declared entry points — omitting what it cannot honestly answer rather
+than guessing; 458 catalogued tests verify 214 requirements and the coverage
+baseline stands at 210. Phase 10 — reachability and global state — is ready
+to start.
 
 ## Status
 
@@ -24,7 +24,7 @@ the graph — is ready to start.
 | [6](#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | ✅ Complete |
 | [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
 | [8](#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
-| [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | 🔲 Not started |
+| [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
 | [10](#phase-10--reachability-and-global-state) | Dead code, global coupling, hidden channels, scopes | 🔲 Not started |
 | [11](#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | 🔲 Not started |
 | [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |

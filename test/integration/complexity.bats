@@ -48,8 +48,8 @@ setup() {
 	assert_success
 
 	local listed
-	listed="$(awk '/^At or over/ { f = 1; next } f && /^  \// { print $2 }' \
-		<<<"$output")"
+	listed="$(awk '/^At or over/ { f = 1; next } f && /^$/ { f = 0 }
+	                f && /^  \// { print $2 }' <<<"$output")"
 	assert_equal "$listed" "branchy"
 }
 
@@ -59,8 +59,8 @@ setup() {
 	assert_success
 
 	local listed
-	listed="$(awk '/^At or over/ { f = 1; next } f && /^  \// { print $2 }' \
-		<<<"$output")"
+	listed="$(awk '/^At or over/ { f = 1; next } f && /^$/ { f = 0 }
+	                f && /^  \// { print $2 }' <<<"$output")"
 	assert_equal "$listed" ""
 }
 
@@ -69,8 +69,8 @@ setup() {
 	assert_success
 
 	local count
-	count="$(awk '/^At or over/ { f = 1; next } f && /^  \// { n++ }
-	              END { print n + 0 }' <<<"$output")"
+	count="$(awk '/^At or over/ { f = 1; next } f && /^$/ { f = 0 }
+	              f && /^  \// { n++ } END { print n + 0 }' <<<"$output")"
 	assert_equal "$count" "2"
 }
 

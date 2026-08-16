@@ -43,6 +43,10 @@ void cli_usage(FILE *stream)
 "                     is N or greater (default 15). Listing only: no\n"
 "                     threshold affects the exit status\n"
 "  -o, --output FILE  write the report to FILE instead of standard output\n"
+"      --entry SYMBOL declare SYMBOL an entry point, from which call depth\n"
+"                     is measured. Repeatable. Entry points are never\n"
+"                     guessed at, so with none declared the analyses that\n"
+"                     need them are omitted with a stated reason\n"
 "      --graphml      also write the System Dependence Graph as GraphML,\n"
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.graphml. Requires --output,\n"
@@ -71,7 +75,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 {
 	/* A value above any printable character, so a long-only option cannot
 	 * collide with a short one. */
-	enum { OPT_FROM_XML = 1000, OPT_GRAPHML };
+	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_ENTRY };
 
 	static const struct option longopts[] = {
 		{ "format",               required_argument, NULL, 'f' },
@@ -79,6 +83,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "complexity-threshold", required_argument, NULL, 'c' },
 		{ "output",               required_argument, NULL, 'o' },
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
+		{ "entry",                required_argument, NULL, OPT_ENTRY },
 		{ "help",                 no_argument,       NULL, 'h' },
 		{ NULL,                   0,                 NULL, 0   }
 	};
@@ -153,6 +158,25 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			 * output_path stays NULL (LLR-CLI-03). */
 			out->output_path = optarg;
 			break;
+		case OPT_ENTRY:
+			if (out->entry_point_count == out->entry_point_capacity) {
+				size_t       next = out->entry_point_capacity
+				                            ? out->entry_point_capacity * 2
+				                            : 8;
+				const char **grown = realloc(out->entry_points,
+				                             next * sizeof *grown);
+
+				if (!grown) {
+					fputs("elc: out of memory\n", stderr);
+					return ELC_EXIT_FATAL;
+				}
+				out->entry_points         = grown;
+				out->entry_point_capacity = next;
+			}
+			/* Borrowed from argv, which outlives the run; only the
+			 * array holding them is owned. */
+			out->entry_points[out->entry_point_count++] = optarg;
+			break;
 		case OPT_GRAPHML:
 			/* Recorded, not validated against --output here. A
 			 * request for GraphML with the report on stdout is not
@@ -223,9 +247,8 @@ void cli_options_free(ElcOptions *opts)
 {
 	if (!opts)
 		return;
-	/* Phase 0 owns no heap allocation: targets are borrowed from argv.
-	 * The function exists so that main()'s teardown path is complete from
-	 * the outset and later phases have somewhere to add releases
-	 * (HLR-125). */
+	/* The entry-point *array* is owned; the symbols in it are borrowed
+	 * from argv, as the targets are (HLR-125). */
+	free((void *)opts->entry_points);
 	memset(opts, 0, sizeof(*opts));
 }

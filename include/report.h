@@ -19,6 +19,29 @@
 #include "discover.h"
 #include "elc.h"
 
+/* One function's fan-out, as the report presents it: by name and location
+ * rather than by node identifier, which means nothing to a reader and does
+ * not survive a record round trip. */
+typedef struct {
+	char     *function;  /* owned */
+	char     *file;      /* owned */
+	uint32_t  line;
+	uint32_t  fan_out;
+} FanOutRow;
+
+/* One recursive cycle, as a rendered list of member names (HLR-089). */
+typedef struct {
+	char **members;      /* owned */
+	size_t count;
+} CycleRow;
+
+/* One step of the deepest call chain (HLR-088). */
+typedef struct {
+	char     *function;  /* owned */
+	char     *file;      /* owned */
+	uint32_t  line;
+} ChainRow;
+
 /* Files discovered but not analysed, for want of a language module. The
  * report accounts for every discovered file, so a skip is visible rather
  * than a silent absence (HLR-012). */
@@ -105,6 +128,19 @@ typedef struct {
 	RouteList      routes;        /* per directory target (HLR-127)   */
 	size_t         unresolved_calls; /* call sites with no resolvable
 	                                  * target (HLR-077)              */
+
+	/* The call-tree measurements, copied from the TreeResults main owns
+	 * (SDD §18). Copied rather than referenced for the same reason the
+	 * routes are: the model outlives the inputs to it, and regeneration
+	 * from a record has no analysis to point at. */
+	FanOutRow     *fan_out;       /* one per function; owned (HLR-085) */
+	size_t         fan_out_count;
+	CycleRow      *cycles;        /* owned (HLR-089)                   */
+	size_t         cycle_count;
+	DepthState     depth_state;
+	uint32_t       depth;         /* HLR-087                           */
+	ChainRow      *deepest;       /* owned; the chain in full (HLR-088)*/
+	size_t         deepest_count;
 	ThresholdList  over_threshold; /* the per-file listing (HLR-021)  */
 	uint32_t       complexity_threshold; /* the value it was built at */
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
