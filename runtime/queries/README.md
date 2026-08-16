@@ -18,12 +18,19 @@ runtime/
 └── queries/<lang>/
     ├── functions.scm  comments.scm  complexity.scm
     ├── eloc.scm       calls.scm     globals.scm
+    ├── conditionals.scm        # optional                         (HLR-134)
     └── rules/*.scm             # optional custom rules            (HLR-107)
 ```
 
 All six query files are **required**. A module that omits one is reported as
 unusable, excluded from the run, and does not stop it (HLR-070) — it is not
 undefined behaviour, and it is not fatal.
+
+`conditionals.scm` is a **seventh, optional** file. Supplying one gains the
+language conditional-region pruning; omitting one means the language has no
+conditional compilation, which is simply true of most of them. The required
+set is unchanged by its arrival, so no module that already exists is broken
+by it.
 
 A query file that captures nothing is valid, and is how an unimplemented
 query is expressed. `elc` reads captures; it never asks whether a file is
@@ -47,6 +54,33 @@ a language name, a file extension, or a grammar node type — if you are typing
 | `globals.scm` | `@global.declaration` | A global's declaration |
 | | `@global.read` | An identifier reading a global |
 | | `@global.write` | An identifier writing a global |
+| `conditionals.scm` | `@conditional.symbol` | A symbol whose definedness the condition tests |
+| | `@conditional.negated` | Present when the region is active while the symbol is *un*defined |
+| | `@conditional.literal` | A condition that is a constant, such as C's `#if 0` |
+| | `@conditional.consequence` | The region active when the condition holds |
+| | `@conditional.alternative` | The region active when it does not |
+
+### Conditional compilation, and what it deliberately cannot do
+
+`elc` runs **no preprocessor** (HLR-135). There is no macro expansion, no
+include resolution, and no arithmetic over macro values, because each needs a
+toolchain whose presence and configuration `elc` cannot reproduce — and the
+answer would then depend on the machine rather than on the source.
+
+So a region is decided only when its condition is a **literal**, or tests the
+**definedness** of symbols the user named with `-D`. A C `#if VERSION > 2` is
+**undecidable, not false**: both branches stay active and the region is
+counted as undecided (HLR-133).
+
+That asymmetry is the safety argument, and it is worth understanding before
+writing one of these files. Treating an unrecognised condition as false would
+silently delete code and produce a report that is confidently wrong and looks
+exactly like a correct one. Treating it as true over-counts, which is visible
+in the undecided count printed beside the figures.
+
+A query file expresses only the *shape*: which node introduces a region, where
+its condition sits, and which branch each is. It never decides the answer.
+That is what keeps a C `#if` and a Rust `#[cfg]` the same mechanism.
 
 ### Rules that are easy to get wrong
 
