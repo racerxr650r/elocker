@@ -173,6 +173,53 @@ deepest leaf \(em rather than only its length, since the length alone does not
 say which path to shorten. It requires entry points declared with
 .BR \-\-entry .
 .PP
+.B Coupling
+is reported per
+.IR component ,
+and a component is a source file. Afferent coupling
+.RB ( Ca )
+is the number of components depending on it; efferent coupling
+.RB ( Ce )
+is the number it depends upon. A dependency exists where any function in one
+file calls any function in another, or writes a global another reads \(em and
+it is counted once however many times it occurs, so a file calling another in
+forty places depends on it once.
+.PP
+.B Instability
+is
+.IR "Ce / (Ce + Ca)" ,
+after Martin: approaching 0 it denotes maximum stability \(em widely depended
+upon, depending on little, and dangerous to change \(em and approaching 1,
+maximum instability. Where both couplings are zero the metric is reported
+.B undefined
+rather than computed. A file nothing depends on that depends on nothing is
+entirely ordinary, and reporting 0 there would claim maximum stability for a
+component with no relationships at all.
+.PP
+.B Component dependency cycles
+are the mutually dependent groups of the component projection, each reported
+with its whole membership and with a concrete loop through it \(em the group
+is what must be broken up, and the loop says which edge to cut. This is a
+different finding from the recursion above, and the difference is the unit:
+two mutually recursive functions in one file are a recursion finding and no
+cycle at all, because a file does not depend on itself. The same pair split
+across two files is legitimately both.
+.PP
+.B Layering
+is validated only where strata are declared. Two findings come out of one
+comparison of the caller's layer against the callee's, and they are
+.I orthogonal:
+a call bypassing an intervening layer is
+.BR skip-level ,
+and a call running against the declared direction is
+.BR inverted .
+A call descending two layers skips without inverting; a call ascending one
+inverts without skipping; a call ascending two does both, and is reported
+twice because both statements are true of it and each has its own remedy. A
+file matching no declaration lies outside the partition, and a call touching it
+is neither. Only calls are considered \(em a global two layers share is a
+different fact with its own analyses.
+.PP
 .B Unreachable functions
 are found by traversing the call graph forward from a root set, and reporting
 everything the traversal never visits. The root set is the declared entry
@@ -197,9 +244,11 @@ everything above errs in. Calls resolve by name, so where two files each
 define a
 .B static
 helper of the same name, every call resolves to the first and the second has
-no incoming edge \(em and is reported unreachable when it is not. The
-duplicate definition is diagnosed on standard error where it occurs, so read
-that before acting on the list.
+no incoming edge \(em and is reported unreachable when it is not. The same
+artefact moves coupling from one component to another and can close a
+dependency cycle that does not exist, which is the more expensive form of the
+mistake. The duplicate definition is diagnosed on standard error where it
+occurs, so read that before acting on either list.
 .PP
 .B Global state
 is reported for every object: the set of functions that write it and the set
@@ -450,6 +499,49 @@ whose interrupt handlers are reached from a vector table and called by nothing.
 With none declared, the analyses needing them are omitted with the reason
 stated in the report rather than reported as an empty result, and nothing
 whatsoever is reported unreachable.
+.TP
+.BR \-b ", " \-\-bottleneck\-threshold " " \fIN\fR
+Report as an architectural bottleneck every component whose afferent
+.I and
+efferent coupling are each
+.I N
+or greater \(em a component simultaneously depended upon widely and dependent
+widely, and therefore both dangerous to change and difficult to isolate. The
+default is 5. Unlike the published thresholds
+.B elc
+evaluates against, this one is its own heuristic rather than a standard, and is
+reported as such wherever it appears.
+Listing only: no threshold affects the exit status.
+.TP
+.BI \-\-stratum " NAME:GLOB[,GLOB...]"
+Declare an architectural layer called
+.I NAME
+containing the files matching the given shell patterns. Repeatable; naming a
+layer again adds patterns to it rather than creating a second one. The order
+layers are first declared
+.I is
+the permitted direction of dependency, topmost first \(em so with
+.B app
+declared before
+.BR hal ,
+a call from
+.B app
+down into
+.B hal
+is ordinary and one the other way is not. Use
+.B \-\-stratum\-order
+to state the direction explicitly instead. Strata are never discovered from the
+filesystem: a directory layout is a convention, and inferring an architecture
+from one would report violations against a design nobody stated.
+.TP
+.BI \-\-stratum\-order " NAME>NAME[>NAME...]"
+State the permitted direction of dependency between the declared layers,
+leftmost topmost. May be given before or after the
+.B \-\-stratum
+declarations it orders. Every declared stratum must appear and every name must
+be a declared stratum: a partial order determines no direction, and a name for
+a layer that does not exist is a typo whose silent acceptance would leave the
+layering validated against something other than what was written.
 .TP
 .BI \-\-scope " NAME:GLOB[,GLOB...]"
 Declare an execution scope called

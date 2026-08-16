@@ -4,19 +4,19 @@
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Phase 10 complete. `elc` now answers the question the product
-exists for — *what code does not run?* — at both scales: unreachable
-functions and objects by traversal from the declared entry points **together
-with every address-taken function**, and unreachable statements within a
-function from the syntax tree alone. It reports each global object's writers
-and readers, flags single-function objects for scope reduction and
-cross-region ones as hidden channels, and reports every call and shared
-global by which one declared execution scope reaches another. 536 catalogued
-tests verify 261 of 476 requirements and the coverage baseline falls from 239
-to 215 — the dead-code requirements HLR-137 to HLR-139 now have
-implementations, while the conditional-compilation set HLR-131 to HLR-136
-still awaits Phase 15. Phase 11 — coupling, layering, and cycles — is ready
-to start.
+**Status:** Phase 11 complete. `elc` now measures the shape of a design as
+well as its behaviour: afferent and efferent coupling per component with
+Martin's Instability beside it — reported *undefined* rather than divided
+where a component has no relationships at all — bottlenecks against a
+configurable threshold marked as `elc`'s own heuristic, circular dependencies
+between components reported as both the entangled group and a concrete loop
+through it, and layering validated against user-declared strata. Skip-level
+and direction-inverted calls fall out of one ordinal comparison as
+**independent** findings, so a call ascending two layers is reported as both.
+599 catalogued tests verify 295 of 486 requirements and the coverage baseline
+falls from 215 to 191. The conditional-compilation set HLR-131 to HLR-136
+remains the only specified-and-unbuilt group, and Phase 15 builds it. Phase
+12 — thresholds, severity, and attribution — is ready to start.
 
 ## Status
 
@@ -33,7 +33,7 @@ to start.
 | [8](#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
 | [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
 | [10](#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | ✅ Complete |
-| [11](#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | 🔲 Not started |
+| [11](#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | ✅ Complete |
 | [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
 | [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |
 | [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |

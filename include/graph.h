@@ -113,6 +113,26 @@ typedef struct {
 	                             * Node identifiers are the same in both,
 	                             * so a result from one indexes the node
 	                             * table directly.                      */
+	void          *component_graph; /* igraph_t * over the component
+	                                 * projection (HLR-114).
+	                                 *
+	                                 * The third view, and the one the
+	                                 * *architectural* questions are asked
+	                                 * of. A cycle here means two files
+	                                 * depend on each other; a cycle in the
+	                                 * call view means two functions call
+	                                 * each other, and the two are
+	                                 * different facts about a design. Two
+	                                 * mutually recursive functions in one
+	                                 * file close a loop in the call view
+	                                 * and none at all here — which is
+	                                 * exactly what HLR-083 asks for, and
+	                                 * is why this is a view rather than a
+	                                 * filter applied at each use.
+	                                 *
+	                                 * Vertices are component indices, so a
+	                                 * result indexes component_paths
+	                                 * directly.                          */
 	SdgNode       *nodes;
 	size_t         node_count;
 	SdgEdge       *edges;

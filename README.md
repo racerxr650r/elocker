@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 10 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 11 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, Python, and
 Ada**, in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -49,10 +49,21 @@ with no data flow, so `if (0)` is found and `x = 0; if (x)` deliberately is
 not. It reports each global's writers and readers, flagging single-function
 objects for **scope reduction** and objects shared across disconnected
 regions as **hidden channels**, and with `--scope` it reports every call and
-shared variable by which one execution scope reaches another. Coupling,
-layering, and cycles are next, from Phase 11.
+shared variable by which one execution scope reaches another.
 
-**Progress: 11 of 17 phases complete.**
+At the level of files rather than functions, it reports **afferent and
+efferent coupling** per component with Martin's **Instability** beside it —
+`undefined`, not zero, where a component has no relationships at all —
+flags **bottlenecks** that are both widely depended upon and widely
+dependent, and finds **circular dependencies between components**, reporting
+each as the entangled group *and* a concrete loop through it. Declare your
+layers with `--stratum` and it validates them: a call bypassing a layer is
+**skip-level**, a call running against the declared direction is
+**inverted**, and the two are independent — a call ascending two layers is
+reported as both, because each has its own remedy. Thresholds, severity and
+attribution are next, from Phase 12.
+
+**Progress: 12 of 17 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -70,7 +81,7 @@ layering, and cycles are next, from Phase 11.
 | [8](doc/SDP.md#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
 | [9](doc/SDP.md#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
 | [10](doc/SDP.md#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | ✅ Complete |
-| [11](doc/SDP.md#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | 🔲 Not started |
+| [11](doc/SDP.md#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | ✅ Complete |
 | [12](doc/SDP.md#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
 | [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |
 | [14](doc/SDP.md#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |

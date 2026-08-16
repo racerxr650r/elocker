@@ -240,6 +240,50 @@ int xml_write_report(const Report *report, FILE *out)
 	}
 	fputs("  </deadcode>\n", out);
 
+	/* The component-level measurements. Carried for the reason every other
+	 * analysis result is: regeneration has no graph and no source tree to
+	 * rebuild one from, so a value not written here is one the regenerated
+	 * report cannot have (HLR-054, HLR-056).
+	 *
+	 * The attributions are absent by the same rule the global-state
+	 * citation is: both are derived from one function each path calls, so
+	 * a record cannot carry an attribution that disagrees with a live
+	 * run's. */
+	fprintf(out, "  <architecture strata-state=\"%d\" bottleneck-threshold=\"%"
+	        PRIu32 "\">\n", (int)report->strata_state,
+	        report->bottleneck_threshold);
+	for (size_t i = 0; i < report->coupling_count; i++) {
+		const CouplingRow *r = &report->coupling[i];
+
+		fputs("    <coupling", out);
+		write_attribute(out, "component", r->component);
+		write_attribute(out, "instability", r->instability);
+		fprintf(out, " ca=\"%" PRIu32 "\" ce=\"%" PRIu32
+		        "\" bottleneck=\"%d\"/>\n", r->ca, r->ce,
+		        r->bottleneck ? 1 : 0);
+	}
+	for (size_t i = 0; i < report->dep_cycle_count; i++) {
+		fputs("    <dependency-cycle", out);
+		write_attribute(out, "components",
+		                report->dep_cycles[i].components);
+		write_attribute(out, "path", report->dep_cycles[i].path);
+		fputs("/>\n", out);
+	}
+	for (size_t i = 0; i < report->layering_count; i++) {
+		const LayeringRow *r = &report->layering[i];
+
+		fputs("    <layering", out);
+		write_attribute(out, "from-stratum", r->from_stratum);
+		write_attribute(out, "from", r->from_function);
+		write_attribute(out, "from-file", r->from_file);
+		write_attribute(out, "to-stratum", r->to_stratum);
+		write_attribute(out, "to", r->to_function);
+		write_attribute(out, "to-file", r->to_file);
+		fprintf(out, " layers=\"%" PRIu32 "\" kind=\"%d\"/>\n",
+		        r->layers_crossed, (int)r->kind);
+	}
+	fputs("  </architecture>\n", out);
+
 	fputs("  <discovery>\n", out);
 	for (size_t i = 0; i < report->routes.count; i++) {
 		fputs("    <route", out);
@@ -297,6 +341,14 @@ typedef struct {
 	size_t              unreachable_global_count;
 	CrossScopeRow      *cross_scope;
 	size_t              cross_scope_count;
+	CouplingRow        *coupling;
+	size_t              coupling_count;
+	uint32_t            bottleneck_threshold;
+	CycleDependencyRow *dep_cycles;
+	size_t              dep_cycle_count;
+	StrataState         strata_state;
+	LayeringRow        *layering;
+	size_t              layering_count;
 	DeadRow            *dead;
 	size_t              dead_count;
 	PathList            dead_unanalysed;
@@ -784,6 +836,134 @@ static void on_start(void *user, const XML_Char *name,
 		return;
 	}
 
+	if (strcmp(name, "architecture") == 0) {
+		const char *strata = attribute(atts, "strata-state");
+
+		if (!strata) {
+			fail(state, "an architecture element is incomplete");
+			return;
+		}
+		state->strata_state = (StrataState)strtol(strata, NULL, 10);
+		state->bottleneck_threshold =
+			uint_attribute(state, atts, "bottleneck-threshold");
+		return;
+	}
+
+	if (strcmp(name, "coupling") == 0) {
+		const char *component   = attribute(atts, "component");
+		const char *instability = attribute(atts, "instability");
+		const char *bottleneck  = attribute(atts, "bottleneck");
+
+		if (!component || !instability || !bottleneck) {
+			fail(state, "a coupling element is incomplete");
+			return;
+		}
+
+		CouplingRow *grown = realloc(state->coupling,
+		                             (state->coupling_count + 1) *
+		                                     sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->coupling = grown;
+
+		CouplingRow *row = &state->coupling[state->coupling_count];
+
+		memset(row, 0, sizeof *row);
+		row->component   = strdup(component);
+		row->instability = strdup(instability);
+		if (!row->component || !row->instability) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->ca         = uint_attribute(state, atts, "ca");
+		row->ce         = uint_attribute(state, atts, "ce");
+		row->bottleneck = strcmp(bottleneck, "0") != 0;
+		state->coupling_count++;
+		return;
+	}
+
+	if (strcmp(name, "dependency-cycle") == 0) {
+		const char *components = attribute(atts, "components");
+		const char *path       = attribute(atts, "path");
+
+		if (!components || !path) {
+			fail(state, "a dependency-cycle element is incomplete");
+			return;
+		}
+
+		CycleDependencyRow *grown =
+			realloc(state->dep_cycles,
+			        (state->dep_cycle_count + 1) * sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->dep_cycles = grown;
+
+		CycleDependencyRow *row =
+			&state->dep_cycles[state->dep_cycle_count];
+
+		memset(row, 0, sizeof *row);
+		row->components = strdup(components);
+		row->path       = strdup(path);
+		if (!row->components || !row->path) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->dep_cycle_count++;
+		return;
+	}
+
+	if (strcmp(name, "layering") == 0) {
+		const char *from_stratum = attribute(atts, "from-stratum");
+		const char *from         = attribute(atts, "from");
+		const char *from_file    = attribute(atts, "from-file");
+		const char *to_stratum   = attribute(atts, "to-stratum");
+		const char *to           = attribute(atts, "to");
+		const char *to_file      = attribute(atts, "to-file");
+		const char *kind         = attribute(atts, "kind");
+
+		if (!from_stratum || !from || !from_file || !to_stratum ||
+		    !to || !to_file || !kind) {
+			fail(state, "a layering element is incomplete");
+			return;
+		}
+
+		LayeringRow *grown = realloc(state->layering,
+		                             (state->layering_count + 1) *
+		                                     sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->layering = grown;
+
+		LayeringRow *row = &state->layering[state->layering_count];
+
+		memset(row, 0, sizeof *row);
+		row->from_stratum  = strdup(from_stratum);
+		row->from_function = strdup(from);
+		row->from_file     = strdup(from_file);
+		row->to_stratum    = strdup(to_stratum);
+		row->to_function   = strdup(to);
+		row->to_file       = strdup(to_file);
+		if (!row->from_stratum || !row->from_function ||
+		    !row->from_file || !row->to_stratum || !row->to_function ||
+		    !row->to_file) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->layers_crossed = uint_attribute(state, atts, "layers");
+		row->kind           = (LayerViolationKind)strtol(kind, NULL, 10);
+		state->layering_count++;
+		return;
+	}
+
 	if (strcmp(name, "graph") == 0) {
 		const char *value = attribute(atts, "unresolved-calls");
 
@@ -988,6 +1168,14 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	out->unreachable_global_count = state.unreachable_global_count;
 	out->cross_scope              = state.cross_scope;
 	out->cross_scope_count        = state.cross_scope_count;
+	out->coupling                 = state.coupling;
+	out->coupling_count           = state.coupling_count;
+	out->bottleneck_threshold     = state.bottleneck_threshold;
+	out->dep_cycles               = state.dep_cycles;
+	out->dep_cycle_count          = state.dep_cycle_count;
+	out->strata_state             = state.strata_state;
+	out->layering                 = state.layering;
+	out->layering_count           = state.layering_count;
 	out->dead                     = state.dead;
 	out->dead_count               = state.dead_count;
 	out->dead_unanalysed          = state.dead_unanalysed;
@@ -999,6 +1187,12 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	state.unreachable_global_count = 0;
 	state.cross_scope              = NULL;
 	state.cross_scope_count        = 0;
+	state.coupling                 = NULL;
+	state.coupling_count           = 0;
+	state.dep_cycles               = NULL;
+	state.dep_cycle_count          = 0;
+	state.layering                 = NULL;
+	state.layering_count           = 0;
 	state.dead                     = NULL;
 	state.dead_count               = 0;
 	memset(&state.dead_unanalysed, 0, sizeof state.dead_unanalysed);
@@ -1055,6 +1249,25 @@ cleanup:
 		free(state.cross_scope[i].object);
 	}
 	free(state.cross_scope);
+	for (size_t i = 0; i < state.coupling_count; i++) {
+		free(state.coupling[i].component);
+		free(state.coupling[i].instability);
+	}
+	free(state.coupling);
+	for (size_t i = 0; i < state.dep_cycle_count; i++) {
+		free(state.dep_cycles[i].components);
+		free(state.dep_cycles[i].path);
+	}
+	free(state.dep_cycles);
+	for (size_t i = 0; i < state.layering_count; i++) {
+		free(state.layering[i].from_stratum);
+		free(state.layering[i].from_function);
+		free(state.layering[i].from_file);
+		free(state.layering[i].to_stratum);
+		free(state.layering[i].to_function);
+		free(state.layering[i].to_file);
+	}
+	free(state.layering);
 	for (size_t i = 0; i < state.dead_count; i++) {
 		free(state.dead[i].file);
 		free(state.dead[i].function);

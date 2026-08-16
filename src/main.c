@@ -18,6 +18,7 @@
 #include <string.h>
 
 #include "analyze.h"
+#include "arch.h"
 #include "calltree.h"
 #include "format_graph.h"
 #include "graph.h"
@@ -54,6 +55,7 @@ int main(int argc, char *argv[])
 	Sdg                sdg      = { 0 };
 	TreeResults        tree     = { 0 };
 	StateResults       state    = { 0 };
+	ArchResults        arch     = { 0 };
 	bool               graph_built = false;
 	RouteList          routes   = { 0 };
 	MetricsAccumulator acc      = { 0 };
@@ -69,8 +71,17 @@ int main(int argc, char *argv[])
 		return ELC_EXIT_OK;
 	case CLI_ERROR:
 		/* The specific diagnostic is on stderr; add the summary so the
-		 * user sees what was expected (HLR-063). */
+		 * user sees what was expected (HLR-063).
+		 *
+		 * The options are released even here, and that is not
+		 * housekeeping. A declaration parsed before the offending
+		 * argument has already allocated — a `--stratum` accepted
+		 * before a bad `--stratum-order` leaves a layer owning its name
+		 * and patterns — so returning without this leaks, and a run ending
+		 * in a usage error must exit as leak-clean as one that
+		 * succeeds (HLR-125, LLR-MAIN-16). */
 		cli_usage(stderr);
+		cli_options_free(&opts);
 		return ELC_EXIT_FATAL;
 	case CLI_OK:
 	default:
@@ -192,6 +203,14 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
+	if (arch_analyse(&sdg, &opts, &arch) != 0 ||
+	    report_set_arch(&report, &arch, &sdg, &opts) != 0) {
+		fputs("elc: out of memory analysing component coupling\n",
+		      stderr);
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
 render:
 	out = stdout;
 	if (opts.output_path) {
@@ -241,6 +260,7 @@ cleanup:
 	 * leak-clean as one that succeeds (HLR-125, LLR-MAIN-16). */
 	if (out && out != stdout)
 		fclose(out);
+	arch_results_free(&arch);
 	state_results_free(&state);
 	tree_results_free(&tree);
 	graph_free(&sdg);

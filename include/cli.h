@@ -42,6 +42,16 @@ void cli_usage(FILE *stream);
  */
 int parse_scope(const char *arg, ElcOptions *out);
 
+/* Parse one `name:glob[,glob…]` architectural-stratum declaration, appending
+ * it to `out->strata`, which takes ownership of every string it copies.
+ * Repeating a name adds patterns to the layer already declared rather than
+ * creating a second one, and a layer's ordinal is fixed when it is first
+ * named (LLR-STR-01, LLR-STR-02, LLR-STR-03).
+ *
+ * Returns 0, or -1 after a diagnostic for a declaration that cannot be parsed.
+ */
+int parse_stratum(const char *arg, ElcOptions *out);
+
 /* Release every heap allocation owned by the options structure. */
 void cli_options_free(ElcOptions *opts);
 

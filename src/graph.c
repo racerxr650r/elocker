@@ -321,6 +321,7 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 	size_t       declared_count = 0;
 	igraph_t    *ig          = NULL;
 	igraph_t    *call_ig     = NULL;
+	igraph_t    *comp_ig     = NULL;
 	int          status      = -1;
 
 	memset(out, 0, sizeof *out);
@@ -706,17 +707,52 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 	}
 	igraph_vector_int_destroy(&only_calls);
 
-	out->graph      = ig;
-	out->call_graph = call_ig;
-	ig              = NULL;
-	call_ig         = NULL;
-	status          = 0;
+	/* The component projection, as a graph rather than as the edge list it
+	 * is built from. Phase 11's cycle detection is a decomposition of this
+	 * and of nothing else: a dependency cycle is a statement about files,
+	 * and two mutually recursive functions inside one file close no loop
+	 * here because a component does not depend on itself (HLR-083,
+	 * HLR-114). */
+	comp_ig = calloc(1, sizeof *comp_ig);
+	if (!comp_ig)
+		goto cleanup;
+
+	igraph_vector_int_t comp_edges;
+
+	if (igraph_vector_int_init(&comp_edges,
+	                           (igraph_integer_t)(out->component_edge_count * 2)) !=
+	    IGRAPH_SUCCESS)
+		goto cleanup;
+
+	for (size_t i = 0; i < out->component_edge_count; i++) {
+		VECTOR(comp_edges)[2 * i]     = (igraph_integer_t)
+			out->component_edges[i].from;
+		VECTOR(comp_edges)[2 * i + 1] = (igraph_integer_t)
+			out->component_edges[i].to;
+	}
+
+	if (igraph_create(comp_ig, &comp_edges,
+	                  (igraph_integer_t)out->component_count,
+	                  IGRAPH_DIRECTED) != IGRAPH_SUCCESS) {
+		igraph_vector_int_destroy(&comp_edges);
+		goto cleanup;
+	}
+	igraph_vector_int_destroy(&comp_edges);
+
+	out->graph           = ig;
+	out->call_graph      = call_ig;
+	out->component_graph = comp_ig;
+	ig                   = NULL;
+	call_ig              = NULL;
+	comp_ig              = NULL;
+	status               = 0;
 
 cleanup:
 	free(symbols);
 	free(declared);
 	free(ig);
 	free(call_ig);
+	free(comp_ig);
 	if (status != 0)
 		graph_free(out);
 	return status;
@@ -739,6 +775,10 @@ void graph_free(Sdg *g)
 	if (g->call_graph) {
 		igraph_destroy((igraph_t *)g->call_graph);
 		free(g->call_graph);
+	}
+	if (g->component_graph) {
+		igraph_destroy((igraph_t *)g->component_graph);
+		free(g->component_graph);
 	}
 	for (size_t i = 0; i < g->global_name_count; i++)
 		free(g->global_names[i]);

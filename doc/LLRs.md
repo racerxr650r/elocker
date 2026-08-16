@@ -62,6 +62,9 @@ Orchestration and exit status. `main` performs no analysis; every requirement be
 *   <a id="LLR-MAIN-16"></a>**LLR-MAIN-16** — `main` shall release every resource it acquired before returning, on the success path and on every error path alike, so that a completed run leaves no allocation, mapping, or handle outstanding.
     *Trace:* HLR-125 (Complete Resource Release), HLR-036 (Setup-Failure Fatality).
 
+*   <a id="LLR-MAIN-19"></a>**LLR-MAIN-19** — `main` shall release the options structure on the usage-error path as well as on every other. A declaration parsed before the offending argument has already allocated — a stratum accepted before a malformed order leaves a layer owning its name and patterns — so a run ending in a usage error would otherwise leak where a successful one does not.
+    *Trace:* HLR-125 (Complete Resource Release), HLR-063.
+
 ## 2. `cli_parse` ([src/cli.c](../src/cli.c))
 
 Command-line parsing and validation. `cli_parse` is the sole reader of `argv` and the sole source of user-supplied configuration.
@@ -147,6 +150,15 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-STR-03"></a>**LLR-STR-03** — `parse_stratum` shall report a usage error for a declaration that cannot be parsed, rather than silently ignoring it.
     *Trace:* HLR-063 (Invalid Command-Line Rejection), HLR-078 (User-Declared Architectural Strata).
+
+*   <a id="LLR-STR-04"></a>**LLR-STR-04** — `parse_stratum` shall add the patterns of a repeated layer name to the layer already declared rather than creating a second one, and shall fix a layer's ordinal when it is first named. A second layer of the same name would shift the ordinal of every layer below it, so a user splitting one layer's patterns across two arguments would silently change what the layering is measured against.
+    *Trace:* HLR-078 (User-Declared Architectural Strata), HLR-032.
+
+*   <a id="LLR-STR-05"></a>**LLR-STR-05** — `cli_parse` shall accept a declaration of the permitted dependency direction naming the declared layers in order, shall resolve it after every option has been read so that it may be given before or after the layers it orders, and shall report a usage error where it names a layer that was not declared or omits one that was. A partial order determines no direction, and a name for a layer that does not exist is a typo whose silent acceptance would leave the layering validated against something other than what was written.
+    *Trace:* HLR-078 (User-Declared Architectural Strata), HLR-063.
+
+*   <a id="LLR-STR-06"></a>**LLR-STR-06** — `parse_stratum` shall copy the name and every pattern it records rather than borrowing them from the argument vector, since a declaration is split on two separators and neither half exists as a terminated substring of any argument.
+    *Trace:* HLR-078 (User-Declared Architectural Strata), HLR-125.
 
 ## 5. `parse_scope` ([src/cli.c](../src/cli.c))
 
@@ -578,6 +590,9 @@ Cross-file resolution of the per-file facts into the System Dependence Graph.
 *   <a id="LLR-SDG-16"></a>**LLR-SDG-16** — `graph_build` shall record, for every global object, the set of functions that write it and the set that read it, **beside** the global-state edges rather than as a projection of them. A global edge joins a writer to a reader, so an object touched by exactly one function produces no edge at all — and that object is precisely the scope-reduction candidate of HLR-092. An analysis reading only the edge table would find none of them, and would find no object that is written and never read either. The records shall be ordered by object and then by node identifier and de-duplicated, so that a function writing one object in four places is one writer.
     *Trace:* HLR-091 (Global Access Mapping), HLR-092, HLR-032.
 
+*   <a id="LLR-SDG-17"></a>**LLR-SDG-17** — `graph_build` shall construct a third view of the graph over the component projection, whose vertices are component indices. The architectural questions are asked of it and of nothing else: a cycle here means two files depend on each other, where a cycle in the call view means two functions call each other, and two mutually recursive functions inside one file close a loop in the second and none at all in the first.
+    *Trace:* HLR-083 (Circular Dependency Detection), HLR-114, HLR-113.
+
 *   <a id="LLR-SDG-15"></a>**LLR-SDG-15** — `graph_build` shall install a non-aborting error handler on the graph library before making any call to it. The library's default handler calls `abort()`, which makes every return-value check unreachable and turns an allocation failure inside the library into a crash rather than the diagnostic and exit status the run promises. It matters beyond allocation: asking a cyclic graph for a topological ordering is an ordinary, expected error return — and is exactly how the call-depth analysis detects recursion — which the default handler would turn into a crash on a perfectly valid program.
     *Trace:* HLR-124 (Memory Safety), HLR-113, HLR-120 (Distinct Exit Status Classes).
 
@@ -611,6 +626,9 @@ Component-level analyses over the SDG's component projection.
 *   <a id="LLR-CPL-03"></a>**LLR-CPL-03** — `compute_coupling` shall treat a single source file as the unit of coupling.
     *Trace:* HLR-114 (Definition of a Component).
 
+*   <a id="LLR-CPL-04"></a>**LLR-CPL-04** — `compute_coupling` shall count each depended-upon component once however many calls or shared objects connect the two, taking its figures from the de-duplicated component projection rather than from the call sites. Counting call sites would report a file that calls another in forty places as depending on forty things.
+    *Trace:* HLR-080 (Afferent and Efferent Coupling), HLR-114.
+
 ## 21. `instability` ([src/arch.c](../src/arch.c))
 
 *   <a id="LLR-INS-01"></a>**LLR-INS-01** — `instability` shall compute the Instability metric as efferent coupling divided by the sum of efferent and afferent coupling.
@@ -636,6 +654,9 @@ Component-level analyses over the SDG's component projection.
 *   <a id="LLR-CYC-04"></a>**LLR-CYC-04** — Every detected cycle shall be reported at critical severity.
     *Trace:* HLR-084 (Cycles Reported at Critical Severity), HLR-123 (Severity Vocabulary).
 
+*   <a id="LLR-CYC-05"></a>**LLR-CYC-05** — `find_cycles` shall report, beside each cyclic group, a concrete loop through it found by a deterministic search from the group's lowest-numbered member. The group is what must be broken up and the loop is which edge to cut, and neither alone is enough to act on. One loop rather than every one: a group of n components can hold a number of distinct loops exponential in n, and the loop may therefore be shorter than the membership.
+    *Trace:* HLR-083 (Circular Dependency Detection), HLR-032.
+
 ## 23. `check_strata` ([src/arch.c](../src/arch.c))
 
 *   <a id="LLR-LAY-01"></a>**LLR-LAY-01** — `check_strata` shall report every call that bypasses one or more intervening declared layers, identifying the calling function, the called function, and the layers crossed.
@@ -646,6 +667,12 @@ Component-level analyses over the SDG's component projection.
 
 *   <a id="LLR-LAY-03"></a>**LLR-LAY-03** — `check_strata` shall report a skip-level call and a direction-inverted call as distinct findings, since a call may exhibit either without the other.
     *Trace:* HLR-079 (Skip-Level Call Detection), HLR-118 (Direction-Inverted Call Detection).
+
+*   <a id="LLR-LAY-04"></a>**LLR-LAY-04** — `check_strata` shall report a call as skip-level where the ordinal distance between the layers exceeds one in either direction, and as direction-inverted where the callee's ordinal is the lower, so that a call ascending more than one layer is reported as both. Both statements are true of such a call and each has its own remedy — the direction can be corrected without removing the skip.
+    *Trace:* HLR-079 (Skip-Level Call Detection), HLR-118.
+
+*   <a id="LLR-LAY-05"></a>**LLR-LAY-05** — `check_strata` shall consider call edges alone, since a global object two layers happen to share is a different fact with its own analyses, and shall treat a component matching no declaration as lying outside the partition rather than in a layer of its own.
+    *Trace:* HLR-079 (Skip-Level Call Detection), HLR-118, HLR-093.
 
 ## 24. `calltree_analyse` ([src/calltree.c](../src/calltree.c))
 
@@ -965,6 +992,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XWR-12"></a>**LLR-XWR-12** — The record shall carry the languages for which dead-code analysis was not performed, and shall not carry the published source a global-state verdict is attributed to. The first, because a record holding the findings alone would regenerate into a report reading as a clean bill of health for a language nobody analysed. The second, because the citation is derived from the verdict by one function both paths call, so a record cannot carry one that disagrees with a live run's.
     *Trace:* HLR-139 (Dead-Code Support Is Per Language and Its Absence Is Stated), HLR-056, HLR-099.
+
+*   <a id="LLR-XWR-13"></a>**LLR-XWR-13** — The record shall carry the coupling figures with their instability, the dependency cycles with their loops, the layering findings, and the state of the layering analysis. None can be recomputed on regeneration, which has no component projection to derive them from; and the attributions are again absent, being derived from the measurement by one function each path calls.
+    *Trace:* HLR-054 (Complete Run Record), HLR-056, HLR-080, HLR-083.
 
 *   <a id="LLR-XWR-04"></a>**LLR-XWR-04** — `xml_write_report` shall emit well-formed XML.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).
