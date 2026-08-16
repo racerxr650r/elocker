@@ -159,7 +159,21 @@ EXPAT_VER       ?= 2.8.3
 # generates must stay inside libtree-sitter's supported range — a grammar
 # built against a newer generator than the linked library understands fails
 # at load with a version error rather than at build.
-GRAMMAR_C_VER   ?= 0.24.2
+GRAMMAR_C_VER      ?= 0.24.2
+GRAMMAR_CPP_VER    ?= 0.23.4
+GRAMMAR_RUST_VER   ?= 0.24.2
+GRAMMAR_PYTHON_VER ?= 0.25.0
+
+# Ada is pinned by commit, not by version, because `briot/tree-sitter-ada`
+# cuts no releases: its tag list holds a single entry named `master`, which is
+# a moving branch and therefore not a pin at all. A commit is immutable, which
+# is what pinning has to mean for a project that does not tag.
+#
+# The cost is that no advisory or release note will ever name this reference —
+# `make check-prereqs` compares it against the branch head so that being
+# behind is at least visible. Bump it deliberately, and record why.
+#   dd5fa4c — 2026-07-31, the head of master when Ada was added.
+GRAMMAR_ADA_REV    ?= dd5fa4cdb3aba91abc687aa68fb1431396fce6a6
 
 SRC_PREFIX      ?= /usr/local
 SRC_WORK        ?= $(BUILD)/prereq-src
@@ -287,6 +301,17 @@ check-prereqs:
 	@$(MAKE) --no-print-directory _check-min LIB=libgit2     MIN=1.7  PHASE=7
 	@$(MAKE) --no-print-directory _check-min LIB=igraph      MIN=1.0  PHASE=8
 	@$(MAKE) --no-print-directory _check-min LIB=criterion   MIN=2.4  PHASE=0
+	@echo "== grammars =="
+	@$(MAKE) --no-print-directory _check-grammar LANG=c \
+		REPO=tree-sitter/tree-sitter-c KIND=tag PIN=$(GRAMMAR_C_VER)
+	@$(MAKE) --no-print-directory _check-grammar LANG=cpp \
+		REPO=tree-sitter/tree-sitter-cpp KIND=tag PIN=$(GRAMMAR_CPP_VER)
+	@$(MAKE) --no-print-directory _check-grammar LANG=rust \
+		REPO=tree-sitter/tree-sitter-rust KIND=tag PIN=$(GRAMMAR_RUST_VER)
+	@$(MAKE) --no-print-directory _check-grammar LANG=python \
+		REPO=tree-sitter/tree-sitter-python KIND=tag PIN=$(GRAMMAR_PYTHON_VER)
+	@$(MAKE) --no-print-directory _check-grammar LANG=ada \
+		REPO=briot/tree-sitter-ada KIND=rev PIN=$(GRAMMAR_ADA_REV)
 	@if $(PKG_CONFIG) --exists igraph 2>/dev/null && \
 	    $(PKG_CONFIG) --libs igraph 2>/dev/null | grep -q xml2; then \
 		echo "  WARNING igraph was built with GraphML support, so it links"; \
@@ -313,6 +338,39 @@ _check-min:
 			"$(LIB)" "$$have" "$(MIN)"; \
 	fi
 
+# Report one grammar's pin against what upstream carries now.
+#
+# A pin makes a build reproducible and an update deliberate; it does not say
+# an update is needed. For a repository with releases the usual channels do —
+# advisories and release notes are keyed to version numbers. Ada has none to
+# key to, so being behind would otherwise be invisible, and this is what makes
+# it visible instead (LLR-BLD-17).
+#
+# Behind is a warning, never an error, exactly as _check-min treats a version
+# shortfall: check-prereqs is a diagnostic a person runs, CI never invokes it,
+# and it must neither fail nor hang when there is no network. The query is
+# capped at five seconds and reports "unknown" rather than blocking.
+.PHONY: _check-grammar
+_check-grammar:
+	@printf '  %-10s %-12s ' "$(LANG)" "$$(echo '$(PIN)' | cut -c1-12)"; \
+	if ! command -v curl >/dev/null 2>&1; then \
+		echo "(curl absent — upstream unknown)"; \
+	elif [ "$(KIND)" = tag ]; then \
+		latest=$$(curl -fsSL --max-time 5 \
+			"https://api.github.com/repos/$(REPO)/tags" 2>/dev/null | \
+			sed -n 's/.*"name": "v\{0,1\}\([^"]*\)".*/\1/p' | head -1); \
+		if [ -z "$$latest" ]; then echo "(upstream unknown)"; \
+		elif [ "$$latest" = "$(PIN)" ]; then echo "current"; \
+		else echo "BEHIND — upstream has $$latest"; fi; \
+	else \
+		head=$$(curl -fsSL --max-time 5 \
+			"https://api.github.com/repos/$(REPO)/commits/HEAD" 2>/dev/null | \
+			sed -n 's/.*"sha": "\([^"]*\)".*/\1/p' | head -1); \
+		if [ -z "$$head" ]; then echo "(upstream unknown)"; \
+		elif [ "$$head" = "$(PIN)" ]; then echo "current (no releases upstream)"; \
+		else echo "BEHIND — head is $$(echo $$head | cut -c1-12)"; fi; \
+	fi
+
 # -------------------------------------------------------------------- build
 # Grammars are runtime data, not objects: they are dlopen'd by name from
 # runtime/parsers/ and never linked. They are gitignored (*.so), so a fresh
@@ -320,30 +378,60 @@ _check-min:
 # file and stops. `clean` deliberately leaves them: `make asan` cleans twice,
 # and refetching an upstream tarball on each of those is a network round trip
 # for nothing. `make clean-grammars` removes them when that is what is meant.
-GRAMMARS    := runtime/parsers/c.so
+GRAMMARS    := runtime/parsers/c.so runtime/parsers/cpp.so \
+               runtime/parsers/rust.so runtime/parsers/python.so \
+               runtime/parsers/ada.so
 
 .PHONY: grammars
 grammars: $(GRAMMARS)
 
 # Build one grammar into runtime/parsers/<lang>.so.
-#   $(1) language name   $(2) upstream repository   $(3) version
+#   $(1) language   $(2) owner/repo   $(3) archive ref   $(4) unpacked directory
+#
+# The owner is a parameter rather than baked in: three of the five grammars
+# live under the tree-sitter organisation and Ada does not, and a hardcoded
+# owner would read as though a grammar from elsewhere could not be added as
+# data. It can.
+#
+# The archive ref is a parameter for the same kind of reason. A repository
+# that cuts releases is fetched by tag; one that does not is fetched by
+# commit, and the two spell the URL differently.
 #
 # The generated parser.c ships in the upstream release, so no tree-sitter CLI
 # and no code generation is involved — HLR-040 forbids requiring the latter at
 # build time. Third-party generated code is compiled at the project's warning
 # settings minus the pedantry it was never written to satisfy; -fvisibility is
 # not narrowed, since tree_sitter_<lang> must remain resolvable by dlsym.
+#
+# The scanner is found with a shell glob, **not** `$$(wildcard)`. Make expands
+# a recipe before running any of it, so a `$$(wildcard)` here would be
+# evaluated before `fetch` had unpacked anything and would quietly find
+# nothing — linking a grammar without its external scanner. C has no scanner,
+# which is why that went unnoticed until four grammars that do have one
+# arrived.
 define build_grammar
 	@echo "$(2) $(3)"
-	$(call fetch,https://github.com/tree-sitter/$(2)/archive/refs/tags/v$(3).tar.gz,$(2)-$(3))
+	$(call fetch,https://github.com/$(2)/archive/$(3).tar.gz,$(4))
 	@mkdir -p runtime/parsers
-	$(CC) -O2 -fPIC -shared -I$(SRC_WORK)/$(2)-$(3)/src \
-		-o runtime/parsers/$(1).so $(SRC_WORK)/$(2)-$(3)/src/parser.c \
-		$(wildcard $(SRC_WORK)/$(2)-$(3)/src/scanner.c)
+	$(CC) -O2 -fPIC -shared -I$(SRC_WORK)/$(4)/src \
+		-o runtime/parsers/$(1).so $(SRC_WORK)/$(4)/src/parser.c \
+		$$(ls $(SRC_WORK)/$(4)/src/scanner.c 2>/dev/null)
 endef
 
 runtime/parsers/c.so:
-	$(call build_grammar,c,tree-sitter-c,$(GRAMMAR_C_VER))
+	$(call build_grammar,c,tree-sitter/tree-sitter-c,refs/tags/v$(GRAMMAR_C_VER),tree-sitter-c-$(GRAMMAR_C_VER))
+
+runtime/parsers/cpp.so:
+	$(call build_grammar,cpp,tree-sitter/tree-sitter-cpp,refs/tags/v$(GRAMMAR_CPP_VER),tree-sitter-cpp-$(GRAMMAR_CPP_VER))
+
+runtime/parsers/rust.so:
+	$(call build_grammar,rust,tree-sitter/tree-sitter-rust,refs/tags/v$(GRAMMAR_RUST_VER),tree-sitter-rust-$(GRAMMAR_RUST_VER))
+
+runtime/parsers/python.so:
+	$(call build_grammar,python,tree-sitter/tree-sitter-python,refs/tags/v$(GRAMMAR_PYTHON_VER),tree-sitter-python-$(GRAMMAR_PYTHON_VER))
+
+runtime/parsers/ada.so:
+	$(call build_grammar,ada,briot/tree-sitter-ada,$(GRAMMAR_ADA_REV),tree-sitter-ada-$(GRAMMAR_ADA_REV))
 
 .PHONY: clean-grammars
 clean-grammars:

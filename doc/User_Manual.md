@@ -1,6 +1,6 @@
 # elc User Manual
 
-**Version:** 0.6 (Phase 5)
+**Version:** 0.7 (Phase 6)
 **Applies to:** the `elc` build shipped alongside this file
 
 This manual describes the version it ships with. Every option `elc` accepts is
@@ -35,8 +35,8 @@ repository are comparable and results from different runs can be diffed.
 one, and reports **effective lines of code** and **cyclomatic complexity** per
 function — with project totals, a per-language breakdown, and a list of the
 functions over a complexity threshold you set. It writes that report as a
-table, Markdown, CSV, or XML, and can rebuild it later from the XML alone. C
-is the language it ships with.
+table, Markdown, CSV, or XML, and can rebuild it later from the XML alone. It
+ships with five languages: C, C++, Rust, Python, and Ada.
 
 **What it does not do yet:** the System Dependence Graph and the findings
 derived from it — coupling, cycles, call depth, dead code. Those arrive in
@@ -457,8 +457,49 @@ for it on first use. Nothing about any language is built into the binary:
 elc src/main.c      # .c → the C module in runtime/
 ```
 
-This build ships C. C++, Rust, Python, and Ada arrive in a later phase — as
-data, with no change to the executable.
+| Language | Extensions |
+| -------- | ---------- |
+| C | `.c` `.h` |
+| C++ | `.cc` `.cpp` `.cxx` `.hh` `.hpp` `.hxx` |
+| Rust | `.rs` |
+| Python | `.py` `.pyi` |
+| Ada | `.adb` `.ads` |
+
+`.h` maps to **C**, not C++. A header shared by both is far more often C, and
+a project that knows otherwise edits `runtime/extensions.map` — one line, no
+rebuild.
+
+Files of different languages in one target are analysed in a single
+invocation, and each language's share of the totals appears in its own row:
+
+```
+Languages
+  Language  Files  Lines  ELOC
+  --------  -----  -----  ----
+  ada           2    140    61
+  c             9    812   402
+  rust          4    233   118
+```
+
+### The numbers are not translations of each other
+
+Two functions doing the same work in two languages may report different ELOC,
+and that is correct rather than a defect. Each language's query files decide
+what counts, and the languages genuinely differ:
+
+* **Rust has no `else` node** — the alternative of an `if` is just a block —
+  so `} else {` is a line C counts and Rust does not.
+* **Python's `pass` and Ada's `null;` are excluded**, both being the
+  language's way of writing an empty block.
+* **`import`, `with`, and `use` clauses are excluded**, as `#include` is:
+  they name what a file depends on.
+* **Rust's `static` counts and its `const` does not.** A `static` is storage
+  that exists at run time; a `const` is inlined at every use.
+* **Ada's `and then` is a decision point and plain `and` is not**, because
+  only the first may skip its right operand.
+
+Each of these is written down beside the rule it governs, in that language's
+`.scm` files under `runtime/queries/`.
 
 ### When a file has no language
 
@@ -612,7 +653,9 @@ upstream release to wait for. The same mechanism is open to you: a team's own
 coding standard is expressed as `.scm` queries and checked by the same engine
 that produces the built-in metrics.
 
-This build ships the C module. C++, Rust, Python, and Ada arrive in Phase 6.
+All five shipped modules were added as data alone — no line of the executable
+changed to support any of them, which is the claim `runtime/queries/README.md`
+exists to make good.
 
 `runtime/queries/README.md` is the contract: read it before writing a module,
 and treat its file names and capture names as fixed — renaming one breaks

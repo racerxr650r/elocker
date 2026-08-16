@@ -90,9 +90,48 @@ Whatever a language decides, it decides once, in one place.
 
 ## The shipped modules
 
-| Language | Grammar | Version | State |
-| -------- | ------- | ------- | ----- |
-| C | [`tree-sitter/tree-sitter-c`](https://github.com/tree-sitter/tree-sitter-c) | pinned in the Makefile as `GRAMMAR_C_VER` | `functions.scm` complete; the other five are contract stubs |
+| Language | Grammar | Pinned as | State |
+| -------- | ------- | --------- | ----- |
+| C | [`tree-sitter/tree-sitter-c`](https://github.com/tree-sitter/tree-sitter-c) | `GRAMMAR_C_VER` | four of six complete |
+| C++ | [`tree-sitter/tree-sitter-cpp`](https://github.com/tree-sitter/tree-sitter-cpp) | `GRAMMAR_CPP_VER` | four of six complete |
+| Rust | [`tree-sitter/tree-sitter-rust`](https://github.com/tree-sitter/tree-sitter-rust) | `GRAMMAR_RUST_VER` | four of six complete |
+| Python | [`tree-sitter/tree-sitter-python`](https://github.com/tree-sitter/tree-sitter-python) | `GRAMMAR_PYTHON_VER` | four of six complete |
+| Ada | [`briot/tree-sitter-ada`](https://github.com/briot/tree-sitter-ada) | `GRAMMAR_ADA_REV` — a **commit**, not a tag | four of six complete |
 
-C++, Rust, Python, and Ada arrive in Phase 6 (HLR-011) — as data, with no C
-change.
+"Four of six complete" means `functions.scm`, `comments.scm`, `eloc.scm`, and
+`complexity.scm` carry real patterns; `calls.scm` and `globals.scm` are
+contract stubs until the phases that consume them.
+
+Ada is pinned by commit because its upstream cuts no releases — its tag list
+holds a single entry named `master`, which is a moving branch and therefore
+not a pin. `make check-prereqs` compares each pin against what upstream has
+now, since a commit reference will never be named by an advisory.
+
+## What adding four languages taught the contract
+
+All four were added **without a single change under `src/`** — the
+demonstration HLR-010 asks for. The contract held. Four things it is worth
+knowing before writing a fifth:
+
+**A capture name is a contract; a node type is not.** Every disagreement
+between the languages lives in a `.scm` file. Rust has no `else` node, Ada
+spells short-circuit operators as two anonymous tokens inside an ordinary
+expression, Python's `elif` is a clause where Rust's is a nested `if` — and
+none of that reached C.
+
+**Anonymous callables need no pattern, only restraint.** A lambda, a closure,
+and a Rust `|x| ...` are all absent from their `functions.scm` on purpose. Not
+capturing them is what makes HLR-018 work: an unreported scope is transparent
+to attribution, so what is inside it lands on the nearest reported function
+around it. There is nothing to write.
+
+**A pattern that needs a *specific* node is not the same as one that needs
+any.** Ada's `(object_declaration (expression))` counts an initialised
+declaration; `(object_declaration (_))` counts every declaration, because
+every one has a name and a subtype as named children. The first version of
+that pattern was the second one.
+
+**Anchors do work that fields cannot.** Rust's tail expression — the usual way
+a Rust function returns — has no field name. `(block (_) @eloc.statement .)`
+identifies it as the last named child of a block, and without it a function
+whose body is one expression reports zero effective lines.

@@ -6,6 +6,20 @@
 setup() {
 	load "../helpers/common"
 	SUBJECT="$BATS_TEST_DIRNAME/nesting/nested.c"
+	GROUP="$BATS_TEST_DIRNAME/nesting"
+}
+
+# "<eloc> <complexity>" for one function of one fixture.
+metrics() {
+	elc "$1"
+	awk -v want="$2" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+	                  f && $2 == want { print $4, $5 }' <<<"$output"
+}
+
+reported() {
+	elc "$1"
+	awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+	     f && /^  \// { print $2 }' <<<"$output" | sort | tr '\n' ' '
 }
 
 function_eloc() {
@@ -70,4 +84,65 @@ function_complexity() {
 	local first="$output"
 	run bash -c '"$0" "$1" 2>/dev/null' "$ELC" "$SUBJECT"
 	assert_equal "$output" "$first"
+}
+
+# --- nested *named* functions: Ada (HLR-067, HLR-068) ----------------------
+#
+# Ada is the language HLR-067 was written for: a subprogram's declarative part
+# may hold subprograms, three deep here.
+
+@test "HLR-067: Ada reports a nested subprogram in its own right" {
+	assert_equal "$(reported "$GROUP/nested.adb")" "Inner Middle Outer "
+}
+
+@test "HLR-068: an Ada subprogram gains none of its nested ones' work" {
+	assert_equal "$(metrics "$GROUP/nested.adb" Inner)" "3 2"
+	assert_equal "$(metrics "$GROUP/nested.adb" Middle)" "3 2"
+	assert_equal "$(metrics "$GROUP/nested.adb" Outer)" "3 3"
+}
+
+# --- anonymous callables (HLR-018) -----------------------------------------
+#
+# The other half of the attribution rule, and the half C could not exercise at
+# all. A closure or lambda is not reported as a function, so its decision
+# points belong to the nearest enclosing *named* one. Each case below asserts
+# both halves: the anonymous callable is absent from the report, and the
+# enclosing function's complexity includes its branch.
+
+@test "HLR-018: a Rust closure is not reported as a function" {
+	assert_equal "$(reported "$GROUP/nested.rs")" "inner outer "
+}
+
+@test "HLR-018: a Rust closure's decision point lands on the enclosing function" {
+	# outer branches twice of its own — the `if` and the `&&` — and once
+	# more inside the closure. Without HLR-018 it would report 3.
+	assert_equal "$(metrics "$GROUP/nested.rs" outer)" "5 4"
+	assert_equal "$(metrics "$GROUP/nested.rs" inner)" "3 2"
+}
+
+@test "HLR-018: a Python lambda is not reported as a function" {
+	assert_equal "$(reported "$GROUP/nested.py")" "inner outer "
+}
+
+@test "HLR-018: a Python lambda's conditional lands on the enclosing function" {
+	assert_equal "$(metrics "$GROUP/nested.py" outer)" "5 4"
+	assert_equal "$(metrics "$GROUP/nested.py" inner)" "3 2"
+}
+
+@test "HLR-018: a C++ lambda is not reported as a function" {
+	assert_equal "$(reported "$GROUP/nested.cpp")" "outer "
+}
+
+@test "HLR-018: a C++ lambda's conditional lands on the enclosing function" {
+	assert_equal "$(metrics "$GROUP/nested.cpp" outer)" "5 4"
+}
+
+@test "HLR-067: a nested named function is reported where a lambda is not" {
+	# The distinction the two requirements draw, in one language: Rust's
+	# `fn inner` is reported and its closure is not, though both sit in the
+	# same body.
+	elc "$GROUP/nested.rs"
+	assert_success
+	assert_output --partial "inner"
+	assert_output --regexp "Functions +2"
 }

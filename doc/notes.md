@@ -396,6 +396,38 @@ None is a defect; each is a judgement that could go the other way.
     HLR-076 forbids, and a heuristic over `#if` conditions would be the
     textual approximation HLR-013 forbids. If it proves to matter, the
     honest fix is a query-level exclusion, not C.
+*   **Four grammars were added without touching `src/`** (Phase 6),
+    which is HLR-010's claim demonstrated rather than asserted. Four
+    things the exercise taught, worth knowing before a fifth:
+    a capture name is a contract and a node type is not — every
+    disagreement between the languages lives in a `.scm` file;
+    anonymous callables need *no* pattern, because not capturing them is
+    what makes HLR-018 work; `(node (_))` is not `(node (specific))` —
+    Ada's `(object_declaration (_))` matches every declaration, since
+    every one has a name and a subtype as named children, and the first
+    version of that pattern was exactly that mistake; and an anchor does
+    work a field cannot, since Rust's tail expression has no field name
+    and `(block (_) @x .)` is the only way to reach it.
+*   **`$(wildcard)` in a recipe is expanded before the recipe runs**
+    (Phase 6). The grammar rule used it to find an optional
+    `scanner.c`, which meant looking for a file the `fetch` on the line
+    above had not yet unpacked — it silently found nothing. C has no
+    external scanner, so this was invisible until C++, Rust, and Python
+    arrived with one each; a grammar linked without its scanner fails at
+    load, not at build. A shell glob in the recipe is evaluated at the
+    right time and is what the rule uses now.
+*   **Ada's `when others` is counted as a decision and C's `default:`
+    is not** (Phase 6). Ada writes the catch-all as an alternative like
+    any other and the grammar does not mark it, so telling them apart
+    would mean matching the text `others` — the textual approximation
+    HLR-013 forbids. An exhaustive Ada case therefore scores one higher
+    than the equivalent C switch. If the grammar ever distinguishes
+    them, this is a one-line change in `ada/complexity.scm`.
+*   **A Python module docstring counts as one line of ELOC** (Phase 6).
+    It is an expression statement, not a comment, and the interpreter
+    keeps it as `__doc__`. Treating it as documentary is defensible and
+    is not what the grammar says; the `eloc/` fixture makes the choice
+    visible rather than incidental.
 *   **tree-sitter-c cannot parse two ordinary C constructs** (found in
     Phase 5, by `elc` failing to read its own source):
     `va_arg(ap, T)` for any *multi-token* type — `char *`,

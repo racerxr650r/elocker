@@ -3,7 +3,7 @@
 .\" This page describes the version it ships with (HLR-129). Every option elc
 .\" accepts appears here, and every option here is accepted; the documentation
 .\" test in test/integration/docs.bats enforces both directions.
-.TH ELC 1 "2026-08-19" "elocker" "User Commands"
+.TH ELC 1 "2026-08-20" "elocker" "User Commands"
 .SH NAME
 elc \- per-function code metrics and whole-project architecture analysis
 .SH SYNOPSIS
@@ -121,6 +121,27 @@ never rebuilding. The interface a language module must satisfy is published
 as
 .I runtime/queries/README.md
 in the distribution.
+.PP
+This release ships five languages:
+.TS
+tab(;);
+l l.
+C;\fB.c .h\fR
+C++;\fB.cc .cpp .cxx .hh .hpp .hxx\fR
+Rust;\fB.rs\fR
+Python;\fB.py .pyi\fR
+Ada;\fB.adb .ads\fR
+.TE
+.PP
+.B .h
+maps to C rather than to C++, because a header shared by both is far more
+often C. A project that knows otherwise edits
+.I runtime/extensions.map
+and rebuilds nothing.
+.PP
+Files of different languages in one target are analysed in a single
+invocation, and each language's contribution appears separately in the
+report.
 .PP
 A file whose extension maps to no available language is
 .I skipped
@@ -393,6 +414,9 @@ Analyse a file and a directory that contains it. The file is reported once.
 .TP
 .B elc \-o report.txt src/
 Write the report to a file, leaving standard output empty.
+.TP
+.B elc src/ lib/ tools/
+Analyse a target holding several languages at once.
 .TP
 .B elc \-c 10 src/
 List every function whose complexity is 10 or greater. The exit status is

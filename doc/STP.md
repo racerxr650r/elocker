@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.6
-**Date:** 2026-08-19
+**Version:** 0.7
+**Date:** 2026-08-20
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -132,7 +132,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **327 test(s)** across
+Snapshot: **357 test(s)** across
 **24 file(s)**.
 
 ### 3.1. [test/unit/cli.c](../test/unit/cli.c)
@@ -344,7 +344,7 @@ Role: **integration**. **21 test(s).**
 
 ### 3.10. [test/integration/language.bats](../test/integration/language.bats)
 
-Role: **integration**. **23 test(s).**
+Role: **integration**. **27 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -371,6 +371,10 @@ Role: **integration**. **23 test(s).**
 | 21 | <a id="HLR-025: the per-language totals sum to the project totals"></a>`HLR-025: the per-language totals sum to the project totals` | — | With one language present, its row equals the summary exactly — the breakdown is a partition of the totals, not a second count of them. |
 | 22 | <a id="HLR-019: a header of declarations only reports zero ELOC"></a>`HLR-019: a header of declarations only reports zero ELOC` | — | A file's own line and ELOC counts are reported per file, and a header whose only statement is one return reports one. |
 | 23 | <a id="HLR-032: two runs over a parsed tree are byte-identical"></a>`HLR-032: two runs over a parsed tree are byte-identical` | — | Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones. |
+| 24 | <a id="HLR-011: five languages are detected from their extensions"></a>`HLR-011: five languages are detected from their extensions` | — | One target holding a file of each delivered language yields all five in the per-language breakdown. |
+| 25 | <a id="HLR-008: a mixed-language target is analysed in one invocation"></a>`HLR-008: a mixed-language target is analysed in one invocation` | — | Four languages are analysed in a single pass, with every function found — no invocation per language. |
+| 26 | <a id="HLR-025: each language's contribution is separately visible"></a>`HLR-025: each language's contribution is separately visible` | — | A two-language target reports both languages, in name order. |
+| 27 | <a id="HLR-011: elc requires no particular language to be present"></a>`HLR-011: elc requires no particular language to be present` | — | A target of one language runs exactly as a mixed one does; nothing verifies that the other four are installed. |
 
 ### 3.11. [test/integration/complexity.bats](../test/integration/complexity.bats)
 
@@ -459,7 +463,7 @@ Role: **integration**. **16 test(s).**
 
 ### 3.15. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
 
-Role: **fixture**. **13 test(s).**
+Role: **fixture**. **20 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -476,6 +480,13 @@ Role: **fixture**. **13 test(s).**
 | 11 | <a id="HLR-047: a return counts, with or without a value"></a>`HLR-047: a return counts, with or without a value` | — | A bare return and a return carrying a value each contribute a line. |
 | 12 | <a id="HLR-045: else-if on one line counts once"></a>`HLR-045: else-if on one line counts once` | — | A line that is both an else and an if contributes one line, since ELOC counts lines rather than captures. |
 | 13 | <a id="HLR-020: a file with nothing executable reports zero, without error"></a>`HLR-020: a file with nothing executable reports zero, without error` | — | A file of comments, directives, and declarations reports zero ELOC and succeeds. |
+| 14 | <a id="HLR-011: C++ matches its hand-counted categories"></a>`HLR-011: C++ matches its hand-counted categories` | — | C++'s ELOC and complexity match the values counted line by line in the group's header, over a fixture holding one instance of every category the language has. |
+| 15 | <a id="HLR-011: Python matches its hand-counted categories"></a>`HLR-011: Python matches its hand-counted categories` | — | Python's figures match its hand count, including the decisions the query file records: `pass` and `import` excluded, the module docstring counted as the expression statement it is. |
+| 16 | <a id="HLR-011: Rust matches its hand-counted categories"></a>`HLR-011: Rust matches its hand-counted categories` | — | Rust's figures match its hand count, including a counted `static` against an excluded `const`, and a tail expression counted where the language has no `return`. |
+| 17 | <a id="HLR-011: Ada matches its hand-counted categories"></a>`HLR-011: Ada matches its hand-counted categories` | — | Ada's figures match its hand count, including short-circuit `and then` counted as a decision where plain `and` is not. |
+| 18 | <a id="HLR-048: C++ counts exception handling toward ELOC"></a>`HLR-048: C++ counts exception handling toward ELOC` | — | The one ELOC category C cannot express. `try`, `catch`, and `throw` each contribute a line, which no earlier phase could verify in any shipped language. |
+| 19 | <a id="HLR-048: a catch clause is a decision point"></a>`HLR-048: a catch clause is a decision point` | — | A handler is a path out of the guarded block and raises complexity; `try` and `throw` choose nothing and do not. |
+| 20 | <a id="HLR-011: a language with no exception construct still reports"></a>`HLR-011: a language with no exception construct still reports` | — | C has no exception handling and analysing it is not thereby an error — no language is required to have every category. |
 
 ### 3.16. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
 
@@ -493,7 +504,7 @@ Role: **fixture**. **7 test(s).**
 
 ### 3.17. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
 
-Role: **fixture**. **8 test(s).**
+Role: **fixture**. **17 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -505,10 +516,19 @@ Role: **fixture**. **8 test(s).**
 | 6 | <a id="HLR-067: all three functions are reported in their own right"></a>`HLR-067: all three functions are reported in their own right` | — | Three levels of nesting yield three reported functions, not one. |
 | 7 | <a id="HLR-019: the file counts each statement line once"></a>`HLR-019: the file counts each statement line once` | — | The file's ELOC is the number of distinct lines carrying a statement, however those statements are attributed. |
 | 8 | <a id="HLR-032: nested attribution is deterministic across runs"></a>`HLR-032: nested attribution is deterministic across runs` | — | Repeating the run produces identical bytes, so the attribution does not depend on the order the query matched. |
+| 9 | <a id="HLR-067: Ada reports a nested subprogram in its own right"></a>`HLR-067: Ada reports a nested subprogram in its own right` | — | Three subprograms nested three deep are three reported functions, which is the shape HLR-067 was written for. |
+| 10 | <a id="HLR-068: an Ada subprogram gains none of its nested ones' work"></a>`HLR-068: an Ada subprogram gains none of its nested ones' work` | — | Each of the three owns exactly its own ELOC and complexity; attributing to the outermost would give the outer one everything and the others nothing. |
+| 11 | <a id="HLR-018: a Rust closure is not reported as a function"></a>`HLR-018: a Rust closure is not reported as a function` | — | A closure has no name to report, so the report names the two `fn` items and not the closure beside them. |
+| 12 | <a id="HLR-018: a Rust closure's decision point lands on the enclosing function"></a>`HLR-018: a Rust closure's decision point lands on the enclosing function` | — | The enclosing function's complexity includes the closure's branch. Without the rule that branch would belong to nothing at all, since an unreported callable is not a function for it to land on — it would vanish from the report. |
+| 13 | <a id="HLR-018: a Python lambda is not reported as a function"></a>`HLR-018: a Python lambda is not reported as a function` | — | A lambda is unnamed and so is absent from the reported function set. |
+| 14 | <a id="HLR-018: a Python lambda's conditional lands on the enclosing function"></a>`HLR-018: a Python lambda's conditional lands on the enclosing function` | — | The conditional expression inside a lambda raises the enclosing function's complexity. |
+| 15 | <a id="HLR-018: a C++ lambda is not reported as a function"></a>`HLR-018: a C++ lambda is not reported as a function` | — | A lambda is unnamed and so is absent from the reported function set. |
+| 16 | <a id="HLR-018: a C++ lambda's conditional lands on the enclosing function"></a>`HLR-018: a C++ lambda's conditional lands on the enclosing function` | — | The conditional expression inside a lambda raises the enclosing function's complexity. |
+| 17 | <a id="HLR-067: a nested named function is reported where a lambda is not"></a>`HLR-067: a nested named function is reported where a lambda is not` | — | The distinction the two requirements draw, in one language and one function body: Rust's nested `fn` is reported and the closure beside it is not. |
 
 ### 3.18. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
 
-Role: **fixture**. **8 test(s).**
+Role: **fixture**. **13 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -520,6 +540,11 @@ Role: **fixture**. **8 test(s).**
 | 6 | <a id="HLR-065: the path arrives intact after unescaping"></a>`HLR-065: the path arrives intact after unescaping` | — | An independent parser recovers the original value, so escaping and the document's meaning agree. |
 | 7 | <a id="HLR-056: a hostile path survives a record round trip"></a>`HLR-056: a hostile path survives a record round trip` | — | Regeneration over a hostile path matches a direct run. An asymmetry — escaped on the way out and not unescaped on the way in — passes a well-formedness check and still corrupts the report. |
 | 8 | <a id="HLR-027: the table renders a hostile path unchanged"></a>`HLR-027: the table renders a hostile path unchanged` | — | The aligned table escapes nothing and must not: it is read by a person, and a path is what it is. |
+| 9 | <a id="HLR-014: a template specialisation is reported under its full name"></a>`HLR-014: a template specialisation is reported under its full name` | — | An explicit specialisation names itself with its template arguments, so the reported name carries a comma and two angle brackets — an identifier the analyser produces rather than one the suite constructs. |
+| 10 | <a id="HLR-064: an identifier containing a comma stays one CSV field"></a>`HLR-064: an identifier containing a comma stays one CSV field` | — | Every row parses to the same field count under an independent reader, and the name reads back whole. This is the value HLR-064 was written for, reachable only once C++ shipped. |
+| 11 | <a id="HLR-065: an identifier containing angle brackets is escaped"></a>`HLR-065: an identifier containing angle brackets is escaped` | — | The angle brackets appear as entities, never raw, so no identifier can open or close a tag. |
+| 12 | <a id="HLR-065: XML carrying such an identifier is well-formed"></a>`HLR-065: XML carrying such an identifier is well-formed` | — | An independent parser accepts the document, so the escaping is correct rather than merely present. |
+| 13 | <a id="HLR-056: such an identifier survives a record round trip"></a>`HLR-056: such an identifier survives a record round trip` | — | Regeneration matches a direct run, so escaping on the way out and reading on the way in agree about the identifier. |
 
 ### 3.19. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
 
@@ -600,7 +625,7 @@ Role: **fixture**. **7 test(s).**
 
 ### 3.23. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
-Role: **instrumented**. **16 test(s).**
+Role: **instrumented**. **21 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -614,12 +639,17 @@ Role: **instrumented**. **16 test(s).**
 | 8 | <a id="HLR-041: the build passes no threading flag"></a>`HLR-041: the build passes no threading flag` | — | The build never passes -pthread, which would silently license a future thread. |
 | 9 | <a id="the help block and the real target set agree"></a>`the help block and the real target set agree` | `LLR-BLD-13` | Every declared target appears in the makefile's help block and every name in that block is a real target, so the hand-maintained summary cannot drift from what the build actually offers. |
 | 10 | <a id="make help prints the block from the file's header"></a>`make help prints the block from the file's header` | `LLR-BLD-13` | The help target prints the header block itself, marker stripped, so a reader who opens the file and a reader who runs it see one text. |
-| 11 | <a id="every runtime data file the build does not produce is tracked"></a>`every runtime data file the build does not produce is tracked` | — | Every file under the runtime location that the build does not itself produce is tracked by the repository, so that a version-control ignore rule cannot silently exclude product data. `.gitignore` carries `*.map` for linker map files, which also matched the extension table: it worked locally, was absent from the clone CI made, and every parsing test then failed naming the missing file rather than the rule that hid it. |
-| 12 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
-| 13 | <a id="HLR-043: elc opens nothing for writing"></a>`HLR-043: elc opens nothing for writing` | — | No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial. |
-| 14 | <a id="HLR-076: each source file is opened exactly once"></a>`HLR-076: each source file is opened exactly once` | — | No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it. |
-| 15 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
-| 16 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
+| 11 | <a id="every grammar is linked with the scanner it requires"></a>`every grammar is linked with the scanner it requires` | `LLR-BLD-16` | No delivered grammar has an unresolved external-scanner symbol. The rule located an optional scanner with a construct make expands before running the recipe, so it looked for a file the fetch above it had not unpacked and silently found none — invisible while C, which has no scanner, was the only grammar. |
+| 12 | <a id="the grammar build takes its owner and reference as parameters"></a>`the grammar build takes its owner and reference as parameters` | `LLR-BLD-15` | The rule for a grammar hosted outside the parsing library's organisation reaches that owner, and fetches by commit rather than by tag because its upstream cuts no releases. Both would be impossible with either value hardcoded. |
+| 13 | <a id="every grammar the build declares is one the build can produce"></a>`every grammar the build declares is one the build can produce` | `LLR-BLD-15` | Each name the build lists has a rule behind it. A missing one fails only on a clean tree, which is the tree nobody builds on. |
+| 14 | <a id="check-prereqs reports every grammar against upstream"></a>`check-prereqs reports every grammar against upstream` | `LLR-BLD-17` | Each delivered language appears in the dependency report, so a pin that is immutable is not thereby invisible when it falls behind. |
+| 15 | <a id="check-prereqs survives an unreachable upstream"></a>`check-prereqs survives an unreachable upstream` | `LLR-BLD-17` | An unreachable upstream reports "unknown" rather than failing or hanging: the report is a diagnostic a person runs, not a gate. |
+| 16 | <a id="every runtime data file the build does not produce is tracked"></a>`every runtime data file the build does not produce is tracked` | — | Every file under the runtime location that the build does not itself produce is tracked by the repository, so that a version-control ignore rule cannot silently exclude product data. `.gitignore` carries `*.map` for linker map files, which also matched the extension table: it worked locally, was absent from the clone CI made, and every parsing test then failed naming the missing file rather than the rule that hid it. |
+| 17 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
+| 18 | <a id="HLR-043: elc opens nothing for writing"></a>`HLR-043: elc opens nothing for writing` | — | No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial. |
+| 19 | <a id="HLR-076: each source file is opened exactly once"></a>`HLR-076: each source file is opened exactly once` | — | No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it. |
+| 20 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
+| 21 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 
 ### 3.24. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
@@ -913,6 +943,9 @@ verified by code review — see
 | `LLR-BLD-12` | `build_configuration` | `HLR-040`, `HLR-011`, `HLR-009` | **(no direct test)** |
 | `LLR-BLD-13` | `build_configuration` | `HLR-128` | `the help block and the real target set agree`, `make help prints the block from the file's header` |
 | `LLR-BLD-14` | `build_configuration` | `HLR-035`, `HLR-013` | **(no direct test)** |
+| `LLR-BLD-15` | `build_configuration` | `HLR-010`, `HLR-011` | `the grammar build takes its owner and reference as parameters`, `every grammar the build declares is one the build can produce` |
+| `LLR-BLD-16` | `build_configuration` | `HLR-009`, `HLR-011` | `every grammar is linked with the scanner it requires` |
+| `LLR-BLD-17` | `build_configuration` | `HLR-011` | `check-prereqs reports every grammar against upstream`, `check-prereqs survives an unreachable upstream` |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | **(no direct test)** |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |

@@ -19,7 +19,7 @@ is ready to start.
 | [3](#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | ✅ Complete |
 | [4](#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
 | [5](#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | ✅ Complete |
-| [6](#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | 🔲 Not started |
+| [6](#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | ✅ Complete |
 | [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | 🔲 Not started |
 | [8](#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | 🔲 Not started |
 | [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | 🔲 Not started |

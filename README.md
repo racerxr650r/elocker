@@ -18,14 +18,14 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 5 is complete.** `elc src/` reports **effective lines of code** and
-**cyclomatic complexity** per function, as an aligned table, Markdown, CSV, or
-XML — and can rebuild the report later from the XML alone, byte-identically,
-at whatever threshold you ask then. The two human-facing formats are one
-traversal of one model, so a tier cannot appear in one and be forgotten in the
-other. More languages are next, in Phase 6.
+**Phase 6 is complete.** `elc src/` reports **effective lines of code** and
+**cyclomatic complexity** per function across **C, C++, Rust, Python, and
+Ada**, in one invocation over a mixed target, as a table, Markdown, CSV, or
+XML. Those four languages were added *without one line of change under
+`src/`* — which is the extensibility claim demonstrated rather than asserted.
+The System Dependence Graph is next, from Phase 7.
 
-**Progress: 6 of 16 phases complete.**
+**Progress: 7 of 16 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -38,7 +38,7 @@ other. More languages are next, in Phase 6.
 | [3](doc/SDP.md#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | ✅ Complete |
 | [4](doc/SDP.md#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
 | [5](doc/SDP.md#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | ✅ Complete |
-| [6](doc/SDP.md#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | 🔲 Not started |
+| [6](doc/SDP.md#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | ✅ Complete |
 | [7](doc/SDP.md#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | 🔲 Not started |
 | [8](doc/SDP.md#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | 🔲 Not started |
 | [9](doc/SDP.md#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | 🔲 Not started |
@@ -172,7 +172,7 @@ documents below are generated from it.
 | [PVD.md](doc/PVD.md) | *Why* does this exist, who is it for, how do we know it is succeeding? |
 | [HLRs.md](doc/HLRs.md) | *What* must it do — 129 high-level requirements |
 | [SDD.md](doc/SDD.md) | *How is it structured* — modules, data, algorithms, dependency selection |
-| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 281 low-level requirements |
+| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 284 low-level requirements |
 | [STP.md](doc/STP.md) | *How is it verified* — test levels, fixtures, the sanitizer gate |
 | [Traceability.md](doc/Traceability.md) | *Where are the gaps*, end to end |
 | [SDP.md](doc/SDP.md) | *How is it built* — the 16 phases below |
