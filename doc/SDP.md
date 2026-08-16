@@ -8,10 +8,11 @@
 mutual recursion, and reports the deepest call chain in full from
 user-declared entry points — omitting what it cannot honestly answer rather
 than guessing; 458 catalogued tests verify 214 requirements and the coverage
-baseline stands at 228 — *raised* from 210, not lowered, because this change
-specifies the conditional-compilation requirements HLR-131 to HLR-136 and they
-have no tests until Phase 15 builds them. Phase 10 — reachability and global
-state — is ready to start.
+baseline stands at 239 — *raised*, not lowered, because two specification
+changes landed without their implementations: the conditional-compilation
+requirements HLR-131 to HLR-136, which Phase 15 builds, and the dead-code
+requirements HLR-137 to HLR-139, which Phase 10 does. Phase 10 — dead code,
+reachability, and global state — is ready to start.
 
 ## Status
 
@@ -27,7 +28,7 @@ state — is ready to start.
 | [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
 | [8](#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
 | [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
-| [10](#phase-10--reachability-and-global-state) | Dead code, global coupling, hidden channels, scopes | 🔲 Not started |
+| [10](#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | 🔲 Not started |
 | [11](#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | 🔲 Not started |
 | [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
 | [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |
@@ -1019,14 +1020,26 @@ before you push. Close by opening the issue for Phase 10
 from §8.
 ```
 
-### Phase 10 — Reachability and Global State
+### Phase 10 — Dead Code, Reachability, and Global State
 
 1. Root-set construction — declared entry points ∪ address-taken functions.
 2. Forward reachability; unreachable functions and unreachable globals.
-3. Global access mapping; scope-reduction and hidden-channel classification.
-4. Execution-scope declaration and cross-scope access reporting.
+3. **Intra-procedural dead code** — `deadcode.scm` per language, the
+   terminator/re-entry sibling walk, and literal-condition branches.
+4. Global access mapping; scope-reduction and hidden-channel classification.
+5. Execution-scope declaration and cross-scope access reporting.
 
-**Requirements:** HLR-091, HLR-092, HLR-093, HLR-094, HLR-096, HLR-097.
+**Requirements:** HLR-091, HLR-092, HLR-093, HLR-094, HLR-096, HLR-097,
+HLR-137, HLR-138, HLR-139.
+
+**Why the two dead-code analyses land together.** They share nothing
+mechanically — one is a graph traversal needing the whole project, the other
+a syntax query needing one function — and deliverable 3 could have been built
+any time since Phase 4. They are here because they share a *report section*
+and a user question: "what code does not run?" Splitting them across phases
+would ship half an answer, then change the shape of the section that carries
+it. If this phase proves oversized, deliverable 3 is the clean split: it
+depends on nothing else here, and its fixtures stand alone.
 
 **Acceptance:** A clique of unused functions calling one another is reported
 unreachable. **A function reachable only through an address-taken pointer is
@@ -1035,14 +1048,22 @@ plausible. A global touched by one function is flagged for scope reduction; a
 global spanning disconnected regions is flagged as a hidden channel. With no
 entry points declared, nothing is reported unreachable.
 
+For the intra-procedural half: statements after a `return`, `break`, or
+`continue` are reported; **a `goto` label following a `return` is not**, and
+neither is a branch guarded by a variable holding a constant — the two
+false-positive cases that decide whether this analysis can be trusted. `if
+(0)` and the `else` of `if (1)` are reported. A file whose language supplies
+no `deadcode.scm` is reported as *not analysed*, never as clean.
+
 **AI prompt.** Run after issue #<N> exists; `<N>` is its number.
 
 ```text
 Implement **Phase 10 — Reachability and Global State**, tracked by
 issue #<N>. Depends on Phase 9's entry-point declaration.
 
-Read first: `doc/SDD.md` §11 (`state.c`), LLR groups `LLR-RTS`, `LLR-RCH`,
-`LLR-UGL`, `LLR-GLB`, `LLR-ISO`.
+Read first: `doc/SDD.md` §11 (`state.c`) and §7 (`collect_dead_code` in
+`analyze.c`), LLR groups `LLR-RTS`, `LLR-RCH`, `LLR-UGL`, `LLR-GLB`,
+`LLR-ISO`, `LLR-DED`.
 
 Watch for — one item here decides whether the product's headline claim is
 sound:
@@ -1057,6 +1078,26 @@ sound:
   the case textual linters get wrong, and the reason this analysis exists.
 * Globals accessed only by unreachable functions are themselves unreachable.
 * With no entry points declared, report **nothing** unreachable.
+
+And for the intra-procedural half, where the danger is the opposite one:
+* **A false claim of dead code is worse than a missed one.** A missed
+  statement costs a cleanup opportunity; a false claim invites deleting code
+  that runs. Where the two cannot both be had, report nothing (HLR-138).
+* **A label following a `return` is reachable.** It is a *sibling* of the
+  return in the tree and looks exactly like dead code to a naive sibling
+  walk. The `@dead.reentry` capture exists for it; a language module omitting
+  that pattern produces false claims, which is why the fixture group pins it.
+* **Evaluate nothing.** `if (0)` is dead because the source writes a literal.
+  `x = 0; if (x)` is not detected and must not be — that needs data flow, and
+  data flow is how this analysis would start being wrong.
+* The terminator and re-entry constructs, and what counts as a false literal,
+  are **language knowledge and belong in `deadcode.scm`**. The sibling walk
+  is structural and belongs in C. If you find yourself typing a node type
+  into a `.c` file, the split is in the wrong place.
+* `deadcode.scm` is **optional**, unlike the six required query files —
+  making it required would invalidate every language module already shipped,
+  which is precisely what HLR-121 protects against. A language without it is
+  reported as unanalysed, not as clean (HLR-139).
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

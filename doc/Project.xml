@@ -356,13 +356,14 @@ It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Alloca
       <module path="src/analyze.c">
         <purpose><![CDATA[performs the single parse of each source file and extracts everything any later stage will need from it: per-function identity and metrics, and the raw call and global-access facts from which the SDG is built. No other module reads source text.]]></purpose>
         <responsibility><![CDATA[Map the file read-only, count physical lines, and hand a zero-copy buffer to the parser. Files are opened `O_RDONLY` and mapped `PROT_READ`; no module in `src/` ever opens a source file for writing, which is how HLR-043 is satisfied structurally rather than by convention.]]></responsibility>
-        <responsibility><![CDATA[Run the comment, function, ELOC, complexity, call, and global queries against the parsed tree.]]></responsibility>
+        <responsibility><![CDATA[Run the comment, function, ELOC, complexity, call, global, and dead-code queries against the parsed tree.]]></responsibility>
         <responsibility><![CDATA[Merge comment spans and classify statements to compute ELOC per function and per file.]]></responsibility>
         <responsibility><![CDATA[Attribute each statement and decision point to its innermost enclosing reported function.]]></responsibility>
         <responsibility><![CDATA[Emit `FileFacts` — the call sites, global accesses, and address-taken functions — for later cross-file resolution.]]></responsibility>
+        <responsibility><![CDATA[Record the statements within each function that cannot execute, and whether the language supplied the data needed to look (HLR-137, HLR-139).]]></responsibility>
         <responsibility><![CDATA[Evaluate custom rule queries and record their matches.]]></responsibility>
         <interfaces>
-          <interface title="Query Capture Contract"><![CDATA[The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).]]></interface>
+          <interface title="Query Capture Contract"><![CDATA[The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).]]></interface>
         </interfaces>
         <data_structures><![CDATA[Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment merging, reused across files to avoid per-file allocation.]]></data_structures>
         <functions>
@@ -390,6 +391,21 @@ The signature above is the complete one. The `FileFacts` output arrives with the
 **A skip and a failure are different outcomes, and the return value distinguishes them.** A file whose extension maps to no usable language was never attempted: it is reported skipped and leaves the exit status at 0 (HLR-012, HLR-037). A file that was attempted and could not be read or parsed makes it 1 (HLR-035). A single non-zero return would collapse the two and make every unsupported file look like a failure.
 
 **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.]]></notes>
+          </function>
+          <function signature="int collect_dead_code(const LanguageModule *m, Registry *reg, TSNode root, const FnRangeIndex *ranges, FileFacts *facts)">
+            <purpose><![CDATA[Record every statement within a function that cannot execute (HLR-137).]]></purpose>
+            <pre><![CDATA[`ranges` holds the reported functions of this file, so each finding can be attributed to the one containing it.]]></pre>
+            <post><![CDATA[`facts` holds one span per unreachable statement, and a flag recording whether the language supplied a `deadcode.scm` at all.]]></post>
+            <returns><![CDATA[0 on success; non-zero only on allocation failure. A language with no dead-code query is not a failure (HLR-139).]]></returns>
+            <logic>
+              <step><![CDATA[If the language module supplies no dead-code query, record that fact and return. The absence is reported as "not analysed for this language", never as "none found" — the two are different claims (HLR-139).]]></step>
+              <step><![CDATA[For each `@dead.branch` capture, record the captured node's line range. The query decides what a literal condition is and which branch it excludes, because both are language-specific: `0` is false in C, `false` in Rust, `False` in Python, and a query predicate can compare the literal's text where C could not without knowing the language.]]></step>
+              <step><![CDATA[For each `@dead.terminator` capture, walk the *following named siblings* of the captured node and record each as unreachable, stopping at the first sibling carrying a `@dead.reentry` capture. Sibling traversal is structural and needs no language knowledge; what terminates a block and what can be re-entered are language knowledge, and both stay in the query file.]]></step>
+              <step><![CDATA[Attribute each recorded span to its innermost enclosing reported function, by the same rule ELOC and complexity use, so a dead statement inside a nested function belongs to that function and not to the one around it.]]></step>
+            </logic>
+            <notes><![CDATA[**The re-entry capture is what keeps the analysis sound, and it is easy to leave out.** In C a `goto` label following a `return` is a sibling of it and is perfectly reachable; recording it as dead would be a false claim of the kind HLR-138 forbids outright. The shape differs by language and even by grammar — in `tree-sitter-c` a `case` label is a *child* of the case construct rather than a sibling of the statements before it, so switch arms need no re-entry pattern there, while a `labeled_statement` does. That a grammar happens to make one case safe is not a reason to omit the pattern for the other; the `deadcode/` fixture group pins both.
+
+Nothing here evaluates an expression. A branch is dead only where the source writes a literal, which is why `if (0)` is found and `x = 0; if (x)` is not (HLR-138).]]></notes>
           </function>
           <function signature="uint32_t merge_comment_spans(SpanList *spans)" summary="Sort by start byte and coalesce overlapping and nested spans, in place; returns the number of distinct lines the merged set covers."/>
           <function signature="const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)" summary="Return the narrowest reported function containing a byte offset, or NULL when the offset lies outside every one of them. Only *reported* functions are in the index, which is what makes an anonymous callable transparent to the lookup: an offset inside one resolves to the named function around it (HLR-018)."/>
@@ -870,6 +886,14 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="calls" type="CallSite *" desc="Call sites with their enclosing function and callee name"/>
         <field name="globals" type="GlobalAccess *" desc="Global reads and writes with their enclosing function"/>
         <field name="rule_matches" type="RuleMatch *" desc="Custom rule matches with rule identity and line range"/>
+        <field name="dead" type="DeadSpan *" desc="Statements within a function that cannot execute (HLR-137)"/>
+        <field name="dead_analysed" type="bool" desc="False when the language supplied no dead-code query, so that &quot;not looked for&quot; is distinguishable from &quot;none found&quot; (HLR-139)"/>
+      </type>
+      <type name="DeadSpan" header="inc/elc.h" summary="One statement that cannot execute, and why.">
+        <field name="function" type="size_t" desc="Into FileMetrics.functions, or ELC_NO_FUNCTION for file scope"/>
+        <field name="start_line" type="uint32_t" desc="1-based"/>
+        <field name="end_line" type="uint32_t" desc="1-based; a dead branch may span many lines"/>
+        <field name="cause" type="DeadCause" desc="after-terminator or literal-condition — the reader's next action differs, so the two are not merged"/>
       </type>
       <type name="Sdg" header="inc/elc.h" summary="The System Dependence Graph and the tables needed to interpret it.">
         <field name="graph" type="void *" desc="Opaque handle to the graph library's structure"/>
@@ -1149,9 +1173,14 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="expected" label="Expected" path="`expected.tsv` — per-function attribution showing no statement counted twice"/>
         <artefact key="verifies" label="Verifies" path="HLR-014, HLR-018, HLR-067, HLR-068"/>
       </fixture>
+      <fixture name="`deadcode/`" source="[test/fixtures/deadcode/](../test/fixtures/deadcode/)">
+        <artefact key="inputs" label="Inputs" path="Statements after a `return`, a `break`, and a `continue`; a `goto` label following a `return`, which is reachable and must not be reported; a switch whose arms each end in `return`; `if (0)`, `if (1) … else`, and a loop with a literally false condition; a variable holding a constant used as a condition, which must **not** be reported; dead statements inside an unreachable function; a file in a language whose module supplies no dead-code query"/>
+        <artefact key="expected" label="Expected" path="The exact set of unreachable statements with their line ranges and causes — and, as importantly, the exact set of constructs that are *not* reported. The false-positive cases carry the weight: a missed statement costs a cleanup, a false claim invites deleting code that runs"/>
+        <artefact key="verifies" label="Verifies" path="HLR-013, HLR-096, HLR-121, HLR-137, HLR-138, HLR-139"/>
+      </fixture>
       <fixture name="`calltree/`" source="[test/fixtures/calltree/](../test/fixtures/calltree/)">
         <artefact key="inputs" label="Inputs" path="One function per fan-out band boundary — 2, 3, 7, 8, 10, 11, 15, 16 — each also calling one helper twice; a four-deep call chain with a shallower branch listed first; direct and mutual recursion in their smallest forms"/>
-        <artefact key="expected" label="Expected" path="The exact fan-out at every boundary, the deepest chain as an ordered sequence, both recursive cycles by kind and members, and the stated reason wherever a depth figure is absent"/>
+        <artefact key="expected" label="Expected" path="The exact fan-out at every boundary, the deepest chain as an ordered sequence, both recursive cycles by kind and members, and the stated reason wherever a depth figure is absent. Phase 12 adds `expected-findings.tsv`, the band each boundary value falls in — which is why the values are pinned here first"/>
         <artefact key="verifies" label="Verifies" path="HLR-032, HLR-033, HLR-038, HLR-056, HLR-077, HLR-085, HLR-087 – HLR-090, HLR-095, HLR-115"/>
       </fixture>
       <fixture name="`graph/`" source="[test/fixtures/graph/](../test/fixtures/graph/)">
@@ -1163,11 +1192,6 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="inputs" label="Inputs" path="A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all"/>
         <artefact key="expected" label="Expected" path="`expected-findings.tsv`, with the hand-computed `Ca`, `Ce`, and instability table, and the omission notice for the undeclared run"/>
         <artefact key="verifies" label="Verifies" path="HLR-078 – HLR-082, HLR-094, HLR-114, HLR-115, HLR-118"/>
-      </fixture>
-      <fixture name="`calltree/`" source="[test/fixtures/calltree/](../test/fixtures/calltree/)">
-        <artefact key="inputs" label="Inputs" path="Functions with fan-out at each band boundary — 2, 3, 7, 8, 10, 11, 15, and 16; a chain of known depth; a chain continuing through an unresolved indirect call; a recursive cycle"/>
-        <artefact key="expected" label="Expected" path="`expected-findings.tsv` — the classification of every boundary value, the deepest chain in full, and the recursion report standing in place of a depth figure"/>
-        <artefact key="verifies" label="Verifies" path="HLR-085 – HLR-090, HLR-086's exhaustive bands in particular"/>
       </fixture>
       <fixture name="`rules/`" source="[test/fixtures/rules/](../test/fixtures/rules/)">
         <artefact key="inputs" label="Inputs" path="A valid rule file with several named captures, supplied both from the runtime location and from the command line; a rule naming a language with no module"/>
@@ -2090,7 +2114,9 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
     </section>
 
     <section number="13" title="Global State and Reachability Analysis">
-      <intro><![CDATA[Requirements governing `elc`'s analysis of shared-state coupling and of reachability-proven dead code (PVD §7.1, Appendix A.4).]]></intro>
+      <intro><![CDATA[Requirements governing `elc`'s analysis of shared-state coupling and of dead code (PVD §7.1, Appendix A.4).
+
+Dead code is reported at two scales, by two different means, and the distinction is worth holding onto. **Between** functions it is a question about the call graph: a function no path reaches from any entry point is unreachable, and that is proved by traversal (HLR-096, HLR-097). **Within** a function it is a question about syntax: a statement after a `return`, or the body of an `if` whose condition is written `0`, cannot execute whatever the graph says, and that is established from the syntax tree alone (HLR-137). A function may be perfectly reachable and still contain code that is not, so neither analysis subsumes the other and both are reported.]]></intro>
 
       <hlr id="HLR-091" name="Global Access Mapping">
         <text><![CDATA[For every global variable or fixed memory address represented in the SDG (HLR-074), `elc` shall report the set of functions that write it and the set of functions that read it.]]></text>
@@ -2141,6 +2167,37 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <text><![CDATA[The unreachability of HLR-096 shall be established solely by graph reachability, never by textual or heuristic means; in particular, a group of unused functions that call one another shall be correctly reported as unreachable, since no path reaches the group from any declared entry point.]]></text>
       <traces>
         <trace target="SDD" ref="11"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-137" name="Intra-Procedural Dead Code Detection">
+        <text><![CDATA[Within each analysed function, `elc` shall detect and report every statement that cannot execute, and shall report each with its file, its enclosing function, and its line range so that it can be located and removed. Two classes shall be detected:
+
+*   **Statements following a terminator.** Where control leaves a block unconditionally — by returning, breaking, continuing, or transferring control — every statement after that point in the same block is unreachable, up to the first construct that can be entered other than by falling through it, such as a label or a switch case.
+*   **Branches disabled by a literal condition.** Where a condition is written as a literal whose value is fixed by the source text, the branch that value excludes is unreachable: the body of `if (0)` and of a loop whose condition is literally false, and the alternative of `if (1)`.
+
+This analysis is independent of the reachability of HLR-096: a function reached from an entry point may contain unreachable statements, and a function that is itself unreachable may contain none. Both shall be reported, and a statement shall not be omitted from this analysis because the function containing it was reported unreachable.]]></text>
+      <traces>
+        <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="13"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-138" name="Dead Code Within Functions Determined Syntactically">
+        <text><![CDATA[The unreachability of HLR-137 shall be established from the syntax tree alone. `elc` shall perform no data-flow analysis, no constant propagation, and no evaluation of expressions: a condition is a literal only where the source writes a literal, so `if (0)` is detected and `x = 0; if (x)` is not, and a branch guarded by a variable is never claimed to be dead however clearly its value can be inferred by a reader.
+
+The consequence is deliberate and asymmetric. `elc` will **miss** dead code that only data-flow analysis could prove, and shall never **claim** dead code that is live. A missed statement costs a cleanup opportunity; a false claim invites the removal of code that runs, which is a defect this tool would have introduced. Where the two cannot both be had, the analysis shall report nothing rather than report a guess.]]></text>
+      <traces>
+        <trace target="SDD" ref="7"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-139" name="Dead-Code Support Is Per Language and Its Absence Is Stated">
+        <text><![CDATA[The constructs that terminate a block, the constructs that can be entered without falling through, and the literals that fix a condition are properties of a language and shall be supplied as runtime data by its language module, never compiled into the executable (HLR-010, HLR-121). A language module that supplies no such data is valid: `elc` shall analyse files in that language for every other measurement, and shall report that dead-code analysis was not performed for that language rather than reporting that none was found. The two are different claims, and a reader who cannot tell them apart has been told nothing.]]></text>
+      <traces>
+        <trace target="SDD" ref="6"/>
+        <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="13"/>
       </traces>
       </hlr>
     </section>
@@ -3380,7 +3437,50 @@ Note on the division of labour, which determines where a failure lives: the requ
 
     </function>
 
-    <function number="15" title="`merge_comment_spans` ([src/analyze.c](../src/analyze.c))" name="merge_comment_spans" source="src/analyze.c">
+    <function number="15" title="`collect_dead_code` ([src/analyze.c](../src/analyze.c))" name="collect_dead_code" source="src/analyze.c">
+      <llr id="LLR-DED-01">
+        <text><![CDATA[`collect_dead_code` shall record, as unreachable, every named sibling following a statement captured as a block terminator, within the same parent, stopping at the first sibling captured as a re-entry point.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DED-02">
+        <text><![CDATA[`collect_dead_code` shall record, as unreachable, the branch captured as excluded by a literal condition.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DED-03">
+        <text><![CDATA[`collect_dead_code` shall determine unreachability from captured syntax alone, evaluating no expression and propagating no constant, so that a branch guarded by a variable is never recorded however evidently its value could be inferred.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-138" name="Dead Code Within Functions Determined Syntactically"/>
+          <trace target="HLR" ref="HLR-013"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DED-04">
+        <text><![CDATA[`collect_dead_code` shall attribute each recorded span to the innermost reported function containing it, by the rule ELOC and complexity already use.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+          <trace target="HLR" ref="HLR-068"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DED-05">
+        <text><![CDATA[`collect_dead_code` shall record, for each file, whether its language supplied a dead-code query, and shall treat its absence as an unanalysed language rather than as a file containing no dead code.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-139" name="Dead-Code Support Is Per Language and Its Absence Is Stated"/>
+          <trace target="HLR" ref="HLR-121" name="Language Module Interface Is a Stable Contract"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DED-06">
+        <text><![CDATA[`collect_dead_code` shall record a statement's unreachability independently of whether the function containing it is reachable, so that neither dead-code analysis suppresses the other.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+          <trace target="HLR" ref="HLR-096"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="16" title="`merge_comment_spans` ([src/analyze.c](../src/analyze.c))" name="merge_comment_spans" source="src/analyze.c">
       <intro><![CDATA[The comment-deduction algorithm. A naive implementation is silently wrong on nested comment syntax.]]></intro>
       <llr id="LLR-MRG-01">
         <text><![CDATA[`merge_comment_spans` shall sort the captured comment spans by start position before any span is excluded.]]></text>
@@ -3419,7 +3519,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 
     </function>
 
-    <function number="16" title="`innermost_enclosing` ([src/analyze.c](../src/analyze.c))" name="innermost_enclosing" source="src/analyze.c">
+    <function number="17" title="`innermost_enclosing` ([src/analyze.c](../src/analyze.c))" name="innermost_enclosing" source="src/analyze.c">
       <llr id="LLR-INN-01">
         <text><![CDATA[`innermost_enclosing` shall return the narrowest reported function whose byte range contains the given offset.]]></text>
         <traces>
@@ -3435,7 +3535,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="17" title="`graph_build` ([src/graph.c](../src/graph.c))" name="graph_build" source="src/graph.c">
+    <function number="18" title="`graph_build` ([src/graph.c](../src/graph.c))" name="graph_build" source="src/graph.c">
       <intro><![CDATA[Cross-file resolution of the per-file facts into the System Dependence Graph.]]></intro>
       <llr id="LLR-SDG-01">
         <text><![CDATA[`graph_build` shall assign every function discovered across all analysed files a node in the graph.]]></text>
@@ -3552,7 +3652,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
     </function>
-    <function number="18" title="`arch_analyse` ([src/arch.c](../src/arch.c))" name="arch_analyse" source="src/arch.c">
+    <function number="19" title="`arch_analyse` ([src/arch.c](../src/arch.c))" name="arch_analyse" source="src/arch.c">
       <intro><![CDATA[Component-level analyses over the SDG's component projection.]]></intro>
       <llr id="LLR-ARC-01">
         <text><![CDATA[`arch_analyse` shall identify as an architectural bottleneck every component whose afferent and efferent coupling are each greater than or equal to the configured bottleneck threshold.]]></text>
@@ -3581,7 +3681,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="19" title="`compute_coupling` ([src/arch.c](../src/arch.c))" name="compute_coupling" source="src/arch.c">
+    <function number="20" title="`compute_coupling` ([src/arch.c](../src/arch.c))" name="compute_coupling" source="src/arch.c">
       <llr id="LLR-CPL-01">
         <text><![CDATA[`compute_coupling` shall compute, for every component, the number of components depending upon it as its afferent coupling.]]></text>
         <traces>
@@ -3602,7 +3702,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="20" title="`instability` ([src/arch.c](../src/arch.c))" name="instability" source="src/arch.c">
+    <function number="21" title="`instability` ([src/arch.c](../src/arch.c))" name="instability" source="src/arch.c">
       <llr id="LLR-INS-01">
         <text><![CDATA[`instability` shall compute the Instability metric as efferent coupling divided by the sum of efferent and afferent coupling.]]></text>
         <traces>
@@ -3624,7 +3724,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="21" title="`find_cycles` ([src/arch.c](../src/arch.c))" name="find_cycles" source="src/arch.c">
+    <function number="22" title="`find_cycles` ([src/arch.c](../src/arch.c))" name="find_cycles" source="src/arch.c">
       <llr id="LLR-CYC-01">
         <text><![CDATA[`find_cycles` shall detect every cyclic dependency between components by topological analysis of the component projection.]]></text>
         <traces>
@@ -3653,7 +3753,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="22" title="`check_strata` ([src/arch.c](../src/arch.c))" name="check_strata" source="src/arch.c">
+    <function number="23" title="`check_strata` ([src/arch.c](../src/arch.c))" name="check_strata" source="src/arch.c">
       <llr id="LLR-LAY-01">
         <text><![CDATA[`check_strata` shall report every call that bypasses one or more intervening declared layers, identifying the calling function, the called function, and the layers crossed.]]></text>
         <traces>
@@ -3675,7 +3775,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="23" title="`calltree_analyse` ([src/calltree.c](../src/calltree.c))" name="calltree_analyse" source="src/calltree.c">
+    <function number="24" title="`calltree_analyse` ([src/calltree.c](../src/calltree.c))" name="calltree_analyse" source="src/calltree.c">
       <intro><![CDATA[Function-level call-tree measurements: width, height, the deepest stack, and recursion.]]></intro>
       <llr id="LLR-CTR-01">
         <text><![CDATA[`calltree_analyse` shall compute, for every function, the number of distinct subroutines it invokes directly.]]></text>
@@ -3742,7 +3842,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="24" title="`longest_path_dag` ([src/calltree.c](../src/calltree.c))" name="longest_path_dag" source="src/calltree.c">
+    <function number="25" title="`longest_path_dag` ([src/calltree.c](../src/calltree.c))" name="longest_path_dag" source="src/calltree.c">
       <llr id="LLR-LPD-01">
         <text><![CDATA[`longest_path_dag` shall compute the longest path from the declared entry points by memoised traversal in reverse topological order.]]></text>
         <traces>
@@ -3771,7 +3871,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="25" title="`state_analyse` ([src/state.c](../src/state.c))" name="state_analyse" source="src/state.c">
+    <function number="26" title="`state_analyse` ([src/state.c](../src/state.c))" name="state_analyse" source="src/state.c">
       <intro><![CDATA[Global-state coupling, execution-scope isolation, and reachability.]]></intro>
       <llr id="LLR-STA-01">
         <text><![CDATA[`state_analyse` shall omit the reachability analysis, and record the omission with its reason, when no entry points were declared, and shall in no circumstance report every function as unreachable for want of a declaration.]]></text>
@@ -3789,7 +3889,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="26" title="`classify_globals` ([src/state.c](../src/state.c))" name="classify_globals" source="src/state.c">
+    <function number="27" title="`classify_globals` ([src/state.c](../src/state.c))" name="classify_globals" source="src/state.c">
       <llr id="LLR-GLB-01">
         <text><![CDATA[`classify_globals` shall report, for every global object, the set of functions that write it and the set that read it.]]></text>
         <traces>
@@ -3818,7 +3918,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="27" title="`collect_roots` ([src/state.c](../src/state.c))" name="collect_roots" source="src/state.c">
+    <function number="28" title="`collect_roots` ([src/state.c](../src/state.c))" name="collect_roots" source="src/state.c">
       <llr id="LLR-RTS-01">
         <text><![CDATA[`collect_roots` shall form the reachability root set as the union of the declared entry points and every function whose address is taken without being directly called.]]></text>
         <traces>
@@ -3835,7 +3935,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="28" title="`reachability` ([src/state.c](../src/state.c))" name="reachability" source="src/state.c">
+    <function number="29" title="`reachability` ([src/state.c](../src/state.c))" name="reachability" source="src/state.c">
       <llr id="LLR-RCH-01">
         <text><![CDATA[`reachability` shall traverse the graph forward from the root set and report every function not visited as unreachable.]]></text>
         <traces>
@@ -3856,7 +3956,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="29" title="`unreachable_globals` ([src/state.c](../src/state.c))" name="unreachable_globals" source="src/state.c">
+    <function number="30" title="`unreachable_globals` ([src/state.c](../src/state.c))" name="unreachable_globals" source="src/state.c">
       <llr id="LLR-UGL-01">
         <text><![CDATA[`unreachable_globals` shall report as unreachable every global object accessed solely by functions that are themselves unreachable.]]></text>
         <traces>
@@ -3865,7 +3965,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="30" title="`check_scopes` ([src/state.c](../src/state.c))" name="check_scopes" source="src/state.c">
+    <function number="31" title="`check_scopes` ([src/state.c](../src/state.c))" name="check_scopes" source="src/state.c">
       <llr id="LLR-ISO-01">
         <text><![CDATA[`check_scopes` shall report every call edge and every global-state edge by which one declared execution scope reaches a function or object belonging to another.]]></text>
         <traces>
@@ -3873,7 +3973,7 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
     </function>
-    <function number="31" title="`thresholds_apply` ([src/thresholds.c](../src/thresholds.c))" name="thresholds_apply" source="src/thresholds.c">
+    <function number="32" title="`thresholds_apply` ([src/thresholds.c](../src/thresholds.c))" name="thresholds_apply" source="src/thresholds.c">
       <intro><![CDATA[Evaluation of every measurement against the published threshold catalogue, and assignment of severity and attribution.]]></intro>
       <llr id="LLR-THR-01">
         <text><![CDATA[`thresholds_apply` shall evaluate every architectural measurement against the published threshold catalogue and report where the measurement falls relative to the accepted range.]]></text>
@@ -3938,7 +4038,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="32" title="`report_assemble` ([src/report.c](../src/report.c))" name="report_assemble" source="src/report.c">
+    <function number="33" title="`report_assemble` ([src/report.c](../src/report.c))" name="report_assemble" source="src/report.c">
       <intro><![CDATA[The single place every reported collection is ordered. The audit point for determinism.]]></intro>
       <llr id="LLR-RPT-01">
         <text><![CDATA[`report_assemble` shall compute the combined project totals of physical lines and ELOC across every analysed file.]]></text>
@@ -4037,6 +4137,15 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-RPT-26">
+        <text><![CDATA[`report_assemble` shall present the unreachable statements of HLR-137 as their own tier, ordered by file then by start line, and shall name the languages for which dead-code analysis was not performed rather than leaving their absence to be read as a clean result (HLR-139).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+          <trace target="HLR" ref="HLR-139" name="Dead-Code Support Is Per Language and Its Absence Is Stated"/>
+          <trace target="HLR" ref="HLR-033" name="Traversal-Order Independence"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-RPT-25">
         <text><![CDATA[The report shall state, wherever a depth figure is absent, which of the three reasons applies: the call graph is recursive and no finite depth exists; no entry points were declared; or the declared entry points name no analysed function. An absence with no stated cause is indistinguishable from a measurement of zero (HLR-115).]]></text>
         <traces>
@@ -4131,7 +4240,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 
     </function>
 
-    <function number="33" title="`format_table` ([src/format_text.c](../src/format_text.c))" name="format_table" source="src/format_text.c">
+    <function number="34" title="`format_table` ([src/format_text.c](../src/format_text.c))" name="format_table" source="src/format_text.c">
       <llr id="LLR-TBL-01">
         <text><![CDATA[`format_table` shall render the report as an aligned, human-readable table, computing column widths from the longest path and function name.]]></text>
         <traces>
@@ -4152,7 +4261,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="34" title="`format_markdown` ([src/format_text.c](../src/format_text.c))" name="format_markdown" source="src/format_text.c">
+    <function number="35" title="`format_markdown` ([src/format_text.c](../src/format_text.c))" name="format_markdown" source="src/format_text.c">
       <llr id="LLR-MKD-01">
         <text><![CDATA[`format_markdown` shall render the report as GitHub-Flavored Markdown, grouping functions under a heading for the file containing them.]]></text>
         <traces>
@@ -4161,7 +4270,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="35" title="`render_summary` ([src/format_text.c](../src/format_text.c))" name="render_summary" source="src/format_text.c">
+    <function number="36" title="`render_summary` ([src/format_text.c](../src/format_text.c))" name="render_summary" source="src/format_text.c">
       <llr id="LLR-SUM-01">
         <text><![CDATA[`render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion.]]></text>
         <traces>
@@ -4199,7 +4308,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="36" title="`format_csv` ([src/format_csv.c](../src/format_csv.c))" name="format_csv" source="src/format_csv.c">
+    <function number="37" title="`format_csv` ([src/format_csv.c](../src/format_csv.c))" name="format_csv" source="src/format_csv.c">
       <llr id="LLR-CSV-01">
         <text><![CDATA[`format_csv` shall emit one record per function over the complete dataset, unfiltered by the complexity threshold.]]></text>
         <traces>
@@ -4215,7 +4324,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="37" title="`write_field` ([src/format_csv.c](../src/format_csv.c))" name="write_field" source="src/format_csv.c">
+    <function number="38" title="`write_field` ([src/format_csv.c](../src/format_csv.c))" name="write_field" source="src/format_csv.c">
       <llr id="LLR-FLD-01">
         <text><![CDATA[`write_field` shall quote and escape every field whose value contains a comma, a double-quote character, or a line break, in accordance with RFC 4180.]]></text>
         <traces>
@@ -4230,7 +4339,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="38" title="`xml_write_report` ([src/format_xml.c](../src/format_xml.c))" name="xml_write_report" source="src/format_xml.c">
+    <function number="39" title="`xml_write_report` ([src/format_xml.c](../src/format_xml.c))" name="xml_write_report" source="src/format_xml.c">
       <llr id="LLR-XWR-01">
         <text><![CDATA[`xml_write_report` shall emit the complete dataset of a run, unfiltered by the complexity threshold.]]></text>
         <traces>
@@ -4274,6 +4383,15 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-XWR-09">
+        <text><![CDATA[`xml_write_report` shall write every unreachable statement to the record with its file, function, line range, and cause, together with the set of languages for which the analysis was not performed, and `xml_read_report` shall restore them. Regeneration has no syntax tree and cannot find them again.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-054" name="Complete Analysis Record"/>
+          <trace target="HLR" ref="HLR-056" name="Regeneration Fidelity"/>
+          <trace target="HLR" ref="HLR-137" name="Intra-Procedural Dead Code Detection"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-XWR-08">
         <text><![CDATA[`xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one.]]></text>
         <traces>
@@ -4298,7 +4416,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="39" title="`write_escaped` ([src/format_xml.c](../src/format_xml.c))" name="write_escaped" source="src/format_xml.c">
+    <function number="40" title="`write_escaped` ([src/format_xml.c](../src/format_xml.c))" name="write_escaped" source="src/format_xml.c">
       <llr id="LLR-ESC-01">
         <text><![CDATA[`write_escaped` shall escape every character carrying structural meaning in XML, so that an identifier or path containing such a character cannot render the document unparseable.]]></text>
         <traces>
@@ -4313,7 +4431,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="40" title="`xml_read_report` ([src/format_xml.c](../src/format_xml.c))" name="xml_read_report" source="src/format_xml.c">
+    <function number="41" title="`xml_read_report` ([src/format_xml.c](../src/format_xml.c))" name="xml_read_report" source="src/format_xml.c">
       <llr id="LLR-XRD-01">
         <text><![CDATA[`xml_read_report` shall reconstruct a report model from a previously written record without parsing or re-analysing any source file.]]></text>
         <traces>
@@ -4394,7 +4512,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="41" title="`graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))" name="graph_dot_warranted" source="src/format_graph.c">
+    <function number="42" title="`graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))" name="graph_dot_warranted" source="src/format_graph.c">
       <llr id="LLR-WAR-01">
         <text><![CDATA[`graph_dot_warranted` shall return true by default, and false when the user has disabled `.dot` generation.]]></text>
         <traces>
@@ -4415,7 +4533,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="42" title="`graph_write_dot` ([src/format_graph.c](../src/format_graph.c))" name="graph_write_dot" source="src/format_graph.c">
+    <function number="43" title="`graph_write_dot` ([src/format_graph.c](../src/format_graph.c))" name="graph_write_dot" source="src/format_graph.c">
       <llr id="LLR-DOT-01">
         <text><![CDATA[`graph_write_dot` shall emit the call tree in Graphviz DOT format.]]></text>
         <traces>
@@ -4449,7 +4567,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="43" title="`node_style` ([src/format_graph.c](../src/format_graph.c))" name="node_style" source="src/format_graph.c">
+    <function number="44" title="`node_style` ([src/format_graph.c](../src/format_graph.c))" name="node_style" source="src/format_graph.c">
       <llr id="LLR-STY-01">
         <text><![CDATA[`node_style` shall annotate nodes exceeding the coupling and fan-out thresholds, the functions forming the deepest call chain, the members of each dependency and recursive cycle, unreachable functions, and functions participating in a hidden channel.]]></text>
         <traces>
@@ -4464,7 +4582,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="44" title="`graph_write_graphml` ([src/format_graph.c](../src/format_graph.c))" name="graph_write_graphml" source="src/format_graph.c">
+    <function number="45" title="`graph_write_graphml` ([src/format_graph.c](../src/format_graph.c))" name="graph_write_graphml" source="src/format_graph.c">
       <llr id="LLR-GML-01">
         <text><![CDATA[`graph_write_graphml` shall export the graph in the GraphML serialisation schema so that it may be ingested by other tools.]]></text>
         <traces>
@@ -4493,7 +4611,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="45" title="Build and Link Configuration ([Makefile](../Makefile))" name="build_configuration" source="Makefile">
+    <function number="46" title="Build and Link Configuration ([Makefile](../Makefile))" name="build_configuration" source="Makefile">
       <intro><![CDATA[Requirements satisfied by the build rather than by any single function. Verified against the produced binary rather than at runtime.]]></intro>
       <llr id="LLR-BLD-01">
         <text><![CDATA[The build shall link `elc` against no interpreter and no virtual machine, and the produced binary shall require none at execution.]]></text>
@@ -4617,7 +4735,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
     </function>
-    <function number="46" title="User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))" name="user_documentation" source="doc/elc.1">
+    <function number="47" title="User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))" name="user_documentation" source="doc/elc.1">
       <intro><![CDATA[Requirements met by the delivered documentation rather than by any function. Verified against the built binary and the install tree, in the manner of the build-configuration group.]]></intro>
       <llr id="LLR-DOC-01">
         <text><![CDATA[A `man` page for `elc` shall be delivered in section-1 roff form, and shall render without diagnostic under a standard man-page formatter.]]></text>

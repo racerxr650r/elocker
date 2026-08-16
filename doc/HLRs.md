@@ -462,7 +462,9 @@ Requirements governing `elc`'s analysis of the geometric shape of the call tree 
 
 ## 13. Global State and Reachability Analysis
 
-Requirements governing `elc`'s analysis of shared-state coupling and of reachability-proven dead code (PVD §7.1, Appendix A.4).
+Requirements governing `elc`'s analysis of shared-state coupling and of dead code (PVD §7.1, Appendix A.4).
+
+Dead code is reported at two scales, by two different means, and the distinction is worth holding onto. **Between** functions it is a question about the call graph: a function no path reaches from any entry point is unreachable, and that is proved by traversal (HLR-096, HLR-097). **Within** a function it is a question about syntax: a statement after a `return`, or the body of an `if` whose condition is written `0`, cannot execute whatever the graph says, and that is established from the syntax tree alone (HLR-137). A function may be perfectly reachable and still contain code that is not, so neither analysis subsumes the other and both are reported.
 
 *   <a id="HLR-091"></a>**HLR-091: Global Access Mapping.**
     For every global variable or fixed memory address represented in the SDG (HLR-074), `elc` shall report the set of functions that write it and the set of functions that read it.
@@ -491,6 +493,25 @@ Requirements governing `elc`'s analysis of shared-state coupling and of reachabi
 *   <a id="HLR-097"></a>**HLR-097: Dead Code Determined by Graph Mathematics.**
     The unreachability of HLR-096 shall be established solely by graph reachability, never by textual or heuristic means; in particular, a group of unused functions that call one another shall be correctly reported as unreachable, since no path reaches the group from any declared entry point.
     *Trace:* [SDD Section 11](SDD.md).
+
+*   <a id="HLR-137"></a>**HLR-137: Intra-Procedural Dead Code Detection.**
+    Within each analysed function, `elc` shall detect and report every statement that cannot execute, and shall report each with its file, its enclosing function, and its line range so that it can be located and removed. Two classes shall be detected:
+
+    *   **Statements following a terminator.** Where control leaves a block unconditionally — by returning, breaking, continuing, or transferring control — every statement after that point in the same block is unreachable, up to the first construct that can be entered other than by falling through it, such as a label or a switch case.
+    *   **Branches disabled by a literal condition.** Where a condition is written as a literal whose value is fixed by the source text, the branch that value excludes is unreachable: the body of `if (0)` and of a loop whose condition is literally false, and the alternative of `if (1)`.
+
+    This analysis is independent of the reachability of HLR-096: a function reached from an entry point may contain unreachable statements, and a function that is itself unreachable may contain none. Both shall be reported, and a statement shall not be omitted from this analysis because the function containing it was reported unreachable.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-138"></a>**HLR-138: Dead Code Within Functions Determined Syntactically.**
+    The unreachability of HLR-137 shall be established from the syntax tree alone. `elc` shall perform no data-flow analysis, no constant propagation, and no evaluation of expressions: a condition is a literal only where the source writes a literal, so `if (0)` is detected and `x = 0; if (x)` is not, and a branch guarded by a variable is never claimed to be dead however clearly its value can be inferred by a reader.
+
+    The consequence is deliberate and asymmetric. `elc` will **miss** dead code that only data-flow analysis could prove, and shall never **claim** dead code that is live. A missed statement costs a cleanup opportunity; a false claim invites the removal of code that runs, which is a defect this tool would have introduced. Where the two cannot both be had, the analysis shall report nothing rather than report a guess.
+    *Trace:* [SDD Section 7](SDD.md).
+
+*   <a id="HLR-139"></a>**HLR-139: Dead-Code Support Is Per Language and Its Absence Is Stated.**
+    The constructs that terminate a block, the constructs that can be entered without falling through, and the literals that fix a condition are properties of a language and shall be supplied as runtime data by its language module, never compiled into the executable (HLR-010, HLR-121). A language module that supplies no such data is valid: `elc` shall analyse files in that language for every other measurement, and shall report that dead-code analysis was not performed for that language rather than reporting that none was found. The two are different claims, and a reader who cannot tell them apart has been told nothing.
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 13](SDD.md).
 
 ## 14. Threshold Evaluation and Severity Reporting
 

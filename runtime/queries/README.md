@@ -25,6 +25,7 @@ runtime/
     ├── functions.scm  comments.scm  complexity.scm
     ├── eloc.scm       calls.scm     globals.scm
     ├── conditionals.scm        # optional                         (HLR-134)
+    ├── deadcode.scm            # optional                         (HLR-139)
     └── rules/*.scm             # optional custom rules            (HLR-107)
 ```
 
@@ -32,11 +33,19 @@ All six query files are **required**. A module that omits one is reported as
 unusable, excluded from the run, and does not stop it (HLR-070) — it is not
 undefined behaviour, and it is not fatal.
 
-`conditionals.scm` is a **seventh, optional** file. Supplying one gains the
-language conditional-region pruning; omitting one means the language has no
-conditional compilation, which is simply true of most of them. The required
-set is unchanged by its arrival, so no module that already exists is broken
-by it.
+Two further files are **optional**, and deliberately so: making either
+required would invalidate every language module already shipped, which is the
+thing this contract exists to prevent.
+
+`conditionals.scm` gains the language conditional-region pruning. Omitting one
+means the language has no conditional compilation, which is simply true of
+most of them.
+
+`deadcode.scm` gains the language dead-code detection. A module without it is
+analysed for everything else, and `elc` reports that dead-code analysis was
+*not performed* for that language — never that none was found (HLR-139). The
+distinction matters: they are different claims, and a reader who cannot tell
+them apart has been told nothing.
 
 A query file that captures nothing is valid, and is how an unimplemented
 query is expressed. `elc` reads captures; it never asks whether a file is
@@ -65,6 +74,9 @@ a language name, a file extension, or a grammar node type — if you are typing
 | | `@conditional.literal` | A condition that is a constant, such as C's `#if 0` |
 | | `@conditional.consequence` | The region active when the condition holds |
 | | `@conditional.alternative` | The region active when it does not |
+| `deadcode.scm` | `@dead.terminator` | A statement after which control does not continue in this block |
+| | `@dead.reentry` | A construct that can be entered *without* falling into it |
+| | `@dead.branch` | A branch a literal condition excludes |
 
 ### Conditional compilation, and what it deliberately cannot do
 
@@ -87,6 +99,53 @@ in the undecided count printed beside the figures.
 A query file expresses only the *shape*: which node introduces a region, where
 its condition sits, and which branch each is. It never decides the answer.
 That is what keeps a C `#if` and a Rust `#[cfg]` the same mechanism.
+
+### Writing a `deadcode.scm`
+
+Three captures, and the second is the one that keeps the analysis honest.
+
+**`@dead.terminator`** marks a statement after which control does not continue
+— a return, a break, a continue, an unconditional transfer. `elc` walks the
+following siblings of what you capture and reports each as unreachable. You
+capture *what ends control flow*; the walk is generic and knows nothing about
+your language.
+
+**`@dead.reentry`** marks a construct reachable other than by falling into it,
+and the walk stops there. **Omitting it produces false claims of dead code.**
+In C:
+
+```c
+return 0;
+n++;          /* dead */
+done:         /* NOT dead — a goto can land here */
+    return 3;
+```
+
+A `labeled_statement` is a sibling of the `return`, so without a re-entry
+pattern `elc` would report a live label as dead and invite its deletion. Check
+your grammar rather than assuming: in `tree-sitter-c` a `case` label is a
+*child* of the switch construct rather than a sibling of the statements before
+it, so switch arms need no pattern there — but that is a property of that
+grammar, not a rule, and another may flatten them.
+
+**`@dead.branch`** marks the branch a literal condition excludes: the body of
+`if (0)`, the alternative of `if (1)`, a loop body whose condition is
+literally false. Use a predicate to test the literal's text, because what
+reads as false is yours to decide — `0` in C, `false` in Rust, `False` in
+Python:
+
+```scheme
+(if_statement
+  condition: (parenthesized_expression (number_literal) @_c)
+  consequence: (_) @dead.branch
+  (#eq? @_c "0"))
+```
+
+**Capture only what the source states.** `x = 0; if (x)` must not be captured.
+Deciding that needs data flow, `elc` performs none, and a query that tried
+would be claiming knowledge it does not have. The asymmetry is the whole
+design: missing dead code costs a cleanup, inventing it invites deleting code
+that runs.
 
 ### Rules that are easy to get wrong
 
