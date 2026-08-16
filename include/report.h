@@ -16,6 +16,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "discover.h"
 #include "elc.h"
 
 /* Files discovered but not analysed, for want of a language module. The
@@ -101,6 +102,9 @@ typedef struct {
 	FileMetrics  **files;         /* sorted by path; owned            */
 	size_t         file_count;
 	LanguageList   languages;     /* sorted by name; owned (HLR-025)  */
+	RouteList      routes;        /* per directory target (HLR-127)   */
+	size_t         unresolved_calls; /* call sites with no resolvable
+	                                  * target (HLR-077)              */
 	ThresholdList  over_threshold; /* the per-file listing (HLR-021)  */
 	uint32_t       complexity_threshold; /* the value it was built at */
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
@@ -125,8 +129,16 @@ void metrics_free(MetricsAccumulator *acc);
  * analysed yields a complete model with zero totals, which renders normally
  * (HLR-066, LLR-RPT-12). Returns 0 on success.
  */
-int report_assemble(MetricsAccumulator *acc, const ElcOptions *opts,
-                    Report *out);
+int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
+                    const ElcOptions *opts, Report *out);
+
+/* Record the count of unresolved call sites on an assembled report.
+ *
+ * Set after assembly rather than passed into it, because the graph is built
+ * *from* the assembled model — its node order is the report's file order —
+ * so the count does not exist yet when report_assemble runs (HLR-077).
+ */
+void report_set_unresolved(Report *report, size_t unresolved);
 
 /* Release the report model and everything it owns. Safe on NULL. */
 void report_free(Report *report);

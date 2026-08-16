@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<graphml xmlns="http://graphml.graphdrawing.org/xmlns">
+  <key id="g_version" for="graph" attr.name="format-version" attr.type="int"/>
+  <key id="g_unresolved" for="graph" attr.name="unresolved-calls" attr.type="int"/>
+  <key id="n_name" for="node" attr.name="name" attr.type="string"/>
+  <key id="n_file" for="node" attr.name="file" attr.type="string"/>
+  <key id="n_start" for="node" attr.name="line-start" attr.type="int"/>
+  <key id="n_end" for="node" attr.name="line-end" attr.type="int"/>
+  <key id="n_component" for="node" attr.name="component" attr.type="string"/>
+  <key id="n_eloc" for="node" attr.name="eloc" attr.type="int"/>
+  <key id="n_complexity" for="node" attr.name="complexity" attr.type="int"/>
+  <key id="n_fanout" for="node" attr.name="fan-out" attr.type="int"/>
+  <key id="n_address" for="node" attr.name="address-taken" attr.type="boolean"/>
+  <key id="e_kind" for="edge" attr.name="kind" attr.type="string"/>
+  <key id="e_global" for="edge" attr.name="global" attr.type="string"/>
+  <key id="e_sites" for="edge" attr.name="call-sites" attr.type="int"/>
+  <graph id="sdg" edgedefault="directed">
+    <data key="g_version">1</data>
+    <data key="g_unresolved">2</data>
+    <node id="n0">
+      <data key="n_name">Scale</data>
+      <data key="n_file">TREE/ambiguous.adb</data>
+      <data key="n_start">5</data>
+      <data key="n_end">8</data>
+      <data key="n_component">TREE/ambiguous.adb</data>
+      <data key="n_eloc">1</data>
+      <data key="n_complexity">1</data>
+      <data key="n_fanout">0</data>
+      <data key="n_address">false</data>
+    </node>
+    <node id="n1">
+      <data key="n_name">Drive</data>
+      <data key="n_file">TREE/ambiguous.adb</data>
+      <data key="n_start">10</data>
+      <data key="n_end">14</data>
+      <data key="n_component">TREE/ambiguous.adb</data>
+      <data key="n_eloc">2</data>
+      <data key="n_complexity">1</data>
+      <data key="n_fanout">1</data>
+      <data key="n_address">false</data>
+    </node>
+    <node id="n2">
+      <data key="n_name">bump</data>
+      <data key="n_file">TREE/core.c</data>
+      <data key="n_start">3</data>
+      <data key="n_end">6</data>
+      <data key="n_component">TREE/core.c</data>
+      <data key="n_eloc">1</data>
+      <data key="n_complexity">1</data>
+      <data key="n_fanout">0</data>
+      <data key="n_address">false</data>
+    </node>
+    <node id="n3">
+      <data key="n_name">tick</data>
+      <data key="n_file">TREE/core.c</data>
+      <data key="n_start">8</data>
+      <data key="n_end">13</data>
+      <data key="n_component">TREE/core.c</data>
+      <data key="n_eloc">3</data>
+      <data key="n_complexity">1</data>
+      <data key="n_fanout">1</data>
+      <data key="n_address">false</data>
+    </node>
+    <node id="n4">
+      <data key="n_name">report</data>
+      <data key="n_file">TREE/reader.c</data>
+      <data key="n_start">3</data>
+      <data key="n_end">6</data>
+      <data key="n_component">TREE/reader.c</data>
+      <data key="n_eloc">1</data>
+      <data key="n_complexity">1</data>
+      <data key="n_fanout">0</data>
+      <data key="n_address">true</data>
+    </node>
+    <node id="n5">
+      <data key="n_name">install</data>
+      <data key="n_file">TREE/reader.c</data>
+      <data key="n_start">8</data>
+      <data key="n_end">11</data>
+      <data key="n_component">TREE/reader.c</data>
+      <data key="n_eloc">1</data>
+      <data key="n_complexity">1</data>
+      <data key="n_fanout">0</data>
+      <data key="n_address">false</data>
+    </node>
+    <edge source="n1" target="n0">
+      <data key="e_kind">call</data>
+      <data key="e_sites">1</data>
+    </edge>
+    <edge source="n3" target="n2">
+      <data key="e_kind">call</data>
+      <data key="e_sites">2</data>
+    </edge>
+    <edge source="n3" target="n4">
+      <data key="e_kind">global</data>
+      <data key="e_global">shared_counter</data>
+    </edge>
+  </graph>
+</graphml>

@@ -5,8 +5,8 @@
  * satisfied structurally rather than by convention (doc/SDD.md §7).
  *
  * Phase 2 extracts function identity. ELOC (Phase 3), complexity (Phase 4),
- * and the graph facts (Phase 8) are added to the same traversal, at which
- * point analyze_file() also produces a FileFacts.
+ * and the graph facts (Phase 8) are added to the same traversal: analyze_file()
+ * produces a FileMetrics and a FileFacts from one parse of one file.
  */
 #ifndef ELC_ANALYZE_H
 #define ELC_ANALYZE_H
@@ -31,10 +31,22 @@ enum {
  * hands it to the metrics accumulator. On any other outcome `*out` is NULL
  * and a diagnostic has been written to stderr.
  */
-int analyze_file(Registry *reg, const char *path, FileMetrics **out);
+int analyze_file(Registry *reg, const char *path, FileMetrics **out,
+                 FileFacts **facts_out);
 
 /* Release a file's metrics and every function name it owns. Safe on NULL. */
 void filemetrics_free(FileMetrics *metrics);
+
+/* Release one file's graph facts and every string they own. Safe on NULL. */
+void filefacts_free(FileFacts *facts);
+
+/* Append one file's facts to the run's list, which takes ownership. Returns
+ * 0 on success. The list is released with factlist_free() once graph_build()
+ * has copied what it needs; it is not kept alive for the analyses (SDD §18). */
+int factlist_add(FactList *list, FileFacts *facts);
+
+/* Release the fact list and every file's facts within it. Safe on NULL. */
+void factlist_free(FactList *list);
 
 /* --------------------------------------------------------------------------
  * The two pieces of arithmetic ELOC rests on. Both are exposed because both

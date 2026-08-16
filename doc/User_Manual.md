@@ -87,7 +87,40 @@ twice.
 ### What gets discovered
 
 A target that is a regular file is analysed directly. A target that is a
-directory is walked recursively, and the walk leaves out:
+directory is discovered by one of two routes, and `elc` tells you which one it
+used — see [The discovery route](#the-discovery-route) below.
+
+#### In a Git repository
+
+If the target directory is tracked by a Git repository, `elc` analyses **the
+files tracked at `HEAD`**. That is usually what you want, and it is the reason
+the two routes exist: a source tree with a build directory in it has more
+generated code than written code, and a filesystem walk counts all of it.
+
+The consequences are worth stating plainly, because they are what makes this
+route different rather than merely faster:
+
+- **A file you have not committed is not analysed.** A new file you have
+  written but not `git add`ed is invisible to `elc`, and so is an
+  uncommitted change to a tracked file — the analysis is of the tree at
+  `HEAD`, not of your working directory.
+- **Nothing consults `.gitignore`.** Files are excluded because git does not
+  track them, which is the same answer `git ls-files` gives and is not an
+  interpretation of the ignore rules.
+- **Binary files are excluded by content**, not by name, so a tracked blob
+  that happens to end in `.c` is still left out.
+- **Naming a subdirectory analyses that subdirectory**, not the repository
+  around it.
+
+Hidden entries and binary extensions are excluded here exactly as they are
+below. Both routes answer the same question about a given directory; they
+differ only in which files they can see.
+
+#### Anywhere else
+
+If the target is not in a repository, or is in one that does not track it — a
+`.gitignore`d build directory, or anything under a version-controlled home
+directory — the directory is walked recursively, and the walk leaves out:
 
 - **hidden files and hidden directories** — anything whose name starts with a
   dot, below the target. A hidden directory named *as* the target is walked:
@@ -101,6 +134,23 @@ directory is walked recursively, and the walk leaves out:
 
 A symbolic link named *directly* as a target is the exception: it is resolved
 and its referent analysed, because naming it says which file you mean.
+
+#### The discovery route
+
+Every report names, for each directory target, which route was applied:
+
+```text
+Discovery
+  Target  Route
+  ------  ----------
+  src/    repository
+```
+
+It is there so that a surprising result can be diagnosed rather than guessed
+at. A count far smaller than you expected next to `repository` usually means
+the files are not committed; a count far larger next to `filesystem` usually
+means a build directory got swept in, and that the repository does not track
+the directory you named.
 
 Every target is checked before any of them is walked. If one is missing,
 unreadable, or is something other than a file or a directory — a socket, a
@@ -203,17 +253,23 @@ preprocessor, so a disabled block is ordinary source to it.
 
 ```
 Project summary
-  Files             2
-  Physical lines   42
-  ELOC             18
-  Functions         3
-  Skipped           1
+  Files               2
+  Physical lines     42
+  ELOC               18
+  Functions           3
+  Skipped             1
+  Unresolved calls    4
 
 Callouts
   What          Value  Where
   ------------  -----  ---------------------------------
   Largest file     12  /home/u/proj/src/a.c
   Most complex      7  parse in /home/u/proj/src/a.c
+
+Discovery
+  Target                Route
+  --------------------  ----------
+  /home/u/proj/src      repository
 
 Languages
   Language  Files  Lines  ELOC
@@ -242,10 +298,14 @@ Skipped files (no language module)
   /home/u/proj/src/notes.md
 ```
 
-Seven sections: the project totals, the callouts, those totals broken down by
-language, one row per file, one row per function, the functions at or over the
-complexity threshold, and whatever was skipped. Paths are
-canonical and absolute, and each column is padded to its longest value.
+Eight sections: the project totals, the callouts, the discovery route applied
+to each directory target, those totals broken down by language, one row per
+file, one row per function, the functions at or over the complexity threshold,
+and whatever was skipped. Paths are canonical and absolute, and each column is
+padded to its longest value.
+
+`Discovery` has a row per *directory* target only; a file named directly is
+analysed with no traversal, so there is no route to report for it.
 
 The `Languages` section is a partition of the totals, not a second count of
 them: with one language present its row equals the summary exactly.
@@ -415,6 +475,12 @@ derived from them. The totals, the callouts, the ordering, and the threshold
 listing are all worked out when the report is assembled, by the same code on
 both paths. There is no second implementation to drift.
 
+The discovery route is in the record for the same reason a measurement is:
+it is something the run observed and the report presents, and it cannot be
+worked out again later — by the time you regenerate, the tree may not be a
+repository, or may not exist. So a regenerated report still tells you how the
+files it describes were found.
+
 ### The threshold is not in the record
 
 The record stores what was measured; the threshold is what you decided about
@@ -447,6 +513,97 @@ way to tell.
 It takes no `TARGET`, and produces Markdown alone. A saved record carries the
 findings of a run rather than the graph behind them, so asking for another
 format is a usage error rather than a request quietly ignored.
+
+## The dependence graph
+
+From Phase 8 `elc` resolves the calls between your functions into one
+project-wide directed graph — the **System Dependence Graph**. Every analysis
+from here on reads it: fan-out, call depth, dead code, coupling, cycles.
+
+Nothing is re-read to build it. The graph comes from the same single parse
+that produced the metrics, which is why analysing a project costs one pass
+over each file however many questions are asked of the result.
+
+### What is in it
+
+**Nodes** are functions — the same ones the report lists.
+
+**Call edges** join a caller to a callee, across files. Two calls to the same
+helper are **one edge** carrying a count of two, not two edges. That is what
+makes fan-out the number of distinct subroutines a function invokes: a
+function calling one helper in a loop and again in its error path is coupled
+to one thing, not two.
+
+**Global edges** join a function that writes a global to every function that
+reads it. Two functions can be tightly coupled without either naming the
+other, and this is how that shows up. The two kinds of edge are kept separate
+and never merged.
+
+### Unresolved calls
+
+The project summary reports a count:
+
+```text
+Project summary
+  Files               3
+  ...
+  Unresolved calls    2
+```
+
+A call is unresolved when `elc` cannot find a definition for it in what you
+asked it to analyse — a call into a library, a system call, an indirect call
+through a pointer. **This is not an error and not a defect in your code.** A
+project that calls `printf` has unresolved calls by definition.
+
+It is reported because it tells you how complete the graph is. If you analyse
+one directory of a larger project, most calls leave it, the count is high,
+and the fan-out figures describe that directory rather than the program. If
+you expect a small number and see a large one, you probably scoped the run
+more narrowly than you meant to.
+
+`elc` never guesses at a destination. An edge that does not exist would be
+worse than a missing one: the dead-code analysis of a later phase proves that
+nothing calls a function, and one invented edge would make that proof wrong.
+
+### Exporting it
+
+```sh
+elc --graphml -o report.md src/     # writes report.md and report.graphml
+```
+
+GraphML is a standard graph format that igraph, NetworkX, Gephi and yEd all
+read, so the graph can be queried and drawn by tools that already know how.
+The export is off unless you ask for it, and its name comes from `--output`
+by substituting the extension — it takes no path of its own. With the report
+going to standard output there is no name to derive, so no file is written.
+
+The node attributes are `name`, `file`, `line-start`, `line-end`,
+`component`, `eloc`, `complexity`, `fan-out` and `address-taken`; edges carry
+`kind` (`call` or `global`), the object's name on a global edge, and
+`call-sites` on a call edge.
+
+### Where the graph is imprecise, and in which direction
+
+`elc` resolves calls by name across the files you gave it. Three consequences
+are worth knowing, because they affect how much weight to put on a number:
+
+- **A name defined twice resolves to the first definition** in sorted file
+  order, and `elc` says so on standard error. Two `static` helpers of the
+  same name in two files is ordinary C; the edge may go to the other one.
+- **A method call resolves on the method name**, not on the receiver's type.
+  Working out which class a call lands on needs type resolution, which a
+  grammar does not do.
+- **Ada writes an array index exactly like a function call.** `Table (2)`
+  and `Scale (2)` are the same syntax, and the grammar manages the ambiguity
+  rather than resolving it. In practice the index resolves against no
+  subprogram and is counted as *unresolved*, which is visible. It becomes a
+  wrong edge only if an array shares its name with a subprogram somewhere in
+  the project.
+
+`elc` does not correct for any of these, and the reason is the same each
+time: the correction would have to live in the binary and would encode one
+language's semantics there, which is exactly what makes adding a language a
+data change rather than a code change.
 
 ## Languages
 
@@ -562,6 +719,7 @@ comparable.
 | `--from-xml` | `FILE` | — | Rebuild a report from a saved record; takes no `TARGET` |
 | `-c`, `--complexity-threshold` | `N` | `15` | List functions whose complexity is `N` or greater |
 | `-o`, `--output` | `FILE` | standard output | Write the report to `FILE` |
+| `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 
 ```sh

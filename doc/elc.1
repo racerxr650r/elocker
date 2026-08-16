@@ -110,6 +110,42 @@ warrants is the caller's. A build that should fail on a breach acts on the
 report rather than expecting
 .B elc
 to exit non-zero.
+.SS The dependence graph
+.B elc
+resolves the calls between the functions it finds into one project-wide
+directed graph, the
+.BR "System Dependence Graph" .
+It is built from the same single parse that produced the metrics; no source
+file is re-read to resolve a cross-file reference.
+.PP
+Nodes are functions. A call edge joins a caller to a callee across file
+boundaries, and repeated calls between one pair collapse to a single edge
+carrying a call-site count \(em which is what makes fan-out the number of
+.I distinct
+subroutines a function invokes. A global edge joins a function that writes a
+global to every function that reads it, so coupling through shared state is
+represented alongside coupling through calls. The two kinds are never merged.
+.PP
+A call whose target is not defined within the analysis target \(em a library
+call, a system call, an indirect call through a pointer \(em is
+.IR unresolved .
+It is counted and reported in the project summary, and it is neither an error
+nor a defect: a program that calls
+.BR printf (3)
+has unresolved calls by definition. The count states how complete the graph
+is, so that a fan-out figure can be read in the knowledge of how much left
+the target. No destination is ever guessed at; an edge that does not exist
+would make a later dead-code proof unsound.
+.PP
+Calls are resolved by name. A name defined more than once resolves to its
+first definition in sorted file order, with a diagnostic naming it; a method
+call resolves on the method name rather than on the receiver's type; and in
+Ada, where the grammar cannot separate a function call from an array index,
+an index resolves against no subprogram and is counted as unresolved rather
+than becoming an edge.
+.B elc
+does not correct for any of these, because the correction would place one
+language's semantics in the executable.
 .SS Language support
 .B elc
 determines each file's language from its extension, and loads the parser and
@@ -153,11 +189,37 @@ continues over the remaining languages. Only a runtime directory that yields
 no language at all is fatal.
 .SS Discovery
 A target that is a regular file is analysed directly, with no traversal. A
-target that is a directory is walked recursively. During that walk
+target that is a directory is discovered by one of two routes.
+.PP
+When the target directory is tracked by a Git repository,
+.B elc
+analyses the files tracked at
+.BR HEAD .
+A file that is not committed is therefore not analysed, whether it was never
+added or is merely a change not yet committed; the analysis is of the tree at
+.BR HEAD ,
+not of the working directory. Files are excluded because git does not track
+them and not because
+.I .gitignore
+was consulted \(em
+.B elc
+never reads that file \(em and a tracked blob is excluded when git reports its
+content as binary, whatever its name. Naming a subdirectory analyses that
+subdirectory alone, not the repository around it.
+.PP
+When the target is in no repository, or in one that does not track it \(em a
+.IR .gitignore d
+build directory, or a directory under a version-controlled home directory \(em
+the directory is walked recursively instead.
+.PP
+By either route
 .B elc
 excludes hidden files and hidden directories, and files whose extension
 appears in
 .IR runtime/binary.exts .
+The route applied to each directory target is named in the report, so that a
+result which is unexpectedly empty, or unexpectedly larger than the target,
+can be diagnosed rather than guessed at.
 .PP
 A symbolic link encountered during the walk is not followed, so a directory
 reached through a link is never descended into and a self-referential link
@@ -207,7 +269,11 @@ to the Markdown a direct analysis would have produced at the same threshold.
 It is identical rather than merely equivalent because the record carries the
 measurements and nothing derived from them: the totals, the callouts, the
 ordering, and the threshold listing are all computed when the report is
-assembled, by the same code on both paths.
+assembled, by the same code on both paths. The discovery route applied to
+each target is in the record for the same reason a measurement is: the run
+observed it, the report presents it, and it cannot be established again later
+\(em by the time the record is read the tree may no longer be a repository, or
+may no longer exist.
 .PP
 The threshold is therefore
 .I not
@@ -269,6 +335,19 @@ Write the report to
 instead of to standard output. Diagnostics continue to go to standard error,
 so the file holds results and nothing else. The default is standard output.
 .TP
+.B \-\-graphml
+Also write the System Dependence Graph as GraphML. The file is named from the
+report's own output path by extension substitution, so an
+.B \-\-output
+of
+.I report.md
+yields
+.IR report.graphml ;
+the option takes no path of its own. Off unless requested, and with the report
+on standard output no file is written at all \(em there is no path to derive a
+name from. A companion that cannot be written is a diagnostic and a failed
+exit status, never a reason to withhold the report itself.
+.TP
 .BR \-h ", " \-\-help
 Display a usage summary on standard output and exit successfully. Requesting
 help is not an error, so the exit status is 0 rather than a failure code.
@@ -295,25 +374,32 @@ diagnostics are written to standard error. Nothing else is written to the
 results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
-The default format is an aligned table in seven sections: the project
-summary, the project-wide callouts, the totals broken down by language, one
-row per analysed file, one row per function, the functions at or over the
-complexity threshold, and the files that were skipped. Column widths are taken from the longest value in each column so the
+The default format is an aligned table in eight sections: the project
+summary, the project-wide callouts, the discovery route applied to each
+directory target, the totals broken down by language, one row per analysed
+file, one row per function, the functions at or over the complexity threshold,
+and the files that were skipped. Column widths are taken from the longest value in each column so the
 figures line up:
 .PP
 .EX
 Project summary
-  Files             2
-  Physical lines   42
-  ELOC             18
-  Functions         3
-  Skipped           1
+  Files               2
+  Physical lines     42
+  ELOC               18
+  Functions           3
+  Skipped             1
+  Unresolved calls    4
 
 Callouts
   What          Value  Where
   ------------  -----  ---------------------------------
   Largest file     12  /home/u/proj/src/a.c
   Most complex      7  parse in /home/u/proj/src/a.c
+
+Discovery
+  Target                Route
+  --------------------  ----------
+  /home/u/proj/src      repository
 
 Languages
   Language  Files  Lines  ELOC

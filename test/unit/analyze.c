@@ -77,13 +77,29 @@ static const FunctionMetric *function_named(const FileMetrics *m,
 /* ---------------------------------------------------------- measurement */
 
 /* Verifies LLR-ANL-06: physical lines are counted from the mapped contents. */
+/* analyze_file with the graph facts released on the spot.
+ *
+ * Most tests in this file are about the metrics, and threading a FileFacts
+ * through every one of them would add a variable to twenty-three call sites
+ * to say nothing. The fact tests at the end take the other path and keep
+ * them.
+ */
+static int analyze_metrics(Registry *reg, const char *path, FileMetrics **out)
+{
+	FileFacts *facts = NULL;
+	int        rc    = analyze_file(reg, path, out, &facts);
+
+	filefacts_free(facts);
+	return rc;
+}
+
 Test(analyze, physical_lines_are_counted)
 {
 	Registry     reg;
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding("int a;\nint b;\nint c;\n"),
+	cr_assert_eq(analyze_metrics(&reg, source_holding("int a;\nint b;\nint c;\n"),
 	                          &m), ANALYZE_OK);
 	cr_assert_eq(m->physical_lines, 3);
 
@@ -99,7 +115,7 @@ Test(analyze, an_unterminated_final_line_counts)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding("int a;\nint b;"), &m),
+	cr_assert_eq(analyze_metrics(&reg, source_holding("int a;\nint b;"), &m),
 	             ANALYZE_OK);
 	cr_assert_eq(m->physical_lines, 2);
 
@@ -115,7 +131,7 @@ Test(analyze, a_zero_length_file_reports_zero_without_error)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(""), &m), ANALYZE_OK,
+	cr_assert_eq(analyze_metrics(&reg, source_holding(""), &m), ANALYZE_OK,
 	             "an empty file is not an error");
 	cr_assert_eq(m->physical_lines, 0);
 	cr_assert_eq(m->function_count, 0);
@@ -133,7 +149,7 @@ Test(analyze, the_metrics_carry_the_path_and_language)
 	const char  *path = source_holding("int a;\n");
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, path, &m), ANALYZE_OK);
+	cr_assert_eq(analyze_metrics(&reg, path, &m), ANALYZE_OK);
 	cr_assert_str_eq(m->path, path);
 	cr_assert_str_eq(m->language, "c");
 
@@ -152,7 +168,7 @@ Test(analyze, a_function_is_reported_with_its_name_and_line_range)
 
 	/* Line 1 is the signature; line 4 closes the body. */
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int only(int n)\n"
 		"{\n"
 		"\treturn n;\n"
@@ -176,7 +192,7 @@ Test(analyze, a_nested_function_is_reported_in_its_own_right)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int outer(void)\n"
 		"{\n"
 		"\tint inner(int x) { return x + 1; }\n"
@@ -203,7 +219,7 @@ Test(analyze, a_prototype_is_not_a_function)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int declared(void);\n"
 		"int defined(void) { return 0; }\n"), &m), ANALYZE_OK);
 
@@ -223,7 +239,7 @@ Test(analyze, a_function_name_outlives_the_mapping)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int a_name_long_enough_to_notice(void) { return 0; }\n"), &m),
 		ANALYZE_OK);
 
@@ -246,7 +262,7 @@ Test(analyze, an_unreadable_file_is_a_failure_without_metrics)
 
 	registry_for_tests(&reg);
 	cr_assert_eq(chmod(path, 0), 0);
-	int rc = analyze_file(&reg, path, &m);
+	int rc = analyze_metrics(&reg, path, &m);
 	cr_assert_eq(chmod(path, 0600), 0);
 
 	cr_assert_eq(rc, ANALYZE_FAILED);
@@ -263,7 +279,7 @@ Test(analyze, a_file_that_fails_to_parse_is_a_failure)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int fine(void) { return 0; }\n"
 		"this is not C at all ((( \n"), &m), ANALYZE_FAILED,
 		"metrics from a damaged tree are indistinguishable from sound "
@@ -290,7 +306,7 @@ Test(analyze, an_unmapped_extension_is_a_skip_not_a_failure)
 	fputs("# not source\n", fp);
 	fclose(fp);
 
-	cr_assert_eq(analyze_file(&reg, path, &m), ANALYZE_SKIPPED);
+	cr_assert_eq(analyze_metrics(&reg, path, &m), ANALYZE_SKIPPED);
 	cr_assert_null(m);
 
 	registry_close(&reg);
@@ -479,7 +495,7 @@ Test(analyze, a_multi_line_statement_counts_once)
 
 	registry_for_tests(&reg);
 
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int f(int a, int b)\n"
 		"{\n"
 		"\treturn (a +\n"
@@ -487,7 +503,7 @@ Test(analyze, a_multi_line_statement_counts_once)
 		"\t        a);\n"
 		"}\n"), &spread), ANALYZE_OK);
 
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int f(int a, int b)\n"
 		"{\n"
 		"\treturn (a + b + a);\n"
@@ -511,7 +527,7 @@ Test(analyze, only_statements_count_toward_eloc)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"#define N 4\n"          /* directive     — excluded */
 		"int f(void)\n"
 		"{\n"                    /* lone brace    — excluded */
@@ -536,7 +552,7 @@ Test(analyze, two_statements_on_one_line_count_once)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int f(void)\n"
 		"{\n"
 		"\tint a = 1; int b = 2;\n"
@@ -557,7 +573,7 @@ Test(analyze, a_nested_functions_statements_are_not_counted_twice)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int outer(void)\n"
 		"{\n"
 		"\tint a = 1;\n"
@@ -592,7 +608,7 @@ Test(analyze, file_scope_code_counts_for_the_file_only)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int global = 1;\n"
 		"int bare;\n"
 		"int f(void)\n"
@@ -616,7 +632,7 @@ Test(analyze, a_file_with_nothing_executable_reports_zero_eloc)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"/* a comment */\n"
 		"#include <stdio.h>\n"
 		"int declared_only;\n"
@@ -637,7 +653,7 @@ Test(analyze, a_trailing_comment_does_not_remove_its_line)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int f(void)\n"
 		"{\n"
 		"\tint n = 0;   /* a note */\n"
@@ -661,7 +677,7 @@ Test(analyze, a_function_that_never_branches_is_one)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int f(int n)\n"
 		"{\n"
 		"\tint a = n;\n"
@@ -681,7 +697,7 @@ Test(analyze, each_decision_point_adds_one)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int f(int n)\n"
 		"{\n"
 		"\tif (n > 0)\n"
@@ -705,7 +721,7 @@ Test(analyze, a_nested_functions_decisions_are_not_counted_twice)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int outer(int a)\n"
 		"{\n"
 		"\tint inner(int b)\n"
@@ -768,7 +784,7 @@ Test(analyze, a_file_scope_decision_belongs_to_no_function)
 	FileMetrics *m = NULL;
 
 	registry_for_tests(&reg);
-	cr_assert_eq(analyze_file(&reg, source_holding(
+	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int global = 1 ? 2 : 3;\n"
 		"int f(void)\n"
 		"{\n"

@@ -315,6 +315,12 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	             sum->function_count);
 	summary_pair(out, style, label, value, "Skipped",
 	             (uint64_t)report->skipped_files.count);
+	/* Not a failure and not a defect — a measure of how complete the graph
+	 * is. A project calling into libc has unresolved calls by definition,
+	 * and a reader comparing fan-out against the source needs to know how
+	 * many calls the graph could not represent (HLR-077). */
+	summary_pair(out, style, label, value, "Unresolved calls",
+	             (uint64_t)report->unresolved_calls);
 }
 
 /* -------------------------------------------------------- the traversal --
@@ -346,6 +352,18 @@ int render_report(const Report *report, Style style, FILE *out)
 			         sum->most_complex, sum->most_complex_file);
 			grid_row(&grid, "Most complex", a, where);
 		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		static const char *const names[]   = { "Target", "Route" };
+
+		grid_begin(&grid, "Discovery", 2, names, NULL);
+		for (size_t i = 0; i < report->routes.count; i++)
+			grid_row(&grid, report->routes.items[i].target,
+			         report->routes.items[i].route == ROUTE_REPOSITORY
+			                 ? "repository" : "filesystem");
 		if (grid_render(&grid, style, out) != 0)
 			return -1;
 	}

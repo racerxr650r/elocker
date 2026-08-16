@@ -114,13 +114,13 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-CLI-17"></a>**LLR-CLI-17** — `cli_parse` shall reject a target given alongside a regeneration-mode input path, since the record is the input and a target would name a second source for one report.
     *Trace:* HLR-055, HLR-063.
 
-*   <a id="LLR-CLI-18"></a>**LLR-CLI-18** — `cli_parse` shall accept zero or more conditional-compilation definitions, each naming a symbol and optionally a value, and shall leave the definition set empty when none is supplied.
+*   <a id="LLR-CLI-19"></a>**LLR-CLI-19** — `cli_parse` shall accept zero or more conditional-compilation definitions, each naming a symbol and optionally a value, and shall leave the definition set empty when none is supplied.
     *Trace:* HLR-131.
 
-*   <a id="LLR-CLI-19"></a>**LLR-CLI-19** — `cli_parse` shall report a usage error for a definition naming no symbol, rather than recording an empty name that can never match.
+*   <a id="LLR-CLI-20"></a>**LLR-CLI-20** — `cli_parse` shall report a usage error for a definition naming no symbol, rather than recording an empty name that can never match.
     *Trace:* HLR-131, HLR-063.
 
-*   <a id="LLR-CLI-20"></a>**LLR-CLI-20** — `cli_parse` shall reject a command line combining a conditional-compilation definition with the regeneration-mode input path, since a saved record holds measurements already taken and no definition supplied afterwards can change them.
+*   <a id="LLR-CLI-21"></a>**LLR-CLI-21** — `cli_parse` shall reject a command line combining a conditional-compilation definition with the regeneration-mode input path, since a saved record holds measurements already taken and no definition supplied afterwards can change them.
     *Trace:* HLR-136, HLR-063.
 
 *   <a id="LLR-CLI-15"></a>**LLR-CLI-15** — `cli_parse` shall reject as a usage error a command line that combines regeneration mode with an explicit request for a companion artefact, since a saved record does not carry the graph from which either could be produced.
@@ -181,7 +181,7 @@ Target validation, classification, and file discovery. Produces the de-duplicate
 *   <a id="LLR-DSC-08"></a>**LLR-DSC-08** — `discover_targets` shall sort the completed file list into a defined order that does not depend on the enumeration order of the filesystem or of the repository.
     *Trace:* HLR-033 (Traversal-Order Independence).
 
-*   <a id="LLR-DSC-10"></a>**LLR-DSC-10** — `discover_targets` shall record, for each directory target, whether it was enumerated from a repository or traversed from the filesystem, and shall pass that record forward for reporting.
+*   <a id="LLR-DSC-10"></a>**LLR-DSC-10** — `discover_targets` shall record, for each directory target, whether it was enumerated from a repository or traversed from the filesystem, and shall pass that record forward for reporting. Each record shall name the target's canonical absolute path, as every other path in the report does, and shall hold one record per directory: two spellings of one directory reach the same route by definition, so a second record would report a run over two targets that was a run over one. Each record shall own a copy of the target it names rather than aliasing the caller's string. Aliasing would happen to work on the analysis path, where targets are `argv` entries that outlive the run, and would fail on the regeneration path, where they are parsed out of a record and released — the kind of difference that shows up as a corrupted Discovery section in one mode only.
     *Trace:* HLR-127 (Discovery Route Reported).
 
 *   <a id="LLR-DSC-09"></a>**LLR-DSC-09** — `discover_targets` shall emit a diagnostic and record a per-file failure for a subdirectory that cannot be read, and shall continue the traversal.
@@ -192,7 +192,7 @@ Target validation, classification, and file discovery. Produces the de-duplicate
 *   <a id="LLR-GIT-01"></a>**LLR-GIT-01** — `walk_git_tree` shall resolve the tree at `HEAD` and enumerate only those blobs whose repository-relative path lies at or beneath the target directory, so that a subdirectory target does not draw in the rest of the repository.
     *Trace:* HLR-002 (Git-Repository Target Detection), HLR-126 (Repository Enumeration Scoped to the Target).
 
-*   <a id="LLR-GIT-04"></a>**LLR-GIT-04** — `walk_git_tree` shall determine whether the discovered repository tracks the target directory before enumerating anything, and shall report the repository inapplicable when it does not, so that the caller falls back to filesystem traversal rather than returning an empty file list.
+*   <a id="LLR-GIT-04"></a>**LLR-GIT-04** — `walk_git_tree` shall report the repository inapplicable when it tracks nothing at or beneath the target directory, so that the caller falls back to filesystem traversal rather than returning an empty file list. Applicability shall be determined from the tree walk itself rather than by a separate query made beforehand: two traversals can disagree, and a disagreement between them would present as an empty report rather than as an error. It shall be determined from what the repository *tracks* and not from what survived the exclusion filters, since a tracked directory holding only excluded files is still tracked — judging it otherwise would fall back to the filesystem and analyse the untracked files this route exists to exclude. An applicable repository may therefore yield no files at all.
     *Trace:* HLR-002 (Git-Repository Target Detection), HLR-004 (Plain-Directory Fallback Traversal).
 
 *   <a id="LLR-GIT-02"></a>**LLR-GIT-02** — `walk_git_tree` shall include only files tracked at `HEAD`, so that ignored and untracked paths are excluded without a separate exclusion list.
@@ -519,6 +519,18 @@ Cross-file resolution of the per-file facts into the System Dependence Graph.
 *   <a id="LLR-SDG-10"></a>**LLR-SDG-10** — `graph_build` shall derive a component projection in which an edge exists from one source file to another whenever a function in the first calls a function in the second, or writes a global that a function in the second reads.
     *Trace:* HLR-114 (Definition of a Component).
 
+*   <a id="LLR-SDG-12"></a>**LLR-SDG-12** — `graph_build` shall own every string the graph refers to that originates in the fact list — the names of global objects and of unresolved callees — copying them rather than aliasing the facts. The fact list is released as soon as the graph is built, and an edge or an unresolved record holding a freed string does not crash: it renders as a plausible object name, which is the worst way for a graph to be wrong. Strings that originate in the *report* model are borrowed rather than copied, since the report outlives the graph.
+    *Trace:* HLR-124 (Memory Safety), HLR-074 (Global State Edges).
+
+*   <a id="LLR-SDG-13"></a>**LLR-SDG-13** — `graph_build` shall treat an identifier captured as a global read or write as global state only when some analysed file declares that name at file scope, and shall treat an identifier captured as address-taken as a reachability root only when it resolves to a defined function. Both classes of capture are deliberately over-broad in every language module, because neither question can be answered from one file's syntax; resolving them here is what allows the query files to capture identifiers in value position without encoding scope rules they cannot express.
+    *Trace:* HLR-074 (Global State Edges), HLR-096, HLR-121 (Language Module Interface Is a Stable Contract).
+
+*   <a id="LLR-SDG-14"></a>**LLR-SDG-14** — `graph_build` shall collapse repeated calls between one pair of functions into a single edge, and shall not collapse global-state edges between the same pair: a global edge is per object, and merging two would lose which shared state couples the functions. It shall record a call site whose enclosing function is file scope as unresolved rather than dropping it silently, since the graph does not represent it and the reader is judging completeness.
+    *Trace:* HLR-085, HLR-074 (Global State Edges), HLR-077 (Unresolvable Call Handling).
+
+*   <a id="LLR-SDG-15"></a>**LLR-SDG-15** — `graph_build` shall install a non-aborting error handler on the graph library before making any call to it. The library's default handler calls `abort()`, which makes every return-value check unreachable and turns an allocation failure inside the library into a crash rather than the diagnostic and exit status the run promises. It matters beyond allocation: asking a cyclic graph for a topological ordering is an ordinary, expected error return — and is exactly how the call-depth analysis detects recursion — which the default handler would turn into a crash on a perfectly valid program.
+    *Trace:* HLR-124 (Memory Safety), HLR-113, HLR-120 (Distinct Exit Status Classes).
+
 *   <a id="LLR-SDG-11"></a>**LLR-SDG-11** — `graph_build` shall validate every node index against the node table's extent before dereferencing it, so that an unresolved or out-of-range symbol lookup cannot index outside the table.
     *Trace:* HLR-124 (Memory Safety), HLR-077 (Unresolvable Call Handling).
 
@@ -742,6 +754,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-11"></a>**LLR-RPT-11** — `report_assemble` shall order files by path, functions within a file by start line and then by name, skipped files by path, findings by severity then kind then location, cycles by their lowest-ordered member, and unreachable functions by file then line. The name shall break a tie between two functions sharing a start line, since the sort is not otherwise stable and their order would then be the implementation's choice.
     *Trace:* HLR-033 (Traversal-Order Independence).
 
+*   <a id="LLR-RPT-23"></a>**LLR-RPT-23** — `report_set_unresolved` shall record the count of unresolved call sites on the assembled report, so that every format presenting the project summary states how complete the graph is (HLR-077). It is set after assembly rather than passed into it because the graph is built *from* the assembled model — its node order is the report's file order — so the count does not exist when `report_assemble` runs.
+    *Trace:* HLR-077 (Unresolvable Call Handling), HLR-024.
+
 *   <a id="LLR-RPT-12"></a>**LLR-RPT-12** — `report_assemble` shall produce a complete model with zero totals for a run in which no file was analysed.
     *Trace:* HLR-066 (Run With No Analyzable Files).
 
@@ -754,8 +769,8 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-15"></a>**LLR-RPT-15** — `report_assemble` shall carry into the model every architectural measurement computed during the run — per-component afferent and efferent coupling and Instability, and per-function fan-out — ordered by component or by function, so that a measurement lying within its accepted band is reported rather than discarded for want of a finding.
     *Trace:* HLR-080 (Afferent and Efferent Coupling), HLR-082 (Instability Metric), HLR-085 (Function Fan-Out Measurement), HLR-031 (Uniform Report Composition Across Formats).
 
-*   <a id="LLR-RPT-17"></a>**LLR-RPT-17** — `report_assemble` shall carry the discovery route of each directory target into the model, so that every report format can state which route was applied.
-    *Trace:* HLR-127 (Discovery Route Reported).
+*   <a id="LLR-RPT-17"></a>**LLR-RPT-17** — `report_assemble` shall carry the discovery route of each directory target into the model, so that every report format can state which route was applied, and shall order the routes by target so that the Discovery section does not present them in the order they were given on the command line. The routes shall be copied into the model rather than referenced: discovery owns its list and releases it once analysis is complete, while the model outlives both, and regeneration from a saved record has no discovery to own anything and builds the same collection from the record.
+    *Trace:* HLR-033 (Traversal-Order Independence), HLR-127 (Discovery Route Reported).
 
 *   <a id="LLR-RPT-18"></a>**LLR-RPT-18** — `report_assemble` shall take ownership of the accumulated per-file metrics and leave the accumulator empty, so that a caller releasing both the accumulator and the report — as it must on every exit path — cannot free the same metrics twice.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
@@ -769,7 +784,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-21"></a>**LLR-RPT-21** — `report_assemble` shall select each most-complex callout by scanning the ordered model and replacing the incumbent only on a strictly greater value, so that a tie resolves to whichever candidate sorts first under the presentation order and resolves the same way on every run.
     *Trace:* HLR-026, HLR-032, HLR-033.
 
-*   <a id="LLR-RPT-22"></a>**LLR-RPT-22** — `report_assemble` shall carry the definitions in force and the count of undecided regions into the report model, ordered by symbol name, so that every format states the configuration the figures describe.
+*   <a id="LLR-RPT-27"></a>**LLR-RPT-27** — `report_assemble` shall carry the definitions in force and the count of undecided regions into the report model, ordered by symbol name, so that every format states the configuration the figures describe.
     *Trace:* HLR-136, HLR-133, HLR-033.
 
 *   <a id="LLR-RPT-16"></a>**LLR-RPT-16** — `report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.
@@ -838,7 +853,13 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-05"></a>**LLR-XWR-05** — `xml_write_report` shall omit an element it has nothing to record rather than emit it empty, and the format-version identifier shall be incremented for a removal or a change of meaning and not for an addition, so that a record written by a later build remains readable by an earlier one of the same version.
     *Trace:* HLR-061, HLR-054.
 
-*   <a id="LLR-XWR-06"></a>**LLR-XWR-06** — `xml_write_report` shall emit the definitions in force and the count of undecided regions, so that a record states the configuration it was taken under.
+*   <a id="LLR-XWR-06"></a>**LLR-XWR-06** — `xml_write_report` shall write each target's discovery route to the record. A record that omitted it would regenerate into a report with an empty Discovery section — well-formed, carrying every measurement, and not the same report — which is the one thing HLR-056 forbids.
+    *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity), HLR-127 (Discovery Route Reported).
+
+*   <a id="LLR-XWR-07"></a>**LLR-XWR-07** — `xml_write_report` shall write the unresolved-call count to the record, and `xml_read_report` shall restore it. It is a measurement of the run like any other and cannot be recomputed later: regeneration has no graph, and no source from which to build one.
+    *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity), HLR-077 (Unresolvable Call Handling).
+
+*   <a id="LLR-XWR-10"></a>**LLR-XWR-10** — `xml_write_report` shall emit the definitions in force and the count of undecided regions, so that a record states the configuration it was taken under.
     *Trace:* HLR-136, HLR-054.
 
 *   <a id="LLR-XWR-04"></a>**LLR-XWR-04** — `xml_write_report` shall emit well-formed XML.
@@ -875,7 +896,10 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XRD-10"></a>**LLR-XRD-10** — `xml_read_report` shall treat an attribute that should be numeric and is not as a malformed record rather than as a zero, since a record accepted on those terms renders cleanly and reports the wrong figures.
     *Trace:* HLR-058.
 
-*   <a id="LLR-XRD-11"></a>**LLR-XRD-11** — `xml_read_report` shall reconstruct the definitions a record was taken under and present them unchanged, rather than applying any supplied afterwards, so that a regenerated report describes the configuration actually measured.
+*   <a id="LLR-XRD-12"></a>**LLR-XRD-12** — `xml_read_report` shall rebuild the discovery routes from the record and hand them to `report_assemble`, so that a regenerated report presents the same Discovery section as the run that produced the record. A route element lacking either its target or its route, or naming a route this build does not recognise, shall be rejected as a malformed record rather than defaulted: a defaulted route is not an unknown answer but a confident wrong one, in the section whose whole purpose is explaining a surprising file set.
+    *Trace:* HLR-055 (Report Regeneration From a Record), HLR-056 (Regeneration Fidelity), HLR-127 (Discovery Route Reported).
+
+*   <a id="LLR-XRD-13"></a>**LLR-XRD-13** — `xml_read_report` shall reconstruct the definitions a record was taken under and present them unchanged, rather than applying any supplied afterwards, so that a regenerated report describes the configuration actually measured.
     *Trace:* HLR-136, HLR-056.
 
 *   <a id="LLR-XRD-06"></a>**LLR-XRD-06** — `xml_read_report` shall attempt no best-effort partial conversion of a rejected input.
@@ -953,7 +977,7 @@ Requirements satisfied by the build rather than by any single function. Verified
 *   <a id="LLR-BLD-04"></a>**LLR-BLD-04** — The build shall select the third-party libraries `elc` links against, any of which may be substituted for another satisfying the same role, save for the parsing library whose query language and grammar format are a product contract.
     *Trace:* HLR-112 (Library Selection Deferred to Design).
 
-*   <a id="LLR-BLD-05"></a>**LLR-BLD-05** — The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents.
+*   <a id="LLR-BLD-05"></a>**LLR-BLD-05** — The build shall link an established graph library providing cycle detection, topological ordering, reachability, and centrality, rather than hand-implemented equivalents. Every optional feature of that library that would alter `elc`'s link line shall be pinned explicitly rather than left to the library's configure-time detection: a default of "use it if it is installed" makes the binary a function of the build machine, which the instrumented dependency allowlist — a fixed list — cannot express.
     *Trace:* HLR-113 (Graph Algorithms From an Established Library).
 
 *   <a id="LLR-BLD-06"></a>**LLR-BLD-06** — The build shall configure the graph library so that it does not itself introduce a dependency on an unmaintained XML library.

@@ -72,12 +72,25 @@ TS_LIBS     ?= $(shell $(PKG_CONFIG) --libs tree-sitter 2>/dev/null || echo -ltr
 # text emission and needs nothing (doc/SDD.md §16).
 EXPAT_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags expat 2>/dev/null)
 EXPAT_LIBS   ?= $(shell $(PKG_CONFIG) --libs expat 2>/dev/null || echo -lexpat)
+
+# libgit2 gives tracked-file enumeration. Not .gitignore evaluation: files are
+# excluded because git does not track them, which is the answer `git ls-files`
+# gives and needs no ignore rules interpreted (doc/SDD.md §5).
+GIT2_CFLAGS  ?= $(shell $(PKG_CONFIG) --cflags libgit2 2>/dev/null)
+GIT2_LIBS    ?= $(shell $(PKG_CONFIG) --libs libgit2 2>/dev/null || echo -lgit2)
+
+# igraph holds the graph's topology so that the traversals of Phases 9-11 are
+# a mature library's algorithms rather than ours (HLR-113). Built with
+# GraphML support off: elc writes GraphML itself, and enabling igraph's would
+# link a second XML library the project has no other use for (SDD §18).
+IGRAPH_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags igraph 2>/dev/null)
+IGRAPH_LIBS   ?= $(shell $(PKG_CONFIG) --libs igraph 2>/dev/null || echo -ligraph)
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
 # set before any include; they live here rather than in the .c files.
-CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS)
+CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
-LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) -ldl
+LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) -ldl
 
 # Flags the build requires whatever the caller chose, appended in the recipes
 # rather than folded into CFLAGS.
@@ -242,18 +255,40 @@ prereqs-libgit2:
 	@cmake --build $(SRC_WORK)/libgit2-build --parallel
 	@sudo cmake --install $(SRC_WORK)/libgit2-build
 
-# GraphML support is switched off at configure time: elc writes GraphML
-# itself, so igraph's reader and writer are unused, and enabling them links
-# a second XML library the project has no other need for.
+# Two features switched off at configure time, both for the same reason: they
+# link something into elc that elc's requirements say is not there.
+#
+#   GraphML  elc writes GraphML itself, so igraph's reader and writer are
+#            unused, and enabling them links a second XML library the project
+#            has no other need for.
+#   OpenMP   igraph's default build links libgomp, which allocates a thread
+#            pool during the dynamic linker's init — before main runs. elc is
+#            single-threaded by requirement (HLR-041), and a thread runtime
+#            in the link line is a standing invitation for that to stop being
+#            true the first time a parallel algorithm is called. It also puts
+#            104 bytes of load-time state in every run, which the project's
+#            valgrind flags count as an error.
+#
+# And one pinned rather than switched off. IGRAPH_USE_INTERNAL_GMP defaults to
+# AUTO: system GMP when its headers are present, bundled Mini-GMP otherwise.
+# That makes elc's link line depend on what happened to be installed when
+# igraph was built — it differed between a developer machine and CI, and the
+# instrumented allowlist is a fixed list, so "it depends" is the one answer it
+# cannot accept. Pinned to the bundled copy, which also keeps it inside the
+# pinned-source story of doc/notes.md §1.1 rather than taking a distribution
+# library. igraph uses GMP only in bliss, for the automorphism-group counts of
+# graph isomorphism, which no elc analysis performs.
 .PHONY: prereqs-igraph
 prereqs-igraph:
-	@echo "igraph $(IGRAPH_VER) (GraphML off)"
+	@echo "igraph $(IGRAPH_VER) (GraphML off, OpenMP off, internal GMP)"
 	$(call fetch,https://github.com/igraph/igraph/releases/download/$(IGRAPH_VER)/igraph-$(IGRAPH_VER).tar.gz,igraph-$(IGRAPH_VER))
 	@cmake -S $(SRC_WORK)/igraph-$(IGRAPH_VER) -B $(SRC_WORK)/igraph-build \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DCMAKE_INSTALL_PREFIX=$(SRC_PREFIX) \
 		-DBUILD_SHARED_LIBS=ON \
-		-DIGRAPH_GRAPHML_SUPPORT=OFF
+		-DIGRAPH_GRAPHML_SUPPORT=OFF \
+		-DIGRAPH_OPENMP_SUPPORT=OFF \
+		-DIGRAPH_USE_INTERNAL_GMP=ON
 	@cmake --build $(SRC_WORK)/igraph-build --parallel
 	@sudo cmake --install $(SRC_WORK)/igraph-build
 
@@ -279,7 +314,7 @@ prereqs-clean:
 .PHONY: check-prereqs
 check-prereqs:
 	@echo "== tools =="
-	@for t in cc ld make python3 pkg-config valgrind strace dot xmllint nm; do \
+	@for t in cc ld make python3 pkg-config valgrind strace dot xmllint nm git; do \
 		if command -v $$t >/dev/null 2>&1; then \
 			printf '  %-12s ok\n' "$$t"; \
 		else \
@@ -321,6 +356,16 @@ check-prereqs:
 		echo "          unneeded and the library is unmaintained (since"; \
 		echo "          September 2025). Before Phase 8, rebuild igraph with"; \
 		echo "          -DIGRAPH_GRAPHML_SUPPORT=OFF (doc/notes.md §1.1)."; \
+	fi
+	@if [ -f $(SRC_PREFIX)/lib/libigraph.so ] && \
+	    ldd $(SRC_PREFIX)/lib/libigraph.so 2>/dev/null | grep -q libgomp; then \
+		echo "  WARNING igraph was built with OpenMP support, so it links"; \
+		echo "          libgomp, whose runtime allocates a thread pool during"; \
+		echo "          the dynamic linker's init - before main runs. elc is"; \
+		echo "          single-threaded by requirement (HLR-041), and the"; \
+		echo "          instrumented dependency allowlist rejects libgomp."; \
+		echo "          Rebuild with 'make prereqs-igraph', which passes"; \
+		echo "          -DIGRAPH_OPENMP_SUPPORT=OFF (doc/notes.md §1.1)."; \
 	fi
 
 # Compare an installed library version against the SDP minimum. A shortfall

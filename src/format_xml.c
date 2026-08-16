@@ -31,6 +31,7 @@
 #include <expat.h>
 
 #include "analyze.h"
+#include "discover.h"
 #include "elc.h"
 #include "format_xml.h"
 #include "report.h"
@@ -127,6 +128,26 @@ int xml_write_report(const Report *report, FILE *out)
 	}
 	fputs("  </files>\n", out);
 
+	/* Carried because the report presents it. A record that omitted the
+	 * routes would regenerate into a report with an empty Discovery
+	 * section, which is a different report — and HLR-056 says it must not
+	 * be (LLR-XWR-06). */
+	/* A measurement of the run, so it lives in the record beside the
+	 * others: it cannot be recomputed later, since regeneration has no
+	 * graph and no source to build one from (HLR-054, HLR-056). */
+	fprintf(out, "  <graph unresolved-calls=\"%zu\"/>\n",
+	        report->unresolved_calls);
+
+	fputs("  <discovery>\n", out);
+	for (size_t i = 0; i < report->routes.count; i++) {
+		fputs("    <route", out);
+		write_attribute(out, "target", report->routes.items[i].target);
+		fprintf(out, " via=\"%s\"/>\n",
+		        report->routes.items[i].route == ROUTE_REPOSITORY
+		                ? "repository" : "filesystem");
+	}
+	fputs("  </discovery>\n", out);
+
 	fputs("  <skipped>\n", out);
 	for (size_t i = 0; i < report->skipped_files.count; i++) {
 		fputs("    <file", out);
@@ -152,6 +173,8 @@ int xml_write_report(const Report *report, FILE *out)
 /* ------------------------------------------------------------- reading -- */
 
 typedef struct {
+	RouteList           routes;
+	size_t              unresolved;
 	MetricsAccumulator *acc;
 	FileMetrics        *current;      /* the <file> being populated */
 	size_t              capacity;     /* of current->functions      */
@@ -295,6 +318,47 @@ static void on_start(void *user, const XML_Char *name,
 		return;
 	}
 
+	if (strcmp(name, "graph") == 0) {
+		const char *value = attribute(atts, "unresolved-calls");
+
+		if (!value) {
+			fail(state, "a graph element is incomplete");
+			return;
+		}
+		state->unresolved = strtoull(value, NULL, 10);
+		return;
+	}
+
+	if (strcmp(name, "route") == 0) {
+		const char *target = attribute(atts, "target");
+		const char *via    = attribute(atts, "via");
+
+		if (!target || !via) {
+			fail(state, "a route element is incomplete");
+			return;
+		}
+
+		/* Named exhaustively rather than defaulted. A record carrying
+		 * an unrecognised route would otherwise regenerate as
+		 * "filesystem", which is not an unknown answer but a confident
+		 * wrong one — in the section whose whole purpose is explaining
+		 * a surprising file set. */
+		DiscoveryRoute route;
+
+		if (strcmp(via, "repository") == 0)
+			route = ROUTE_REPOSITORY;
+		else if (strcmp(via, "filesystem") == 0)
+			route = ROUTE_FILESYSTEM;
+		else {
+			fail(state, "a route element names an unknown route");
+			return;
+		}
+
+		if (routelist_add(&state->routes, target, route) != 0)
+			fail(state, "out of memory");
+		return;
+	}
+
 	if (strcmp(name, "function") == 0) {
 		if (!state->current) {
 			fail(state, "a function outside any file");
@@ -426,8 +490,9 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 
 	/* Assembled by the same function a live run uses, so every derived
 	 * value is derived once and the two paths cannot drift (HLR-056). */
-	if (report_assemble(&acc, opts, out) != 0)
+	if (report_assemble(&acc, &state.routes, opts, out) != 0)
 		goto cleanup;
+	report_set_unresolved(out, state.unresolved);
 
 	status = 0;
 
@@ -441,6 +506,7 @@ cleanup:
 		report_free(out);
 		memset(out, 0, sizeof *out);
 	}
+	routelist_free(&state.routes);
 	if (parser)
 		XML_ParserFree(parser);
 	if (fp)

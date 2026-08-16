@@ -64,6 +64,28 @@ requirements:
     and would have linked a second XML library the project has no need
     for. Debian's `libigraph-dev` has it on, which is why the
     distribution package is not used.
+*   **igraph's GMP choice is pinned to the bundled copy**
+    (`-DIGRAPH_USE_INTERNAL_GMP=ON`), added in Phase 8. The option
+    defaults to `AUTO`, which links system GMP when its headers are
+    present and a bundled Mini-GMP otherwise — so elc's link line
+    depended on what happened to be installed on the machine that built
+    igraph. A developer box without `gmp.h` and a CI runner with
+    `libgmp-dev` produced *different binaries from the same commit*, and
+    the instrumented allowlist failed in CI alone. A fixed allowlist
+    cannot accept "it depends". Pinning the bundled copy also keeps the
+    dependency inside the pinned-source story above rather than taking a
+    distribution library; igraph uses GMP only in bliss, for the
+    automorphism-group counts of graph isomorphism, which no elc
+    analysis performs.
+*   **igraph's OpenMP support is switched off too**
+    (`-DIGRAPH_OPENMP_SUPPORT=OFF`), added in Phase 8. The default build
+    links `libgomp`, which allocates its thread pool during the dynamic
+    linker's init — before `main` runs — putting 104 bytes of
+    still-reachable state in every process and a thread runtime in the
+    link line of a binary that promises one thread (HLR-041). The
+    single-thread tests happened to pass, because nothing elc calls
+    enters a parallel region *yet*; the instrumented allowlist is what
+    actually caught it, and is now the guard against its return.
 
 It also settles a version problem: Debian carries `libtree-sitter` at
 0.22 and `igraph` at 0.10, both below the SDP §0 minimums, with no
@@ -180,6 +202,15 @@ are present matter, and neither is visible from "it builds":
     `-DIGRAPH_GRAPHML_SUPPORT=OFF`, so the condition is worth
     re-checking then rather than assumed settled.
 
+**Update, Phase 8 (2026-08-16).** The libraries have since been built
+from source and `check-prereqs` reports tree-sitter 0.26.2, expat 2.8.3,
+libgit2 1.9.0 and igraph 1.0.1, all conforming. One outstanding action
+on this machine: the installed igraph predates the
+`-DIGRAPH_OPENMP_SUPPORT=OFF` flag added in Phase 8, so it still links
+`libgomp` and `make instrumented` will fail on the dependency allowlist
+until `make prereqs-igraph` is re-run. `check-prereqs` now warns about
+exactly this condition, so it does not have to be remembered.
+
 Criterion 2.4.1 is installed and `make unit` runs locally, which the
 Phase 0 note in §3 recorded as unavailable. That entry is annotated.
 
@@ -233,6 +264,21 @@ unreachable set, exactly as HLR-096 reasons about address-taken
 functions. But Ada's coupling and fan-out figures will be noisier than
 C's, and the `graph/` fixture group needs an Ada case pinning the
 behaviour rather than leaving it to be discovered.
+
+**What Phase 8 found, which is better than this predicted.** An array
+index is captured as a call site, its name is then resolved against the
+project symbol table, and — because an array is not a subprogram — it
+resolves to *nothing*. So the ambiguity lands in the **unresolved
+count**, which is reported, rather than becoming an edge, which would
+not be. The visible cost is an inflated unresolved figure, not a
+corrupted graph.
+
+A spurious *edge* survives in one case only: an array whose name is also
+a subprogram's somewhere in the project. That is rarer than "every
+indexing expression", and it is the case the fan-out and cycle warnings
+above actually apply to. Pinned by the Ada case in
+`test/fixtures/graph/`, so a regression either way is a diff rather than
+a discovery.
 
 ---
 
@@ -537,6 +583,69 @@ None is a defect; each is a judgement that could go the other way.
     than hanging, but a harness that has to survive a tree built to
     defeat walking is a harness waiting to break. Keeping the suites
     flat means no recursion is needed at all.
+*   **`make clean` destroys the prerequisite source builds** (Phase 8).
+    `SRC_WORK` defaults to `$(BUILD)/prereq-src`, so a `make clean`
+    between building a library and installing it throws away the build
+    — which is minutes of `cmake` for igraph. It was found the obvious
+    way. The fix is to move `SRC_WORK` outside `$(BUILD)`, or to have
+    `clean` spare it; neither has been done, because the prereq targets
+    are normally run once on a new machine and the coupling has not
+    otherwise bitten. Worth doing the next time the prereq recipes are
+    touched.
+*   **Calls resolve by name alone** (Phase 8). There is no type
+    resolution, so a method call resolves on the method name and a name
+    defined twice resolves to its first definition in sorted file order
+    (with a diagnostic). For C this is nearly exact — two `static`
+    helpers sharing a name is the main case. For C++ and Rust it is a
+    real approximation: two classes with a `size()` method are one node
+    as far as resolution is concerned. Doing better needs a symbol table
+    with scope and type information, which is a different kind of tool
+    from a query-driven one; the honest position is that the graph is
+    name-resolved and the manual says so. Revisit if the C++ numbers
+    turn out to be useless in practice rather than merely approximate.
+*   **The over-broad captures are load-bearing, not sloppy** (Phase 8).
+    `@call.address_taken`, `@global.read` and `@global.write` capture
+    identifiers in value position, most of which are variables. This
+    looks wrong in a query file until you notice that neither question
+    — is this a function? is this a global? — can be answered from one
+    file's syntax, which is all a query sees. Resolution against the
+    project tables is what filters them, in `graph.c`. Anyone tightening
+    these patterns to "only capture real globals" will be encoding scope
+    rules the grammar cannot express, and will silently lose the
+    cross-file cases that motivate the analysis.
+*   **Repository applicability is decided by the result of the walk,
+    not by a question asked first** (Phase 7). `walk_git_tree` returns
+    the number of files it appended, and a negative return means
+    *inapplicable*; the caller falls back on that. The alternative —
+    asking libgit2 whether the target is tracked, then walking — is two
+    traversals that can disagree, and the disagreement would show as an
+    empty report rather than as an error.
+
+    The subtlety, which was got wrong first: the walk counts blobs at
+    or beneath the target *before* the exclusions, and applicability
+    turns on that count rather than on how many files survived. Deciding
+    it on the survivors makes a tracked directory holding only excluded
+    files look untracked, so the run falls back to the filesystem and
+    analyses the untracked files this route exists to exclude. An
+    applicable repository can therefore legitimately return 0, and the
+    two zeroes — "tracked, nothing to analyse" and "not tracked" — are
+    what the sign distinguishes. The cost of the choice is
+    that "the repository tracks nothing under this target" and "the
+    repository has no commits" are indistinguishable to the caller.
+    That is acceptable because both mean the same thing to the user and
+    both take the same action, but a future need to tell them apart is
+    a change to this return convention, not an addition to it.
+*   **`libgit2` is the only linked library that can open a socket**
+    (Phase 7). It speaks smart-HTTP and SSH. `elc` calls only its local
+    object-database entry points, and the instrumented allowlist in
+    `test/instrumented/environment.bats` says so — but that is a claim
+    about our code, which the allowlist cannot check. What holds it is
+    the no-network-syscall test observing a real run. Before Phase 7
+    that test guarded against a dependency nobody had; now it guards
+    against a dependency we have. Note also that the library is built
+    with its transports disabled (`Makefile`), so the claim has a
+    second, independent guard — and if that build flag is ever dropped
+    for convenience, the syscall test is the one that will notice.
 *   **LeakSanitizer and `strace` cannot both watch the same run.**
     LSan stops the world at exit through a `clone`d tracer and
     `ptrace`, which collides with `strace`'s attachment and aborts the

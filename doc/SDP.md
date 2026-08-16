@@ -4,10 +4,14 @@
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Phase 0 complete. The build system, the nine-job CI gate, all
-four test levels, and a skeleton `elc` are in place; 44 catalogued tests
-verify 17 requirements and the coverage baseline stands at 361. Phase 1
-is ready to start.
+**Status:** Phase 8 complete. `elc` resolves the calls and global-state
+accesses of every analysed file into one project-wide System Dependence
+Graph, reports how many call sites it could not resolve, and exports the
+graph as GraphML; 421 catalogued tests verify 195 requirements and the
+coverage baseline stands at 238 — *raised* from 220, not lowered, because
+this change specified the conditional-compilation requirements HLR-131 to
+HLR-136 and they have no tests until Phase 15 builds them. Phase 9 — the
+call-tree analyses that read the graph — is ready to start.
 
 ## Status
 
@@ -20,8 +24,8 @@ is ready to start.
 | [4](#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
 | [5](#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | ✅ Complete |
 | [6](#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | ✅ Complete |
-| [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | 🔲 Not started |
-| [8](#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | 🔲 Not started |
+| [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
+| [8](#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
 | [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | 🔲 Not started |
 | [10](#phase-10--reachability-and-global-state) | Dead code, global coupling, hidden channels, scopes | 🔲 Not started |
 | [11](#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | 🔲 Not started |
@@ -42,11 +46,12 @@ is ready to start.
 | GNU ld or LLVM lld | — | `--wrap` link-time interception (STP §2.2) |
 | `libtree-sitter` | ≥ 0.25 | Parsing and query execution. **Built from source** — see below |
 | `libgit2` | ≥ 1.7 | Repository-aware discovery (Phase 7) |
-| `igraph` | ≥ 1.0 | Graph algorithms (Phase 8). **Built from source** with `-DIGRAPH_GRAPHML_SUPPORT=OFF` |
+| `igraph` | ≥ 1.0 | Graph algorithms (Phase 8). **Built from source** with `-DIGRAPH_GRAPHML_SUPPORT=OFF -DIGRAPH_OPENMP_SUPPORT=OFF -DIGRAPH_USE_INTERNAL_GMP=ON` |
 | Expat | ≥ 2.6 | Streaming XML read for regeneration mode (Phase 5) |
 | Criterion | ≥ 2.4 | Unit test framework |
 | Bats | ≥ 1.10 | Integration, fixture, and instrumented levels |
 | `bats-support`, `bats-assert` | — | Assertion helpers; vendored under `test/helpers/` |
+| `git` | ≥ 2.20 | Building the repository fixtures the discovery tests run against (Phase 7). `elc` itself needs only `libgit2` at run time |
 | Python 3 | ≥ 3.9 | `tools/render_doc.py`, `tools/lint_project.py` |
 | `pkg-config` | — | Library discovery in the Makefile |
 
@@ -81,6 +86,14 @@ serve requirements rather than merely convenience:
     attack surface with no matching capability. Compiling it out also drops
     the OpenSSL and libssh2 dependencies, and makes HLR-040's no-network
     rule a property of the link line rather than a promise.
+*   **igraph is built with OpenMP support off.** Its default build links
+    `libgomp`, whose runtime allocates a thread pool during the dynamic
+    linker's initialisation — before `main` is entered. `elc` is
+    single-threaded by requirement (HLR-041), and a thread runtime in the
+    link line is a standing invitation for that to stop being true the
+    first time a parallel algorithm is called. The instrumented
+    dependency allowlist is what caught it, and now guards against its
+    return.
 *   **igraph is built with GraphML support off.** `elc` writes GraphML
     itself, so igraph's reader and writer are unused, and enabling them
     links a second XML library the project has no other need for.
@@ -324,8 +337,10 @@ whole cycle runs from the working copy.
         Status table (🔄 if the phase is genuinely partial — that should be
         rare, since a phase is not done until §6's rule is satisfied).
     *   In **`README.md`**, make the identical change to its own copy of the
-        table, and update the `**Progress: N of 16 phases complete.**` line
-        to match.
+        table, and update the `**Progress: N of M phases complete.**` line
+        to match, where `M` is the number of rows in the table — inserting a
+        phase changes it, and the instruction naming a fixed total is how it
+        gets missed.
     The two tables must read the same after this step. A phase that changes
     what a user can see but leaves either Status section unstated as
     "Not started" is misleading anyone who reads the README instead of the
@@ -403,7 +418,7 @@ requirements and no others.
 | Expat | Phase 5 | Only the regeneration read path needs it |
 | Additional grammars | Phase 6 | Ada's is community-maintained but vetted and accepted ([notes.md](notes.md) §2.2) |
 | `libgit2` | Phase 7 | Isolated to one discovery route |
-| `igraph` | Phase 8 | With GraphML support **off** |
+| `igraph` | Phase 8 | With GraphML and OpenMP off, and its GMP choice pinned |
 
 **Ordering constraints beyond the obvious:**
 

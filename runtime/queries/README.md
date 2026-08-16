@@ -9,6 +9,12 @@ Adding a language requires no change to `elc` and no rebuild of it (HLR-010).
 If a language addition seems to need a C change, the extensibility pillar is
 broken and that is the thing to fix.
 
+This has now been demonstrated twice. Phase 6 added four languages without a
+line of change under `src/`. Phase 8 filled in `calls.scm` and `globals.scm`
+for all five, and the C that consumes them names two capture prefixes and no
+node type — the Ada ambiguity that would most tempt a special case is handled
+by *not* handling it, in `ada/calls.scm`.
+
 ## What a language module is
 
 ```text
@@ -50,7 +56,7 @@ a language name, a file extension, or a grammar node type — if you are typing
 | `eloc.scm` | `@eloc.statement` | One statement counting toward ELOC. Capture the statement node, not its lines — a multi-line statement counts once, at its start line (HLR-053) |
 | `complexity.scm` | `@complexity.decision` | One decision point. Do **not** capture the function: the `1 +` base is added by `elc`, and capturing it double-counts |
 | `calls.scm` | `@call.name` | The callee identifier at a call site |
-| | `@call.address_taken` | A function whose address is taken without being called |
+| | `@call.address_taken` | An identifier used as a value, which may be a function |
 | `globals.scm` | `@global.declaration` | A global's declaration |
 | | `@global.read` | An identifier reading a global |
 | | `@global.write` | An identifier writing a global |
@@ -109,6 +115,31 @@ it is the query file that says so.
 
 **A comment sharing a line with code is the query file's judgement.**
 Whatever a language decides, it decides once, in one place.
+
+**Capture broadly for `@call.address_taken`, `@global.read` and
+`@global.write`.** These three are the exception to "capture what you mean",
+and the reason is that you *cannot* mean it from one file. Whether an
+identifier names a function, and whether it names a global, are questions
+about the whole project — a global declared in a header and written in three
+translation units cannot be recognised from any one of them. So capture
+identifiers in value position and let `elc` resolve them: a name that is not
+a defined function is not a reachability root, and a name no file declares at
+file scope is not global state. Both are discarded silently, because a
+variable appearing where the pattern looks is the expected case and not a
+problem.
+
+The direction of the remaining error matters and is not symmetric. A
+**missed** address-taken fact reports a live callback as dead code, which is
+a wrong answer a user acts on. An **extra** one only shrinks the unreachable
+set, which costs a pruning opportunity. Err toward capturing.
+
+**`@call.name` is the one place over-capture is not free.** An extra call
+edge inflates fan-out and call depth, and can close a dependency cycle that
+does not exist in the program — and a false critical finding costs more than
+a noisy metric. Where a language's grammar cannot separate a call from
+something else, say so in the query file: `ada/calls.scm` carries that
+argument in full, because Ada writes an array index exactly like a call and
+no query can tell them apart.
 
 ## Adding a language
 
