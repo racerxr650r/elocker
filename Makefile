@@ -548,10 +548,24 @@ instrumented: all
 	@$(BATS) test/instrumented
 
 # ----------------------------------------------------------------- analysis
+# The sanitizer settings, set here rather than only in CI, and that placement
+# is the point. `abort_on_error=1` is what makes a LeakSanitizer report inside
+# a *forked Criterion child* reach the parent's exit status; without it a leak
+# in a unit test is reported and the run still succeeds. A local gate weaker
+# than the CI one is worse than no local gate, because it is trusted: Phase 11
+# shipped two leaking tests past a green `make asan` and was caught only by the
+# pipeline (LLR-BLD-11).
+#
+# Overridable so a developer chasing one failure can loosen them, and exported
+# to the whole recursive run.
+ASAN_OPTIONS  ?= detect_leaks=1:abort_on_error=1:strict_string_checks=1
+UBSAN_OPTIONS ?= print_stacktrace=1:halt_on_error=1
+
 .PHONY: asan
 asan:
 	@$(MAKE) --no-print-directory clean
-	@rc=0; $(MAKE) --no-print-directory \
+	@rc=0; ASAN_OPTIONS="$(ASAN_OPTIONS)" UBSAN_OPTIONS="$(UBSAN_OPTIONS)" \
+	$(MAKE) --no-print-directory \
 		CFLAGS="-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer" \
 		LDFLAGS="-fsanitize=address,undefined" test || rc=$$?; \
 	$(MAKE) --no-print-directory clean; \

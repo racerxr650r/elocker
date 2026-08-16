@@ -29,6 +29,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "arch.h"
 #include "format_text.h"
 #include "report.h"
 
@@ -547,6 +548,95 @@ int render_report(const Report *report, Style style, FILE *out)
 
 			snprintf(a, sizeof a, "%zu", i + 1);
 			grid_row(&grid, a, r->file, r->function);
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* Coupling per component, with Instability beside it. The
+		 * attribution sits in the heading rather than in a column of
+		 * identical citations: it belongs to the metric, not to any one
+		 * row (HLR-082, LLR-INS-03).
+		 *
+		 * Reported for every component whether or not anything crossed
+		 * a line — a value inside its accepted band is still a
+		 * measurement the reader asked for. */
+		static const char *const names[]   = { "Component", "Ca", "Ce",
+		                                       "Instability", "Finding" };
+		static const bool        numeric[] = { false, true, true, true,
+		                                       false };
+		char                     heading[192];
+
+		snprintf(heading, sizeof heading,
+		         "Component coupling (I = Ce/(Ce+Ca), %s; bottleneck "
+		         "at Ca and Ce >= %" PRIu32 ")",
+		         instability_attribution(),
+		         report->bottleneck_threshold);
+
+		grid_begin(&grid, heading, 5, names, numeric);
+		for (size_t i = 0; i < report->coupling_count; i++) {
+			const CouplingRow *r = &report->coupling[i];
+
+			snprintf(a, sizeof a, "%" PRIu32, r->ca);
+			snprintf(b, sizeof b, "%" PRIu32, r->ce);
+			grid_row(&grid, r->component, a, b, r->instability,
+			         r->bottleneck ? bottleneck_attribution() : "");
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* Circular dependencies between *components*, which is a
+		 * different fact from recursion between functions: two
+		 * mutually recursive functions in one file appear in the
+		 * Recursion section above and not here, because a file does
+		 * not depend on itself (HLR-083, HLR-114).
+		 *
+		 * Two columns because one alone misleads. The group is what
+		 * has to be broken up; the loop is which edge to cut. */
+		static const char *const names[] = { "Components",
+		                                     "Example loop" };
+
+		grid_begin(&grid, "Component dependency cycles", 2, names, NULL);
+		for (size_t i = 0; i < report->dep_cycle_count; i++)
+			grid_row(&grid, report->dep_cycles[i].components,
+			         report->dep_cycles[i].path);
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* Skip-level and direction-inverted, in one table and as
+		 * distinct kinds. A call ascending two layers appears twice,
+		 * because both statements are true of it and each has its own
+		 * remedy (HLR-079, HLR-118, LLR-LAY-03). */
+		static const char *const names[] = { "Kind", "From", "Function",
+		                                     "To", "Function",
+		                                     "Layers" };
+		static const bool        numeric[] = { false, false, false,
+		                                       false, false, true };
+		char                     heading[160];
+
+		if (report->strata_state == STRATA_MEASURED)
+			snprintf(heading, sizeof heading, "Layering (%zu)",
+			         report->layering_count);
+		else
+			snprintf(heading, sizeof heading,
+			         "Layering (omitted: no architectural strata "
+			         "declared, see --stratum)");
+
+		grid_begin(&grid, heading, 6, names, numeric);
+		for (size_t i = 0; i < report->layering_count; i++) {
+			const LayeringRow *r = &report->layering[i];
+
+			snprintf(a, sizeof a, "%" PRIu32, r->layers_crossed);
+			grid_row(&grid,
+			         r->kind == LAYER_SKIP_LEVEL ? "skip-level"
+			                                     : "inverted",
+			         r->from_stratum, r->from_function,
+			         r->to_stratum, r->to_function, a);
 		}
 		if (grid_render(&grid, style, out) != 0)
 			return -1;

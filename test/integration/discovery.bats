@@ -70,7 +70,15 @@ setup() {
 	elc "$TREE/a.c" "$TREE"
 	assert_success
 	assert_output --regexp "Files +2"
-	assert_equal "$(awk -v p="$TREE/a.c" '$1 == p' <<<"$output" | wc -l)" "1"
+
+	# Scoped to the Files section and terminated at its blank line. A path
+	# in column one is no longer unique to that section — the component
+	# coupling table lists one per row too — so an unscoped count answers
+	# "how many sections mention this file" rather than "was it
+	# de-duplicated".
+	assert_equal "$(awk -v p="$TREE/a.c" '
+		/^Files$/ { f = 1; next } f && /^$/ { f = 0 }
+		f && $1 == p { n++ } END { print n + 0 }' <<<"$output")" "1"
 }
 
 # --- determinism (HLR-032, HLR-033) ---------------------------------------

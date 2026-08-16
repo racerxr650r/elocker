@@ -512,22 +512,27 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
         <responsibility><![CDATA[Identify bottlenecks against the configurable threshold.]]></responsibility>
         <responsibility><![CDATA[Detect every component-level dependency cycle.]]></responsibility>
         <responsibility><![CDATA[Validate declared strata, reporting both skip-level calls (HLR-079) and direction-inverted calls (HLR-118), when strata were declared.]]></responsibility>
+        <responsibility><![CDATA[Produce the coupling table and the cycle list on every run, so that omitting the layering for want of a declaration does not omit its neighbours (HLR-115).]]></responsibility>
         <functions>
           <function signature="int arch_analyse(const Sdg *g, const ElcOptions *opts, ArchResults *out)" summary="Run every component-level analysis, skipping layering when no strata were declared."/>
           <function signature="void arch_results_free(ArchResults *r)" summary="Release the coupling table, instability values, cycle list, and violation list."/>
-          <function signature="void compute_coupling(const Sdg *g, ArchResults *out)" summary="Populate Ca and Ce per component."/>
+          <function signature="int compute_coupling(const Sdg *g, ArchResults *out)" summary="Populate Ca and Ce per component."/>
           <function signature="double instability(uint32_t ca, uint32_t ce, bool *defined)" summary="Ce/(Ce+Ca), with defined set false when both are zero."/>
-          <function signature="int find_cycles(const Sdg *g, CycleList *out)" summary="Strongly connected components of the component projection, excluding trivial single-node components."/>
-          <function signature="int check_strata(const Sdg *g, const ElcOptions *opts, ViolationList *out)" summary="Report calls that bypass declared layers and calls that invert the declared dependency direction."/>
+          <function signature="int find_cycles(const Sdg *g, ArchResults *out)" summary="Strongly connected components of the component projection, excluding trivial single-node components, each with a concrete loop through it found by a deterministic search from its lowest-numbered member."/>
+          <function signature="int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out)" summary="Report calls that bypass declared layers and calls that invert the declared dependency direction."/>
         </functions>
-        <algorithm><![CDATA[Cycles are found as the non-trivial strongly connected components of the *component* projection, not of the function graph. This is what keeps mutual recursion between two functions in one file from being reported as a dependency cycle: within a single component there is no inter-component edge to close a loop. Mutual recursion across two files is legitimately both a recursion finding and a component cycle, because the two facts are different (HLR-083, HLR-089). Stratum checking compares the declared ordinal of the caller's stratum with the callee's, and yields two independent findings from that one comparison. A call descending more than one level is *skip-level* (HLR-079); a call ascending at all runs against the declared direction and is *direction-inverted* (HLR-118). The two are orthogonal — a driver calling one layer up inverts without skipping, and an application reaching two layers down skips without inverting — so each is reported in its own right rather than folded into a single "layering violation".]]></algorithm>
+        <algorithm><![CDATA[Cycles are found as the non-trivial strongly connected components of the *component* projection, not of the function graph. This is what keeps mutual recursion between two functions in one file from being reported as a dependency cycle: within a single component there is no inter-component edge to close a loop. Mutual recursion across two files is legitimately both a recursion finding and a component cycle, because the two facts are different (HLR-083, HLR-089). Stratum checking compares the declared ordinal of the caller's stratum with the callee's, and yields two independent findings from that one comparison. A call descending more than one level is *skip-level* (HLR-079); a call ascending at all runs against the declared direction and is *direction-inverted* (HLR-118). The two are orthogonal — a driver calling one layer up inverts without skipping, and an application reaching two layers down skips without inverting — so each is reported in its own right rather than folded into a single "layering violation". The distance test runs in **both** directions, so a call ascending more than one layer is reported twice — as inverted and as skip-level — because both statements are true of it and each has its own remedy.
+
+Only call edges are considered. A global object two layers share is a different fact, with its own findings in the global-state and execution-scope analyses; folding state edges in here would report a layering violation for a variable two layers merely both read.
+
+**A duplicate function name reaches these analyses too, and here it is more expensive than elsewhere.** Calls resolve by name, so where several files define a `static` helper of the same name every call resolves into one of them: that component gains afferent coupling it has not earned, the others lose it, and where the winner already depends on one of the losers the invented edge closes a dependency cycle that does not exist. A false circular dependency points at an architecture problem rather than at a line to delete, which makes it a worse wrong answer than the false dead-code claim the same artefact produces (SDD §8.5). It is diagnosed on standard error where the graph is built, and the two outputs are read together; correcting it needs the type resolution the project does not perform.]]></algorithm>
         <dependencies>
           <dep><![CDATA[The graph library, for strongly-connected-component decomposition.]]></dep>
           <dep><![CDATA[`src/graph.c` for the SDG and its component projection.]]></dep>
         </dependencies>
         <error_handling>
           <case name="No strata declared"><![CDATA[Layering validation is omitted and the omission is stated in the report; it is not an error (HLR-115).]]></case>
-          <case name="Stratum pattern matches no component"><![CDATA[Diagnostic to `stderr`; the declared layer remains in effect and simply contains nothing.]]></case>
+          <case name="Stratum pattern matches no component"><![CDATA[Diagnostic to `stderr`; the declared layer remains in effect and simply contains nothing. Retained rather than dropped, because dropping it would renumber the layers below and change what every remaining call is compared against — turning a typo into a wrong answer rather than a warning. This is also why the layering analysis has two states and not the three reachability carries: "declared but matching nothing" never becomes an omission.]]></case>
         </error_handling>
       </module>
 
@@ -842,7 +847,8 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="bottleneck_threshold" type="uint32_t" desc="Default 5 (HLR-081)"/>
         <field name="emit_dot" type="bool" desc="Default true (HLR-103)"/>
         <field name="graphml_path" type="const char *" desc="NULL unless --graphml given"/>
-        <field name="strata" type="StratumList" desc="Empty when undeclared (HLR-078)"/>
+        <field name="strata" type="StratumList" desc="Empty when undeclared; ordinals from declaration order unless --stratum-order states them (HLR-078)"/>
+        <field name="stratum_order" type="const char *" desc="The declared dependency direction, resolved after parsing so it may precede the layers it orders (HLR-078)"/>
         <field name="entry_points" type="SymbolList" desc="Empty when undeclared (HLR-095)"/>
         <field name="scopes" type="ScopeList" desc="Empty when undeclared (HLR-094)"/>
         <field name="rule_paths" type="PathList" desc="Custom rule query files (HLR-107)"/>
@@ -913,11 +919,28 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="components" type="ComponentProjection" desc="File-level projection used by arch.c (HLR-114)"/>
         <field name="unresolved" type="size_t" desc="Call sites with no resolvable target (HLR-077)"/>
         <field name="touches" type="GlobalTouch *" desc="Per-object access records, carried beside the state edges rather than derived from them (HLR-091)"/>
+        <field name="component_graph" type="void *" desc="The component projection as a graph; the view the architectural questions are asked of (HLR-083, HLR-114)"/>
       </type>
       <type name="GlobalTouch" header="inc/graph.h" summary="One function's access to one global object. Recorded beside the global-state edges, not derived from them: an edge joins a writer to a reader, so an object touched by exactly one function produces none — and that object is precisely the scope-reduction candidate of HLR-092.">
         <field name="object" type="const char *" desc="Into the graph's own name table"/>
         <field name="node" type="uint32_t" desc="The accessing function"/>
         <field name="write" type="bool" desc="True writes the object, false reads it"/>
+      </type>
+      <type name="StratumDecl" header="inc/elc.h" summary="One declared architectural layer: a name, the component patterns assigned to it, and its position in the declared dependency direction (HLR-078). The ordinal is what makes a direction out of a set of names — layer 0 is the top, permitted to depend on those below — and is fixed when the layer is first named.">
+        <field name="name" type="char *" desc="Owned"/>
+        <field name="patterns" type="char **" desc="Owned; matched against component paths with fnmatch(3)"/>
+        <field name="pattern_count" type="size_t" desc="Populated entries; a repeated name adds to this rather than creating a second layer"/>
+        <field name="ordinal" type="size_t" desc="0 is the topmost declared layer; reassigned by --stratum-order where one is given"/>
+      </type>
+      <type name="ArchResults" header="inc/arch.h" summary="What the component-level analyses measured. Owned by main and copied into the report model, as the call-tree and state results are.">
+        <field name="coupling" type="ComponentCoupling *" desc="Ca, Ce, Instability and the bottleneck flag, one per component (HLR-080 – HLR-082)"/>
+        <field name="cycles" type="ComponentCycle *" desc="Each mutually dependent group with a concrete loop through it (HLR-083)"/>
+        <field name="strata_state" type="StrataState" desc="Measured, or omitted because no strata were declared (HLR-115)"/>
+        <field name="violations" type="LayerViolation *" desc="Skip-level and direction-inverted calls, as distinct entries (HLR-079, HLR-118)"/>
+      </type>
+      <type name="ComponentCycle" header="inc/arch.h" summary="One cyclic dependency between components. Two facts, because one alone misleads: the membership is the group that must be broken up, and the path is a concrete loop saying which edge to cut. The path may be shorter than the membership, since a group can hold a number of loops exponential in its size.">
+        <field name="members" type="size_t *" desc="Component indices, ascending"/>
+        <field name="path" type="size_t *" desc="A loop through them, in order; the first is not repeated at the end"/>
       </type>
       <type name="ScopeDecl" header="inc/elc.h" summary="One declared execution scope: a name, and the component patterns belonging to it (HLR-094). Owned outright, unlike the entry-point symbols: a declaration is split on two separators, so neither half is a terminated substring of any argument.">
         <field name="name" type="char *" desc="Owned"/>
@@ -2592,6 +2615,13 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
           <trace target="HLR" ref="HLR-036" name="Setup-Failure Fatality"/>
         </traces>
       </llr>
+      <llr id="LLR-MAIN-19">
+        <text><![CDATA[`main` shall release the options structure on the usage-error path as well as on every other. A declaration parsed before the offending argument has already allocated — a stratum accepted before a malformed order leaves a layer owning its name and patterns — so a run ending in a usage error would otherwise leak where a successful one does not.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-125" name="Complete Resource Release"/>
+          <trace target="HLR" ref="HLR-063"/>
+        </traces>
+      </llr>
 
     </function>
 
@@ -2790,6 +2820,27 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
         <traces>
           <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
           <trace target="HLR" ref="HLR-078" name="User-Declared Architectural Strata"/>
+        </traces>
+      </llr>
+      <llr id="LLR-STR-04">
+        <text><![CDATA[`parse_stratum` shall add the patterns of a repeated layer name to the layer already declared rather than creating a second one, and shall fix a layer's ordinal when it is first named. A second layer of the same name would shift the ordinal of every layer below it, so a user splitting one layer's patterns across two arguments would silently change what the layering is measured against.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-078" name="User-Declared Architectural Strata"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
+      <llr id="LLR-STR-05">
+        <text><![CDATA[`cli_parse` shall accept a declaration of the permitted dependency direction naming the declared layers in order, shall resolve it after every option has been read so that it may be given before or after the layers it orders, and shall report a usage error where it names a layer that was not declared or omits one that was. A partial order determines no direction, and a name for a layer that does not exist is a typo whose silent acceptance would leave the layering validated against something other than what was written.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-078" name="User-Declared Architectural Strata"/>
+          <trace target="HLR" ref="HLR-063"/>
+        </traces>
+      </llr>
+      <llr id="LLR-STR-06">
+        <text><![CDATA[`parse_stratum` shall copy the name and every pattern it records rather than borrowing them from the argument vector, since a declaration is split on two separators and neither half exists as a terminated substring of any argument.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-078" name="User-Declared Architectural Strata"/>
+          <trace target="HLR" ref="HLR-125"/>
         </traces>
       </llr>
     </function>
@@ -3730,6 +3781,14 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-032"/>
         </traces>
       </llr>
+      <llr id="LLR-SDG-17">
+        <text><![CDATA[`graph_build` shall construct a third view of the graph over the component projection, whose vertices are component indices. The architectural questions are asked of it and of nothing else: a cycle here means two files depend on each other, where a cycle in the call view means two functions call each other, and two mutually recursive functions inside one file close a loop in the second and none at all in the first.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-083" name="Circular Dependency Detection"/>
+          <trace target="HLR" ref="HLR-114"/>
+          <trace target="HLR" ref="HLR-113"/>
+        </traces>
+      </llr>
       <llr id="LLR-SDG-15">
         <text><![CDATA[`graph_build` shall install a non-aborting error handler on the graph library before making any call to it. The library's default handler calls `abort()`, which makes every return-value check unreachable and turns an allocation failure inside the library into a crash rather than the diagnostic and exit status the run promises. It matters beyond allocation: asking a cyclic graph for a topological ordering is an ordinary, expected error return — and is exactly how the call-depth analysis detects recursion — which the default handler would turn into a crash on a perfectly valid program.]]></text>
         <traces>
@@ -3796,6 +3855,13 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-114" name="Definition of a Component"/>
         </traces>
       </llr>
+      <llr id="LLR-CPL-04">
+        <text><![CDATA[`compute_coupling` shall count each depended-upon component once however many calls or shared objects connect the two, taking its figures from the de-duplicated component projection rather than from the call sites. Counting call sites would report a file that calls another in forty places as depending on forty things.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-080" name="Afferent and Efferent Coupling"/>
+          <trace target="HLR" ref="HLR-114"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="21" title="`instability` ([src/arch.c](../src/arch.c))" name="instability" source="src/arch.c">
@@ -3847,6 +3913,13 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-123" name="Severity Vocabulary"/>
         </traces>
       </llr>
+      <llr id="LLR-CYC-05">
+        <text><![CDATA[`find_cycles` shall report, beside each cyclic group, a concrete loop through it found by a deterministic search from the group's lowest-numbered member. The group is what must be broken up and the loop is which edge to cut, and neither alone is enough to act on. One loop rather than every one: a group of n components can hold a number of distinct loops exponential in n, and the loop may therefore be shorter than the membership.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-083" name="Circular Dependency Detection"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="23" title="`check_strata` ([src/arch.c](../src/arch.c))" name="check_strata" source="src/arch.c">
@@ -3867,6 +3940,21 @@ Note on the division of labour, which determines where a failure lives: the requ
         <traces>
           <trace target="HLR" ref="HLR-079" name="Skip-Level Call Detection"/>
           <trace target="HLR" ref="HLR-118" name="Direction-Inverted Call Detection"/>
+        </traces>
+      </llr>
+      <llr id="LLR-LAY-04">
+        <text><![CDATA[`check_strata` shall report a call as skip-level where the ordinal distance between the layers exceeds one in either direction, and as direction-inverted where the callee's ordinal is the lower, so that a call ascending more than one layer is reported as both. Both statements are true of such a call and each has its own remedy — the direction can be corrected without removing the skip.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-079" name="Skip-Level Call Detection"/>
+          <trace target="HLR" ref="HLR-118"/>
+        </traces>
+      </llr>
+      <llr id="LLR-LAY-05">
+        <text><![CDATA[`check_strata` shall consider call edges alone, since a global object two layers happen to share is a different fact with its own analyses, and shall treat a component matching no declaration as lying outside the partition rather than in a layer of its own.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-079" name="Skip-Level Call Detection"/>
+          <trace target="HLR" ref="HLR-118"/>
+          <trace target="HLR" ref="HLR-093"/>
         </traces>
       </llr>
     </function>
@@ -4571,6 +4659,15 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-099"/>
         </traces>
       </llr>
+      <llr id="LLR-XWR-13">
+        <text><![CDATA[The record shall carry the coupling figures with their instability, the dependency cycles with their loops, the layering findings, and the state of the layering analysis. None can be recomputed on regeneration, which has no component projection to derive them from; and the attributions are again absent, being derived from the measurement by one function each path calls.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-054" name="Complete Run Record"/>
+          <trace target="HLR" ref="HLR-056"/>
+          <trace target="HLR" ref="HLR-080"/>
+          <trace target="HLR" ref="HLR-083"/>
+        </traces>
+      </llr>
 
       <llr id="LLR-XWR-04">
         <text><![CDATA[`xml_write_report` shall emit well-formed XML.]]></text>
@@ -4890,6 +4987,14 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-011"/>
         </traces>
       </llr>
+      <llr id="LLR-BLD-18">
+        <text><![CDATA[The sanitized build target shall set the sanitizer options it runs under rather than inheriting whatever the invoking environment supplies, and shall set the same ones the pipeline does. `abort_on_error` is what makes a leak reported inside a forked test child reach the parent's exit status; without it a leaking unit test is reported and the run still succeeds. A local gate weaker than the pipeline's is worse than none, because it is trusted — Phase 11 shipped two leaking tests past a green local run and was caught only by CI.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-125" name="Complete Resource Release"/>
+          <trace target="HLR" ref="HLR-124"/>
+          <trace target="HLR" ref="HLR-119"/>
+        </traces>
+      </llr>
       <llr id="LLR-BLD-09">
         <text><![CDATA[The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.]]></text>
         <traces>
@@ -4949,7 +5054,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
   <tests>
-  <file path="test/unit/cli.c" role="unit" count="26">
+  <file path="test/unit/cli.c" role="unit" count="38">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -5105,6 +5210,88 @@ Note on the division of labour, which determines where a failure lives: the requ
       <traces>
         <trace target="LLR" ref="LLR-STA-02"/>
         <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="a_stratum_declaration_is_parsed_into_a_name_and_patterns">
+      <purpose><![CDATA[A name:glob[,glob…] declaration yields the layer name and each component pattern separately.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-01"/>
+      </traces>
+    </test>
+    <test name="the_declared_order_fixes_the_ordinals">
+      <purpose><![CDATA[Declaration order is the permitted dependency direction until an explicit order says otherwise: the first layer named is the top.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-02"/>
+        <trace target="HLR" ref="HLR-078"/>
+      </traces>
+    </test>
+    <test name="repeating_a_stratum_name_adds_patterns_to_that_layer">
+      <purpose><![CDATA[One layer of two patterns, not two layers — a second layer of the same name would shift every ordinal below it and change what the layering is measured against.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-04"/>
+        <trace target="HLR" ref="HLR-078"/>
+      </traces>
+    </test>
+    <test name="a_malformed_stratum_declaration_is_rejected">
+      <purpose><![CDATA[A layer with no name, a name with no components, and an empty pattern between separators are each a usage error rather than a layer matching nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-03"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="stratum_order_reassigns_the_ordinals">
+      <purpose><![CDATA[An explicit order overrides declaration order, and is applied to the layers already parsed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-05"/>
+        <trace target="HLR" ref="HLR-078"/>
+      </traces>
+    </test>
+    <test name="stratum_order_may_precede_the_layers_it_orders">
+      <purpose><![CDATA[The order is resolved once after every option has been read, so the two options may be given in either sequence.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-05"/>
+      </traces>
+    </test>
+    <test name="stratum_order_naming_an_undeclared_layer_is_an_error">
+      <purpose><![CDATA[A typo whose silent acceptance would leave the layering validated against something other than what was written.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-05"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="a_partial_stratum_order_is_an_error">
+      <purpose><![CDATA[A partial order determines no direction, and completing it silently would invent one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-05"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="stratum_order_without_any_stratum_is_an_error">
+      <purpose><![CDATA[An order over no layers orders nothing, and is a usage error rather than a no-op.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-05"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="the_bottleneck_threshold_defaults_to_five">
+      <purpose><![CDATA[The bottleneck threshold defaults to 5 when none is supplied.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-05"/>
+        <trace target="HLR" ref="HLR-081"/>
+      </traces>
+    </test>
+    <test name="the_bottleneck_threshold_is_configurable">
+      <purpose><![CDATA[The threshold is user-configurable, as the requirement asks.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-05"/>
+        <trace target="HLR" ref="HLR-081"/>
+      </traces>
+    </test>
+    <test name="a_malformed_bottleneck_threshold_is_a_usage_error">
+      <purpose><![CDATA[A sign, a trailing tail, leading whitespace and a hexadecimal prefix are each rejected, as they are for the complexity threshold.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-05"/>
+        <trace target="HLR" ref="HLR-063"/>
       </traces>
     </test>
 </file>
@@ -5872,6 +6059,156 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[A run that analysed nothing produces empty state results rather than faulting.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-STA-04"/>
+        <trace target="HLR" ref="HLR-066"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/arch.c" role="unit" count="21">
+    <test name="instability_is_ce_over_the_sum">
+      <purpose><![CDATA[Instability is efferent coupling divided by the sum of both couplings.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INS-01"/>
+        <trace target="HLR" ref="HLR-082"/>
+      </traces>
+    </test>
+    <test name="instability_is_zero_when_nothing_is_depended_upon">
+      <purpose><![CDATA[A component depending on nothing but depended upon widely is maximally stable, and the value is a real 0 rather than undefined — Ca is not zero, so the division is well formed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INS-01"/>
+        <trace target="HLR" ref="HLR-082"/>
+      </traces>
+    </test>
+    <test name="instability_is_one_when_nothing_depends_on_it">
+      <purpose><![CDATA[The opposite extreme: freely changeable, because nothing rests on it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INS-01"/>
+        <trace target="HLR" ref="HLR-082"/>
+      </traces>
+    </test>
+    <test name="instability_is_undefined_when_both_couplings_are_zero">
+      <purpose><![CDATA[No division is performed and the value is reported undefined. A component with no relationships at all is ordinary, and 0, 1 and NaN are all wrong answers for it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INS-02"/>
+        <trace target="HLR" ref="HLR-082"/>
+      </traces>
+    </test>
+    <test name="the_instability_metric_is_attributed">
+      <purpose><![CDATA[The metric carries its published source.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INS-03"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="the_bottleneck_threshold_is_marked_as_elcs_own">
+      <purpose><![CDATA[The one threshold that is not a published standard says so, rather than borrowing the authority of those beside it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-02"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="coupling_counts_components_not_calls">
+      <purpose><![CDATA[Three calls into one component are one dependency. Counting call sites would treat a file calling another in forty places as depending on forty things.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CPL-04"/>
+        <trace target="HLR" ref="HLR-080"/>
+      </traces>
+    </test>
+    <test name="a_call_within_one_component_is_no_coupling_at_all">
+      <purpose><![CDATA[A file does not depend on itself — the same rule that keeps intra-file recursion out of the cycle report.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CPL-03"/>
+        <trace target="HLR" ref="HLR-114"/>
+      </traces>
+    </test>
+    <test name="a_bottleneck_needs_both_couplings_at_the_threshold">
+      <purpose><![CDATA[A component is flagged only where afferent and efferent coupling each meet the threshold; a widely-used leaf is stable, not a bottleneck.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-01"/>
+        <trace target="HLR" ref="HLR-081"/>
+      </traces>
+    </test>
+    <test name="a_cycle_between_two_components_is_found_with_a_loop">
+      <purpose><![CDATA[The group and a concrete loop through it are both produced, since the group is what must be broken up and the loop is which edge to cut.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYC-05"/>
+        <trace target="HLR" ref="HLR-083"/>
+      </traces>
+    </test>
+    <test name="mutual_recursion_within_one_component_is_not_a_cycle">
+      <purpose><![CDATA[The case HLR-083 names. The call view holds a cycle and the component projection does not, so reporting it would tell an architect to split a file over a function-level recursion finding.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYC-03"/>
+        <trace target="HLR" ref="HLR-083"/>
+      </traces>
+    </test>
+    <test name="an_acyclic_projection_yields_no_cycles">
+      <purpose><![CDATA[A one-directional dependency between two components is not a cycle.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYC-01"/>
+        <trace target="HLR" ref="HLR-083"/>
+      </traces>
+    </test>
+    <test name="a_three_component_cycle_reports_its_whole_group">
+      <purpose><![CDATA[A longer cycle reports every member and a loop visiting all three.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYC-02"/>
+        <trace target="HLR" ref="HLR-083"/>
+      </traces>
+    </test>
+    <test name="a_call_descending_two_layers_is_skip_level_only">
+      <purpose><![CDATA[Bypassing an intervening layer in the declared direction is skip-level and inverts nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-01"/>
+        <trace target="HLR" ref="HLR-079"/>
+      </traces>
+    </test>
+    <test name="a_call_ascending_one_layer_is_inverted_only">
+      <purpose><![CDATA[Running against the declared direction without bypassing anything is direction-inverted and is not a skip.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-02"/>
+        <trace target="HLR" ref="HLR-118"/>
+      </traces>
+    </test>
+    <test name="a_call_ascending_two_layers_is_both">
+      <purpose><![CDATA[Both statements are true of such a call and each has its own remedy, so it is reported twice rather than folded into one finding.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-04"/>
+        <trace target="HLR" ref="HLR-118"/>
+      </traces>
+    </test>
+    <test name="a_call_descending_one_layer_is_no_violation">
+      <purpose><![CDATA[The arrangement the user declared produces nothing. Without this an implementation flagging every inter-layer call would pass every test above.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-03"/>
+        <trace target="HLR" ref="HLR-079"/>
+      </traces>
+    </test>
+    <test name="a_component_in_no_declared_stratum_is_outside_the_partition">
+      <purpose><![CDATA[A file no declaration names has nothing to be compared against; placing it would report violations against a design nobody drew.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-05"/>
+        <trace target="HLR" ref="HLR-078"/>
+      </traces>
+    </test>
+    <test name="with_no_strata_declared_layering_is_omitted">
+      <purpose><![CDATA[The layering is omitted with its reason, and the coupling table is produced all the same.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-03"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="a_state_edge_is_not_a_layering_violation">
+      <purpose><![CDATA[A global two layers share is a different fact with its own analyses; the dependency is still counted in the coupling table.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-05"/>
+        <trace target="HLR" ref="HLR-093"/>
+      </traces>
+    </test>
+    <test name="an_empty_graph_analyses_without_incident">
+      <purpose><![CDATA[A run that analysed nothing produces empty architectural results rather than faulting.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-03"/>
         <trace target="HLR" ref="HLR-066"/>
       </traces>
     </test>
@@ -7916,6 +8253,220 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
+  <file path="test/fixtures/arch.bats" role="fixture" count="30">
+    <test name="HLR-080: Ca and Ce match the hand-computed table">
+      <purpose><![CDATA[The three components' afferent and efferent couplings and their Instability values match the table worked out by hand in the fixture header.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CPL-01"/>
+        <trace target="LLR" ref="LLR-CPL-02"/>
+        <trace target="HLR" ref="HLR-080"/>
+      </traces>
+    </test>
+    <test name="HLR-080: a repeated call does not raise efferent coupling">
+      <purpose><![CDATA[One caller invokes the same component twice. Coupling counts components depended upon, not calls made, so the repeat must not move the figure — without it the fixture would pass against an implementation counting call sites.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CPL-04"/>
+        <trace target="HLR" ref="HLR-080"/>
+      </traces>
+    </test>
+    <test name="HLR-082: instability is Ce over Ce plus Ca">
+      <purpose><![CDATA[The bottom layer is depended on by both others and depends on nothing: 0.00, and a real number rather than undefined.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INS-01"/>
+        <trace target="HLR" ref="HLR-082"/>
+      </traces>
+    </test>
+    <test name="HLR-082: a component with both couplings zero is undefined, not zero">
+      <purpose><![CDATA[The division the requirement forbids. Reporting 0.00 there would claim maximum stability for a file with no relationships at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-INS-02"/>
+        <trace target="HLR" ref="HLR-082"/>
+      </traces>
+    </test>
+    <test name="HLR-080: every component appears, not only the interesting ones">
+      <purpose><![CDATA[The table lists every component rather than only those crossing a threshold, which would make it a finding list.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CPL-01"/>
+        <trace target="HLR" ref="HLR-080"/>
+      </traces>
+    </test>
+    <test name="HLR-081: no component is a bottleneck at the default threshold">
+      <purpose><![CDATA[Asserted so the flag has to be earned: a suite that only ever saw a flagged component would pass against an implementation flagging everything.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-01"/>
+        <trace target="HLR" ref="HLR-081"/>
+      </traces>
+    </test>
+    <test name="HLR-081: a component is a bottleneck when both couplings meet the threshold">
+      <purpose><![CDATA[Lowering the threshold produces the flag, and the component with zero efferent coupling stays clear — the rule is both couplings, not either.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-01"/>
+        <trace target="HLR" ref="HLR-081"/>
+      </traces>
+    </test>
+    <test name="HLR-099: the bottleneck threshold is marked as elc's own heuristic">
+      <purpose><![CDATA[The finding names the threshold as elc's own rather than citing a standard it does not have.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-02"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-081: the threshold is configurable and appears in the heading">
+      <purpose><![CDATA[The value in force is stated in the report, so a reader knows what the flags were judged against.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-05"/>
+        <trace target="HLR" ref="HLR-081"/>
+      </traces>
+    </test>
+    <test name="HLR-083: a cycle between two components is reported as an ordered loop">
+      <purpose><![CDATA[The loop is reported in order and closed, so the reader sees which edge to cut rather than only which files are entangled.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYC-02"/>
+        <trace target="HLR" ref="HLR-083"/>
+      </traces>
+    </test>
+    <test name="HLR-083: the same pair is a recursion finding as well">
+      <purpose><![CDATA[Mutual recursion across two files is legitimately both: one statement says the stack depth has no finite bound, the other that the files cannot be built or understood apart.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYC-01"/>
+        <trace target="HLR" ref="HLR-083"/>
+      </traces>
+    </test>
+    <test name="LLR-CYC-03: mutual recursion within one file is NOT a component cycle">
+      <purpose><![CDATA[The case HLR-083 calls out by name. A file does not depend on itself, so the component projection holds no loop.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYC-03"/>
+        <trace target="HLR" ref="HLR-083"/>
+      </traces>
+    </test>
+    <test name="LLR-CYC-03: that same file still reports the recursion">
+      <purpose><![CDATA[Paired with the test above so that an implementation detecting nothing anywhere cannot pass it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-02"/>
+        <trace target="HLR" ref="HLR-089"/>
+      </traces>
+    </test>
+    <test name="HLR-083: an acyclic project reports no cycles">
+      <purpose><![CDATA[No cycle is invented where none exists.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYC-01"/>
+        <trace target="HLR" ref="HLR-083"/>
+      </traces>
+    </test>
+    <test name="HLR-079: a call bypassing an intervening layer is skip-level">
+      <purpose><![CDATA[A call descending two layers is reported with both endpoints and the layers crossed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-01"/>
+        <trace target="HLR" ref="HLR-079"/>
+      </traces>
+    </test>
+    <test name="HLR-118: a call inverting the declared direction is reported separately">
+      <purpose><![CDATA[A call ascending one layer is reported as a direction inversion, with its own kind.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-02"/>
+        <trace target="HLR" ref="HLR-118"/>
+      </traces>
+    </test>
+    <test name="LLR-LAY-03: the two are distinct findings, each without the other">
+      <purpose><![CDATA[One call skips without inverting and the other inverts without skipping. An implementation folding them into a single layering violation fails here, and so does one reporting a skip only when the call also inverts.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-03"/>
+        <trace target="HLR" ref="HLR-118"/>
+      </traces>
+    </test>
+    <test name="HLR-079: a call descending exactly one layer is not reported">
+      <purpose><![CDATA[The arrangement the user declared produces nothing, so the findings above have to be earned.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-03"/>
+        <trace target="HLR" ref="HLR-079"/>
+      </traces>
+    </test>
+    <test name="HLR-079: the layers crossed are reported with the finding">
+      <purpose><![CDATA[The ordinal distance travels with each finding, since the requirement asks for the layers crossed and not merely that some were.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-01"/>
+        <trace target="HLR" ref="HLR-079"/>
+      </traces>
+    </test>
+    <test name="HLR-078: the declared order determines the direction">
+      <purpose><![CDATA[Declaring the same layers bottom-up inverts every judgement: the call that skipped downward now ascends two layers and is both findings, and the one that inverted now descends one and is nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-02"/>
+        <trace target="HLR" ref="HLR-078"/>
+      </traces>
+    </test>
+    <test name="HLR-078: --stratum-order states the direction explicitly">
+      <purpose><![CDATA[The order option corrects layers declared in the wrong sequence, and may be given before them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-05"/>
+        <trace target="HLR" ref="HLR-078"/>
+      </traces>
+    </test>
+    <test name="HLR-063: --stratum-order naming an undeclared layer is a usage error">
+      <purpose><![CDATA[A misspelt layer name ends the run rather than silently leaving the layering measured against something else.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-05"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="HLR-063: a partial --stratum-order is a usage error">
+      <purpose><![CDATA[A partial order determines no direction, and silently completing it would invent one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-05"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="HLR-063: a malformed stratum declaration is a usage error">
+      <purpose><![CDATA[A declaration that cannot be parsed ends the run with the fatal status and a diagnostic.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STR-03"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="HLR-115: with no strata declared the analysis is omitted with a reason">
+      <purpose><![CDATA[The heading states the omission rather than leaving an empty table to read as a clean architecture.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-03"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="LLR-CTR-09: omitting layering does not omit the coupling table">
+      <purpose><![CDATA[A run with no strata still reports coupling and instability for every component.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-03"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="LLR-ARC-04: a stratum matching no component is diagnosed and retained">
+      <purpose><![CDATA[Retained rather than dropped: dropping it would renumber the layers below and change what the remaining calls are compared against, turning a typo into a wrong answer.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ARC-04"/>
+        <trace target="HLR" ref="HLR-078"/>
+      </traces>
+    </test>
+    <test name="HLR-094: a component in no declared stratum is outside the partition">
+      <purpose><![CDATA[With only one layer declared, the calls touching undeclared files produce nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-05"/>
+        <trace target="HLR" ref="HLR-078"/>
+      </traces>
+    </test>
+    <test name="HLR-032: the architecture sections survive a record round trip">
+      <purpose><![CDATA[A report regenerated from the saved record is byte-identical to the live one, with the coupling, cycle and layering sections included.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-13"/>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="HLR-032: a cycle and its loop survive the round trip">
+      <purpose><![CDATA[The ordered loop and the coupling figures come back from the record, neither being recomputable without a graph.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-13"/>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+  </file>
+
   <file path="test/fixtures/calltree.bats" role="fixture" count="20">
     <test name="HLR-085: fan-out is exact at every band boundary">
       <purpose><![CDATA[Fan-out is correct for 2, 3, 7, 8, 10, 11, 15 and 16 distinct callees — the values Phase 12 will band, asserted individually so a failure names the boundary that moved.]]></purpose>
@@ -8318,7 +8869,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="21">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="22">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -8447,7 +8998,14 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-043" name="Read-Only Operation"/>
       </traces>
     </test>
-  </file>
+      <test name="HLR-125: the local sanitizer gate is as strong as the pipeline's">
+      <purpose><![CDATA[The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-18"/>
+        <trace target="HLR" ref="HLR-125"/>
+      </traces>
+    </test>
+</file>
 
   <file path="test/fixtures/smoke.bats" role="fixture" count="2">
     <test name="the fixture level is wired and elc is runnable">

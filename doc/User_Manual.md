@@ -650,6 +650,126 @@ no finite answer. `elc` reports the cycle instead of a number, rather than
 picking some finite value that would be wrong, or looping forever trying to
 find one.
 
+### Component coupling
+
+```text
+Component coupling (I = Ce/(Ce+Ca), Martin; bottleneck at Ca and Ce >= 5)
+  Component             Ca  Ce  Instability  Finding
+  --------------------  --  --  -----------  -------
+  /home/u/proj/app.c     1   2         0.67
+  /home/u/proj/drv.c     2   0         0.00
+  /home/u/proj/util.c    0   0    undefined
+```
+
+A **component is a source file**, and that is the unit for everything in this
+section and the two below it. A dependency runs from file X to file Y when any
+function in X calls any function in Y, or writes a global a function in Y
+reads.
+
+`Ca` counts the components that depend on this one, `Ce` the ones it depends
+upon. Both count **components, not calls**: a file calling another in forty
+places depends on it once.
+
+**Instability** is `Ce / (Ce + Ca)`. Approaching 0 it means maximum stability —
+widely depended upon, depending on little, and dangerous to change. Approaching
+1 it means the opposite: freely changeable, because nothing rests on it.
+
+**Where both couplings are zero it is `undefined`, not `0.00`.** A file nothing
+depends on that depends on nothing is entirely ordinary — a lone file in a
+single-file target is exactly that — and reporting zero there would claim
+maximum stability for a component that has no relationships at all.
+
+A component whose `Ca` **and** `Ce` are each at or above the bottleneck
+threshold is flagged: it is simultaneously depended upon widely and dependent
+widely, so it is both dangerous to change and hard to isolate for testing.
+Both, not either — a widely-used leaf is stable, not a bottleneck.
+
+```sh
+elc -b 3 src/     # lower the bar from the default 5
+```
+
+**This threshold is `elc`'s own heuristic and says so on every row it flags.**
+Everything else `elc` bands comes from a published source; this one does not,
+and presenting it beside Henry–Kafura and MISRA without saying so would lend it
+authority it has not got.
+
+### Component dependency cycles
+
+```text
+Component dependency cycles
+  Components                  Example loop
+  --------------------------  ----------------------------------------
+  /u/p/a.c, /u/p/b.c, /u/p/c.c  /u/p/a.c -> /u/p/b.c -> /u/p/c.c -> /u/p/a.c
+```
+
+Files that depend on each other, directly or through a chain. Two columns
+because one alone misleads: the **group** is what has to be broken up, and the
+**loop** is which edge to cut. Where a group holds several overlapping loops
+one is shown — enumerating them all is exponential in the group's size, and one
+witness is what you act on.
+
+**This is not the same finding as recursion, and the difference is the unit.**
+Two mutually recursive functions in one file appear in the Recursion section
+and *not* here, because a file does not depend on itself. Split that same pair
+across two files and it is legitimately both: one statement says the stack
+depth has no finite bound, the other says the two files cannot be built,
+tested, or understood apart.
+
+### Layering
+
+You declare the layers; `elc` does not guess them:
+
+```sh
+elc --stratum 'app:src/app/*' --stratum 'hal:src/hal/*'     --stratum 'drv:src/drv/*' src/
+```
+
+```text
+Layering (2)
+  Kind        From  Function      To   Function    Layers
+  ----------  ----  ------------  ---  ----------  ------
+  skip-level  app   app_shortcut  drv  drv_poke         2
+  inverted    hal   hal_callback  app  app_notify       1
+```
+
+The order layers are **first declared is the permitted direction of
+dependency**, topmost first. So above, `app` may depend on `hal`, and `hal` on
+`drv`. State it explicitly instead if you prefer:
+
+```sh
+elc --stratum-order 'app>hal>drv' --stratum 'drv:src/drv/*' ...
+```
+
+`--stratum-order` may come before or after the layers it orders. Every declared
+stratum must appear in it, and every name must be a declared stratum: a partial
+order determines no direction, and a misspelt name would silently leave your
+layering checked against something you did not write.
+
+**Two findings, and they are independent.** They come out of one comparison of
+the caller's layer against the callee's:
+
+| | Bypasses a layer | Runs against the direction |
+| --- | --- | --- |
+| `app` → `drv` (down two) | **skip-level** | no |
+| `hal` → `app` (up one) | no | **inverted** |
+| `drv` → `app` (up two) | **skip-level** | **inverted** |
+| `app` → `hal` (down one) | no | no |
+
+The third row is reported **twice**, because both statements are true of it and
+each has its own remedy — you can fix the direction without fixing the skip.
+The fourth is reported not at all; that is the arrangement you declared.
+
+A file matching no `--stratum` lies outside the partition rather than in a
+layer of its own, so a call touching it is neither finding. And a layer whose
+pattern matches nothing is reported on standard error and kept — dropping it
+would renumber the layers below and change what everything else is compared
+against.
+
+Only **calls** are checked here. A global two layers happen to share is a
+different fact, with its own findings in Global state and `--scope`.
+
+With no `--stratum` at all the section states that it was omitted. The coupling
+table above it is still produced.
+
 ### Dead code between functions
 
 ```text
@@ -877,7 +997,20 @@ elc: grow is defined 5 times; calls to it resolve to /home/u/proj/src/analyze.c:
 
 **Read standard error before acting on the unreachable list.** A function
 named there and reported unreachable is a duplicate-name artefact, not dead
-code. `elc` analysing its own source reports exactly this and nothing else.
+code.
+
+**The same artefact reaches the component analyses, and there it is worse.**
+Every call to the duplicated name resolves into one file, so that file gains
+afferent coupling it has not earned, the others lose it — and if the file
+holding the winning definition already depends on one of the losers, the
+invented edge **closes a dependency cycle that does not exist**. A false
+circular dependency is a more expensive mistake than a false dead-code claim,
+because it points at an architecture problem rather than at a line to delete.
+
+`elc` analysing its own source demonstrates both: six files define a `static
+grow` helper, one wins, and the report shows a cycle between the winner and one
+of the losers. The diagnostic naming the duplicate is the tell in every case.
+Give the helpers distinct names, or read the two outputs together.
 
 ## Languages
 
@@ -995,6 +1128,9 @@ comparable.
 | `-o`, `--output` | `FILE` | standard output | Write the report to `FILE` |
 | `--entry` | `SYMBOL` | none | Declare `SYMBOL` an entry point for call-depth and reachability analysis; repeatable |
 | `--scope` | `NAME:GLOB[,GLOB…]` | none | Declare an execution scope named `NAME` holding the matching files; repeatable |
+| `-b`, `--bottleneck-threshold` | `N` | `5` | Flag a component whose `Ca` and `Ce` are each `N` or greater |
+| `--stratum` | `NAME:GLOB[,GLOB…]` | none | Declare an architectural layer named `NAME` holding the matching files; repeatable |
+| `--stratum-order` | `NAME>NAME[>NAME…]` | none | State the permitted direction of dependency between the declared layers |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 

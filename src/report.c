@@ -20,6 +20,7 @@
 #include "analyze.h"
 #include "calltree.h"
 #include "discover.h"
+#include "arch.h"
 #include "state.h"
 #include "elc.h"
 #include "report.h"
@@ -709,6 +710,203 @@ int report_set_state(Report *report, const StateResults *state, const Sdg *g,
 	return 0;
 }
 
+/* --------------------------------------------------- component coupling --
+ *
+ * Node and component identifiers are translated to paths and names here, for
+ * the reason every other analysis result is: an index addresses a table that
+ * exists only while the graph does, and the report outlives it.
+ */
+
+static int by_component(const void *a, const void *b)
+{
+	const CouplingRow *x = a;
+	const CouplingRow *y = b;
+
+	return strcmp(x->component, y->component);
+}
+
+/* Layering rows order by the boundary crossed, then by the kind, then by the
+ * functions at either end — every key something a reader can name, so two runs
+ * over one tree list them the same way (HLR-032). */
+static int by_layering(const void *a, const void *b)
+{
+	const LayeringRow *x = a;
+	const LayeringRow *y = b;
+	int                c = strcmp(x->from_stratum, y->from_stratum);
+
+	if (c != 0)
+		return c;
+	c = strcmp(x->to_stratum, y->to_stratum);
+	if (c != 0)
+		return c;
+	if (x->kind != y->kind)
+		return x->kind < y->kind ? -1 : 1;
+	c = strcmp(x->from_function, y->from_function);
+	if (c != 0)
+		return c;
+	return strcmp(x->to_function, y->to_function);
+}
+
+static int by_cycle_row(const void *a, const void *b)
+{
+	const CycleDependencyRow *x = a;
+	const CycleDependencyRow *y = b;
+
+	return strcmp(x->components, y->components);
+}
+
+/* Join component paths with `separator`, or NULL on allocation failure. */
+static char *join_components(const Sdg *g, const size_t *items, size_t count,
+                             const char *separator, bool close_loop)
+{
+	Joined out = { 0 };
+
+	for (size_t i = 0; i < count; i++) {
+		if (items[i] >= g->component_count)
+			continue;
+		if (join(&out, separator, g->component_paths[items[i]]) != 0) {
+			free(out.text);
+			return NULL;
+		}
+	}
+
+	/* A loop is closed by naming its first component again, so the reader
+	 * sees `a -> b -> c -> a` rather than having to infer the last edge —
+	 * which is the edge they are most likely to cut. */
+	if (close_loop && count > 0 && items[0] < g->component_count &&
+	    join(&out, separator, g->component_paths[items[0]]) != 0) {
+		free(out.text);
+		return NULL;
+	}
+
+	return joined_take(&out);
+}
+
+int report_set_arch(Report *report, const ArchResults *arch, const Sdg *g,
+                    const ElcOptions *opts)
+{
+	if (!arch || !g)
+		return 0;
+
+	report->strata_state         = arch->strata_state;
+	report->bottleneck_threshold = opts->bottleneck_threshold;
+
+	/* --- coupling, one row per component ------------------------------ */
+
+	if (arch->component_count > 0) {
+		report->coupling = calloc(arch->component_count,
+		                          sizeof *report->coupling);
+		if (!report->coupling)
+			return -1;
+
+		for (size_t i = 0; i < arch->component_count &&
+		     i < g->component_count; i++) {
+			const ComponentCoupling *c   = &arch->coupling[i];
+			CouplingRow             *row =
+				&report->coupling[report->coupling_count];
+			char                     value[32];
+
+			row->component = strdup(g->component_paths[i]);
+			if (!row->component)
+				return -1;
+			row->ca         = c->ca;
+			row->ce         = c->ce;
+			row->bottleneck = c->bottleneck;
+
+			/* Two decimal places, and the word where there is no
+			 * number. Formatting once here is what keeps the four
+			 * renderers from each deciding how to say "undefined"
+			 * (HLR-082, LLR-INS-02). */
+			if (c->instability_defined)
+				snprintf(value, sizeof value, "%.2f",
+				         c->instability);
+			else
+				snprintf(value, sizeof value, "undefined");
+
+			row->instability = strdup(value);
+			if (!row->instability)
+				return -1;
+			report->coupling_count++;
+		}
+	}
+
+	/* --- dependency cycles -------------------------------------------- */
+
+	if (arch->cycle_count > 0) {
+		report->dep_cycles = calloc(arch->cycle_count,
+		                            sizeof *report->dep_cycles);
+		if (!report->dep_cycles)
+			return -1;
+
+		for (size_t i = 0; i < arch->cycle_count; i++) {
+			const ComponentCycle *cycle = &arch->cycles[i];
+			CycleDependencyRow   *row   =
+				&report->dep_cycles[report->dep_cycle_count];
+
+			row->components = join_components(g, cycle->members,
+			                                  cycle->member_count,
+			                                  ", ", false);
+			row->path       = join_components(g, cycle->path,
+			                                  cycle->path_count,
+			                                  " -> ", true);
+			if (!row->components || !row->path)
+				return -1;
+			report->dep_cycle_count++;
+		}
+	}
+
+	/* --- layering ------------------------------------------------------ */
+
+	if (arch->violation_count > 0) {
+		report->layering = calloc(arch->violation_count,
+		                          sizeof *report->layering);
+		if (!report->layering)
+			return -1;
+
+		for (size_t i = 0; i < arch->violation_count; i++) {
+			const LayerViolation *v = &arch->violations[i];
+
+			if (v->from >= g->node_count || v->to >= g->node_count ||
+			    v->from_stratum >= opts->strata.count ||
+			    v->to_stratum >= opts->strata.count)
+				continue;
+
+			LayeringRow *row =
+				&report->layering[report->layering_count];
+
+			row->from_stratum =
+				strdup(opts->strata.items[v->from_stratum].name);
+			row->from_function = strdup(g->nodes[v->from].name);
+			row->from_file     = strdup(g->nodes[v->from].file);
+			row->to_stratum =
+				strdup(opts->strata.items[v->to_stratum].name);
+			row->to_function = strdup(g->nodes[v->to].name);
+			row->to_file     = strdup(g->nodes[v->to].file);
+			if (!row->from_stratum || !row->from_function ||
+			    !row->from_file || !row->to_stratum ||
+			    !row->to_function || !row->to_file)
+				return -1;
+			row->layers_crossed = (uint32_t)v->layers_crossed;
+			row->kind           = v->kind;
+			report->layering_count++;
+		}
+	}
+
+	/* Every collection ordered by an explicit key before a renderer sees
+	 * it, as the rest of the model is (LLR-RPT-10). */
+	if (report->coupling_count > 1)
+		qsort(report->coupling, report->coupling_count,
+		      sizeof *report->coupling, by_component);
+	if (report->dep_cycle_count > 1)
+		qsort(report->dep_cycles, report->dep_cycle_count,
+		      sizeof *report->dep_cycles, by_cycle_row);
+	if (report->layering_count > 1)
+		qsort(report->layering, report->layering_count,
+		      sizeof *report->layering, by_layering);
+
+	return 0;
+}
+
 const char *global_verdict_attribution(GlobalVerdict verdict)
 {
 	switch (verdict) {
@@ -979,6 +1177,31 @@ void report_free(Report *report)
 	free(report->dead);
 	report->dead       = NULL;
 	report->dead_count = 0;
+	for (size_t i = 0; i < report->coupling_count; i++) {
+		free(report->coupling[i].component);
+		free(report->coupling[i].instability);
+	}
+	free(report->coupling);
+	report->coupling       = NULL;
+	report->coupling_count = 0;
+	for (size_t i = 0; i < report->dep_cycle_count; i++) {
+		free(report->dep_cycles[i].components);
+		free(report->dep_cycles[i].path);
+	}
+	free(report->dep_cycles);
+	report->dep_cycles      = NULL;
+	report->dep_cycle_count = 0;
+	for (size_t i = 0; i < report->layering_count; i++) {
+		free(report->layering[i].from_stratum);
+		free(report->layering[i].from_function);
+		free(report->layering[i].from_file);
+		free(report->layering[i].to_stratum);
+		free(report->layering[i].to_function);
+		free(report->layering[i].to_file);
+	}
+	free(report->layering);
+	report->layering       = NULL;
+	report->layering_count = 0;
 	pathlist_free(&report->dead_unanalysed);
 	pathlist_free(&report->skipped_files);
 	memset(&report->summary, 0, sizeof report->summary);

@@ -34,6 +34,16 @@ enum {
  * status (HLR-023). */
 #define ELC_DEFAULT_COMPLEXITY_THRESHOLD 15u
 
+/* The coupling at which a component is called an architectural bottleneck: it
+ * is flagged when its afferent *and* efferent couplings are each at least this
+ * (HLR-081).
+ *
+ * Unlike every threshold in Appendix A, this one is `elc`'s own heuristic
+ * rather than a published standard, and is marked as such wherever it is
+ * reported (HLR-099). Reporting only: no threshold ever reaches the exit
+ * status (HLR-023, HLR-100). */
+#define ELC_DEFAULT_BOTTLENECK_THRESHOLD 5u
+
 /* The structure of the XML record this build writes and accepts (HLR-061).
  *
  * Incremented whenever an element is removed or its meaning changes — not
@@ -55,6 +65,30 @@ typedef enum {
 	FORMAT_XML,       /* the complete record of a run (HLR-054)          */
 	FORMAT_MARKDOWN   /* GitHub-Flavored Markdown (HLR-029)              */
 } OutputFormat;
+
+/* One declared architectural stratum: a named layer, the component patterns
+ * assigned to it, and its position in the declared dependency direction
+ * (HLR-078).
+ *
+ * The ordinal is what makes a direction out of a set of names. Layer 0 is the
+ * top — the layer permitted to depend on those below it — so a call from a
+ * higher ordinal to a lower one runs against the declaration. Strata are never
+ * discovered from the filesystem: a directory layout is a convention, and
+ * inferring an architecture from one would report violations against a design
+ * nobody stated.
+ */
+typedef struct {
+	char   *name;          /* owned */
+	char  **patterns;      /* owned, each and the array */
+	size_t  pattern_count;
+	size_t  ordinal;       /* 0 is the topmost declared layer */
+} StratumDecl;
+
+typedef struct {
+	StratumDecl *items;
+	size_t       count;
+	size_t       capacity;
+} StratumList;
 
 /* One declared execution scope: a name, and the component patterns belonging
  * to it (HLR-094).
@@ -106,6 +140,19 @@ typedef struct {
 	 * unlike the entry points: a declaration is split into a name and a
 	 * pattern list, and neither substring exists in argv. */
 	ScopeList     scopes;
+	/* The architectural strata layering is validated against (HLR-078),
+	 * and the declared direction of dependency between them. Owned
+	 * outright, as the scopes are, and for the same reason.
+	 *
+	 * With no strata the analysis is omitted with a stated reason. The
+	 * ordinals come from the order the strata were declared unless
+	 * `--stratum-order` states them, which is resolved once after parsing
+	 * so that the two options may appear in either order. */
+	StratumList   strata;
+	const char   *stratum_order;  /* borrowed from argv; NULL if absent */
+	/* Ca and Ce floor at which a component is a bottleneck (HLR-081).
+	 * `elc`'s own heuristic, and marked as such wherever reported. */
+	uint32_t      bottleneck_threshold;
 	bool          graphml;      /* export the SDG (HLR-106); off unless
 	                             * asked for, and silently nothing when
 	                             * the report goes to stdout             */
@@ -177,6 +224,32 @@ typedef enum {
 	SCOPES_MEASURED = 0,
 	SCOPES_OMITTED_NONE_DECLARED
 } ScopeState;
+
+/* Whether the layering validation ran, and if not, why not.
+ *
+ * Two states rather than the three reachability carries, and the difference is
+ * the spec's rather than an oversight: a stratum pattern matching no component
+ * is a *diagnostic* and the empty layer is retained (LLR-ARC-04), so
+ * "declared but matching nothing" never becomes an omission the way an
+ * unresolved entry point does.
+ */
+typedef enum {
+	STRATA_MEASURED = 0,
+	STRATA_OMITTED_NONE_DECLARED   /* none declared (HLR-115) */
+} StrataState;
+
+/* How a call offends against the declared layering.
+ *
+ * The two are **orthogonal**, which is why they are separate kinds rather than
+ * one "layering violation". They fall out of one ordinal comparison: a call
+ * descending two layers bypasses an intervening one without inverting
+ * anything, a call ascending one layer inverts the declared direction without
+ * bypassing anything, and a call ascending two does both (HLR-079, HLR-118).
+ */
+typedef enum {
+	LAYER_SKIP_LEVEL = 0,  /* bypasses an intervening layer (HLR-079) */
+	LAYER_INVERTED         /* runs against the direction  (HLR-118)   */
+} LayerViolationKind;
 
 /* What `classify_globals` concluded about one global object. */
 typedef enum {

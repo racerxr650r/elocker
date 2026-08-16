@@ -100,6 +100,171 @@ invalid:
 	return -1;
 }
 
+/* Parse one `name:glob[,glob…]` architectural-stratum declaration
+ * (LLR-STR-01, LLR-STR-02).
+ *
+ * Structurally identical to `parse_scope` and deliberately a separate
+ * function: the two declarations mean different things, are validated against
+ * different analyses, and a single parser taking a list to append to would
+ * make a caller's mistake — a scope declared as a stratum — invisible.
+ *
+ * Repeating a name **adds patterns to the layer already declared** rather than
+ * creating a second one, so naming `hal` twice with a pattern each time is one
+ * layer of two patterns. A layer's ordinal is fixed when it is first named; the
+ * declared order is the dependency direction unless `--stratum-order` states
+ * it (LLR-STR-02).
+ */
+int parse_stratum(const char *arg, ElcOptions *out)
+{
+	const char *colon = strchr(arg, ':');
+	StratumDecl *layer = NULL;
+	char        *name  = NULL;
+
+	if (!colon || colon == arg || colon[1] == '\0') {
+		fprintf(stderr,
+		        "elc: '%s' is not a stratum; expected "
+		        "name:glob[,glob...]\n", arg);
+		return -1;
+	}
+
+	name = strndup(arg, (size_t)(colon - arg));
+	if (!name) {
+		fputs("elc: out of memory\n", stderr);
+		return -1;
+	}
+
+	for (size_t i = 0; i < out->strata.count; i++)
+		if (strcmp(out->strata.items[i].name, name) == 0) {
+			layer = &out->strata.items[i];
+			break;
+		}
+
+	if (!layer) {
+		if (out->strata.count == out->strata.capacity) {
+			size_t       next  = out->strata.capacity
+			                             ? out->strata.capacity * 2 : 4;
+			StratumDecl *grown = realloc(out->strata.items,
+			                             next * sizeof *grown);
+
+			if (!grown) {
+				fputs("elc: out of memory\n", stderr);
+				free(name);
+				return -1;
+			}
+			out->strata.items    = grown;
+			out->strata.capacity = next;
+		}
+
+		layer = &out->strata.items[out->strata.count];
+		memset(layer, 0, sizeof *layer);
+		layer->name    = name;
+		/* Declaration order is the direction until told otherwise: the
+		 * first layer named is the top, permitted to depend downward. */
+		layer->ordinal = out->strata.count;
+		out->strata.count++;
+		name = NULL;
+	}
+	free(name);
+
+	for (const char *p = colon + 1; *p; ) {
+		const char *comma = strchr(p, ',');
+		size_t      len   = comma ? (size_t)(comma - p) : strlen(p);
+
+		if (len == 0) {
+			fprintf(stderr,
+			        "elc: '%s' has an empty component pattern\n", arg);
+			return -1;
+		}
+
+		char **grown = realloc(layer->patterns,
+		                       (layer->pattern_count + 1) * sizeof *grown);
+
+		if (!grown) {
+			fputs("elc: out of memory\n", stderr);
+			return -1;
+		}
+		layer->patterns = grown;
+
+		layer->patterns[layer->pattern_count] = strndup(p, len);
+		if (!layer->patterns[layer->pattern_count]) {
+			fputs("elc: out of memory\n", stderr);
+			return -1;
+		}
+		layer->pattern_count++;
+
+		p = comma ? comma + 1 : p + len;
+	}
+
+	return 0;
+}
+
+/* Apply a `NAME>NAME[>NAME...]` declaration to the strata already parsed
+ * (LLR-STR-02).
+ *
+ * Resolved once, after every option has been read, so that the order may be
+ * given before or after the layers it orders — getopt hands options over one
+ * at a time, and making the user remember a sequence would be a trap with no
+ * purpose.
+ *
+ * **Every declared stratum must appear, and every name must be declared.** A
+ * partial order cannot determine a direction, and a name for a layer that does
+ * not exist is a typo whose silent acceptance would leave the layering
+ * validated against something the user did not write.
+ */
+static int apply_stratum_order(ElcOptions *out)
+{
+	size_t assigned = 0;
+
+	if (!out->stratum_order)
+		return 0;
+
+	if (out->strata.count == 0) {
+		fputs("elc: --stratum-order was given but no --stratum was\n",
+		      stderr);
+		return -1;
+	}
+
+	for (const char *p = out->stratum_order; *p; ) {
+		const char *sep = strchr(p, '>');
+		size_t      len = sep ? (size_t)(sep - p) : strlen(p);
+		bool        hit = false;
+
+		if (len == 0) {
+			fprintf(stderr, "elc: '%s' names an empty stratum\n",
+			        out->stratum_order);
+			return -1;
+		}
+
+		for (size_t i = 0; i < out->strata.count; i++) {
+			if (strlen(out->strata.items[i].name) != len ||
+			    strncmp(out->strata.items[i].name, p, len) != 0)
+				continue;
+			out->strata.items[i].ordinal = assigned++;
+			hit                          = true;
+			break;
+		}
+
+		if (!hit) {
+			fprintf(stderr,
+			        "elc: --stratum-order names '%.*s', which is not a "
+			        "declared stratum\n", (int)len, p);
+			return -1;
+		}
+
+		p = sep ? sep + 1 : p + len;
+	}
+
+	if (assigned != out->strata.count) {
+		fprintf(stderr,
+		        "elc: --stratum-order names %zu of %zu declared strata; a "
+		        "partial order does not determine a direction\n",
+		        assigned, out->strata.count);
+		return -1;
+	}
+
+	return 0;
+}
+
 void cli_usage(FILE *stream)
 {
 	fputs(
@@ -127,6 +292,22 @@ void cli_usage(FILE *stream)
 "                     points are never guessed at, so with none declared the\n"
 "                     analyses that need them are omitted with a stated\n"
 "                     reason, and nothing is reported unreachable\n"
+"  -b, --bottleneck-threshold N\n"
+"                     flag a component whose afferent and efferent couplings\n"
+"                     are each N or greater as an architectural bottleneck\n"
+"                     (default 5). This threshold is elc's own heuristic, not\n"
+"                     a published standard, and is reported as such\n"
+"      --stratum NAME:GLOB[,GLOB...]\n"
+"                     declare an architectural layer named NAME containing the\n"
+"                     files matching GLOB. Repeatable; repeating a name adds\n"
+"                     patterns to that layer. The order layers are first\n"
+"                     declared is the permitted direction of dependency,\n"
+"                     topmost first, unless --stratum-order states it\n"
+"      --stratum-order NAME>NAME[>NAME...]\n"
+"                     state the permitted direction of dependency between the\n"
+"                     declared layers, leftmost topmost. Every declared\n"
+"                     stratum must appear, since a partial order determines no\n"
+"                     direction\n"
 "      --scope NAME:GLOB[,GLOB...]\n"
 "                     declare an execution scope named NAME containing the\n"
 "                     files matching GLOB. Repeatable. With two or more\n"
@@ -160,7 +341,8 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 {
 	/* A value above any printable character, so a long-only option cannot
 	 * collide with a short one. */
-	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_ENTRY, OPT_SCOPE };
+	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_ENTRY, OPT_SCOPE,
+	       OPT_STRATUM, OPT_STRATUM_ORDER };
 
 	static const struct option longopts[] = {
 		{ "format",               required_argument, NULL, 'f' },
@@ -170,6 +352,9 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },
 		{ "scope",                required_argument, NULL, OPT_SCOPE },
+		{ "bottleneck-threshold", required_argument, NULL, 'b' },
+		{ "stratum",              required_argument, NULL, OPT_STRATUM },
+		{ "stratum-order",        required_argument, NULL, OPT_STRATUM_ORDER },
 		{ "help",                 no_argument,       NULL, 'h' },
 		{ NULL,                   0,                 NULL, 0   }
 	};
@@ -187,6 +372,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	out->mode                 = MODE_ANALYSE;
 	out->format               = FORMAT_TABLE;
 	out->complexity_threshold = ELC_DEFAULT_COMPLEXITY_THRESHOLD;
+	out->bottleneck_threshold = ELC_DEFAULT_BOTTLENECK_THRESHOLD;
 
 	/* Report errors ourselves so every diagnostic reaches stderr in one
 	 * voice (HLR-038); getopt's own messages would bypass cli_usage(). */
@@ -194,7 +380,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	optind = 1;
 
 	int c;
-	while ((c = getopt_long(argc, argv, ":ho:c:f:", longopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, ":ho:c:f:b:", longopts, NULL)) != -1) {
 		switch (c) {
 		case 'f': {
 			size_t i;
@@ -263,6 +449,37 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			 * array holding them is owned. */
 			out->entry_points[out->entry_point_count++] = optarg;
 			break;
+		case 'b': {
+			/* The same test the complexity threshold gets, and for
+			 * the same reason: strtoul alone accepts a sign,
+			 * leading whitespace, and a trailing tail, none of
+			 * which is a threshold. */
+			char         *end  = NULL;
+			unsigned long value;
+
+			errno = 0;
+			value = strtoul(optarg, &end, 10);
+
+			if (optarg[0] < '0' || optarg[0] > '9' || !end ||
+			    *end != '\0' || errno == ERANGE ||
+			    value > UINT32_MAX) {
+				fprintf(stderr,
+				        "elc: '%s' is not a bottleneck "
+				        "threshold\n", optarg);
+				return CLI_ERROR;
+			}
+			out->bottleneck_threshold = (uint32_t)value;
+			break;
+		}
+		case OPT_STRATUM:
+			if (parse_stratum(optarg, out) != 0)
+				return CLI_ERROR;
+			break;
+		case OPT_STRATUM_ORDER:
+			/* Borrowed from argv and resolved after the loop, so
+			 * that it may be given before the layers it orders. */
+			out->stratum_order = optarg;
+			break;
 		case OPT_SCOPE:
 			/* Owned outright, unlike the entry points: the
 			 * declaration is split on two separators, so neither
@@ -298,6 +515,9 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			return CLI_ERROR;
 		}
 	}
+
+	if (apply_stratum_order(out) != 0)
+		return CLI_ERROR;
 
 	if (out->mode == MODE_REGENERATE) {
 		/* A saved record is the input, so a target would name a second
@@ -351,5 +571,12 @@ void cli_options_free(ElcOptions *opts)
 		free(opts->scopes.items[i].name);
 	}
 	free(opts->scopes.items);
+	for (size_t i = 0; i < opts->strata.count; i++) {
+		for (size_t p = 0; p < opts->strata.items[i].pattern_count; p++)
+			free(opts->strata.items[i].patterns[p]);
+		free(opts->strata.items[i].patterns);
+		free(opts->strata.items[i].name);
+	}
+	free(opts->strata.items);
 	memset(opts, 0, sizeof(*opts));
 }

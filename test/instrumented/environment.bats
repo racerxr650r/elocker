@@ -334,6 +334,29 @@ setup() {
 	}
 }
 
+@test "HLR-125: the local sanitizer gate is as strong as the pipeline's" {
+	# `abort_on_error=1` is what makes a leak reported inside a forked
+	# Criterion child reach the parent's exit status. Without it a leaking
+	# unit test is reported and `make asan` still succeeds — which is worse
+	# than no local gate, because the local gate is trusted. Phase 11
+	# shipped two leaking tests past a green local run and was caught only
+	# by CI; this keeps the two definitions from drifting apart again.
+	local makefile="$REPO_ROOT/Makefile"
+	local workflow="$REPO_ROOT/.github/workflows/ci.yml"
+
+	require_path "$workflow" "LLR-BLD-18 sanitizer option parity"
+
+	local from_make from_ci
+	from_make="$(awk -F'?= ' '/^ASAN_OPTIONS/ { print $2; exit }' "$makefile")"
+	from_ci="$(awk -F': ' '/ASAN_OPTIONS:/ { print $2; exit }' "$workflow")"
+
+	assert_equal "$from_make" "$from_ci"
+	[[ "$from_make" == *abort_on_error=1* ]] || {
+		echo "the sanitizer gate must abort on error: $from_make" >&2
+		false
+	}
+}
+
 # --- HLR-043: read-only operation ------------------------------------------
 
 @test "HLR-043: elc does not modify the tree it analyses" {

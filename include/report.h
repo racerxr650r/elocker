@@ -86,6 +86,45 @@ typedef struct {
 	char *object;        /* the shared global, or NULL for a call; owned */
 } CrossScopeRow;
 
+/* One component's coupling as the report presents it, by path rather than by
+ * index (HLR-080 – HLR-082).
+ *
+ * The instability is carried as a rendered string rather than a double, for
+ * the reason the cycle members are carried as names: "undefined" is one of its
+ * legitimate values, and a renderer choosing between a number and a word is a
+ * decision that would then be made four times and could differ between them.
+ */
+typedef struct {
+	char     *component;   /* owned */
+	uint32_t  ca;
+	uint32_t  ce;
+	char     *instability; /* owned; "undefined" where both are zero */
+	bool      bottleneck;
+} CouplingRow;
+
+/* One cyclic dependency between components (HLR-083).
+ *
+ * Both halves travel: the group is what has to be broken up, and the loop is
+ * which edge to cut. Rendered as text because a component index means nothing
+ * to a reader and does not survive a record round trip.
+ */
+typedef struct {
+	char *components; /* the whole group, comma-separated; owned */
+	char *path;       /* a loop through it, arrow-joined and closed; owned */
+} CycleDependencyRow;
+
+/* One call offending against the declared layering (HLR-079, HLR-118). */
+typedef struct {
+	char              *from_stratum;  /* owned */
+	char              *from_function; /* owned */
+	char              *from_file;     /* owned */
+	char              *to_stratum;    /* owned */
+	char              *to_function;   /* owned */
+	char              *to_file;       /* owned */
+	uint32_t           layers_crossed;
+	LayerViolationKind kind;
+} LayeringRow;
+
 /* Files discovered but not analysed, for want of a language module. The
  * report accounts for every discovered file, so a skip is visible rather
  * than a silent absence (HLR-012). */
@@ -207,6 +246,17 @@ typedef struct {
 	 * in. The second is not a detail: a language with no dead-code query
 	 * is reported unanalysed, never clean, and the two are different
 	 * claims (HLR-137, HLR-139). */
+	/* The component-level measurements, copied from the ArchResults main
+	 * owns, for the reason the call-tree rows are (SDD §18). */
+	CouplingRow        *coupling;     /* sorted by component; owned      */
+	size_t              coupling_count;
+	uint32_t            bottleneck_threshold; /* the value it was built at */
+	CycleDependencyRow *dep_cycles;   /* sorted; owned (HLR-083)         */
+	size_t              dep_cycle_count;
+	StrataState         strata_state;
+	LayeringRow        *layering;     /* sorted; owned (HLR-079, HLR-118) */
+	size_t              layering_count;
+
 	DeadRow        *dead;           /* sorted by file, line; owned      */
 	size_t          dead_count;
 	PathList        dead_unanalysed; /* language names, sorted; owned   */

@@ -611,6 +611,7 @@ The SDG is a **simple** directed graph: repeated calls from one function to the 
 *   Identify bottlenecks against the configurable threshold.
 *   Detect every component-level dependency cycle.
 *   Validate declared strata, reporting both skip-level calls (HLR-079) and direction-inverted calls (HLR-118), when strata were declared.
+*   Produce the coupling table and the cycle list on every run, so that omitting the layering for want of a declaration does not omit its neighbours (HLR-115).
 
 
 ### 9.3 Internal Structure
@@ -618,14 +619,18 @@ The SDG is a **simple** directed graph: repeated calls from one function to the 
 
 *   **`int arch_analyse(const Sdg *g, const ElcOptions *opts, ArchResults *out)`** — Run every component-level analysis, skipping layering when no strata were declared.
 *   **`void arch_results_free(ArchResults *r)`** — Release the coupling table, instability values, cycle list, and violation list.
-*   **`void compute_coupling(const Sdg *g, ArchResults *out)`** — Populate Ca and Ce per component.
+*   **`int compute_coupling(const Sdg *g, ArchResults *out)`** — Populate Ca and Ce per component.
 *   **`double instability(uint32_t ca, uint32_t ce, bool *defined)`** — Ce/(Ce+Ca), with defined set false when both are zero.
-*   **`int find_cycles(const Sdg *g, CycleList *out)`** — Strongly connected components of the component projection, excluding trivial single-node components.
-*   **`int check_strata(const Sdg *g, const ElcOptions *opts, ViolationList *out)`** — Report calls that bypass declared layers and calls that invert the declared dependency direction.
+*   **`int find_cycles(const Sdg *g, ArchResults *out)`** — Strongly connected components of the component projection, excluding trivial single-node components, each with a concrete loop through it found by a deterministic search from its lowest-numbered member.
+*   **`int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out)`** — Report calls that bypass declared layers and calls that invert the declared dependency direction.
 
 #### 9.3.2 Parsing Strategy / Algorithm
 
-Cycles are found as the non-trivial strongly connected components of the *component* projection, not of the function graph. This is what keeps mutual recursion between two functions in one file from being reported as a dependency cycle: within a single component there is no inter-component edge to close a loop. Mutual recursion across two files is legitimately both a recursion finding and a component cycle, because the two facts are different (HLR-083, HLR-089). Stratum checking compares the declared ordinal of the caller's stratum with the callee's, and yields two independent findings from that one comparison. A call descending more than one level is *skip-level* (HLR-079); a call ascending at all runs against the declared direction and is *direction-inverted* (HLR-118). The two are orthogonal — a driver calling one layer up inverts without skipping, and an application reaching two layers down skips without inverting — so each is reported in its own right rather than folded into a single "layering violation".
+Cycles are found as the non-trivial strongly connected components of the *component* projection, not of the function graph. This is what keeps mutual recursion between two functions in one file from being reported as a dependency cycle: within a single component there is no inter-component edge to close a loop. Mutual recursion across two files is legitimately both a recursion finding and a component cycle, because the two facts are different (HLR-083, HLR-089). Stratum checking compares the declared ordinal of the caller's stratum with the callee's, and yields two independent findings from that one comparison. A call descending more than one level is *skip-level* (HLR-079); a call ascending at all runs against the declared direction and is *direction-inverted* (HLR-118). The two are orthogonal — a driver calling one layer up inverts without skipping, and an application reaching two layers down skips without inverting — so each is reported in its own right rather than folded into a single "layering violation". The distance test runs in **both** directions, so a call ascending more than one layer is reported twice — as inverted and as skip-level — because both statements are true of it and each has its own remedy.
+
+Only call edges are considered. A global object two layers share is a different fact, with its own findings in the global-state and execution-scope analyses; folding state edges in here would report a layering violation for a variable two layers merely both read.
+
+**A duplicate function name reaches these analyses too, and here it is more expensive than elsewhere.** Calls resolve by name, so where several files define a `static` helper of the same name every call resolves into one of them: that component gains afferent coupling it has not earned, the others lose it, and where the winner already depends on one of the losers the invented edge closes a dependency cycle that does not exist. A false circular dependency points at an architecture problem rather than at a line to delete, which makes it a worse wrong answer than the false dead-code claim the same artefact produces (SDD §8.5). It is diagnosed on standard error where the graph is built, and the two outputs are read together; correcting it needs the type resolution the project does not perform.
 
 ### 9.4 Dependencies
 
@@ -635,7 +640,7 @@ Cycles are found as the non-trivial strongly connected components of the *compon
 ### 9.5 Error Handling and Logging
 
 *   **No strata declared** Layering validation is omitted and the omission is stated in the report; it is not an error (HLR-115).
-*   **Stratum pattern matches no component** Diagnostic to `stderr`; the declared layer remains in effect and simply contains nothing.
+*   **Stratum pattern matches no component** Diagnostic to `stderr`; the declared layer remains in effect and simply contains nothing. Retained rather than dropped, because dropping it would renumber the layers below and change what every remaining call is compared against — turning a typo into a wrong answer rather than a warning. This is also why the layering analysis has two states and not the three reachability carries: "declared but matching nothing" never becomes an omission.
 
 ## 10. Detailed Design for [src/calltree.c](../src/calltree.c)
 
@@ -1026,7 +1031,8 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `bottleneck_threshold` | `uint32_t` | Default 5 (HLR-081) |
 | `emit_dot` | `bool` | Default true (HLR-103) |
 | `graphml_path` | `const char *` | NULL unless --graphml given |
-| `strata` | `StratumList` | Empty when undeclared (HLR-078) |
+| `strata` | `StratumList` | Empty when undeclared; ordinals from declaration order unless --stratum-order states them (HLR-078) |
+| `stratum_order` | `const char *` | The declared dependency direction, resolved after parsing so it may precede the layers it orders (HLR-078) |
 | `entry_points` | `SymbolList` | Empty when undeclared (HLR-095) |
 | `scopes` | `ScopeList` | Empty when undeclared (HLR-094) |
 | `rule_paths` | `PathList` | Custom rule query files (HLR-107) |
@@ -1117,6 +1123,7 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `components` | `ComponentProjection` | File-level projection used by arch.c (HLR-114) |
 | `unresolved` | `size_t` | Call sites with no resolvable target (HLR-077) |
 | `touches` | `GlobalTouch *` | Per-object access records, carried beside the state edges rather than derived from them (HLR-091) |
+| `component_graph` | `void *` | The component projection as a graph; the view the architectural questions are asked of (HLR-083, HLR-114) |
 *   **`GlobalTouch`** (defined in [inc/graph.h](../inc/graph.h)) — One function's access to one global object. Recorded beside the global-state edges, not derived from them: an edge joins a writer to a reader, so an object touched by exactly one function produces none — and that object is precisely the scope-reduction candidate of HLR-092.
 
     | Field | Type | Description |
@@ -1124,6 +1131,28 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `object` | `const char *` | Into the graph's own name table |
 | `node` | `uint32_t` | The accessing function |
 | `write` | `bool` | True writes the object, false reads it |
+*   **`StratumDecl`** (defined in [inc/elc.h](../inc/elc.h)) — One declared architectural layer: a name, the component patterns assigned to it, and its position in the declared dependency direction (HLR-078). The ordinal is what makes a direction out of a set of names — layer 0 is the top, permitted to depend on those below — and is fixed when the layer is first named.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `name` | `char *` | Owned |
+| `patterns` | `char **` | Owned; matched against component paths with fnmatch(3) |
+| `pattern_count` | `size_t` | Populated entries; a repeated name adds to this rather than creating a second layer |
+| `ordinal` | `size_t` | 0 is the topmost declared layer; reassigned by --stratum-order where one is given |
+*   **`ArchResults`** (defined in [inc/arch.h](../inc/arch.h)) — What the component-level analyses measured. Owned by main and copied into the report model, as the call-tree and state results are.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `coupling` | `ComponentCoupling *` | Ca, Ce, Instability and the bottleneck flag, one per component (HLR-080 – HLR-082) |
+| `cycles` | `ComponentCycle *` | Each mutually dependent group with a concrete loop through it (HLR-083) |
+| `strata_state` | `StrataState` | Measured, or omitted because no strata were declared (HLR-115) |
+| `violations` | `LayerViolation *` | Skip-level and direction-inverted calls, as distinct entries (HLR-079, HLR-118) |
+*   **`ComponentCycle`** (defined in [inc/arch.h](../inc/arch.h)) — One cyclic dependency between components. Two facts, because one alone misleads: the membership is the group that must be broken up, and the path is a concrete loop saying which edge to cut. The path may be shorter than the membership, since a group can hold a number of loops exponential in its size.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `members` | `size_t *` | Component indices, ascending |
+| `path` | `size_t *` | A loop through them, in order; the first is not repeated at the end |
 *   **`ScopeDecl`** (defined in [inc/elc.h](../inc/elc.h)) — One declared execution scope: a name, and the component patterns belonging to it (HLR-094). Owned outright, unlike the entry-point symbols: a declaration is split on two separators, so neither half is a terminated substring of any argument.
 
     | Field | Type | Description |
