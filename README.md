@@ -89,7 +89,7 @@ dot -Tsvg report.dot -o report.svg
 
 Custom rules are next, from Phase 14.
 
-**Progress: 14 of 17 phases complete.**
+**Progress: 14 of 18 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -112,7 +112,8 @@ Custom rules are next, from Phase 14.
 | [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
 | [14](doc/SDP.md#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |
 | [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
-| [16](doc/SDP.md#phase-16--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
+| [16](doc/SDP.md#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | 🔲 Not started |
+| [17](doc/SDP.md#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 
 </details>
 

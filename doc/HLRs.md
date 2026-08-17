@@ -78,15 +78,15 @@ Requirements governing how `elc` identifies each file's programming language and
 
 *   <a id="HLR-010"></a>**HLR-010: No-Recompilation Language Addition.**
     `elc` shall support adding support for a new language by adding files to the runtime location of HLR-009 alone; adding a language shall require no modification to, and no recompilation of, the `elc` executable.
-    *Trace:* [SDD Section 6](SDD.md), [SDD Section 18](SDD.md).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 19](SDD.md).
 
 *   <a id="HLR-121"></a>**HLR-121: Language Module Interface Is a Stable Contract.**
     The interface between the `elc` executable and a language module — the set of query files a language is required to supply, and the capture names by which those queries return their results — shall be documented, and a language module supplying exactly the documented set shall function correctly with no further configuration. A module omitting a required query file shall be handled under HLR-070 rather than producing undefined behaviour. This interface is the contract a third party codes against when adding a language (HLR-010): renaming a required query file or a capture name, or changing the meaning of either, is a breaking change to that contract rather than an internal adjustment. That last is a constraint on the project's release process, verified by review, rather than a property observable within any single run.
-    *Trace:* [SDD Section 6](SDD.md), [SDD Section 18](SDD.md).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 19](SDD.md).
 
 *   <a id="HLR-011"></a>**HLR-011: Initial Delivered Language Set.**
     The elocker *project* shall deliver runtime language support for C, C++, Rust, Python, and Ada. This requirement constrains the project's deliverables, not the `elc` executable: `elc` shall not require, verify, or assume the presence of any particular language's support files, and shall complete with the exit-status semantics of HLR-120, producing a report per HLR-031, over whatever set of valid language modules the runtime location happens to contain.
-    *Trace:* [SDD Section 6](SDD.md), [SDD Section 18](SDD.md).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 19](SDD.md).
 
 *   <a id="HLR-012"></a>**HLR-012: Unsupported-Language File Handling.**
     When a discovered source file's extension does not map to any language available in the runtime location, `elc` shall skip that file rather than terminating the run, and shall report the skip through two observables: the file shall appear in the report's list of skipped files, and a diagnostic naming it shall be written to standard error. A skipped file is not a failure (HLR-037, HLR-120).
@@ -318,15 +318,15 @@ Requirements constraining `elc`'s runtime environment, dependencies, execution m
 
 *   <a id="HLR-040"></a>**HLR-040: Excluded Runtime Dependencies.**
     `elc` shall not require an interpreter, a virtual machine, or network access at any point during execution, and shall not require code generation at build time.
-    *Trace:* [SDD Section 18](SDD.md).
+    *Trace:* [SDD Section 19](SDD.md).
 
 *   <a id="HLR-112"></a>**HLR-112: Library Selection Deferred to Design.**
     The specific third-party libraries `elc` links against shall be selected during design. Library names appearing in the PVD — for parsing, repository access, XML handling, and graph mathematics — are *suggested candidates rather than requirements*: a design that substitutes a different library satisfies this document provided the exclusions of HLR-040 are respected and the behaviour required elsewhere is delivered. The one exception is the Tree-sitter query language and grammar format, which are visible to the user in the `.scm` files and runtime grammars they author (HLR-009, HLR-107) and are therefore a product contract rather than an implementation choice.
-    *Trace:* [SDD Section 18](SDD.md).
+    *Trace:* [SDD Section 19](SDD.md).
 
 *   <a id="HLR-113"></a>**HLR-113: Graph Algorithms From an Established Library.**
     `elc` shall obtain its graph algorithms — cycle detection, topological ordering, reachability, and centrality — from an established graph library rather than hand-implementing adjacency structures and traversal algorithms, so that the correctness of the analyses in Sections 11 through 13 rests on proven code. Which library provides them is a design decision under HLR-112.
-    *Trace:* [SDD Section 18](SDD.md).
+    *Trace:* [SDD Section 19](SDD.md).
 
 *   <a id="HLR-041"></a>**HLR-041: Single-Threaded Execution.**
     `elc` shall perform the entire run — target discovery, parsing, metric computation, graph construction, and every graph analysis — sequentially on a single thread.
@@ -334,11 +334,11 @@ Requirements constraining `elc`'s runtime environment, dependencies, execution m
 
 *   <a id="HLR-124"></a>**HLR-124: Memory Safety.**
     `elc` shall complete every run without a memory-safety error: without reading or writing outside the bounds of any allocation or mapping, without accessing memory after it has been freed or unmapped, without an invalid or repeated free, and without acting on an uninitialised value. This shall hold on error paths as well as on the success path, and shall hold for every target type and every output format.
-    *Trace:* [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 8](SDD.md), [SDD Section 13](SDD.md), [SDD Section 18](SDD.md).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 8](SDD.md), [SDD Section 13](SDD.md), [SDD Section 19](SDD.md).
 
 *   <a id="HLR-125"></a>**HLR-125: Complete Resource Release.**
     `elc` shall release, before it exits, every heap allocation it made, every file mapping it created, and every dynamic-library handle it opened. A run that terminates for any reason other than a fatal signal shall leave no allocation unreleased, including runs that end in a usage error, an invalid target, or a rejected saved record.
-    *Trace:* [SDD Section 3](SDD.md), [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 13](SDD.md), [SDD Section 18](SDD.md).
+    *Trace:* [SDD Section 3](SDD.md), [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 13](SDD.md), [SDD Section 19](SDD.md).
 
 *   <a id="HLR-043"></a>**HLR-043: Read-Only Operation.**
     `elc` shall only read the files it analyzes; `elc` shall never modify, rewrite, or delete any file under analysis.
@@ -639,4 +639,42 @@ Requirements governing how `elc` reports a code base whose source is conditional
 
 *   <a id="HLR-136"></a>**HLR-136: Configuration Recorded and Reported.**
     The set of definitions in force shall appear in the report and in the saved XML record (HLR-054), so that a report states the configuration it describes and a report regenerated from a record remains byte-identical to the one produced directly (HLR-056). Because pruning is applied when a file is measured and not when a report is rendered, supplying a definition together with the regeneration mode of HLR-055 shall be rejected as a usage error (HLR-063) rather than silently ignored.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 13](SDD.md), [SDD Section 16](SDD.md).
+
+## 19. Linked-Image Filtering
+
+Requirements governing how `elc` reports only the code a build actually kept, so that a metric describes the image that ships rather than the source it was drawn from.
+
+This is the same question Section 18 asks and a different way of answering it. Conditional compilation *re-decides* the conditions a build resolved, from definitions the user restates; a linked image *observes what the build did*, having been produced by the real toolchain with the real flags. Where both are available the image is the stronger evidence, and neither replaces the other: the image says which functions survived, and says nothing about which lines inside one were compiled out.
+
+*   <a id="HLR-140"></a>**HLR-140: Linked-Image Function Filter.**
+    `elc` shall accept the path of a linked image as a command-line argument, shall extract the set of functions that image defines, and shall restrict every measurement and every analysis to the source functions appearing in that set. Source holds functions a build does not keep — excluded by configuration, discarded by the linker as unreachable, or belonging to a translation unit the link never included — and a report covering them describes no image that exists and overstates every measure taken from it. When no image is supplied, no function shall be excluded and the reported metrics shall be exactly those `elc` reports for the same source with the option absent, so that the capability is opt-in and adding it changes no existing result.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 7](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-141"></a>**HLR-141: Image Read Without a Toolchain.**
+    `elc` shall obtain the function set from the named image alone: it shall not invoke a toolchain utility — `nm`, `objdump`, `readelf`, a compiler, a linker, or a build system — shall not search for an image the user did not name, and shall not require the image to carry debugging information. Requiring a toolchain would make the result depend on which one is installed and would breach the runtime-dependency exclusions of HLR-040; searching for an image would breach the zero-configuration guarantee of HLR-039, under which nothing is read that the user did not name. The symbol table a linker writes by default is sufficient, and requiring more would restrict the option to builds made for debugging.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-142"></a>**HLR-142: Linkage Names Resolved to Source Names.**
+    An image records a function under its linkage name, which for every language `elc` supports other than C is an encoding of the source name rather than the source name itself. `elc` shall resolve a linkage name to the function name its report presents wherever that name is encoded by a published mangling scheme, and shall match on the resolved name. Matching raw linkage names alone would retain nothing at all for C++, Rust, or Ada, and a filter that silently retains nothing is indistinguishable from a project that has no functions in it. Which schemes a build resolves is a design decision under HLR-112; a name encoded by a scheme this build does not resolve is reported under HLR-143 rather than silently dropped.
+    *Trace:* [SDD Section 18](SDD.md).
+
+*   <a id="HLR-143"></a>**HLR-143: Both Directions of Mismatch Counted and Reported.**
+    `elc` shall report the number of functions the image defines that it could not resolve to a source name, and shall list the source functions the image does not define. Neither shall be a failure of the run. The first states the completeness of the resolution, which is the claim the unresolved-call count of HLR-077 makes about the graph and for the same reason: a filter whose accuracy is unstated cannot be acted on. The second is the finding the option exists to produce — the source functions this build did not keep — and it is dead code established by what the linker did rather than inferred from the call graph (HLR-096), so the two lists are reported separately and neither is presented as the other.
+    *Trace:* [SDD Section 13](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-144"></a>**HLR-144: Scope of the Filter.**
+    A function the image does not define shall contribute to no reported metric and shall become no node of the System Dependence Graph, so that every analysis of Sections 11 through 14 describes the image rather than the source. A call whose target was filtered out shall be counted as unresolved (HLR-077) rather than resolved to a function that is not in the image; inventing that edge would make the reachability claim of HLR-096 unsound in the one direction it is not already known to err.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 8](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-145"></a>**HLR-145: Code Outside Any Function Retained and Separately Reported.**
+    Effective lines of code belonging to no function — an initialised object at file scope, say — shall be retained, and shall be reported as a figure of their own whenever a filter is in force, rather than excluded alongside the functions or folded silently into the totals. The image's *function* set says nothing about code outside a function, so excluding it would be a claim `elc` cannot support; and folding it in would hide the one part of the total the filter did not narrow, leaving a reader unable to tell a file of retained functions from a file of retained data. With no image supplied the figure shall not be reported, so that no existing output changes (HLR-140).
+    *Trace:* [SDD Section 5](SDD.md), [SDD Section 7](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-146"></a>**HLR-146: An Unusable Image Is Fatal.**
+    An image that is absent, unreadable, not an object file, of a class this build does not read, or carrying no function symbols at all shall be reported with a diagnostic naming it, and shall end the run with no report produced (HLR-063, HLR-120). The user named the file, so the failure is theirs to correct — the provenance rule HLR-116 draws for a custom rule named on the command line. The fully stripped image is the case that most needs this: an empty function set would otherwise filter every function away and report a project containing none, which is a confidently wrong result indistinguishable from a correct one.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-147"></a>**HLR-147: Filter Recorded and Reported.**
+    The image the filter was taken from, and the counts of HLR-143, shall appear in the report and in the saved XML record (HLR-054), so that a report states which image it describes and a report regenerated from a record stays byte-identical to one produced directly (HLR-056). Because the filter is applied when a file is measured and not when a report is rendered, supplying an image together with the regeneration mode of HLR-055 shall be rejected as a usage error (HLR-063) rather than silently ignored — the same rule, and for the same reason, that HLR-136 draws for a conditional-compilation definition.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 13](SDD.md), [SDD Section 16](SDD.md).

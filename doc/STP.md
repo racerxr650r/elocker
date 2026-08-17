@@ -1111,6 +1111,7 @@ verified by code review — see
 | `LLR-MAIN-18` | `main` | `HLR-012`, `HLR-037` | **(no direct test)** |
 | `LLR-MAIN-16` | `main` | `HLR-125`, `HLR-036` | **(no direct test)** |
 | `LLR-MAIN-19` | `main` | `HLR-125`, `HLR-063` | **(no direct test)** |
+| `LLR-MAIN-20` | `main` | `HLR-146` | **(no direct test)** |
 | `LLR-CLI-01` | `cli_parse` | `HLR-071`, `HLR-063` | `missing_target_is_a_usage_error`, `single_target_is_collected`, `several_targets_are_collected_in_order` |
 | `LLR-CLI-02` | `cli_parse` | `HLR-027`, `HLR-028`, `HLR-054`, `HLR-029` | **(no direct test)** |
 | `LLR-CLI-18` | `cli_parse` | `HLR-095`, `HLR-039` | **(no direct test)** |
@@ -1132,8 +1133,11 @@ verified by code review — see
 | `LLR-CLI-20` | `cli_parse` | `HLR-131`, `HLR-063` | **(no direct test)** |
 | `LLR-CLI-21` | `cli_parse` | `HLR-136`, `HLR-063` | **(no direct test)** |
 | `LLR-CLI-15` | `cli_parse` | `HLR-122`, `HLR-063` | `LLR-CLI-15: an explicit companion request with --from-xml is rejected`, `LLR-CLI-15: declining a companion alongside --from-xml is not an error` |
+| `LLR-CLI-22` | `cli_parse` | `HLR-140` | **(no direct test)** |
+| `LLR-CLI-23` | `cli_parse` | `HLR-147`, `HLR-063` | **(no direct test)** |
 | `LLR-USG-01` | `cli_usage` | `HLR-117` | **(no direct test)** |
 | `LLR-USG-02` | `cli_usage` | `HLR-117`, `HLR-063`, `HLR-038` | **(no direct test)** |
+| `LLR-USG-07` | `cli_usage` | `HLR-140`, `HLR-117` | **(no direct test)** |
 | `LLR-STR-01` | `parse_stratum` | `HLR-078` | `a_stratum_declaration_is_parsed_into_a_name_and_patterns` |
 | `LLR-STR-02` | `parse_stratum` | `HLR-078`, `HLR-118` | `the_declared_order_fixes_the_ordinals`, `HLR-078: the declared order determines the direction` |
 | `LLR-STR-03` | `parse_stratum` | `HLR-063`, `HLR-078` | `a_malformed_stratum_declaration_is_rejected`, `HLR-063: a malformed stratum declaration is a usage error` |
@@ -1245,6 +1249,10 @@ verified by code review — see
 | `LLR-ANL-49` | `analyze_file` | `HLR-035`, `HLR-037` | `a_damaged_file_is_a_degraded_outcome_not_a_clean_one` |
 | `LLR-ANL-50` | `analyze_file` | `HLR-035`, `HLR-038` | `HLR-035: the diagnostic gives the line, the scale, and what was kept` |
 | `LLR-ANL-34` | `analyze_file` | `HLR-124`, `HLR-125` | **(no direct test)** |
+| `LLR-ANL-51` | `analyze_file` | `HLR-144` | **(no direct test)** |
+| `LLR-ANL-52` | `analyze_file` | `HLR-144` | **(no direct test)** |
+| `LLR-ANL-53` | `analyze_file` | `HLR-145` | **(no direct test)** |
+| `LLR-ANL-54` | `analyze_file` | `HLR-140` | **(no direct test)** |
 | `LLR-DED-01` | `collect_dead_code` | `HLR-137` | `statements_after_a_terminator_are_recorded`, `a_label_after_a_terminator_is_not_recorded`, `HLR-137: statements after a return are reported`, `HLR-138: a label following a return is NOT reported`, `HLR-137: statements after a break are reported`, `HLR-137: statements after a continue are reported`, `LLR-DED-01: the walk does not leave the terminator's own block`, `HLR-138: a switch arm does not leak into the next`, `HLR-137: the two causes are distinguished`, `HLR-139: dead code is found in every language supplying a query` |
 | `LLR-DED-02` | `collect_dead_code` | `HLR-137` | `a_literal_branch_is_recorded_with_its_whole_span`, `HLR-137: the consequence of if (0) and the else of if (1) are reported`, `HLR-137: the body of a literally false loop is reported`, `HLR-138: a do-while(0) body is NOT reported` |
 | `LLR-DED-03` | `collect_dead_code` | `HLR-138`, `HLR-013` | `a_branch_guarded_by_a_variable_is_never_recorded`, `HLR-138: a branch guarded by a variable is NOT reported`, `LLR-DED-03: a zero the source did not write as one is undecided`, `HLR-138: no language claims a branch guarded by a variable` |
@@ -1373,6 +1381,7 @@ verified by code review — see
 | `LLR-RPT-28` | `report_assemble` | `HLR-137`, `HLR-068`, `HLR-032` | **(no direct test)** |
 | `LLR-RPT-29` | `report_assemble` | `HLR-032`, `HLR-033` | **(no direct test)** |
 | `LLR-RPT-16` | `report_assemble` | `HLR-124`, `HLR-125` | `a_failed_growth_leaves_the_accumulator_intact`, `free_is_safe_on_null` |
+| `LLR-RPT-31` | `report_assemble` | `HLR-143`, `HLR-147` | **(no direct test)** |
 | `LLR-TBL-01` | `format_table` | `HLR-027` | `the_table_carries_the_summary_and_every_file`, `columns_are_aligned_on_the_longest_path`, `an_empty_report_still_renders_a_table` |
 | `LLR-TBL-02` | `format_table` | `HLR-027` | **(no direct test)** |
 | `LLR-TBL-03` | `format_table` | `HLR-038` | `a_write_failure_is_reported` |
@@ -1382,6 +1391,7 @@ verified by code review — see
 | `LLR-SUM-04` | `render_summary` | `HLR-027`, `HLR-032` | **(no direct test)** |
 | `LLR-SUM-05` | `render_summary` | `HLR-136`, `HLR-031` | **(no direct test)** |
 | `LLR-SUM-02` | `render_summary` | `HLR-031` | **(no direct test)** |
+| `LLR-SUM-06` | `render_summary` | `HLR-143`, `HLR-031` | **(no direct test)** |
 | `LLR-CSV-01` | `format_csv` | `HLR-028` | `the_header_row_is_written`, `an_empty_report_is_a_header_alone`, `a_write_failure_is_reported` |
 | `LLR-CSV-02` | `format_csv` | `HLR-028`, `HLR-031` | **(no direct test)** |
 | `LLR-FLD-01` | `write_field` | `HLR-064` | `an_ordinary_field_is_not_quoted`, `a_field_containing_a_comma_is_quoted`, `a_quote_is_doubled_not_backslashed`, `a_field_containing_a_newline_is_quoted`, `a_field_containing_a_carriage_return_is_quoted`, `a_field_needing_every_escape_survives`, `an_empty_field_is_emitted_empty`, `a_null_field_is_emitted_empty` |
@@ -1399,6 +1409,7 @@ verified by code review — see
 | `LLR-XWR-12` | `xml_write_report` | `HLR-139`, `HLR-056`, `HLR-099` | `HLR-032: a global-state finding survives the round trip` |
 | `LLR-XWR-13` | `xml_write_report` | `HLR-054`, `HLR-056`, `HLR-080`, `HLR-083` | `HLR-032: the architecture sections survive a record round trip`, `HLR-032: a cycle and its loop survive the round trip` |
 | `LLR-XWR-04` | `xml_write_report` | `HLR-065` | `the_record_carries_its_format_version`, `an_empty_report_is_still_a_complete_record`, `a_write_failure_is_reported` |
+| `LLR-XWR-14` | `xml_write_report` | `HLR-147` | **(no direct test)** |
 | `LLR-ESC-01` | `write_escaped` | `HLR-065` | `an_ampersand_is_escaped`, `angle_brackets_are_escaped`, `quotation_marks_are_escaped`, `an_ampersand_in_an_entity_is_escaped_once`, `ordinary_text_is_unchanged`, `escaping_null_emits_nothing` |
 | `LLR-ESC-02` | `write_escaped` | `HLR-065` | **(no direct test)** |
 | `LLR-XRD-01` | `xml_read_report` | `HLR-055` | `the_model_is_reconstructed_from_the_record` |
@@ -1413,6 +1424,7 @@ verified by code review — see
 | `LLR-XRD-06` | `xml_read_report` | `HLR-058` | `well_formed_but_foreign_input_is_rejected`, `a_truncated_record_is_rejected` |
 | `LLR-XRD-07` | `xml_read_report` | `HLR-057` | `the_threshold_supplied_now_is_the_one_applied` |
 | `LLR-XRD-08` | `xml_read_report` | `HLR-056` | **(no direct test)** |
+| `LLR-XRD-14` | `xml_read_report` | `HLR-147`, `HLR-056` | **(no direct test)** |
 | `LLR-WAR-01` | `graph_dot_warranted` | `HLR-103` | `dot_is_written_without_being_asked_for`, `dot_is_suppressed_by_the_disable_switch` |
 | `LLR-WAR-02` | `graph_dot_warranted` | `HLR-104` | `dot_needs_an_output_path`, `dot_needs_an_output_path_even_when_disabled` |
 | `LLR-WAR-03` | `graph_dot_warranted` | `HLR-122` | `no_dot_is_written_from_a_saved_record`, `HLR-122: regeneration writes no .dot, default-on though it is` |
@@ -1427,6 +1439,18 @@ verified by code review — see
 | `LLR-GML-02` | `graph_write_graphml` | `HLR-106` | `graphml_is_off_unless_asked_for`, `graphml_is_written_when_asked_for_and_named` |
 | `LLR-GML-03` | `graph_write_graphml` | `HLR-106`, `HLR-119` | `graphml_needs_an_output_path`, `the_companion_replaces_the_extension`, `a_path_without_an_extension_gains_one`, `a_dot_in_a_directory_is_not_an_extension`, `a_directory_dot_with_an_extension_still_substitutes` |
 | `LLR-GML-04` | `graph_write_graphml` | `HLR-065`, `HLR-106` | **(no direct test)** |
+| `LLR-ELF-01` | `elfsyms_open` | `HLR-140` | **(no direct test)** |
+| `LLR-ELF-02` | `elfsyms_open` | `HLR-140` | **(no direct test)** |
+| `LLR-ELF-03` | `elfsyms_open` | `HLR-141` | **(no direct test)** |
+| `LLR-ELF-04` | `elfsyms_open` | `HLR-141` | **(no direct test)** |
+| `LLR-ELF-05` | `elfsyms_open` | `HLR-032` | **(no direct test)** |
+| `LLR-ELF-06` | `elfsyms_open` | `HLR-146` | **(no direct test)** |
+| `LLR-ELF-07` | `elfsyms_open` | `HLR-146` | **(no direct test)** |
+| `LLR-ELF-08` | `elfsyms_open` | `HLR-143` | **(no direct test)** |
+| `LLR-SYM-01` | `resolved_name` | `HLR-142` | **(no direct test)** |
+| `LLR-SYM-02` | `resolved_name` | `HLR-142` | **(no direct test)** |
+| `LLR-SYM-03` | `resolved_name` | `HLR-142`, `HLR-014` | **(no direct test)** |
+| `LLR-SYM-04` | `resolved_name` | `HLR-143` | **(no direct test)** |
 | `LLR-BLD-01` | `build_configuration` | `HLR-040` | **(no direct test)** |
 | `LLR-BLD-02` | `build_configuration` | `HLR-040` | **(no direct test)** |
 | `LLR-BLD-03` | `build_configuration` | `HLR-040` | **(no direct test)** |
@@ -1472,6 +1496,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `traversal/` | [test/fixtures/traversal/](../test/fixtures/traversal/) | Hidden files and hidden directories; binary extensions; a self-referential directory symlink; a symlink to a file inside the tree; a symlink named directly as a target; overlapping targets naming one file twice | The analysed file set, each file exactly once | HLR-004, HLR-005, HLR-043, HLR-069, HLR-071, HLR-072 |
 | `repo/` | [test/fixtures/repo/](../test/fixtures/repo/) | A repository built into the test's own temporary directory, holding tracked source, an untracked file, a gitignored build directory, a tracked blob with binary content, a tracked file with an excluded extension, and tracked hidden entries; a subdirectory target; a repository with no commits; targets an enclosing repository does not track | The analysed file set and the route reported for each target; the scoped totals; the same file set by either route | HLR-002, HLR-003, HLR-004, HLR-005, HLR-033, HLR-055, HLR-056, HLR-126, HLR-127 |
 | `runtime/` | [test/fixtures/runtime/](../test/fixtures/runtime/) | An absent runtime directory; one with no valid module; a module missing its entry point; a module with an unparseable query; an invalid custom rule, both CLI-named and runtime-located | Expected diagnostic text and exit status per case | HLR-036, HLR-059, HLR-070, HLR-116, HLR-120 |
+| `elf/` | [test/fixtures/elf/](../test/fixtures/elf/) | A source tree and images built from it by the test rather than committed, since a binary in the repository would be a fixture nobody could review. A C image linked from a subset of the sources, so that some source functions are absent from it; the same image stripped; a C++ image exercising Itanium mangling; an Ada image exercising GNAT's encoding, which nothing decodes; a file that is not an object file; a path that does not exist; and a run with no image at all | Hand-counted metrics over the retained functions only, with the file-scope ELOC reported separately; the list of source functions the image does not define, and the count of linkage names left unresolved; byte-identical output to a run with the option absent when no image is supplied; exit 2 with no report for the stripped image, the non-object file, and the absent path, each with its own diagnostic; a large unresolved count and a stated one for the Ada image | HLR-140 – HLR-147 |
 | `conditional/` | [test/fixtures/conditional/](../test/fixtures/conditional/) | A C source with `#if 0`, `#ifdef`, `#ifndef`, and a nested conditional; the same logic under a Rust `cfg` attribute; a condition depending on a symbol no definition names; a run with no definitions at all | Hand-counted ELOC and complexity for each configuration; identical figures to a run made without the option when no definition is supplied; both branches counted and the region reported undecided where the condition names an unknown symbol | HLR-131 – HLR-136 |
 | `escaping/` | [test/fixtures/escaping/](../test/fixtures/escaping/) | Identifiers containing commas, quotes, ampersands, and angle brackets — C++ template signatures being the natural source | CSV parsed back to the original field count; XML and GraphML parsed without error | HLR-064, HLR-065 |
 | `determinism/` | [test/fixtures/determinism/](../test/fixtures/determinism/) | A tree analysed twice; reached via differing target order; with decoy `.elcrc` and dotfiles planted in the working directory, the target, and an ancestor | Byte-identical output in every case | HLR-032, HLR-033, HLR-039 |
@@ -1491,6 +1516,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `bats` | The integration, fixture, and instrumented levels | With `bats-support` and `bats-assert`; vendored or provided by the platform |
 | `gcc` or `clang` | Building `elc` and the unit drivers | C11, with `-Wall -Wextra -Wpedantic`; warnings are treated as defects |
 | `make` | Building and running the suite | GNU make; `make test` is the single entry point |
+| A C toolchain able to link | The `elf/` fixture group | The images that group filters by are **built by the test**, never committed: a binary in the repository is a fixture nobody can review, and one built elsewhere pins the reviewer to a toolchain they may not have. Where a language's compiler is unavailable the case for that language skips explicitly and names the requirement left unverified |
 | Graphviz (`dot`) | The `dot/` fixture group | Settles `.dot` validity by rendering the emitted file rather than by matching text that looks like DOT (HLR-102). A dependency of the *test* and never of the binary: `elc` neither links Graphviz nor invokes it, which an instrumented test holds separately. Absent, the affected tests skip explicitly and name the requirement left unverified |
 | AddressSanitizer + LeakSanitizer | HLR-124, HLR-125 — `make asan` | `-fsanitize=address` with `detect_leaks=1`; catches out-of-bounds, use-after-free, invalid free, and leaks. Requires an instrumented rebuild |
 | UndefinedBehaviorSanitizer | HLR-124 — `make asan` | `-fsanitize=undefined` with `halt_on_error=1`; catches signed overflow, misaligned and null dereference, and invalid shifts |

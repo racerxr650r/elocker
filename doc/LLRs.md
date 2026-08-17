@@ -65,6 +65,9 @@ Orchestration and exit status. `main` performs no analysis; every requirement be
 *   <a id="LLR-MAIN-19"></a>**LLR-MAIN-19** — `main` shall release the options structure on the usage-error path as well as on every other. A declaration parsed before the offending argument has already allocated — a stratum accepted before a malformed order leaves a layer owning its name and patterns — so a run ending in a usage error would otherwise leak where a successful one does not.
     *Trace:* HLR-125 (Complete Resource Release), HLR-063.
 
+*   <a id="LLR-MAIN-20"></a>**LLR-MAIN-20** — `main` shall read the linked image before discovery begins, so that an image that cannot be read ends the run before any source file is measured rather than after a full walk whose results are then discarded.
+    *Trace:* HLR-146 (An Unusable Image Is Fatal).
+
 ## 2. `cli_parse` ([src/cli.c](../src/cli.c))
 
 Command-line parsing and validation. `cli_parse` is the sole reader of `argv` and the sole source of user-supplied configuration.
@@ -132,6 +135,12 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-CLI-15"></a>**LLR-CLI-15** — `cli_parse` shall reject as a usage error a command line that combines regeneration mode with an explicit request for a companion artefact, since a saved record does not carry the graph from which either could be produced.
     *Trace:* HLR-122 (No Companion Artefacts From a Saved Record), HLR-063 (Invalid Command-Line Rejection).
 
+*   <a id="LLR-CLI-22"></a>**LLR-CLI-22** — `cli_parse` shall accept the path of a linked image to filter by, and shall record it unvalidated, the image being read by the module that owns it rather than by the parser.
+    *Trace:* HLR-140 (Linked-Image Function Filter).
+
+*   <a id="LLR-CLI-23"></a>**LLR-CLI-23** — `cli_parse` shall reject as a usage error a command line combining regeneration mode with a linked image, since the filter is applied when a file is measured and a saved record holds only what a measured run produced.
+    *Trace:* HLR-147 (Filter Recorded and Reported), HLR-063 (Invalid Command-Line Rejection).
+
 ## 3. `cli_usage` ([src/cli.c](../src/cli.c))
 
 *   <a id="LLR-USG-01"></a>**LLR-USG-01** — `cli_usage` shall write a summary naming every accepted option, its argument if any, and its default value.
@@ -139,6 +148,9 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-USG-02"></a>**LLR-USG-02** — `cli_usage` shall write to the stream it is given, so that a help request may be directed to standard output and a usage error to standard error.
     *Trace:* HLR-117 (Help Request Is Not an Error), HLR-063 (Invalid Command-Line Rejection), HLR-038 (Diagnostics on stderr, Results on stdout).
+
+*   <a id="LLR-USG-07"></a>**LLR-USG-07** — `cli_usage` shall document the linked-image option, including that no image means no filtering and that the option takes the path of an image rather than of a source tree.
+    *Trace:* HLR-140 (Linked-Image Function Filter), HLR-117 (Help Request Is Not an Error).
 
 ## 4. `parse_stratum` ([src/cli.c](../src/cli.c))
 
@@ -502,6 +514,18 @@ Note on the division of labour, which determines where a failure lives: the requ
 
 *   <a id="LLR-ANL-34"></a>**LLR-ANL-34** — `analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
+
+*   <a id="LLR-ANL-51"></a>**LLR-ANL-51** — `analyze_file` shall omit from its results every function the supplied image does not define, so that no later stage need know a filter was applied and no two consumers can disagree about which functions are in scope.
+    *Trace:* HLR-144 (Scope of the Filter).
+
+*   <a id="LLR-ANL-52"></a>**LLR-ANL-52** — `analyze_file` shall record no call site, decision point, or global access belonging to an omitted function, the function not being part of the measured program.
+    *Trace:* HLR-144 (Scope of the Filter).
+
+*   <a id="LLR-ANL-53"></a>**LLR-ANL-53** — `analyze_file` shall retain effective lines of code lying outside every function whether or not a filter is in force, and shall report their total separately when one is, the image saying nothing about code that is not a function.
+    *Trace:* HLR-145 (Code Outside Any Function Retained and Separately Reported).
+
+*   <a id="LLR-ANL-54"></a>**LLR-ANL-54** — `analyze_file` shall produce, with no image supplied, results identical to those it produces for the same file with the option absent.
+    *Trace:* HLR-140 (Linked-Image Function Filter).
 
 ## 15. `collect_dead_code` ([src/analyze.c](../src/analyze.c))
 
@@ -939,6 +963,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-16"></a>**LLR-RPT-16** — `report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
+*   <a id="LLR-RPT-31"></a>**LLR-RPT-31** — `report_assemble` shall carry the image the filter was taken from, the count of linkage names left unresolved, and the source functions the image does not define, the last sorted by file and start line as every other collection is.
+    *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported), HLR-147 (Filter Recorded and Reported).
+
 ## 34. `format_table` ([src/format_text.c](../src/format_text.c))
 
 *   <a id="LLR-TBL-01"></a>**LLR-TBL-01** — `format_table` shall render the report as an aligned, human-readable table, computing column widths from the longest path and function name.
@@ -971,6 +998,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-SUM-02"></a>**LLR-SUM-02** — `render_summary` shall traverse the report model in a single shared order for both the table and Markdown renderers, so that the two present the same tiers.
     *Trace:* HLR-031 (Uniform Report Composition Across Formats).
+
+*   <a id="LLR-SUM-06"></a>**LLR-SUM-06** — `render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion.
+    *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported), HLR-031 (Uniform Report Composition Across Formats).
 
 ## 37. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 
@@ -1029,6 +1059,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-04"></a>**LLR-XWR-04** — `xml_write_report` shall emit well-formed XML.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).
 
+*   <a id="LLR-XWR-14"></a>**LLR-XWR-14** — `xml_write_report` shall record the image the filter was taken from and the counts derived from it, without which a regenerated report would describe a filtered run while naming no filter.
+    *Trace:* HLR-147 (Filter Recorded and Reported).
+
 ## 40. `write_escaped` ([src/format_xml.c](../src/format_xml.c))
 
 *   <a id="LLR-ESC-01"></a>**LLR-ESC-01** — `write_escaped` shall escape every character carrying structural meaning in XML, so that an identifier or path containing such a character cannot render the document unparseable.
@@ -1074,6 +1107,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XRD-08"></a>**LLR-XRD-08** — The reconstructed model shall render byte-identically to the report a direct analysis would have produced at the same threshold.
     *Trace:* HLR-056 (Regenerated Report Equivalence).
+
+*   <a id="LLR-XRD-14"></a>**LLR-XRD-14** — `xml_read_report` shall reconstruct the filter provenance a record carries and render it identically to the run that wrote it.
+    *Trace:* HLR-147 (Filter Recorded and Reported), HLR-056 (Regenerated Report Equivalence).
 
 ## 42. `graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))
 
@@ -1125,7 +1161,47 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-GML-04"></a>**LLR-GML-04** — `graph_write_graphml` shall emit well-formed XML with every structurally significant character escaped.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping), HLR-106 (Standard Graph Serialisation Export).
 
-## 46. Build and Link Configuration ([Makefile](../Makefile))
+## 46. `elfsyms_open` ([src/elfsyms.c](../src/elfsyms.c))
+
+*   <a id="LLR-ELF-01"></a>**LLR-ELF-01** — `elfsyms_open` shall read the image named on the command line and shall populate the function set from the symbol table that image carries, preferring `.symtab` and falling back to `.dynsym`.
+    *Trace:* HLR-140 (Linked-Image Function Filter).
+
+*   <a id="LLR-ELF-02"></a>**LLR-ELF-02** — `elfsyms_open` shall retain a symbol only where it is of function type and is defined by the image rather than imported by it, so that a function the image calls out to a shared library is not taken for one the image contains.
+    *Trace:* HLR-140 (Linked-Image Function Filter).
+
+*   <a id="LLR-ELF-03"></a>**LLR-ELF-03** — `elfsyms_open` shall read no file other than the image it was given, and shall invoke no toolchain utility, compiler, linker, or build system.
+    *Trace:* HLR-141 (Image Read Without a Toolchain).
+
+*   <a id="LLR-ELF-04"></a>**LLR-ELF-04** — `elfsyms_open` shall require no debugging information in the image, taking the function set from the symbol table a linker writes by default.
+    *Trace:* HLR-141 (Image Read Without a Toolchain).
+
+*   <a id="LLR-ELF-05"></a>**LLR-ELF-05** — `elfsyms_open` shall sort the function set on the resolved name and remove duplicates, so that no property of symbol-table order can reach the output.
+    *Trace:* HLR-032 (Deterministic Output).
+
+*   <a id="LLR-ELF-06"></a>**LLR-ELF-06** — `elfsyms_open` shall fail with a diagnostic naming the path when the image is absent, unreadable, not an object file, or of a class this build does not read.
+    *Trace:* HLR-146 (An Unusable Image Is Fatal).
+
+*   <a id="LLR-ELF-07"></a>**LLR-ELF-07** — `elfsyms_open` shall fail, with a diagnostic distinguishing the case, when the image carries no function symbols at all, rather than returning an empty set that would filter every function away.
+    *Trace:* HLR-146 (An Unusable Image Is Fatal).
+
+*   <a id="LLR-ELF-08"></a>**LLR-ELF-08** — `elfsyms_open` shall count the symbols whose linkage name it could not resolve, and shall make that count available to the report.
+    *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported).
+
+## 47. `resolved_name` ([src/elfsyms.c](../src/elfsyms.c))
+
+*   <a id="LLR-SYM-01"></a>**LLR-SYM-01** — `resolved_name` shall return an unencoded linkage name unchanged, that being the C case and the `extern "C"` case alike.
+    *Trace:* HLR-142 (Linkage Names Resolved to Source Names).
+
+*   <a id="LLR-SYM-02"></a>**LLR-SYM-02** — `resolved_name` shall decode a linkage name encoded by a published mangling scheme, detecting the scheme from the name rather than from a language the user states, since an image may hold symbols from several compilers and states which produced none of them.
+    *Trace:* HLR-142 (Linkage Names Resolved to Source Names).
+
+*   <a id="LLR-SYM-03"></a>**LLR-SYM-03** — `resolved_name` shall reduce a decoded name to the function name the report presents, discarding the signature, the enclosing qualification, and any hash suffix, so that both sides of the comparison are in one form.
+    *Trace:* HLR-142 (Linkage Names Resolved to Source Names), HLR-014 (Per-Function Identity).
+
+*   <a id="LLR-SYM-04"></a>**LLR-SYM-04** — `resolved_name` shall return no name for a linkage name encoded by a scheme this build does not decode, so that the symbol is counted as unresolved rather than matched against a guess.
+    *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported).
+
+## 48. Build and Link Configuration ([Makefile](../Makefile))
 
 Requirements satisfied by the build rather than by any single function. Verified against the produced binary rather than at runtime.
 
@@ -1183,7 +1259,7 @@ Requirements satisfied by the build rather than by any single function. Verified
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
-## 47. User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))
+## 49. User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))
 
 Requirements met by the delivered documentation rather than by any function. Verified against the built binary and the install tree, in the manner of the build-configuration group.
 
