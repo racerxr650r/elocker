@@ -255,6 +255,27 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 		}
 	out->complexity_threshold = opts->complexity_threshold;
 
+	/* The configuration this report describes, copied because the model
+	 * outlives argv on the regeneration path and sorted because the order
+	 * the user typed them in is not a property of the run (HLR-136). */
+	if (opts->define_count > 0) {
+		out->definitions = calloc(opts->define_count,
+		                          sizeof *out->definitions);
+		if (!out->definitions) {
+			fputs("elc: out of memory recording the "
+			      "configuration\n", stderr);
+			return -1;
+		}
+		for (size_t i = 0; i < opts->define_count; i++) {
+			out->definitions[i] = strdup(opts->defines[i]);
+			if (!out->definitions[i])
+				return -1;
+			out->definition_count++;
+		}
+		qsort(out->definitions, out->definition_count,
+		      sizeof *out->definitions, by_string);
+	}
+
 	out->files      = acc->files;
 	out->file_count = acc->count;
 	acc->files      = NULL;
@@ -268,6 +289,7 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 		out->summary.physical_lines += out->files[i]->physical_lines;
 		out->summary.eloc           += out->files[i]->eloc;
 		out->summary.function_count += out->files[i]->function_count;
+		out->undecided_regions      += out->files[i]->undecided_regions;
 
 		if (language_add(&out->languages, out->files[i]) != 0)
 			return -1;
@@ -1316,6 +1338,11 @@ void report_free(Report *report)
 	free(report->rule_matches);
 	report->rule_matches     = NULL;
 	report->rule_match_count = 0;
+	for (size_t i = 0; i < report->definition_count; i++)
+		free(report->definitions[i]);
+	free(report->definitions);
+	report->definitions      = NULL;
+	report->definition_count = 0;
 	for (size_t i = 0; i < report->coupling_count; i++) {
 		free(report->coupling[i].component);
 		free(report->coupling[i].instability);

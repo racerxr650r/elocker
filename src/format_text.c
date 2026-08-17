@@ -357,6 +357,12 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	 * many calls the graph could not represent (HLR-077). */
 	summary_pair(out, style, label, value, "Unresolved calls",
 	             (uint64_t)report->unresolved_calls);
+	/* The completeness of the pruning, stated for the reason the
+	 * unresolved-call count is: a region elc could not decide is left whole
+	 * and counted here, so a reader can tell a configuration that was cut
+	 * cleanly from one that mostly was not (HLR-133). */
+	summary_pair(out, style, label, value, "Undecided regions",
+	             report->undecided_regions);
 }
 
 /* -------------------------------------------------------- the traversal --
@@ -884,6 +890,28 @@ int render_report(const Report *report, Style style, FILE *out)
 			grid_row(&grid, r->severity, r->measurement, r->subject,
 			         r->detail, r->source);
 		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* The configuration these figures describe.
+		 *
+		 * A section rather than a summary line, because a definition is
+		 * a string and there may be several. Emitted whether or not any
+		 * was supplied: "measured with no definitions" and "measured
+		 * with these" are different claims, and a reader of a report
+		 * that showed nothing could not tell which they had
+		 * (HLR-031, HLR-136). */
+		static const char *const names[] = { "Definition" };
+		char                     heading[96];
+
+		snprintf(heading, sizeof heading,
+		         "Conditional-compilation definitions (%zu)",
+		         report->definition_count);
+		grid_begin(&grid, heading, 1, names, NULL);
+		for (size_t i = 0; i < report->definition_count; i++)
+			grid_row(&grid, report->definitions[i]);
 		if (grid_render(&grid, style, out) != 0)
 			return -1;
 	}

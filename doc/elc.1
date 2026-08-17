@@ -565,6 +565,20 @@ outside the partition rather than in a scope of its own, and edges touching it
 are not crossings. With none declared the analysis is omitted with the reason
 stated.
 .TP
+.BI \-D ", " \-\-define " NAME[=VALUE]"
+Define a conditional-compilation symbol, so that the metrics describe the
+configuration in which it is defined. Repeatable. A condition testing a symbol
+no
+.B \-D
+mentions is
+.I undecidable
+rather than false: both branches are counted and the region is reported
+undecided. With no
+.B \-D
+at all nothing is pruned on that account. See
+.B CONDITIONAL COMPILATION
+below.
+.TP
 .BI \-\-rules " LANG:PATH"
 Check the analysed source against the custom rule query in
 .IR PATH ,
@@ -756,6 +770,100 @@ indistinguishable from a failure.
 The shape of the report does not vary with the type of the target: a single
 file, a plain directory, and a repository all produce the same headings and
 the same columns.
+.SH CONDITIONAL COMPILATION
+Source that is conditionally compiled describes several programs, and measuring
+it without saying which one produces the union of them all \(em a figure that
+describes no build that exists. Naming a configuration with
+.B \-D
+measures that configuration instead.
+.PP
+.EX
+elc -DFEATURE_X -DTARGET=stm32 src/
+.EE
+.PP
+.B elc
+runs no preprocessor. It does not invoke
+.BR cpp ,
+a compiler, or a build system, and it reads no file the source includes; a
+result that depended on which toolchain was installed would not be a property
+of the source. What it does instead is decide each region from the syntax tree
+it already parsed.
+.SS What is decided, and what is not
+A region is decided in exactly two cases:
+.TP
+.B a constant condition
+.B #if 0
+and
+.B #if 1
+are the same in every configuration, so they are pruned whether or not any
+.B \-D
+was given.
+.TP
+.B a definedness test over a symbol you named
+.BR #ifdef ", " #ifndef ", and " "#if defined(...)"
+are decided when the symbol appears in a
+.BR \-D .
+.PP
+Everything else is
+.B undecidable rather than false.
+.B #if VERSION > 2
+needs macro values
+.B elc
+does not have; both branches stay counted and the region is added to the
+.B Undecided regions
+figure in the project summary.
+.PP
+That asymmetry is deliberate and is the whole safety argument. Treating an
+unrecognised condition as false would silently delete code and produce a report
+that is confidently wrong and looks exactly like a correct one. Treating it as
+true over-counts, which is visible in a figure printed beside the metrics.
+.SS A symbol you did not name is not thereby undefined
+.B \-D
+can only assert that a symbol
+.I is
+defined; there is no
+.BR \-U .
+A symbol you never mention may still be defined by a header or by a build
+system
+.B elc
+never sees, so such a condition is undecidable rather than false.
+.PP
+It follows that supplying no definitions prunes nothing on that account, and
+that an
+.B #ifndef
+include guard is undecidable in every run. A header-heavy project therefore
+reports a large undecided count, which is honest rather than a defect.
+.SS Which constructs are conditional is runtime data
+The constructs that introduce a region, where the condition sits, and which
+part is the alternative are declared by the language's
+.I conditionals.scm
+query file, not by
+.BR elc .
+A C preprocessor conditional and a Rust
+.B #[cfg]
+attribute are the same mechanism, and a language whose module supplies no such
+file simply has no conditional compilation. See
+.I runtime/queries/README.md
+in the distribution.
+.PP
+An attribute has no
+.BR #else ,
+so a Rust
+.B #[cfg(X)]
+item can only be removed and never swapped for another. It is
+.B #[cfg(not(X))]
+with
+.BI \-D X
+that prunes.
+.SS The configuration is reported and recorded
+The definitions in force appear in the report and in the saved record, so a
+report states which configuration it describes and a regenerated one still
+does. Because pruning happens when a file is measured rather than when a report
+is rendered, combining
+.B \-D
+with
+.B \-\-from\-xml
+is a usage error rather than a silently ignored request.
 .SH CUSTOM RULES
 A custom rule is a Tree-sitter query you write, checked against the analysed
 source by the same mechanism that produces

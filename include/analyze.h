@@ -36,8 +36,8 @@ enum {
  * hands it to the metrics accumulator. On any other outcome `*out` is NULL
  * and a diagnostic has been written to stderr.
  */
-int analyze_file(Registry *reg, const char *path, FileMetrics **out,
-                 FileFacts **facts_out);
+int analyze_file(Registry *reg, const ElcOptions *opts, const char *path,
+                 FileMetrics **out, FileFacts **facts_out);
 
 /* Release a file's metrics and every function name it owns. Safe on NULL. */
 void filemetrics_free(FileMetrics *metrics);

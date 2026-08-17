@@ -521,3 +521,67 @@ Test(cli, no_rule_is_supplied_by_default)
 	             "metrics and thresholds (HLR-111)");
 	cli_options_free(&o);
 }
+
+/* -------------------------------------------------- conditional compilation */
+
+/* Verifies LLR-CLI-25: a definition reaches the options as given, `NAME` and
+ * `NAME=VALUE` alike. What a definition *means* belongs to the evaluation,
+ * which is the only place that knows what a language's conditions can test. */
+Test(cli, a_definition_is_recorded_as_given)
+{
+	char      *argv[] = { "elc", "-D", "FOO", "--define", "BAR=2",
+	                      "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(6, argv, &o), CLI_OK);
+	cr_assert_eq(o.define_count, 2);
+	cr_assert_str_eq(o.defines[0], "FOO");
+	cr_assert_str_eq(o.defines[1], "BAR=2");
+	cli_options_free(&o);
+}
+
+Test(cli, definitions_are_empty_by_default)
+{
+	char      *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_eq(o.define_count, 0,
+	             "with no definitions nothing prunes, which is how adding "
+	             "the option changes no existing result (HLR-131)");
+	cli_options_free(&o);
+}
+
+Test(cli, an_empty_definition_is_a_usage_error)
+{
+	char      *argv[] = { "elc", "-D", "", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_ERROR);
+}
+
+/* Verifies LLR-CLI-24: pruning happens when a file is measured, so a saved
+ * record already describes one configuration and cannot be re-cut into
+ * another. Rejected rather than ignored, so a user who named a configuration
+ * and got a different one is told. */
+Test(cli, a_definition_with_regeneration_is_a_usage_error)
+{
+	char      *argv[] = { "elc", "--from-xml", "r.xml", "-DFOO", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_ERROR);
+	/* The definition was recorded before the mode conflict was found, so
+	 * the options own an allocation even on this path — which `main` also
+	 * releases, a usage error having to exit as leak-clean as a success
+	 * (HLR-125). */
+	cli_options_free(&o);
+}
+
+Test(cli, regeneration_without_a_definition_is_accepted)
+{
+	char      *argv[] = { "elc", "--from-xml", "r.xml", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(3, argv, &o), CLI_OK);
+	cli_options_free(&o);
+}

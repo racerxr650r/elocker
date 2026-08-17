@@ -4,30 +4,35 @@
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Phase 14 complete. A user's own Tree-sitter queries are now
-checked against the analysed source, and the extensibility pillar stops being
-an internal property: a rule is a `.scm` file, adding one needs no rebuild, and
-a fixture asserts that by comparing the binary's mtime across a run that loaded
-one. A rule's identity is the file's basename plus the capture name that
-matched, so one file expresses several independently named rules. Matches are
-reported in a section of their own beside the findings and never among them —
-a finding is a measurement `elc` banded against a published threshold, and a
-rule match is a query somebody else wrote, so it carries no severity and cites
-no source because there is nothing honest to put in either. The provenance
-rule is the phase's sharpest edge and the fixture uses **one** broken file from
-both sides of it: found in the runtime location it is a malformed component,
-diagnosed and survived; named on the command line it is a user error that ends
-the run before a file is analysed. Two files could not have told a provenance
-rule from a file-contents rule. Three discoveries went back into the design:
-rule loading happens in `registry_open`, because "without analyzing any file"
-is what the fatality means; `module_for_language` was lifted out of
-`registry_for_path`, so a rule compiles against the same cached grammar the
-analysis uses; and the usage summary had to be split into two literals, having
-outgrown the 4095 characters ISO C requires a compiler to support. 710
-catalogued tests verify 352 of 542 requirements and the coverage baseline falls
-from 196 to 190. The conditional-compilation set HLR-131 to HLR-136 and the
-linked-image set HLR-140 to HLR-147 remain specified and unbuilt, and Phases 15
-and 16 build them. Phase 15 — conditional compilation — is ready to start.
+**Status:** Phase 15 complete, and it reverses a judgement standing since
+Phase 3: code inside `#if 0` no longer counts. `elc` still runs no
+preprocessor — an instrumented test observes a configured run issuing one
+`execve`, the kernel's own, and opening no file the source refers to. What
+changed is that a condition can be decided from the tree already parsed.
+Naming a configuration with `-D` measures that configuration; naming none
+measures what `elc` always measured, save for constant conditions, which decide
+the same way in every configuration and so need none — HLR-131 was amended to
+say that rather than leave the implementation reconciling with it. The division of
+labour is the phase's real content: **the query decides truth and `elc`
+decides bytes**. A `conditionals.scm` settles a condition it recognises with
+`@conditional.true` or `@conditional.false`, captured on the condition rather
+than on a span, and `elc` works out what that excludes. A query pointing at a
+span would have to know that a `#if` with an `#else` keeps half of itself,
+which is arithmetic rather than a fact about C — and Rust's `#[cfg]`, which has
+no `#else` at all, dropped in behind the same five captures with no line of
+`src/` changed. The safety rule is that **a symbol no `-D` mentions is
+undecidable, not undefined**: a build may define it in a header `elc` never
+sees, so both branches stay and the count says how often that happened. That
+one rule also delivers the opt-in guarantee, with no special case to say so.
+Two ordering discoveries went back into the design: inactive regions join the
+merged comment set rather than becoming a second mechanism, which forced the
+exclusion to be built before the functions are collected; and where several
+patterns match one region the earliest in the query file wins, without which a
+`#if 0` matched by both a literal pattern and a catch-all would be decided by
+whichever the library reported first. 743 catalogued tests verify 375 of 559
+requirements and the coverage baseline falls from 190 to 184. The linked-image
+set HLR-140 to HLR-147 is now the only specified-and-unbuilt group, and Phase
+16 builds it. Phase 16 — ELF-filtered analysis — is ready to start.
 
 ## Status
 
@@ -48,7 +53,7 @@ and 16 build them. Phase 15 — conditional compilation — is ready to start.
 | [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | ✅ Complete |
 | [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
 | [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | ✅ Complete |
-| [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
+| [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
 | [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | 🔲 Not started |
 | [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 

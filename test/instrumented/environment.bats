@@ -196,6 +196,42 @@ setup() {
 	assert_output "1"
 }
 
+@test "HLR-135: deciding a conditional region spawns no preprocessor" {
+	# elc runs no preprocessor, and this is the half a reading of the source
+	# cannot establish: a run over conditionally compiled source with
+	# definitions supplied issues one execve, the kernel's own. No cpp, no
+	# compiler, no build system — a result that depended on which toolchain
+	# was installed would not be a property of the source.
+	require_tool strace "HLR-135 no external preprocessor"
+	local log="$BATS_TEST_TMPDIR/exec.log"
+
+	strace_elc "$log" "execve,execveat" -DFEATURE -DLEAN \
+		"$REPO_ROOT/test/fixtures/conditional/tree"
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+
+	run bash -c 'grep -cE "execve(at)?\(" "$0" || true' "$log"
+	assert_output "1"
+}
+
+@test "HLR-135: deciding a conditional region reads no other file" {
+	# The other half: no file the source refers to is opened. The three
+	# fixture sources are opened once each and nothing else is read from
+	# the tree — an implementation resolving #include to decide a condition
+	# would show the header here.
+	require_tool strace "HLR-135 no external preprocessor"
+	local log="$BATS_TEST_TMPDIR/open.log"
+
+	strace_elc "$log" "openat" -DFEATURE \
+		"$REPO_ROOT/test/fixtures/conditional/tree"
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+
+	for f in config.c nested.c cfg.rs; do
+		run bash -c 'grep -c "openat(.*/conditional/tree/'"$f"'\"" "$0" || true' \
+			"$log"
+		assert_output "1"
+	done
+}
+
 @test "HLR-041: elc references no thread-creation symbol" {
 	require_tool nm "HLR-041 single-threaded execution"
 	run bash -c 'nm -D --undefined-only "$0" 2>/dev/null || true' "$ELC"

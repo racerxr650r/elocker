@@ -297,6 +297,14 @@ void cli_usage(FILE *stream)
 "                     are each N or greater as an architectural bottleneck\n"
 "                     (default 5). This threshold is elc's own heuristic, not\n"
 "                     a published standard, and is reported as such\n"
+"",
+	      stream);
+
+	/* The second of three, for the reason given below: the summary has
+	 * outgrown the guaranteed literal length twice now, and each option
+	 * added moves it closer again. The breaks fall between groups of
+	 * options rather than mid-entry. */
+	fputs(
 "      --stratum NAME:GLOB[,GLOB...]\n"
 "                     declare an architectural layer named NAME containing the\n"
 "                     files matching GLOB. Repeatable; repeating a name adds\n"
@@ -317,6 +325,13 @@ void cli_usage(FILE *stream)
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.graphml. Requires --output,\n"
 "                     since there is otherwise no name to derive\n"
+"  -D, --define NAME[=VALUE]\n"
+"                     define a conditional-compilation symbol, so that the\n"
+"                     metrics describe the configuration in which it is\n"
+"                     defined. Repeatable. A condition testing a symbol no\n"
+"                     -D mentions is undecidable rather than false: both\n"
+"                     branches are counted and the region is reported\n"
+"                     undecided. With no -D at all nothing is pruned\n"
 "      --rules LANG:PATH\n"
 "                     check the analysed source against the custom rule query\n"
 "                     in PATH, compiled for language LANG. Repeatable. Rules\n"
@@ -373,6 +388,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "no-dot",               no_argument,       NULL, OPT_NO_DOT },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },
 		{ "rules",                required_argument, NULL, OPT_RULES },
+		{ "define",               required_argument, NULL, 'D' },
 		{ "scope",                required_argument, NULL, OPT_SCOPE },
 		{ "bottleneck-threshold", required_argument, NULL, 'b' },
 		{ "stratum",              required_argument, NULL, OPT_STRATUM },
@@ -402,7 +418,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	optind = 1;
 
 	int c;
-	while ((c = getopt_long(argc, argv, ":ho:c:f:b:", longopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, ":ho:c:f:b:D:", longopts, NULL)) != -1) {
 		switch (c) {
 		case 'f': {
 			size_t i;
@@ -548,6 +564,31 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			}
 			out->rules[out->rule_count++] = optarg;
 			break;
+		case 'D':
+			/* Recorded as given, `NAME` and `NAME=VALUE` alike.
+			 * What a definition *means* is a question for the
+			 * conditional evaluation, which is the only place that
+			 * knows what a language's conditions can test. */
+			if (optarg[0] == '\0') {
+				fputs("elc: -D requires a symbol name\n", stderr);
+				return CLI_ERROR;
+			}
+			if (out->define_count == out->define_capacity) {
+				size_t       next  = out->define_capacity
+				                             ? out->define_capacity * 2
+				                             : 8;
+				const char **grown = realloc(out->defines,
+				                             next * sizeof *grown);
+
+				if (!grown) {
+					fputs("elc: out of memory\n", stderr);
+					return ELC_EXIT_FATAL;
+				}
+				out->defines         = grown;
+				out->define_capacity = next;
+			}
+			out->defines[out->define_count++] = optarg;
+			break;
 		case 'h':
 			cli_usage(stdout);
 			return CLI_HELP;
@@ -582,6 +623,19 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			fputs("elc: --graphml cannot be combined with "
 			      "--from-xml: a saved record carries the findings "
 			      "of a run, not the graph they came from\n",
+			      stderr);
+			return CLI_ERROR;
+		}
+
+		/* Pruning happens when a file is measured, not when a report is
+		 * rendered, so a record already describes one configuration and
+		 * cannot be re-cut into another. Rejected rather than ignored,
+		 * so that a user who named a configuration and got a different
+		 * one is told (HLR-136, LLR-CLI-24). */
+		if (out->define_count > 0) {
+			fputs("elc: -D cannot be combined with --from-xml: a "
+			      "saved record already describes one "
+			      "configuration, chosen when it was written\n",
 			      stderr);
 			return CLI_ERROR;
 		}
@@ -631,6 +685,7 @@ void cli_options_free(ElcOptions *opts)
 	 * from argv, as the targets are (HLR-125). */
 	free((void *)opts->entry_points);
 	free((void *)opts->rules);
+	free((void *)opts->defines);
 	for (size_t i = 0; i < opts->scopes.count; i++) {
 		for (size_t p = 0; p < opts->scopes.items[i].pattern_count; p++)
 			free(opts->scopes.items[i].patterns[p]);

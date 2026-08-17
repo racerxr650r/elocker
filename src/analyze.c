@@ -46,6 +46,12 @@
 #define CAPTURE_DEAD_TERM     "dead.terminator"
 #define CAPTURE_DEAD_REENTRY  "dead.reentry"
 #define CAPTURE_DEAD_BRANCH   "dead.branch"
+#define CAPTURE_COND_REGION   "conditional.region"
+#define CAPTURE_COND_ALT      "conditional.alternative"
+#define CAPTURE_COND_TRUE     "conditional.true"
+#define CAPTURE_COND_FALSE    "conditional.false"
+#define CAPTURE_COND_SYMBOL   "conditional.symbol"
+#define CAPTURE_COND_NEGATED  "conditional.negated"
 
 /* One counted statement: the line it starts on, and the function it belongs
  * to. `function` is SIZE_MAX for a statement outside every reported function,
@@ -62,6 +68,11 @@ typedef struct {
 } SiteList;
 
 #define NO_FUNCTION SIZE_MAX
+
+/* Declared here because the collectors above its definition consult it:
+ * every one of them asks whether a byte is measured, and the exclusion set
+ * is built before any of them runs. */
+static bool byte_is_excluded(const SpanList *spans, uint32_t byte);
 
 void filemetrics_free(FileMetrics *metrics)
 {
@@ -598,7 +609,8 @@ static char *name_from(const char *data, TSNode node)
  */
 static int collect_functions(const LanguageModule *module, Registry *reg,
                              const char *data, TSNode root,
-                             FileMetrics *metrics, FnRangeIndex *ranges)
+                             const SpanList *excluded, FileMetrics *metrics,
+                             FnRangeIndex *ranges)
 {
 	TSQuery      *query    = module->queries[QUERY_FUNCTIONS];
 	size_t        capacity = 0;
@@ -629,6 +641,13 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 		}
 
 		if (!have_name || !have_body)
+			continue;
+
+		/* A function the configuration does not compile is not
+		 * measured, and is not reported: it belongs to no build, and
+		 * counting it would report the union of every configuration the
+		 * source can express (HLR-132). */
+		if (byte_is_excluded(excluded, ts_node_start_byte(name_node)))
 			continue;
 
 		if (metrics->function_count == capacity &&
@@ -728,7 +747,13 @@ static int collect_comments(const LanguageModule *module, Registry *reg,
 	return 0;
 }
 
-/* True when a byte offset lies inside the merged comment set.
+/* True when a byte offset lies inside the merged excluded set.
+ *
+ * Two things are excluded and they share one set deliberately: comment spans,
+ * and the regions this configuration does not compile (HLR-132). Keeping them
+ * apart would mean two mechanisms to understand and two chances to remove a
+ * range twice; merged, a byte is either measured or it is not, and one
+ * question answers both.
  *
  * **Byte-granular, deliberately.** The first version of this asked whether a
  * statement's *line* touched a comment span, which is a different question
@@ -745,7 +770,7 @@ static int collect_comments(const LanguageModule *module, Registry *reg,
  * is a guard rather than a subtraction. It is the guard HLR-016 asks for, and
  * merging first is what stops it removing anything twice.
  */
-static bool byte_is_comment(const SpanList *spans, uint32_t byte)
+static bool byte_is_excluded(const SpanList *spans, uint32_t byte)
 {
 	for (size_t i = 0; i < spans->count; i++) {
 		if (byte < spans->items[i].start_byte)
@@ -754,6 +779,275 @@ static bool byte_is_comment(const SpanList *spans, uint32_t byte)
 			return true;
 	}
 	return false;
+}
+
+
+/* ------------------------------------------------ conditional compilation --
+ *
+ * Which regions of a file this configuration does not compile (HLR-131).
+ *
+ * **elc runs no preprocessor** (HLR-135). There is no macro expansion, no
+ * include resolution, and no arithmetic over macro values, because each needs
+ * a toolchain whose presence and configuration elc cannot reproduce — and the
+ * answer would then depend on the machine rather than on the source. What
+ * happens instead is narrower and honest: a region is decided when its
+ * condition is a constant the *query* recognised, or when it tests the
+ * definedness of a symbol the user named with -D.
+ *
+ * **Undecidable is not false**, and the asymmetry is the whole safety
+ * argument (HLR-133). Treating an unrecognised condition as false silently
+ * deletes code and produces a report that is confidently wrong and looks
+ * exactly like a correct one. Treating it as true over-counts, which is
+ * visible in the undecided figure printed beside the metrics.
+ *
+ * It follows that a symbol no -D mentions is undecidable rather than
+ * undefined: a build may define it in a header or on a command line elc never
+ * sees. That single rule is also what delivers HLR-131's "with no definitions,
+ * nothing changes" — with an empty set every definedness test is undecidable,
+ * so nothing prunes, and no special case says so.
+ */
+
+/* One conditional region, as the query described it. Nothing here is decided
+ * yet: the query says what the shape is and elc says what the configuration
+ * makes of it, which is what keeps a C `#if` and a Rust `#[cfg]` one
+ * mechanism (HLR-134). */
+typedef struct {
+	uint32_t region_start;
+	uint32_t region_end;
+	uint32_t alt_start;      /* 0 when the region has no alternative */
+	uint32_t alt_end;
+	TSNode   symbol;
+	bool     has_alt;
+	bool     decided;        /* the query settled it, with no -D      */
+	bool     holds;          /* and this is what it settled on        */
+	bool     has_symbol;
+	bool     negated;
+	uint32_t pattern;        /* lower wins where two patterns match   */
+} CondRegion;
+
+typedef struct {
+	CondRegion *items;
+	size_t      count;
+	size_t      capacity;
+} CondList;
+
+/* Ascending by region, and within a region the earlier pattern first.
+ *
+ * The tie-break is a contract, not an implementation detail: a query file
+ * writes its specific patterns before its catch-all, and the specific one must
+ * win. Without it a `#if 0` matched by both a literal pattern and a fallback
+ * would be decided by whichever tree-sitter happened to report first. */
+static int by_region(const void *a, const void *b)
+{
+	const CondRegion *x = a;
+	const CondRegion *y = b;
+
+	if (x->region_start != y->region_start)
+		return x->region_start < y->region_start ? -1 : 1;
+	if (x->pattern != y->pattern)
+		return x->pattern < y->pattern ? -1 : 1;
+	return 0;
+}
+
+/* Whether any byte of this span already lies in an excluded one. Used to skip
+ * a region nested inside a region already pruned: it is not compiled either,
+ * and counting it undecided would inflate a figure a reader acts on. */
+static bool span_excluded(const SpanList *spans, uint32_t byte)
+{
+	for (size_t i = 0; i < spans->count; i++)
+		if (byte >= spans->items[i].start_byte &&
+		    byte < spans->items[i].end_byte)
+			return true;
+	return false;
+}
+
+/* Was this symbol named by a -D?
+ *
+ * Definedness is the only thing a definition can assert, so "mentioned" and
+ * "defined" are the same question — there is no -U. A symbol that was not
+ * mentioned is therefore undecidable rather than undefined, which is the rule
+ * HLR-133 turns on.
+ */
+static bool symbol_defined(const ElcOptions *opts, const char *data, TSNode node)
+{
+	uint32_t start = ts_node_start_byte(node);
+	size_t   len   = ts_node_end_byte(node) - start;
+
+	for (size_t i = 0; opts && i < opts->define_count; i++) {
+		const char *define = opts->defines[i];
+		const char *equals = strchr(define, '=');
+		size_t      length = equals ? (size_t)(equals - define)
+		                            : strlen(define);
+
+		if (length == len && memcmp(define, data + start, len) == 0)
+			return true;
+	}
+	return false;
+}
+
+static int span_add(SpanList *spans, uint32_t start, uint32_t end,
+                    uint32_t start_line, uint32_t end_line)
+{
+	if (spans->count == spans->capacity &&
+	    grow((void **)&spans->items, &spans->capacity,
+	         sizeof *spans->items) != 0)
+		return -1;
+
+	spans->items[spans->count].start_byte = start;
+	spans->items[spans->count].end_byte   = end;
+	spans->items[spans->count].start_line = start_line;
+	spans->items[spans->count].end_line   = end_line;
+	spans->count++;
+	return 0;
+}
+
+static int condlist_add(CondList *list, const CondRegion *region)
+{
+	if (list->count == list->capacity &&
+	    grow((void **)&list->items, &list->capacity,
+	         sizeof *list->items) != 0)
+		return -1;
+	list->items[list->count++] = *region;
+	return 0;
+}
+
+/* Every region this configuration excludes, appended to `spans`, and the count
+ * of regions left active because their condition could not be decided.
+ *
+ * A language with no `conditionals.scm` has no conditional compilation, which
+ * is the truth for a language that has none; the required six are unchanged
+ * and a module omitting this file is not a broken one (HLR-134, HLR-121).
+ */
+static int collect_inactive_regions(const LanguageModule *module, Registry *reg,
+                                    const ElcOptions *opts, const char *data,
+                                    TSNode root, SpanList *spans,
+                                    uint32_t *undecided)
+{
+	TSQuery      *query = module->queries[QUERY_CONDITIONALS];
+	TSQueryMatch  match;
+	CondList      regions = { 0 };
+	int           status  = -1;
+
+	*undecided = 0;
+	if (!query)
+		return 0;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		CondRegion region = { 0 };
+		bool       seen   = false;
+
+		if (!predicates_hold(query, &match, data))
+			continue;
+
+		region.pattern = match.pattern_index;
+
+		for (uint16_t i = 0; i < match.capture_count; i++) {
+			uint32_t index = match.captures[i].index;
+			TSNode   node  = match.captures[i].node;
+
+			if (capture_is(query, index, CAPTURE_COND_REGION)) {
+				region.region_start = ts_node_start_byte(node);
+				region.region_end   = ts_node_end_byte(node);
+				seen                = true;
+			} else if (capture_is(query, index, CAPTURE_COND_ALT)) {
+				region.alt_start = ts_node_start_byte(node);
+				region.alt_end   = ts_node_end_byte(node);
+				region.has_alt   = true;
+			} else if (capture_is(query, index,
+			                      CAPTURE_COND_TRUE)) {
+				region.decided = true;
+				region.holds   = true;
+			} else if (capture_is(query, index,
+			                      CAPTURE_COND_FALSE)) {
+				region.decided = true;
+				region.holds   = false;
+			} else if (capture_is(query, index,
+			                      CAPTURE_COND_SYMBOL)) {
+				region.symbol     = node;
+				region.has_symbol = true;
+			} else if (capture_is(query, index,
+			                      CAPTURE_COND_NEGATED)) {
+				region.negated = true;
+			}
+		}
+
+		/* A pattern that captures no region describes nothing this can
+		 * act on. Skipped rather than guessed at. */
+		if (seen && condlist_add(&regions, &region) != 0)
+			goto done;
+	}
+
+	/* Guarded, and not as an optimisation: passing a null pointer to qsort
+	 * is undefined even with a count of zero, and a language whose module
+	 * supplies no conditional query reaches here with exactly that. */
+	if (regions.count > 1)
+		qsort(regions.items, regions.count, sizeof *regions.items,
+		      by_region);
+
+	for (size_t i = 0; i < regions.count; i++) {
+		const CondRegion *region = &regions.items[i];
+
+		/* One region, one decision: the earliest pattern that matched
+		 * it has already been sorted to the front. */
+		if (i > 0 && regions.items[i - 1].region_start ==
+		                     region->region_start)
+			continue;
+
+		/* Nested inside something already excluded. Not compiled, so
+		 * neither pruned again nor counted undecided. */
+		if (span_excluded(spans, region->region_start))
+			continue;
+
+		bool decided = region->decided;
+		bool holds   = region->holds;
+
+		if (!decided && region->has_symbol &&
+		    symbol_defined(opts, data, region->symbol)) {
+			/* Mentioned by a -D, so the definedness test has an
+			 * answer. The negated form is active while the symbol
+			 * is *un*defined, so being defined excludes it. */
+			decided = true;
+			holds   = !region->negated;
+		}
+
+		if (!decided) {
+			/* Either the query recognised nothing it could settle,
+			 * or the symbol was named by no -D. Both branches stay
+			 * and the count says how often that happened — the
+			 * over-counting direction, which is visible, rather
+			 * than the under-counting one, which is not
+			 * (HLR-133). */
+			(*undecided)++;
+			continue;
+		}
+
+		if (holds) {
+			/* Only the alternative goes; a region with none loses
+			 * nothing. */
+			if (region->has_alt &&
+			    span_add(spans, region->alt_start, region->alt_end,
+			             0, 0) != 0)
+				goto done;
+		} else {
+			/* Everything up to the alternative, or the whole
+			 * region where there is none. The directive lines go
+			 * with it, which costs nothing: a directive is not a
+			 * statement, a decision, a call, or an access. */
+			uint32_t end = region->has_alt ? region->alt_start
+			                               : region->region_end;
+
+			if (span_add(spans, region->region_start, end, 0, 0) != 0)
+				goto done;
+		}
+	}
+
+	status = 0;
+
+done:
+	free(regions.items);
+	return status;
 }
 
 /* Record every counted statement with the line it starts on and the function
@@ -786,7 +1080,7 @@ static int collect_statements(const LanguageModule *module, Registry *reg,
 			 * (HLR-053). */
 			uint32_t line = ts_node_start_point(node).row + 1;
 
-			if (byte_is_comment(comments, byte))
+			if (byte_is_excluded(comments, byte))
 				continue;
 
 			if (sites->count == sites->capacity &&
@@ -826,7 +1120,7 @@ static int collect_statements(const LanguageModule *module, Registry *reg,
 static int collect_complexity(const LanguageModule *module, Registry *reg,
                               const char *data, TSNode root,
                               const FnRangeIndex *ranges,
-                              FileMetrics *metrics)
+                              const SpanList *excluded, FileMetrics *metrics)
 {
 	TSQuery      *query = module->queries[QUERY_COMPLEXITY];
 	TSQueryMatch  match;
@@ -845,6 +1139,12 @@ static int collect_complexity(const LanguageModule *module, Registry *reg,
 		for (uint16_t i = 0; i < match.capture_count; i++) {
 			if (!capture_is(query, match.captures[i].index,
 			                CAPTURE_COMPLEXITY))
+				continue;
+
+			/* Not compiled, not counted (HLR-132). */
+			if (byte_is_excluded(excluded,
+			                     ts_node_start_byte(
+				                     match.captures[i].node)))
 				continue;
 
 			const FnRange *owner = innermost_enclosing(
@@ -880,7 +1180,8 @@ static int collect_complexity(const LanguageModule *module, Registry *reg,
  */
 static int collect_calls(const LanguageModule *module, Registry *reg,
                          const char *data, TSNode root,
-                         const FnRangeIndex *ranges, FileFacts *facts)
+                         const FnRangeIndex *ranges, const SpanList *excluded,
+                         FileFacts *facts)
 {
 	TSQuery      *query = module->queries[QUERY_CALLS];
 	TSQueryMatch  match;
@@ -895,6 +1196,13 @@ static int collect_calls(const LanguageModule *module, Registry *reg,
 			uint32_t index = match.captures[i].index;
 			TSNode   node  = match.captures[i].node;
 			uint32_t byte  = ts_node_start_byte(node);
+
+			/* A call site the configuration does not compile is not
+			 * a call site of this build, and an edge drawn from one
+			 * would put a function in the graph that never runs
+			 * (HLR-132). */
+			if (byte_is_excluded(excluded, byte))
+				continue;
 
 			if (capture_is(query, index, CAPTURE_CALL_NAME)) {
 				if (facts->call_count == facts->call_capacity &&
@@ -947,7 +1255,8 @@ static int collect_calls(const LanguageModule *module, Registry *reg,
  */
 static int collect_globals(const LanguageModule *module, Registry *reg,
                            const char *data, TSNode root,
-                           const FnRangeIndex *ranges, FileFacts *facts)
+                           const FnRangeIndex *ranges,
+                           const SpanList *excluded, FileFacts *facts)
 {
 	TSQuery      *query = module->queries[QUERY_GLOBALS];
 	TSQueryMatch  match;
@@ -962,6 +1271,11 @@ static int collect_globals(const LanguageModule *module, Registry *reg,
 			uint32_t         index = match.captures[i].index;
 			TSNode           node  = match.captures[i].node;
 			GlobalAccessKind kind;
+
+			/* Not compiled, not a fact about this build
+			 * (HLR-132). */
+			if (byte_is_excluded(excluded, ts_node_start_byte(node)))
+				continue;
 
 			if (capture_is(query, index, CAPTURE_GLOBAL_DECL))
 				kind = GLOBAL_DECLARATION;
@@ -1205,7 +1519,7 @@ int collect_dead_code(const LanguageModule *module, Registry *reg,
 			 * the same set the ELOC exclusion consults, so no node
 			 * type enters this file and one answer serves both
 			 * (HLR-016). */
-			if (byte_is_comment(comments,
+			if (byte_is_excluded(comments,
 			                    ts_node_start_byte(sibling))) {
 				sibling = ts_node_next_named_sibling(sibling);
 				continue;
@@ -1244,7 +1558,7 @@ cleanup:
  */
 static int collect_rule_matches(const LanguageModule *module, Registry *reg,
                                 const char *data, TSNode root,
-                                FileFacts *facts)
+                                const SpanList *excluded, FileFacts *facts)
 {
 	for (size_t r = 0; r < reg->rule_count; r++) {
 		const CustomRule *rule = &reg->rules[r];
@@ -1266,6 +1580,16 @@ static int collect_rule_matches(const LanguageModule *module, Registry *reg,
 				uint32_t    index  = match.captures[i].index;
 				TSNode      node   = match.captures[i].node;
 				uint32_t    length = 0;
+
+				/* A rule matching code this configuration does
+				 * not compile has matched code that is not in
+				 * the build, and reporting it would send a
+				 * reader to a line that is not there
+				 * (HLR-132). */
+				if (byte_is_excluded(excluded,
+				                     ts_node_start_byte(node)))
+					continue;
+
 				const char *capture =
 					ts_query_capture_name_for_id(
 						rule->query, index, &length);
@@ -1379,8 +1703,8 @@ static void apply_eloc(FileMetrics *metrics, SiteList *sites)
 	metrics->eloc = total;
 }
 
-int analyze_file(Registry *reg, const char *path, FileMetrics **out,
-                 FileFacts **facts_out)
+int analyze_file(Registry *reg, const ElcOptions *opts, const char *path,
+                 FileMetrics **out, FileFacts **facts_out)
 {
 	const LanguageModule *module;
 	FileMetrics          *metrics  = NULL;
@@ -1505,16 +1829,37 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out,
 		        metrics->unparsed_lines == 1 ? "" : "s");
 	}
 
-	if (collect_functions(module, reg, map, root, metrics, &ranges) != 0 ||
-	    collect_comments(module, reg, map, root, &comments) != 0 ||
+	/* Comments first, then the regions this configuration does not
+	 * compile, and both into one set — because every collector below asks
+	 * the same question of it, and asking twice would be two mechanisms
+	 * that could disagree (HLR-132).
+	 *
+	 * Before the functions, which is the ordering change conditional
+	 * compilation forced: a function inside an inactive region must never
+	 * reach the report, and the exclusion has to exist before anything
+	 * consults it. */
+	if (collect_comments(module, reg, map, root, &comments) != 0 ||
+	    collect_inactive_regions(module, reg, opts, map, root, &comments,
+	                             &metrics->undecided_regions) != 0) {
+		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		goto cleanup;
+	}
+	merge_comment_spans(&comments);
+
+	if (collect_functions(module, reg, map, root, &comments, metrics,
+	                      &ranges) != 0 ||
 	    collect_statements(module, reg, map, root, &ranges, &comments,
 	                       &sites) != 0 ||
-	    collect_complexity(module, reg, map, root, &ranges, metrics) != 0 ||
-	    collect_calls(module, reg, map, root, &ranges, facts) != 0 ||
-	    collect_globals(module, reg, map, root, &ranges, facts) != 0 ||
+	    collect_complexity(module, reg, map, root, &ranges, &comments,
+	                       metrics) != 0 ||
+	    collect_calls(module, reg, map, root, &ranges, &comments,
+	                  facts) != 0 ||
+	    collect_globals(module, reg, map, root, &ranges, &comments,
+	                    facts) != 0 ||
 	    collect_dead_code(module, reg, map, root, &ranges, &comments,
 	                      facts) != 0 ||
-	    collect_rule_matches(module, reg, map, root, facts) != 0) {
+	    collect_rule_matches(module, reg, map, root, &comments,
+	                         facts) != 0) {
 		fprintf(stderr, "elc: out of memory analysing %s\n", path);
 		goto cleanup;
 	}

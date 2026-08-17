@@ -260,6 +260,20 @@ int xml_write_report(const Report *report, FILE *out)
 	}
 	fputs("  </rules>\n", out);
 
+	/* The configuration these figures describe, and how completely it could
+	 * be applied. Pruning happens when a file is measured, so a record that
+	 * omitted this would regenerate into a report describing a
+	 * configuration it does not name — and one that could not be told from
+	 * a report of the whole source (HLR-136). */
+	fprintf(out, "  <configuration undecided-regions=\"%" PRIu64 "\">\n",
+	        report->undecided_regions);
+	for (size_t i = 0; i < report->definition_count; i++) {
+		fputs("    <define", out);
+		write_attribute(out, "value", report->definitions[i]);
+		fputs("/>\n", out);
+	}
+	fputs("  </configuration>\n", out);
+
 	/* The component-level measurements. Carried for the reason every other
 	 * analysis result is: regeneration has no graph and no source tree to
 	 * rebuild one from, so a value not written here is one the regenerated
@@ -400,6 +414,9 @@ typedef struct {
 	size_t              dead_count;
 	RuleMatchRow       *rule_matches;
 	size_t              rule_match_count;
+	char              **definitions;
+	size_t              definition_count;
+	uint64_t            undecided_regions;
 	PathList            dead_unanalysed;
 	MetricsAccumulator *acc;
 	FileMetrics        *current;      /* the <file> being populated */
@@ -890,6 +907,37 @@ static void on_start(void *user, const XML_Char *name,
 		return;
 	}
 
+	if (strcmp(name, "configuration") == 0) {
+		state->undecided_regions = uint_attribute(state, atts,
+		                                          "undecided-regions");
+		return;
+	}
+
+	if (strcmp(name, "define") == 0) {
+		const char *value = attribute(atts, "value");
+
+		if (!value) {
+			fail(state, "a define element is incomplete");
+			return;
+		}
+
+		char **grown = realloc(state->definitions,
+		                       (state->definition_count + 1) * sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->definitions = grown;
+		state->definitions[state->definition_count] = strdup(value);
+		if (!state->definitions[state->definition_count]) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->definition_count++;
+		return;
+	}
+
 	if (strcmp(name, "match") == 0) {
 		const char *rule = attribute(atts, "rule");
 		const char *file = attribute(atts, "file");
@@ -1313,6 +1361,9 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	out->dead_count               = state.dead_count;
 	out->rule_matches             = state.rule_matches;
 	out->rule_match_count         = state.rule_match_count;
+	out->definitions              = state.definitions;
+	out->definition_count         = state.definition_count;
+	out->undecided_regions        = state.undecided_regions;
 	out->dead_unanalysed          = state.dead_unanalysed;
 	state.global_state             = NULL;
 	state.global_state_count       = 0;
@@ -1334,6 +1385,8 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	state.dead_count               = 0;
 	state.rule_matches             = NULL;
 	state.rule_match_count         = 0;
+	state.definitions              = NULL;
+	state.definition_count         = 0;
 	memset(&state.dead_unanalysed, 0, sizeof state.dead_unanalysed);
 
 	status = 0;
@@ -1426,6 +1479,9 @@ cleanup:
 		free(state.rule_matches[i].file);
 	}
 	free(state.rule_matches);
+	for (size_t i = 0; i < state.definition_count; i++)
+		free(state.definitions[i]);
+	free(state.definitions);
 	for (size_t i = 0; i < state.dead_unanalysed.count; i++)
 		free(state.dead_unanalysed.paths[i]);
 	free(state.dead_unanalysed.paths);
