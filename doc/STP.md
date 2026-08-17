@@ -411,17 +411,23 @@ Role: **unit**. **16 test(s).**
 
 ### 3.10. [test/unit/format_graph.c](../test/unit/format_graph.c)
 
-Role: **unit**. **7 test(s).**
+Role: **unit**. **13 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
-| 1 | <a id="graphml_is_off_unless_asked_for"></a>`graphml_is_off_unless_asked_for` | `LLR-GML-02` | With an output path but no request, no export is warranted: the export is opt-in, unlike the .dot companion. |
-| 2 | <a id="graphml_needs_an_output_path"></a>`graphml_needs_an_output_path` | `LLR-GML-03` | With the export requested but the report going to standard output, nothing is warranted — there is no path to derive the companion's name from. |
-| 3 | <a id="graphml_is_written_when_asked_for_and_named"></a>`graphml_is_written_when_asked_for_and_named` | `LLR-GML-02` | Both conditions together warrant the export. |
-| 4 | <a id="the_companion_replaces_the_extension"></a>`the_companion_replaces_the_extension` | `LLR-GML-03` | report.md yields report.graphml rather than report.md.graphml: the extension is substituted, not appended. |
-| 5 | <a id="a_path_without_an_extension_gains_one"></a>`a_path_without_an_extension_gains_one` | `LLR-GML-03` | An output path with no extension gains the companion's rather than being left unnamed. |
-| 6 | <a id="a_dot_in_a_directory_is_not_an_extension"></a>`a_dot_in_a_directory_is_not_an_extension` | `LLR-GML-03` | A dot in a directory name is not mistaken for the file's extension, which would otherwise truncate the path at the directory. |
-| 7 | <a id="a_directory_dot_with_an_extension_still_substitutes"></a>`a_directory_dot_with_an_extension_still_substitutes` | `LLR-GML-03` | A dotted directory alongside a real extension substitutes the extension and leaves the directory alone. |
+| 1 | <a id="dot_is_written_without_being_asked_for"></a>`dot_is_written_without_being_asked_for` | `LLR-WAR-01` | A zeroed ElcOptions with an output path warrants the companion: generation is enabled by default, which is the one place the `.dot` default runs opposite to GraphML's. |
+| 2 | <a id="dot_is_suppressed_by_the_disable_switch"></a>`dot_is_suppressed_by_the_disable_switch` | `LLR-WAR-01` | The disable switch turns the default off. |
+| 3 | <a id="dot_needs_an_output_path"></a>`dot_needs_an_output_path` | `LLR-WAR-02` | With the report going to standard output nothing is warranted, there being no path to derive the companion's name from. |
+| 4 | <a id="dot_needs_an_output_path_even_when_disabled"></a>`dot_needs_an_output_path_even_when_disabled` | `LLR-WAR-02` | "Whether or not generation was disabled" is the requirement's wording: the destination decides it and the switch cannot change the answer, so both paths are asserted rather than one. |
+| 5 | <a id="no_dot_is_written_from_a_saved_record"></a>`no_dot_is_written_from_a_saved_record` | `LLR-WAR-03` | A record carries the findings of a run rather than the topology they were drawn from, so regeneration warrants no companion even with an output path and the default in force. |
+| 6 | <a id="graphml_is_off_unless_asked_for"></a>`graphml_is_off_unless_asked_for` | `LLR-GML-02` | With an output path but no request, no export is warranted: the export is opt-in, unlike the .dot companion. |
+| 7 | <a id="graphml_needs_an_output_path"></a>`graphml_needs_an_output_path` | `LLR-GML-03` | With the export requested but the report going to standard output, nothing is warranted — there is no path to derive the companion's name from. |
+| 8 | <a id="graphml_is_written_when_asked_for_and_named"></a>`graphml_is_written_when_asked_for_and_named` | `LLR-GML-02` | Both conditions together warrant the export. |
+| 9 | <a id="the_companion_replaces_the_extension"></a>`the_companion_replaces_the_extension` | `LLR-GML-03` | report.md yields report.graphml rather than report.md.graphml: the extension is substituted, not appended. |
+| 10 | <a id="a_path_without_an_extension_gains_one"></a>`a_path_without_an_extension_gains_one` | `LLR-GML-03` | An output path with no extension gains the companion's rather than being left unnamed. |
+| 11 | <a id="a_dot_in_a_directory_is_not_an_extension"></a>`a_dot_in_a_directory_is_not_an_extension` | `LLR-GML-03` | A dot in a directory name is not mistaken for the file's extension, which would otherwise truncate the path at the directory. |
+| 12 | <a id="a_directory_dot_with_an_extension_still_substitutes"></a>`a_directory_dot_with_an_extension_still_substitutes` | `LLR-GML-03` | A dotted directory alongside a real extension substitutes the extension and leaves the directory alone. |
+| 13 | <a id="both_companions_derive_from_one_output_path"></a>`both_companions_derive_from_one_output_path` | `LLR-DOT-03` | One derivation serves both artefacts, which is what makes it impossible for either to take an output path of its own. |
 
 ### 3.11. [test/unit/report.c](../test/unit/report.c)
 
@@ -449,7 +455,7 @@ Role: **unit**. **4 test(s).**
 
 ### 3.13. [test/integration/cli.bats](../test/integration/cli.bats)
 
-Role: **integration**. **16 test(s).**
+Role: **integration**. **18 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -457,18 +463,20 @@ Role: **integration**. **16 test(s).**
 | 2 | <a id="-h exits 0"></a>`-h exits 0` | — | The short form of the help option behaves as the long form. |
 | 3 | <a id="--help writes the summary to stdout, not stderr"></a>`--help writes the summary to stdout, not stderr` | — | The help summary goes to the results stream and nothing goes to the diagnostic stream. |
 | 4 | <a id="--help lists every option elc accepts"></a>`--help lists every option elc accepts` | — | The usage summary names each accepted option, making it the reference the documentation is checked against. |
-| 5 | <a id="--help documents the exit-status scheme"></a>`--help documents the exit-status scheme` | — | The usage summary describes what each exit status means. |
-| 6 | <a id="--help is reported without validating other arguments"></a>`--help is reported without validating other arguments` | — | A help request short-circuits argument validation. |
-| 7 | <a id="an unrecognised long option exits 2"></a>`an unrecognised long option exits 2` | — | An unrecognised long option terminates with the fatal status. |
-| 8 | <a id="an unrecognised short option exits 2"></a>`an unrecognised short option exits 2` | — | An unrecognised short option terminates with the fatal status. |
-| 9 | <a id="no target exits 2"></a>`no target exits 2` | — | An invocation with no target terminates with the fatal status. |
-| 10 | <a id="a usage error writes to stderr, not stdout"></a>`a usage error writes to stderr, not stdout` | — | A usage error writes its diagnostic and summary to the diagnostic stream, leaving the results stream empty. |
-| 11 | <a id="a usage error names the offending option"></a>`a usage error names the offending option` | — | The diagnostic identifies which option was rejected. |
-| 12 | <a id="no target is diagnosed explicitly"></a>`no target is diagnosed explicitly` | — | The missing-target case is diagnosed in its own words rather than as a generic failure. |
-| 13 | <a id="a single target is accepted"></a>`a single target is accepted` | — | A single file target is accepted. |
-| 14 | <a id="several targets are accepted, files and directories intermixed"></a>`several targets are accepted, files and directories intermixed` | — | Several targets are accepted in one invocation, files and directories freely mixed. |
-| 15 | <a id="an accepted invocation writes its report to stdout"></a>`an accepted invocation writes its report to stdout` | — | Nothing but results reaches the results stream. |
-| 16 | <a id="a decoy dotfile in the working directory changes nothing"></a>`a decoy dotfile in the working directory changes nothing` | — | Configuration-like files planted beside the invocation produce byte-identical output to their absence. |
+| 5 | <a id="HLR-103: --help documents the switch that declines the call tree"></a>`HLR-103: --help documents the switch that declines the call tree` | `LLR-DOC-04` | The usage summary is the reference the documentation is checked against, so an option that parses must also print; without this the documentation test would compare two documents against a table missing an entry. |
+| 6 | <a id="--help documents the exit-status scheme"></a>`--help documents the exit-status scheme` | — | The usage summary describes what each exit status means. |
+| 7 | <a id="--help is reported without validating other arguments"></a>`--help is reported without validating other arguments` | — | A help request short-circuits argument validation. |
+| 8 | <a id="an unrecognised long option exits 2"></a>`an unrecognised long option exits 2` | — | An unrecognised long option terminates with the fatal status. |
+| 9 | <a id="an unrecognised short option exits 2"></a>`an unrecognised short option exits 2` | — | An unrecognised short option terminates with the fatal status. |
+| 10 | <a id="no target exits 2"></a>`no target exits 2` | — | An invocation with no target terminates with the fatal status. |
+| 11 | <a id="a usage error writes to stderr, not stdout"></a>`a usage error writes to stderr, not stdout` | — | A usage error writes its diagnostic and summary to the diagnostic stream, leaving the results stream empty. |
+| 12 | <a id="a usage error names the offending option"></a>`a usage error names the offending option` | — | The diagnostic identifies which option was rejected. |
+| 13 | <a id="no target is diagnosed explicitly"></a>`no target is diagnosed explicitly` | — | The missing-target case is diagnosed in its own words rather than as a generic failure. |
+| 14 | <a id="a single target is accepted"></a>`a single target is accepted` | — | A single file target is accepted. |
+| 15 | <a id="several targets are accepted, files and directories intermixed"></a>`several targets are accepted, files and directories intermixed` | — | Several targets are accepted in one invocation, files and directories freely mixed. |
+| 16 | <a id="HLR-103: --no-dot is accepted and takes no argument"></a>`HLR-103: --no-dot is accepted and takes no argument` | — | The option parses as a flag rather than swallowing the target that follows it. |
+| 17 | <a id="an accepted invocation writes its report to stdout"></a>`an accepted invocation writes its report to stdout` | — | Nothing but results reaches the results stream. |
+| 18 | <a id="a decoy dotfile in the working directory changes nothing"></a>`a decoy dotfile in the working directory changes nothing` | — | Configuration-like files planted beside the invocation produce byte-identical output to their absence. |
 
 ### 3.14. [test/integration/docs.bats](../test/integration/docs.bats)
 
@@ -722,7 +730,7 @@ Role: **fixture**. **13 test(s).**
 
 ### 3.25. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
 
-Role: **fixture**. **16 test(s).**
+Role: **fixture**. **19 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -742,6 +750,9 @@ Role: **fixture**. **16 test(s).**
 | 14 | <a id="HLR-063: a format other than Markdown is rejected in regeneration mode"></a>`HLR-063: a format other than Markdown is rejected in regeneration mode` | — | A saved record carries the findings of a run rather than the graph, so another format is a usage error rather than a silently ignored request. |
 | 15 | <a id="HLR-063: an explicit Markdown selection is accepted"></a>`HLR-063: an explicit Markdown selection is accepted` | — | Saying the default out loud is not an error; only asking for something else is. |
 | 16 | <a id="HLR-063: a target alongside --from-xml is a usage error"></a>`HLR-063: a target alongside --from-xml is a usage error` | — | The record is the input; a target would name a second source of truth for one report. |
+| 17 | <a id="HLR-122: regeneration writes no .dot, default-on though it is"></a>`HLR-122: regeneration writes no .dot, default-on though it is` | `LLR-WAR-03` | A record carries the findings of a run rather than the topology they were drawn from, so the default-on companion is simply not produced. Nothing was requested, so declining silently is what the requirement asks for. |
+| 18 | <a id="LLR-CLI-15: an explicit companion request with --from-xml is rejected"></a>`LLR-CLI-15: an explicit companion request with --from-xml is rejected` | `LLR-CLI-15` | An explicit request is a usage error rather than a silently ignored one, so a user who asked for a file and got none is told why instead of discovering the absence. |
+| 19 | <a id="LLR-CLI-15: declining a companion alongside --from-xml is not an error"></a>`LLR-CLI-15: declining a companion alongside --from-xml is not an error` | `LLR-CLI-15` | The boundary of the rule above: --no-dot is a refusal rather than a request, and refusing something that was never going to be produced conflicts with nothing. |
 
 ### 3.26. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
 
@@ -938,7 +949,38 @@ Role: **fixture**. **20 test(s).**
 | 19 | <a id="HLR-033: the targets may be given in either order"></a>`HLR-033: the targets may be given in either order` | — | The report does not depend on the order the targets were named in. |
 | 20 | <a id="HLR-056: the measurements survive a record round trip"></a>`HLR-056: the measurements survive a record round trip` | — | A report regenerated from a record is byte-identical and still carries the depth, since none of the call-tree measurements can be recomputed without the source. |
 
-### 3.33. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
+### 3.33. [test/fixtures/dot.bats](../test/fixtures/dot.bats)
+
+Role: **fixture**. **24 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-102: the emitted call tree renders under Graphviz"></a>`HLR-102: the emitted call tree renders under Graphviz` | — | Validity is settled by handing the file to Graphviz and requiring it to render, never by matching text that looks like DOT — the first artefact elc produces for another program to read deserves the reader's own verdict. |
+| 2 | <a id="HLR-102: the recursive tree renders too"></a>`HLR-102: the recursive tree renders too` | — | The second tree renders as well, so the annotations only it carries cannot have broken the syntax. |
+| 3 | <a id="LLR-STY-02: stripping every annotation leaves the same valid tree"></a>`LLR-STY-02: stripping every annotation leaves the same valid tree` | `LLR-STY-02` | The degradation claim tested by performing the degradation: every attribute is deleted from the file, and what is left must still render and must still hold the same twenty-five nodes and nineteen edges. |
+| 4 | <a id="HLR-103: the call tree is written without being asked for"></a>`HLR-103: the call tree is written without being asked for` | — | The companion appears with no option naming it, which is the default the requirement states. |
+| 5 | <a id="HLR-103: --no-dot suppresses it"></a>`HLR-103: --no-dot suppresses it` | — | The report is still written and the companion is not, so declining the artefact costs the run nothing else. |
+| 6 | <a id="HLR-104: no call tree is written when the report goes to stdout"></a>`HLR-104: no call tree is written when the report goes to stdout` | — | With no output path there is no name to derive, so nothing is written and no default name is invented. |
+| 7 | <a id="HLR-104: still none on stdout with generation disabled"></a>`HLR-104: still none on stdout with generation disabled` | — | "Whether or not generation was disabled" is the requirement's wording, so both routes to the same absence are asserted: the destination decides it, not the switch. |
+| 8 | <a id="HLR-119: the companion is named from the report by substitution"></a>`HLR-119: the companion is named from the report by substitution` | `LLR-DOT-03` | An output of analysis.md yields analysis.dot rather than analysis.md.dot, and the companion takes no path of its own. |
+| 9 | <a id="HLR-119: the .dot and the GraphML are siblings of one report"></a>`HLR-119: the .dot and the GraphML are siblings of one report` | — | Both companions derive from the same output path in one run, which is what makes the naming rule one rule rather than two that happen to agree. |
+| 10 | <a id="the tree holds one cluster per source file and every function"></a>`the tree holds one cluster per source file and every function` | — | Six clusters and twenty-five nodes, matching the hand-worked table: the drawing accounts for every function the report does. |
+| 11 | <a id="LLR-DOT-04: nodes are emitted in ascending identifier order"></a>`LLR-DOT-04: nodes are emitted in ascending identifier order` | `LLR-DOT-04` | This is the one renderer that walks the graph rather than the sorted report model, so it must impose its own order; without this the graph library's internal enumeration would reach the output. |
+| 12 | <a id="LLR-DOT-04: each node's adjacency is in ascending target order"></a>`LLR-DOT-04: each node's adjacency is in ascending target order` | `LLR-DOT-04` | The second half of the same guarantee, on the edges rather than the nodes. |
+| 13 | <a id="HLR-032: two runs over the same tree produce an identical call tree"></a>`HLR-032: two runs over the same tree produce an identical call tree` | — | Byte-identical across runs, which is what the imposed ordering exists to deliver. |
+| 14 | <a id="only call edges are drawn; a shared global is not a call"></a>`only call edges are drawn; a shared global is not a call` | — | The artefact is the call tree. Two functions joined by a shared global and by nothing else have no edge between them; their coupling reaches the drawing as a property of each node instead. |
+| 15 | <a id="HLR-105: the deepest call chain is annotated, nodes and edges"></a>`HLR-105: the deepest call chain is annotated, nodes and edges` | `LLR-STY-01` | Six functions and the five steps between them. The chain lies inside the accepted band, so it is annotated because it is the chain and not because it warned — which is the case a fixture built only from findings would miss. |
+| 16 | <a id="HLR-105: every unreachable function is annotated"></a>`HLR-105: every unreachable function is annotated` | `LLR-STY-01` | All seven, including the four that call one another in a region no path from the entry point enters — reachable and connected are different properties. |
+| 17 | <a id="HLR-105: a fan-out over the band is annotated with its severity"></a>`HLR-105: a fan-out over the band is annotated with its severity` | `LLR-STY-01` | Eleven distinct callees is the first value that warns, and the drawing carries the catalogue's severity rather than a view of its own. |
+| 18 | <a id="HLR-105: both participants in a hidden channel are annotated"></a>`HLR-105: both participants in a hidden channel are annotated` | `LLR-STY-01` | The writer and the reader, neither of which calls the other. HLR-105 asks for the participants, so the annotation is on the functions rather than on an edge. |
+| 19 | <a id="HLR-105: two findings on one node ride two attributes"></a>`HLR-105: two findings on one node ride two attributes` | `LLR-STY-02` | A function that both takes part in a hidden channel and is unreachable shows both, because each annotation takes a different Graphviz attribute. One overwriting the other would make a drawing silently incomplete. |
+| 20 | <a id="HLR-105: every member of a dependency cycle is annotated"></a>`HLR-105: every member of a dependency cycle is annotated` | `LLR-STY-01` | Both components, not only the one the catalogue files the finding against: a finding has one subject and a set has no single location, and the requirement asks for the members. |
+| 21 | <a id="HLR-105: a bottleneck component is annotated and attributed"></a>`HLR-105: a bottleneck component is annotated and attributed` | `LLR-STY-01` | The coupling finding reaches the cluster, and carries the label marking it as elc's own heuristic rather than a published standard. |
+| 22 | <a id="HLR-105: every member of a recursive cycle is annotated"></a>`HLR-105: every member of a recursive cycle is annotated` | `LLR-STY-01` | Both mutually recursive functions carry the mark and the finding, for the reason both members of a dependency cycle do. |
+| 23 | <a id="HLR-100: a critical annotation does not become an exit status"></a>`HLR-100: a critical annotation does not become an exit status` | — | A run full of critical findings in which every file was read still exits 0. Severity is a label, and drawing it on a graph does not change that. |
+| 24 | <a id="a forward declaration is not a node"></a>`a forward declaration is not a node` | — | Three nodes and not four, which also pins that the C module's function query captures definitions rather than declarations. |
+
+### 3.34. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
 Role: **fixture**. **16 test(s).**
 
@@ -961,7 +1003,7 @@ Role: **fixture**. **16 test(s).**
 | 15 | <a id="HLR-032: two runs over the same tree produce identical GraphML"></a>`HLR-032: two runs over the same tree produce identical GraphML` | — | The export is byte-identical across runs, so no container's internal enumeration reaches the output. |
 | 16 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | — | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
-### 3.34. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+### 3.35. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -987,7 +1029,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | — | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
 | 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | — | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
 
-### 3.35. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.36. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -1001,9 +1043,9 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.36. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.37. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
-Role: **instrumented**. **22 test(s).**
+Role: **instrumented**. **24 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1012,25 +1054,27 @@ Role: **instrumented**. **22 test(s).**
 | 3 | <a id="HLR-041: /proc reports a single thread while elc runs"></a>`HLR-041: /proc reports a single thread while elc runs` | — | The running process reports exactly one thread. Redirecting the report into a FIFO removes the race that made this observation impossible before: opening a FIFO for writing blocks until a reader arrives, so the sample is taken while elc is certainly alive. |
 | 4 | <a id="HLR-041: elc issues no thread-creating syscall"></a>`HLR-041: elc issues no thread-creating syscall` | — | No clone or clone3 syscall is observed for the whole run, which is stronger than sampling a thread count because it holds for every instant rather than the one sampled. |
 | 5 | <a id="HLR-041: elc links no threading library"></a>`HLR-041: elc links no threading library` | — | No threading library appears on the link line. |
-| 6 | <a id="HLR-041: elc references no thread-creation symbol"></a>`HLR-041: elc references no thread-creation symbol` | — | No thread-creation symbol is referenced by the binary. |
-| 7 | <a id="the build's required flags survive an overridden CFLAGS"></a>`the build's required flags survive an overridden CFLAGS` | `LLR-BLD-11` | The language standard, the warning set, and the header-dependency generation all appear in the compile command when CFLAGS is overridden from the command line, so a build invoked with an added flag is compiled under the same rules as one invoked with none. |
-| 8 | <a id="HLR-041: the build passes no threading flag"></a>`HLR-041: the build passes no threading flag` | — | The build never passes -pthread, which would silently license a future thread. |
-| 9 | <a id="the help block and the real target set agree"></a>`the help block and the real target set agree` | `LLR-BLD-13` | Every declared target appears in the makefile's help block and every name in that block is a real target, so the hand-maintained summary cannot drift from what the build actually offers. |
-| 10 | <a id="make help prints the block from the file's header"></a>`make help prints the block from the file's header` | `LLR-BLD-13` | The help target prints the header block itself, marker stripped, so a reader who opens the file and a reader who runs it see one text. |
-| 11 | <a id="every grammar is linked with the scanner it requires"></a>`every grammar is linked with the scanner it requires` | `LLR-BLD-16` | No delivered grammar has an unresolved external-scanner symbol. The rule located an optional scanner with a construct make expands before running the recipe, so it looked for a file the fetch above it had not unpacked and silently found none — invisible while C, which has no scanner, was the only grammar. |
-| 12 | <a id="the grammar build takes its owner and reference as parameters"></a>`the grammar build takes its owner and reference as parameters` | `LLR-BLD-15` | The rule for a grammar hosted outside the parsing library's organisation reaches that owner, and fetches by commit rather than by tag because its upstream cuts no releases. Both would be impossible with either value hardcoded. |
-| 13 | <a id="every grammar the build declares is one the build can produce"></a>`every grammar the build declares is one the build can produce` | `LLR-BLD-15` | Each name the build lists has a rule behind it. A missing one fails only on a clean tree, which is the tree nobody builds on. |
-| 14 | <a id="check-prereqs reports every grammar against upstream"></a>`check-prereqs reports every grammar against upstream` | `LLR-BLD-17` | Each delivered language appears in the dependency report, so a pin that is immutable is not thereby invisible when it falls behind. |
-| 15 | <a id="check-prereqs survives an unreachable upstream"></a>`check-prereqs survives an unreachable upstream` | `LLR-BLD-17` | An unreachable upstream reports "unknown" rather than failing or hanging: the report is a diagnostic a person runs, not a gate. |
-| 16 | <a id="every runtime data file the build does not produce is tracked"></a>`every runtime data file the build does not produce is tracked` | — | Every file under the runtime location that the build does not itself produce is tracked by the repository, so that a version-control ignore rule cannot silently exclude product data. `.gitignore` carries `*.map` for linker map files, which also matched the extension table: it worked locally, was absent from the clone CI made, and every parsing test then failed naming the missing file rather than the rule that hid it. |
-| 17 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
-| 18 | <a id="HLR-043: elc opens nothing for writing"></a>`HLR-043: elc opens nothing for writing` | — | No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial. |
-| 19 | <a id="HLR-076: each source file is opened exactly once"></a>`HLR-076: each source file is opened exactly once` | — | No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it. |
-| 20 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
-| 21 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
-| 22 | <a id="HLR-125: the local sanitizer gate is as strong as the pipeline's"></a>`HLR-125: the local sanitizer gate is as strong as the pipeline's` | `LLR-BLD-18` | The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them. |
+| 6 | <a id="LLR-DOT-02: elc links no Graphviz library"></a>`LLR-DOT-02: elc links no Graphviz library` | `LLR-DOT-02` | Graphviz renders the output; elc writes it. Plain text emission is what keeps Graphviz a tool the user may run on the result rather than a dependency of producing it, and a link check is how that claim stays true. |
+| 7 | <a id="LLR-DOT-02: writing the call tree spawns no process"></a>`LLR-DOT-02: writing the call tree spawns no process` | `LLR-DOT-02` | The half a link check cannot make: a real run that writes a call tree issues one execve, the kernel's own, so elc does not shell out to dot either. |
+| 8 | <a id="HLR-041: elc references no thread-creation symbol"></a>`HLR-041: elc references no thread-creation symbol` | — | No thread-creation symbol is referenced by the binary. |
+| 9 | <a id="the build's required flags survive an overridden CFLAGS"></a>`the build's required flags survive an overridden CFLAGS` | `LLR-BLD-11` | The language standard, the warning set, and the header-dependency generation all appear in the compile command when CFLAGS is overridden from the command line, so a build invoked with an added flag is compiled under the same rules as one invoked with none. |
+| 10 | <a id="HLR-041: the build passes no threading flag"></a>`HLR-041: the build passes no threading flag` | — | The build never passes -pthread, which would silently license a future thread. |
+| 11 | <a id="the help block and the real target set agree"></a>`the help block and the real target set agree` | `LLR-BLD-13` | Every declared target appears in the makefile's help block and every name in that block is a real target, so the hand-maintained summary cannot drift from what the build actually offers. |
+| 12 | <a id="make help prints the block from the file's header"></a>`make help prints the block from the file's header` | `LLR-BLD-13` | The help target prints the header block itself, marker stripped, so a reader who opens the file and a reader who runs it see one text. |
+| 13 | <a id="every grammar is linked with the scanner it requires"></a>`every grammar is linked with the scanner it requires` | `LLR-BLD-16` | No delivered grammar has an unresolved external-scanner symbol. The rule located an optional scanner with a construct make expands before running the recipe, so it looked for a file the fetch above it had not unpacked and silently found none — invisible while C, which has no scanner, was the only grammar. |
+| 14 | <a id="the grammar build takes its owner and reference as parameters"></a>`the grammar build takes its owner and reference as parameters` | `LLR-BLD-15` | The rule for a grammar hosted outside the parsing library's organisation reaches that owner, and fetches by commit rather than by tag because its upstream cuts no releases. Both would be impossible with either value hardcoded. |
+| 15 | <a id="every grammar the build declares is one the build can produce"></a>`every grammar the build declares is one the build can produce` | `LLR-BLD-15` | Each name the build lists has a rule behind it. A missing one fails only on a clean tree, which is the tree nobody builds on. |
+| 16 | <a id="check-prereqs reports every grammar against upstream"></a>`check-prereqs reports every grammar against upstream` | `LLR-BLD-17` | Each delivered language appears in the dependency report, so a pin that is immutable is not thereby invisible when it falls behind. |
+| 17 | <a id="check-prereqs survives an unreachable upstream"></a>`check-prereqs survives an unreachable upstream` | `LLR-BLD-17` | An unreachable upstream reports "unknown" rather than failing or hanging: the report is a diagnostic a person runs, not a gate. |
+| 18 | <a id="every runtime data file the build does not produce is tracked"></a>`every runtime data file the build does not produce is tracked` | — | Every file under the runtime location that the build does not itself produce is tracked by the repository, so that a version-control ignore rule cannot silently exclude product data. `.gitignore` carries `*.map` for linker map files, which also matched the extension table: it worked locally, was absent from the clone CI made, and every parsing test then failed naming the missing file rather than the rule that hid it. |
+| 19 | <a id="HLR-043: elc does not modify the tree it analyses"></a>`HLR-043: elc does not modify the tree it analyses` | — | The analysed tree checksums identically before and after a run. |
+| 20 | <a id="HLR-043: elc opens nothing for writing"></a>`HLR-043: elc opens nothing for writing` | — | No syscall capable of modifying a file — an open carrying a writing mode, a creat, an unlink, a truncate, or a rename — is observed for the whole run. This is direct evidence of read-only operation, where comparing checksums afterwards is only circumstantial. |
+| 21 | <a id="HLR-076: each source file is opened exactly once"></a>`HLR-076: each source file is opened exactly once` | — | No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it. |
+| 22 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
+| 23 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
+| 24 | <a id="HLR-125: the local sanitizer gate is as strong as the pipeline's"></a>`HLR-125: the local sanitizer gate is as strong as the pipeline's` | `LLR-BLD-18` | The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them. |
 
-### 3.37. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.38. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -1087,7 +1131,7 @@ verified by code review — see
 | `LLR-CLI-19` | `cli_parse` | `HLR-131` | **(no direct test)** |
 | `LLR-CLI-20` | `cli_parse` | `HLR-131`, `HLR-063` | **(no direct test)** |
 | `LLR-CLI-21` | `cli_parse` | `HLR-136`, `HLR-063` | **(no direct test)** |
-| `LLR-CLI-15` | `cli_parse` | `HLR-122`, `HLR-063` | **(no direct test)** |
+| `LLR-CLI-15` | `cli_parse` | `HLR-122`, `HLR-063` | `LLR-CLI-15: an explicit companion request with --from-xml is rejected`, `LLR-CLI-15: declining a companion alongside --from-xml is not an error` |
 | `LLR-USG-01` | `cli_usage` | `HLR-117` | **(no direct test)** |
 | `LLR-USG-02` | `cli_usage` | `HLR-117`, `HLR-063`, `HLR-038` | **(no direct test)** |
 | `LLR-STR-01` | `parse_stratum` | `HLR-078` | `a_stratum_declaration_is_parsed_into_a_name_and_patterns` |
@@ -1369,16 +1413,16 @@ verified by code review — see
 | `LLR-XRD-06` | `xml_read_report` | `HLR-058` | `well_formed_but_foreign_input_is_rejected`, `a_truncated_record_is_rejected` |
 | `LLR-XRD-07` | `xml_read_report` | `HLR-057` | `the_threshold_supplied_now_is_the_one_applied` |
 | `LLR-XRD-08` | `xml_read_report` | `HLR-056` | **(no direct test)** |
-| `LLR-WAR-01` | `graph_dot_warranted` | `HLR-103` | **(no direct test)** |
-| `LLR-WAR-02` | `graph_dot_warranted` | `HLR-104` | **(no direct test)** |
-| `LLR-WAR-03` | `graph_dot_warranted` | `HLR-122` | **(no direct test)** |
+| `LLR-WAR-01` | `graph_dot_warranted` | `HLR-103` | `dot_is_written_without_being_asked_for`, `dot_is_suppressed_by_the_disable_switch` |
+| `LLR-WAR-02` | `graph_dot_warranted` | `HLR-104` | `dot_needs_an_output_path`, `dot_needs_an_output_path_even_when_disabled` |
+| `LLR-WAR-03` | `graph_dot_warranted` | `HLR-122` | `no_dot_is_written_from_a_saved_record`, `HLR-122: regeneration writes no .dot, default-on though it is` |
 | `LLR-DOT-01` | `graph_write_dot` | `HLR-102` | **(no direct test)** |
-| `LLR-DOT-02` | `graph_write_dot` | `HLR-102` | **(no direct test)** |
-| `LLR-DOT-03` | `graph_write_dot` | `HLR-119` | **(no direct test)** |
-| `LLR-DOT-04` | `graph_write_dot` | `HLR-032`, `HLR-033` | **(no direct test)** |
+| `LLR-DOT-02` | `graph_write_dot` | `HLR-102` | `LLR-DOT-02: elc links no Graphviz library`, `LLR-DOT-02: writing the call tree spawns no process` |
+| `LLR-DOT-03` | `graph_write_dot` | `HLR-119` | `both_companions_derive_from_one_output_path`, `HLR-119: the companion is named from the report by substitution` |
+| `LLR-DOT-04` | `graph_write_dot` | `HLR-032`, `HLR-033` | `LLR-DOT-04: nodes are emitted in ascending identifier order`, `LLR-DOT-04: each node's adjacency is in ascending target order` |
 | `LLR-DOT-05` | `graph_write_dot` | `HLR-035` | **(no direct test)** |
-| `LLR-STY-01` | `node_style` | `HLR-105` | **(no direct test)** |
-| `LLR-STY-02` | `node_style` | `HLR-105` | **(no direct test)** |
+| `LLR-STY-01` | `node_style` | `HLR-105` | `HLR-105: the deepest call chain is annotated, nodes and edges`, `HLR-105: every unreachable function is annotated`, `HLR-105: a fan-out over the band is annotated with its severity`, `HLR-105: both participants in a hidden channel are annotated`, `HLR-105: every member of a dependency cycle is annotated`, `HLR-105: a bottleneck component is annotated and attributed`, `HLR-105: every member of a recursive cycle is annotated` |
+| `LLR-STY-02` | `node_style` | `HLR-105` | `LLR-STY-02: stripping every annotation leaves the same valid tree`, `HLR-105: two findings on one node ride two attributes` |
 | `LLR-GML-01` | `graph_write_graphml` | `HLR-106` | **(no direct test)** |
 | `LLR-GML-02` | `graph_write_graphml` | `HLR-106` | `graphml_is_off_unless_asked_for`, `graphml_is_written_when_asked_for_and_named` |
 | `LLR-GML-03` | `graph_write_graphml` | `HLR-106`, `HLR-119` | `graphml_needs_an_output_path`, `the_companion_replaces_the_extension`, `a_path_without_an_extension_gains_one`, `a_dot_in_a_directory_is_not_an_extension`, `a_directory_dot_with_an_extension_still_substitutes` |
@@ -1404,7 +1448,7 @@ verified by code review — see
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-03` | `user_documentation` | `HLR-128` | **(no direct test)** |
-| `LLR-DOC-04` | `user_documentation` | `HLR-129` | **(no direct test)** |
+| `LLR-DOC-04` | `user_documentation` | `HLR-129` | `HLR-103: --help documents the switch that declines the call tree` |
 | `LLR-DOC-05` | `user_documentation` | `HLR-129` | **(no direct test)** |
 | `LLR-DOC-06` | `user_documentation` | `HLR-130` | **(no direct test)** |
 
@@ -1422,6 +1466,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `deadcode/` | [test/fixtures/deadcode/](../test/fixtures/deadcode/) | Statements after a `return`, a `break`, and a `continue`; a `goto` label following a `return`, which is reachable and must not be reported; a switch whose arms each end in `return`; `if (0)`, `if (1) … else`, and a loop with a literally false condition; a variable holding a constant used as a condition, which must **not** be reported; dead statements inside an unreachable function; a file in a language whose module supplies no dead-code query | The exact set of unreachable statements with their line ranges and causes — and, as importantly, the exact set of constructs that are *not* reported. The false-positive cases carry the weight: a missed statement costs a cleanup, a false claim invites deleting code that runs | HLR-013, HLR-096, HLR-121, HLR-137, HLR-138, HLR-139 |
 | `calltree/` | [test/fixtures/calltree/](../test/fixtures/calltree/) | One function per fan-out band boundary — 2, 3, 7, 8, 10, 11, 15, 16 — each also calling one helper twice; a four-deep call chain with a shallower branch listed first; direct and mutual recursion in their smallest forms | The exact fan-out at every boundary, the deepest chain as an ordered sequence, both recursive cycles by kind and members, and the stated reason wherever a depth figure is absent. Phase 12 adds `expected-findings.tsv`, the band each boundary value falls in — which is why the values are pinned here first | HLR-032, HLR-033, HLR-038, HLR-056, HLR-077, HLR-085, HLR-087 – HLR-090, HLR-095, HLR-115 |
 | `graph/` | [test/fixtures/graph/](../test/fixtures/graph/) | **Phase 8**: a repeated call between one pair of functions; a global written in one file and read in another; a function assigned without being called; a call into a library; and, in Ada, a construct the grammar cannot separate from a call. **Phases 9–11 add**: mutual recursion within one file and across two; a clique of unused functions calling one another; a component dependency cycle; a global read and written by a single function; a global read by unreachable functions only | `expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. The ambiguous-call case pins what the grammar yields, so that the imprecision is a recorded decision rather than a later surprise — and so that a *false cycle* arising from it would be visible in the fixture rather than in a user's report. As of Phase 8 the Ada ambiguity resolves against no subprogram and lands in the unresolved count rather than becoming an edge, which is better than predicted and is pinned as such | Phase 8: HLR-010, HLR-032, HLR-033, HLR-073 – HLR-077, HLR-085, HLR-096, HLR-104, HLR-106, HLR-114. Later phases add HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-097 |
+| `dot/` | [test/fixtures/dot/](../test/fixtures/dot/) | Two trees, and two because recursion makes the call depth unbounded so one tree cannot hold both a recursive cycle and a measured deepest chain. `tree/`: a six-function call chain; a function whose fan-out is 11, the first value that warns; two files that depend on each other while no function calls itself even indirectly; a global shared across two disconnected regions of the call graph; seven functions no path reaches from the declared entry point. `recursive/`: two mutually recursive functions and a forward declaration | That the emitted file is valid DOT is settled by rendering it under `dot`, never by matching text that looks like DOT. That the annotations say what the analyses found is asserted against the hand-worked node and component tables in `README.md`. And, uniquely to this artefact, that **stripping every annotation leaves the same tree** — performed by deleting every attribute from the file and requiring the remainder to render with the same nodes and the same edges | HLR-032, HLR-100, HLR-102 – HLR-105, HLR-119 |
 | `arch/` | [test/fixtures/arch/](../test/fixtures/arch/) | A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all | `expected-findings.tsv`, with the hand-computed `Ca`, `Ce`, and instability table, and the omission notice for the undeclared run | HLR-078 – HLR-082, HLR-094, HLR-114, HLR-115, HLR-118 |
 | `rules/` | [test/fixtures/rules/](../test/fixtures/rules/) | A valid rule file with several named captures, supplied both from the runtime location and from the command line; a rule naming a language with no module | Each match reported with its identity as basename plus capture name, and the file and line range | HLR-107 – HLR-111 |
 | `traversal/` | [test/fixtures/traversal/](../test/fixtures/traversal/) | Hidden files and hidden directories; binary extensions; a self-referential directory symlink; a symlink to a file inside the tree; a symlink named directly as a target; overlapping targets naming one file twice | The analysed file set, each file exactly once | HLR-004, HLR-005, HLR-043, HLR-069, HLR-071, HLR-072 |
@@ -1446,6 +1491,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `bats` | The integration, fixture, and instrumented levels | With `bats-support` and `bats-assert`; vendored or provided by the platform |
 | `gcc` or `clang` | Building `elc` and the unit drivers | C11, with `-Wall -Wextra -Wpedantic`; warnings are treated as defects |
 | `make` | Building and running the suite | GNU make; `make test` is the single entry point |
+| Graphviz (`dot`) | The `dot/` fixture group | Settles `.dot` validity by rendering the emitted file rather than by matching text that looks like DOT (HLR-102). A dependency of the *test* and never of the binary: `elc` neither links Graphviz nor invokes it, which an instrumented test holds separately. Absent, the affected tests skip explicitly and name the requirement left unverified |
 | AddressSanitizer + LeakSanitizer | HLR-124, HLR-125 — `make asan` | `-fsanitize=address` with `detect_leaks=1`; catches out-of-bounds, use-after-free, invalid free, and leaks. Requires an instrumented rebuild |
 | UndefinedBehaviorSanitizer | HLR-124 — `make asan` | `-fsanitize=undefined` with `halt_on_error=1`; catches signed overflow, misaligned and null dereference, and invalid shifts |
 | `valgrind` | HLR-124, HLR-125 — `make valgrind` | `--leak-check=full --errors-for-leak-kinds=all` over a single file, a directory, and a repository target. Run in a separate pass from ASan, never combined; finds uninitialised reads ASan does not, and needs no rebuild |

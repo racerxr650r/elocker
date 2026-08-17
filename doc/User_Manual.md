@@ -1012,6 +1012,78 @@ grow` helper, one wins, and the report shows a cycle between the winner and one
 of the losers. The diagnostic naming the duplicate is the tell in every case.
 Give the helpers distinct names, or read the two outputs together.
 
+**And all of it reaches the drawing**, which is the form of the report most
+likely to be circulated and least likely to arrive with its caveats attached: a
+function wrongly reported unreachable is drawn dashed, an invented dependency
+cycle colours two clusters red, and a recursive cycle is drawn on every
+function sharing a member's name. Read standard error alongside any picture you
+intend to show someone.
+
+## The call tree
+
+Alongside a report written to a named file, `elc` writes the call tree as a
+Graphviz `.dot` file — annotated with the findings that apply to it, and named
+from `--output` by substituting the extension:
+
+```sh
+elc --entry main -o report.md src/    # writes report.md and report.dot
+dot -Tsvg report.dot -o report.svg    # Graphviz draws it; elc does not
+```
+
+`elc` writes the file and renders nothing. It neither links Graphviz nor runs
+it, so the drawing is yours to make with whatever renderer you like — `dot`,
+`neato`, an online viewer, or a script that reads the file for something else
+entirely.
+
+Unlike `--graphml`, this one is **on by default**: `--no-dot` declines it. With
+the report going to standard output no file is written whether or not you
+declined it, because there is no output path to derive a name from. A file that
+cannot be written is a diagnostic and a failed exit status — never a reason to
+withhold the report itself.
+
+### What the drawing shows
+
+Each source file becomes a labelled cluster and each function a node inside it.
+The edges are calls. Coupling through a shared global object is *not* drawn as
+an edge, because it is not a call — it shows up instead on the functions that
+take part in it.
+
+Every annotation is a Graphviz attribute a renderer may ignore. Ignore all of
+them and the same tree remains, with the same nodes and the same edges:
+
+| Annotation | Means |
+| ---------- | ----- |
+| filled amber | a warning-severity finding applies to the function |
+| filled red | a critical-severity finding applies to it |
+| double border | a member of a recursive cycle |
+| octagon | takes part in a hidden channel |
+| note shape | the only function naming some global object |
+| dashed grey | no path reaches it from a declared entry point |
+| thick blue | a step of the deepest call chain, on nodes and edges alike |
+| coloured cluster | a finding applies to the source file as a whole |
+
+The severities are the ones the **Findings** section reports, on the authority
+named there. The drawing colours them and decides nothing: there is one
+threshold catalogue in `elc` and this is not a second one.
+
+Each node's tooltip carries its definition site and its findings in full, which
+an SVG renderer will show on hover. The head of the file carries the same key
+in a comment, along with any finding that belongs to no single function — the
+depth of the call tree is the one that does.
+
+Two annotations that apply at once ride two different attributes, so neither
+hides the other: a function that both takes part in a hidden channel and is
+unreachable is a dashed grey octagon.
+
+### Two things worth declaring first
+
+- **`--entry`**, or nothing is dashed. Reachability is measured from roots you
+  declare, and with none declared the analysis is omitted rather than guessed
+  at — so a drawing made without `--entry` shows no dead code, which is not the
+  same claim as showing none exists.
+- **`--stratum`**, if you want a layering or instability finding to appear on a
+  cluster. Both need a declared architecture to compare against.
+
 ## Languages
 
 `elc` works out each file's language from its extension and loads the parser
@@ -1132,6 +1204,7 @@ comparable.
 | `--stratum` | `NAME:GLOB[,GLOB…]` | none | Declare an architectural layer named `NAME` holding the matching files; repeatable |
 | `--stratum-order` | `NAME>NAME[>NAME…]` | none | State the permitted direction of dependency between the declared layers |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
+| `--no-dot` | — | `.dot` written | Do not write the annotated Graphviz call tree, which is otherwise written beside the report |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 
 ```sh

@@ -1027,6 +1027,30 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
 
 Both companion files derive their names from the report's output path by extension substitution: an output of `report.md` yields `report.dot` and `report.graphml`. Neither takes a path of its own. This is precisely why neither is produced when the report goes to standard output — there is no output path to derive a name from, which is the rationale HLR-104 and HLR-106 give (HLR-103, HLR-104, HLR-106).
 
+#### 17.2.3 DOT Annotation Encoding
+
+The `.dot` file is the **call tree**, so only call edges are drawn. Coupling through a shared global object is not an edge here — it is not a call — and reaches the drawing as a property of the functions that take part in it, which is what HLR-105 asks for: the participants of a hidden channel, not the channel.
+
+Each source file becomes a `subgraph cluster_<n>` labelled with its path, and each function a node within it. Clustering costs the ordering of LLR-DOT-04 nothing, because node identifiers run in the report's sorted file order (LLR-SDG-09) and a component's nodes are therefore contiguous.
+
+**Each annotation takes a different attribute**, so that several may apply to one node without one overwriting another — a function that both takes part in a hidden channel and is unreachable must show both, and a drawing that showed one of the two would be silently incomplete.
+
+| Finding | Attribute | Requirement |
+| ------- | --------- | ----------- |
+| a warning- or critical-severity finding | `fillcolor` | HLR-081, HLR-086, HLR-098 |
+| member of a recursive cycle | `peripheries` | HLR-089 |
+| participant in a hidden channel | `shape=octagon` | HLR-093 |
+| sole user of a global object | `shape=note` | HLR-092 |
+| unreachable | `style=dashed` with a grey `color` | HLR-096 |
+| a step of the deepest call chain | `penwidth` and a blue `color`, on the node and on the edge | HLR-088 |
+| a finding on the source file | the cluster's `bgcolor` | HLR-081, HLR-083 |
+
+Every one is an attribute a renderer may ignore; ignoring all of them leaves the same nodes and the same edges (HLR-105, LLR-STY-02). The key to the encoding is emitted as a DOT **comment** rather than as a legend subgraph, because a legend would add nodes that are not functions to a graph whose every node is one — and a comment is dropped by every renderer rather than merely ignorable by one.
+
+**No severity is decided here.** Every one arrives in `report->findings`, decided by `thresholds.c`; this module looks up `severity_rank` and chooses a colour. A renderer forming its own view of what counts as exceeding a threshold would put a second opinion in a codebase whose central claim is that it holds exactly one (HLR-098, HLR-099).
+
+**Both cycle kinds are drawn from the report's cycle rows rather than from the findings.** The catalogue locates a cycle at a single subject, because a finding has one subject and a set has no single location; HLR-105 asks for the *members*, plural. `report->cycles` and `report->dep_cycles` carry the membership, and the catalogue's single-subject copy of the same finding is suppressed — matched on the measurement's name, which both sides take from the same catalogue row and which therefore cannot drift.
+
 
 ### 17.3 Internal Structure
 #### 17.3.1 Key Functions
@@ -1036,11 +1060,18 @@ Both companion files derive their names from the report's output path by extensi
 *   **`int graph_write_graphml(const Sdg *g, const char *path)`** — Write the SDG in GraphML, nodes in ascending identifier order and each node's edges by ascending target. Reuses `write_escaped` from `format_xml.c` rather than carrying a second escaper: one implementation of HLR-065 means one place for it to be wrong.
 *   **`bool graph_graphml_warranted(const ElcOptions *opts)`** — True only when the export was requested *and* the report goes to a named file. Both halves matter: the export is off by default (HLR-106), and requesting it with the report on standard output writes nothing, because there is no path to derive a name from (HLR-104).
 *   **`char *graph_companion_path(const char *output_path, const char *extension)`** — The companion's name, by extension substitution on the report's output path. The extension search is scoped to the last path component, so a dot in a directory name is not mistaken for one.
-*   **`const char *node_style(const Report *r, uint32_t node)`** — Return the Graphviz attributes for a node given the findings that apply to it.
+*   **`void node_style(FILE *out, const Annotation *a)`** — Write the Graphviz attributes for a node given the findings that apply to it. `Annotation` is local to the module — a bitset of the marks that apply, the highest severity among them, and those findings joined for the tooltip — because nothing outside the writer has any use for it. Takes a gathered annotation rather than the report and a node identifier: the report is keyed by definition site and the graph by identifier, so matching the two is a search, and a styler that searched would entangle emission order with lookup order.
+*   **`int collect(const Sdg *g, const Report *r, Annotation *nodes, Annotation *comps, char **notes)`** — Gather every finding and structural mark onto the node and component it applies to, so that emission is a pure walk. Findings are matched to a node by definition site rather than by name, because a name is not unique and a drawing that marked six functions called `grow` because one was unreachable would be worse than one that marked none.
 
 #### 17.3.2 Parsing Strategy / Algorithm
 
 Both writers are plain text emission, which keeps Graphviz a tool the user may run on the output rather than a library `elc` links against (HLR-102), and keeps GraphML generation independent of any XML library. Unlike the report renderers, these two walk the `Sdg` rather than the sorted report model, so they impose their own order explicitly: nodes are emitted in ascending stable node-id order and each node's adjacency in ascending target-id order. Without that the graph library's internal enumeration would leak into the output and break HLR-032. Annotations use colour and shape attributes that a renderer ignoring them will simply drop, leaving a valid call tree (HLR-105).
+
+The DOT writer runs in two passes rather than one, and the split is what keeps the ordering guarantee cheap to check. `collect()` gathers every finding and structural mark onto the node or component it applies to; emission is then a pure walk in identifier order that consults nothing. A writer that searched the report while emitting would have its output order entangled with its lookup order, and LLR-DOT-04 would have to be argued rather than read.
+
+**A finding is matched to a node by definition site — file and line together — not by name.** Both halves are required: a file alone is a component finding, and a line alone would match the same line in every file. Name matching is used in exactly one place, the recursive cycle, because names are all `report->cycles` carries; it inherits the duplicate-`static` imprecision recorded in the SDG's own limits, and the drawing is where that imprecision is most visible and least caveated.
+
+DOT quoted strings escape two characters, `"` and `\`. That escaper is deliberately *not* folded into `write_escaped`: XML's five entities and DOT's two backslashes are different languages, and one escaper serving both would have to be told which, at which point it is two functions anyway.
 
 ### 17.4 Dependencies
 
@@ -1061,7 +1092,7 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `output_path` | `const char *` | NULL when writing to stdout |
 | `complexity_threshold` | `uint32_t` | Default 15 (HLR-022) |
 | `bottleneck_threshold` | `uint32_t` | Default 5 (HLR-081) |
-| `emit_dot` | `bool` | Default true (HLR-103) |
+| `no_dot` | `bool` | The *refusal* of the `.dot` companion, not the request for it: generation is enabled by default (HLR-103), so a zeroed ElcOptions must mean enabled, which it does only if the flag records the negative |
 | `graphml_path` | `const char *` | NULL unless --graphml given |
 | `strata` | `StratumList` | Empty when undeclared; ordinals from declaration order unless --stratum-order states them (HLR-078) |
 | `stratum_order` | `const char *` | The declared dependency direction, resolved after parsing so it may precede the layers it orders (HLR-078) |

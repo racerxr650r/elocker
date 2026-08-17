@@ -317,6 +317,11 @@ void cli_usage(FILE *stream)
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.graphml. Requires --output,\n"
 "                     since there is otherwise no name to derive\n"
+"      --no-dot       do not write the annotated Graphviz call tree. It is\n"
+"                     written by default beside the report and named from\n"
+"                     it, an --output of report.md yielding report.dot, and\n"
+"                     is never written when the report goes to standard\n"
+"                     output, since there is then no name to derive\n"
 "  -h, --help         display this help and exit\n"
 "\n"
 "Output:\n"
@@ -341,8 +346,8 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 {
 	/* A value above any printable character, so a long-only option cannot
 	 * collide with a short one. */
-	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_ENTRY, OPT_SCOPE,
-	       OPT_STRATUM, OPT_STRATUM_ORDER };
+	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
+	       OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER };
 
 	static const struct option longopts[] = {
 		{ "format",               required_argument, NULL, 'f' },
@@ -350,6 +355,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "complexity-threshold", required_argument, NULL, 'c' },
 		{ "output",               required_argument, NULL, 'o' },
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
+		{ "no-dot",               no_argument,       NULL, OPT_NO_DOT },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },
 		{ "scope",                required_argument, NULL, OPT_SCOPE },
 		{ "bottleneck-threshold", required_argument, NULL, 'b' },
@@ -497,6 +503,13 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			 * says it should simply not write a file. */
 			out->graphml = true;
 			break;
+		case OPT_NO_DOT:
+			/* A refusal, not a request, which is why it needs no
+			 * validation against --output: the companion is on by
+			 * default (HLR-103) and declining it can never be in
+			 * conflict with anything (LLR-WAR-01). */
+			out->no_dot = true;
+			break;
 		case 'h':
 			cli_usage(stdout);
 			return CLI_HELP;
@@ -520,6 +533,21 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		return CLI_ERROR;
 
 	if (out->mode == MODE_REGENERATE) {
+		/* A record carries the findings of a run, not the topology of
+		 * the graph, so no companion artefact can be reconstructed from
+		 * one. The default-on `.dot` is therefore simply not written —
+		 * declining to produce it silently is what HLR-122 asks for —
+		 * but an *explicit* request is rejected, so that a user who
+		 * asked for a file and got none is told why rather than left to
+		 * discover the absence (LLR-CLI-15). */
+		if (out->graphml) {
+			fputs("elc: --graphml cannot be combined with "
+			      "--from-xml: a saved record carries the findings "
+			      "of a run, not the graph they came from\n",
+			      stderr);
+			return CLI_ERROR;
+		}
+
 		/* A saved record is the input, so a target would name a second
 		 * source of truth for the same report. */
 		if (optind < argc) {

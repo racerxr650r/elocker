@@ -250,6 +250,14 @@ dependency cycle that does not exist, which is the more expensive form of the
 mistake. The duplicate definition is diagnosed on standard error where it
 occurs, so read that before acting on either list.
 .PP
+The same artefact reaches the annotated call tree, where it is easier to
+circulate and harder to caveat: a function wrongly reported unreachable is
+drawn dashed, an invented dependency cycle colours two clusters, and a
+recursive cycle is drawn on every function sharing a member's name. Read the
+stderr diagnostics alongside any drawing taken from a tree with duplicate
+.B static
+names in it.
+.PP
 .B Global state
 is reported for every object: the set of functions that write it and the set
 that read it. Two arrangements are flagged, both under MISRA C Rule 8.9. An
@@ -570,6 +578,16 @@ on standard output no file is written at all \(em there is no path to derive a
 name from. A companion that cannot be written is a diagnostic and a failed
 exit status, never a reason to withhold the report itself.
 .TP
+.B \-\-no\-dot
+Do not write the annotated Graphviz call tree. Unlike
+.BR \-\-graphml ,
+the call tree is written
+.I by default
+whenever a report goes to a named file, so this switch records a refusal rather
+than a request; see
+.B THE CALL TREE
+below.
+.TP
 .BR \-h ", " \-\-help
 Display a usage summary on standard output and exit successfully. Requesting
 help is not an error, so the exit status is 0 rather than a failure code.
@@ -724,6 +742,92 @@ indistinguishable from a failure.
 The shape of the report does not vary with the type of the target: a single
 file, a plain directory, and a repository all produce the same headings and
 the same columns.
+.SH THE CALL TREE
+Alongside a report written to a named file,
+.B elc
+writes the call tree as a Graphviz
+.I .dot
+file, annotated with the architectural findings that apply to it. The file is
+named from the report's own output path by extension substitution, so an
+.B \-\-output
+of
+.I report.md
+yields
+.IR report.dot ;
+it takes no path of its own.
+.PP
+.B elc
+writes the file and renders nothing. Graphviz is a separate tool the user may
+run on the result, and
+.B elc
+neither links it nor invokes it:
+.PP
+.EX
+elc --entry main -o report.md src/
+dot -Tsvg report.dot -o report.svg
+.EE
+.PP
+Generation is enabled by default and is declined with
+.BR \-\-no\-dot .
+With the report on standard output no file is written whether or not
+generation was declined \(em there is no output path to derive a name from. A
+file that cannot be written is a diagnostic and a failed exit status, never a
+reason to withhold the report itself.
+.SS What the drawing shows
+Each source file becomes a labelled cluster and each function a node within
+it; the edges are calls. Coupling through a shared global object is
+.I not
+drawn as an edge, because it is not a call \(em it appears instead as a
+property of the functions that take part in it.
+.PP
+Every annotation is a Graphviz attribute a renderer is free to ignore. Ignore
+all of them and the same tree remains, with the same nodes and the same edges,
+undecorated:
+.TP
+.B filled amber or red
+A warning- or critical-severity finding applies to the node. The severity is
+the one the
+.B Findings
+section reports, on the authority named there; the drawing colours it and
+decides nothing.
+.TP
+.B double border
+A member of a recursive cycle. Every member is marked, not only the one the
+finding is filed against.
+.TP
+.B octagon
+Takes part in a hidden channel \(em a global object shared across regions of
+the call graph that never call each other.
+.TP
+.B note shape
+The only function naming some global object, which is therefore a candidate
+for a narrower scope.
+.TP
+.B dashed grey
+No path reaches the function from any declared entry point. Requires
+.BR \-\-entry ;
+without it the analysis is omitted and nothing is dashed.
+.TP
+.B thick blue
+A step of the deepest call chain, on the nodes and on the edges between them.
+.TP
+.B coloured cluster
+A finding applies to the source file as a whole \(em a dependency cycle with
+another file, an architectural bottleneck, or an instability that contradicts
+its declared layer. Every member of a cycle is coloured, not only the file the
+finding is filed against.
+.PP
+Each node's tooltip carries its definition site and its findings in full, and
+the head of the file carries the same key in a comment. Both survive being
+ignored.
+.PP
+Two functions in different files that share a name are indistinguishable to
+the graph, which resolves calls by name alone, and the drawing inherits every
+consequence of that. See the caveat under
+.B Call-tree analyses
+in
+.BR DESCRIPTION ,
+and read the diagnostics on standard error before circulating a drawing.
 .SH ENVIRONMENT
 .TP
 .B ELC_RUNTIME_DIR

@@ -4,20 +4,26 @@
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Phase 12 complete. Every measurement `elc` makes is now evaluated
-against the published catalogue of PVD Appendix A, and **one module does all
-of it** — which is what makes the project's central claim checkable rather
-than merely asserted. A reviewer can read one table to confirm that every line
-`elc` draws comes from MISRA C, Martin, or Henry–Kafura, and that the single
-exception, the bottleneck heuristic, says so in the text a reader sees. The
-fan-out bands are exhaustive, three of the five producing no finding at all;
-severity is a closed ordered set with the highest applicable band winning; and
-no severity touches the exit status, because deciding what a critical finding
-warrants belongs to the caller. 645 catalogued tests verify 320 of 497
-requirements and the coverage baseline falls from 191 to 177. The
+**Status:** Phase 13 complete. `elc` now writes the call tree as an annotated
+Graphviz `.dot` file beside every report that goes to a named file — the first
+artefact it produces for another *program* to read rather than for a person.
+Graphviz renders it and `elc` neither links it nor invokes it, which an
+instrumented test holds by observing that a run writing a call tree issues one
+`execve`, the kernel's own. Every finding of Phases 9 through 12 reaches the
+drawing on an attribute a renderer may ignore, and the fixture tests the
+degradation by performing it: strip every attribute and the same twenty-five
+nodes and nineteen edges still render. Nothing is banded here — every severity
+on the page was decided by `thresholds.c`, so the drawing colours what the
+catalogue judged and holds no second opinion. Two discoveries went back into
+the design. Both kinds of cycle are drawn from the report's cycle rows rather
+than from the findings, because the catalogue locates a cycle at one subject
+and HLR-105 asks for the members; and the writer runs in two passes, gathering
+before emitting, so that the ordering guarantee of LLR-DOT-04 can be read off
+a walk rather than argued about a search. 682 catalogued tests verify 333 of
+497 requirements and the coverage baseline falls from 177 to 164. The
 conditional-compilation set HLR-131 to HLR-136 remains the only
-specified-and-unbuilt group, and Phase 15 builds it. Phase 13 — graph
-visualisation — is ready to start.
+specified-and-unbuilt group, and Phase 15 builds it. Phase 14 — custom rules —
+is ready to start.
 
 ## Status
 
@@ -36,7 +42,7 @@ visualisation — is ready to start.
 | [10](#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | ✅ Complete |
 | [11](#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | ✅ Complete |
 | [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | ✅ Complete |
-| [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |
+| [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
 | [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |
 | [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
 | [16](#phase-16--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
