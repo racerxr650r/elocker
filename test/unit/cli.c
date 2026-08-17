@@ -477,3 +477,47 @@ Test(cli, a_malformed_bottleneck_threshold_is_a_usage_error)
 		             "'%s' is not a threshold", bad[i]);
 	}
 }
+
+/* --------------------------------------------------------- custom rules -- */
+
+/* Verifies LLR-RLR-02: the `lang:path` argument is recorded as given. The
+ * parser does not split it, and deliberately: whether the named language
+ * exists is the registry's question, and answering it here would put a second
+ * copy of that knowledge in the option parser. */
+Test(cli, a_rule_argument_is_recorded_unsplit)
+{
+	char      *argv[] = { "elc", "--rules", "c:house.scm", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_eq(o.rule_count, 1);
+	cr_assert_str_eq(o.rules[0], "c:house.scm");
+	cli_options_free(&o);
+}
+
+Test(cli, rule_arguments_accumulate)
+{
+	char      *argv[] = { "elc", "--rules", "c:one.scm",
+	                      "--rules", "rust:two.scm", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(6, argv, &o), CLI_OK);
+	cr_assert_eq(o.rule_count, 2,
+	             "the option is repeatable; a second must not replace the "
+	             "first");
+	cr_assert_str_eq(o.rules[0], "c:one.scm");
+	cr_assert_str_eq(o.rules[1], "rust:two.scm");
+	cli_options_free(&o);
+}
+
+Test(cli, no_rule_is_supplied_by_default)
+{
+	char      *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_eq(o.rule_count, 0,
+	             "elc supplies no rule of its own beyond the catalogued "
+	             "metrics and thresholds (HLR-111)");
+	cli_options_free(&o);
+}

@@ -55,6 +55,25 @@ typedef struct {
 	                                  * so it is not retried (HLR-070)    */
 } LanguageModule;
 
+/* One compiled user-supplied rule, bound to the language it applies to.
+ *
+ * The binding is not decoration: a Tree-sitter query compiles against one
+ * specific TSLanguage, so a rule has no meaning apart from the grammar it was
+ * compiled for (HLR-107). It arrives either from the directory holding the
+ * file or from the `lang:path` argument form, and by the time it is here the
+ * two are indistinguishable — which is the point, since what a rule *does* is
+ * the same however it was supplied. Only failure handling differs, and that is
+ * settled before this record exists (HLR-116).
+ *
+ * `stem` is half an identity. The other half is the capture name that matched,
+ * so one file expresses as many named rules as it holds captures (HLR-109).
+ */
+typedef struct {
+	char    *stem;     /* the file's basename, extension removed; owned */
+	char    *language; /* the language it is bound to; owned            */
+	TSQuery *query;    /* compiled against that language's grammar      */
+} CustomRule;
+
 /* One extension-to-language association, read from runtime data. */
 typedef struct {
 	char *extension; /* including its leading period, matched caselessly */
@@ -72,6 +91,9 @@ typedef struct {
 	LanguageModule   *modules;
 	size_t            module_count;
 	size_t            module_capacity;
+	CustomRule       *rules;         /* HLR-107; empty unless supplied   */
+	size_t            rule_count;
+	size_t            rule_capacity;
 	TSParser         *parser;
 	TSQueryCursor    *cursor;
 } Registry;
@@ -104,6 +126,29 @@ int registry_open(const ElcOptions *opts, Registry *out);
  * is not retried (HLR-070, LLR-RFP-06).
  */
 const LanguageModule *registry_for_path(Registry *reg, const char *path);
+
+/* Load and compile every user-supplied rule, binding each to its language.
+ *
+ * Two provenances, and the difference between them is the whole of the error
+ * handling. A rule found under `runtime/queries/<lang>/rules/` is bound by the
+ * directory that holds it, and one that will not read or compile is a
+ * malformed runtime component: diagnosed, excluded, and survived (HLR-070). A
+ * rule named on the command line is bound by the `lang:path` argument form,
+ * and the same failure is a user error: diagnosed and fatal, before any file
+ * is analysed (HLR-116, LLR-RLR-06, LLR-RLR-07).
+ *
+ * A rule naming a language with no available module is reported and skipped
+ * from either provenance, because what is missing is the module rather than
+ * the rule — the absence that makes a source file a skip and not a failure
+ * (LLR-RLR-03).
+ *
+ * Nothing is read outside the runtime location and the command line: no
+ * working directory, no analysis target, no dotfile (HLR-110, LLR-RLR-05).
+ *
+ * Returns 0 on success, non-zero when a command-line rule failed and the run
+ * must stop.
+ */
+int registry_load_rules(Registry *reg, const ElcOptions *opts);
 
 /* The resolved runtime location, so that another module needing runtime data
  * asks for it rather than repeating the precedence rule of HLR-059. */

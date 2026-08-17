@@ -153,6 +153,17 @@ typedef struct {
 	const char  **entry_points;
 	size_t        entry_point_count;
 	size_t        entry_point_capacity;
+	/* Custom rule files named on the command line, each in the `lang:path`
+	 * form (HLR-107). Empty means the run uses only the rules the runtime
+	 * location holds, which is usually none.
+	 *
+	 * Borrowed from argv like the entry points, and unsplit: the language
+	 * and the path are both substrings of one argument, and splitting here
+	 * would allocate two strings for a decision `registry.c` has to make
+	 * anyway — it is the module that knows which languages exist. */
+	const char  **rules;
+	size_t        rule_count;
+	size_t        rule_capacity;
 	/* The execution scopes cross-scope access is measured against
 	 * (HLR-094). Empty means the analysis is omitted with a stated
 	 * reason, exactly as an empty entry-point set does. Owned outright,
@@ -383,6 +394,22 @@ typedef struct {
 	DeadCause cause;
 } DeadSpan;
 
+/* One match of a user-supplied rule (HLR-109).
+ *
+ * Line-ranged and nothing else. A rule match is not a finding: `elc` reports
+ * that the query matched and forms no view about whether the rule was worth
+ * writing, so there is no severity here and no attribution — nothing to attach
+ * either to (HLR-111).
+ *
+ * The identity is the rule file's basename and the capture name that matched,
+ * joined, so one file expresses as many named rules as it holds captures.
+ */
+typedef struct {
+	char     *rule;       /* "<basename>.<capture>"; owned            */
+	uint32_t  start_line; /* 1-based                                  */
+	uint32_t  end_line;   /* 1-based; a match may span many lines     */
+} RuleMatch;
+
 /* The raw graph facts from one file's parse (doc/SDD.md §18). */
 typedef struct {
 	char         *path;            /* canonical absolute path; owned   */
@@ -398,6 +425,9 @@ typedef struct {
 	DeadSpan     *dead;            /* statements that cannot execute   */
 	size_t        dead_count;
 	size_t        dead_capacity;
+	RuleMatch    *rule_matches;    /* custom-rule matches (HLR-109)    */
+	size_t        rule_match_count;
+	size_t        rule_match_capacity;
 	/* False when the language supplied no dead-code query. "Not looked
 	 * for" and "none found" are different claims, and a reader who
 	 * cannot tell them apart has been told nothing (HLR-139). */

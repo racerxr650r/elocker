@@ -137,7 +137,7 @@ Snapshot: **357 test(s)** across
 
 ### 3.1. [test/unit/cli.c](../test/unit/cli.c)
 
-Role: **unit**. **38 test(s).**
+Role: **unit**. **41 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -179,10 +179,13 @@ Role: **unit**. **38 test(s).**
 | 36 | <a id="the_bottleneck_threshold_defaults_to_five"></a>`the_bottleneck_threshold_defaults_to_five` | `LLR-CLI-05` | The bottleneck threshold defaults to 5 when none is supplied. |
 | 37 | <a id="the_bottleneck_threshold_is_configurable"></a>`the_bottleneck_threshold_is_configurable` | `LLR-CLI-05` | The threshold is user-configurable, as the requirement asks. |
 | 38 | <a id="a_malformed_bottleneck_threshold_is_a_usage_error"></a>`a_malformed_bottleneck_threshold_is_a_usage_error` | `LLR-CLI-05` | A sign, a trailing tail, leading whitespace and a hexadecimal prefix are each rejected, as they are for the complexity threshold. |
+| 39 | <a id="a_rule_argument_is_recorded_unsplit"></a>`a_rule_argument_is_recorded_unsplit` | `LLR-RLR-02` | The `lang:path` argument reaches the options as given. The parser does not split it, and deliberately: whether the named language exists is the registry's question, and answering it here would put a second copy of that knowledge in the option parser. |
+| 40 | <a id="rule_arguments_accumulate"></a>`rule_arguments_accumulate` | `LLR-RLR-01` | The option is repeatable and a second use does not replace the first. |
+| 41 | <a id="no_rule_is_supplied_by_default"></a>`no_rule_is_supplied_by_default` | — | elc ships no rule of its own beyond the catalogued metrics and thresholds, so an invocation naming none has none. |
 
 ### 3.2. [test/unit/registry.c](../test/unit/registry.c)
 
-Role: **unit**. **15 test(s).**
+Role: **unit**. **23 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -201,6 +204,14 @@ Role: **unit**. **15 test(s).**
 | 13 | <a id="an_unusable_language_is_not_retried"></a>`an_unusable_language_is_not_retried` | `LLR-RFP-06`, `LLR-RFP-07` | A language that failed to load is recorded once, so the diagnostic is emitted once rather than once per file that would have used it. |
 | 14 | <a id="no_particular_language_is_required"></a>`no_particular_language_is_required` | `LLR-ROP-05` | The registry opens over whatever the runtime location holds and verifies no particular language up front. |
 | 15 | <a id="close_is_safe_on_null_and_on_a_zeroed_registry"></a>`close_is_safe_on_null_and_on_a_zeroed_registry` | `LLR-RCL-01` | Teardown is safe on a null and on a never-opened registry, so every error path can release unconditionally. |
+| 16 | <a id="a_located_rule_is_bound_by_its_directory"></a>`a_located_rule_is_bound_by_its_directory` | `LLR-RLR-02` | A rule under queries/<lang>/rules/ is bound to that language with nothing naming it, and its identity's first half is the basename with the extension removed. |
+| 17 | <a id="a_broken_located_rule_is_excluded_and_the_run_continues"></a>`a_broken_located_rule_is_excluded_and_the_run_continues` | `LLR-RLR-07` | A rule in the runtime location that will not compile is a malformed component: diagnosed, excluded, and survived rather than kept or fatal. |
+| 18 | <a id="a_broken_located_rule_does_not_exclude_its_neighbours"></a>`a_broken_located_rule_does_not_exclude_its_neighbours` | `LLR-RLR-07` | One broken rule does not take a good one with it, which a loader abandoning the directory on first failure would do. |
+| 19 | <a id="a_broken_named_rule_fails_the_run"></a>`a_broken_named_rule_fails_the_run` | `LLR-RLR-06` | The same failure from the command line is a user error and stops the run. Paired with the located case above, this is the provenance rule itself rather than either half of it. |
+| 20 | <a id="an_absent_named_rule_fails_the_run"></a>`an_absent_named_rule_fails_the_run` | `LLR-RLR-06` | An unreadable named rule fails exactly as an uncompilable one does: the provenance decides, not the kind of failure. |
+| 21 | <a id="a_rule_for_an_unavailable_language_is_skipped_not_fatal"></a>`a_rule_for_an_unavailable_language_is_skipped_not_fatal` | `LLR-RLR-03` | A rule naming a language with no module is reported and skipped rather than compiled, and is not fatal even from the command line — what is missing is the module, not the rule. |
+| 22 | <a id="a_rule_argument_without_a_language_fails"></a>`a_rule_argument_without_a_language_fails` | `LLR-RLR-09` | An argument with no language is a usage error rather than a path silently taken for a language name. |
+| 23 | <a id="no_rule_is_discovered_from_the_working_directory"></a>`no_rule_is_discovered_from_the_working_directory` | `LLR-RLR-05` | A rule sitting in the working directory is not a rule. Two users running the same command on the same tree must obtain the same result. |
 
 ### 3.3. [test/unit/analyze.c](../test/unit/analyze.c)
 
@@ -980,7 +991,31 @@ Role: **fixture**. **24 test(s).**
 | 23 | <a id="HLR-100: a critical annotation does not become an exit status"></a>`HLR-100: a critical annotation does not become an exit status` | — | A run full of critical findings in which every file was read still exits 0. Severity is a label, and drawing it on a graph does not change that. |
 | 24 | <a id="a forward declaration is not a node"></a>`a forward declaration is not a node` | — | Three nodes and not four, which also pins that the C module's function query captures definitions rather than declarations. |
 
-### 3.34. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
+### 3.34. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
+
+Role: **fixture**. **17 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-109: one rule file expresses several independently named rules"></a>`HLR-109: one rule file expresses several independently named rules` | — | Three matches under two identities. A rule's identity is the file's basename plus the capture name, so a fixture with one capture per file could not show it. |
+| 2 | <a id="HLR-109: the match count is reported in the heading"></a>`HLR-109: the match count is reported in the heading` | — | The section names how many matched, so an empty one is a result rather than an absence of information. |
+| 3 | <a id="HLR-107: a rule's predicate is evaluated, so free is not an allocation"></a>`HLR-107: a rule's predicate is evaluated, so free is not an allocation` | `LLR-CRM-02` | tree-sitter's C library evaluates no predicate. Without elc evaluating the rule's own `#eq?`, the capture matches every call in the file and a rule author's filter is silently discarded — the assertion that a user's rule gets the same treatment as a built-in query. |
+| 4 | <a id="HLR-031: the section is emitted even with no rule supplied"></a>`HLR-031: the section is emitted even with no rule supplied` | `LLR-SUM-07` | An absent section and an empty one are different claims. |
+| 5 | <a id="HLR-111: a rule match carries no severity"></a>`HLR-111: a rule match carries no severity` | — | The absence is the requirement rather than an omission: elc reports what a rule matched and forms no view about whether the rule was worth writing, so there is nothing honest to put in a severity column and there is none. |
+| 6 | <a id="HLR-107: a rule in the runtime location is used without being named"></a>`HLR-107: a rule in the runtime location is used without being named` | `LLR-RLR-02` | Binding by the directory that holds the file, with nothing on the command line. |
+| 7 | <a id="HLR-107: what a rule does does not depend on how it arrived"></a>`HLR-107: what a rule does does not depend on how it arrived` | — | The same query from both provenances produces the same matches; only the identity's first half differs, that being the file's name. What a rule does cannot depend on how it was supplied. |
+| 8 | <a id="HLR-108: adding a rule requires no rebuild"></a>`HLR-108: adding a rule requires no rebuild` | `LLR-RLR-04` | Asserted on the binary's mtime rather than on the output, because "no rebuild" is a claim about the executable. |
+| 9 | <a id="HLR-116: a broken rule in the runtime location is skipped, not fatal"></a>`HLR-116: a broken rule in the runtime location is skipped, not fatal` | `LLR-RLR-07` | A malformed runtime component is diagnosed, excluded, and survived, and the report is still produced. |
+| 10 | <a id="HLR-116: the same file named on the command line is fatal"></a>`HLR-116: the same file named on the command line is fatal` | `LLR-RLR-06` | The same bytes, the other provenance, the other outcome, and no report written. Two different broken files could not tell a provenance rule from a file-contents one. |
+| 11 | <a id="HLR-116: a named rule that does not exist is fatal and names itself"></a>`HLR-116: a named rule that does not exist is fatal and names itself` | `LLR-RLR-06` | Unreadable fails as uncompilable does, and the diagnostic names the file so the reader knows which one to fix. |
+| 12 | <a id="LLR-RLR-03: a rule naming an unavailable language is skipped"></a>`LLR-RLR-03: a rule naming an unavailable language is skipped` | `LLR-RLR-03` | What is missing is the module rather than the rule, which is the absence that makes a source file a skip and not a failure. |
+| 13 | <a id="HLR-063: --rules without a language is a usage error"></a>`HLR-063: --rules without a language is a usage error` | `LLR-RLR-09` | A query compiles against one grammar, so an argument naming no language cannot be honoured and is rejected rather than guessed at. |
+| 14 | <a id="HLR-110: no rule is discovered from the working directory or target"></a>`HLR-110: no rule is discovered from the working directory or target` | `LLR-RLR-05` | Decoys in the working directory, in a dotfile directory, and in the analysis target, none of which is read. Asserted by planting them rather than by inspection, so that ignoring the file is what is tested and not merely never looking in that directory. |
+| 15 | <a id="HLR-056: rule matches survive a record round trip byte-identically"></a>`HLR-056: rule matches survive a record round trip byte-identically` | `LLR-XRD-15` | Every new report section is a new thing for regeneration to lose. |
+| 16 | <a id="HLR-054: the record carries each match with its identity"></a>`HLR-054: the record carries each match with its identity` | `LLR-XWR-15` | The identity is what the report presents and all a reader of a regenerated report can act on, so it is what the record holds. |
+| 17 | <a id="HLR-032: two runs with the same rule produce identical output"></a>`HLR-032: two runs with the same rule produce identical output` | `LLR-RLR-11` | Rule loading walks a directory, and a directory yields whatever order the filesystem holds. |
+
+### 3.35. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
 Role: **fixture**. **16 test(s).**
 
@@ -1003,7 +1038,7 @@ Role: **fixture**. **16 test(s).**
 | 15 | <a id="HLR-032: two runs over the same tree produce identical GraphML"></a>`HLR-032: two runs over the same tree produce identical GraphML` | — | The export is byte-identical across runs, so no container's internal enumeration reaches the output. |
 | 16 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | — | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
-### 3.35. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+### 3.36. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1029,7 +1064,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | — | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
 | 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | — | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
 
-### 3.36. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.37. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -1043,7 +1078,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.37. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.38. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **24 test(s).**
 
@@ -1074,7 +1109,7 @@ Role: **instrumented**. **24 test(s).**
 | 23 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 | 24 | <a id="HLR-125: the local sanitizer gate is as strong as the pipeline's"></a>`HLR-125: the local sanitizer gate is as strong as the pipeline's` | `LLR-BLD-18` | The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them. |
 
-### 3.38. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.39. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -1138,6 +1173,7 @@ verified by code review — see
 | `LLR-USG-01` | `cli_usage` | `HLR-117` | **(no direct test)** |
 | `LLR-USG-02` | `cli_usage` | `HLR-117`, `HLR-063`, `HLR-038` | **(no direct test)** |
 | `LLR-USG-07` | `cli_usage` | `HLR-140`, `HLR-117` | **(no direct test)** |
+| `LLR-USG-08` | `cli_usage` | `HLR-117` | **(no direct test)** |
 | `LLR-STR-01` | `parse_stratum` | `HLR-078` | `a_stratum_declaration_is_parsed_into_a_name_and_patterns` |
 | `LLR-STR-02` | `parse_stratum` | `HLR-078`, `HLR-118` | `the_declared_order_fixes_the_ordinals`, `HLR-078: the declared order determines the direction` |
 | `LLR-STR-03` | `parse_stratum` | `HLR-063`, `HLR-078` | `a_malformed_stratum_declaration_is_rejected`, `HLR-063: a malformed stratum declaration is a usage error` |
@@ -1191,13 +1227,17 @@ verified by code review — see
 | `LLR-RFP-11` | `registry_for_path` | `HLR-139`, `HLR-121`, `HLR-070` | `HLR-139: removing a query file makes that language unanalysed, not clean`, `HLR-070: a module missing an optional query is still usable` |
 | `LLR-RFP-12` | `registry_for_path` | `HLR-070`, `HLR-121` | `HLR-070: an optional query that will not compile is a defect, not a choice` |
 | `LLR-RFP-08` | `registry_for_path` | `HLR-121` | `a_module_is_loaded_on_first_use_of_its_extension`, `a_missing_query_file_makes_the_language_unusable` |
-| `LLR-RLR-01` | `registry_load_rules` | `HLR-107` | **(no direct test)** |
-| `LLR-RLR-02` | `registry_load_rules` | `HLR-107` | **(no direct test)** |
-| `LLR-RLR-03` | `registry_load_rules` | `HLR-107`, `HLR-070` | **(no direct test)** |
-| `LLR-RLR-04` | `registry_load_rules` | `HLR-108` | **(no direct test)** |
-| `LLR-RLR-05` | `registry_load_rules` | `HLR-110`, `HLR-039` | **(no direct test)** |
-| `LLR-RLR-06` | `registry_load_rules` | `HLR-116`, `HLR-063` | **(no direct test)** |
-| `LLR-RLR-07` | `registry_load_rules` | `HLR-116`, `HLR-070` | **(no direct test)** |
+| `LLR-RLR-01` | `registry_load_rules` | `HLR-107` | `rule_arguments_accumulate` |
+| `LLR-RLR-02` | `registry_load_rules` | `HLR-107` | `a_rule_argument_is_recorded_unsplit`, `a_located_rule_is_bound_by_its_directory`, `HLR-107: a rule in the runtime location is used without being named` |
+| `LLR-RLR-03` | `registry_load_rules` | `HLR-107`, `HLR-070` | `a_rule_for_an_unavailable_language_is_skipped_not_fatal`, `LLR-RLR-03: a rule naming an unavailable language is skipped` |
+| `LLR-RLR-04` | `registry_load_rules` | `HLR-108` | `HLR-108: adding a rule requires no rebuild` |
+| `LLR-RLR-05` | `registry_load_rules` | `HLR-110`, `HLR-039` | `no_rule_is_discovered_from_the_working_directory`, `HLR-110: no rule is discovered from the working directory or target` |
+| `LLR-RLR-06` | `registry_load_rules` | `HLR-116`, `HLR-063` | `a_broken_named_rule_fails_the_run`, `an_absent_named_rule_fails_the_run`, `HLR-116: the same file named on the command line is fatal`, `HLR-116: a named rule that does not exist is fatal and names itself` |
+| `LLR-RLR-07` | `registry_load_rules` | `HLR-116`, `HLR-070` | `a_broken_located_rule_is_excluded_and_the_run_continues`, `a_broken_located_rule_does_not_exclude_its_neighbours`, `HLR-116: a broken rule in the runtime location is skipped, not fatal` |
+| `LLR-RLR-08` | `registry_load_rules` | `HLR-116` | **(no direct test)** |
+| `LLR-RLR-09` | `registry_load_rules` | `HLR-107` | `a_rule_argument_without_a_language_fails`, `HLR-063: --rules without a language is a usage error` |
+| `LLR-RLR-10` | `registry_load_rules` | `HLR-107` | **(no direct test)** |
+| `LLR-RLR-11` | `registry_load_rules` | `HLR-032` | `HLR-032: two runs with the same rule produce identical output` |
 | `LLR-RCL-01` | `registry_close` | `HLR-124`, `HLR-125`, `HLR-009` | `close_is_safe_on_null_and_on_a_zeroed_registry` |
 | `LLR-ANL-01` | `analyze_file` | `HLR-013` | `a_partly_unparsable_file_is_measured_around_the_damage` |
 | `LLR-ANL-02` | `analyze_file` | `HLR-043` | `an_unreadable_file_is_a_failure_without_metrics`, `the_metrics_carry_the_path_and_language`, `filemetrics_free_is_safe_on_null` |
@@ -1269,6 +1309,10 @@ verified by code review — see
 | `LLR-MRG-04` | `merge_comment_spans` | `HLR-124` | `coalescing_a_trailing_run_stays_in_bounds`, `merging_an_empty_span_list_is_zero` |
 | `LLR-INN-01` | `innermost_enclosing` | `HLR-068` | `the_narrowest_enclosing_function_wins`, `the_narrowest_wins_whatever_order_the_ranges_are_in`, `an_empty_range_index_owns_nothing` |
 | `LLR-INN-02` | `innermost_enclosing` | `HLR-068`, `HLR-067` | `the_narrowest_wins_whatever_order_the_ranges_are_in`, `an_offset_outside_every_function_has_no_owner`, `a_nested_functions_statements_are_not_counted_twice`, `a_nested_functions_decisions_are_not_counted_twice` |
+| `LLR-CRM-01` | `collect_rule_matches` | `HLR-107` | **(no direct test)** |
+| `LLR-CRM-02` | `collect_rule_matches` | `HLR-107` | `HLR-107: a rule's predicate is evaluated, so free is not an allocation` |
+| `LLR-CRM-03` | `collect_rule_matches` | `HLR-109` | **(no direct test)** |
+| `LLR-CRM-04` | `collect_rule_matches` | `HLR-109`, `HLR-111` | **(no direct test)** |
 | `LLR-SDG-01` | `graph_build` | `HLR-073` | `every_discovered_function_becomes_a_node`, `an_empty_project_builds_an_empty_graph` |
 | `LLR-SDG-02` | `graph_build` | `HLR-073` | `a_call_resolves_across_files` |
 | `LLR-SDG-03` | `graph_build` | `HLR-074` | `a_global_links_its_writer_to_its_reader` |
@@ -1382,6 +1426,7 @@ verified by code review — see
 | `LLR-RPT-29` | `report_assemble` | `HLR-032`, `HLR-033` | **(no direct test)** |
 | `LLR-RPT-16` | `report_assemble` | `HLR-124`, `HLR-125` | `a_failed_growth_leaves_the_accumulator_intact`, `free_is_safe_on_null` |
 | `LLR-RPT-31` | `report_assemble` | `HLR-143`, `HLR-147` | **(no direct test)** |
+| `LLR-RPT-32` | `report_assemble` | `HLR-109`, `HLR-032` | **(no direct test)** |
 | `LLR-TBL-01` | `format_table` | `HLR-027` | `the_table_carries_the_summary_and_every_file`, `columns_are_aligned_on_the_longest_path`, `an_empty_report_still_renders_a_table` |
 | `LLR-TBL-02` | `format_table` | `HLR-027` | **(no direct test)** |
 | `LLR-TBL-03` | `format_table` | `HLR-038` | `a_write_failure_is_reported` |
@@ -1392,6 +1437,7 @@ verified by code review — see
 | `LLR-SUM-05` | `render_summary` | `HLR-136`, `HLR-031` | **(no direct test)** |
 | `LLR-SUM-02` | `render_summary` | `HLR-031` | **(no direct test)** |
 | `LLR-SUM-06` | `render_summary` | `HLR-143`, `HLR-031` | **(no direct test)** |
+| `LLR-SUM-07` | `render_summary` | `HLR-109`, `HLR-111`, `HLR-031` | `HLR-031: the section is emitted even with no rule supplied` |
 | `LLR-CSV-01` | `format_csv` | `HLR-028` | `the_header_row_is_written`, `an_empty_report_is_a_header_alone`, `a_write_failure_is_reported` |
 | `LLR-CSV-02` | `format_csv` | `HLR-028`, `HLR-031` | **(no direct test)** |
 | `LLR-FLD-01` | `write_field` | `HLR-064` | `an_ordinary_field_is_not_quoted`, `a_field_containing_a_comma_is_quoted`, `a_quote_is_doubled_not_backslashed`, `a_field_containing_a_newline_is_quoted`, `a_field_containing_a_carriage_return_is_quoted`, `a_field_needing_every_escape_survives`, `an_empty_field_is_emitted_empty`, `a_null_field_is_emitted_empty` |
@@ -1410,6 +1456,7 @@ verified by code review — see
 | `LLR-XWR-13` | `xml_write_report` | `HLR-054`, `HLR-056`, `HLR-080`, `HLR-083` | `HLR-032: the architecture sections survive a record round trip`, `HLR-032: a cycle and its loop survive the round trip` |
 | `LLR-XWR-04` | `xml_write_report` | `HLR-065` | `the_record_carries_its_format_version`, `an_empty_report_is_still_a_complete_record`, `a_write_failure_is_reported` |
 | `LLR-XWR-14` | `xml_write_report` | `HLR-147` | **(no direct test)** |
+| `LLR-XWR-15` | `xml_write_report` | `HLR-054`, `HLR-056` | `HLR-054: the record carries each match with its identity` |
 | `LLR-ESC-01` | `write_escaped` | `HLR-065` | `an_ampersand_is_escaped`, `angle_brackets_are_escaped`, `quotation_marks_are_escaped`, `an_ampersand_in_an_entity_is_escaped_once`, `ordinary_text_is_unchanged`, `escaping_null_emits_nothing` |
 | `LLR-ESC-02` | `write_escaped` | `HLR-065` | **(no direct test)** |
 | `LLR-XRD-01` | `xml_read_report` | `HLR-055` | `the_model_is_reconstructed_from_the_record` |
@@ -1425,6 +1472,7 @@ verified by code review — see
 | `LLR-XRD-07` | `xml_read_report` | `HLR-057` | `the_threshold_supplied_now_is_the_one_applied` |
 | `LLR-XRD-08` | `xml_read_report` | `HLR-056` | **(no direct test)** |
 | `LLR-XRD-14` | `xml_read_report` | `HLR-147`, `HLR-056` | **(no direct test)** |
+| `LLR-XRD-15` | `xml_read_report` | `HLR-056` | `HLR-056: rule matches survive a record round trip byte-identically` |
 | `LLR-WAR-01` | `graph_dot_warranted` | `HLR-103` | `dot_is_written_without_being_asked_for`, `dot_is_suppressed_by_the_disable_switch` |
 | `LLR-WAR-02` | `graph_dot_warranted` | `HLR-104` | `dot_needs_an_output_path`, `dot_needs_an_output_path_even_when_disabled` |
 | `LLR-WAR-03` | `graph_dot_warranted` | `HLR-122` | `no_dot_is_written_from_a_saved_record`, `HLR-122: regeneration writes no .dot, default-on though it is` |
@@ -1492,7 +1540,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `graph/` | [test/fixtures/graph/](../test/fixtures/graph/) | **Phase 8**: a repeated call between one pair of functions; a global written in one file and read in another; a function assigned without being called; a call into a library; and, in Ada, a construct the grammar cannot separate from a call. **Phases 9–11 add**: mutual recursion within one file and across two; a clique of unused functions calling one another; a component dependency cycle; a global read and written by a single function; a global read by unreachable functions only | `expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. The ambiguous-call case pins what the grammar yields, so that the imprecision is a recorded decision rather than a later surprise — and so that a *false cycle* arising from it would be visible in the fixture rather than in a user's report. As of Phase 8 the Ada ambiguity resolves against no subprogram and lands in the unresolved count rather than becoming an edge, which is better than predicted and is pinned as such | Phase 8: HLR-010, HLR-032, HLR-033, HLR-073 – HLR-077, HLR-085, HLR-096, HLR-104, HLR-106, HLR-114. Later phases add HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-097 |
 | `dot/` | [test/fixtures/dot/](../test/fixtures/dot/) | Two trees, and two because recursion makes the call depth unbounded so one tree cannot hold both a recursive cycle and a measured deepest chain. `tree/`: a six-function call chain; a function whose fan-out is 11, the first value that warns; two files that depend on each other while no function calls itself even indirectly; a global shared across two disconnected regions of the call graph; seven functions no path reaches from the declared entry point. `recursive/`: two mutually recursive functions and a forward declaration | That the emitted file is valid DOT is settled by rendering it under `dot`, never by matching text that looks like DOT. That the annotations say what the analyses found is asserted against the hand-worked node and component tables in `README.md`. And, uniquely to this artefact, that **stripping every annotation leaves the same tree** — performed by deleting every attribute from the file and requiring the remainder to render with the same nodes and the same edges | HLR-032, HLR-100, HLR-102 – HLR-105, HLR-119 |
 | `arch/` | [test/fixtures/arch/](../test/fixtures/arch/) | A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all | `expected-findings.tsv`, with the hand-computed `Ca`, `Ce`, and instability table, and the omission notice for the undeclared run | HLR-078 – HLR-082, HLR-094, HLR-114, HLR-115, HLR-118 |
-| `rules/` | [test/fixtures/rules/](../test/fixtures/rules/) | A valid rule file with several named captures, supplied both from the runtime location and from the command line; a rule naming a language with no module | Each match reported with its identity as basename plus capture name, and the file and line range | HLR-107 – HLR-111 |
+| `rules/` | [test/fixtures/rules/](../test/fixtures/rules/) | One rule file holding **two** named captures, supplied from the runtime location and from the command line so that the same query is exercised by both bindings; one predicate-bearing capture, so that a rule whose filter is dropped would over-match visibly; **one** broken rule file used from *both* provenances, since two different broken files could not distinguish a provenance rule from a file-contents rule; a rule naming a language with no module; an argument with no language; decoy `.scm` files planted in the working directory, in a dotfile directory, and in the analysis target | Three matches under two identities, each `basename.capture` with its file and line range; `free` not matched, which is what proves the predicate was evaluated rather than discarded; identical matches from either binding; exit 0 with a diagnostic and a report for the broken rule found in the runtime location, and exit 2 with no report for the same bytes named on the command line; exit 0 and a skip for the unavailable language; no match from any decoy; a section emitted with a count of zero when no rule was supplied; byte-identical regeneration from the record | HLR-032, HLR-054, HLR-056, HLR-063, HLR-107 – HLR-111, HLR-116 |
 | `traversal/` | [test/fixtures/traversal/](../test/fixtures/traversal/) | Hidden files and hidden directories; binary extensions; a self-referential directory symlink; a symlink to a file inside the tree; a symlink named directly as a target; overlapping targets naming one file twice | The analysed file set, each file exactly once | HLR-004, HLR-005, HLR-043, HLR-069, HLR-071, HLR-072 |
 | `repo/` | [test/fixtures/repo/](../test/fixtures/repo/) | A repository built into the test's own temporary directory, holding tracked source, an untracked file, a gitignored build directory, a tracked blob with binary content, a tracked file with an excluded extension, and tracked hidden entries; a subdirectory target; a repository with no commits; targets an enclosing repository does not track | The analysed file set and the route reported for each target; the scoped totals; the same file set by either route | HLR-002, HLR-003, HLR-004, HLR-005, HLR-033, HLR-055, HLR-056, HLR-126, HLR-127 |
 | `runtime/` | [test/fixtures/runtime/](../test/fixtures/runtime/) | An absent runtime directory; one with no valid module; a module missing its entry point; a module with an unparseable query; an invalid custom rule, both CLI-named and runtime-located | Expected diagnostic text and exit status per case | HLR-036, HLR-059, HLR-070, HLR-116, HLR-120 |
@@ -1516,6 +1564,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `bats` | The integration, fixture, and instrumented levels | With `bats-support` and `bats-assert`; vendored or provided by the platform |
 | `gcc` or `clang` | Building `elc` and the unit drivers | C11, with `-Wall -Wextra -Wpedantic`; warnings are treated as defects |
 | `make` | Building and running the suite | GNU make; `make test` is the single entry point |
+| A writable temporary directory | The `rules/` and `runtime/` fixture groups | A rule under `queries/<lang>/rules/` has to live in a runtime directory, and planting one in the in-tree runtime would change what every other suite measures. Each case that needs one builds a runtime directory in `$BATS_TEST_TMPDIR`, symlinking the real one's contents and adding a `rules/` directory of its own |
 | A C toolchain able to link | The `elf/` fixture group | The images that group filters by are **built by the test**, never committed: a binary in the repository is a fixture nobody can review, and one built elsewhere pins the reviewer to a toolchain they may not have. Where a language's compiler is unavailable the case for that language skips explicitly and names the requirement left unverified |
 | Graphviz (`dot`) | The `dot/` fixture group | Settles `.dot` validity by rendering the emitted file rather than by matching text that looks like DOT (HLR-102). A dependency of the *test* and never of the binary: `elc` neither links Graphviz nor invokes it, which an instrumented test holds separately. Absent, the affected tests skip explicitly and name the requirement left unverified |
 | AddressSanitizer + LeakSanitizer | HLR-124, HLR-125 — `make asan` | `-fsanitize=address` with `detect_leaks=1`; catches out-of-bounds, use-after-free, invalid free, and leaks. Requires an instrumented rebuild |

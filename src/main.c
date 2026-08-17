@@ -175,6 +175,16 @@ int main(int argc, char *argv[])
 	 * code within a function is a property of one file's syntax, needs no
 	 * whole-project resolution, and is reported whether or not the graph
 	 * later finds the function reachable (HLR-137, LLR-DED-06). */
+	/* Beside the dead-code findings and for the same reason: a rule match
+	 * is one file's syntax, needs no whole-project resolution, and must be
+	 * copied before the facts are released (HLR-109). */
+	if (report_set_rules(&report, &facts_list) != 0) {
+		fputs("elc: out of memory collecting custom-rule matches\n",
+		      stderr);
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
 	if (report_set_dead(&report, &facts_list) != 0) {
 		status = ELC_EXIT_FATAL;
 		goto cleanup;

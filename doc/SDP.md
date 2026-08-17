@@ -4,27 +4,30 @@
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Phase 13 complete. `elc` now writes the call tree as an annotated
-Graphviz `.dot` file beside every report that goes to a named file — the first
-artefact it produces for another *program* to read rather than for a person.
-Graphviz renders it and `elc` neither links it nor invokes it, which an
-instrumented test holds by observing that a run writing a call tree issues one
-`execve`, the kernel's own. Every finding of Phases 9 through 12 reaches the
-drawing on an attribute a renderer may ignore, and the fixture tests the
-degradation by performing it: strip every attribute and the same twenty-five
-nodes and nineteen edges still render. Nothing is banded here — every severity
-on the page was decided by `thresholds.c`, so the drawing colours what the
-catalogue judged and holds no second opinion. Two discoveries went back into
-the design. Both kinds of cycle are drawn from the report's cycle rows rather
-than from the findings, because the catalogue locates a cycle at one subject
-and HLR-105 asks for the members; and the writer runs in two passes, gathering
-before emitting, so that the ordering guarantee of LLR-DOT-04 can be read off
-a walk rather than argued about a search. 682 catalogued tests verify 333 of
-497 requirements and the coverage baseline falls from 177 to 164. The
-conditional-compilation set HLR-131 to HLR-136 remains specified and unbuilt
-until Phase 15, and is now joined by HLR-140 to HLR-147 — the linked-image
-filter of the new Phase 16, which raises the baseline to 196 and moves
-hardening to Phase 17. Phase 14 — custom rules — is ready to start.
+**Status:** Phase 14 complete. A user's own Tree-sitter queries are now
+checked against the analysed source, and the extensibility pillar stops being
+an internal property: a rule is a `.scm` file, adding one needs no rebuild, and
+a fixture asserts that by comparing the binary's mtime across a run that loaded
+one. A rule's identity is the file's basename plus the capture name that
+matched, so one file expresses several independently named rules. Matches are
+reported in a section of their own beside the findings and never among them —
+a finding is a measurement `elc` banded against a published threshold, and a
+rule match is a query somebody else wrote, so it carries no severity and cites
+no source because there is nothing honest to put in either. The provenance
+rule is the phase's sharpest edge and the fixture uses **one** broken file from
+both sides of it: found in the runtime location it is a malformed component,
+diagnosed and survived; named on the command line it is a user error that ends
+the run before a file is analysed. Two files could not have told a provenance
+rule from a file-contents rule. Three discoveries went back into the design:
+rule loading happens in `registry_open`, because "without analyzing any file"
+is what the fatality means; `module_for_language` was lifted out of
+`registry_for_path`, so a rule compiles against the same cached grammar the
+analysis uses; and the usage summary had to be split into two literals, having
+outgrown the 4095 characters ISO C requires a compiler to support. 710
+catalogued tests verify 352 of 542 requirements and the coverage baseline falls
+from 196 to 190. The conditional-compilation set HLR-131 to HLR-136 and the
+linked-image set HLR-140 to HLR-147 remain specified and unbuilt, and Phases 15
+and 16 build them. Phase 15 — conditional compilation — is ready to start.
 
 ## Status
 
@@ -44,7 +47,7 @@ hardening to Phase 17. Phase 14 — custom rules — is ready to start.
 | [11](#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | ✅ Complete |
 | [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | ✅ Complete |
 | [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
-| [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |
+| [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | ✅ Complete |
 | [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
 | [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | 🔲 Not started |
 | [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
@@ -1507,6 +1510,43 @@ STP names. `elc` on its own source reports no function exceeding complexity
 15 and no dependency cycle. `make install` under a staging root produces a
 working binary and runtime tree.
 
+```text
+Implement **Phase 16 — Hardening and Release Readiness**, tracked by
+issue #<N>. The final phase.
+
+Read first: `doc/STP.md` §2 and §7, `doc/Traceability.md` §6 for the
+outstanding gaps.
+
+Deliver:
+* `test/instrumented/sanitized.bats` — the catalogued tests recording that the
+  sanitized gate ran clean. **Without these, HLR-124, HLR-125 and the
+  memory-safety LLRs can never leave the gap list**, however diligently the
+  sanitized build is run, because a re-run produces no catalogued test.
+* A full ASan/UBSan/LeakSanitizer and valgrind sweep across every fixture,
+  every target type, and **every error path** — usage errors, invalid
+  targets, rejected records. HLR-125 covers error paths, so teardown cannot
+  live only at the bottom of a successful pipeline.
+* `elc` analysed by `elc`: no function above complexity 15, no dependency
+  cycle.
+* Closure of every remaining coverage gap, and an explicit record of the
+  review-verified residue the STP names (HLR-101, HLR-111, HLR-121's
+  cross-release clause).
+* `main` created from `develop`, and `make install` verified against a
+  staging root.
+
+There is no next phase. In place of step 12 of the protocol, open the release
+PR from `develop` to `main` and attach the `Traceability.md` at that commit as
+the evidence of verification. Confirm before doing so that the manual and man
+page describe the whole delivered product, not merely the last phase's
+additions.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. Close as that phase's prompt directs.
+```
+
 ## 9. Risks & Open Questions
 
 *   **~~The Ada grammar is community-maintained.~~ Discharged 2026-08-14.**
@@ -1614,40 +1654,3 @@ that would leave the first half untestable until the second lands.
     vision-level decision, not a convenience ([PVD](PVD.md) §6 Principle 3).
 
 **AI prompt.** Run after issue #<N> exists; `<N>` is its number.
-
-```text
-Implement **Phase 16 — Hardening and Release Readiness**, tracked by
-issue #<N>. The final phase.
-
-Read first: `doc/STP.md` §2 and §7, `doc/Traceability.md` §6 for the
-outstanding gaps.
-
-Deliver:
-* `test/instrumented/sanitized.bats` — the catalogued tests recording that the
-  sanitized gate ran clean. **Without these, HLR-124, HLR-125 and the
-  memory-safety LLRs can never leave the gap list**, however diligently the
-  sanitized build is run, because a re-run produces no catalogued test.
-* A full ASan/UBSan/LeakSanitizer and valgrind sweep across every fixture,
-  every target type, and **every error path** — usage errors, invalid
-  targets, rejected records. HLR-125 covers error paths, so teardown cannot
-  live only at the bottom of a successful pipeline.
-* `elc` analysed by `elc`: no function above complexity 15, no dependency
-  cycle.
-* Closure of every remaining coverage gap, and an explicit record of the
-  review-verified residue the STP names (HLR-101, HLR-111, HLR-121's
-  cross-release clause).
-* `main` created from `develop`, and `make install` verified against a
-  staging root.
-
-There is no next phase. In place of step 12 of the protocol, open the release
-PR from `develop` to `main` and attach the `Traceability.md` at that commit as
-the evidence of verification. Confirm before doing so that the manual and man
-page describe the whole delivered product, not merely the last phase's
-additions.
-
-When the work is done, follow the Phase Execution Protocol in §5.4 —
-including step 6 (updating `doc/Project.xml` with everything this phase
-discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
-before you push. Close as that phase's prompt directs.
-```
