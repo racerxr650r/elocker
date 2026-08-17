@@ -104,11 +104,11 @@ the language rather than a gap in the fixture.
 
 ---
 
-# The other four languages
+# The other three languages
 
-Each of `categories.cpp`, `categories.py`, `categories.rs`, and
-`categories.adb` does for its language what `categories.c` does for C: one
-instance of every category the language has, and one of every exclusion.
+Each of `categories.cpp`, `categories.py`, and `categories.rs` does for its
+language what `categories.c` does for C: one instance of every category the
+language has, and one of every exclusion.
 
 | Fixture | Physical | File ELOC | Function ELOC | Complexity |
 | ------- | -------- | --------- | ------------- | ---------- |
@@ -116,7 +116,6 @@ instance of every category the language has, and one of every exclusion.
 | `categories.cpp` | 47 | **25** | **24** | **8** |
 | `categories.py` | 44 | **27** | **25** | **8** |
 | `categories.rs` | 45 | **19** | **18** | **10** |
-| `categories.adb` | 42 | **20** | **20** | **10** |
 
 **The numbers differ because the languages differ.** That is the point of
 having five fixtures rather than one translated four times, and each
@@ -166,17 +165,3 @@ complexity 8 against 6.
 * `?` is a decision point: it returns early when its operand is an error, so a
   function threading a dozen of them has a dozen paths out.
 
-## Ada — the most explicit, and the one real compromise
-
-* **`null;` is excluded**, as Python's `pass` is: an explicit do-nothing.
-* **`with` and `use` are excluded**, as `#include` is.
-* **`and then` and `or else` are decision points; plain `and` and `or` are
-  not.** Ada actually distinguishes them — the short-circuit forms may skip
-  their right operand and the plain forms always evaluate both — so this is
-  the language's own semantics rather than a convention imported from C.
-* **`when others` is counted as a decision, and C's `default:` is not.** This
-  is the compromise. Ada writes the catch-all as an alternative like any
-  other and the grammar does not mark it, so distinguishing it would mean
-  matching the text `others` — the textual approximation HLR-013 forbids. An
-  exhaustive Ada case therefore scores one higher than the equivalent C
-  switch. Stated here rather than left for someone to find.

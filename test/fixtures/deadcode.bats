@@ -186,15 +186,20 @@ after a terminator"
 }
 
 @test "HLR-139: a language with no dead-code query is reported not analysed" {
-	# Ada ships without one on purpose: it writes its false literal as an
-	# ordinary identifier the grammar cannot tell from a program's own.
-	printf 'procedure P is\nbegin\n   null;\nend P;\n' \
-		> "$BATS_TEST_TMPDIR/p.adb"
+	# Every shipped module supplies one, so the case is built rather than
+	# borrowed: a runtime is copied and the file removed. A module omitting
+	# an optional query is what the contract permits, whether or not
+	# anything shipped today takes the permission up.
+	local runtime="$BATS_TEST_TMPDIR/runtime"
 
-	elc "$BATS_TEST_TMPDIR/p.adb"
+	cp -r "$ELC_RUNTIME_DIR" "$runtime"
+	rm -f "$runtime/queries/c/deadcode.scm"
+	printf 'int p(void)\n{\n\treturn 0;\n}\n' > "$BATS_TEST_TMPDIR/p.c"
+
+	ELC_RUNTIME_DIR="$runtime" elc "$BATS_TEST_TMPDIR/p.c"
 	assert_success
 	assert_equal "$(dead_heading)" \
-		"Dead code within functions (not analysed for: ada)"
+		"Dead code within functions (not analysed for: c)"
 }
 
 @test "HLR-139: removing a query file makes that language unanalysed, not clean" {

@@ -472,7 +472,7 @@ The spec settles nearly everything; [`doc/notes.md`](../../../doc/notes.md)
 §3 lists the judgements that were made deliberately and could reasonably go
 the other way. Two are worth knowing before you touch the code they govern:
 
-- **Component = source file** (HLR-114). Coarse for C++/Rust/Ada where
+- **Component = source file** (HLR-114). Coarse for C++/Rust where
   several classes or packages share a file. Changing it is a change to
   HLR-114 alone; everything else references it.
 - **Any error node skips the whole file** (HLR-035). One syntax error

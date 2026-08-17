@@ -99,7 +99,7 @@ normalised() {
 	assert_success
 
 	run bash -c 'grep -c "e_kind\">call<" "$0"' "$GRAPHML"
-	assert_output "2"
+	assert_output "1"
 	run bash -c 'grep -c "e_kind\">global<" "$0"' "$GRAPHML"
 	assert_output "1"
 }
@@ -120,7 +120,7 @@ normalised() {
 	run_elc
 	assert_success   # a library call does not fail the run
 
-	run bash -c 'grep -c "g_unresolved\">2<" "$0"' "$GRAPHML"
+	run bash -c 'grep -c "g_unresolved\">1<" "$0"' "$GRAPHML"
 	assert_output "1"
 }
 
@@ -136,43 +136,10 @@ normalised() {
 	run_elc
 	assert_success
 
-	# Three edges, and the README accounts for every one. A tool that
-	# guessed at external_log or at Table would have more.
+	# Two edges, and the README accounts for both. A tool that guessed at
+	# external_log would have more.
 	run bash -c 'grep -c "<edge " "$0"' "$GRAPHML"
-	assert_output "3"
-}
-
-# ------------------------------------------------------------------ Ada --
-
-@test "the Ada array-index ambiguity is unresolved, not a spurious edge" {
-	# `Table (2)` is an array index that Ada writes exactly like a call, and
-	# the grammar cannot tell them apart. The captured name resolves against
-	# no subprogram, so it lands in the unresolved count — visible — rather
-	# than becoming an edge, which would not be.
-	#
-	# Pinned here because doc/notes.md §2.2 predicted spurious edges, and
-	# the behaviour that actually falls out is better than that. A change
-	# either way should be a decision, not a discovery.
-	run_elc
-	assert_success
-
-	run bash -c 'grep -c "n_name\">Table<" "$0"' "$GRAPHML"
-	assert_output "0" # no node was invented for the array
-
-	# And Drive is still a node with an edge — the ambiguity cost the run
-	# an unresolved count, not the call it did understand.
-	run bash -c 'grep -c "n_name\">Drive<" "$0"' "$GRAPHML"
-	assert_output "1"
-}
-
-@test "an Ada call resolves like any other" {
-	run_elc
-	assert_success
-
-	# Drive calls Scale. Nothing about Ada's ambiguity stops the calls that
-	# are unambiguous from resolving.
-	run bash -c 'grep -c "source=\"n1\" target=\"n0\"" "$0"' "$GRAPHML"
-	assert_output "1"
+	assert_output "2"
 }
 
 # ------------------------------------------------------------- ordering --
@@ -181,11 +148,12 @@ normalised() {
 	run_elc
 	assert_success
 
-	# ambiguous.adb, core.c, reader.c — which is not the order a directory
-	# walk yields, so a graph numbering by arrival would differ.
+	# core.c then reader.c, and within each file by start line — which is
+	# not the order a directory walk yields, so a graph numbering by arrival
+	# would differ.
 	run bash -c 'grep "n_name\">" "$0" | sed "s/.*>\\(.*\\)<.*/\\1/" | tr "\\n" " "' \
 		"$GRAPHML"
-	assert_output "Scale Drive bump tick report install "
+	assert_output "bump tick report install "
 }
 
 @test "HLR-032: two runs over the same tree produce identical GraphML" {
@@ -212,7 +180,7 @@ normalised() {
 	# Each of the three sources is opened exactly once, with the graph
 	# built from what that one parse produced. A resolver that re-read a
 	# file to chase a cross-file reference would show a second open here.
-	for f in ambiguous.adb core.c reader.c; do
+	for f in core.c reader.c; do
 		run bash -c 'grep -c "openat(.*/'"$f"'\"" "$0" || true' "$log"
 		assert_output "1"
 	done

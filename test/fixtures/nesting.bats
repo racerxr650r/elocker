@@ -86,21 +86,6 @@ function_complexity() {
 	assert_equal "$output" "$first"
 }
 
-# --- nested *named* functions: Ada (HLR-067, HLR-068) ----------------------
-#
-# Ada is the language HLR-067 was written for: a subprogram's declarative part
-# may hold subprograms, three deep here.
-
-@test "HLR-067: Ada reports a nested subprogram in its own right" {
-	assert_equal "$(reported "$GROUP/nested.adb")" "Inner Middle Outer "
-}
-
-@test "HLR-068: an Ada subprogram gains none of its nested ones' work" {
-	assert_equal "$(metrics "$GROUP/nested.adb" Inner)" "3 2"
-	assert_equal "$(metrics "$GROUP/nested.adb" Middle)" "3 2"
-	assert_equal "$(metrics "$GROUP/nested.adb" Outer)" "3 3"
-}
-
 # --- anonymous callables (HLR-018) -----------------------------------------
 #
 # The other half of the attribution rule, and the half C could not exercise at

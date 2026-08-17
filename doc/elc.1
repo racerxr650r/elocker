@@ -138,14 +138,11 @@ the target. No destination is ever guessed at; an edge that does not exist
 would make a later dead-code proof unsound.
 .PP
 Calls are resolved by name. A name defined more than once resolves to its
-first definition in sorted file order, with a diagnostic naming it; a method
-call resolves on the method name rather than on the receiver's type; and in
-Ada, where the grammar cannot separate a function call from an array index,
-an index resolves against no subprogram and is counted as unresolved rather
-than becoming an edge.
+first definition in sorted file order, with a diagnostic naming it, and a
+method call resolves on the method name rather than on the receiver's type.
 .B elc
-does not correct for any of these, because the correction would place one
-language's semantics in the executable.
+does not correct for either, because the correction would place one language's
+semantics in the executable.
 .SS Call-tree analyses
 For every function,
 .B elc
@@ -327,7 +324,6 @@ C;\fB.c .h\fR
 C++;\fB.cc .cpp .cxx .hh .hpp .hxx\fR
 Rust;\fB.rs\fR
 Python;\fB.py .pyi\fR
-Ada;\fB.adb .ads\fR
 .TE
 .PP
 .B .h

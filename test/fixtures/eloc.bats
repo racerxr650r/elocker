@@ -159,11 +159,6 @@ function_eloc() {
 	assert_equal "$(subject_row "$GROUP/categories.rs" categories)" "18 10"
 }
 
-@test "HLR-011: Ada matches its hand-counted categories" {
-	assert_equal "$(totals "$GROUP/categories.adb")" "20"
-	assert_equal "$(subject_row "$GROUP/categories.adb" Categories)" "20 10"
-}
-
 @test "HLR-048: C++ counts exception handling toward ELOC" {
 	# The one ELOC category C cannot express. Removing try/catch/throw from
 	# the fixture would drop four lines; this asserts they are counted.
@@ -185,7 +180,7 @@ function_eloc() {
 }
 
 @test "HLR-011: a language with no exception construct still reports" {
-	# Ada has exception handlers, C does not. Neither is an error.
+	# C++ has exception handling, C does not. Neither is an error.
 	elc "$GROUP/categories.c"
 	assert_success
 }

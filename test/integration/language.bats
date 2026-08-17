@@ -257,18 +257,17 @@ alpha"
 
 # --- the delivered language set (HLR-011) ----------------------------------
 
-@test "HLR-011: five languages are detected from their extensions" {
+@test "HLR-011: every delivered language is detected from its extension" {
 	local tree="$BATS_TEST_TMPDIR/many"
 	mkdir -p "$tree"
 	printf 'int c_fn(void) { return 0; }\n'                > "$tree/a.c"
 	printf 'int cpp_fn(void) { return 0; }\n'              > "$tree/b.cpp"
 	printf 'fn rust_fn() -> i32 { 0 }\n'                   > "$tree/c.rs"
 	printf 'def py_fn():\n    return 0\n'                  > "$tree/d.py"
-	printf 'procedure Ada_Fn is\nbegin\n   null;\nend Ada_Fn;\n' > "$tree/e.adb"
 
 	elc "$tree"
 	assert_success
-	for language in ada c cpp python rust; do
+	for language in c cpp python rust; do
 		assert_output --partial "$language"
 	done
 }

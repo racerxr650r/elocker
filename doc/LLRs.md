@@ -1317,7 +1317,7 @@ Requirements satisfied by the build rather than by any single function. Verified
 *   <a id="LLR-BLD-06"></a>**LLR-BLD-06** — The build shall configure the graph library so that it does not itself introduce a dependency on an unmaintained XML library.
     *Trace:* HLR-112 (Library Selection Deferred to Design), HLR-113 (Graph Algorithms From an Established Library).
 
-*   <a id="LLR-BLD-07"></a>**LLR-BLD-07** — The build shall deliver runtime language support for C, C++, Rust, Python, and Ada, each as a grammar and its query files under the runtime location, requiring no change to any source module of the executable.
+*   <a id="LLR-BLD-07"></a>**LLR-BLD-07** — The build shall deliver runtime language support for C, C++, Rust, and Python, each as a grammar and its query files under the runtime location, requiring no change to any source module of the executable.
     *Trace:* HLR-011 (Initial Delivered Language Set).
 
 *   <a id="LLR-BLD-08"></a>**LLR-BLD-08** — The documented set of required query files and capture names shall be published with the delivered runtime, so that a third party may add a language against it.

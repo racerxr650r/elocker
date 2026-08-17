@@ -227,7 +227,22 @@ Phase 0 note in §3 recorded as unavailable. That entry is annotated.
 | igraph | 1.0 series, explicit long-term API stability commitment | The only mature C-native option; Boost.Graph, LEMON, NetworKit are all C++ and would impose a second toolchain |
 | Expat | 2.8.3 (Aug 2026), funded maintenance | Parse-only. Fine — `elc` hand-rolls all writing |
 
-### 2.2 The Ada grammar — vetted 2026-08-14, accepted
+### 2.2 The Ada grammar — vetted 2026-08-14, accepted, withdrawn 2026-08-17
+
+**Ada is no longer a delivered language.** HLR-011 no longer names it, and
+the grammar, its query files and its fixtures are gone. The vetting below
+stands as written — it was sound, and the grammar was not the reason for the
+withdrawal — and is kept because two of its findings outlived the language:
+what a call-versus-index ambiguity does to a graph, and what a language that
+cannot supply a `deadcode.scm` honestly should do instead. Both are now stated
+in general terms in `runtime/queries/README.md`.
+
+The immediate consequence for anyone reading the rest of this section: the
+`graph/` fixture no longer carries an Ada case, and `test/unit/analyze.c` and
+`test/fixtures/deadcode.bats` now build a synthetic module — a copied runtime
+with `deadcode.scm` removed — to keep HLR-139 verified. A requirement about a
+module that omits an optional file should not depend on some shipped module
+happening to omit it.
 
 C, C++, Rust, and Python have grammars under the official `tree-sitter`
 GitHub organisation. Ada does not, so
@@ -262,7 +277,7 @@ So Ada call edges in the SDG may include array-indexing false
 positives. That is the safe direction: extra edges only shrink the
 unreachable set, exactly as HLR-096 reasons about address-taken
 functions. But Ada's coupling and fan-out figures will be noisier than
-C's, and the `graph/` fixture group needs an Ada case pinning the
+C's, and the `graph/` fixture group needed an Ada case pinning the
 behaviour rather than leaving it to be discovered.
 
 **What Phase 8 found, which is better than this predicted.** An array
@@ -276,9 +291,10 @@ corrupted graph.
 A spurious *edge* survives in one case only: an array whose name is also
 a subprogram's somewhere in the project. That is rarer than "every
 indexing expression", and it is the case the fan-out and cycle warnings
-above actually apply to. Pinned by the Ada case in
-`test/fixtures/graph/`, so a regression either way is a diff rather than
-a discovery.
+above actually apply to. It was pinned by the Ada case in
+`test/fixtures/graph/` until the language was withdrawn; what survives
+there is the general assertion that no destination is invented for a call
+that resolves to nothing.
 
 ---
 
@@ -289,9 +305,9 @@ None is a defect; each is a judgement that could go the other way.
 
 *   **Component = source file** (HLR-114). Conventional for Martin's
     metrics in C-family code and language-agnostic, but coarse for
-    C++/Rust/Ada where several classes or packages share a file. If
+    C++/Rust where several classes or modules share a file. If
     coupling numbers look uninformative in practice, a language-defined
-    component (Rust module, C++ namespace, Ada package) is the
+    component (Rust module, C++ namespace) is the
     alternative — it is a change to HLR-114 alone; everything else
     references it.
 *   **Any error node skips the whole file** (HLR-035). Deliberately
@@ -396,7 +412,7 @@ None is a defect; each is a judgement that could go the other way.
     asks for and because it is the guard that catches a *wrong* query
     file. The merge itself is load-bearing regardless: its returned
     line count is a reported quantity in its own right, and the
-    coalescing is what a nesting language (Rust, Ada) will need. If a
+    coalescing is what a nesting language such as Rust will need. If a
     later phase finds a real subtraction case, this note is the record
     that the current answer was reasoned about rather than assumed.
 *   **`merge_comment_spans` counted a shared line twice**, and a unit

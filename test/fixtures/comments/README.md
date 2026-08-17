@@ -66,7 +66,7 @@ noticing.
 
 C block comments do not nest: the `/*` on line 18 is ordinary text inside the
 comment opened on line 16, and the `*/` on line 19 closes it. A language whose
-comments *do* nest — Rust, Ada — produces genuinely nested spans, which is why
+comments *do* nest — Rust — produces genuinely nested spans, which is why
 `merge_comment_spans` coalesces rather than assuming disjointness. Those cases
 are unit-tested directly against the merge, where they can be constructed
 exactly, rather than approximated here in a language that cannot express them.
