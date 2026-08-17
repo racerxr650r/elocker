@@ -1350,6 +1350,75 @@ the variable:
 ELC_RUNTIME_DIR=/path/to/runtime elc src/
 ```
 
+## Findings: where a measurement falls, and on whose authority
+
+Every section above **measures**. One section judges:
+
+```text
+Findings
+  Severity  Measurement                 Subject    Detail                                Source
+  --------  --------------------------  ---------  ------------------------------------  ----------------------------
+  critical  fan-out                     dispatch   calls 22 distinct subroutines         Henry-Kafura
+  critical  component dependency cycle  a.c        a.c -> b.c -> a.c                     Martin, acyclic dependencies
+  warning   single-function global      config      named by one function; belongs at
+                                                    block scope                          MISRA C Rule 8.9
+  warning   bottleneck                  util.c     Ca 7 and Ce 6, each at or above the
+                                                    threshold of 5                       elc heuristic — not a published standard
+```
+
+Ranked most severe first, because the list exists to be worked from the top.
+
+**Every row names its source.** That column is the point of the section. `elc`
+ships thresholds from MISRA C, Robert C. Martin, and Henry–Kafura, and it does
+not invent them — so you can look up any line it draws. Where a threshold *is*
+`elc`'s own, the column says so in as many words:
+
+> `elc heuristic — not a published standard`
+
+There is exactly one such threshold today, the bottleneck. If you disagree with
+a published one, take it up with the standard; if you disagree with that one,
+it is only `elc`'s opinion and it is labelled as such.
+
+### The bands
+
+| Measurement | Bands | Source |
+| ----------- | ----- | ------ |
+| Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 **warning**; >15 **critical** | Henry–Kafura |
+| Call depth | >8 **warning**; >12 **critical** | embedded practice |
+| Recursion | any occurrence **critical** | MISRA C Rule 17.2 |
+| Component dependency cycle | any occurrence **critical** | Martin |
+| Single-function global | **warning** | MISRA C Rule 8.9 |
+| Hidden channel | **warning** | MISRA C Rule 8.9 |
+| Instability vs. declared layer | **warning** on mismatch | Martin |
+| Bottleneck | **warning** | `elc` heuristic |
+
+The fan-out bands are **exhaustive**: every value classifies exactly once, and
+three of the five bands produce nothing at all. A fan-out of 9 is acceptable
+and silent — that is a result, not an oversight.
+
+### Three things findings are not
+
+**They are not a gate.** A severity is a label. `elc` exits 0 on a project full
+of critical findings, provided every file was read. The exit status is reserved
+for failures — an unreadable file, a bad argument — because deciding what a
+critical finding warrants is your call, not the tool's:
+
+```sh
+elc src/ && echo "ran cleanly"   # prints, even with criticals reported
+```
+
+If you want CI to fail on findings, grep the report or the record for the
+severities you care about. `elc` will not decide that for you.
+
+**They are not advice.** A finding says what was measured, where, and which
+standard places it outside the range. It does not tell you to split the
+function, and it will not rank one design above another beyond what the cited
+source already says.
+
+**They do not replace the measurements.** A value inside its band is still
+reported in the table that measured it. The findings list is the subset that
+crossed a line; the tables above it are the whole picture.
+
 ## When the parser cannot follow your code
 
 `elc` parses source as written and runs no preprocessor (that is deliberate —

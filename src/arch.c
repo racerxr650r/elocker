@@ -44,20 +44,6 @@ static int grow(void **items, size_t *capacity, size_t item_size)
 	return 0;
 }
 
-const char *instability_attribution(void)
-{
-	return "Martin";
-}
-
-const char *bottleneck_attribution(void)
-{
-	/* Named as `elc`'s own rather than cited, because it is not a
-	 * published standard and presenting it beside Henry–Kafura and MISRA
-	 * without saying so would lend it authority it has not got
-	 * (HLR-099, LLR-ARC-02). */
-	return "elc heuristic — not a published standard";
-}
-
 /* -------------------------------------------------------------- coupling --
  *
  * Afferent coupling is the number of components depending on this one;

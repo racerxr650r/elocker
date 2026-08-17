@@ -4,19 +4,20 @@
 **Date:** 2026-08-14
 **Author(s):** John Anderson
 
-**Status:** Phase 11 complete. `elc` now measures the shape of a design as
-well as its behaviour: afferent and efferent coupling per component with
-Martin's Instability beside it — reported *undefined* rather than divided
-where a component has no relationships at all — bottlenecks against a
-configurable threshold marked as `elc`'s own heuristic, circular dependencies
-between components reported as both the entangled group and a concrete loop
-through it, and layering validated against user-declared strata. Skip-level
-and direction-inverted calls fall out of one ordinal comparison as
-**independent** findings, so a call ascending two layers is reported as both.
-600 catalogued tests verify 296 of 487 requirements and the coverage baseline
-falls from 215 to 191. The conditional-compilation set HLR-131 to HLR-136
-remains the only specified-and-unbuilt group, and Phase 15 builds it. Phase
-12 — thresholds, severity, and attribution — is ready to start.
+**Status:** Phase 12 complete. Every measurement `elc` makes is now evaluated
+against the published catalogue of PVD Appendix A, and **one module does all
+of it** — which is what makes the project's central claim checkable rather
+than merely asserted. A reviewer can read one table to confirm that every line
+`elc` draws comes from MISRA C, Martin, or Henry–Kafura, and that the single
+exception, the bottleneck heuristic, says so in the text a reader sees. The
+fan-out bands are exhaustive, three of the five producing no finding at all;
+severity is a closed ordered set with the highest applicable band winning; and
+no severity touches the exit status, because deciding what a critical finding
+warrants belongs to the caller. 645 catalogued tests verify 320 of 497
+requirements and the coverage baseline falls from 191 to 177. The
+conditional-compilation set HLR-131 to HLR-136 remains the only
+specified-and-unbuilt group, and Phase 15 builds it. Phase 13 — graph
+visualisation — is ready to start.
 
 ## Status
 
@@ -34,7 +35,7 @@ remains the only specified-and-unbuilt group, and Phase 15 builds it. Phase
 | [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
 | [10](#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | ✅ Complete |
 | [11](#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | ✅ Complete |
-| [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
+| [12](#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | ✅ Complete |
 | [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |
 | [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |
 | [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |

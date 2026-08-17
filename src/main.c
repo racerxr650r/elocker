@@ -31,6 +31,7 @@
 #include "registry.h"
 #include "report.h"
 #include "state.h"
+#include "thresholds.h"
 
 /* Dispatch to the renderer the options selected. Every one is a pure
  * consumer of the same assembled model, which is what makes the formats
@@ -56,6 +57,7 @@ int main(int argc, char *argv[])
 	TreeResults        tree     = { 0 };
 	StateResults       state    = { 0 };
 	ArchResults        arch     = { 0 };
+	FindingList        findings = { 0 };
 	bool               graph_built = false;
 	RouteList          routes   = { 0 };
 	MetricsAccumulator acc      = { 0 };
@@ -221,6 +223,17 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
+	/* Last, and after every analysis, because it judges what they
+	 * measured. No severity it assigns reaches `status`: the exit code is
+	 * reserved for failures, and a critical finding on a run that read
+	 * every file is still a successful run (HLR-100). */
+	if (thresholds_apply(&arch, &tree, &state, &sdg, &opts, &findings) != 0 ||
+	    report_set_findings(&report, &findings) != 0) {
+		fputs("elc: out of memory evaluating thresholds\n", stderr);
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
 render:
 	out = stdout;
 	if (opts.output_path) {
@@ -270,6 +283,7 @@ cleanup:
 	 * leak-clean as one that succeeds (HLR-125, LLR-MAIN-16). */
 	if (out && out != stdout)
 		fclose(out);
+	findinglist_free(&findings);
 	arch_results_free(&arch);
 	state_results_free(&state);
 	tree_results_free(&tree);

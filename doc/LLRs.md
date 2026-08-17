@@ -836,6 +836,18 @@ Evaluation of every measurement against the published threshold catalogue, and a
 *   <a id="LLR-THR-10"></a>**LLR-THR-10** — `thresholds_apply` shall form no judgement as to whether a user-supplied rule is appropriate, and shall supply no rule of its own beyond the catalogued metrics and thresholds.
     *Trace:* HLR-111 (Custom Rules Carry No Built-In Opinion).
 
+*   <a id="LLR-THR-11"></a>**LLR-THR-11** — The catalogue shall hold every band as data in one table, and no other module shall band a measurement or name a source. The project's claim to carry no opinion of its own is checkable only if a reviewer can read one table rather than audit every analysis for a constant; banding spread across the analyses would leave the claim resting on nobody having hidden one.
+    *Trace:* HLR-098 (Evaluation Against Published Thresholds), HLR-099, HLR-111.
+
+*   <a id="LLR-THR-12"></a>**LLR-THR-12** — `thresholds_apply` shall band only a measurement that was made, and shall not treat an omitted one as a value. A depth omitted for want of an entry point is not a depth of zero, and banding it would judge a number that does not exist.
+    *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-098.
+
+*   <a id="LLR-THR-13"></a>**LLR-THR-13** — The report shall carry the findings ranked by descending severity, then by measurement and subject, and shall present them beside the measurements rather than in place of them. A value inside its accepted band stays in the table that measured it; the findings list is the subset a reader acts on, and its emptiness is a result rather than a missing section.
+    *Trace:* HLR-031 (Uniform Report Composition), HLR-123, HLR-032.
+
+*   <a id="LLR-THR-14"></a>**LLR-THR-14** — The record shall carry each finding with its severity, subject, detail and source. Regeneration has no measurements to band and no catalogue call to make against them, so a finding not written is one the regenerated report cannot have.
+    *Trace:* HLR-054 (Complete Run Record), HLR-056, HLR-099.
+
 ## 33. `report_assemble` ([src/report.c](../src/report.c))
 
 The single place every reported collection is ordered. The audit point for determinism.

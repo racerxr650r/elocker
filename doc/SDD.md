@@ -749,6 +749,8 @@ The hidden-channel test asks whether the functions touching a global fall into m
 *   Hold the threshold catalogue as a static table of measurement kind, band boundaries, severity, and citation.
 *   Classify each measurement into its band and emit a `Finding` when it falls outside the accepted range.
 *   Attribute every threshold to its external source, and mark `elc`'s own heuristics as such.
+*   Be the only module that bands a measurement or names a source, so that the claim to carry no opinion is checkable by reading one table (HLR-099, HLR-111).
+*   Assign a severity as a *label*: it never reaches the exit status, and no finding carries remediation (HLR-100, HLR-101).
 
 ### 12.2 External Interfaces
 #### 12.2.1 Threshold Catalogue
@@ -756,7 +758,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 
 | Measurement | Bands | Attribution |
 | ----------- | ----- | ----------- |
-| Function fan-out | 0–10 no finding (3–7 healthy); 11–15 warning; >15 critical | Henry–Kafura |
+| Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 warning; >15 critical | Henry–Kafura |
 | Call depth | >8 warning; >12 critical, on stack-constrained targets | Embedded practice |
 | Recursion present | critical | MISRA C Rule 17.2 |
 | Component cycles | any occurrence critical | Martin / acyclic dependencies |
@@ -765,12 +767,20 @@ The hidden-channel test asks whether the functions touching a global fall into m
 | Instability vs. declared stratum | warning on mismatch | Martin |
 | Bottleneck (`Ca` and `Ce` ≥ threshold) | warning | **`elc` heuristic — not a published standard** |
 
+The counted bands are **exclusive upper bounds**: a value strictly greater than the bound falls in that band, which is how the published tables are written — "> 15 is a god function". A catalogue needing mental translation from its source is one nobody can check against it.
+
+The fan-out bands are **exhaustive**: every value from 0 upward classifies exactly once, and three of the five bands produce no finding. The *acceptable* range of 8–10 was a gap in an earlier reading of the thresholds, which is why HLR-086 states exhaustiveness rather than leaving it to be inferred.
+
+The rows whose finding is their mere occurrence — recursion, a dependency cycle, a single-function global, a hidden channel — carry a fixed severity instead of bounds. There is no acceptable count of them.
+
+**One row is not a published standard**, and it says so in the text a reader sees. That label is the whole of what separates shipping MISRA and Martin values from having invented them, and it is asserted by a test that also checks no other row carries it (HLR-099).
+
 
 
 ### 12.3 Internal Structure
 #### 12.3.1 Key Functions
 
-*   **`int thresholds_apply(const ArchResults *a, const TreeResults *t, const StateResults *s, const ElcOptions *opts, FindingList *out)`** — Evaluate every measurement against the catalogue and emit findings.
+*   **`int thresholds_apply(const ArchResults *arch, const TreeResults *tree, const StateResults *state, const Sdg *g, const ElcOptions *opts, FindingList *out)`** — Evaluate every measurement against the catalogue and emit findings.
 *   **`const Threshold *thresholds_lookup(MeasurementKind kind)`** — Return the catalogue entry for a measurement kind.
 *   **`void findinglist_free(FindingList *f)`** — Release every finding and the detail string each owns.
 ### 12.4 Dependencies
@@ -780,6 +790,8 @@ The hidden-channel test asks whether the functions touching a global fall into m
 ### 12.5 Error Handling and Logging
 
 *   **Measurement with no catalogue entry** Reported as a bare value with no severity, rather than being silently dropped or assigned an invented band.
+*   **Measurement that was not made** Not banded at all. A depth omitted for want of an entry point is not a depth of zero, and a value that does not exist cannot fall outside a range (HLR-115).
+*   **A critical finding** Not an error. The severity is a label within the report and leaves the exit status untouched, which stays reserved for the failure conditions of HLR-120 (HLR-100).
 
 ## 13. Detailed Design for [src/report.c](../src/report.c)
 
@@ -1191,6 +1203,16 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `dead_globals` | `const char **` | Objects every accessor of which is unreachable (HLR-096) |
 | `scope_state` | `ScopeState` | Measured, or omitted because no execution scopes were declared (HLR-094, HLR-115) |
 | `violations` | `ScopeViolation *` | Every call and state edge crossing a declared boundary (HLR-094) |
+*   **`Threshold`** (defined in [inc/thresholds.h](../inc/thresholds.h)) — One row of the published catalogue. The counted bands are exclusive upper bounds, matching how the published tables are written; a kind whose finding is its mere occurrence carries a fixed severity instead of bounds.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `kind` | `MeasurementKind` | Which measurement the row bands |
+| `warning_above` | `uint32_t` | A value strictly greater than this warns |
+| `critical_above` | `uint32_t` | A value strictly greater than this is critical |
+| `fixed` | `Severity` | For a kind whose occurrence is the finding |
+| `attribution` | `const char *` | The published source, named for every row (HLR-099) |
+| `elc_own` | `bool` | True for the one row that is elc's own heuristic rather than a published standard |
 *   **`Finding`** (defined in [inc/elc.h](../inc/elc.h)) — One reportable observation. Severity is data and never influences the exit status (HLR-100).
 
     | Field | Type | Description |
@@ -1230,6 +1252,7 @@ Both writers are plain text emission, which keeps Graphviz a tool the user may r
 | `findings` | `FindingList` | Sorted by severity, kind, then location |
 | `rule_matches` | `RuleMatchList` | Sorted by file then line |
 | `omissions` | `OmissionList` | Analyses skipped for want of a declaration, with reasons (HLR-115) |
+| `findings` | `FindingRow *` | Every measurement that crossed a published line, ranked most severe first, each naming its source (HLR-098, HLR-123) |
 | `skipped_files` | `PathList` | Discovered files with no available language module, sorted by path (HLR-012) |
 | `routes` | `RouteList` | Per directory target, whether it was enumerated from a repository or traversed from the filesystem (HLR-127) |
 | `unresolved_calls` | `size_t` | Call sites with no resolvable target, reported so graph completeness is visible (HLR-077) |

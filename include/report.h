@@ -125,6 +125,24 @@ typedef struct {
 	LayerViolationKind kind;
 } LayeringRow;
 
+/* One finding as the report presents it: a measurement that fell outside its
+ * accepted range, with the severity and the citation that say so.
+ *
+ * The severity and the source arrive as text, because both are decided once by
+ * the catalogue and every renderer and the record must say the same thing. A
+ * report that named MISRA in one format and nothing in another would make the
+ * attribution unverifiable, which is the point of having one (HLR-099).
+ */
+typedef struct {
+	char *severity;    /* from the closed set; owned (HLR-123) */
+	char *measurement; /* what was measured; owned             */
+	char *subject;     /* the function, component or object; owned */
+	char *where;       /* file, or empty; owned                */
+	uint32_t line;     /* 0 where the finding has no single line */
+	char *detail;      /* the measurement, rendered; owned     */
+	char *source;      /* the published source; owned          */
+} FindingRow;
+
 /* Files discovered but not analysed, for want of a language module. The
  * report accounts for every discovered file, so a skip is visible rather
  * than a silent absence (HLR-012). */
@@ -256,6 +274,12 @@ typedef struct {
 	StrataState         strata_state;
 	LayeringRow        *layering;     /* sorted; owned (HLR-079, HLR-118) */
 	size_t              layering_count;
+
+	/* Every measurement that crossed a published line, with its severity
+	 * and citation. Ranked most severe first: the list exists to be acted
+	 * on from the top (HLR-098, HLR-123). */
+	FindingRow     *findings;       /* owned                            */
+	size_t          finding_count;
 
 	DeadRow        *dead;           /* sorted by file, line; owned      */
 	size_t          dead_count;

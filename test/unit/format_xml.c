@@ -108,7 +108,11 @@ Test(format_xml, the_record_carries_its_format_version)
 {
 	Report report = { 0 };
 	FILE  *fp     = tmpfile();
-	char   buffer[512];
+	/* Comfortably larger than an empty record. The skeleton grows an
+	 * element with each analysis that lands, and a buffer sized to today's
+	 * output makes the next phase's test failure look like a defect in the
+	 * writer. */
+	char   buffer[4096];
 
 	cr_assert_not_null(fp);
 	cr_assert_eq(xml_write_report(&report, fp), 0);

@@ -22,6 +22,7 @@
 #include "discover.h"
 #include "arch.h"
 #include "state.h"
+#include "thresholds.h"
 #include "elc.h"
 #include "report.h"
 
@@ -907,16 +908,84 @@ int report_set_arch(Report *report, const ArchResults *arch, const Sdg *g,
 	return 0;
 }
 
+/* ------------------------------------------------------------- findings --
+ *
+ * Ranked most severe first, because the list exists to be worked from the top.
+ * Within a severity the order is by measurement kind and then by subject, both
+ * properties of the source tree, so two runs over one project rank identically
+ * (HLR-032).
+ */
+static int by_severity(const void *a, const void *b)
+{
+	const FindingRow *x = a;
+	const FindingRow *y = b;
+	/* Descending: the closed set is ordered info < warning < critical, and
+	 * a reader wants the critical rows first. Compared by rank rather than
+	 * by name, since alphabetical order would put critical above warning
+	 * by accident and info between them. */
+	int rx = severity_rank(x->severity);
+	int ry = severity_rank(y->severity);
+	int c;
+
+	if (rx != ry)
+		return rx > ry ? -1 : 1;
+	c = strcmp(x->measurement, y->measurement);
+	if (c != 0)
+		return c;
+	c = strcmp(x->subject, y->subject);
+	if (c != 0)
+		return c;
+	return strcmp(x->detail, y->detail);
+}
+
+int report_set_findings(Report *report, const FindingList *findings)
+{
+	if (!findings || findings->count == 0)
+		return 0;
+
+	report->findings = calloc(findings->count, sizeof *report->findings);
+	if (!report->findings)
+		return -1;
+
+	for (size_t i = 0; i < findings->count; i++) {
+		const Finding    *f   = &findings->items[i];
+		const Threshold  *t   = thresholds_lookup(f->kind);
+		FindingRow       *row = &report->findings[report->finding_count];
+
+		row->severity    = strdup(severity_name(f->severity));
+		row->measurement = strdup(t ? t->name : "");
+		row->subject     = strdup(f->subject);
+		row->where       = strdup(f->where);
+		row->detail      = strdup(f->detail);
+		/* Derived from the kind by the catalogue rather than carried
+		 * on the finding, so one definition serves every reader and a
+		 * citation cannot drift between formats (HLR-099). */
+		row->source      = strdup(t ? t->attribution : "");
+		if (!row->severity || !row->measurement || !row->subject ||
+		    !row->where || !row->detail || !row->source)
+			return -1;
+		row->line = f->line;
+		report->finding_count++;
+	}
+
+	if (report->finding_count > 1)
+		qsort(report->findings, report->finding_count,
+		      sizeof *report->findings, by_severity);
+
+	return 0;
+}
+
 const char *global_verdict_attribution(GlobalVerdict verdict)
 {
+	/* Both verdicts come from one rule, and that rule is named once, in
+	 * the threshold catalogue. This is now a translation from a verdict to
+	 * a measurement kind and nothing more — Phase 12 made `thresholds.c`
+	 * the only place a citation is written down (HLR-099). */
 	switch (verdict) {
 	case GLOBAL_SCOPE_REDUCTION:
+		return threshold_attribution(MEASURE_SCOPE_REDUCTION);
 	case GLOBAL_HIDDEN_CHANNEL:
-		/* Both verdicts come from one rule: an object should be
-		 * defined at block scope where only one function names it,
-		 * and an object shared between functions that never meet is
-		 * the temporal coupling the same rule guards against. */
-		return "MISRA C Rule 8.9";
+		return threshold_attribution(MEASURE_HIDDEN_CHANNEL);
 	case GLOBAL_ORDINARY:
 	default:
 		return NULL;
@@ -1202,6 +1271,17 @@ void report_free(Report *report)
 	free(report->layering);
 	report->layering       = NULL;
 	report->layering_count = 0;
+	for (size_t i = 0; i < report->finding_count; i++) {
+		free(report->findings[i].severity);
+		free(report->findings[i].measurement);
+		free(report->findings[i].subject);
+		free(report->findings[i].where);
+		free(report->findings[i].detail);
+		free(report->findings[i].source);
+	}
+	free(report->findings);
+	report->findings      = NULL;
+	report->finding_count = 0;
 	pathlist_free(&report->dead_unanalysed);
 	pathlist_free(&report->skipped_files);
 	memset(&report->summary, 0, sizeof report->summary);
