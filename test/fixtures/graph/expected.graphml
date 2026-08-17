@@ -16,30 +16,8 @@
   <key id="e_sites" for="edge" attr.name="call-sites" attr.type="int"/>
   <graph id="sdg" edgedefault="directed">
     <data key="g_version">1</data>
-    <data key="g_unresolved">2</data>
+    <data key="g_unresolved">1</data>
     <node id="n0">
-      <data key="n_name">Scale</data>
-      <data key="n_file">TREE/ambiguous.adb</data>
-      <data key="n_start">5</data>
-      <data key="n_end">8</data>
-      <data key="n_component">TREE/ambiguous.adb</data>
-      <data key="n_eloc">1</data>
-      <data key="n_complexity">1</data>
-      <data key="n_fanout">0</data>
-      <data key="n_address">false</data>
-    </node>
-    <node id="n1">
-      <data key="n_name">Drive</data>
-      <data key="n_file">TREE/ambiguous.adb</data>
-      <data key="n_start">10</data>
-      <data key="n_end">14</data>
-      <data key="n_component">TREE/ambiguous.adb</data>
-      <data key="n_eloc">2</data>
-      <data key="n_complexity">1</data>
-      <data key="n_fanout">1</data>
-      <data key="n_address">false</data>
-    </node>
-    <node id="n2">
       <data key="n_name">bump</data>
       <data key="n_file">TREE/core.c</data>
       <data key="n_start">3</data>
@@ -50,7 +28,7 @@
       <data key="n_fanout">0</data>
       <data key="n_address">false</data>
     </node>
-    <node id="n3">
+    <node id="n1">
       <data key="n_name">tick</data>
       <data key="n_file">TREE/core.c</data>
       <data key="n_start">8</data>
@@ -61,7 +39,7 @@
       <data key="n_fanout">1</data>
       <data key="n_address">false</data>
     </node>
-    <node id="n4">
+    <node id="n2">
       <data key="n_name">report</data>
       <data key="n_file">TREE/reader.c</data>
       <data key="n_start">3</data>
@@ -72,7 +50,7 @@
       <data key="n_fanout">0</data>
       <data key="n_address">true</data>
     </node>
-    <node id="n5">
+    <node id="n3">
       <data key="n_name">install</data>
       <data key="n_file">TREE/reader.c</data>
       <data key="n_start">8</data>
@@ -85,13 +63,9 @@
     </node>
     <edge source="n1" target="n0">
       <data key="e_kind">call</data>
-      <data key="e_sites">1</data>
-    </edge>
-    <edge source="n3" target="n2">
-      <data key="e_kind">call</data>
       <data key="e_sites">2</data>
     </edge>
-    <edge source="n3" target="n4">
+    <edge source="n1" target="n2">
       <data key="e_kind">global</data>
       <data key="e_global">shared_counter</data>
     </edge>

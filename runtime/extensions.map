@@ -32,8 +32,3 @@
 # reports zero ELOC rather than being skipped, and that is the honest answer.
 .py    python
 .pyi   python
-
-# Ada. `.ads` is a specification and `.adb` a body; both are Ada, and a
-# specification reporting no executable lines is correct rather than a gap.
-.adb   ada
-.ads   ada

@@ -177,16 +177,6 @@ GRAMMAR_CPP_VER    ?= 0.23.4
 GRAMMAR_RUST_VER   ?= 0.24.2
 GRAMMAR_PYTHON_VER ?= 0.25.0
 
-# Ada is pinned by commit, not by version, because `briot/tree-sitter-ada`
-# cuts no releases: its tag list holds a single entry named `master`, which is
-# a moving branch and therefore not a pin at all. A commit is immutable, which
-# is what pinning has to mean for a project that does not tag.
-#
-# The cost is that no advisory or release note will ever name this reference —
-# `make check-prereqs` compares it against the branch head so that being
-# behind is at least visible. Bump it deliberately, and record why.
-#   dd5fa4c — 2026-07-31, the head of master when Ada was added.
-GRAMMAR_ADA_REV    ?= dd5fa4cdb3aba91abc687aa68fb1431396fce6a6
 
 SRC_PREFIX      ?= /usr/local
 SRC_WORK        ?= $(BUILD)/prereq-src
@@ -345,8 +335,6 @@ check-prereqs:
 		REPO=tree-sitter/tree-sitter-rust KIND=tag PIN=$(GRAMMAR_RUST_VER)
 	@$(MAKE) --no-print-directory _check-grammar LANG=python \
 		REPO=tree-sitter/tree-sitter-python KIND=tag PIN=$(GRAMMAR_PYTHON_VER)
-	@$(MAKE) --no-print-directory _check-grammar LANG=ada \
-		REPO=briot/tree-sitter-ada KIND=rev PIN=$(GRAMMAR_ADA_REV)
 	@if $(PKG_CONFIG) --exists igraph 2>/dev/null && \
 	    $(PKG_CONFIG) --libs igraph 2>/dev/null | grep -q xml2; then \
 		echo "  WARNING igraph was built with GraphML support, so it links"; \
@@ -387,9 +375,10 @@ _check-min:
 #
 # A pin makes a build reproducible and an update deliberate; it does not say
 # an update is needed. For a repository with releases the usual channels do —
-# advisories and release notes are keyed to version numbers. Ada has none to
-# key to, so being behind would otherwise be invisible, and this is what makes
-# it visible instead (LLR-BLD-17).
+# advisories and release notes are keyed to version numbers. A grammar
+# pinned by commit rather than by tag has none to key to, so being behind
+# would otherwise be invisible, and this is what makes it visible instead
+# (LLR-BLD-17).
 #
 # Behind is a warning, never an error, exactly as _check-min treats a version
 # shortfall: check-prereqs is a diagnostic a person runs, CI never invokes it,
@@ -424,8 +413,7 @@ _check-grammar:
 # and refetching an upstream tarball on each of those is a network round trip
 # for nothing. `make clean-grammars` removes them when that is what is meant.
 GRAMMARS    := runtime/parsers/c.so runtime/parsers/cpp.so \
-               runtime/parsers/rust.so runtime/parsers/python.so \
-               runtime/parsers/ada.so
+               runtime/parsers/rust.so runtime/parsers/python.so
 
 .PHONY: grammars
 grammars: $(GRAMMARS)
@@ -433,10 +421,10 @@ grammars: $(GRAMMARS)
 # Build one grammar into runtime/parsers/<lang>.so.
 #   $(1) language   $(2) owner/repo   $(3) archive ref   $(4) unpacked directory
 #
-# The owner is a parameter rather than baked in: three of the five grammars
-# live under the tree-sitter organisation and Ada does not, and a hardcoded
-# owner would read as though a grammar from elsewhere could not be added as
-# data. It can.
+# The owner is a parameter rather than baked in. Every grammar shipped today
+# lives under the tree-sitter organisation, and a hardcoded owner would read
+# as though one from elsewhere could not be added as data. It can, and the
+# project has shipped one that did.
 #
 # The archive ref is a parameter for the same kind of reason. A repository
 # that cuts releases is fetched by tag; one that does not is fetched by
@@ -475,8 +463,6 @@ runtime/parsers/rust.so:
 runtime/parsers/python.so:
 	$(call build_grammar,python,tree-sitter/tree-sitter-python,refs/tags/v$(GRAMMAR_PYTHON_VER),tree-sitter-python-$(GRAMMAR_PYTHON_VER))
 
-runtime/parsers/ada.so:
-	$(call build_grammar,ada,briot/tree-sitter-ada,$(GRAMMAR_ADA_REV),tree-sitter-ada-$(GRAMMAR_ADA_REV))
 
 .PHONY: clean-grammars
 clean-grammars:
