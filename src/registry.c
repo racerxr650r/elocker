@@ -10,6 +10,7 @@
  * third party codes against (HLR-121, runtime/queries/README.md).
  */
 
+#include <dirent.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <limits.h>
@@ -470,15 +471,17 @@ static int module_load(const Registry *reg, LanguageModule *module,
 	return 0;
 }
 
-const LanguageModule *registry_for_path(Registry *reg, const char *path)
+/* The module for a language *by name*, loading it on first use.
+ *
+ * Separated from registry_for_path because a custom rule names its language
+ * directly — by the directory holding it, or by the `lang:path` argument form
+ * — and never by a file extension. One cache and one load path serve both, so
+ * a rule cannot compile against a differently loaded copy of a grammar than
+ * the analysis does (HLR-107, LLR-RLR-02).
+ */
+static const LanguageModule *module_for_language(Registry *reg,
+                                                 const char *language)
 {
-	const char *language = language_for_path(reg, path);
-
-	/* No mapping is not a failure: the caller skips the file and reports
-	 * it skipped (HLR-012, LLR-RFP-05). */
-	if (!language)
-		return NULL;
-
 	for (size_t i = 0; i < reg->module_count; i++)
 		if (reg->modules[i].language_name &&
 		    strcmp(reg->modules[i].language_name, language) == 0)
@@ -507,14 +510,265 @@ const LanguageModule *registry_for_path(Registry *reg, const char *path)
 	return module;
 }
 
+const LanguageModule *registry_for_path(Registry *reg, const char *path)
+{
+	const char *language = language_for_path(reg, path);
+
+	/* No mapping is not a failure: the caller skips the file and reports
+	 * it skipped (HLR-012, LLR-RFP-05). */
+	return language ? module_for_language(reg, language) : NULL;
+}
+
+/* ---------------------------------------------------------- custom rules -- */
+
+/* The rule identity's first half: the file's basename with its extension
+ * removed. The capture name supplies the second, so one file expresses as many
+ * named rules as it holds captures (HLR-109). */
+static char *rule_stem(const char *path)
+{
+	const char *slash = strrchr(path, '/');
+	const char *base  = slash ? slash + 1 : path;
+	const char *dot   = strrchr(base, '.');
+	size_t      len   = dot ? (size_t)(dot - base) : strlen(base);
+	char       *stem  = malloc(len + 1);
+
+	if (!stem)
+		return NULL;
+	memcpy(stem, base, len);
+	stem[len] = '\0';
+	return stem;
+}
+
+/* Compile one rule file against a language already loaded, and record it.
+ *
+ * Returns 0 when the rule was added, and non-zero when it was not — leaving
+ * the caller to decide what that means. It is the *provenance* of the file
+ * that decides, not the failure: the same unreadable file is a user error from
+ * the command line and a malformed component from the runtime location
+ * (HLR-116), and a function that decided for itself could not serve both.
+ */
+static int rule_compile(Registry *reg, const LanguageModule *module,
+                        const char *path)
+{
+	uint32_t     length       = 0;
+	uint32_t     error_offset = 0;
+	TSQueryError query_error   = TSQueryErrorNone;
+	char        *source        = read_file(path, &length);
+
+	if (!source) {
+		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+
+	TSQuery *query = ts_query_new(module->ts_lang, source, length,
+	                              &error_offset, &query_error);
+	free(source);
+
+	if (!query) {
+		/* The reason in words and the byte, for the reason the built-in
+		 * queries get both: the person acting on this message wrote the
+		 * file, and a numeric code tells them nothing. */
+		fprintf(stderr, "elc: %s: %s at byte %u\n", path,
+		        query_error_text(query_error), error_offset);
+		return -1;
+	}
+
+	if (reg->rule_count == reg->rule_capacity &&
+	    grow((void **)&reg->rules, &reg->rule_capacity,
+	         sizeof *reg->rules) != 0) {
+		ts_query_delete(query);
+		fputs("elc: out of memory loading a custom rule\n", stderr);
+		return -1;
+	}
+
+	CustomRule *rule = &reg->rules[reg->rule_count];
+
+	memset(rule, 0, sizeof *rule);
+	rule->stem     = rule_stem(path);
+	rule->language = strdup(module->language_name);
+	if (!rule->stem || !rule->language) {
+		free(rule->stem);
+		free(rule->language);
+		ts_query_delete(query);
+		fputs("elc: out of memory loading a custom rule\n", stderr);
+		return -1;
+	}
+	rule->query = query;
+	reg->rule_count++;
+	return 0;
+}
+
+/* One `lang:path` argument, split at the first colon.
+ *
+ * The first, so that an absolute path keeps its own colons — `c:/opt/a:b.scm`
+ * is the C language and a path, not a language called `c:/opt/a`. */
+static int rule_load_named(Registry *reg, const char *argument)
+{
+	const char *colon = strchr(argument, ':');
+
+	if (!colon || colon == argument || colon[1] == '\0') {
+		fprintf(stderr, "elc: --rules '%s': expected lang:path\n",
+		        argument);
+		return -1;
+	}
+
+	char *language = strndup(argument, (size_t)(colon - argument));
+
+	if (!language) {
+		fputs("elc: out of memory reading a rule argument\n", stderr);
+		return -1;
+	}
+
+	/* Whether the runtime knows this language at all, asked before any
+	 * attempt to load it. A name the extension map has never heard of is
+	 * almost always a typo, and letting it reach dlopen answers it with a
+	 * message about a `.so` the user did not mention — two diagnostics for
+	 * one mistake, the louder of them about the wrong thing. */
+	bool known = false;
+
+	for (size_t i = 0; i < reg->map_count && !known; i++)
+		known = strcmp(reg->map[i].language, language) == 0;
+
+	const LanguageModule *module = known ? module_for_language(reg, language)
+	                                     : NULL;
+
+	if (!module) {
+		/* A language with no module is reported and skipped rather than
+		 * compiled, and it is *not* fatal even from the command line:
+		 * the rule file may be perfectly good, and what is missing is a
+		 * language module — the same absence that makes a source file a
+		 * skip rather than a failure (HLR-107, LLR-RLR-03). */
+		fprintf(stderr, "elc: --rules %s: no language module for '%s'; "
+		        "rule skipped\n", argument, language);
+		free(language);
+		return 0;
+	}
+	free(language);
+
+	return rule_compile(reg, module, colon + 1);
+}
+
+static int by_name(const void *a, const void *b)
+{
+	return strcmp(*(const char *const *)a, *(const char *const *)b);
+}
+
+/* Every `.scm` under `runtime/queries/<language>/rules/`, bound to that
+ * language by the directory holding it (LLR-RLR-02).
+ *
+ * Nothing outside the runtime location is looked at: no working directory, no
+ * analysis target, no dotfile. Two users running the same command on the same
+ * tree must obtain the same result, and a rule picked up from a checkout would
+ * make that false (HLR-110, LLR-RLR-05).
+ */
+static int rules_load_located(Registry *reg, const char *language)
+{
+	char           dirpath[PATH_MAX];
+	DIR           *dir;
+	struct dirent *entry;
+	char         **names    = NULL;
+	size_t         count    = 0;
+	size_t         capacity = 0;
+	int            n;
+
+	n = snprintf(dirpath, sizeof dirpath, "%s/queries/%s/rules", reg->dir,
+	             language);
+	if (n < 0 || (size_t)n >= sizeof dirpath)
+		return 0;
+
+	dir = opendir(dirpath);
+	if (!dir)
+		return 0;   /* a language with no rules directory has no rules */
+
+	while ((entry = readdir(dir)) != NULL) {
+		const char *dot = strrchr(entry->d_name, '.');
+
+		if (!dot || strcmp(dot, ".scm") != 0)
+			continue;
+		if (count == capacity &&
+		    grow((void **)&names, &capacity, sizeof *names) != 0)
+			break;
+		names[count] = strdup(entry->d_name);
+		if (!names[count])
+			break;
+		count++;
+	}
+	closedir(dir);
+
+	/* readdir yields whatever order the filesystem holds, and rule matches
+	 * are reported in the order the rules were loaded within a file. Sorted
+	 * here, once, so no property of a directory's layout reaches the output
+	 * (HLR-032). */
+	qsort(names, count, sizeof *names, by_name);
+
+	const LanguageModule *module = NULL;
+
+	for (size_t i = 0; i < count; i++) {
+		char path[PATH_MAX];
+
+		/* Deferred to the first rule actually found, so that a language
+		 * with an empty rules directory is not loaded on its account. */
+		if (!module) {
+			module = module_for_language(reg, language);
+			if (!module) {
+				fprintf(stderr, "elc: %s: no usable language "
+				        "module; its custom rules are "
+				        "skipped\n", language);
+				break;
+			}
+		}
+
+		n = snprintf(path, sizeof path, "%s/%s", dirpath, names[i]);
+		if (n < 0 || (size_t)n >= sizeof path)
+			continue;
+
+		/* A rule found here is a malformed *component*, not a user
+		 * error: diagnose it, leave it out, and carry on with the rest
+		 * (HLR-116, LLR-RLR-07). The diagnostic rule_compile already
+		 * emitted names the file. */
+		(void)rule_compile(reg, module, path);
+	}
+
+	for (size_t i = 0; i < count; i++)
+		free(names[i]);
+	free(names);
+	return 0;
+}
+
+int registry_load_rules(Registry *reg, const ElcOptions *opts)
+{
+	/* The runtime location first, so that a rule named on the command line
+	 * is loaded against a module the located rules have already exercised,
+	 * and so the two provenances cannot interleave their diagnostics. */
+	for (size_t i = 0; i < reg->map_count; i++) {
+		bool seen = false;
+
+		/* Several extensions map to one language; each language's rules
+		 * directory is read once. */
+		for (size_t j = 0; j < i && !seen; j++)
+			seen = strcmp(reg->map[i].language,
+			              reg->map[j].language) == 0;
+		if (!seen)
+			rules_load_located(reg, reg->map[i].language);
+	}
+
+	/* A rule named on the command line that cannot be read or will not
+	 * compile is a user error, and ends the run before any file is
+	 * analysed rather than after a report that quietly omitted it
+	 * (HLR-116, LLR-RLR-06). */
+	for (size_t i = 0; i < opts->rule_count; i++)
+		if (rule_load_named(reg, opts->rules[i]) != 0)
+			return -1;
+
+	return 0;
+}
+
 /* ------------------------------------------------------------- lifecycle -- */
 
 int registry_open(const ElcOptions *opts, Registry *out)
 {
 	char        dir[PATH_MAX];
 	struct stat st;
-
-	(void)opts;   /* Custom rule paths reach here in Phase 14. */
 
 	memset(out, 0, sizeof *out);
 
@@ -574,6 +828,13 @@ int registry_open(const ElcOptions *opts, Registry *out)
 		goto fail;
 	}
 
+	/* Last, because compiling a rule needs a loaded grammar and loading a
+	 * grammar needs everything above. A command-line rule that will not
+	 * compile fails the run here — before discovery, and therefore before
+	 * any file is analysed, which is what HLR-116 asks for. */
+	if (registry_load_rules(out, opts) != 0)
+		goto fail;
+
 	return 0;
 
 fail:
@@ -589,7 +850,24 @@ void registry_close(Registry *reg)
 	/* Order is load-bearing (LLR-RCL-01): every compiled query is deleted
 	 * before the handle whose grammar it points into is closed, and the
 	 * parser and cursor go in between. module_release() holds the query
-	 * half of that order; the loop holds the rest. */
+	 * half of that order; the loop holds the rest.
+	 *
+	 * A custom rule's query points into a grammar exactly as a built-in
+	 * one's does, so it is subject to the same ordering and goes with
+	 * them — not afterwards, and not with the options that named it. */
+	for (size_t i = 0; i < reg->rule_count; i++) {
+		if (reg->rules[i].query) {
+			ts_query_delete(reg->rules[i].query);
+			reg->rules[i].query = NULL;
+		}
+		free(reg->rules[i].stem);
+		free(reg->rules[i].language);
+	}
+	free(reg->rules);
+	reg->rules         = NULL;
+	reg->rule_count    = 0;
+	reg->rule_capacity = 0;
+
 	for (size_t i = 0; i < reg->module_count; i++) {
 		free(reg->modules[i].language_name);
 		reg->modules[i].language_name = NULL;

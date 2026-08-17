@@ -889,6 +889,37 @@ int render_report(const Report *report, Style style, FILE *out)
 	}
 
 	{
+		/* What the user's own rules matched.
+		 *
+		 * **Beside the findings and deliberately not among them.** A
+		 * finding is a measurement `elc` banded against a published
+		 * threshold and can name the source that draws the line. A rule
+		 * match is a query somebody else wrote, and `elc` has no view
+		 * about whether it was worth writing — so there is no severity
+		 * column here and no source column, because there is nothing
+		 * honest to put in either (HLR-109, HLR-111).
+		 *
+		 * Emitted whether or not any rule was supplied, like every
+		 * other section: an absent section and an empty one are
+		 * different claims (HLR-031). */
+		static const char *const names[] = { "Rule", "File", "Lines" };
+
+		snprintf(a, sizeof a, "Custom rule matches (%zu)",
+		         report->rule_match_count);
+		grid_begin(&grid, a, 3, names, NULL);
+		for (size_t i = 0; i < report->rule_match_count; i++) {
+			const RuleMatchRow *r = &report->rule_matches[i];
+			char                lines[32];
+
+			snprintf(lines, sizeof lines, "%" PRIu32 "-%" PRIu32,
+			         r->start_line, r->end_line);
+			grid_row(&grid, r->rule, r->file, lines);
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
 		/* The files whose measurements are partial, and by how much.
 		 * A file here *is* measured — its functions appear in every
 		 * table above — and this says how much of it the grammar could

@@ -385,6 +385,16 @@ The contract this directory embodies — the filenames, the capture names, and w
 
 A Tree-sitter query compiles against one specific `TSLanguage`, so every custom rule must name the language it applies to. Rules found under `runtime/queries/<lang>/rules/` are bound by their location; rules named on the command line are bound by the `lang:path` argument form. A rule naming a language with no available module is a diagnostic, not a compile attempt.
 
+**Both provenances are resolved in `registry_open`, before discovery.** HLR-116 requires a rule named on the command line to fail the run *without analysing any file*, and deciding whether a query compiles requires its grammar — so the language module is loaded then rather than on first use of an extension. The same holds for a located rule, but only for a language that actually has one: the scan reads directories and loads nothing, and a language whose `rules/` directory is absent or empty is never loaded on its account. No module shipped with `elc` carries a rule, so today this loads nothing eagerly at all.
+
+**One rule list, two ways in.** By the time a rule is compiled its provenance is gone, and that is the design: what a rule *does* cannot depend on how it arrived. Only the failure handling differs, and that is settled before the record exists.
+
+The `lang:path` argument splits at the **first** colon, so an absolute path keeps its own — `c:/opt/a:b.scm` is the C language and a path, not a language called `c:/opt/a`.
+
+A language the extension map has never heard of is reported without a load being attempted. Letting the name reach `dlopen` answers a typo with a message about a `.so` the user never mentioned: two diagnostics for one mistake, the louder of them about the wrong thing.
+
+Directory order is not part of the contract. `readdir` yields whatever the filesystem holds and matches within a file are reported in the order the rules loaded, so the filenames are sorted once at discovery (HLR-032).
+
 #### 6.2.3 Environment
 
 `ELC_RUNTIME_DIR`, when set, takes precedence over every path derived from the executable (HLR-059), and is used exactly as given: a variable naming a location that is not there is reported against that path rather than quietly falling back to one the user did not ask for.
@@ -425,7 +435,9 @@ It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Alloca
         5.  On any failure, emit a diagnostic, mark the language unusable so it is not retried, and return `NULL`; the run continues on the remaining languages (HLR-070).
 
 *   **`const char *registry_runtime_dir(const Registry *reg)`** — The resolved runtime location, so that another module needing runtime data asks for it rather than repeating HLR-059's precedence rule.
-*   **`int registry_load_rules(Registry *reg, const ElcOptions *opts)`** — Load and compile custom rule queries against their bound language; fatal for CLI-named files, diagnostic-and-skip for runtime-located ones (HLR-116).
+*   **`int registry_load_rules(Registry *reg, const ElcOptions *opts)`** — Load and compile custom rule queries against their bound language; fatal for CLI-named files, diagnostic-and-skip for runtime-located ones (HLR-116). Called from `registry_open`, and therefore before discovery, since "without analyzing any file" is what that fatality means.
+*   **`const LanguageModule *module_for_language(Registry *reg, const char *language)`** — The module for a language by name, loading it on first use. Separated out of `registry_for_path` because a rule names its language directly — by the directory holding it, or by the argument form — and never by a file extension. One cache and one load path serve both, so a rule cannot compile against a differently loaded copy of a grammar than the analysis uses.
+*   **`int rule_compile(Registry *reg, const LanguageModule *module, const char *path)`** — Compile one rule file against a loaded language and record it. Returns non-zero when the rule was not added, leaving the caller to decide what that means: it is the *provenance* that decides and not the failure, and a function that decided for itself could not serve both (HLR-116).
 *   **`void registry_close(Registry *reg)`** — Delete every query, then every parser context, then dlclose every handle.
 
 #### 6.3.3 Parsing Strategy / Algorithm
@@ -496,6 +508,7 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
 
         **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.
 
+*   **`int collect_rule_matches(const LanguageModule *m, Registry *reg, const char *data, TSNode root, FileFacts *facts)`** — Record every match of every rule bound to this file's language, with its identity and line range. Runs through the same predicate evaluation the built-in queries use, which is what HLR-107's "same query mechanism" means in practice: a rule author's `#eq?` behaves as it does in `elc`'s own query files rather than being silently dropped. Records no severity, because there is none to record (HLR-111).
 *   **`int collect_dead_code(const LanguageModule *m, Registry *reg, const char *data, TSNode root, const FnRangeIndex *ranges, const SpanList *comments, FileFacts *facts)`**
     *   Purpose: Record every statement within a function that cannot execute (HLR-137).
     *   Pre-condition: `ranges` holds the reported functions of this file, so each finding can be attributed to the one containing it.
@@ -1167,7 +1180,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `stratum_order` | `const char *` | The declared dependency direction, resolved after parsing so it may precede the layers it orders (HLR-078) |
 | `entry_points` | `SymbolList` | Empty when undeclared (HLR-095) |
 | `scopes` | `ScopeList` | Empty when undeclared (HLR-094) |
-| `rule_paths` | `PathList` | Custom rule query files (HLR-107) |
+| `rules` | `const char **` | Custom rule arguments in the `lang:path` form, borrowed from argv and left unsplit: the language and the path are both substrings of one argument, and splitting in the parser would allocate two strings for a decision `registry.c` has to make anyway — it is the module that knows which languages exist (HLR-107) |
 | `definitions` | `DefineList` | Conditional-compilation symbols; empty when none supplied, and an empty set prunes nothing (HLR-131) |
 | `image_path` | `const char *` | The linked image to filter functions by, or NULL for no filtering. Borrowed from argv. The path only: the image is read by `elfsyms.c`, which owns the failure, so a run with no image differs from a filtered one in exactly one place (HLR-140) |
 | `targets` | `PathList` | One or more file or directory arguments (HLR-071) |
@@ -1190,6 +1203,7 @@ The filter itself is not applied here. A function the image does not define is n
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `dir` | `char *` | The resolved runtime location; handed to any other module needing runtime data, so HLR-059's precedence rule exists once |
+| `rules` | `CustomRule *` | Every compiled custom rule, from either provenance. Owned, and released with the built-in queries rather than after them: a rule's query points into a grammar exactly as a built-in one's does and is subject to the same teardown ordering (LLR-RCL-01) |
 | `map` | `ExtensionMapping *` | Extension to language, from runtime data (HLR-060) |
 | `modules` | `LanguageModule *` | Loaded languages, cached after first use |
 | `parser` | `TSParser *` | One for the whole run; reuse needs only ts_parser_set_language() per file |
@@ -1236,9 +1250,31 @@ The filter itself is not applied here. A function the image does not define is n
     | ----- | ---- | ----------- |
 | `calls` | `CallSite *` | Call sites with their enclosing function and callee name |
 | `globals` | `GlobalAccess *` | Global reads and writes with their enclosing function |
-| `rule_matches` | `RuleMatch *` | Custom rule matches with rule identity and line range |
+| `rule_matches` | `RuleMatch *` | Custom rule matches with rule identity and line range, recorded during the same parse the metrics come from (HLR-109) |
 | `dead` | `DeadSpan *` | Statements within a function that cannot execute (HLR-137) |
 | `dead_analysed` | `bool` | False when the language supplied no dead-code query, so that "not looked for" is distinguishable from "none found" (HLR-139) |
+*   **`CustomRule`** (defined in [inc/registry.h](../inc/registry.h)) — One compiled user-supplied rule, bound to the language it applies to. The binding is not decoration: a query compiles against one specific TSLanguage and has no meaning apart from it. By the time a rule is here the two provenances are indistinguishable, which is the point — what a rule does cannot depend on how it arrived.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `stem` | `char *` | The file's basename with its extension removed — half an identity; the capture name that matched supplies the other half (HLR-109) |
+| `language` | `char *` | The language it is bound to, by the directory holding it or by the `lang:path` argument |
+| `query` | `TSQuery *` | Compiled against that language's grammar, and deleted with the built-in queries rather than after them |
+*   **`RuleMatch`** (defined in [inc/elc.h](../inc/elc.h)) — One match of a user-supplied rule, as the parse recorded it. Line-ranged and nothing else: a match is not a finding, so there is no severity here and no attribution — nothing to attach either to (HLR-111).
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `rule` | `char *` | "<basename>.<capture>", so one file expresses as many named rules as it holds captures |
+| `start_line` | `uint32_t` | 1-based |
+| `end_line` | `uint32_t` | 1-based; a match may span many lines |
+*   **`RuleMatchRow`** (defined in [inc/report.h](../inc/report.h)) — One rule match as the report presents it, with the file it was found in. Sorted by file, then start line, then end line, then identity — the last key because two rules matching one node are two rows, and without a tiebreak their order would be the order a directory listing produced.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `rule` | `char *` | The identity, as recorded |
+| `file` | `char *` | Owned; the row outlives the FileMetrics it was taken from |
+| `start_line` | `uint32_t` | 1-based |
+| `end_line` | `uint32_t` | 1-based |
 *   **`DeadSpan`** (defined in [inc/elc.h](../inc/elc.h)) — One statement that cannot execute, and why.
 
     | Field | Type | Description |

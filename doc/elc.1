@@ -565,6 +565,20 @@ outside the partition rather than in a scope of its own, and edges touching it
 are not crossings. With none declared the analysis is omitted with the reason
 stated.
 .TP
+.BI \-\-rules " LANG:PATH"
+Check the analysed source against the custom rule query in
+.IR PATH ,
+compiled for the language
+.IR LANG .
+Repeatable. A Tree-sitter query compiles against one specific grammar, which is
+why the language is named rather than inferred. Rules placed in the runtime
+location under
+.I queries/LANG/rules/
+are used without being named, bound to the language by the directory holding
+them; see
+.B CUSTOM RULES
+below.
+.TP
 .B \-\-graphml
 Also write the System Dependence Graph as GraphML. The file is named from the
 report's own output path by extension substitution, so an
@@ -742,6 +756,63 @@ indistinguishable from a failure.
 The shape of the report does not vary with the type of the target: a single
 file, a plain directory, and a repository all produce the same headings and
 the same columns.
+.SH CUSTOM RULES
+A custom rule is a Tree-sitter query you write, checked against the analysed
+source by the same mechanism that produces
+.BR elc 's
+own metrics \(em during the same parse, with the same predicate handling. A
+file of them needs no rebuild and no change to
+.BR elc :
+it is data.
+.PP
+.B elc
+reports what a rule matched and forms no opinion about it. A match carries no
+severity and cites no source, because there is nothing honest to put in
+either: it was your decision that the rule was worth writing, not
+.BR elc 's.
+Matches appear in a section of their own beside the
+.B Findings
+and never among them.
+.SS Identity
+A rule's identity is the basename of the file containing it together with the
+capture name that matched, so one file expresses as many independently named
+rules as it holds captures. A
+.I house-style.scm
+capturing
+.B @allocation
+and
+.B @jump
+yields
+.I house-style.allocation
+and
+.IR house-style.jump .
+The capture name is therefore user-visible in a way it is not elsewhere; name
+it for whoever reads the report.
+.SS Where a rule may come from
+Two places, and no others:
+.TP
+.I <runtime>/queries/<lang>/rules/*.scm
+Bound to the language by the directory holding it, and used without being
+named.
+.TP
+.BI \-\-rules " lang:path"
+Bound by the argument.
+.PP
+.B No rule file is ever discovered from the working directory, the analysis
+.BR target, " or a dotfile."
+Two people running the same command on the same tree must obtain the same
+result, and a rule picked up from a checkout would make that false. This is the
+same guarantee that admits no configuration file; see
+.BR CONFIGURATION .
+.SS When a rule is broken
+Where the file came from decides what happens, not what is wrong with it. A
+rule you named on the command line is a mistake you can correct now:
+.B elc
+diagnoses it and stops before analysing any file. A rule sitting in the runtime
+location is a malformed component and is handled like any other \(em
+diagnosed, excluded, and the run continues. A rule naming a language for which
+no module is available is reported and skipped from either place, since what is
+missing is the module rather than the rule.
 .SH THE CALL TREE
 Alongside a report written to a named file,
 .B elc

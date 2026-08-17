@@ -91,6 +91,9 @@ void filefacts_free(FileFacts *facts)
 		free(facts->address_taken[i]);
 	free(facts->address_taken);
 	free(facts->dead);
+	for (size_t i = 0; i < facts->rule_match_count; i++)
+		free(facts->rule_matches[i].rule);
+	free(facts->rule_matches);
 	free(facts->path);
 	free(facts);
 }
@@ -1225,6 +1228,86 @@ cleanup:
 	return status;
 }
 
+/* ---------------------------------------------------------- custom rules -- */
+
+/* Every match of every rule bound to this file's language.
+ *
+ * The same query mechanism the built-in metrics use, which is what HLR-107
+ * asks for and is not merely convenient: the predicate evaluation above
+ * applies here unchanged, so a rule author's `#eq?` and `#match?` behave as
+ * they do in `elc`'s own query files rather than being quietly ignored.
+ *
+ * **Nothing here judges.** A match is recorded with its identity and its line
+ * range, and no severity, because `elc` has no view about whether a rule was
+ * worth writing (HLR-111). That is the whole difference between this section
+ * of the report and the findings.
+ */
+static int collect_rule_matches(const LanguageModule *module, Registry *reg,
+                                const char *data, TSNode root,
+                                FileFacts *facts)
+{
+	for (size_t r = 0; r < reg->rule_count; r++) {
+		const CustomRule *rule = &reg->rules[r];
+		TSQueryMatch      match;
+
+		/* A query compiles against one grammar, so a rule bound to
+		 * another language is not merely irrelevant here — running it
+		 * would read a node table it was not compiled for. */
+		if (strcmp(rule->language, module->language_name) != 0)
+			continue;
+
+		ts_query_cursor_exec(reg->cursor, rule->query, root);
+
+		while (ts_query_cursor_next_match(reg->cursor, &match)) {
+			if (!predicates_hold(rule->query, &match, data))
+				continue;
+
+			for (uint16_t i = 0; i < match.capture_count; i++) {
+				uint32_t    index  = match.captures[i].index;
+				TSNode      node   = match.captures[i].node;
+				uint32_t    length = 0;
+				const char *capture =
+					ts_query_capture_name_for_id(
+						rule->query, index, &length);
+
+				if (!capture)
+					continue;
+
+				if (facts->rule_match_count ==
+				        facts->rule_match_capacity &&
+				    grow((void **)&facts->rule_matches,
+				         &facts->rule_match_capacity,
+				         sizeof *facts->rule_matches) != 0)
+					return -1;
+
+				RuleMatch *hit =
+					&facts->rule_matches[
+						facts->rule_match_count];
+				size_t stem = strlen(rule->stem);
+
+				/* The identity is the file and the capture
+				 * joined, so one file expresses several named
+				 * rules and a reader can tell which of them
+				 * matched (HLR-109). */
+				hit->rule = malloc(stem + 1 + length + 1);
+				if (!hit->rule)
+					return -1;
+				memcpy(hit->rule, rule->stem, stem);
+				hit->rule[stem] = '.';
+				memcpy(hit->rule + stem + 1, capture, length);
+				hit->rule[stem + 1 + length] = '\0';
+
+				hit->start_line =
+					ts_node_start_point(node).row + 1;
+				hit->end_line = ts_node_end_point(node).row + 1;
+				facts->rule_match_count++;
+			}
+		}
+	}
+
+	return 0;
+}
+
 static int by_function_then_line(const void *a, const void *b)
 {
 	const StatementSite *x = a;
@@ -1430,7 +1513,8 @@ int analyze_file(Registry *reg, const char *path, FileMetrics **out,
 	    collect_calls(module, reg, map, root, &ranges, facts) != 0 ||
 	    collect_globals(module, reg, map, root, &ranges, facts) != 0 ||
 	    collect_dead_code(module, reg, map, root, &ranges, &comments,
-	                      facts) != 0) {
+	                      facts) != 0 ||
+	    collect_rule_matches(module, reg, map, root, facts) != 0) {
 		fprintf(stderr, "elc: out of memory analysing %s\n", path);
 		goto cleanup;
 	}

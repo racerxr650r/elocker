@@ -317,12 +317,27 @@ void cli_usage(FILE *stream)
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.graphml. Requires --output,\n"
 "                     since there is otherwise no name to derive\n"
+"      --rules LANG:PATH\n"
+"                     check the analysed source against the custom rule query\n"
+"                     in PATH, compiled for language LANG. Repeatable. Rules\n"
+"                     placed in the runtime location under\n"
+"                     queries/LANG/rules/ are used without being named; no\n"
+"                     rule file is ever discovered from the working\n"
+"                     directory, the target, or a dotfile\n"
 "      --no-dot       do not write the annotated Graphviz call tree. It is\n"
 "                     written by default beside the report and named from\n"
 "                     it, an --output of report.md yielding report.dot, and\n"
 "                     is never written when the report goes to standard\n"
 "                     output, since there is then no name to derive\n"
-"  -h, --help         display this help and exit\n"
+"  -h, --help         display this help and exit\n",
+	      stream);
+
+	/* Split, and not for style: one literal holding the whole summary
+	 * exceeds the 4095 characters ISO C99 requires a compiler to
+	 * support, and this build treats a warning as a defect. The break
+	 * falls between the options and the prose so that adding an option
+	 * does not move it. */
+	fputs(
 "\n"
 "Output:\n"
 "  An aligned table of the discovered files and their physical line counts,\n"
@@ -347,7 +362,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	/* A value above any printable character, so a long-only option cannot
 	 * collide with a short one. */
 	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
-	       OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER };
+	       OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES };
 
 	static const struct option longopts[] = {
 		{ "format",               required_argument, NULL, 'f' },
@@ -357,6 +372,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
 		{ "no-dot",               no_argument,       NULL, OPT_NO_DOT },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },
+		{ "rules",                required_argument, NULL, OPT_RULES },
 		{ "scope",                required_argument, NULL, OPT_SCOPE },
 		{ "bottleneck-threshold", required_argument, NULL, 'b' },
 		{ "stratum",              required_argument, NULL, OPT_STRATUM },
@@ -510,6 +526,28 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			 * conflict with anything (LLR-WAR-01). */
 			out->no_dot = true;
 			break;
+		case OPT_RULES:
+			/* Recorded unsplit and unvalidated. Whether the named
+			 * language exists is the registry's question — it is
+			 * the module that knows — and answering it here would
+			 * put a second copy of that knowledge in the parser
+			 * (HLR-107, LLR-RLR-02). */
+			if (out->rule_count == out->rule_capacity) {
+				size_t       next  = out->rule_capacity
+				                             ? out->rule_capacity * 2
+				                             : 8;
+				const char **grown = realloc(out->rules,
+				                             next * sizeof *grown);
+
+				if (!grown) {
+					fputs("elc: out of memory\n", stderr);
+					return ELC_EXIT_FATAL;
+				}
+				out->rules         = grown;
+				out->rule_capacity = next;
+			}
+			out->rules[out->rule_count++] = optarg;
+			break;
 		case 'h':
 			cli_usage(stdout);
 			return CLI_HELP;
@@ -592,6 +630,7 @@ void cli_options_free(ElcOptions *opts)
 	/* The entry-point *array* is owned; the symbols in it are borrowed
 	 * from argv, as the targets are (HLR-125). */
 	free((void *)opts->entry_points);
+	free((void *)opts->rules);
 	for (size_t i = 0; i < opts->scopes.count; i++) {
 		for (size_t p = 0; p < opts->scopes.items[i].pattern_count; p++)
 			free(opts->scopes.items[i].patterns[p]);

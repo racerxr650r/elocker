@@ -1084,6 +1084,82 @@ unreachable is a dashed grey octagon.
 - **`--stratum`**, if you want a layering or instability finding to appear on a
   cluster. Both need a declared architecture to compare against.
 
+## Custom rules
+
+A custom rule is a Tree-sitter query *you* write, checked against your source
+by the same mechanism that produces `elc`'s own metrics — during the same
+parse, with the same predicate handling. It is data: adding one needs no
+rebuild and no change to `elc`.
+
+```scheme
+; house-style.scm
+((call_expression function: (identifier) @allocation)
+ (#eq? @allocation "malloc"))
+
+(goto_statement) @jump
+```
+
+```sh
+elc --rules c:house-style.scm src/
+```
+
+```text
+Custom rule matches (2)
+  Rule                     File                Lines
+  -----------------------  ------------------  -----
+  house-style.allocation   /home/u/src/a.c     4-4
+  house-style.jump         /home/u/src/a.c     6-6
+```
+
+**`elc` reports what your rule matched and forms no opinion about it.** There
+is no severity column and no source column, because there is nothing honest to
+put in either: you decided the rule was worth writing, not `elc`. Matches get
+a section of their own beside the **Findings** and never appear among them —
+a finding is a measurement `elc` banded against a published threshold, and
+those are different things.
+
+### A rule's identity
+
+The basename of the file, plus the capture name that matched. So one file
+expresses as many independently named rules as it holds captures, as above.
+The capture name is user-visible here in a way it is not anywhere else in
+`elc` — name it for whoever reads the report.
+
+### Where rules come from
+
+Two places, and no others:
+
+- **`<runtime>/queries/<lang>/rules/*.scm`** — bound to the language by the
+  directory holding it, and used without being named. This is where a shared
+  house standard belongs.
+- **`--rules lang:path`** — bound by the argument. A query compiles against
+  one specific grammar, which is why the language is named rather than
+  guessed.
+
+**No rule file is ever discovered from your working directory, your target, or
+a dotfile.** Two people running the same command on the same tree must get the
+same answer, and a rule picked up from a checkout would make that false — the
+same reason `elc` reads no configuration file.
+
+### When a rule is broken
+
+Where it came from decides what happens, not what is wrong with it:
+
+| Provenance | Unreadable or will not compile |
+| ---------- | ------------------------------ |
+| `--rules lang:path` | diagnosed, and the run stops before analysing anything |
+| the runtime location | diagnosed, excluded, and the run continues |
+
+A rule you just named is a mistake you can fix now, so `elc` stops and tells
+you. A rule sitting in the runtime location is a malformed component, and is
+handled like every other one: reported, skipped, survived.
+
+A rule naming a language with no module is reported and skipped either way —
+what is missing is the module, not the rule.
+
+Writing the queries themselves is covered by `runtime/queries/README.md`, which
+ships with the runtime and is the contract a rule is written against.
+
 ## Languages
 
 `elc` works out each file's language from its extension and loads the parser
@@ -1203,6 +1279,7 @@ comparable.
 | `-b`, `--bottleneck-threshold` | `N` | `5` | Flag a component whose `Ca` and `Ce` are each `N` or greater |
 | `--stratum` | `NAME:GLOB[,GLOB…]` | none | Declare an architectural layer named `NAME` holding the matching files; repeatable |
 | `--stratum-order` | `NAME>NAME[>NAME…]` | none | State the permitted direction of dependency between the declared layers |
+| `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `--no-dot` | — | `.dot` written | Do not write the annotated Graphviz call tree, which is otherwise written beside the report |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |

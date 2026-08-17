@@ -1110,6 +1110,69 @@ static int by_dead_row(const void *a, const void *b)
 	return strcmp(x->function, y->function);
 }
 
+/* Sorted by file, then by where the match starts, then by identity. The last
+ * key matters: two rules matching the same node are two rows, and without a
+ * tiebreak their order would be the order the rules loaded — which a directory
+ * listing decided (HLR-032). */
+static int by_rule_row(const void *a, const void *b)
+{
+	const RuleMatchRow *x = a;
+	const RuleMatchRow *y = b;
+	int                 c = strcmp(x->file, y->file);
+
+	if (c != 0)
+		return c;
+	if (x->start_line != y->start_line)
+		return x->start_line < y->start_line ? -1 : 1;
+	if (x->end_line != y->end_line)
+		return x->end_line < y->end_line ? -1 : 1;
+	return strcmp(x->rule, y->rule);
+}
+
+int report_set_rules(Report *report, const FactList *facts)
+{
+	size_t capacity = 0;
+
+	for (size_t f = 0; f < report->file_count; f++) {
+		const FileMetrics *file = report->files[f];
+		const FileFacts   *ff   = facts_for_path(facts, file->path);
+
+		for (size_t m = 0; ff && m < ff->rule_match_count; m++) {
+			if (report->rule_match_count == capacity) {
+				size_t        next  = capacity ? capacity * 2 : 16;
+				RuleMatchRow *grown =
+					realloc(report->rule_matches,
+					        next * sizeof *grown);
+
+				if (!grown)
+					return -1;
+				report->rule_matches = grown;
+				capacity             = next;
+			}
+
+			RuleMatchRow *row =
+				&report->rule_matches[report->rule_match_count];
+
+			row->rule       = strdup(ff->rule_matches[m].rule);
+			row->file       = strdup(file->path);
+			row->start_line = ff->rule_matches[m].start_line;
+			row->end_line   = ff->rule_matches[m].end_line;
+			if (!row->rule || !row->file) {
+				free(row->rule);
+				free(row->file);
+				return -1;
+			}
+			report->rule_match_count++;
+		}
+	}
+
+	if (report->rule_match_count > 1)
+		qsort(report->rule_matches, report->rule_match_count,
+		      sizeof *report->rule_matches, by_rule_row);
+
+	return 0;
+}
+
 int report_set_dead(Report *report, const FactList *facts)
 {
 	size_t capacity = 0;
@@ -1246,6 +1309,13 @@ void report_free(Report *report)
 	free(report->dead);
 	report->dead       = NULL;
 	report->dead_count = 0;
+	for (size_t i = 0; i < report->rule_match_count; i++) {
+		free(report->rule_matches[i].rule);
+		free(report->rule_matches[i].file);
+	}
+	free(report->rule_matches);
+	report->rule_matches     = NULL;
+	report->rule_match_count = 0;
 	for (size_t i = 0; i < report->coupling_count; i++) {
 		free(report->coupling[i].component);
 		free(report->coupling[i].instability);

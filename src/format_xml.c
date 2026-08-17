@@ -242,6 +242,24 @@ int xml_write_report(const Report *report, FILE *out)
 	}
 	fputs("  </deadcode>\n", out);
 
+	/* What the user's rules matched. Carried for the reason every other
+	 * section is: regeneration has no source tree to re-run a query over,
+	 * so a match not written here is one the regenerated report cannot
+	 * have (HLR-054, HLR-056). The rule *file* is not recorded — the
+	 * identity is, which is what the report presents and all a reader of a
+	 * regenerated report can act on. */
+	fputs("  <rules>\n", out);
+	for (size_t i = 0; i < report->rule_match_count; i++) {
+		const RuleMatchRow *r = &report->rule_matches[i];
+
+		fputs("    <match", out);
+		write_attribute(out, "rule", r->rule);
+		write_attribute(out, "file", r->file);
+		fprintf(out, " start-line=\"%" PRIu32 "\" end-line=\"%" PRIu32
+		        "\"/>\n", r->start_line, r->end_line);
+	}
+	fputs("  </rules>\n", out);
+
 	/* The component-level measurements. Carried for the reason every other
 	 * analysis result is: regeneration has no graph and no source tree to
 	 * rebuild one from, so a value not written here is one the regenerated
@@ -380,6 +398,8 @@ typedef struct {
 	size_t              layering_count;
 	DeadRow            *dead;
 	size_t              dead_count;
+	RuleMatchRow       *rule_matches;
+	size_t              rule_match_count;
 	PathList            dead_unanalysed;
 	MetricsAccumulator *acc;
 	FileMetrics        *current;      /* the <file> being populated */
@@ -870,6 +890,40 @@ static void on_start(void *user, const XML_Char *name,
 		return;
 	}
 
+	if (strcmp(name, "match") == 0) {
+		const char *rule = attribute(atts, "rule");
+		const char *file = attribute(atts, "file");
+
+		if (!rule || !file) {
+			fail(state, "a rule match element is incomplete");
+			return;
+		}
+
+		RuleMatchRow *grown =
+			realloc(state->rule_matches,
+			        (state->rule_match_count + 1) * sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->rule_matches = grown;
+
+		RuleMatchRow *row = &state->rule_matches[state->rule_match_count];
+
+		memset(row, 0, sizeof *row);
+		row->rule = strdup(rule);
+		row->file = strdup(file);
+		if (!row->rule || !row->file) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->start_line = uint_attribute(state, atts, "start-line");
+		row->end_line   = uint_attribute(state, atts, "end-line");
+		state->rule_match_count++;
+		return;
+	}
+
 	if (strcmp(name, "finding") == 0) {
 		const char *severity    = attribute(atts, "severity");
 		const char *measurement = attribute(atts, "measurement");
@@ -1257,6 +1311,8 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	out->layering_count           = state.layering_count;
 	out->dead                     = state.dead;
 	out->dead_count               = state.dead_count;
+	out->rule_matches             = state.rule_matches;
+	out->rule_match_count         = state.rule_match_count;
 	out->dead_unanalysed          = state.dead_unanalysed;
 	state.global_state             = NULL;
 	state.global_state_count       = 0;
@@ -1276,6 +1332,8 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	state.layering_count           = 0;
 	state.dead                     = NULL;
 	state.dead_count               = 0;
+	state.rule_matches             = NULL;
+	state.rule_match_count         = 0;
 	memset(&state.dead_unanalysed, 0, sizeof state.dead_unanalysed);
 
 	status = 0;
@@ -1363,6 +1421,11 @@ cleanup:
 		free(state.dead[i].function);
 	}
 	free(state.dead);
+	for (size_t i = 0; i < state.rule_match_count; i++) {
+		free(state.rule_matches[i].rule);
+		free(state.rule_matches[i].file);
+	}
+	free(state.rule_matches);
 	for (size_t i = 0; i < state.dead_unanalysed.count; i++)
 		free(state.dead_unanalysed.paths[i]);
 	free(state.dead_unanalysed.paths);

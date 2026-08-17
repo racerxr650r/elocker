@@ -133,7 +133,11 @@ Test(format_xml, an_empty_report_is_still_a_complete_record)
 {
 	Report report = { 0 };
 	FILE  *fp     = tmpfile();
-	char   buffer[512];
+	/* Large enough for the whole empty record, which is what the assertions
+	 * below are about: every section is emitted whether or not it has rows,
+	 * so the document grows by a pair of tags with each phase and a window
+	 * sized to today's would fail on the next one for the wrong reason. */
+	char   buffer[8192];
 
 	cr_assert_not_null(fp);
 	cr_assert_eq(xml_write_report(&report, fp), 0);

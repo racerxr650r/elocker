@@ -326,7 +326,17 @@ The distinction between the two ways an optional file can be absent is load-bear
 A query file that compiles and captures nothing is valid, and is how an unimplemented query is expressed. The registry reads captures; it never asks whether a file is "filled in". That is what lets a phase ship a language with one query complete and the rest as documented stubs, without either a special case in the loader or a module that fails to load.
 
 The contract this directory embodies — the filenames, the capture names, and what each means — is published with the runtime as `runtime/queries/README.md`. That document, not this section, is what a third party codes against (HLR-121).]]></interface>
-          <interface title="Custom Rule Binding"><![CDATA[A Tree-sitter query compiles against one specific `TSLanguage`, so every custom rule must name the language it applies to. Rules found under `runtime/queries/<lang>/rules/` are bound by their location; rules named on the command line are bound by the `lang:path` argument form. A rule naming a language with no available module is a diagnostic, not a compile attempt.]]></interface>
+          <interface title="Custom Rule Binding"><![CDATA[A Tree-sitter query compiles against one specific `TSLanguage`, so every custom rule must name the language it applies to. Rules found under `runtime/queries/<lang>/rules/` are bound by their location; rules named on the command line are bound by the `lang:path` argument form. A rule naming a language with no available module is a diagnostic, not a compile attempt.
+
+**Both provenances are resolved in `registry_open`, before discovery.** HLR-116 requires a rule named on the command line to fail the run *without analysing any file*, and deciding whether a query compiles requires its grammar — so the language module is loaded then rather than on first use of an extension. The same holds for a located rule, but only for a language that actually has one: the scan reads directories and loads nothing, and a language whose `rules/` directory is absent or empty is never loaded on its account. No module shipped with `elc` carries a rule, so today this loads nothing eagerly at all.
+
+**One rule list, two ways in.** By the time a rule is compiled its provenance is gone, and that is the design: what a rule *does* cannot depend on how it arrived. Only the failure handling differs, and that is settled before the record exists.
+
+The `lang:path` argument splits at the **first** colon, so an absolute path keeps its own — `c:/opt/a:b.scm` is the C language and a path, not a language called `c:/opt/a`.
+
+A language the extension map has never heard of is reported without a load being attempted. Letting the name reach `dlopen` answers a typo with a message about a `.so` the user never mentioned: two diagnostics for one mistake, the louder of them about the wrong thing.
+
+Directory order is not part of the contract. `readdir` yields whatever the filesystem holds and matches within a file are reported in the order the rules loaded, so the filenames are sorted once at discovery (HLR-032).]]></interface>
           <interface title="Environment"><![CDATA[`ELC_RUNTIME_DIR`, when set, takes precedence over every path derived from the executable (HLR-059), and is used exactly as given: a variable naming a location that is not there is reported against that path rather than quietly falling back to one the user did not ask for.
 
 With the variable unset, two paths relative to the executable are tried in order, and the first that exists and is a directory wins:
@@ -359,7 +369,9 @@ It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Alloca
             </logic>
           </function>
           <function signature="const char *registry_runtime_dir(const Registry *reg)" summary="The resolved runtime location, so that another module needing runtime data asks for it rather than repeating HLR-059's precedence rule."/>
-          <function signature="int registry_load_rules(Registry *reg, const ElcOptions *opts)" summary="Load and compile custom rule queries against their bound language; fatal for CLI-named files, diagnostic-and-skip for runtime-located ones (HLR-116)."/>
+          <function signature="int registry_load_rules(Registry *reg, const ElcOptions *opts)" summary="Load and compile custom rule queries against their bound language; fatal for CLI-named files, diagnostic-and-skip for runtime-located ones (HLR-116). Called from `registry_open`, and therefore before discovery, since &quot;without analyzing any file&quot; is what that fatality means."/>
+          <function signature="const LanguageModule *module_for_language(Registry *reg, const char *language)" summary="The module for a language by name, loading it on first use. Separated out of `registry_for_path` because a rule names its language directly — by the directory holding it, or by the argument form — and never by a file extension. One cache and one load path serve both, so a rule cannot compile against a differently loaded copy of a grammar than the analysis uses."/>
+          <function signature="int rule_compile(Registry *reg, const LanguageModule *module, const char *path)" summary="Compile one rule file against a loaded language and record it. Returns non-zero when the rule was not added, leaving the caller to decide what that means: it is the *provenance* that decides and not the failure, and a function that decided for itself could not serve both (HLR-116)."/>
           <function signature="void registry_close(Registry *reg)" summary="Delete every query, then every parser context, then dlclose every handle."/>
         </functions>
         <algorithm><![CDATA[Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage` that `dlclose` unmaps, so `registry_close()` deletes all queries first, then releases the parser and cursor, and only then closes the `dl` handles. The reverse order produces a crash at exit with a backtrace pointing at unmapped memory.]]></algorithm>
@@ -415,6 +427,7 @@ The signature above is the complete one. The `FileFacts` output arrives with the
 
 **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.]]></notes>
           </function>
+          <function signature="int collect_rule_matches(const LanguageModule *m, Registry *reg, const char *data, TSNode root, FileFacts *facts)" summary="Record every match of every rule bound to this file&apos;s language, with its identity and line range. Runs through the same predicate evaluation the built-in queries use, which is what HLR-107&apos;s &quot;same query mechanism&quot; means in practice: a rule author&apos;s `#eq?` behaves as it does in `elc`&apos;s own query files rather than being silently dropped. Records no severity, because there is none to record (HLR-111)."/>
           <function signature="int collect_dead_code(const LanguageModule *m, Registry *reg, const char *data, TSNode root, const FnRangeIndex *ranges, const SpanList *comments, FileFacts *facts)">
             <purpose><![CDATA[Record every statement within a function that cannot execute (HLR-137).]]></purpose>
             <pre><![CDATA[`ranges` holds the reported functions of this file, so each finding can be attributed to the one containing it.]]></pre>
@@ -964,7 +977,7 @@ The filter itself is not applied here. A function the image does not define is n
         <field name="stratum_order" type="const char *" desc="The declared dependency direction, resolved after parsing so it may precede the layers it orders (HLR-078)"/>
         <field name="entry_points" type="SymbolList" desc="Empty when undeclared (HLR-095)"/>
         <field name="scopes" type="ScopeList" desc="Empty when undeclared (HLR-094)"/>
-        <field name="rule_paths" type="PathList" desc="Custom rule query files (HLR-107)"/>
+        <field name="rules" type="const char **" desc="Custom rule arguments in the `lang:path` form, borrowed from argv and left unsplit: the language and the path are both substrings of one argument, and splitting in the parser would allocate two strings for a decision `registry.c` has to make anyway — it is the module that knows which languages exist (HLR-107)"/>
         <field name="definitions" type="DefineList" desc="Conditional-compilation symbols; empty when none supplied, and an empty set prunes nothing (HLR-131)"/>
         <field name="image_path" type="const char *" desc="The linked image to filter functions by, or NULL for no filtering. Borrowed from argv. The path only: the image is read by `elfsyms.c`, which owns the failure, so a run with no image differs from a filtered one in exactly one place (HLR-140)"/>
         <field name="targets" type="PathList" desc="One or more file or directory arguments (HLR-071)"/>
@@ -981,6 +994,7 @@ The filter itself is not applied here. A function the image does not define is n
       </type>
       <type name="Registry" header="inc/registry.h" summary="Everything loaded from the runtime location, plus the parser and cursor reused across the whole run.">
         <field name="dir" type="char *" desc="The resolved runtime location; handed to any other module needing runtime data, so HLR-059's precedence rule exists once"/>
+        <field name="rules" type="CustomRule *" desc="Every compiled custom rule, from either provenance. Owned, and released with the built-in queries rather than after them: a rule's query points into a grammar exactly as a built-in one's does and is subject to the same teardown ordering (LLR-RCL-01)"/>
         <field name="map" type="ExtensionMapping *" desc="Extension to language, from runtime data (HLR-060)"/>
         <field name="modules" type="LanguageModule *" desc="Loaded languages, cached after first use"/>
         <field name="parser" type="TSParser *" desc="One for the whole run; reuse needs only ts_parser_set_language() per file"/>
@@ -1017,9 +1031,25 @@ The filter itself is not applied here. A function the image does not define is n
       <type name="FileFacts" header="inc/elc.h" summary="The raw graph facts extracted during the same parse that produced FileMetrics.">
         <field name="calls" type="CallSite *" desc="Call sites with their enclosing function and callee name"/>
         <field name="globals" type="GlobalAccess *" desc="Global reads and writes with their enclosing function"/>
-        <field name="rule_matches" type="RuleMatch *" desc="Custom rule matches with rule identity and line range"/>
+        <field name="rule_matches" type="RuleMatch *" desc="Custom rule matches with rule identity and line range, recorded during the same parse the metrics come from (HLR-109)"/>
         <field name="dead" type="DeadSpan *" desc="Statements within a function that cannot execute (HLR-137)"/>
         <field name="dead_analysed" type="bool" desc="False when the language supplied no dead-code query, so that &quot;not looked for&quot; is distinguishable from &quot;none found&quot; (HLR-139)"/>
+      </type>
+      <type name="CustomRule" header="inc/registry.h" summary="One compiled user-supplied rule, bound to the language it applies to. The binding is not decoration: a query compiles against one specific TSLanguage and has no meaning apart from it. By the time a rule is here the two provenances are indistinguishable, which is the point — what a rule does cannot depend on how it arrived.">
+        <field name="stem" type="char *" desc="The file's basename with its extension removed — half an identity; the capture name that matched supplies the other half (HLR-109)"/>
+        <field name="language" type="char *" desc="The language it is bound to, by the directory holding it or by the `lang:path` argument"/>
+        <field name="query" type="TSQuery *" desc="Compiled against that language's grammar, and deleted with the built-in queries rather than after them"/>
+      </type>
+      <type name="RuleMatch" header="inc/elc.h" summary="One match of a user-supplied rule, as the parse recorded it. Line-ranged and nothing else: a match is not a finding, so there is no severity here and no attribution — nothing to attach either to (HLR-111).">
+        <field name="rule" type="char *" desc="&quot;&lt;basename&gt;.&lt;capture&gt;&quot;, so one file expresses as many named rules as it holds captures"/>
+        <field name="start_line" type="uint32_t" desc="1-based"/>
+        <field name="end_line" type="uint32_t" desc="1-based; a match may span many lines"/>
+      </type>
+      <type name="RuleMatchRow" header="inc/report.h" summary="One rule match as the report presents it, with the file it was found in. Sorted by file, then start line, then end line, then identity — the last key because two rules matching one node are two rows, and without a tiebreak their order would be the order a directory listing produced.">
+        <field name="rule" type="char *" desc="The identity, as recorded"/>
+        <field name="file" type="char *" desc="Owned; the row outlives the FileMetrics it was taken from"/>
+        <field name="start_line" type="uint32_t" desc="1-based"/>
+        <field name="end_line" type="uint32_t" desc="1-based"/>
       </type>
       <type name="DeadSpan" header="inc/elc.h" summary="One statement that cannot execute, and why.">
         <field name="function" type="size_t" desc="Into FileMetrics.functions, or ELC_NO_FUNCTION for file scope"/>
@@ -1376,9 +1406,9 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-078 – HLR-082, HLR-094, HLR-114, HLR-115, HLR-118"/>
       </fixture>
       <fixture name="`rules/`" source="[test/fixtures/rules/](../test/fixtures/rules/)">
-        <artefact key="inputs" label="Inputs" path="A valid rule file with several named captures, supplied both from the runtime location and from the command line; a rule naming a language with no module"/>
-        <artefact key="expected" label="Expected" path="Each match reported with its identity as basename plus capture name, and the file and line range"/>
-        <artefact key="verifies" label="Verifies" path="HLR-107 – HLR-111"/>
+        <artefact key="inputs" label="Inputs" path="One rule file holding **two** named captures, supplied from the runtime location and from the command line so that the same query is exercised by both bindings; one predicate-bearing capture, so that a rule whose filter is dropped would over-match visibly; **one** broken rule file used from *both* provenances, since two different broken files could not distinguish a provenance rule from a file-contents rule; a rule naming a language with no module; an argument with no language; decoy `.scm` files planted in the working directory, in a dotfile directory, and in the analysis target"/>
+        <artefact key="expected" label="Expected" path="Three matches under two identities, each `basename.capture` with its file and line range; `free` not matched, which is what proves the predicate was evaluated rather than discarded; identical matches from either binding; exit 0 with a diagnostic and a report for the broken rule found in the runtime location, and exit 2 with no report for the same bytes named on the command line; exit 0 and a skip for the unavailable language; no match from any decoy; a section emitted with a count of zero when no rule was supplied; byte-identical regeneration from the record"/>
+        <artefact key="verifies" label="Verifies" path="HLR-032, HLR-054, HLR-056, HLR-063, HLR-107 – HLR-111, HLR-116"/>
       </fixture>
       <fixture name="`traversal/`" source="[test/fixtures/traversal/](../test/fixtures/traversal/)">
         <artefact key="inputs" label="Inputs" path="Hidden files and hidden directories; binary extensions; a self-referential directory symlink; a symlink to a file inside the tree; a symlink named directly as a target; overlapping targets naming one file twice"/>
@@ -1434,6 +1464,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
       <tool name="`bats`" required_for="The integration, fixture, and instrumented levels" notes="With `bats-support` and `bats-assert`; vendored or provided by the platform"/>
       <tool name="`gcc` or `clang`" required_for="Building `elc` and the unit drivers" notes="C11, with `-Wall -Wextra -Wpedantic`; warnings are treated as defects"/>
       <tool name="`make`" required_for="Building and running the suite" notes="GNU make; `make test` is the single entry point"/>
+      <tool name="A writable temporary directory" required_for="The `rules/` and `runtime/` fixture groups" notes="A rule under `queries/&lt;lang&gt;/rules/` has to live in a runtime directory, and planting one in the in-tree runtime would change what every other suite measures. Each case that needs one builds a runtime directory in `$BATS_TEST_TMPDIR`, symlinking the real one's contents and adding a `rules/` directory of its own"/>
       <tool name="A C toolchain able to link" required_for="The `elf/` fixture group" notes="The images that group filters by are **built by the test**, never committed: a binary in the repository is a fixture nobody can review, and one built elsewhere pins the reviewer to a toolchain they may not have. Where a language's compiler is unavailable the case for that language skips explicitly and names the requirement left unverified"/>
       <tool name="Graphviz (`dot`)" required_for="The `dot/` fixture group" notes="Settles `.dot` validity by rendering the emitted file rather than by matching text that looks like DOT (HLR-102). A dependency of the *test* and never of the binary: `elc` neither links Graphviz nor invokes it, which an instrumented test holds separately. Absent, the affected tests skip explicitly and name the requirement left unverified"/>
       <tool name="AddressSanitizer + LeakSanitizer" required_for="HLR-124, HLR-125 — `make asan`" notes="`-fsanitize=address` with `detect_leaks=1`; catches out-of-bounds, use-after-free, invalid free, and leaks. Requires an instrumented rebuild"/>
@@ -3038,6 +3069,12 @@ This is the same question Section 18 asks and a different way of answering it. C
           <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
         </traces>
       </llr>
+      <llr id="LLR-USG-08">
+        <text><![CDATA[`cli_usage` shall emit the summary as more than one string literal, no single literal exceeding the 4095 characters ISO C11 requires a translation unit to support. The build treats a warning as a defect, so a summary that outgrew the guaranteed minimum would stop the build rather than degrade — and it outgrew it as soon as the option list reached this size.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="4" title="`parse_stratum` ([src/cli.c](../src/cli.c))" name="parse_stratum" source="src/cli.c">
@@ -3456,6 +3493,30 @@ This is the same question Section 18 asks and a different way of answering it. C
         <traces>
           <trace target="HLR" ref="HLR-116" name="Invalid Custom Rule File Handling"/>
           <trace target="HLR" ref="HLR-070" name="Malformed Language Module Tolerance"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RLR-08">
+        <text><![CDATA[`registry_load_rules` shall run before any file is discovered, so that a rule named on the command line which cannot be read or compiled fails the run without a file having been analysed.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-116" name="Invalid Custom Rule File Handling"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RLR-09">
+        <text><![CDATA[`registry_load_rules` shall split a `lang:path` argument at the first colon, so that an absolute path keeps any colon of its own.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-107" name="User-Supplied Rule Queries"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RLR-10">
+        <text><![CDATA[`registry_load_rules` shall read each language's rules directory once however many extensions map to that language, and shall load a language module only where a rule was actually found for it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-107" name="User-Supplied Rule Queries"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RLR-11">
+        <text><![CDATA[`registry_load_rules` shall order the rule files it finds in a language directory by name, so that no property of the filesystem's layout reaches the reported order of matches.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-032" name="Deterministic Output"/>
         </traces>
       </llr>
     </function>
@@ -3973,7 +4034,35 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="18" title="`graph_build` ([src/graph.c](../src/graph.c))" name="graph_build" source="src/graph.c">
+    <function number="18" title="`collect_rule_matches` ([src/analyze.c](../src/analyze.c))" name="collect_rule_matches" source="src/analyze.c">
+      <llr id="LLR-CRM-01">
+        <text><![CDATA[`collect_rule_matches` shall record every match of every rule bound to the analysed file's language, and shall run no rule bound to another — a query compiled against one grammar has no meaning against a different node table.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-107" name="User-Supplied Rule Queries"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CRM-02">
+        <text><![CDATA[`collect_rule_matches` shall evaluate a rule's predicates by the same mechanism the built-in queries use, so that a filter a rule author wrote is applied rather than silently discarded.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-107" name="User-Supplied Rule Queries"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CRM-03">
+        <text><![CDATA[`collect_rule_matches` shall identify each match by the rule file's basename together with the capture name that matched, so that one file expresses several independently identified rules.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-109" name="Custom Rule Match Reporting"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CRM-04">
+        <text><![CDATA[`collect_rule_matches` shall record the line range each match spans, and shall attach no severity and no attribution to it — there is no judgement to record, and a column with nothing honest to put in it would invite one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-109" name="Custom Rule Match Reporting"/>
+          <trace target="HLR" ref="HLR-111" name="Custom Rules Carry No Built-In Opinion"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="19" title="`graph_build` ([src/graph.c](../src/graph.c))" name="graph_build" source="src/graph.c">
       <intro><![CDATA[Cross-file resolution of the per-file facts into the System Dependence Graph.]]></intro>
       <llr id="LLR-SDG-01">
         <text><![CDATA[`graph_build` shall assign every function discovered across all analysed files a node in the graph.]]></text>
@@ -4106,7 +4195,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
     </function>
-    <function number="19" title="`arch_analyse` ([src/arch.c](../src/arch.c))" name="arch_analyse" source="src/arch.c">
+    <function number="20" title="`arch_analyse` ([src/arch.c](../src/arch.c))" name="arch_analyse" source="src/arch.c">
       <intro><![CDATA[Component-level analyses over the SDG's component projection.]]></intro>
       <llr id="LLR-ARC-01">
         <text><![CDATA[`arch_analyse` shall identify as an architectural bottleneck every component whose afferent and efferent coupling are each greater than or equal to the configured bottleneck threshold.]]></text>
@@ -4135,7 +4224,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="20" title="`compute_coupling` ([src/arch.c](../src/arch.c))" name="compute_coupling" source="src/arch.c">
+    <function number="21" title="`compute_coupling` ([src/arch.c](../src/arch.c))" name="compute_coupling" source="src/arch.c">
       <llr id="LLR-CPL-01">
         <text><![CDATA[`compute_coupling` shall compute, for every component, the number of components depending upon it as its afferent coupling.]]></text>
         <traces>
@@ -4163,7 +4252,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="21" title="`instability` ([src/arch.c](../src/arch.c))" name="instability" source="src/arch.c">
+    <function number="22" title="`instability` ([src/arch.c](../src/arch.c))" name="instability" source="src/arch.c">
       <llr id="LLR-INS-01">
         <text><![CDATA[`instability` shall compute the Instability metric as efferent coupling divided by the sum of efferent and afferent coupling.]]></text>
         <traces>
@@ -4185,7 +4274,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="22" title="`find_cycles` ([src/arch.c](../src/arch.c))" name="find_cycles" source="src/arch.c">
+    <function number="23" title="`find_cycles` ([src/arch.c](../src/arch.c))" name="find_cycles" source="src/arch.c">
       <llr id="LLR-CYC-01">
         <text><![CDATA[`find_cycles` shall detect every cyclic dependency between components by topological analysis of the component projection.]]></text>
         <traces>
@@ -4221,7 +4310,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="23" title="`check_strata` ([src/arch.c](../src/arch.c))" name="check_strata" source="src/arch.c">
+    <function number="24" title="`check_strata` ([src/arch.c](../src/arch.c))" name="check_strata" source="src/arch.c">
       <llr id="LLR-LAY-01">
         <text><![CDATA[`check_strata` shall report every call that bypasses one or more intervening declared layers, identifying the calling function, the called function, and the layers crossed.]]></text>
         <traces>
@@ -4258,7 +4347,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="24" title="`calltree_analyse` ([src/calltree.c](../src/calltree.c))" name="calltree_analyse" source="src/calltree.c">
+    <function number="25" title="`calltree_analyse` ([src/calltree.c](../src/calltree.c))" name="calltree_analyse" source="src/calltree.c">
       <intro><![CDATA[Function-level call-tree measurements: width, height, the deepest stack, and recursion.]]></intro>
       <llr id="LLR-CTR-01">
         <text><![CDATA[`calltree_analyse` shall compute, for every function, the number of distinct subroutines it invokes directly.]]></text>
@@ -4325,7 +4414,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="25" title="`longest_path_dag` ([src/calltree.c](../src/calltree.c))" name="longest_path_dag" source="src/calltree.c">
+    <function number="26" title="`longest_path_dag` ([src/calltree.c](../src/calltree.c))" name="longest_path_dag" source="src/calltree.c">
       <llr id="LLR-LPD-01">
         <text><![CDATA[`longest_path_dag` shall compute the longest path from the declared entry points by memoised traversal in reverse topological order.]]></text>
         <traces>
@@ -4354,7 +4443,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="26" title="`state_analyse` ([src/state.c](../src/state.c))" name="state_analyse" source="src/state.c">
+    <function number="27" title="`state_analyse` ([src/state.c](../src/state.c))" name="state_analyse" source="src/state.c">
       <intro><![CDATA[Global-state coupling, execution-scope isolation, and reachability.]]></intro>
       <llr id="LLR-STA-01">
         <text><![CDATA[`state_analyse` shall omit the reachability analysis, and record the omission with its reason, when no entry points were declared, and shall in no circumstance report every function as unreachable for want of a declaration.]]></text>
@@ -4387,7 +4476,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="27" title="`classify_globals` ([src/state.c](../src/state.c))" name="classify_globals" source="src/state.c">
+    <function number="28" title="`classify_globals` ([src/state.c](../src/state.c))" name="classify_globals" source="src/state.c">
       <llr id="LLR-GLB-01">
         <text><![CDATA[`classify_globals` shall report, for every global object, the set of functions that write it and the set that read it.]]></text>
         <traces>
@@ -4423,7 +4512,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="28" title="`collect_roots` ([src/state.c](../src/state.c))" name="collect_roots" source="src/state.c">
+    <function number="29" title="`collect_roots` ([src/state.c](../src/state.c))" name="collect_roots" source="src/state.c">
       <llr id="LLR-RTS-01">
         <text><![CDATA[`collect_roots` shall form the reachability root set as the union of the declared entry points and every function whose address is taken without being directly called.]]></text>
         <traces>
@@ -4440,7 +4529,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="29" title="`reachability` ([src/state.c](../src/state.c))" name="reachability" source="src/state.c">
+    <function number="30" title="`reachability` ([src/state.c](../src/state.c))" name="reachability" source="src/state.c">
       <llr id="LLR-RCH-01">
         <text><![CDATA[`reachability` shall traverse the graph forward from the root set and report every function not visited as unreachable.]]></text>
         <traces>
@@ -4461,7 +4550,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="30" title="`unreachable_globals` ([src/state.c](../src/state.c))" name="unreachable_globals" source="src/state.c">
+    <function number="31" title="`unreachable_globals` ([src/state.c](../src/state.c))" name="unreachable_globals" source="src/state.c">
       <llr id="LLR-UGL-01">
         <text><![CDATA[`unreachable_globals` shall report as unreachable every global object accessed solely by functions that are themselves unreachable.]]></text>
         <traces>
@@ -4477,7 +4566,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="31" title="`check_scopes` ([src/state.c](../src/state.c))" name="check_scopes" source="src/state.c">
+    <function number="32" title="`check_scopes` ([src/state.c](../src/state.c))" name="check_scopes" source="src/state.c">
       <llr id="LLR-ISO-01">
         <text><![CDATA[`check_scopes` shall report every call edge and every global-state edge by which one declared execution scope reaches a function or object belonging to another.]]></text>
         <traces>
@@ -4492,7 +4581,7 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
     </function>
-    <function number="32" title="`thresholds_apply` ([src/thresholds.c](../src/thresholds.c))" name="thresholds_apply" source="src/thresholds.c">
+    <function number="33" title="`thresholds_apply` ([src/thresholds.c](../src/thresholds.c))" name="thresholds_apply" source="src/thresholds.c">
       <intro><![CDATA[Evaluation of every measurement against the published threshold catalogue, and assignment of severity and attribution.]]></intro>
       <llr id="LLR-THR-01">
         <text><![CDATA[`thresholds_apply` shall evaluate every architectural measurement against the published threshold catalogue and report where the measurement falls relative to the accepted range.]]></text>
@@ -4588,7 +4677,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="33" title="`report_assemble` ([src/report.c](../src/report.c))" name="report_assemble" source="src/report.c">
+    <function number="34" title="`report_assemble` ([src/report.c](../src/report.c))" name="report_assemble" source="src/report.c">
       <intro><![CDATA[The single place every reported collection is ordered. The audit point for determinism.]]></intro>
       <llr id="LLR-RPT-01">
         <text><![CDATA[`report_assemble` shall compute the combined project totals of physical lines and ELOC across every analysed file.]]></text>
@@ -4818,9 +4907,16 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-147" name="Filter Recorded and Reported"/>
         </traces>
       </llr>
+      <llr id="LLR-RPT-32">
+        <text><![CDATA[`report_assemble` shall carry the custom-rule matches sorted by file, then by the line a match starts at, then by its end, then by rule identity — the last key because two rules matching one node are two rows whose order would otherwise be the order the rules loaded.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-109" name="Custom Rule Match Reporting"/>
+          <trace target="HLR" ref="HLR-032" name="Deterministic Output"/>
+        </traces>
+      </llr>
     </function>
 
-    <function number="34" title="`format_table` ([src/format_text.c](../src/format_text.c))" name="format_table" source="src/format_text.c">
+    <function number="35" title="`format_table` ([src/format_text.c](../src/format_text.c))" name="format_table" source="src/format_text.c">
       <llr id="LLR-TBL-01">
         <text><![CDATA[`format_table` shall render the report as an aligned, human-readable table, computing column widths from the longest path and function name.]]></text>
         <traces>
@@ -4841,7 +4937,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="35" title="`format_markdown` ([src/format_text.c](../src/format_text.c))" name="format_markdown" source="src/format_text.c">
+    <function number="36" title="`format_markdown` ([src/format_text.c](../src/format_text.c))" name="format_markdown" source="src/format_text.c">
       <llr id="LLR-MKD-01">
         <text><![CDATA[`format_markdown` shall render the report as GitHub-Flavored Markdown, grouping functions under a heading for the file containing them.]]></text>
         <traces>
@@ -4850,7 +4946,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="36" title="`render_summary` ([src/format_text.c](../src/format_text.c))" name="render_summary" source="src/format_text.c">
+    <function number="37" title="`render_summary` ([src/format_text.c](../src/format_text.c))" name="render_summary" source="src/format_text.c">
       <llr id="LLR-SUM-01">
         <text><![CDATA[`render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion.]]></text>
         <traces>
@@ -4893,9 +4989,17 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
         </traces>
       </llr>
+      <llr id="LLR-SUM-07">
+        <text><![CDATA[`render_summary` shall present the custom-rule matches in a section of their own, with no severity column and no source column, and shall emit that section whether or not any rule was supplied.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-109" name="Custom Rule Match Reporting"/>
+          <trace target="HLR" ref="HLR-111" name="Custom Rules Carry No Built-In Opinion"/>
+          <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
+        </traces>
+      </llr>
     </function>
 
-    <function number="37" title="`format_csv` ([src/format_csv.c](../src/format_csv.c))" name="format_csv" source="src/format_csv.c">
+    <function number="38" title="`format_csv` ([src/format_csv.c](../src/format_csv.c))" name="format_csv" source="src/format_csv.c">
       <llr id="LLR-CSV-01">
         <text><![CDATA[`format_csv` shall emit one record per function over the complete dataset, unfiltered by the complexity threshold.]]></text>
         <traces>
@@ -4911,7 +5015,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="38" title="`write_field` ([src/format_csv.c](../src/format_csv.c))" name="write_field" source="src/format_csv.c">
+    <function number="39" title="`write_field` ([src/format_csv.c](../src/format_csv.c))" name="write_field" source="src/format_csv.c">
       <llr id="LLR-FLD-01">
         <text><![CDATA[`write_field` shall quote and escape every field whose value contains a comma, a double-quote character, or a line break, in accordance with RFC 4180.]]></text>
         <traces>
@@ -4926,7 +5030,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="39" title="`xml_write_report` ([src/format_xml.c](../src/format_xml.c))" name="xml_write_report" source="src/format_xml.c">
+    <function number="40" title="`xml_write_report` ([src/format_xml.c](../src/format_xml.c))" name="xml_write_report" source="src/format_xml.c">
       <llr id="LLR-XWR-01">
         <text><![CDATA[`xml_write_report` shall emit the complete dataset of a run, unfiltered by the complexity threshold.]]></text>
         <traces>
@@ -5033,9 +5137,16 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-147" name="Filter Recorded and Reported"/>
         </traces>
       </llr>
+      <llr id="LLR-XWR-15">
+        <text><![CDATA[`xml_write_report` shall record each custom-rule match with its identity, file, and line range, without which a regenerated report would omit a section the direct run presented.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-054" name="XML Output"/>
+          <trace target="HLR" ref="HLR-056" name="Regenerated Report Equivalence"/>
+        </traces>
+      </llr>
     </function>
 
-    <function number="40" title="`write_escaped` ([src/format_xml.c](../src/format_xml.c))" name="write_escaped" source="src/format_xml.c">
+    <function number="41" title="`write_escaped` ([src/format_xml.c](../src/format_xml.c))" name="write_escaped" source="src/format_xml.c">
       <llr id="LLR-ESC-01">
         <text><![CDATA[`write_escaped` shall escape every character carrying structural meaning in XML, so that an identifier or path containing such a character cannot render the document unparseable.]]></text>
         <traces>
@@ -5050,7 +5161,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="41" title="`xml_read_report` ([src/format_xml.c](../src/format_xml.c))" name="xml_read_report" source="src/format_xml.c">
+    <function number="42" title="`xml_read_report` ([src/format_xml.c](../src/format_xml.c))" name="xml_read_report" source="src/format_xml.c">
       <llr id="LLR-XRD-01">
         <text><![CDATA[`xml_read_report` shall reconstruct a report model from a previously written record without parsing or re-analysing any source file.]]></text>
         <traces>
@@ -5136,9 +5247,15 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-056" name="Regenerated Report Equivalence"/>
         </traces>
       </llr>
+      <llr id="LLR-XRD-15">
+        <text><![CDATA[`xml_read_report` shall reconstruct the custom-rule matches a record carries and render them identically to the run that wrote it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-056" name="Regenerated Report Equivalence"/>
+        </traces>
+      </llr>
     </function>
 
-    <function number="42" title="`graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))" name="graph_dot_warranted" source="src/format_graph.c">
+    <function number="43" title="`graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))" name="graph_dot_warranted" source="src/format_graph.c">
       <llr id="LLR-WAR-01">
         <text><![CDATA[`graph_dot_warranted` shall return true by default, and false when the user has disabled `.dot` generation.]]></text>
         <traces>
@@ -5159,7 +5276,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="43" title="`graph_write_dot` ([src/format_graph.c](../src/format_graph.c))" name="graph_write_dot" source="src/format_graph.c">
+    <function number="44" title="`graph_write_dot` ([src/format_graph.c](../src/format_graph.c))" name="graph_write_dot" source="src/format_graph.c">
       <llr id="LLR-DOT-01">
         <text><![CDATA[`graph_write_dot` shall emit the call tree in Graphviz DOT format.]]></text>
         <traces>
@@ -5193,7 +5310,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="44" title="`node_style` ([src/format_graph.c](../src/format_graph.c))" name="node_style" source="src/format_graph.c">
+    <function number="45" title="`node_style` ([src/format_graph.c](../src/format_graph.c))" name="node_style" source="src/format_graph.c">
       <llr id="LLR-STY-01">
         <text><![CDATA[`node_style` shall annotate nodes exceeding the coupling and fan-out thresholds, the functions forming the deepest call chain, the members of each dependency and recursive cycle, unreachable functions, and functions participating in a hidden channel.]]></text>
         <traces>
@@ -5208,7 +5325,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="45" title="`graph_write_graphml` ([src/format_graph.c](../src/format_graph.c))" name="graph_write_graphml" source="src/format_graph.c">
+    <function number="46" title="`graph_write_graphml` ([src/format_graph.c](../src/format_graph.c))" name="graph_write_graphml" source="src/format_graph.c">
       <llr id="LLR-GML-01">
         <text><![CDATA[`graph_write_graphml` shall export the graph in the GraphML serialisation schema so that it may be ingested by other tools.]]></text>
         <traces>
@@ -5237,7 +5354,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="46" title="`elfsyms_open` ([src/elfsyms.c](../src/elfsyms.c))" name="elfsyms_open" source="src/elfsyms.c">
+    <function number="47" title="`elfsyms_open` ([src/elfsyms.c](../src/elfsyms.c))" name="elfsyms_open" source="src/elfsyms.c">
       <llr id="LLR-ELF-01">
         <text><![CDATA[`elfsyms_open` shall read the image named on the command line and shall populate the function set from the symbol table that image carries, preferring `.symtab` and falling back to `.dynsym`.]]></text>
         <traces>
@@ -5288,7 +5405,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="47" title="`resolved_name` ([src/elfsyms.c](../src/elfsyms.c))" name="resolved_name" source="src/elfsyms.c">
+    <function number="48" title="`resolved_name` ([src/elfsyms.c](../src/elfsyms.c))" name="resolved_name" source="src/elfsyms.c">
       <llr id="LLR-SYM-01">
         <text><![CDATA[`resolved_name` shall return an unencoded linkage name unchanged, that being the C case and the `extern "C"` case alike.]]></text>
         <traces>
@@ -5316,7 +5433,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="48" title="Build and Link Configuration ([Makefile](../Makefile))" name="build_configuration" source="Makefile">
+    <function number="49" title="Build and Link Configuration ([Makefile](../Makefile))" name="build_configuration" source="Makefile">
       <intro><![CDATA[Requirements satisfied by the build rather than by any single function. Verified against the produced binary rather than at runtime.]]></intro>
       <llr id="LLR-BLD-01">
         <text><![CDATA[The build shall link `elc` against no interpreter and no virtual machine, and the produced binary shall require none at execution.]]></text>
@@ -5448,7 +5565,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
     </function>
-    <function number="49" title="User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))" name="user_documentation" source="doc/elc.1">
+    <function number="50" title="User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))" name="user_documentation" source="doc/elc.1">
       <intro><![CDATA[Requirements met by the delivered documentation rather than by any function. Verified against the built binary and the install tree, in the manner of the build-configuration group.]]></intro>
       <llr id="LLR-DOC-01">
         <text><![CDATA[A `man` page for `elc` shall be delivered in section-1 roff form, and shall render without diagnostic under a standard man-page formatter.]]></text>
@@ -5498,7 +5615,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
   <tests>
-  <file path="test/unit/cli.c" role="unit" count="38">
+  <file path="test/unit/cli.c" role="unit" count="41">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -5738,9 +5855,27 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-063"/>
       </traces>
     </test>
-</file>
 
-  <file path="test/unit/registry.c" role="unit" count="15">
+    <test name="a_rule_argument_is_recorded_unsplit">
+      <purpose><![CDATA[The `lang:path` argument reaches the options as given. The parser does not split it, and deliberately: whether the named language exists is the registry's question, and answering it here would put a second copy of that knowledge in the option parser.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-02"/>
+      </traces>
+    </test>
+    <test name="rule_arguments_accumulate">
+      <purpose><![CDATA[The option is repeatable and a second use does not replace the first.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-01"/>
+      </traces>
+    </test>
+    <test name="no_rule_is_supplied_by_default">
+      <purpose><![CDATA[elc ships no rule of its own beyond the catalogued metrics and thresholds, so an invocation naming none has none.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-111"/>
+      </traces>
+    </test></file>
+
+  <file path="test/unit/registry.c" role="unit" count="23">
     <test name="the_environment_variable_names_the_runtime_location">
       <purpose><![CDATA[The environment variable names the runtime location, and wins over the path adjacent to the executable — which for a unit binary does not exist at all.]]></purpose>
       <traces>
@@ -5834,6 +5969,57 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Teardown is safe on a null and on a never-opened registry, so every error path can release unconditionally.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-RCL-01"/>
+      </traces>
+    </test>
+    <test name="a_located_rule_is_bound_by_its_directory">
+      <purpose><![CDATA[A rule under queries/<lang>/rules/ is bound to that language with nothing naming it, and its identity's first half is the basename with the extension removed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-02"/>
+        <trace target="HLR" ref="HLR-109"/>
+      </traces>
+    </test>
+    <test name="a_broken_located_rule_is_excluded_and_the_run_continues">
+      <purpose><![CDATA[A rule in the runtime location that will not compile is a malformed component: diagnosed, excluded, and survived rather than kept or fatal.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-07"/>
+      </traces>
+    </test>
+    <test name="a_broken_located_rule_does_not_exclude_its_neighbours">
+      <purpose><![CDATA[One broken rule does not take a good one with it, which a loader abandoning the directory on first failure would do.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-07"/>
+      </traces>
+    </test>
+    <test name="a_broken_named_rule_fails_the_run">
+      <purpose><![CDATA[The same failure from the command line is a user error and stops the run. Paired with the located case above, this is the provenance rule itself rather than either half of it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-06"/>
+      </traces>
+    </test>
+    <test name="an_absent_named_rule_fails_the_run">
+      <purpose><![CDATA[An unreadable named rule fails exactly as an uncompilable one does: the provenance decides, not the kind of failure.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-06"/>
+      </traces>
+    </test>
+    <test name="a_rule_for_an_unavailable_language_is_skipped_not_fatal">
+      <purpose><![CDATA[A rule naming a language with no module is reported and skipped rather than compiled, and is not fatal even from the command line — what is missing is the module, not the rule.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-03"/>
+      </traces>
+    </test>
+    <test name="a_rule_argument_without_a_language_fails">
+      <purpose><![CDATA[An argument with no language is a usage error rather than a path silently taken for a language name.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-09"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="no_rule_is_discovered_from_the_working_directory">
+      <purpose><![CDATA[A rule sitting in the working directory is not a rule. Two users running the same command on the same tree must obtain the same result.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-05"/>
+        <trace target="HLR" ref="HLR-110"/>
       </traces>
     </test>
   </file>
@@ -9594,6 +9780,123 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Three nodes and not four, which also pins that the C module's function query captures definitions rather than declarations.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-013"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/rules.bats" role="fixture" count="17">
+    <test name="HLR-109: one rule file expresses several independently named rules">
+      <purpose><![CDATA[Three matches under two identities. A rule's identity is the file's basename plus the capture name, so a fixture with one capture per file could not show it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-109"/>
+      </traces>
+    </test>
+    <test name="HLR-109: the match count is reported in the heading">
+      <purpose><![CDATA[The section names how many matched, so an empty one is a result rather than an absence of information.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-109"/>
+      </traces>
+    </test>
+    <test name="HLR-107: a rule's predicate is evaluated, so free is not an allocation">
+      <purpose><![CDATA[tree-sitter's C library evaluates no predicate. Without elc evaluating the rule's own `#eq?`, the capture matches every call in the file and a rule author's filter is silently discarded — the assertion that a user's rule gets the same treatment as a built-in query.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-107"/>
+        <trace target="LLR" ref="LLR-CRM-02"/>
+      </traces>
+    </test>
+    <test name="HLR-031: the section is emitted even with no rule supplied">
+      <purpose><![CDATA[An absent section and an empty one are different claims.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-031"/>
+        <trace target="LLR" ref="LLR-SUM-07"/>
+      </traces>
+    </test>
+    <test name="HLR-111: a rule match carries no severity">
+      <purpose><![CDATA[The absence is the requirement rather than an omission: elc reports what a rule matched and forms no view about whether the rule was worth writing, so there is nothing honest to put in a severity column and there is none.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-111"/>
+      </traces>
+    </test>
+    <test name="HLR-107: a rule in the runtime location is used without being named">
+      <purpose><![CDATA[Binding by the directory that holds the file, with nothing on the command line.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-107"/>
+        <trace target="LLR" ref="LLR-RLR-02"/>
+      </traces>
+    </test>
+    <test name="HLR-107: what a rule does does not depend on how it arrived">
+      <purpose><![CDATA[The same query from both provenances produces the same matches; only the identity's first half differs, that being the file's name. What a rule does cannot depend on how it was supplied.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-107"/>
+      </traces>
+    </test>
+    <test name="HLR-108: adding a rule requires no rebuild">
+      <purpose><![CDATA[Asserted on the binary's mtime rather than on the output, because "no rebuild" is a claim about the executable.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-108"/>
+        <trace target="LLR" ref="LLR-RLR-04"/>
+      </traces>
+    </test>
+    <test name="HLR-116: a broken rule in the runtime location is skipped, not fatal">
+      <purpose><![CDATA[A malformed runtime component is diagnosed, excluded, and survived, and the report is still produced.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-116"/>
+        <trace target="LLR" ref="LLR-RLR-07"/>
+      </traces>
+    </test>
+    <test name="HLR-116: the same file named on the command line is fatal">
+      <purpose><![CDATA[The same bytes, the other provenance, the other outcome, and no report written. Two different broken files could not tell a provenance rule from a file-contents one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-116"/>
+        <trace target="LLR" ref="LLR-RLR-06"/>
+      </traces>
+    </test>
+    <test name="HLR-116: a named rule that does not exist is fatal and names itself">
+      <purpose><![CDATA[Unreadable fails as uncompilable does, and the diagnostic names the file so the reader knows which one to fix.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-116"/>
+        <trace target="LLR" ref="LLR-RLR-06"/>
+      </traces>
+    </test>
+    <test name="LLR-RLR-03: a rule naming an unavailable language is skipped">
+      <purpose><![CDATA[What is missing is the module rather than the rule, which is the absence that makes a source file a skip and not a failure.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RLR-03"/>
+      </traces>
+    </test>
+    <test name="HLR-063: --rules without a language is a usage error">
+      <purpose><![CDATA[A query compiles against one grammar, so an argument naming no language cannot be honoured and is rejected rather than guessed at.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063"/>
+        <trace target="LLR" ref="LLR-RLR-09"/>
+      </traces>
+    </test>
+    <test name="HLR-110: no rule is discovered from the working directory or target">
+      <purpose><![CDATA[Decoys in the working directory, in a dotfile directory, and in the analysis target, none of which is read. Asserted by planting them rather than by inspection, so that ignoring the file is what is tested and not merely never looking in that directory.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-110"/>
+        <trace target="LLR" ref="LLR-RLR-05"/>
+      </traces>
+    </test>
+    <test name="HLR-056: rule matches survive a record round trip byte-identically">
+      <purpose><![CDATA[Every new report section is a new thing for regeneration to lose.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-056"/>
+        <trace target="LLR" ref="LLR-XRD-15"/>
+      </traces>
+    </test>
+    <test name="HLR-054: the record carries each match with its identity">
+      <purpose><![CDATA[The identity is what the report presents and all a reader of a regenerated report can act on, so it is what the record holds.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-054"/>
+        <trace target="LLR" ref="LLR-XWR-15"/>
+      </traces>
+    </test>
+    <test name="HLR-032: two runs with the same rule produce identical output">
+      <purpose><![CDATA[Rule loading walks a directory, and a directory yields whatever order the filesystem holds.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+        <trace target="LLR" ref="LLR-RLR-11"/>
       </traces>
     </test>
   </file>

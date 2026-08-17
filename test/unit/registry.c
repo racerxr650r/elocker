@@ -9,6 +9,7 @@
  * the loading, not the grammar.
  */
 
+#include <errno.h>
 #include <criterion/criterion.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -346,4 +347,175 @@ Test(registry, close_is_safe_on_null_and_on_a_zeroed_registry)
 	registry_close(NULL);
 	registry_close(&reg);
 	cr_assert(1, "teardown must be safe on every path");
+}
+
+/* --------------------------------------------------------- custom rules -- */
+
+/* Write a rule file into the copied runtime's rules directory for C. */
+static void put_located_rule(const char *dir, const char *name,
+                             const char *contents)
+{
+	char path[1200];
+
+	snprintf(path, sizeof path, "%s/queries/c/rules", dir);
+	cr_assert_eq(mkdir(path, 0755) == 0 || errno == EEXIST, true);
+	snprintf(path, sizeof path, "%s/queries/c/rules/%s", dir, name);
+	put(path, contents);
+}
+
+/* Verifies LLR-RLR-02: a rule under queries/<lang>/rules/ is bound to that
+ * language by the directory holding it, with nothing naming the language. */
+Test(registry, a_located_rule_is_bound_by_its_directory)
+{
+	ElcOptions  opts = empty_options();
+	Registry    reg;
+	const char *dir  = runtime_copy(".c c\n");
+
+	put_located_rule(dir, "house.scm", "(function_definition) @body\n");
+
+	cr_assert_eq(registry_open(&opts, &reg), 0);
+	cr_assert_eq(reg.rule_count, 1);
+	cr_assert_str_eq(reg.rules[0].language, "c");
+	cr_assert_str_eq(reg.rules[0].stem, "house",
+	                 "the identity's first half is the basename with the "
+	                 "extension removed (HLR-109)");
+	registry_close(&reg);
+}
+
+/* Verifies LLR-RLR-07: a rule in the runtime location that will not compile
+ * is a malformed component — diagnosed, excluded, and survived. */
+Test(registry, a_broken_located_rule_is_excluded_and_the_run_continues)
+{
+	ElcOptions  opts = empty_options();
+	Registry    reg;
+	const char *dir  = runtime_copy(".c c\n");
+
+	put_located_rule(dir, "broken.scm", "(no_such_node_type) @x\n");
+
+	cr_assert_eq(registry_open(&opts, &reg), 0,
+	             "a malformed runtime component does not stop the run "
+	             "(HLR-070)");
+	cr_assert_eq(reg.rule_count, 0, "and it is excluded rather than kept");
+	registry_close(&reg);
+}
+
+/* Verifies LLR-RLR-07: one broken rule does not take a good one with it. */
+Test(registry, a_broken_located_rule_does_not_exclude_its_neighbours)
+{
+	ElcOptions  opts = empty_options();
+	Registry    reg;
+	const char *dir  = runtime_copy(".c c\n");
+
+	put_located_rule(dir, "broken.scm", "(no_such_node_type) @x\n");
+	put_located_rule(dir, "good.scm", "(function_definition) @body\n");
+
+	cr_assert_eq(registry_open(&opts, &reg), 0);
+	cr_assert_eq(reg.rule_count, 1);
+	cr_assert_str_eq(reg.rules[0].stem, "good");
+	registry_close(&reg);
+}
+
+/* Verifies LLR-RLR-06: the same failure from the command line is a user error
+ * and stops the run before any file is analysed. */
+Test(registry, a_broken_named_rule_fails_the_run)
+{
+	ElcOptions  opts  = empty_options();
+	Registry    reg;
+	const char *dir   = runtime_copy(".c c\n");
+	char        path[1200];
+	char        argument[1300];
+
+	snprintf(path, sizeof path, "%s/broken.scm", dir);
+	put(path, "(no_such_node_type) @x\n");
+	snprintf(argument, sizeof argument, "c:%s", path);
+
+	const char *rules[] = { argument };
+
+	opts.rules      = rules;
+	opts.rule_count = 1;
+
+	cr_assert_neq(registry_open(&opts, &reg), 0,
+	              "a rule the user named is a user error, unlike the same "
+	              "file found in the runtime location (HLR-116)");
+}
+
+/* Verifies LLR-RLR-06: an unreadable named rule fails the same way an
+ * uncompilable one does — the provenance decides, not the kind of failure. */
+Test(registry, an_absent_named_rule_fails_the_run)
+{
+	ElcOptions  opts  = empty_options();
+	Registry    reg;
+	const char *dir   = runtime_copy(".c c\n");
+	char        argument[1300];
+
+	snprintf(argument, sizeof argument, "c:%s/nowhere.scm", dir);
+
+	const char *rules[] = { argument };
+
+	opts.rules      = rules;
+	opts.rule_count = 1;
+
+	cr_assert_neq(registry_open(&opts, &reg), 0);
+}
+
+/* Verifies LLR-RLR-03: a rule naming a language with no module is reported
+ * and skipped rather than compiled — and is not fatal even from the command
+ * line, because what is missing is the module rather than the rule. */
+Test(registry, a_rule_for_an_unavailable_language_is_skipped_not_fatal)
+{
+	ElcOptions  opts  = empty_options();
+	Registry    reg;
+	const char *dir   = runtime_copy(".c c\n");
+	char        path[1200];
+	char        argument[1300];
+
+	snprintf(path, sizeof path, "%s/fine.scm", dir);
+	put(path, "(function_definition) @body\n");
+	snprintf(argument, sizeof argument, "cobol:%s", path);
+
+	const char *rules[] = { argument };
+
+	opts.rules      = rules;
+	opts.rule_count = 1;
+
+	cr_assert_eq(registry_open(&opts, &reg), 0);
+	cr_assert_eq(reg.rule_count, 0);
+	registry_close(&reg);
+}
+
+/* Verifies LLR-RLR-06: a `lang:path` argument without its language is a usage
+ * error rather than a path interpreted as a language. */
+Test(registry, a_rule_argument_without_a_language_fails)
+{
+	ElcOptions  opts  = empty_options();
+	Registry    reg;
+
+	runtime_copy(".c c\n");
+
+	const char *rules[] = { "house.scm" };
+
+	opts.rules      = rules;
+	opts.rule_count = 1;
+
+	cr_assert_neq(registry_open(&opts, &reg), 0);
+}
+
+/* Verifies LLR-RLR-05: nothing is read outside the runtime location and the
+ * command line. A rule sitting in the working directory is not a rule. */
+Test(registry, no_rule_is_discovered_from_the_working_directory)
+{
+	ElcOptions  opts = empty_options();
+	Registry    reg;
+	char        path[1200];
+
+	runtime_copy(".c c\n");
+	snprintf(path, sizeof path, "%s/decoy.scm", tmpdir());
+	put(path, "(function_definition) @body\n");
+	cr_assert_eq(chdir(tmpdir()), 0);
+
+	cr_assert_eq(registry_open(&opts, &reg), 0);
+	cr_assert_eq(reg.rule_count, 0,
+	             "two users running the same command on the same tree must "
+	             "obtain the same result (HLR-110)");
+	registry_close(&reg);
 }

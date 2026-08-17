@@ -247,6 +247,60 @@ something else, say so in the query file: `ada/calls.scm` carries that
 argument in full, because Ada writes an array index exactly like a call and
 no query can tell them apart.
 
+## Custom rules
+
+`queries/<lang>/rules/*.scm` holds rules you write. They are ordinary
+Tree-sitter queries, compiled against that language's grammar exactly as the
+files above are, and matched during the same parse — so everything this
+document says about captures and predicates applies to them unchanged.
+
+Two things differ, and both are about what `elc` does with the result.
+
+**A rule's identity is the file's basename plus the capture name.** A file
+`house-style.scm` containing
+
+```scheme
+((call_expression function: (identifier) @allocation)
+ (#eq? @allocation "malloc"))
+
+(goto_statement) @jump
+```
+
+expresses two rules, reported as `house-style.allocation` and
+`house-style.jump`. So a capture name is user-visible here in a way it is not
+elsewhere: name it for the reader of the report, not for the query.
+
+**`elc` reports what a rule matched and forms no opinion about it.** A match
+carries no severity and cites no source, because there is nothing honest to put
+in either — `elc` did not decide the rule was worth writing, you did. Matches
+appear in their own section beside the findings and never among them
+(HLR-109, HLR-111).
+
+### Where a rule may come from
+
+Two places, and no others. A rule in `queries/<lang>/rules/` is bound to that
+language by the directory holding it. A rule named as `--rules <lang>:<path>`
+is bound by the argument. **No rule file is ever discovered from the working
+directory, the analysis target, or a dotfile** (HLR-110) — two people running
+the same command on the same tree must get the same answer, and a rule picked
+up from a checkout would make that false.
+
+### What happens when a rule is broken
+
+Provenance decides, not the failure:
+
+| Where it came from | Unreadable or will not compile |
+| ------------------ | ------------------------------ |
+| `queries/<lang>/rules/` | diagnosed, excluded, the run continues |
+| `--rules lang:path` | diagnosed, and the run stops before any file is analysed |
+
+A rule you named is a mistake you can fix now, so `elc` stops and says so. A
+rule sitting in the runtime location is a malformed component, handled like any
+other: reported, skipped, survived (HLR-116).
+
+A rule naming a language with no module is reported and skipped from either
+place — what is missing is the module, not the rule.
+
 ## Adding a language
 
 1. Build the grammar as `runtime/parsers/<name>.so`, exporting

@@ -68,6 +68,20 @@ typedef struct {
 	uint32_t  line;
 } UnreachableRow;
 
+/* One match of a user-supplied rule, as the report presents it (HLR-109).
+ *
+ * No severity and no attribution, unlike a FindingRow, and the absence is the
+ * requirement rather than an omission: `elc` reports that a rule matched and
+ * forms no view about whether the rule was worth writing (HLR-111). A row here
+ * says only what matched, where, and over how many lines.
+ */
+typedef struct {
+	char     *rule;       /* "<basename>.<capture>"; owned */
+	char     *file;       /* owned */
+	uint32_t  start_line;
+	uint32_t  end_line;
+} RuleMatchRow;
+
 /* One statement within a function that cannot execute (HLR-137). */
 typedef struct {
 	char     *file;      /* owned */
@@ -285,6 +299,13 @@ typedef struct {
 	size_t          dead_count;
 	PathList        dead_unanalysed; /* language names, sorted; owned   */
 
+	/* What the user's own rules matched. Reported beside the findings and
+	 * never among them: a finding is a measurement `elc` banded against a
+	 * published threshold, and a rule match is a query someone else wrote
+	 * (HLR-109, HLR-111). */
+	RuleMatchRow   *rule_matches;   /* sorted; owned                    */
+	size_t          rule_match_count;
+
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;
 
@@ -327,6 +348,16 @@ void report_set_unresolved(Report *report, size_t unresolved);
  * (HLR-137, LLR-DED-06). Must be called before the facts are released.
  */
 int report_set_dead(Report *report, const FactList *facts);
+
+/* Copy the custom-rule matches onto an assembled report, sorted for
+ * presentation.
+ *
+ * Reads the fact list for the reason the dead-code findings do: a rule match
+ * is a property of one file's syntax and needs no whole-project resolution, so
+ * it is recorded during the parse and carried straight through. Must be called
+ * before the facts are released (HLR-109, LLR-RPT-31).
+ */
+int report_set_rules(Report *report, const FactList *facts);
 
 /* The published source a global-state verdict is attributed to, or NULL where
  * there is no finding to attribute (HLR-099, LLR-GLB-04).
