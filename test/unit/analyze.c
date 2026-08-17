@@ -1112,18 +1112,34 @@ Test(analyze, a_language_with_no_dead_code_query_is_unanalysed_not_clean)
 	Registry   reg;
 	FileFacts *facts;
 
-	/* Ada ships without one on purpose. "Not looked for" and "none found"
-	 * are different claims, and the flag is what keeps them apart
-	 * (HLR-139, LLR-DED-05). */
+	/* "Not looked for" and "none found" are different claims, and the flag
+	 * is what keeps them apart (HLR-139, LLR-DED-05).
+	 *
+	 * Every shipped module supplies a `deadcode.scm`, so the case is built
+	 * rather than borrowed: the runtime is copied and the file removed. It
+	 * was demonstrated by a shipped language until Ada was withdrawn, and a
+	 * synthetic module is the honest way to keep verifying a requirement
+	 * about a module that omits an optional file — the contract permits the
+	 * omission whether or not anything shipped today takes it up. */
 	static char path[1024];
+	char        command[2048];
+	char        runtime[1024];
 	FILE       *fp;
 
-	registry_for_tests(&reg);
 	source_holding("");   /* create the scratch directory */
-	snprintf(path, sizeof path, "%s/subject.adb", scratch);
+	snprintf(runtime, sizeof runtime, "%s/runtime", scratch);
+	snprintf(command, sizeof command, "cp -r '%s' '%s'",
+	         getenv(ELC_RUNTIME_DIR_ENV), runtime);
+	cr_assert_eq(system(command), 0, "could not copy the runtime");
+	snprintf(command, sizeof command, "%s/queries/c/deadcode.scm", runtime);
+	cr_assert_eq(unlink(command), 0);
+	setenv(ELC_RUNTIME_DIR_ENV, runtime, 1);
+
+	registry_for_tests(&reg);
+	snprintf(path, sizeof path, "%s/subject.c", scratch);
 	fp = fopen(path, "w");
 	cr_assert_not_null(fp);
-	fputs("procedure P is\nbegin\n   null;\nend P;\n", fp);
+	fputs("int p(void)\n{\n\treturn 0;\n}\n", fp);
 	fclose(fp);
 
 	facts = analyze_facts(&reg, path);

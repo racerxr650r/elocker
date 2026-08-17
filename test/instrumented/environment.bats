@@ -332,15 +332,26 @@ setup() {
 # Verifies LLR-BLD-15: the upstream owner and the archive reference are
 # parameters, so a grammar hosted elsewhere, or one pinned by commit because
 # its upstream cuts no releases, needs no change to any source module.
+#
+# Every grammar shipped today comes from the parsing library's own
+# organisation and is fetched by tag, so no single rule demonstrates the
+# parameters by being different. The claim is checked at its source instead:
+# the reference is shown to be a parameter by overriding it and seeing the
+# override in the command, and the owner is shown to be one by reading the
+# macro that builds every grammar. The project has shipped a grammar from
+# another owner, pinned by commit, and this is what keeps that possible.
 @test "the grammar build takes its owner and reference as parameters" {
-	run make -C "$REPO_ROOT" -Bn runtime/parsers/ada.so
+	run make -C "$REPO_ROOT" -Bn runtime/parsers/c.so GRAMMAR_C_VER=9.9.9
+	assert_success
+	assert_output --partial "v9.9.9"
 
-	# Ada is not under the parsing library's own organisation, and has no
-	# version tags — so the rule must reach a different owner and fetch by
-	# commit. Both are visible in the command it would run.
-	assert_output --partial "briot/tree-sitter-ada"
-	refute_output --partial "tree-sitter/tree-sitter-ada"
-	refute_output --regexp "briot/tree-sitter-ada/archive/refs/tags"
+	# The owner reaches the fetch from the call site rather than from a
+	# constant inside it. A macro that hardcoded the organisation would
+	# read as though a grammar from elsewhere could not be added as data.
+	run grep -A20 "^define build_grammar" "$REPO_ROOT/Makefile"
+	assert_success
+	assert_output --partial '$(2)'
+	refute_output --partial "github.com/tree-sitter/tree-sitter-$"
 }
 
 @test "every grammar the build declares is one the build can produce" {
@@ -363,7 +374,7 @@ setup() {
 	local listed
 	listed="$(awk '/^== grammars ==/ { g = 1; next } g && /^== / { g = 0 }
 	               g && /^  [a-z]/ { print $1 }' <<<"$output" | sort | tr '\n' ' ')"
-	assert_equal "$listed" "ada c cpp python rust "
+	assert_equal "$listed" "c cpp python rust "
 }
 
 @test "check-prereqs survives an unreachable upstream" {

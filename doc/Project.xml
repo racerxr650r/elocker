@@ -321,7 +321,7 @@ Installed, that same tree lives at `<prefix>/share/elc/runtime`; in the build tr
 
 `conditionals.scm` and `deadcode.scm` are loaded by the same code path the required six use, and the only difference is what an absence means: a file that is simply not there leaves a NULL for the consumer to notice, while one that is present and will not compile makes the module unusable exactly as a broken required file does.
 
-`deadcode.scm` is the **eighth**, and optional for the same reason. A module supplying one gains dead-code detection within functions; a module omitting one is analysed for every other measurement, and the report states that the analysis was *not performed* for that language rather than that none was found (HLR-139). Four of the five shipped modules supply one. Ada does not, deliberately: it writes its false literal as an ordinary identifier the grammar cannot distinguish from one the program declared, so capturing it would assert a resolution nothing performed — and shipping the terminator half alone would report Ada as *analysed* while quietly finding no literal branches, which is the confident-and-wrong outcome the whole design avoids.
+`deadcode.scm` is the **eighth**, and optional for the same reason. A module supplying one gains dead-code detection within functions; a module omitting one is analysed for every other measurement, and the report states that the analysis was *not performed* for that language rather than that none was found (HLR-139). Every module shipped today supplies one, and the file is optional all the same: a language that writes its false literal as an ordinary identifier the grammar cannot distinguish from one the program declared cannot supply a `deadcode.scm` honestly, since capturing it would assert a resolution nothing performed. Shipping the terminator half alone would report such a language as *analysed* while quietly finding no literal branches, which is the confident-and-wrong outcome the whole design avoids. The project has shipped a module that took that option, and the contract keeps it open.
 
 The distinction between the two ways an optional file can be absent is load-bearing. A file that is **not there** is a choice the contract allows. A file that is there and **will not compile** is a defect, and makes the module unusable exactly as a broken required file does; treating the two alike would let a typo silently disable an analysis.
 
@@ -537,7 +537,7 @@ Recovery has a limit worth stating: an unbalanced delimiter leaves the parser no
             </logic>
             <notes><![CDATA[Resolution is name-and-arity based within the analysed target. Indirect calls through a function pointer are not resolved to a destination, but the *address-taken* fact is retained and carried into reachability (§11). The asymmetry matters: a **missing** edge causes a live function to be reported as provably dead, which is a correctness failure against HLR-097, whereas an **extra** root merely shrinks the unreachable set and costs nothing but a missed pruning opportunity. `elc` therefore errs toward reachable — an interrupt vector or callback table entry is never reported as dead merely because no direct call to it exists.
 
-**Call-edge precision is language-dependent, and over-approximation is not uniformly safe.** The paragraph above concerns *missing* edges; the opposite error also occurs. Some languages make a call syntactically indistinguishable from something else without semantic analysis a grammar does not perform — Ada's `Foo (X)` is a function call or an array index, and the grammar manages the ambiguity with precedence rules rather than resolving it. Where a language's `calls.scm` cannot separate the two, the graph carries edges that do not correspond to calls. `elc` does not attempt to disambiguate in C: doing so would place language knowledge in the binary, which the design forbids outright.
+**Call-edge precision is language-dependent, and over-approximation is not uniformly safe.** The paragraph above concerns *missing* edges; the opposite error also occurs. Some languages make a call syntactically indistinguishable from something else without semantic analysis a grammar does not perform — a call and an array index written identically is the usual shape, and a grammar manages such an ambiguity with precedence rules rather than resolving it. Where a language's `calls.scm` cannot separate the two, the graph carries edges that do not correspond to calls. `elc` does not attempt to disambiguate in C: doing so would place language knowledge in the binary, which the design forbids outright.
 
 The consequences differ by analysis, and only one of them is dangerous:
 
@@ -956,7 +956,7 @@ Resolution is by published scheme, and the scheme is detected from the name rath
 
 A demangled name is not yet a match: the Itanium ABI yields `ns::C::f(int) const`, and the report presents the function name alone (HLR-014). The resolved name is therefore the *identifier* the demangling ends in, with the signature, the qualification, and any hash suffix removed — reduced to the same form on both sides of the comparison, since reducing only one side would make every qualified name a mismatch.
 
-**GNAT's Ada encoding is not one of these.** `Pkg.Proc` links as `pkg__proc`, which is neither Itanium nor a published mangling with a decoder to hand; such names resolve to nothing and are counted under HLR-143. Ada is therefore the one supported language for which this option reports a large unresolved count rather than a filter, and it says so rather than appearing to work.]]></interface>
+**A scheme with no decoder to hand is not one of these.** A linkage name encoded by a mangling this build cannot decode resolves to nothing and is counted under HLR-143, so a language whose compiler uses one reports a large unresolved count rather than a filter — and says so rather than appearing to work.]]></interface>
         </interfaces>
         <functions>
           <function signature="int elfsyms_open(const char *path, SymbolSet *out)" summary="Read the named image and populate the function set. Returns 0; non-zero after a diagnostic naming the path, which the caller turns into a fatal exit rather than a degraded run (HLR-146)."/>
@@ -1398,7 +1398,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-016, HLR-034 — and, through them, HLR-013, which has no direct observable"/>
       </fixture>
       <fixture name="`nesting/`" source="[test/fixtures/nesting/](../test/fixtures/nesting/)">
-        <artefact key="inputs" label="Inputs" path="Ada nested subprograms; lambdas and closures; methods and constructors; a nested function inside a lambda"/>
+        <artefact key="inputs" label="Inputs" path="Nested named functions; lambdas and closures; methods and constructors; a nested function inside a lambda"/>
         <artefact key="expected" label="Expected" path="`expected.tsv` — per-function attribution showing no statement counted twice"/>
         <artefact key="verifies" label="Verifies" path="HLR-014, HLR-018, HLR-067, HLR-068"/>
       </fixture>
@@ -1413,8 +1413,8 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-032, HLR-033, HLR-038, HLR-056, HLR-077, HLR-085, HLR-087 – HLR-090, HLR-095, HLR-115"/>
       </fixture>
       <fixture name="`graph/`" source="[test/fixtures/graph/](../test/fixtures/graph/)">
-        <artefact key="inputs" label="Inputs" path="**Phase 8**: a repeated call between one pair of functions; a global written in one file and read in another; a function assigned without being called; a call into a library; and, in Ada, a construct the grammar cannot separate from a call. **Phases 9–11 add**: mutual recursion within one file and across two; a clique of unused functions calling one another; a component dependency cycle; a global read and written by a single function; a global read by unreachable functions only"/>
-        <artefact key="expected" label="Expected" path="`expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. The ambiguous-call case pins what the grammar yields, so that the imprecision is a recorded decision rather than a later surprise — and so that a *false cycle* arising from it would be visible in the fixture rather than in a user's report. As of Phase 8 the Ada ambiguity resolves against no subprogram and lands in the unresolved count rather than becoming an edge, which is better than predicted and is pinned as such"/>
+        <artefact key="inputs" label="Inputs" path="**Phase 8**: a repeated call between one pair of functions; a global written in one file and read in another; a function assigned without being called; and a call into a library. **Phases 9–11 add**: mutual recursion within one file and across two; a clique of unused functions calling one another; a component dependency cycle; a global read and written by a single function; a global read by unreachable functions only"/>
+        <artefact key="expected" label="Expected" path="`expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. An unresolvable call is pinned as counted rather than invented, so that a *false* edge would be visible in the fixture rather than in a user's report"/>
         <artefact key="verifies" label="Verifies" path="Phase 8: HLR-010, HLR-032, HLR-033, HLR-073 – HLR-077, HLR-085, HLR-096, HLR-104, HLR-106, HLR-114. Later phases add HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-097"/>
       </fixture>
       <fixture name="`dot/`" source="[test/fixtures/dot/](../test/fixtures/dot/)">
@@ -1448,8 +1448,8 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-036, HLR-059, HLR-070, HLR-116, HLR-120"/>
       </fixture>
       <fixture name="`elf/`" source="[test/fixtures/elf/](../test/fixtures/elf/)">
-        <artefact key="inputs" label="Inputs" path="A source tree and images built from it by the test rather than committed, since a binary in the repository would be a fixture nobody could review. A C image linked from a subset of the sources, so that some source functions are absent from it; the same image stripped; a C++ image exercising Itanium mangling; an Ada image exercising GNAT's encoding, which nothing decodes; a file that is not an object file; a path that does not exist; and a run with no image at all"/>
-        <artefact key="expected" label="Expected" path="Hand-counted metrics over the retained functions only, with the file-scope ELOC reported separately; the list of source functions the image does not define, and the count of linkage names left unresolved; byte-identical output to a run with the option absent when no image is supplied; exit 2 with no report for the stripped image, the non-object file, and the absent path, each with its own diagnostic; a large unresolved count and a stated one for the Ada image"/>
+        <artefact key="inputs" label="Inputs" path="A source tree and images built from it by the test rather than committed, since a binary in the repository would be a fixture nobody could review. A C image linked from a subset of the sources, so that some source functions are absent from it; the same image stripped; a C++ image exercising Itanium mangling; an image whose linkage names use a mangling this build does not decode; a file that is not an object file; a path that does not exist; and a run with no image at all"/>
+        <artefact key="expected" label="Expected" path="Hand-counted metrics over the retained functions only, with the file-scope ELOC reported separately; the list of source functions the image does not define, and the count of linkage names left unresolved; byte-identical output to a run with the option absent when no image is supplied; exit 2 with no report for the stripped image, the non-object file, and the absent path, each with its own diagnostic; a large and clearly stated unresolved count for the image whose mangling is not decoded"/>
         <artefact key="verifies" label="Verifies" path="HLR-140 – HLR-147"/>
       </fixture>
       <fixture name="`conditional/`" source="[test/fixtures/conditional/](../test/fixtures/conditional/)">
@@ -1664,7 +1664,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
       </hlr>
 
       <hlr id="HLR-011" name="Initial Delivered Language Set">
-        <text><![CDATA[The elocker *project* shall deliver runtime language support for C, C++, Rust, Python, and Ada. This requirement constrains the project's deliverables, not the `elc` executable: `elc` shall not require, verify, or assume the presence of any particular language's support files, and shall complete with the exit-status semantics of HLR-120, producing a report per HLR-031, over whatever set of valid language modules the runtime location happens to contain.]]></text>
+        <text><![CDATA[The elocker *project* shall deliver runtime language support for C, C++, Rust, and Python. This requirement constrains the project's deliverables, not the `elc` executable: `elc` shall not require, verify, or assume the presence of any particular language's support files, and shall complete with the exit-status semantics of HLR-120, producing a report per HLR-031, over whatever set of valid language modules the runtime location happens to contain.]]></text>
       <traces>
         <trace target="SDD" ref="6"/>
         <trace target="SDD" ref="19"/>
@@ -1735,7 +1735,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
       </hlr>
 
       <hlr id="HLR-067" name="Nested Named Functions Reported Independently">
-        <text><![CDATA[A named function declared within the body of another function — such as an Ada nested subprogram, or a nested function or method in any other supported language — shall be discovered and reported as a function in its own right, with its own name, line range, ELOC, and cyclomatic complexity, rather than being folded into its enclosing function.]]></text>
+        <text><![CDATA[A named function declared within the body of another function — a nested function, a nested subprogram, or a method in any supported language — shall be discovered and reported as a function in its own right, with its own name, line range, ELOC, and cyclomatic complexity, rather than being folded into its enclosing function.]]></text>
       <traces>
         <trace target="SDD" ref="7"/>
       </traces>
@@ -2691,7 +2691,7 @@ This is the same question Section 18 asks and a different way of answering it. C
       </hlr>
 
       <hlr id="HLR-142" name="Linkage Names Resolved to Source Names">
-        <text><![CDATA[An image records a function under its linkage name, which for every language `elc` supports other than C is an encoding of the source name rather than the source name itself. `elc` shall resolve a linkage name to the function name its report presents wherever that name is encoded by a published mangling scheme, and shall match on the resolved name. Matching raw linkage names alone would retain nothing at all for C++, Rust, or Ada, and a filter that silently retains nothing is indistinguishable from a project that has no functions in it. Which schemes a build resolves is a design decision under HLR-112; a name encoded by a scheme this build does not resolve is reported under HLR-143 rather than silently dropped.]]></text>
+        <text><![CDATA[An image records a function under its linkage name, which for every language `elc` supports other than C is an encoding of the source name rather than the source name itself. `elc` shall resolve a linkage name to the function name its report presents wherever that name is encoded by a published mangling scheme, and shall match on the resolved name. Matching raw linkage names alone would retain nothing at all for C++ or Rust, and a filter that silently retains nothing is indistinguishable from a project that has no functions in it. Which schemes a build resolves is a design decision under HLR-112; a name encoded by a scheme this build does not resolve is reported under HLR-143 rather than silently dropped.]]></text>
       <traces>
         <trace target="SDD" ref="18"/>
       </traces>
@@ -5610,7 +5610,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
       <llr id="LLR-BLD-07">
-        <text><![CDATA[The build shall deliver runtime language support for C, C++, Rust, Python, and Ada, each as a grammar and its query files under the runtime location, requiring no change to any source module of the executable.]]></text>
+        <text><![CDATA[The build shall deliver runtime language support for C, C++, Rust, and Python, each as a grammar and its query files under the runtime location, requiring no change to any source module of the executable.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-011" name="Initial Delivered Language Set"/>
         </traces>
@@ -7841,7 +7841,7 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-032"/>
       </traces>
     </test>
-    <test name="HLR-011: five languages are detected from their extensions">
+    <test name="HLR-011: every delivered language is detected from its extension">
       <purpose><![CDATA[One target holding a file of each delivered language yields all five in the per-language breakdown.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-011"/>
@@ -8268,7 +8268,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/fixtures/eloc.bats" role="fixture" count="20">
+  <file path="test/fixtures/eloc.bats" role="fixture" count="19">
     <test name="the hand-counted category totals match">
       <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the values counted line by line in the fixture's header.]]></purpose>
       <traces>
@@ -8376,13 +8376,6 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-034"/>
       </traces>
     </test>
-    <test name="HLR-011: Ada matches its hand-counted categories">
-      <purpose><![CDATA[Ada's figures match its hand count, including short-circuit `and then` counted as a decision where plain `and` is not.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-011"/>
-        <trace target="HLR" ref="HLR-034"/>
-      </traces>
-    </test>
     <test name="HLR-048: C++ counts exception handling toward ELOC">
       <purpose><![CDATA[The one ELOC category C cannot express. `try`, `catch`, and `throw` each contribute a line, which no earlier phase could verify in any shipped language.]]></purpose>
       <traces>
@@ -8451,7 +8444,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/fixtures/nesting.bats" role="fixture" count="17">
+  <file path="test/fixtures/nesting.bats" role="fixture" count="15">
     <test name="the hand-counted nesting totals match">
       <purpose><![CDATA[The physical line count, the file's ELOC, and the function count match the fixture's hand-counted header.]]></purpose>
       <traces>
@@ -8500,19 +8493,6 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Repeating the run produces identical bytes, so the attribution does not depend on the order the query matched.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-032"/>
-      </traces>
-    </test>
-    <test name="HLR-067: Ada reports a nested subprogram in its own right">
-      <purpose><![CDATA[Three subprograms nested three deep are three reported functions, which is the shape HLR-067 was written for.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-067"/>
-        <trace target="HLR" ref="HLR-011"/>
-      </traces>
-    </test>
-    <test name="HLR-068: an Ada subprogram gains none of its nested ones' work">
-      <purpose><![CDATA[Each of the three owns exactly its own ELOC and complexity; attributing to the outermost would give the outer one everything and the others nothing.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-068"/>
       </traces>
     </test>
     <test name="HLR-018: a Rust closure is not reported as a function">
@@ -9075,7 +9055,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </traces>
     </test>
     <test name="HLR-139: a language with no dead-code query is reported not analysed">
-      <purpose><![CDATA[Ada ships without one on purpose, and the heading names it rather than leaving a clean-looking table.]]></purpose>
+      <purpose><![CDATA[Every shipped module supplies one, so the case is built: a runtime is copied and the file removed, and the heading names the language rather than leaving a clean-looking table.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-DED-05"/>
         <trace target="HLR" ref="HLR-139"/>
@@ -10240,7 +10220,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/fixtures/graph.bats" role="fixture" count="16">
+  <file path="test/fixtures/graph.bats" role="fixture" count="14">
     <test name="HLR-106: the exported graph matches the expected topology exactly">
       <purpose><![CDATA[The emitted GraphML is compared node for node and edge for edge against a file written from the source, so a change in what elc believes about the code appears as a diff rather than as a number nobody questions.]]></purpose>
       <traces>
@@ -10292,7 +10272,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </traces>
     </test>
     <test name="HLR-077: an unresolvable call is counted, not fatal">
-      <purpose><![CDATA[A library call and an ambiguous Ada construct are counted as unresolved and the run still succeeds.]]></purpose>
+      <purpose><![CDATA[A library call is counted as unresolved and the run still succeeds.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-077"/>
       </traces>
@@ -10307,19 +10287,6 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[The edge count is exactly what the fixture header accounts for; a tool guessing at an unresolved target would have more.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-077"/>
-      </traces>
-    </test>
-    <test name="the Ada array-index ambiguity is unresolved, not a spurious edge">
-      <purpose><![CDATA[An Ada array index that the grammar cannot distinguish from a call resolves against no subprogram and lands in the unresolved count rather than becoming an edge — pinning behaviour that is better than doc/notes.md §2.2 predicted.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-077"/>
-        <trace target="HLR" ref="HLR-010"/>
-      </traces>
-    </test>
-    <test name="an Ada call resolves like any other">
-      <purpose><![CDATA[An unambiguous Ada call still produces its edge, so the language's ambiguity costs precision on the ambiguous construct alone.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-073"/>
       </traces>
     </test>
     <test name="HLR-033: node identifiers follow sorted file order">

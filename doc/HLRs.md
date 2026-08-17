@@ -85,7 +85,7 @@ Requirements governing how `elc` identifies each file's programming language and
     *Trace:* [SDD Section 6](SDD.md), [SDD Section 19](SDD.md).
 
 *   <a id="HLR-011"></a>**HLR-011: Initial Delivered Language Set.**
-    The elocker *project* shall deliver runtime language support for C, C++, Rust, Python, and Ada. This requirement constrains the project's deliverables, not the `elc` executable: `elc` shall not require, verify, or assume the presence of any particular language's support files, and shall complete with the exit-status semantics of HLR-120, producing a report per HLR-031, over whatever set of valid language modules the runtime location happens to contain.
+    The elocker *project* shall deliver runtime language support for C, C++, Rust, and Python. This requirement constrains the project's deliverables, not the `elc` executable: `elc` shall not require, verify, or assume the presence of any particular language's support files, and shall complete with the exit-status semantics of HLR-120, producing a report per HLR-031, over whatever set of valid language modules the runtime location happens to contain.
     *Trace:* [SDD Section 6](SDD.md), [SDD Section 19](SDD.md).
 
 *   <a id="HLR-012"></a>**HLR-012: Unsupported-Language File Handling.**
@@ -125,7 +125,7 @@ Requirements governing how `elc` computes Effective Lines of Code and cyclomatic
     *Trace:* [SDD Section 7](SDD.md).
 
 *   <a id="HLR-067"></a>**HLR-067: Nested Named Functions Reported Independently.**
-    A named function declared within the body of another function — such as an Ada nested subprogram, or a nested function or method in any other supported language — shall be discovered and reported as a function in its own right, with its own name, line range, ELOC, and cyclomatic complexity, rather than being folded into its enclosing function.
+    A named function declared within the body of another function — a nested function, a nested subprogram, or a method in any supported language — shall be discovered and reported as a function in its own right, with its own name, line range, ELOC, and cyclomatic complexity, rather than being folded into its enclosing function.
     *Trace:* [SDD Section 7](SDD.md).
 
 *   <a id="HLR-068"></a>**HLR-068: Innermost-Function Metric Attribution.**
@@ -656,7 +656,7 @@ This is the same question Section 18 asks and a different way of answering it. C
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 18](SDD.md).
 
 *   <a id="HLR-142"></a>**HLR-142: Linkage Names Resolved to Source Names.**
-    An image records a function under its linkage name, which for every language `elc` supports other than C is an encoding of the source name rather than the source name itself. `elc` shall resolve a linkage name to the function name its report presents wherever that name is encoded by a published mangling scheme, and shall match on the resolved name. Matching raw linkage names alone would retain nothing at all for C++, Rust, or Ada, and a filter that silently retains nothing is indistinguishable from a project that has no functions in it. Which schemes a build resolves is a design decision under HLR-112; a name encoded by a scheme this build does not resolve is reported under HLR-143 rather than silently dropped.
+    An image records a function under its linkage name, which for every language `elc` supports other than C is an encoding of the source name rather than the source name itself. `elc` shall resolve a linkage name to the function name its report presents wherever that name is encoded by a published mangling scheme, and shall match on the resolved name. Matching raw linkage names alone would retain nothing at all for C++ or Rust, and a filter that silently retains nothing is indistinguishable from a project that has no functions in it. Which schemes a build resolves is a design decision under HLR-112; a name encoded by a scheme this build does not resolve is reported under HLR-143 rather than silently dropped.
     *Trace:* [SDD Section 18](SDD.md).
 
 *   <a id="HLR-143"></a>**HLR-143: Both Directions of Mismatch Counted and Reported.**

@@ -19,8 +19,8 @@ analysis, for many languages.
 ## Status
 
 **Phase 15 is complete.** `elc src/` reports **effective lines of code** and
-**cyclomatic complexity** per function across **C, C++, Rust, Python, and
-Ada**, in one invocation over a mixed target, as a table, Markdown, CSV, or
+**cyclomatic complexity** per function across **C, C++, Rust, and Python**,
+in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
 a directory the repository does not track is traversed instead; every report
 names the route it used.
@@ -140,7 +140,7 @@ ELF-filtered analysis is next, from Phase 16.
 | [3](doc/SDP.md#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | ✅ Complete |
 | [4](doc/SDP.md#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
 | [5](doc/SDP.md#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | ✅ Complete |
-| [6](doc/SDP.md#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | ✅ Complete |
+| [6](doc/SDP.md#phase-6--language-breadth) | C++, Rust, Python — data only, no C change | ✅ Complete |
 | [7](doc/SDP.md#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
 | [8](doc/SDP.md#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
 | [9](doc/SDP.md#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
@@ -214,7 +214,7 @@ C source. Adding a language means adding a directory — and the same mechanism
 is open to you: a team's own coding standard is expressed as `.scm` queries and
 checked by the same engine that produces the built-in metrics.
 
-**Planned initial support:** C, C++, Rust, Python, and Ada.
+**Planned initial support:** C, C++, Rust, and Python.
 
 ## What the output looks like
 

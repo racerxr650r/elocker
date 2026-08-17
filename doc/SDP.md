@@ -44,7 +44,7 @@ set HLR-140 to HLR-147 is now the only specified-and-unbuilt group, and Phase
 | [3](#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | ✅ Complete |
 | [4](#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
 | [5](#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | ✅ Complete |
-| [6](#phase-6--language-breadth) | C++, Rust, Python, Ada — data only, no C change | ✅ Complete |
+| [6](#phase-6--language-breadth) | C++, Rust, Python — data only, no C change | ✅ Complete |
 | [7](#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
 | [8](#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
 | [9](#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
@@ -151,7 +151,7 @@ ecosystem behind it.
    each bound to at least one passing test.
 2. Reach and hold an empty coverage-gap list in [Traceability.md](Traceability.md),
    excepting the review-verified items the [STP](STP.md) §7 names explicitly.
-3. Ship runtime language support for C, C++, Rust, Python, and Ada, added as
+3. Ship runtime language support for C, C++, Rust, and Python, added as
    data with no C change — the extensibility claim demonstrated rather than
    asserted.
 4. Pass the three-pass test gate — ordinary, `make asan`, `make valgrind` —
@@ -438,7 +438,7 @@ requirements and no others.
 | GitHub Actions runner | Phase 0 | The gate is meaningless if it is not enforced |
 | `libtree-sitter` + a C grammar | Phase 2 | Nothing can be parsed before this |
 | Expat | Phase 5 | Only the regeneration read path needs it |
-| Additional grammars | Phase 6 | Ada's is community-maintained but vetted and accepted ([notes.md](notes.md) §2.2) |
+| Additional grammars | Phase 6 | Each is fetched from its pinned upstream release and built from source |
 | `libgit2` | Phase 7 | Isolated to one discovery route |
 | `igraph` | Phase 8 | With GraphML and OpenMP off, and its GMP choice pinned |
 | `libelf` | Phase 16 | The image container only; the demangler it needs is already linked, the C++ runtime arriving with `igraph` |
@@ -831,7 +831,7 @@ from §8.
 
 ### Phase 6 — Language Breadth
 
-1. Grammars and six query files each for C++, Rust, Python, and Ada.
+1. Grammars and six query files each for C++, Rust, and Python.
 2. Per-language fixtures under `eloc/` and `nesting/` with hand-counted
    values.
 3. `extensions.map` entries for every shipped extension.
@@ -852,7 +852,7 @@ Implement **Phase 6 — Language Breadth**, tracked by issue #<N>.
 Read first: the query-file contract published in Phase 2, and `doc/STP.md` §5
 for the fixture conventions.
 
-Add C++, Rust, Python, and Ada: a grammar, six query files, `extensions.map`
+Add C++, Rust, and Python: a grammar, six query files, `extensions.map`
 entries, and hand-counted fixtures for each.
 
 **The acceptance criterion for this phase is that `git diff` shows no change
@@ -862,11 +862,10 @@ defect is in the design, not the grammar, and the fix belongs in `src/` as a
 separate issue before this phase proceeds.
 
 Watch for:
-* **The Ada grammar is vetted and accepted** — `briot/tree-sitter-ada`,
-  MIT, actively maintained, authored by an AdaCore developer
-  (`doc/notes.md` §2.2). Use it; no further vetting is needed. The caveat
-  recorded there about call-site ambiguity lands in Phase 8, not here.
-* Ada nested subprograms and Rust closures are the interesting cases for
+* **Vet every grammar before adopting it** — licence, maintenance, and
+  authorship — and record the verdict in `doc/notes.md`. A grammar is a
+  dependency like any other.
+* Nested named functions and Rust closures are the interesting cases for
   HLR-067/068 — give each a `nesting/` fixture.
 * Fixture authoring is the bulk of this phase. Budget for it.
 
@@ -974,13 +973,13 @@ Watch for:
   **counted and reported, never fatal**. Do not guess at a destination;
   over-claiming edges would make Phase 10's dead-code proof unsound.
 * Capture address-taken functions here even though Phase 10 consumes them.
-* **Ada `calls.scm` needs care.** `Foo (X)` is ambiguous between a function
-  call and an array index; the grammar manages this with precedence rules
-  rather than resolving it, since resolution needs semantic analysis. Expect
-  false-positive call edges in Ada. Do not disambiguate heuristically in C —
-  that would put language knowledge in the binary. Add an Ada case to the
-  `graph/` fixtures pinning whatever behaviour you settle on, so it is a
-  recorded decision rather than a later surprise (`doc/notes.md` §2.2).
+* **A `calls.scm` for an ambiguous grammar needs care.** Where a language
+  writes an array index exactly like a call, the grammar manages the
+  ambiguity with precedence rules rather than resolving it, and the query
+  cannot separate the two. Expect false-positive call edges. Do not
+  disambiguate heuristically in C — that would put language knowledge in the
+  binary. Pin whatever behaviour you settle on in the `graph/` fixtures, so
+  it is a recorded decision rather than a later surprise.
 * Build the graph from the facts the single parse produced. `strace` must
   still show one open per file (HLR-076).
 
@@ -1460,11 +1459,12 @@ Watch for:
   the `SHN_UNDEF` test every function the image *calls* into a shared
   library counts as one the image contains, and the filter then retains
   source the build never compiled.
-* **Raw name matching retains nothing outside C.** C++, Rust and Ada all
-  encode the source name. `__cxa_demangle` costs no new dependency — the
-  C++ runtime is already linked because igraph is partly C++ — and covers
-  Itanium and Rust's legacy scheme. GNAT's `pkg__proc` is covered by
-  nothing, so Ada reports a large unresolved count and says so.
+* **Raw name matching retains nothing outside C.** C++ and Rust both encode
+  the source name. `__cxa_demangle` costs no new dependency — the C++
+  runtime is already linked because igraph is partly C++ — and covers
+  Itanium and Rust's legacy scheme. A language whose compiler uses a
+  mangling this build cannot decode reports a large unresolved count and
+  says so.
 * **A decoded name is not yet a match.** Itanium yields
   `ns::C::f(int) const` and the report presents the identifier. Reduce both
   sides to one form, or every qualified name is a mismatch.
@@ -1554,15 +1554,16 @@ before you push. Close as that phase's prompt directs.
 
 ## 9. Risks & Open Questions
 
-*   **~~The Ada grammar is community-maintained.~~ Discharged 2026-08-14.**
-    `briot/tree-sitter-ada` was vetted and accepted: MIT, last commit July
-    2026, authored by an AdaCore developer, adopted by Zed
-    ([notes.md](notes.md) §2.2). HLR-011 stands unamended. *Residual risk,
-    now carried by Phase 8 instead:* Ada's `Foo (X)` is ambiguous between a
-    call and an array index, and the grammar manages rather than resolves it,
-    so Ada call edges may carry false positives. The direction is safe — extra
-    edges only shrink the unreachable set — but Ada's coupling figures will be
-    noisier than C's.
+*   **~~The Ada grammar is community-maintained.~~ Closed 2026-08-17 by
+    withdrawing the language.** It was vetted and accepted in Phase 6 and
+    delivered through Phase 15; HLR-011 no longer names it and the module,
+    fixtures and grammar are gone ([notes.md](notes.md) §2.2). *What the
+    episode leaves behind* is the general risk rather than the particular
+    one: a grammar that writes an array index exactly like a call cannot have
+    its call sites separated by any query, so such a language's coupling
+    figures are noisier than C's. The direction is safe — extra edges only
+    shrink the unreachable set — and the `graph/` fixture pins that no
+    destination is invented for a call that does not resolve.
 *   **`--wrap` is not portable across linkers.** The unit level depends on
     GNU ld or lld. *Mitigation:* Phase 0 proves the mechanism before anything
     depends on it; a toolchain lacking it cannot run the unit suite and must
@@ -1573,7 +1574,7 @@ before you push. Close as that phase's prompt directs.
     rather than linking it.
 *   **Component granularity may prove too coarse.** HLR-114 defines a
     component as a source file, which is conventional for C but blunt for
-    C++/Rust/Ada where several classes or packages share a file
+    C++ and Rust where several classes or modules share a file
     ([notes.md](notes.md) §3). *Mitigation:* it is a change to HLR-114 alone;
     everything else references it. Revisit after Phase 11 produces real
     numbers.
@@ -1651,9 +1652,8 @@ that would leave the first half untestable until the second lands.
 *   **Sorting, ranking, and top-N selection**, currently deliberately absent.
 *   **Parallel file processing**, gated strictly on a real repository proving
     unusably slow.
-*   **Language-defined components** — Rust modules, C++ namespaces, Ada
-    packages — should Phase 11 show file-granularity coupling to be
-    uninformative.
+*   **Language-defined components** — Rust modules, C++ namespaces — should
+    Phase 11 show file-granularity coupling to be uninformative.
 *   **A configuration file** for stratum and entry-point declarations, should
     passing them on the command line prove unwieldy at scale. This is a
     vision-level decision, not a convenience ([PVD](PVD.md) §6 Principle 3).

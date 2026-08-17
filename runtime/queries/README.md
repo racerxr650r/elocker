@@ -12,8 +12,8 @@ broken and that is the thing to fix.
 This has now been demonstrated twice. Phase 6 added four languages without a
 line of change under `src/`. Phase 8 filled in `calls.scm` and `globals.scm`
 for all five, and the C that consumes them names two capture prefixes and no
-node type — the Ada ambiguity that would most tempt a special case is handled
-by *not* handling it, in `ada/calls.scm`.
+node type. Where a grammar cannot separate two constructs, the query file says
+so and captures neither, rather than a special case in C deciding for it.
 
 ## What a language module is
 
@@ -47,17 +47,19 @@ analysed for everything else, and `elc` reports that dead-code analysis was
 distinction matters: they are different claims, and a reader who cannot tell
 them apart has been told nothing.
 
-Four of the five shipped modules supply one. **Ada deliberately does not**, and
-the reason is the same one `ada/calls.scm` gives for leaving `Foo (X)` alone.
-Ada writes its false literal as `False`, which the grammar parses as an
-ordinary identifier — indistinguishable from a name the program declared
-itself, and case-insensitively spelled besides. Capturing it would mean
-asserting that an identifier resolves to `Standard.Boolean'False` without
-having resolved anything, and the cost of being wrong is a claim that live code
-is dead. The terminator half alone would be sound, but shipping half a query
-would report Ada as *analysed* and quietly find no literal branches, which is
-the confident-and-wrong outcome the whole design avoids. Ada is reported
-unanalysed instead, which is the true statement.
+Every module shipped today supplies one, and the file stays optional all the
+same, because a language can be unable to supply one honestly. Consider a
+language that writes its false literal as an ordinary identifier —
+indistinguishable from a name the program declared itself, and perhaps
+case-insensitively spelled besides. Capturing it would mean asserting that the
+identifier resolves to the language's own `False` without having resolved
+anything, and the cost of being wrong is a claim that live code is dead.
+
+The terminator half alone would be sound, but shipping half a query would
+report the language as *analysed* while quietly finding no literal branches,
+which is the confident-and-wrong outcome the whole design avoids. **Omit the
+file.** Being reported unanalysed is the true statement, and the project has
+shipped a module that took exactly that option.
 
 A query file that captures nothing is valid, and is how an unimplemented
 query is expressed. `elc` reads captures; it never asks whether a file is
@@ -284,9 +286,9 @@ set, which costs a pruning opportunity. Err toward capturing.
 edge inflates fan-out and call depth, and can close a dependency cycle that
 does not exist in the program — and a false critical finding costs more than
 a noisy metric. Where a language's grammar cannot separate a call from
-something else, say so in the query file: `ada/calls.scm` carries that
-argument in full, because Ada writes an array index exactly like a call and
-no query can tell them apart.
+something else, say so in the query file. A language that writes an array index
+exactly like a call is the usual shape of this, and no query can tell the two
+apart.
 
 ## Custom rules
 
@@ -362,16 +364,10 @@ place — what is missing is the module, not the rule.
 | C++ | [`tree-sitter/tree-sitter-cpp`](https://github.com/tree-sitter/tree-sitter-cpp) | `GRAMMAR_CPP_VER` | four of six complete |
 | Rust | [`tree-sitter/tree-sitter-rust`](https://github.com/tree-sitter/tree-sitter-rust) | `GRAMMAR_RUST_VER` | four of six complete |
 | Python | [`tree-sitter/tree-sitter-python`](https://github.com/tree-sitter/tree-sitter-python) | `GRAMMAR_PYTHON_VER` | four of six complete |
-| Ada | [`briot/tree-sitter-ada`](https://github.com/briot/tree-sitter-ada) | `GRAMMAR_ADA_REV` — a **commit**, not a tag | four of six complete |
 
 "Four of six complete" means `functions.scm`, `comments.scm`, `eloc.scm`, and
 `complexity.scm` carry real patterns; `calls.scm` and `globals.scm` are
 contract stubs until the phases that consume them.
-
-Ada is pinned by commit because its upstream cuts no releases — its tag list
-holds a single entry named `master`, which is a moving branch and therefore
-not a pin. `make check-prereqs` compares each pin against what upstream has
-now, since a commit reference will never be named by an advisory.
 
 ## What adding four languages taught the contract
 
@@ -380,7 +376,7 @@ demonstration HLR-010 asks for. The contract held. Four things it is worth
 knowing before writing a fifth:
 
 **A capture name is a contract; a node type is not.** Every disagreement
-between the languages lives in a `.scm` file. Rust has no `else` node, Ada
+between the languages lives in a `.scm` file. Rust has no `else` node, one
 spells short-circuit operators as two anonymous tokens inside an ordinary
 expression, Python's `elif` is a clause where Rust's is a nested `if` — and
 none of that reached C.
@@ -392,10 +388,10 @@ to attribution, so what is inside it lands on the nearest reported function
 around it. There is nothing to write.
 
 **A pattern that needs a *specific* node is not the same as one that needs
-any.** Ada's `(object_declaration (expression))` counts an initialised
-declaration; `(object_declaration (_))` counts every declaration, because
-every one has a name and a subtype as named children. The first version of
-that pattern was the second one.
+any.** `(object_declaration (expression))` counts an initialised declaration;
+`(object_declaration (_))` counts every declaration, because every one has a
+name and a subtype as named children. The first version of that pattern was
+the second one, in a language since withdrawn — the mistake outlives it.
 
 **Anchors do work that fields cannot.** Rust's tail expression — the usual way
 a Rust function returns — has no field name. `(block (_) @eloc.statement .)`

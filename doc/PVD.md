@@ -250,7 +250,7 @@ These principles are the tie-breakers when requirements conflict.
 *   Automatic per-file language detection in mixed-language
     repositories, by file extension — the user never denotes which
     source files are which language.
-*   Initial language support: **C, C++, Rust, Python, and Ada.**
+*   Initial language support: **C, C++, Rust, and Python.**
 *   Runtime-loaded language grammars and queries, discovered relative
     to the binary or via an environment variable.
 

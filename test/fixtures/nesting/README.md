@@ -86,7 +86,7 @@ fixture pins the observable result.
 C has no nested functions in the standard; GCC provides them, and
 `tree-sitter-c` parses them. The fixture is source that is read, never
 compiled, so the extension costs nothing — and it lets the attribution rule be
-tested in the language that ships today rather than waiting for Ada, whose
+tested in the languages that ship today rather than waiting for one whose
 nested subprograms are the requirement's real motivation (HLR-067).
 
 **An *anonymous* callable is the other half of the rule** (HLR-018): a
@@ -111,14 +111,12 @@ These four close that.
 
 | Fixture | Demonstrates | File ELOC |
 | ------- | ------------ | --------- |
-| `nested.adb` | nested subprograms, three deep | **9** |
 | `nested.rs` | a nested `fn` **and** a closure, in one body | **8** |
 | `nested.py` | a nested `def` **and** a lambda | **9** |
 | `nested.cpp` | a lambda | **5** |
 
 | Fixture | Function | ELOC | Complexity |
 | ------- | -------- | ---- | ---------- |
-| `nested.adb` | `Outer` | 3 | **3** |
 | | `Middle` | 3 | 2 |
 | | `Inner` | 3 | 2 |
 | `nested.rs` | `outer` | 5 | **4** |
@@ -127,16 +125,6 @@ These four close that.
 | | `inner` | 3 | 2 |
 | `nested.cpp` | `outer` | 5 | **4** |
 
-## Ada — the requirement's real motivation
-
-`nested.adb` nests three deep, because Ada's declarative part may hold
-subprograms and those may hold more. Each owns exactly its own: `Inner` 3 and
-2, `Middle` 3 and 2, `Outer` 3 and 3. An implementation attributing to the
-outermost enclosing subprogram would report `Outer` as 9 and the other two as
-nothing.
-
-`Outer`'s complexity of 3 is one `if` plus one `and then` — the short-circuit
-operator being a second place its condition can be decided.
 
 ## The bolded complexities are HLR-018
 

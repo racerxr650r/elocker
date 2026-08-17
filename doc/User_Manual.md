@@ -36,7 +36,7 @@ one, and reports **effective lines of code** and **cyclomatic complexity** per
 function — with project totals, a per-language breakdown, and a list of the
 functions over a complexity threshold you set. It writes that report as a
 table, Markdown, CSV, or XML, and can rebuild it later from the XML alone. It
-ships with five languages: C, C++, Rust, Python, and Ada.
+ships with four languages: C, C++, Rust, and Python.
 
 **What it does not do yet:** the System Dependence Graph and the findings
 derived from it — coupling, cycles, call depth, dead code. Those arrive in
@@ -897,14 +897,14 @@ is reachable, and a tool that flagged it would be telling you to delete a live
 branch target.
 
 **Support is per language, and its absence is stated.** A language module may
-supply a dead-code query or not; the four that do are C, C++, Python and Rust.
-Ada does not, on purpose — it writes its false literal as an ordinary
-identifier the grammar cannot distinguish from one your program declared, and
-guessing would risk exactly the false claim above. When a language has no
-query the heading says so:
+supply a dead-code query or not, and every language shipping today does. One
+that writes its false literal as an ordinary identifier the grammar cannot
+distinguish from one your program declared should not: guessing would risk
+exactly the false claim above. When a language has no query the heading says
+so:
 
 ```text
-Dead code within functions (not analysed for: ada)
+Dead code within functions (not analysed for: some_language)
 ```
 
 *Not analysed* and *none found* are different claims. A reader who cannot tell
@@ -960,7 +960,7 @@ The node attributes are `name`, `file`, `line-start`, `line-end`,
 
 ### Where the graph is imprecise, and in which direction
 
-`elc` resolves calls by name across the files you gave it. Three consequences
+`elc` resolves calls by name across the files you gave it. Two consequences
 are worth knowing, because they affect how much weight to put on a number:
 
 - **A name defined twice resolves to the first definition** in sorted file
@@ -969,19 +969,13 @@ are worth knowing, because they affect how much weight to put on a number:
 - **A method call resolves on the method name**, not on the receiver's type.
   Working out which class a call lands on needs type resolution, which a
   grammar does not do.
-- **Ada writes an array index exactly like a function call.** `Table (2)`
-  and `Scale (2)` are the same syntax, and the grammar manages the ambiguity
-  rather than resolving it. In practice the index resolves against no
-  subprogram and is counted as *unresolved*, which is visible. It becomes a
-  wrong edge only if an array shares its name with a subprogram somewhere in
-  the project.
 
 `elc` does not correct for any of these, and the reason is the same each
 time: the correction would have to live in the binary and would encode one
 language's semantics there, which is exactly what makes adding a language a
 data change rather than a code change.
 
-**The first of the three can produce a false unreachable claim, and that is
+**The first of the two can produce a false unreachable claim, and that is
 worth knowing before you delete anything.** If two files each define a
 `static` helper called `grow`, every call to either resolves to the first,
 and the second has no incoming edge — so reachability reports it dead when it
@@ -1246,7 +1240,6 @@ elc src/main.c      # .c → the C module in runtime/
 | C++ | `.cc` `.cpp` `.cxx` `.hh` `.hpp` `.hxx` |
 | Rust | `.rs` |
 | Python | `.py` `.pyi` |
-| Ada | `.adb` `.ads` |
 
 `.h` maps to **C**, not C++. A header shared by both is far more often C, and
 a project that knows otherwise edits `runtime/extensions.map` — one line, no
@@ -1259,7 +1252,6 @@ invocation, and each language's share of the totals appears in its own row:
 Languages
   Language  Files  Lines  ELOC
   --------  -----  -----  ----
-  ada           2    140    61
   c             9    812   402
   rust          4    233   118
 ```
@@ -1272,14 +1264,12 @@ what counts, and the languages genuinely differ:
 
 * **Rust has no `else` node** — the alternative of an `if` is just a block —
   so `} else {` is a line C counts and Rust does not.
-* **Python's `pass` and Ada's `null;` are excluded**, both being the
+* **Python's `pass` is excluded**, being the
   language's way of writing an empty block.
 * **`import`, `with`, and `use` clauses are excluded**, as `#include` is:
   they name what a file depends on.
 * **Rust's `static` counts and its `const` does not.** A `static` is storage
   that exists at run time; a `const` is inlined at every use.
-* **Ada's `and then` is a decision point and plain `and` is not**, because
-  only the first may skip its right operand.
 
 Each of these is written down beside the rule it governs, in that language's
 `.scm` files under `runtime/queries/`.
