@@ -69,7 +69,7 @@ elocker/
 ├── Makefile                 # GNU make; see "Build"
 ├── doc/                     # Project.xml + the five generated specs
 ├── include/                 # one public header per src module
-├── src/                     # 15 modules, a one-way pipeline (SDD §2.1)
+├── src/                     # 16 modules, a one-way pipeline (SDD §2.1)
 │   ├── main.c               # sequencing, exit status
 │   ├── cli.c                # the only reader of argv
 │   ├── discover.c           # stat / libgit2 / fts routing, dedup, ordering
@@ -84,7 +84,8 @@ elocker/
 │   ├── format_text.c        # table + markdown
 │   ├── format_csv.c         # RFC 4180
 │   ├── format_xml.c         # XML write + streaming read (regeneration)
-│   └── format_graph.c       # .dot + GraphML
+│   ├── format_graph.c       # .dot + GraphML
+│   └── elfsyms.c            # the linked image's function set   (HLR-140)
 ├── build/                   # objects, .d, elc, runtime symlink (gitignored)
 ├── runtime/
 │   ├── extensions.map       # "<ext> <lang>" per line          (HLR-060)

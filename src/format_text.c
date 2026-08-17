@@ -916,6 +916,54 @@ int render_report(const Report *report, Style style, FILE *out)
 			return -1;
 	}
 
+	if (report->image) {
+		/* The linked image these figures describe, and both directions
+		 * of mismatch against it.
+		 *
+		 * **Emitted only for a filtered run**, which is the one place
+		 * the uniform-composition rule gives way and does so by
+		 * requirement rather than by preference: HLR-140 says a run
+		 * without the option reports exactly what it reported before
+		 * the option existed, and an empty section is not nothing.
+		 *
+		 * The two counts are different claims and are labelled as
+		 * such. The unresolved count states how complete the filter
+		 * is, as the unresolved-call count states how complete the
+		 * graph is; the list below states what the build did not keep
+		 * (HLR-143, LLR-SUM-06). */
+		static const char *const names[]   = { "Property", "Value" };
+		static const bool        numeric[] = { false, false };
+
+		grid_begin(&grid, "Linked-image filter", 2, names, numeric);
+		grid_row(&grid, "Image", report->image);
+		snprintf(a, sizeof a, "%" PRIu64, report->image_unresolved);
+		grid_row(&grid, "Unresolved linkage names", a);
+		/* The one figure the filter did not narrow. Folding it into
+		 * the totals would leave a reader unable to tell a file of
+		 * retained functions from a file of retained data (HLR-145). */
+		snprintf(b, sizeof b, "%" PRIu64, report->file_scope_eloc);
+		grid_row(&grid, "ELOC outside any function", b);
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+
+		static const char *const absent_names[] = { "Function", "File",
+		                                            "Line" };
+		char                     heading[96];
+
+		snprintf(heading, sizeof heading,
+		         "Functions the image does not define (%zu)",
+		         report->absent_count);
+		grid_begin(&grid, heading, 3, absent_names, NULL);
+		for (size_t i = 0; i < report->absent_count; i++) {
+			const AbsentRow *r = &report->absent[i];
+
+			snprintf(c, sizeof c, "%" PRIu32, r->line);
+			grid_row(&grid, r->function, r->file, c);
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
 	{
 		/* What the user's own rules matched.
 		 *

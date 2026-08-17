@@ -25,6 +25,7 @@
 #include "cli.h"
 #include "discover.h"
 #include "elc.h"
+#include "elfsyms.h"
 #include "format_csv.h"
 #include "format_text.h"
 #include "format_xml.h"
@@ -51,6 +52,8 @@ int main(int argc, char *argv[])
 {
 	ElcOptions         opts;
 	Registry           registry = { 0 };
+	SymbolSet          image    = { 0 };
+	bool               filtered = false;
 	FileList           files    = { 0 };
 	FactList           facts_list = { 0 };
 	Sdg                sdg      = { 0 };
@@ -109,6 +112,18 @@ int main(int argc, char *argv[])
 		goto cleanup;
 	}
 
+	/* And the image before discovery, for the reason the registry is: an
+	 * image the user named and elc cannot read is fatal, and it is fatal
+	 * before any source file is measured rather than after a full walk
+	 * whose results are then thrown away (HLR-146, LLR-MAIN-20). */
+	if (opts.image_path) {
+		if (elfsyms_open(opts.image_path, &image) != 0) {
+			status = ELC_EXIT_FATAL;
+			goto cleanup;
+		}
+		filtered = true;
+	}
+
 	/* An invalid target ends the run here, before any file is measured, so
 	 * no report can silently cover fewer targets than were named
 	 * (HLR-062, LLR-MAIN-10). Discovery asks the registry where the
@@ -128,8 +143,8 @@ int main(int argc, char *argv[])
 		 * at the end (HLR-035, LLR-MAIN-07). A skip is not a failure —
 		 * it is reported and leaves the status at 0 (HLR-012,
 		 * HLR-037). */
-		switch (analyze_file(&registry, &opts, files.paths[i], &metrics,
-		                     &facts)) {
+		switch (analyze_file(&registry, &opts, filtered ? &image : NULL,
+		                     files.paths[i], &metrics, &facts)) {
 		case ANALYZE_SKIPPED:
 			fprintf(stderr,
 			        "elc: %s: no usable language module; skipped\n",
@@ -167,6 +182,15 @@ int main(int argc, char *argv[])
 	}
 
 	if (report_assemble(&acc, &routes, &opts, &report) != 0) {
+		status = ELC_EXIT_FATAL;
+		goto cleanup;
+	}
+
+	/* The image the figures above describe. Recorded even though nothing
+	 * later reads the set itself: a report that filtered and did not say
+	 * which image it filtered by cannot be checked against the build it
+	 * claims to describe (HLR-147). */
+	if (filtered && report_set_image(&report, &image) != 0) {
 		status = ELC_EXIT_FATAL;
 		goto cleanup;
 	}
@@ -320,6 +344,7 @@ cleanup:
 	factlist_free(&facts_list);
 	routelist_free(&routes);
 	filelist_free(&files);
+	elfsyms_free(&image);
 	registry_close(&registry);
 	cli_options_free(&opts);
 	return status;

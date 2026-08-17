@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.3
-**Date:** 2026-08-21
+**Version:** 3.4
+**Date:** 2026-08-17
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing

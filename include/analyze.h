@@ -12,6 +12,7 @@
 #define ELC_ANALYZE_H
 
 #include "elc.h"
+#include "elfsyms.h"
 #include "registry.h"
 
 /* analyze_file() outcomes. A skip and a failure are distinct: a file whose
@@ -35,9 +36,15 @@ enum {
  * path and its functions; the caller releases it with filemetrics_free() or
  * hands it to the metrics accumulator. On any other outcome `*out` is NULL
  * and a diagnostic has been written to stderr.
+ *
+ * `image` is the function set of the linked image the run was given, or NULL
+ * where none was. It is a parameter for the reason the options are: measuring
+ * a file depends on which program is being measured, so the program is passed
+ * in rather than reached for. A function the image does not define is recorded
+ * in `(*out)->absent` and excluded from everything else (HLR-140, HLR-144).
  */
-int analyze_file(Registry *reg, const ElcOptions *opts, const char *path,
-                 FileMetrics **out, FileFacts **facts_out);
+int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
+                 const char *path, FileMetrics **out, FileFacts **facts_out);
 
 /* Release a file's metrics and every function name it owns. Safe on NULL. */
 void filemetrics_free(FileMetrics *metrics);

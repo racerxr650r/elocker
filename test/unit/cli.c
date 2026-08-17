@@ -10,7 +10,9 @@
 
 #include <criterion/criterion.h>
 #include <criterion/redirect.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "cli.h"
 #include "elc.h"
@@ -584,4 +586,73 @@ Test(cli, regeneration_without_a_definition_is_accepted)
 
 	cr_assert_eq(cli_parse(3, argv, &o), CLI_OK);
 	cli_options_free(&o);
+}
+
+/* ------------------------------------------------------- the linked image */
+
+/* Verifies LLR-CLI-22: the path is recorded and not validated. Whether the
+ * file is an image elc can read is the question of the module that owns the
+ * failure, and answering it here would put a second copy of that knowledge in
+ * the parser. */
+Test(cli, an_image_path_is_recorded_unvalidated)
+{
+	char      *argv[] = { "elc", "--elf", "build/app.elf", "src", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_str_eq(o.image_path, "build/app.elf",
+	                 "the parser records the path and opens nothing");
+	cli_options_free(&o);
+}
+
+Test(cli, no_image_is_the_default)
+{
+	char      *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_null(o.image_path,
+	               "with no image nothing is filtered, which is how adding "
+	               "the option changes no existing result (HLR-140)");
+	cli_options_free(&o);
+}
+
+Test(cli, an_empty_image_path_is_a_usage_error)
+{
+	char      *argv[] = { "elc", "--elf", "", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_ERROR);
+}
+
+/* Verifies LLR-CLI-23: the filter is applied when a file is measured, so a
+ * saved record already describes one filtered run and cannot be re-cut against
+ * another image. The same rule -D gets, and for the same reason. */
+Test(cli, an_image_with_regeneration_is_a_usage_error)
+{
+	char      *argv[] = { "elc", "--from-xml", "r.xml", "--elf", "app.elf",
+	                      NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(5, argv, &o), CLI_ERROR);
+	cli_options_free(&o);
+}
+
+/* Verifies LLR-USG-07: the summary documents the option, including that no
+ * image means no filtering and that the argument is an image rather than a
+ * source tree. The documentation test checks the manual against this text, so
+ * this is where the claim is made. */
+Test(cli, the_usage_summary_documents_the_image_option)
+{
+	char *buffer = NULL;
+	size_t size  = 0;
+	FILE  *out   = open_memstream(&buffer, &size);
+
+	cr_assert_not_null(out);
+	cli_usage(out);
+	fclose(out);
+
+	cr_assert_not_null(strstr(buffer, "--elf"));
+	cr_assert_not_null(strstr(buffer, "With no --elf nothing is filtered"));
+	free(buffer);
 }

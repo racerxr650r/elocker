@@ -29,6 +29,7 @@
 
 #include "analyze.h"
 #include "elc.h"
+#include "elfsyms.h"
 #include "registry.h"
 
 /* Capture names from runtime/queries/README.md. These are a contract with
@@ -82,6 +83,9 @@ void filemetrics_free(FileMetrics *metrics)
 	for (size_t i = 0; i < metrics->function_count; i++)
 		free(metrics->functions[i].name);
 	free(metrics->functions);
+	for (size_t i = 0; i < metrics->absent_count; i++)
+		free(metrics->absent[i].name);
+	free(metrics->absent);
 	free(metrics->language);
 	free(metrics->path);
 	free(metrics);
@@ -599,13 +603,174 @@ static char *name_from(const char *data, TSNode node)
 	return copy;
 }
 
-/* Run functions.scm over the tree and record every match that supplies both
- * halves of the contract.
+/* Both halves of the function contract from one match, or false where the
+ * match supplies only one of them.
  *
  * A pattern capturing only a name or only a body contributes no function.
  * That is deliberate: the pair is what identifies a function, and silently
  * accepting half of it would report a function with no line range or a line
  * range with no name.
+ *
+ * Shared by the two passes over `functions.scm` so that "what counts as a
+ * function" is decided once. A filtered run answers the question twice — which
+ * functions the image lacks, then which functions to measure — and the two
+ * must not be able to disagree about what a function is.
+ */
+static bool function_match(const TSQuery *query, const TSQueryMatch *match,
+                           TSNode *name_node, TSNode *body_node)
+{
+	bool have_name = false;
+	bool have_body = false;
+
+	for (uint16_t i = 0; i < match->capture_count; i++) {
+		uint32_t index = match->captures[i].index;
+
+		if (capture_is(query, index, CAPTURE_FUNCTION_NAME)) {
+			*name_node = match->captures[i].node;
+			have_name  = true;
+		} else if (capture_is(query, index, CAPTURE_FUNCTION_BODY)) {
+			*body_node = match->captures[i].node;
+			have_body  = true;
+		}
+	}
+
+	return have_name && have_body;
+}
+
+/* Append one absent function to the file's list, and its whole extent to the
+ * span list the caller will merge into the excluded set. */
+static int absent_add(FileMetrics *metrics, SpanList *spans, char *name,
+                      TSNode name_node, TSNode body_node)
+{
+	if (metrics->absent_count == metrics->absent_capacity) {
+		size_t          next   = metrics->absent_capacity
+		                                 ? metrics->absent_capacity * 2 : 8;
+		AbsentFunction *bigger = realloc(metrics->absent,
+		                                 next * sizeof *bigger);
+
+		if (!bigger)
+			return -1;
+		metrics->absent          = bigger;
+		metrics->absent_capacity = next;
+	}
+
+	/* Both allocations before either record, so a failure of the second
+	 * cannot leave the name owned by the list and freed by the caller
+	 * too (HLR-125). */
+	if (spans->count == spans->capacity &&
+	    grow((void **)&spans->items, &spans->capacity,
+	         sizeof *spans->items) != 0)
+		return -1;
+
+	uint32_t name_start = ts_node_start_byte(name_node);
+	uint32_t body_start = ts_node_start_byte(body_node);
+	uint32_t name_row   = ts_node_start_point(name_node).row;
+	uint32_t body_row   = ts_node_start_point(body_node).row;
+	uint32_t start_line = (name_row < body_row ? name_row : body_row) + 1;
+
+	metrics->absent[metrics->absent_count].name = name;
+	metrics->absent[metrics->absent_count].line = start_line;
+	metrics->absent_count++;
+
+	spans->items[spans->count].start_byte =
+		name_start < body_start ? name_start : body_start;
+	spans->items[spans->count].end_byte   = ts_node_end_byte(body_node);
+	spans->items[spans->count].start_line = start_line;
+	spans->items[spans->count].end_line   =
+		ts_node_end_point(body_node).row + 1;
+	spans->count++;
+	return 0;
+}
+
+/* Record every function the image does not define, and exclude its bytes.
+ *
+ * **The filter joins the exclusion set rather than gating `collect_functions`
+ * alone**, and the difference is not presentational. Dropping the function
+ * from the reported set alone would leave its statements attributed to no
+ * function, which is to say counted as file-scope ELOC — inflating the one
+ * figure HLR-145 keeps separate with lines that are plainly inside a function.
+ * Excluding the extent instead is what makes HLR-144 fall out: no statement,
+ * decision point, call site, global access, dead span, or rule match inside an
+ * omitted function reaches any later stage, because every collector already
+ * asks whether a byte is measured (LLR-ANL-51, LLR-ANL-52).
+ *
+ * A separate pass rather than a test inside `collect_functions`, because query
+ * matches arrive in no source order: a nested function reported before the
+ * omitted function containing it would be recorded and only then excluded.
+ * Running the exclusion to completion first makes the result independent of
+ * the order the library matched, which is the rule HLR-032 draws everywhere
+ * else.
+ */
+static int collect_absent_functions(const LanguageModule *module, Registry *reg,
+                                    const SymbolSet *image, const char *data,
+                                    TSNode root, SpanList *excluded,
+                                    FileMetrics *metrics)
+{
+	TSQuery     *query  = module->queries[QUERY_FUNCTIONS];
+	SpanList     absent = { 0 };
+	TSQueryMatch match;
+	int          status = -1;
+
+	if (!image)
+		return 0;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		TSNode name_node;
+		TSNode body_node;
+
+		if (!predicates_hold(query, &match, data))
+			continue;
+		if (!function_match(query, &match, &name_node, &body_node))
+			continue;
+
+		/* A function inside a region this configuration does not
+		 * compile is already gone, and is not a function the image
+		 * failed to keep: reporting it absent would answer a question
+		 * about the linker with a fact about the preprocessor. */
+		if (byte_is_excluded(excluded, ts_node_start_byte(name_node)))
+			continue;
+
+		char *name = name_from(data, name_node);
+
+		if (!name)
+			goto cleanup;
+
+		if (elfsyms_defines(image, name)) {
+			free(name);
+			continue;
+		}
+
+		if (absent_add(metrics, &absent, name, name_node,
+		               body_node) != 0) {
+			free(name);
+			goto cleanup;
+		}
+	}
+
+	/* Merged into the excluded set only now the pass is over. Appending to
+	 * it as we went would have left `byte_is_excluded` reading an unsorted
+	 * tail — its early exit assumes the list is ordered — and would have
+	 * made the answer for one function depend on which functions the query
+	 * happened to report before it. */
+	for (size_t i = 0; i < absent.count; i++) {
+		if (excluded->count == excluded->capacity &&
+		    grow((void **)&excluded->items, &excluded->capacity,
+		         sizeof *excluded->items) != 0)
+			goto cleanup;
+		excluded->items[excluded->count++] = absent.items[i];
+	}
+	merge_comment_spans(excluded);
+	status = 0;
+
+cleanup:
+	free(absent.items);
+	return status;
+}
+
+/* Run functions.scm over the tree and record every match that supplies both
+ * halves of the contract.
  */
 static int collect_functions(const LanguageModule *module, Registry *reg,
                              const char *data, TSNode root,
@@ -624,29 +789,16 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 
 		TSNode name_node;
 		TSNode body_node;
-		bool   have_name = false;
-		bool   have_body = false;
 
-		for (uint16_t i = 0; i < match.capture_count; i++) {
-			uint32_t index = match.captures[i].index;
-
-			if (capture_is(query, index, CAPTURE_FUNCTION_NAME)) {
-				name_node = match.captures[i].node;
-				have_name = true;
-			} else if (capture_is(query, index,
-			                      CAPTURE_FUNCTION_BODY)) {
-				body_node = match.captures[i].node;
-				have_body = true;
-			}
-		}
-
-		if (!have_name || !have_body)
+		if (!function_match(query, &match, &name_node, &body_node))
 			continue;
 
 		/* A function the configuration does not compile is not
 		 * measured, and is not reported: it belongs to no build, and
 		 * counting it would report the union of every configuration the
-		 * source can express (HLR-132). */
+		 * source can express (HLR-132). The same test now answers for a
+		 * function the linked image does not define, whose extent the
+		 * pass above added to this set (HLR-144). */
 		if (byte_is_excluded(excluded, ts_node_start_byte(name_node)))
 			continue;
 
@@ -1684,9 +1836,15 @@ static void apply_eloc(FileMetrics *metrics, SiteList *sites)
 		}
 
 		/* A statement outside every reported function contributes to
-		 * the file and to nothing else. */
+		 * the file and to nothing else — and, when a filter is in
+		 * force, to the one figure the filter did not narrow, since
+		 * the image's function set says nothing about code that is not
+		 * a function (HLR-145, LLR-ANL-53). Counted whichever way the
+		 * run was made; only the reporting of it is conditional. */
 		if (function != NO_FUNCTION)
 			metrics->functions[function].eloc = count;
+		else
+			metrics->scope_eloc = count;
 	}
 
 	qsort(sites->items, sites->count, sizeof *sites->items, by_line);
@@ -1703,8 +1861,8 @@ static void apply_eloc(FileMetrics *metrics, SiteList *sites)
 	metrics->eloc = total;
 }
 
-int analyze_file(Registry *reg, const ElcOptions *opts, const char *path,
-                 FileMetrics **out, FileFacts **facts_out)
+int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
+                 const char *path, FileMetrics **out, FileFacts **facts_out)
 {
 	const LanguageModule *module;
 	FileMetrics          *metrics  = NULL;
@@ -1845,6 +2003,18 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const char *path,
 		goto cleanup;
 	}
 	merge_comment_spans(&comments);
+
+	/* And then the functions the linked image does not define, into the
+	 * same set and for the same reason: an exclusion must be complete
+	 * before anything consults it. The image is the last of the three
+	 * because it is the only one that needs the others settled — a
+	 * function inside an inactive region was never built and is not one
+	 * the linker discarded (HLR-144). */
+	if (collect_absent_functions(module, reg, image, map, root, &comments,
+	                             metrics) != 0) {
+		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		goto cleanup;
+	}
 
 	if (collect_functions(module, reg, map, root, &comments, metrics,
 	                      &ranges) != 0 ||

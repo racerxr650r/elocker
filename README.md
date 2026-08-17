@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 15 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 16 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, and Python**,
 in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -125,9 +125,41 @@ header `elc` will never see.
 Which constructs count as conditional is data, not code, so a C `#if` and a Rust
 `#[cfg]` are the same mechanism.
 
-ELF-filtered analysis is next, from Phase 16.
+And where you have a **linked image**, you can measure the program your build
+actually produced rather than the source it was drawn from:
 
-**Progress: 16 of 18 phases complete.**
+```sh
+elc --elf build/app.elf src/
+```
+
+Every measurement is then restricted to the functions that image defines. This
+is the same question `-D` answers and a different way of answering it: `-D`
+*re-decides* the conditions your build resolved, while an image *observes what
+your build did*. Neither replaces the other — the image says which functions
+survived and nothing about which lines inside one were compiled out — and you
+can give both.
+
+`elc` invokes no toolchain to read it: no `nm`, no `objdump`, no `readelf`, no
+compiler, no linker. It opens the file you named, reads the symbol table a
+linker writes by default, and closes it. A symbol counts only if it is a
+function **and** defined by the image rather than imported by it, so a function
+your program merely calls into libc is not mistaken for one it contains. C++
+and Rust names arrive mangled and are decoded and reduced to the identifier the
+report presents, so `geometry::Rect::area() const` matches a function reported
+as `area`.
+
+Two things are then reported, and they are different claims. The **linkage
+names `elc` could not decode** state how complete the filter is — the claim the
+unresolved-call count makes about the graph. The **source functions the image
+does not define** are the finding the option exists to produce: dead code
+established by what your linker did, rather than inferred from a traversal.
+Code outside any function is retained and counted on its own, because an
+image's function set says nothing about a table of data. And a stripped image
+is an error rather than an empty filter, because reporting a project with no
+functions in it would be confidently wrong and indistinguishable from a correct
+result.
+
+**Progress: 17 of 18 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -150,7 +182,7 @@ ELF-filtered analysis is next, from Phase 16.
 | [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
 | [14](doc/SDP.md#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | ✅ Complete |
 | [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
-| [16](doc/SDP.md#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | 🔲 Not started |
+| [16](doc/SDP.md#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
 | [17](doc/SDP.md#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 
 </details>
@@ -177,6 +209,10 @@ line counters cannot: what depends on what, where the dependency cycles are,
 which components are architectural bottlenecks, how deep the call stack can
 actually get, and which functions are provably unreachable.
 
+**Which of it your build actually keeps.** Name a configuration with `-D` or a
+linked image with `--elf`, and the figures describe the program that ships
+rather than the source it was drawn from.
+
 ## Why another metrics tool
 
 Most tools in this space report per *file* and per *language*, so a polyglot
@@ -191,7 +227,7 @@ platform. `elc` is built on a few decisions that follow from that:
 | **Deterministic output** | Identical input produces byte-identical output regardless of traversal order or filesystem. The results can be diffed, piped, estimated from, and compared between codebases or between versions of one. |
 | **Architecture, not just size** | Dead code proven by graph reachability rather than guessed at by pattern matching — including the case that fools textual linters, where unused functions call one another. |
 | **Measures, never lectures** | Findings are reported against *published* thresholds (MISRA C, Robert C. Martin's Instability metric, Henry–Kafura), each attributed to its source. `elc` proposes no fixes and holds no style opinions of its own. |
-| **Small and self-contained** | One C11 binary, four libraries, a POSIX libc. No interpreter, no virtual machine, no network access, no plugin ecosystem, no server. |
+| **Small and self-contained** | One C11 binary, five libraries, a POSIX libc. No interpreter, no virtual machine, no network access, no plugin ecosystem, no server. |
 
 ## Adding a language costs no rebuild
 
@@ -299,6 +335,8 @@ make install    # binary, runtime/, man page, and user manual
 | [`libgit2`](https://libgit2.org/) | Repository-aware file discovery |
 | [`igraph`](https://igraph.org/c/) | Graph algorithms — cycles, reachability, centrality |
 | [Expat](https://libexpat.github.io/) | Streaming XML read for report regeneration |
+| [`libelf`](https://sourceware.org/elfutils/) | Reading the symbol table of the image `--elf` names |
+| The C++ runtime | `__cxa_demangle`, for C++ and Rust linkage names. Already linked — `igraph` is partly C++ inside |
 | POSIX libc | `mmap`, `fts`, `dlopen` |
 
 Build tooling: GNU make, a C11 compiler, GNU ld or lld (for `--wrap`),

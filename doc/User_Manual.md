@@ -1,6 +1,6 @@
 # elc User Manual
 
-**Version:** 0.7 (Phase 6)
+**Version:** 0.16 (Phase 16)
 **Applies to:** the `elc` build shipped alongside this file
 
 This manual describes the version it ships with. Every option `elc` accepts is
@@ -34,16 +34,23 @@ repository are comparable and results from different runs can be diffed.
 **What this build does:** finds the source files in your targets, parses each
 one, and reports **effective lines of code** and **cyclomatic complexity** per
 function — with project totals, a per-language breakdown, and a list of the
-functions over a complexity threshold you set. It writes that report as a
-table, Markdown, CSV, or XML, and can rebuild it later from the XML alone. It
-ships with four languages: C, C++, Rust, and Python.
+functions over a complexity threshold you set. From the same single parse it
+builds the **System Dependence Graph** and reports what that graph says: fan-out
+and call depth, recursion, unreachable functions and unreachable globals, dead
+code within a function, component coupling and cycles, layering violations
+against strata you declare, and every one of those measurements banded against
+a published standard that the report names. It writes all of it as a table,
+Markdown, CSV, or XML, rebuilds a report from the XML alone, and draws the call
+tree as an annotated Graphviz `.dot` beside it. It ships with four languages —
+C, C++, Rust, and Python — and takes rules you write yourself. You can name a
+configuration with `-D` and measure that build, or name a linked image with
+`--elf` and measure the program it produced.
 
-**What it does not do yet:** the System Dependence Graph and the findings
-derived from it — coupling, cycles, call depth, dead code. Those arrive in
-later phases.
+**What it does not do yet:** the hardening pass of Phase 17 — the full
+sanitizer sweep across every error path, the self-analysis, and the first
+tagged release.
 
-`doc/SDP.md` lists what each phase delivers. Metrics land in Phases 3–4, the
-call graph in Phase 8, and the architectural analyses in Phases 9–13.
+`doc/SDP.md` lists what each phase delivers.
 
 ## Installing
 
@@ -1225,6 +1232,136 @@ rather than when a report is rendered, combining `-D` with `--from-xml` is a
 usage error rather than a silently ignored request: the record already
 describes one configuration, chosen when it was written.
 
+## Filtering by a linked image
+
+Your source holds functions your build does not keep. Some are excluded by
+configuration, some the linker discards as unreachable, and some belong to a
+translation unit the link never included. A report covering them describes no
+program that exists and overstates every figure taken from it. Point `elc` at
+the image and it measures what shipped:
+
+```sh
+elc --elf build/app.elf src/
+```
+
+This is the question the previous chapter answers, answered a different way.
+A `-D` **re-decides** the conditions your build resolved, from definitions you
+restate. An image was produced by the real toolchain with the real flags and
+**observes what your build did** — which makes it the stronger evidence where
+you have one. Neither replaces the other, though: the image says which
+*functions* survived and says nothing about which lines inside one were
+compiled out. The two options compose, and you can give both.
+
+### What the report looks like
+
+Two new sections appear, and only when you supply an image — a run without
+`--elf` reports exactly what it reported before the option existed:
+
+```
+Linked-image filter
+  Property                   Value
+  -------------------------  ------------------
+  Image                      build/app.elf
+  Unresolved linkage names   0
+  ELOC outside any function  2
+
+Functions the image does not define (2)
+  Function      File                Line
+  ------------  ------------------  ----
+  unlinked_add  /src/dropped.c        13
+  unlinked_max  /src/dropped.c        18
+```
+
+Everything else in the report — the totals, the per-function table, the call
+tree, the coupling, the findings — describes the filtered set and nothing else.
+A function the image does not define is never recorded, so no analysis has to
+know a filter was applied.
+
+### The two figures are different claims
+
+**Unresolved linkage names** says how completely the image could be read. It is
+the claim the **Unresolved calls** figure makes about the graph, and it is
+there for the same reason: a number whose accuracy is unstated cannot be acted
+on. A large count means many of the image's symbols carried a mangling this
+build cannot decode, and the filter is correspondingly incomplete.
+
+**Functions the image does not define** is the finding the option exists to
+produce. It is dead code established by what your linker did, rather than
+inferred from a call-graph traversal the way **Unreachable functions** is. The
+two are reported separately and neither is offered as the other.
+
+### Code outside a function is kept, and counted on its own
+
+An initialised object at file scope is not a function, and the image's function
+set says nothing about it. `elc` therefore **retains** it and reports the total
+as **ELOC outside any function**. A file whose every function was filtered away
+still reports the lines its data occupies — which is how you tell a file of
+retained functions from a file of retained data. Folding that figure into the
+totals would hide the one part of them the filter did not narrow.
+
+### What counts as a function the image defines
+
+A symbol has to be of function type **and** defined by the image rather than
+imported by it. The second half is easy to overlook and load-bearing: without
+it, every function your program *calls* into libc would count as one your image
+contains, and a source file defining `printf` would be retained as though your
+build had compiled it.
+
+`elc` reads `.symtab` where the image has one and falls back to `.dynsym`. A
+`static` function is in the first and not in the second, so an image reduced to
+its dynamic table yields a smaller set and a longer list of functions it does
+not define. Nothing is hidden by that; the list says so.
+
+### C++ and Rust names
+
+C is the only supported language whose linkage name is its source name. A C++
+member function reaches the image as `_ZNK8geometry4Rect4areaEv`, and matching
+raw names would retain nothing at all. `elc` decodes the Itanium C++ ABI —
+which covers C++ and Rust's legacy scheme — and reduces the result to the
+identifier your report presents, so `geometry::Rect::area() const` matches a
+function reported as `area`. The scheme is worked out from the name, not from a
+language you declare, because one image may hold symbols from several
+compilers.
+
+A name in a scheme this build cannot decode — Rust's v0 mangling, where the
+installed C++ runtime is not new enough for it — resolves to nothing and is
+**counted**, never guessed at. You will see it in the unresolved count rather
+than in a filter that quietly kept less than you asked for.
+
+### `elc` still invokes no toolchain
+
+No `nm`, no `objdump`, no `readelf`, no compiler, no linker, and no build
+system. `elc` opens the file you named, reads its symbol table, and closes it.
+It does not look for an image you did not name, and it does not need debugging
+information — the symbol table a linker writes by default is enough, so the
+option is not restricted to debug builds.
+
+### When the image cannot be used
+
+An image that is absent, unreadable, not an object file, or **carrying no
+function symbols at all** ends the run with a diagnostic and no report, before
+any source file is measured:
+
+```
+$ elc --elf build/app.stripped src/
+elc: build/app.stripped: no function symbols; a stripped image defines nothing
+to filter by
+```
+
+The stripped image is the case that most needs to fail. An empty function set
+would otherwise filter every function away and report a project containing
+none — a result that is confidently wrong and that you could not tell from a
+correct one.
+
+### The filter travels with the report
+
+The image and both counts appear in the report and in the saved record, so a
+report always states which image it describes and one regenerated from a record
+still does. Because the filter is applied when a file is measured rather than
+when a report is rendered, combining `--elf` with `--from-xml` is a usage error
+rather than a silently ignored request: the record already describes one
+filtered run, chosen when it was written.
+
 ## Languages
 
 `elc` works out each file's language from its extension and loads the parser
@@ -1341,6 +1478,7 @@ comparable.
 | `--stratum` | `NAME:GLOB[,GLOB…]` | none | Declare an architectural layer named `NAME` holding the matching files; repeatable |
 | `--stratum-order` | `NAME>NAME[>NAME…]` | none | State the permitted direction of dependency between the declared layers |
 | `-D`, `--define` | `NAME[=VALUE]` | none | Define a conditional-compilation symbol, so the metrics describe that configuration; repeatable |
+| `--elf` | `FILE` | none | Restrict every measurement to the functions the linked image `FILE` defines |
 | `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `--no-dot` | — | `.dot` written | Do not write the annotated Graphviz call tree, which is otherwise written beside the report |
@@ -1356,8 +1494,9 @@ bytes; the option exists so that a caller that has no shell around it can
 still separate results from diagnostics. If the file cannot be opened, `elc`
 says so on standard error and exits 2 without writing a partial report.
 
-Later phases add options for architectural declarations and custom rules. Each arrives together with the
-behaviour it selects — an option is never added before it does something.
+Every option in the table above selects behaviour this build has. An option is
+never added before it does something, so a switch `elc` accepts is a switch
+`elc` acts on.
 
 ### Exit status
 

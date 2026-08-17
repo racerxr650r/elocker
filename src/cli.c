@@ -332,6 +332,15 @@ void cli_usage(FILE *stream)
 "                     -D mentions is undecidable rather than false: both\n"
 "                     branches are counted and the region is reported\n"
 "                     undecided. With no -D at all nothing is pruned\n"
+"      --elf FILE     restrict every measurement to the functions the linked\n"
+"                     image FILE defines, so that the report describes what\n"
+"                     the build kept rather than what the source holds. FILE\n"
+"                     is an image, not a source tree, and is read for its\n"
+"                     symbol table alone: no compiler, linker, or build system\n"
+"                     is invoked and no debugging information is needed. The\n"
+"                     source functions the image does not define are listed,\n"
+"                     and the linkage names elc could not decode are counted.\n"
+"                     With no --elf nothing is filtered\n"
 "      --rules LANG:PATH\n"
 "                     check the analysed source against the custom rule query\n"
 "                     in PATH, compiled for language LANG. Repeatable. Rules\n"
@@ -377,7 +386,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	/* A value above any printable character, so a long-only option cannot
 	 * collide with a short one. */
 	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
-	       OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES };
+	       OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF };
 
 	static const struct option longopts[] = {
 		{ "format",               required_argument, NULL, 'f' },
@@ -388,6 +397,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "no-dot",               no_argument,       NULL, OPT_NO_DOT },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },
 		{ "rules",                required_argument, NULL, OPT_RULES },
+		{ "elf",                  required_argument, NULL, OPT_ELF },
 		{ "define",               required_argument, NULL, 'D' },
 		{ "scope",                required_argument, NULL, OPT_SCOPE },
 		{ "bottleneck-threshold", required_argument, NULL, 'b' },
@@ -589,6 +599,20 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			}
 			out->defines[out->define_count++] = optarg;
 			break;
+		case OPT_ELF:
+			/* Recorded unvalidated and unopened. Whether the file
+			 * is an image elc can read is `elfsyms.c`'s question —
+			 * it is the module that knows — and answering it here
+			 * would put a second copy of that knowledge in the
+			 * parser, which is the module that reads argv and not
+			 * one that reads files (HLR-140, LLR-CLI-22). */
+			if (optarg[0] == '\0') {
+				fputs("elc: --elf requires the path of a linked "
+				      "image\n", stderr);
+				return CLI_ERROR;
+			}
+			out->image_path = optarg;
+			break;
 		case 'h':
 			cli_usage(stdout);
 			return CLI_HELP;
@@ -637,6 +661,18 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 			      "saved record already describes one "
 			      "configuration, chosen when it was written\n",
 			      stderr);
+			return CLI_ERROR;
+		}
+
+		/* The same rule the definitions get, and for the same reason:
+		 * the filter is applied when a file is measured, not when a
+		 * report is rendered, so a record already describes the run
+		 * that was filtered and cannot be re-cut against another image
+		 * (HLR-147, LLR-CLI-23). */
+		if (out->image_path) {
+			fputs("elc: --elf cannot be combined with --from-xml: a "
+			      "saved record already describes one filtered run, "
+			      "chosen when it was written\n", stderr);
 			return CLI_ERROR;
 		}
 

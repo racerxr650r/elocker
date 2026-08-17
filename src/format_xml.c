@@ -274,6 +274,32 @@ int xml_write_report(const Report *report, FILE *out)
 	}
 	fputs("  </configuration>\n", out);
 
+	/* The image the run was filtered by, both directions of mismatch
+	 * against it, and the one figure the filter did not narrow.
+	 *
+	 * Written only for a filtered run, and that asymmetry with every
+	 * section above is the requirement rather than an oversight: an
+	 * unfiltered run must produce exactly the record it produced before
+	 * the option existed (HLR-140). Without this element a regenerated
+	 * report would describe a filtered run while naming no filter
+	 * (HLR-147, LLR-XWR-14). */
+	if (report->image) {
+		fputs("  <image", out);
+		write_attribute(out, "path", report->image);
+		fprintf(out, " unresolved=\"%" PRIu64 "\" file-scope-eloc=\"%"
+		        PRIu64 "\">\n", report->image_unresolved,
+		        report->file_scope_eloc);
+		for (size_t i = 0; i < report->absent_count; i++) {
+			const AbsentRow *r = &report->absent[i];
+
+			fputs("    <absent", out);
+			write_attribute(out, "function", r->function);
+			write_attribute(out, "file", r->file);
+			fprintf(out, " line=\"%" PRIu32 "\"/>\n", r->line);
+		}
+		fputs("  </image>\n", out);
+	}
+
 	/* The component-level measurements. Carried for the reason every other
 	 * analysis result is: regeneration has no graph and no source tree to
 	 * rebuild one from, so a value not written here is one the regenerated
@@ -417,6 +443,11 @@ typedef struct {
 	char              **definitions;
 	size_t              definition_count;
 	uint64_t            undecided_regions;
+	char               *image;
+	uint64_t            image_unresolved;
+	uint64_t            file_scope_eloc;
+	AbsentRow          *absent;
+	size_t              absent_count;
 	PathList            dead_unanalysed;
 	MetricsAccumulator *acc;
 	FileMetrics        *current;      /* the <file> being populated */
@@ -907,6 +938,63 @@ static void on_start(void *user, const XML_Char *name,
 		return;
 	}
 
+	if (strcmp(name, "image") == 0) {
+		const char *image = attribute(atts, "path");
+
+		if (!image) {
+			fail(state, "an image element has no path");
+			return;
+		}
+		/* A record `elc` wrote holds one image element. A hand-edited
+		 * one may hold two, and the last would then silently replace
+		 * the first and leak it — a rejected record must exit as
+		 * leak-clean as an accepted one (HLR-125). */
+		free(state->image);
+		state->image = strdup(image);
+		if (!state->image) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->image_unresolved = uint_attribute(state, atts,
+		                                         "unresolved");
+		state->file_scope_eloc  = uint_attribute(state, atts,
+		                                         "file-scope-eloc");
+		return;
+	}
+
+	if (strcmp(name, "absent") == 0) {
+		const char *function = attribute(atts, "function");
+		const char *file     = attribute(atts, "file");
+
+		if (!function || !file) {
+			fail(state, "an absent element is incomplete");
+			return;
+		}
+
+		AbsentRow *grown = realloc(state->absent,
+		                           (state->absent_count + 1) *
+		                                   sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->absent = grown;
+
+		AbsentRow *row = &state->absent[state->absent_count];
+
+		memset(row, 0, sizeof *row);
+		row->function = strdup(function);
+		row->file     = strdup(file);
+		if (!row->function || !row->file) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->line = uint_attribute(state, atts, "line");
+		state->absent_count++;
+		return;
+	}
+
 	if (strcmp(name, "configuration") == 0) {
 		state->undecided_regions = uint_attribute(state, atts,
 		                                          "undecided-regions");
@@ -1364,6 +1452,16 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	out->definitions              = state.definitions;
 	out->definition_count         = state.definition_count;
 	out->undecided_regions        = state.undecided_regions;
+	/* The filter provenance the record carries, moved onto the model so a
+	 * regenerated report names the image the direct run named (HLR-147,
+	 * LLR-XRD-14). The rows are already ordered: they were sorted when the
+	 * record was written, and re-sorting a record's contents would let a
+	 * regenerated report disagree with the one it came from. */
+	out->image                    = state.image;
+	out->image_unresolved         = state.image_unresolved;
+	out->file_scope_eloc          = state.file_scope_eloc;
+	out->absent                   = state.absent;
+	out->absent_count             = state.absent_count;
 	out->dead_unanalysed          = state.dead_unanalysed;
 	state.global_state             = NULL;
 	state.global_state_count       = 0;
@@ -1387,6 +1485,9 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	state.rule_match_count         = 0;
 	state.definitions              = NULL;
 	state.definition_count         = 0;
+	state.image                    = NULL;
+	state.absent                   = NULL;
+	state.absent_count             = 0;
 	memset(&state.dead_unanalysed, 0, sizeof state.dead_unanalysed);
 
 	status = 0;
@@ -1482,6 +1583,12 @@ cleanup:
 	for (size_t i = 0; i < state.definition_count; i++)
 		free(state.definitions[i]);
 	free(state.definitions);
+	for (size_t i = 0; i < state.absent_count; i++) {
+		free(state.absent[i].function);
+		free(state.absent[i].file);
+	}
+	free(state.absent);
+	free(state.image);
 	for (size_t i = 0; i < state.dead_unanalysed.count; i++)
 		free(state.dead_unanalysed.paths[i]);
 	free(state.dead_unanalysed.paths);

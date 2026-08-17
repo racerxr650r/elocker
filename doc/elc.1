@@ -575,6 +575,24 @@ at all nothing is pruned on that account. See
 .B CONDITIONAL COMPILATION
 below.
 .TP
+.BI \-\-elf " FILE"
+Restrict every measurement and every analysis to the functions the linked image
+.I FILE
+defines, so that the report describes the program the build produced rather
+than the source it was drawn from.
+.I FILE
+is an image \(em an executable, a shared object, or a relocatable object \(em
+and not a source tree. It is read for its symbol table alone: no compiler,
+linker, or build system is invoked, no other image is searched for, and no
+debugging information is required. The source functions the image does not
+define are listed, and the linkage names
+.B elc
+could not decode are counted. With no
+.B \-\-elf
+nothing is filtered. See
+.B FILTERING BY A LINKED IMAGE
+below.
+.TP
 .BI \-\-rules " LANG:PATH"
 Check the analysed source against the custom rule query in
 .IR PATH ,
@@ -857,6 +875,123 @@ report states which configuration it describes and a regenerated one still
 does. Because pruning happens when a file is measured rather than when a report
 is rendered, combining
 .B \-D
+with
+.B \-\-from\-xml
+is a usage error rather than a silently ignored request.
+.SH FILTERING BY A LINKED IMAGE
+Source holds functions a build does not keep: excluded by configuration,
+discarded by the linker as unreachable, or belonging to a translation unit the
+link never included. A report covering them describes no image that exists and
+overstates every measure taken from it. Naming the image with
+.B \-\-elf
+measures what shipped.
+.PP
+.EX
+elc \-\-elf build/app.elf src/
+.EE
+.PP
+This is the question of
+.B CONDITIONAL COMPILATION
+answered a different way, and neither answer replaces the other. A
+.B \-D
+re\-decides the conditions a build resolved, from definitions you restate; an
+image was produced by the real toolchain with the real flags and
+.I observes what the build did.
+Where both are available the image is the stronger evidence \(em but it says
+only which
+.I functions
+survived, and nothing about which lines inside one were compiled out. The two
+compose, and may be given together.
+.SS What counts as a function the image defines
+A symbol is taken as one when it is of function type
+.I and
+is defined by the image rather than imported by it. Both halves matter: without
+the type test an object and a function of the same name are indistinguishable,
+and without the definedness test every function the image
+.I calls
+out to a shared library would count as one the image contains \(em and the
+filter would then retain source the build never compiled.
+.PP
+.B elc
+reads
+.I .symtab
+where the image has one and
+.I .dynsym
+where it does not. A stripped image has neither, and is an error rather than an
+empty filter; see
+.B An unusable image is an error
+below. An image reduced to its dynamic table yields a smaller set, since that
+table holds only the exported subset, and a correspondingly longer list of
+functions it does not define.
+.SS Names that reach the image encoded
+C is the only supported language whose linkage name is its source name. A C++
+or Rust function is recorded under a mangled name, and matching those raw would
+retain nothing at all.
+.B elc
+decodes the Itanium C++ ABI \(em which covers C++ and Rust's legacy scheme \(em
+and reduces the result to the identifier the report presents:
+.B _ZNK2ns1C1fEi
+decodes to
+.B ns::C::f(int) const
+and matches a source function named
+.BR f .
+The scheme is detected from the name rather than from a language you state,
+since an image may hold symbols from several compilers.
+.PP
+A name encoded by a scheme this build does not decode \(em Rust's v0 mangling,
+where the C++ runtime is not new enough for it \(em resolves to nothing and is
+.I counted,
+not silently dropped. The count appears as
+.B Unresolved linkage names
+in the report, so a language whose compiler uses such a scheme reports a large
+count and says so rather than appearing to work.
+.SS What the filter reports
+Two figures, and they are different claims.
+.TP
+.B Unresolved linkage names
+How completely the image could be read: the claim the
+.B Unresolved calls
+figure makes about the graph, and for the same reason \(em a filter whose
+accuracy is unstated cannot be acted on.
+.TP
+.B Functions the image does not define
+The finding the option exists to produce. This is dead code established by what
+the linker did, rather than inferred from the call graph as the
+.B Unreachable functions
+section is, so the two are reported separately and neither is presented as the
+other.
+.PP
+Effective lines of code belonging to no function \(em an initialised object at
+file scope, say \(em are
+.I retained,
+and reported as
+.B ELOC outside any function.
+The image's function set says nothing about code that is not a function, so
+excluding it would be a claim
+.B elc
+cannot support, and folding it into the totals would hide the one part of them
+the filter did not narrow.
+.PP
+A call whose target the filter removed is counted
+.I unresolved
+rather than resolved to a function that is not in the image, so the
+reachability analysis stays sound.
+.SS An unusable image is an error
+An image that is absent, unreadable, not an object file, of a class this build
+does not read, or carrying no function symbols at all ends the run with a
+diagnostic naming it and no report, before any source file is measured. You
+named the file, so the failure is yours to correct.
+.PP
+The fully stripped image is the case that most needs this. An empty function
+set would otherwise filter every function away and report a project containing
+none \(em a confidently wrong result that no reader could tell from a correct
+one.
+.SS The filter is reported and recorded
+The image and both counts appear in the report and in the saved record, so a
+report states which image it describes and a regenerated one still does.
+Because the filter is applied when a file is measured rather than when a report
+is rendered, combining
+.B \-\-elf
 with
 .B \-\-from\-xml
 is a usage error rather than a silently ignored request.

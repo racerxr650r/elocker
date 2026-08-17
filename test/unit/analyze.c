@@ -88,7 +88,7 @@ static int analyze_metrics(Registry *reg, const char *path, FileMetrics **out)
 {
 	FileFacts *facts = NULL;
 	ElcOptions opts  = { 0 };
-	int        rc    = analyze_file(reg, &opts, path, out, &facts);
+	int        rc    = analyze_file(reg, &opts, NULL, path, out, &facts);
 
 	filefacts_free(facts);
 	return rc;
@@ -938,7 +938,7 @@ static FileFacts *analyze_facts(Registry *reg, const char *path)
 
 	ElcOptions opts = { 0 };
 
-	cr_assert_eq(analyze_file(reg, &opts, path, &metrics, &facts),
+	cr_assert_eq(analyze_file(reg, &opts, NULL, path, &metrics, &facts),
 	             ANALYZE_OK);
 	filemetrics_free(metrics);
 	return facts;
