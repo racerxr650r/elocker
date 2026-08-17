@@ -10,8 +10,9 @@ preprocessor — an instrumented test observes a configured run issuing one
 `execve`, the kernel's own, and opening no file the source refers to. What
 changed is that a condition can be decided from the tree already parsed.
 Naming a configuration with `-D` measures that configuration; naming none
-measures what `elc` always measured, save for constant conditions, which are
-the same in every configuration and so need none to decide. The division of
+measures what `elc` always measured, save for constant conditions, which decide
+the same way in every configuration and so need none — HLR-131 was amended to
+say that rather than leave the implementation reconciling with it. The division of
 labour is the phase's real content: **the query decides truth and `elc`
 decides bytes**. A `conditionals.scm` settles a condition it recognises with
 `@conditional.true` or `@conditional.false`, captured on the condition rather

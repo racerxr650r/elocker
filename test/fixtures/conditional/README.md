@@ -92,11 +92,10 @@ That is the cheapest regression test available and it is already written: every
 other fixture in the suite. This group asserts the narrower version directly —
 that adding `-D` for a symbol the tree never mentions changes nothing.
 
-**That `#if 0` prunes anyway.** This is the one place the "with no definitions
-nothing changes" rule does not read literally, and it is deliberate: a constant
-condition is the same in every configuration, so it needs no configuration to
-decide. Phase 15 reversed the Phase 3 judgement recorded in `doc/notes.md` §3
-for exactly this case.
+**That `#if 0` prunes anyway.** A constant condition decides the same way in
+every configuration, so it needs none to decide — which is what HLR-131 says,
+and is the Phase 3 judgement in `doc/notes.md` §3 reversed. The opt-in
+guarantee is about conditions that *depend* on a definition.
 
 ## `chain/` — what "the alternative" means in a chain
 

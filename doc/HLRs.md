@@ -618,7 +618,7 @@ Requirements governing the end-user documentation delivered with `elc`. These co
 Requirements governing how `elc` reports a code base whose source is conditionally compiled, so that a metric describes the configuration a user names rather than the union of every configuration the source can express.
 
 *   <a id="HLR-131"></a>**HLR-131: Conditional-Compilation Configuration.**
-    `elc` shall accept zero or more conditional-compilation symbol definitions as command-line arguments, and shall use them to decide which branches of a conditionally compiled region are active. When no definition is supplied, no region shall be treated as inactive and the reported metrics shall be exactly those `elc` reports for the same source with the option absent, so that the capability is opt-in and adding it changes no existing result.
+    `elc` shall accept zero or more conditional-compilation symbol definitions as command-line arguments, and shall use them to decide which branches of a conditionally compiled region are active. When no definition is supplied, the reported metrics shall be exactly those `elc` reports for the same source with the option absent, so that the capability is opt-in and adding it changes no existing result. A condition that is a constant decides the same way in every configuration and is therefore applied whether or not any definition was supplied; only a condition depending on a definition needs one.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 7](SDD.md).
 
 *   <a id="HLR-132"></a>**HLR-132: Inactive-Region Exclusion.**
