@@ -625,11 +625,13 @@ Only call edges are considered. A global object two layers share is a different 
         <responsibility><![CDATA[Hold the threshold catalogue as a static table of measurement kind, band boundaries, severity, and citation.]]></responsibility>
         <responsibility><![CDATA[Classify each measurement into its band and emit a `Finding` when it falls outside the accepted range.]]></responsibility>
         <responsibility><![CDATA[Attribute every threshold to its external source, and mark `elc`'s own heuristics as such.]]></responsibility>
+        <responsibility><![CDATA[Be the only module that bands a measurement or names a source, so that the claim to carry no opinion is checkable by reading one table (HLR-099, HLR-111).]]></responsibility>
+        <responsibility><![CDATA[Assign a severity as a *label*: it never reaches the exit status, and no finding carries remediation (HLR-100, HLR-101).]]></responsibility>
         <interfaces>
           <interface title="Threshold Catalogue"><![CDATA[
 | Measurement | Bands | Attribution |
 | ----------- | ----- | ----------- |
-| Function fan-out | 0–10 no finding (3–7 healthy); 11–15 warning; >15 critical | Henry–Kafura |
+| Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 warning; >15 critical | Henry–Kafura |
 | Call depth | >8 warning; >12 critical, on stack-constrained targets | Embedded practice |
 | Recursion present | critical | MISRA C Rule 17.2 |
 | Component cycles | any occurrence critical | Martin / acyclic dependencies |
@@ -637,10 +639,18 @@ Only call edges are considered. A global object two layers share is a different 
 | Hidden channel | warning | MISRA C Rule 8.9 |
 | Instability vs. declared stratum | warning on mismatch | Martin |
 | Bottleneck (`Ca` and `Ce` ≥ threshold) | warning | **`elc` heuristic — not a published standard** |
+
+The counted bands are **exclusive upper bounds**: a value strictly greater than the bound falls in that band, which is how the published tables are written — "> 15 is a god function". A catalogue needing mental translation from its source is one nobody can check against it.
+
+The fan-out bands are **exhaustive**: every value from 0 upward classifies exactly once, and three of the five bands produce no finding. The *acceptable* range of 8–10 was a gap in an earlier reading of the thresholds, which is why HLR-086 states exhaustiveness rather than leaving it to be inferred.
+
+The rows whose finding is their mere occurrence — recursion, a dependency cycle, a single-function global, a hidden channel — carry a fixed severity instead of bounds. There is no acceptable count of them.
+
+**One row is not a published standard**, and it says so in the text a reader sees. That label is the whole of what separates shipping MISRA and Martin values from having invented them, and it is asserted by a test that also checks no other row carries it (HLR-099).
 ]]></interface>
         </interfaces>
         <functions>
-          <function signature="int thresholds_apply(const ArchResults *a, const TreeResults *t, const StateResults *s, const ElcOptions *opts, FindingList *out)" summary="Evaluate every measurement against the catalogue and emit findings."/>
+          <function signature="int thresholds_apply(const ArchResults *arch, const TreeResults *tree, const StateResults *state, const Sdg *g, const ElcOptions *opts, FindingList *out)" summary="Evaluate every measurement against the catalogue and emit findings."/>
           <function signature="const Threshold *thresholds_lookup(MeasurementKind kind)" summary="Return the catalogue entry for a measurement kind."/>
           <function signature="void findinglist_free(FindingList *f)" summary="Release every finding and the detail string each owns."/>
         </functions>
@@ -649,6 +659,8 @@ Only call edges are considered. A global object two layers share is a different 
         </dependencies>
         <error_handling>
           <case name="Measurement with no catalogue entry"><![CDATA[Reported as a bare value with no severity, rather than being silently dropped or assigned an invented band.]]></case>
+          <case name="Measurement that was not made"><![CDATA[Not banded at all. A depth omitted for want of an entry point is not a depth of zero, and a value that does not exist cannot fall outside a range (HLR-115).]]></case>
+          <case name="A critical finding"><![CDATA[Not an error. The severity is a label within the report and leaves the exit status untouched, which stays reserved for the failure conditions of HLR-120 (HLR-100).]]></case>
         </error_handling>
       </module>
 
@@ -976,6 +988,14 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="scope_state" type="ScopeState" desc="Measured, or omitted because no execution scopes were declared (HLR-094, HLR-115)"/>
         <field name="violations" type="ScopeViolation *" desc="Every call and state edge crossing a declared boundary (HLR-094)"/>
       </type>
+      <type name="Threshold" header="inc/thresholds.h" summary="One row of the published catalogue. The counted bands are exclusive upper bounds, matching how the published tables are written; a kind whose finding is its mere occurrence carries a fixed severity instead of bounds.">
+        <field name="kind" type="MeasurementKind" desc="Which measurement the row bands"/>
+        <field name="warning_above" type="uint32_t" desc="A value strictly greater than this warns"/>
+        <field name="critical_above" type="uint32_t" desc="A value strictly greater than this is critical"/>
+        <field name="fixed" type="Severity" desc="For a kind whose occurrence is the finding"/>
+        <field name="attribution" type="const char *" desc="The published source, named for every row (HLR-099)"/>
+        <field name="elc_own" type="bool" desc="True for the one row that is elc's own heuristic rather than a published standard"/>
+      </type>
       <type name="Finding" header="inc/elc.h" summary="One reportable observation. Severity is data and never influences the exit status (HLR-100).">
         <field name="kind" type="MeasurementKind" desc="Which analysis produced it"/>
         <field name="severity" type="Severity" desc="info, warning, or critical"/>
@@ -1004,6 +1024,7 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="findings" type="FindingList" desc="Sorted by severity, kind, then location"/>
         <field name="rule_matches" type="RuleMatchList" desc="Sorted by file then line"/>
         <field name="omissions" type="OmissionList" desc="Analyses skipped for want of a declaration, with reasons (HLR-115)"/>
+        <field name="findings" type="FindingRow *" desc="Every measurement that crossed a published line, ranked most severe first, each naming its source (HLR-098, HLR-123)"/>
         <field name="skipped_files" type="PathList" desc="Discovered files with no available language module, sorted by path (HLR-012)"/>
         <field name="routes" type="RouteList" desc="Per directory target, whether it was enumerated from a repository or traversed from the filesystem (HLR-127)"/>
         <field name="unresolved_calls" type="size_t" desc="Call sites with no resolvable target, reported so graph completeness is visible (HLR-077)"/>
@@ -4317,6 +4338,37 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-111" name="Custom Rules Carry No Built-In Opinion"/>
         </traces>
       </llr>
+      <llr id="LLR-THR-11">
+        <text><![CDATA[The catalogue shall hold every band as data in one table, and no other module shall band a measurement or name a source. The project's claim to carry no opinion of its own is checkable only if a reviewer can read one table rather than audit every analysis for a constant; banding spread across the analyses would leave the claim resting on nobody having hidden one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-098" name="Evaluation Against Published Thresholds"/>
+          <trace target="HLR" ref="HLR-099"/>
+          <trace target="HLR" ref="HLR-111"/>
+        </traces>
+      </llr>
+      <llr id="LLR-THR-12">
+        <text><![CDATA[`thresholds_apply` shall band only a measurement that was made, and shall not treat an omitted one as a value. A depth omitted for want of an entry point is not a depth of zero, and banding it would judge a number that does not exist.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-115" name="Analyses Requiring User Declarations"/>
+          <trace target="HLR" ref="HLR-098"/>
+        </traces>
+      </llr>
+      <llr id="LLR-THR-13">
+        <text><![CDATA[The report shall carry the findings ranked by descending severity, then by measurement and subject, and shall present them beside the measurements rather than in place of them. A value inside its accepted band stays in the table that measured it; the findings list is the subset a reader acts on, and its emptiness is a result rather than a missing section.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-031" name="Uniform Report Composition"/>
+          <trace target="HLR" ref="HLR-123"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
+      <llr id="LLR-THR-14">
+        <text><![CDATA[The record shall carry each finding with its severity, subject, detail and source. Regeneration has no measurements to band and no catalogue call to make against them, so a finding not written is one the regenerated report cannot have.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-054" name="Complete Run Record"/>
+          <trace target="HLR" ref="HLR-056"/>
+          <trace target="HLR" ref="HLR-099"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="33" title="`report_assemble` ([src/report.c](../src/report.c))" name="report_assemble" source="src/report.c">
@@ -6170,7 +6222,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/unit/arch.c" role="unit" count="21">
+  <file path="test/unit/arch.c" role="unit" count="19">
     <test name="instability_is_ce_over_the_sum">
       <purpose><![CDATA[Instability is efferent coupling divided by the sum of both couplings.]]></purpose>
       <traces>
@@ -6199,21 +6251,7 @@ Note on the division of labour, which determines where a failure lives: the requ
         <trace target="HLR" ref="HLR-082"/>
       </traces>
     </test>
-    <test name="the_instability_metric_is_attributed">
-      <purpose><![CDATA[The metric carries its published source.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-INS-03"/>
-        <trace target="HLR" ref="HLR-099"/>
-      </traces>
-    </test>
-    <test name="the_bottleneck_threshold_is_marked_as_elcs_own">
-      <purpose><![CDATA[The one threshold that is not a published standard says so, rather than borrowing the authority of those beside it.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-ARC-02"/>
-        <trace target="HLR" ref="HLR-099"/>
-      </traces>
-    </test>
-    <test name="coupling_counts_components_not_calls">
+            <test name="coupling_counts_components_not_calls">
       <purpose><![CDATA[Three calls into one component are one dependency. Counting call sites would treat a file calling another in forty places as depending on forty things.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CPL-04"/>
@@ -6316,6 +6354,114 @@ Note on the division of labour, which determines where a failure lives: the requ
       <traces>
         <trace target="LLR" ref="LLR-ARC-03"/>
         <trace target="HLR" ref="HLR-066"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/thresholds.c" role="unit" count="15">
+    <test name="the_fan_out_bands_match_the_published_table">
+      <purpose><![CDATA[Each of the eight boundary values from PVD Appendix A.2 bands as the table says. The same eight are pinned as measurements by calltree/fanout.c, so a disagreement here is a banding error rather than a counting one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-05"/>
+        <trace target="HLR" ref="HLR-086"/>
+      </traces>
+    </test>
+    <test name="the_acceptable_band_produces_no_finding">
+      <purpose><![CDATA[A fan-out of 9 is acceptable and silent. This band was a gap in an earlier reading of the thresholds, which is why exhaustiveness is stated rather than inferred.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-05"/>
+        <trace target="HLR" ref="HLR-086"/>
+      </traces>
+    </test>
+    <test name="every_fan_out_value_classifies_exactly_once">
+      <purpose><![CDATA[Exhaustiveness as a property rather than as cases: every value from 0 to 40 lands in exactly one band, with none skipped and none claimed twice.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-05"/>
+        <trace target="HLR" ref="HLR-086"/>
+      </traces>
+    </test>
+    <test name="every_catalogued_measurement_names_a_source">
+      <purpose><![CDATA[Every row of the catalogue carries a non-empty attribution. A row without one would be an opinion elc held and did not admit to.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-02"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="exactly_one_threshold_is_elcs_own_and_says_so">
+      <purpose><![CDATA[Exactly one threshold is not a published standard, it is the bottleneck, and its text says so where a reader sees it. Asserting the count means a second could only appear by decision rather than by drift.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-02"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="the_published_thresholds_are_not_marked_as_elcs_own">
+      <purpose><![CDATA[The published rows cite MISRA and Martin and carry no elc marker, so the label distinguishes rather than decorating everything.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-02"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="a_kind_outside_the_catalogue_yields_no_entry">
+      <purpose><![CDATA[A measurement kind the catalogue does not hold returns no entry, so the caller reports a bare value rather than discarding it or inventing a band.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-08"/>
+        <trace target="HLR" ref="HLR-098"/>
+      </traces>
+    </test>
+    <test name="the_severity_set_is_closed_and_ordered">
+      <purpose><![CDATA[The three names are exactly the closed set, and their ranks order info below warning below critical — the ordering that 'the highest applicable band wins' is defined against.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-03"/>
+        <trace target="HLR" ref="HLR-123"/>
+      </traces>
+    </test>
+    <test name="an_unrecognised_severity_ranks_lowest_rather_than_faulting">
+      <purpose><![CDATA[A name outside the set, and a null one, rank lowest instead of faulting the ordering.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-03"/>
+        <trace target="HLR" ref="HLR-123"/>
+      </traces>
+    </test>
+    <test name="the_highest_applicable_band_is_the_one_reported">
+      <purpose><![CDATA[A value above both bounds produces one finding at the higher severity, not two findings or the lower one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-04"/>
+        <trace target="HLR" ref="HLR-123"/>
+      </traces>
+    </test>
+    <test name="every_finding_carries_exactly_one_severity">
+      <purpose><![CDATA[No finding is emitted without a severity, and none carries a value outside the closed set.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-03"/>
+        <trace target="HLR" ref="HLR-123"/>
+      </traces>
+    </test>
+    <test name="call_depth_bands_at_eight_and_twelve">
+      <purpose><![CDATA[Depth bands against the embedded guidance: 8 is within it, 9 warns, 12 warns, 13 is critical.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-06"/>
+        <trace target="HLR" ref="HLR-087"/>
+      </traces>
+    </test>
+    <test name="an_omitted_depth_is_not_banded_as_zero">
+      <purpose><![CDATA[A depth omitted for want of an entry point is not banded at all. Banding it would judge a number that does not exist.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-12"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="a_clean_project_yields_no_findings">
+      <purpose><![CDATA[Finding nothing is an ordinary result. Paired with every band test so that an implementation emitting findings unconditionally cannot pass them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-01"/>
+        <trace target="HLR" ref="HLR-098"/>
+      </traces>
+    </test>
+    <test name="findinglist_free_is_safe_on_null_and_twice">
+      <purpose><![CDATA[Releasing an empty or already-released finding list does not fault.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-01"/>
+        <trace target="HLR" ref="HLR-125"/>
       </traces>
     </test>
   </file>
@@ -8618,6 +8764,149 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[The ordered loop and the coupling figures come back from the record, neither being recomputable without a graph.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-XWR-13"/>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/thresholds.bats" role="fixture" count="20">
+    <test name="HLR-086: each boundary value classifies into exactly one band">
+      <purpose><![CDATA[The three boundaries that produce findings band as the published table says.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-05"/>
+        <trace target="HLR" ref="HLR-086"/>
+      </traces>
+    </test>
+    <test name="HLR-086: the bands below the warning threshold produce nothing">
+      <purpose><![CDATA[Five of the eight boundaries are silent. An implementation banding 8 and 10 as warnings would pass the test above and fail this one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-05"/>
+        <trace target="HLR" ref="HLR-086"/>
+      </traces>
+    </test>
+    <test name="HLR-086: the acceptable band is silent, not a gap">
+      <purpose><![CDATA[The 8-10 range produces no finding, which is the band an earlier reading of the thresholds left out.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-05"/>
+        <trace target="HLR" ref="HLR-086"/>
+      </traces>
+    </test>
+    <test name="HLR-086: exactly three findings come out of the boundary file">
+      <purpose><![CDATA[The count catches a band claiming a value twice, which a per-value assertion would not.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-05"/>
+        <trace target="HLR" ref="HLR-086"/>
+      </traces>
+    </test>
+    <test name="HLR-031: a measurement inside its band is still reported">
+      <purpose><![CDATA[A fan-out of 10 produces no finding and is still in the fan-out table. The findings list is the subset that crossed a line, never a replacement for the measurements.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-13"/>
+        <trace target="HLR" ref="HLR-031"/>
+      </traces>
+    </test>
+    <test name="HLR-099: every finding names its source">
+      <purpose><![CDATA[No finding row is emitted without a source column, and the fan-out rows cite Henry-Kafura.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-02"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-099: recursion is attributed to MISRA C Rule 17.2">
+      <purpose><![CDATA[The safety standard the recursion finding rests on is named in the report.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-07"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-099: a single-function global is attributed to MISRA C Rule 8.9">
+      <purpose><![CDATA[The global-state verdict carries a severity and the published rule that draws the line.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-02"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-099: the bottleneck threshold is marked as elc's own">
+      <purpose><![CDATA[The one threshold that is not a published standard says so where it is read, which is what keeps the no-built-in-opinion claim honest while shipping MISRA and Martin values beside it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-02"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-099: no published threshold is labelled as elc's own">
+      <purpose><![CDATA[Paired with the test above: the marker appears on the row that earns it and nowhere else.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-02"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-084: every dependency cycle is reported at critical severity">
+      <purpose><![CDATA[The acceptable count of cycles is strictly zero, so each is critical.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYC-04"/>
+        <trace target="HLR" ref="HLR-084"/>
+      </traces>
+    </test>
+    <test name="HLR-123: every finding carries a severity from the closed set">
+      <purpose><![CDATA[No row carries a severity outside info, warning and critical.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-03"/>
+        <trace target="HLR" ref="HLR-123"/>
+      </traces>
+    </test>
+    <test name="HLR-123: findings are ranked most severe first">
+      <purpose><![CDATA[Critical rows precede warning rows, because the list exists to be worked from the top.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-13"/>
+        <trace target="HLR" ref="HLR-123"/>
+      </traces>
+    </test>
+    <test name="HLR-100: severity does not move the exit status">
+      <purpose><![CDATA[A project reporting critical findings still exits 0 when every file was read. The exit status is reserved for failures; deciding what a finding warrants is the caller's business.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-03"/>
+        <trace target="HLR" ref="HLR-100"/>
+      </traces>
+    </test>
+    <test name="HLR-100: the summary counts findings without gating on them">
+      <purpose><![CDATA[The counts are figures to read rather than gates to pass, and the run still succeeds.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-13"/>
+        <trace target="HLR" ref="HLR-100"/>
+      </traces>
+    </test>
+    <test name="HLR-098: a project inside every band reports no findings">
+      <purpose><![CDATA[A project whose every measurement sits inside its accepted range produces an empty findings list.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-01"/>
+        <trace target="HLR" ref="HLR-098"/>
+      </traces>
+    </test>
+    <test name="HLR-031: the empty Findings section is still emitted">
+      <purpose><![CDATA[The heading appears with nothing under it, because an absent section is indistinguishable from a renderer that forgot.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-13"/>
+        <trace target="HLR" ref="HLR-031"/>
+      </traces>
+    </test>
+    <test name="HLR-101: no finding proposes a fix">
+      <purpose><![CDATA[No finding contains imperative remediation text. elc reports where a measurement falls and which standard says so, and stops there.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-09"/>
+        <trace target="HLR" ref="HLR-101"/>
+      </traces>
+    </test>
+    <test name="HLR-032: findings survive a record round trip byte-identically">
+      <purpose><![CDATA[A regenerated report is byte-identical to the live one with the findings section included.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-14"/>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="HLR-056: a regenerated report keeps each finding's attribution">
+      <purpose><![CDATA[The citation cannot be re-derived on regeneration, which has no measurements to band, so the record carries it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-14"/>
         <trace target="HLR" ref="HLR-056"/>
       </traces>
     </test>

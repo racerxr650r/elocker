@@ -340,7 +340,7 @@ Role: **unit**. **19 test(s).**
 
 ### 3.7. [test/unit/arch.c](../test/unit/arch.c)
 
-Role: **unit**. **21 test(s).**
+Role: **unit**. **19 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -348,25 +348,45 @@ Role: **unit**. **21 test(s).**
 | 2 | <a id="instability_is_zero_when_nothing_is_depended_upon"></a>`instability_is_zero_when_nothing_is_depended_upon` | `LLR-INS-01` | A component depending on nothing but depended upon widely is maximally stable, and the value is a real 0 rather than undefined — Ca is not zero, so the division is well formed. |
 | 3 | <a id="instability_is_one_when_nothing_depends_on_it"></a>`instability_is_one_when_nothing_depends_on_it` | `LLR-INS-01` | The opposite extreme: freely changeable, because nothing rests on it. |
 | 4 | <a id="instability_is_undefined_when_both_couplings_are_zero"></a>`instability_is_undefined_when_both_couplings_are_zero` | `LLR-INS-02` | No division is performed and the value is reported undefined. A component with no relationships at all is ordinary, and 0, 1 and NaN are all wrong answers for it. |
-| 5 | <a id="the_instability_metric_is_attributed"></a>`the_instability_metric_is_attributed` | `LLR-INS-03` | The metric carries its published source. |
-| 6 | <a id="the_bottleneck_threshold_is_marked_as_elcs_own"></a>`the_bottleneck_threshold_is_marked_as_elcs_own` | `LLR-ARC-02` | The one threshold that is not a published standard says so, rather than borrowing the authority of those beside it. |
-| 7 | <a id="coupling_counts_components_not_calls"></a>`coupling_counts_components_not_calls` | `LLR-CPL-04` | Three calls into one component are one dependency. Counting call sites would treat a file calling another in forty places as depending on forty things. |
-| 8 | <a id="a_call_within_one_component_is_no_coupling_at_all"></a>`a_call_within_one_component_is_no_coupling_at_all` | `LLR-CPL-03` | A file does not depend on itself — the same rule that keeps intra-file recursion out of the cycle report. |
-| 9 | <a id="a_bottleneck_needs_both_couplings_at_the_threshold"></a>`a_bottleneck_needs_both_couplings_at_the_threshold` | `LLR-ARC-01` | A component is flagged only where afferent and efferent coupling each meet the threshold; a widely-used leaf is stable, not a bottleneck. |
-| 10 | <a id="a_cycle_between_two_components_is_found_with_a_loop"></a>`a_cycle_between_two_components_is_found_with_a_loop` | `LLR-CYC-05` | The group and a concrete loop through it are both produced, since the group is what must be broken up and the loop is which edge to cut. |
-| 11 | <a id="mutual_recursion_within_one_component_is_not_a_cycle"></a>`mutual_recursion_within_one_component_is_not_a_cycle` | `LLR-CYC-03` | The case HLR-083 names. The call view holds a cycle and the component projection does not, so reporting it would tell an architect to split a file over a function-level recursion finding. |
-| 12 | <a id="an_acyclic_projection_yields_no_cycles"></a>`an_acyclic_projection_yields_no_cycles` | `LLR-CYC-01` | A one-directional dependency between two components is not a cycle. |
-| 13 | <a id="a_three_component_cycle_reports_its_whole_group"></a>`a_three_component_cycle_reports_its_whole_group` | `LLR-CYC-02` | A longer cycle reports every member and a loop visiting all three. |
-| 14 | <a id="a_call_descending_two_layers_is_skip_level_only"></a>`a_call_descending_two_layers_is_skip_level_only` | `LLR-LAY-01` | Bypassing an intervening layer in the declared direction is skip-level and inverts nothing. |
-| 15 | <a id="a_call_ascending_one_layer_is_inverted_only"></a>`a_call_ascending_one_layer_is_inverted_only` | `LLR-LAY-02` | Running against the declared direction without bypassing anything is direction-inverted and is not a skip. |
-| 16 | <a id="a_call_ascending_two_layers_is_both"></a>`a_call_ascending_two_layers_is_both` | `LLR-LAY-04` | Both statements are true of such a call and each has its own remedy, so it is reported twice rather than folded into one finding. |
-| 17 | <a id="a_call_descending_one_layer_is_no_violation"></a>`a_call_descending_one_layer_is_no_violation` | `LLR-LAY-03` | The arrangement the user declared produces nothing. Without this an implementation flagging every inter-layer call would pass every test above. |
-| 18 | <a id="a_component_in_no_declared_stratum_is_outside_the_partition"></a>`a_component_in_no_declared_stratum_is_outside_the_partition` | `LLR-LAY-05` | A file no declaration names has nothing to be compared against; placing it would report violations against a design nobody drew. |
-| 19 | <a id="with_no_strata_declared_layering_is_omitted"></a>`with_no_strata_declared_layering_is_omitted` | `LLR-ARC-03` | The layering is omitted with its reason, and the coupling table is produced all the same. |
-| 20 | <a id="a_state_edge_is_not_a_layering_violation"></a>`a_state_edge_is_not_a_layering_violation` | `LLR-LAY-05` | A global two layers share is a different fact with its own analyses; the dependency is still counted in the coupling table. |
-| 21 | <a id="an_empty_graph_analyses_without_incident"></a>`an_empty_graph_analyses_without_incident` | `LLR-ARC-03` | A run that analysed nothing produces empty architectural results rather than faulting. |
+| 5 | <a id="coupling_counts_components_not_calls"></a>`coupling_counts_components_not_calls` | `LLR-CPL-04` | Three calls into one component are one dependency. Counting call sites would treat a file calling another in forty places as depending on forty things. |
+| 6 | <a id="a_call_within_one_component_is_no_coupling_at_all"></a>`a_call_within_one_component_is_no_coupling_at_all` | `LLR-CPL-03` | A file does not depend on itself — the same rule that keeps intra-file recursion out of the cycle report. |
+| 7 | <a id="a_bottleneck_needs_both_couplings_at_the_threshold"></a>`a_bottleneck_needs_both_couplings_at_the_threshold` | `LLR-ARC-01` | A component is flagged only where afferent and efferent coupling each meet the threshold; a widely-used leaf is stable, not a bottleneck. |
+| 8 | <a id="a_cycle_between_two_components_is_found_with_a_loop"></a>`a_cycle_between_two_components_is_found_with_a_loop` | `LLR-CYC-05` | The group and a concrete loop through it are both produced, since the group is what must be broken up and the loop is which edge to cut. |
+| 9 | <a id="mutual_recursion_within_one_component_is_not_a_cycle"></a>`mutual_recursion_within_one_component_is_not_a_cycle` | `LLR-CYC-03` | The case HLR-083 names. The call view holds a cycle and the component projection does not, so reporting it would tell an architect to split a file over a function-level recursion finding. |
+| 10 | <a id="an_acyclic_projection_yields_no_cycles"></a>`an_acyclic_projection_yields_no_cycles` | `LLR-CYC-01` | A one-directional dependency between two components is not a cycle. |
+| 11 | <a id="a_three_component_cycle_reports_its_whole_group"></a>`a_three_component_cycle_reports_its_whole_group` | `LLR-CYC-02` | A longer cycle reports every member and a loop visiting all three. |
+| 12 | <a id="a_call_descending_two_layers_is_skip_level_only"></a>`a_call_descending_two_layers_is_skip_level_only` | `LLR-LAY-01` | Bypassing an intervening layer in the declared direction is skip-level and inverts nothing. |
+| 13 | <a id="a_call_ascending_one_layer_is_inverted_only"></a>`a_call_ascending_one_layer_is_inverted_only` | `LLR-LAY-02` | Running against the declared direction without bypassing anything is direction-inverted and is not a skip. |
+| 14 | <a id="a_call_ascending_two_layers_is_both"></a>`a_call_ascending_two_layers_is_both` | `LLR-LAY-04` | Both statements are true of such a call and each has its own remedy, so it is reported twice rather than folded into one finding. |
+| 15 | <a id="a_call_descending_one_layer_is_no_violation"></a>`a_call_descending_one_layer_is_no_violation` | `LLR-LAY-03` | The arrangement the user declared produces nothing. Without this an implementation flagging every inter-layer call would pass every test above. |
+| 16 | <a id="a_component_in_no_declared_stratum_is_outside_the_partition"></a>`a_component_in_no_declared_stratum_is_outside_the_partition` | `LLR-LAY-05` | A file no declaration names has nothing to be compared against; placing it would report violations against a design nobody drew. |
+| 17 | <a id="with_no_strata_declared_layering_is_omitted"></a>`with_no_strata_declared_layering_is_omitted` | `LLR-ARC-03` | The layering is omitted with its reason, and the coupling table is produced all the same. |
+| 18 | <a id="a_state_edge_is_not_a_layering_violation"></a>`a_state_edge_is_not_a_layering_violation` | `LLR-LAY-05` | A global two layers share is a different fact with its own analyses; the dependency is still counted in the coupling table. |
+| 19 | <a id="an_empty_graph_analyses_without_incident"></a>`an_empty_graph_analyses_without_incident` | `LLR-ARC-03` | A run that analysed nothing produces empty architectural results rather than faulting. |
 
-### 3.8. [test/unit/graph.c](../test/unit/graph.c)
+### 3.8. [test/unit/thresholds.c](../test/unit/thresholds.c)
+
+Role: **unit**. **15 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the_fan_out_bands_match_the_published_table"></a>`the_fan_out_bands_match_the_published_table` | `LLR-THR-05` | Each of the eight boundary values from PVD Appendix A.2 bands as the table says. The same eight are pinned as measurements by calltree/fanout.c, so a disagreement here is a banding error rather than a counting one. |
+| 2 | <a id="the_acceptable_band_produces_no_finding"></a>`the_acceptable_band_produces_no_finding` | `LLR-THR-05` | A fan-out of 9 is acceptable and silent. This band was a gap in an earlier reading of the thresholds, which is why exhaustiveness is stated rather than inferred. |
+| 3 | <a id="every_fan_out_value_classifies_exactly_once"></a>`every_fan_out_value_classifies_exactly_once` | `LLR-THR-05` | Exhaustiveness as a property rather than as cases: every value from 0 to 40 lands in exactly one band, with none skipped and none claimed twice. |
+| 4 | <a id="every_catalogued_measurement_names_a_source"></a>`every_catalogued_measurement_names_a_source` | `LLR-THR-02` | Every row of the catalogue carries a non-empty attribution. A row without one would be an opinion elc held and did not admit to. |
+| 5 | <a id="exactly_one_threshold_is_elcs_own_and_says_so"></a>`exactly_one_threshold_is_elcs_own_and_says_so` | `LLR-THR-02` | Exactly one threshold is not a published standard, it is the bottleneck, and its text says so where a reader sees it. Asserting the count means a second could only appear by decision rather than by drift. |
+| 6 | <a id="the_published_thresholds_are_not_marked_as_elcs_own"></a>`the_published_thresholds_are_not_marked_as_elcs_own` | `LLR-THR-02` | The published rows cite MISRA and Martin and carry no elc marker, so the label distinguishes rather than decorating everything. |
+| 7 | <a id="a_kind_outside_the_catalogue_yields_no_entry"></a>`a_kind_outside_the_catalogue_yields_no_entry` | `LLR-THR-08` | A measurement kind the catalogue does not hold returns no entry, so the caller reports a bare value rather than discarding it or inventing a band. |
+| 8 | <a id="the_severity_set_is_closed_and_ordered"></a>`the_severity_set_is_closed_and_ordered` | `LLR-THR-03` | The three names are exactly the closed set, and their ranks order info below warning below critical — the ordering that 'the highest applicable band wins' is defined against. |
+| 9 | <a id="an_unrecognised_severity_ranks_lowest_rather_than_faulting"></a>`an_unrecognised_severity_ranks_lowest_rather_than_faulting` | `LLR-THR-03` | A name outside the set, and a null one, rank lowest instead of faulting the ordering. |
+| 10 | <a id="the_highest_applicable_band_is_the_one_reported"></a>`the_highest_applicable_band_is_the_one_reported` | `LLR-THR-04` | A value above both bounds produces one finding at the higher severity, not two findings or the lower one. |
+| 11 | <a id="every_finding_carries_exactly_one_severity"></a>`every_finding_carries_exactly_one_severity` | `LLR-THR-03` | No finding is emitted without a severity, and none carries a value outside the closed set. |
+| 12 | <a id="call_depth_bands_at_eight_and_twelve"></a>`call_depth_bands_at_eight_and_twelve` | `LLR-THR-06` | Depth bands against the embedded guidance: 8 is within it, 9 warns, 12 warns, 13 is critical. |
+| 13 | <a id="an_omitted_depth_is_not_banded_as_zero"></a>`an_omitted_depth_is_not_banded_as_zero` | `LLR-THR-12` | A depth omitted for want of an entry point is not banded at all. Banding it would judge a number that does not exist. |
+| 14 | <a id="a_clean_project_yields_no_findings"></a>`a_clean_project_yields_no_findings` | `LLR-THR-01` | Finding nothing is an ordinary result. Paired with every band test so that an implementation emitting findings unconditionally cannot pass them. |
+| 15 | <a id="findinglist_free_is_safe_on_null_and_twice"></a>`findinglist_free_is_safe_on_null_and_twice` | `LLR-THR-01` | Releasing an empty or already-released finding list does not fault. |
+
+### 3.9. [test/unit/graph.c](../test/unit/graph.c)
 
 Role: **unit**. **16 test(s).**
 
@@ -389,7 +409,7 @@ Role: **unit**. **16 test(s).**
 | 15 | <a id="the_library_returns_errors_instead_of_aborting"></a>`the_library_returns_errors_instead_of_aborting` | `LLR-SDG-15` | Asking a cyclic graph for a topological ordering returns an error rather than aborting the process, so the library's default abort-on-error handler has been replaced. Reaching the assertion is itself the result: without the handler the test dies rather than fails. |
 | 16 | <a id="graph_free_is_safe_on_null_and_twice"></a>`graph_free_is_safe_on_null_and_twice` | `LLR-SDG-12` | Releasing a null or an already-released graph does not fault, so teardown is unconditional on every exit path. |
 
-### 3.9. [test/unit/format_graph.c](../test/unit/format_graph.c)
+### 3.10. [test/unit/format_graph.c](../test/unit/format_graph.c)
 
 Role: **unit**. **7 test(s).**
 
@@ -403,7 +423,7 @@ Role: **unit**. **7 test(s).**
 | 6 | <a id="a_dot_in_a_directory_is_not_an_extension"></a>`a_dot_in_a_directory_is_not_an_extension` | `LLR-GML-03` | A dot in a directory name is not mistaken for the file's extension, which would otherwise truncate the path at the directory. |
 | 7 | <a id="a_directory_dot_with_an_extension_still_substitutes"></a>`a_directory_dot_with_an_extension_still_substitutes` | `LLR-GML-03` | A dotted directory alongside a real extension substitutes the extension and leaves the directory alone. |
 
-### 3.10. [test/unit/report.c](../test/unit/report.c)
+### 3.11. [test/unit/report.c](../test/unit/report.c)
 
 Role: **unit**. **6 test(s).**
 
@@ -416,7 +436,7 @@ Role: **unit**. **6 test(s).**
 | 5 | <a id="a_failed_growth_leaves_the_accumulator_intact"></a>`a_failed_growth_leaves_the_accumulator_intact` | `LLR-RPT-16` | A reallocation failure, provoked through a link-time wrapper, is reported and leaves the original allocation intact rather than overwriting it with a null pointer. |
 | 6 | <a id="free_is_safe_on_null"></a>`free_is_safe_on_null` | `LLR-RPT-16` | Releasing a null report or accumulator does not fault, so teardown is safe on every path. |
 
-### 3.11. [test/unit/format_text.c](../test/unit/format_text.c)
+### 3.12. [test/unit/format_text.c](../test/unit/format_text.c)
 
 Role: **unit**. **4 test(s).**
 
@@ -427,7 +447,7 @@ Role: **unit**. **4 test(s).**
 | 3 | <a id="an_empty_report_still_renders_a_table"></a>`an_empty_report_still_renders_a_table` | `LLR-TBL-01` | A model with no files still renders its headings and column rule, so an empty run is distinguishable from a crash. |
 | 4 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-TBL-03` | A stream that cannot absorb the report yields a non-zero return, so a truncated report is never reported as success. |
 
-### 3.12. [test/integration/cli.bats](../test/integration/cli.bats)
+### 3.13. [test/integration/cli.bats](../test/integration/cli.bats)
 
 Role: **integration**. **16 test(s).**
 
@@ -450,7 +470,7 @@ Role: **integration**. **16 test(s).**
 | 15 | <a id="an accepted invocation writes its report to stdout"></a>`an accepted invocation writes its report to stdout` | — | Nothing but results reaches the results stream. |
 | 16 | <a id="a decoy dotfile in the working directory changes nothing"></a>`a decoy dotfile in the working directory changes nothing` | — | Configuration-like files planted beside the invocation produce byte-identical output to their absence. |
 
-### 3.13. [test/integration/docs.bats](../test/integration/docs.bats)
+### 3.14. [test/integration/docs.bats](../test/integration/docs.bats)
 
 Role: **integration**. **8 test(s).**
 
@@ -465,7 +485,7 @@ Role: **integration**. **8 test(s).**
 | 7 | <a id="every long option the man page documents is accepted by elc"></a>`every long option the man page documents is accepted by elc` | — | No documented option is unimplemented. |
 | 8 | <a id="both documents describe the exit-status scheme"></a>`both documents describe the exit-status scheme` | — | Both documents describe the exit-status classes. |
 
-### 3.14. [test/integration/discovery.bats](../test/integration/discovery.bats)
+### 3.15. [test/integration/discovery.bats](../test/integration/discovery.bats)
 
 Role: **integration**. **21 test(s).**
 
@@ -493,7 +513,7 @@ Role: **integration**. **21 test(s).**
 | 20 | <a id="an output file that cannot be opened is diagnosed on stderr"></a>`an output file that cannot be opened is diagnosed on stderr` | `LLR-MAIN-17` | The diagnostic names the destination and reaches the diagnostic stream. |
 | 21 | <a id="an unreadable file inside a target degrades the run to 1"></a>`an unreadable file inside a target degrades the run to 1` | — | A file within a target that cannot be read is a per-file failure: the report still covers the files that succeeded, and the exit status says so. |
 
-### 3.15. [test/integration/language.bats](../test/integration/language.bats)
+### 3.16. [test/integration/language.bats](../test/integration/language.bats)
 
 Role: **integration**. **30 test(s).**
 
@@ -530,7 +550,7 @@ Role: **integration**. **30 test(s).**
 | 29 | <a id="HLR-035: an undamaged run says so, with nothing in the section"></a>`HLR-035: an undamaged run says so, with nothing in the section` | `LLR-RPT-30` | The summary reports zero unparsed lines and the section is empty for a sound run, so the damage reporting has to be earned. |
 | 30 | <a id="HLR-035: the diagnostic gives the line, the scale, and what was kept"></a>`HLR-035: the diagnostic gives the line, the scale, and what was kept` | `LLR-ANL-50` | The stderr diagnostic names the line the damage begins at, how many lines it spans, and that the remainder was measured. "Parse error; file skipped" withheld the scale, which on a file damaged in one line reads far worse than it is. |
 
-### 3.16. [test/integration/complexity.bats](../test/integration/complexity.bats)
+### 3.17. [test/integration/complexity.bats](../test/integration/complexity.bats)
 
 Role: **integration**. **13 test(s).**
 
@@ -550,7 +570,7 @@ Role: **integration**. **13 test(s).**
 | 12 | <a id="HLR-032: two runs with a threshold are byte-identical"></a>`HLR-032: two runs with a threshold are byte-identical` | — | Repeating a run with a threshold produces identical bytes. |
 | 13 | <a id="HLR-066: an empty run still renders the callouts and the listing"></a>`HLR-066: an empty run still renders the callouts and the listing` | — | A run that analysed nothing renders both new sections with no rows, rather than omitting them and changing the report's shape. |
 
-### 3.17. [test/unit/format_csv.c](../test/unit/format_csv.c)
+### 3.18. [test/unit/format_csv.c](../test/unit/format_csv.c)
 
 Role: **unit**. **11 test(s).**
 
@@ -568,7 +588,7 @@ Role: **unit**. **11 test(s).**
 | 10 | <a id="an_empty_report_is_a_header_alone"></a>`an_empty_report_is_a_header_alone` | `LLR-CSV-01` | A run with no functions produces the header and nothing else, rather than no output at all. |
 | 11 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-CSV-01` | A stream that cannot absorb the document yields a non-zero return, so a truncated file is never reported as success. |
 
-### 3.18. [test/unit/format_xml.c](../test/unit/format_xml.c)
+### 3.19. [test/unit/format_xml.c](../test/unit/format_xml.c)
 
 Role: **unit**. **17 test(s).**
 
@@ -592,7 +612,7 @@ Role: **unit**. **17 test(s).**
 | 16 | <a id="a_truncated_record_is_rejected"></a>`a_truncated_record_is_rejected` | `LLR-XRD-03`, `LLR-XRD-06` | A record whose root never closes is not well-formed and is rejected rather than read as far as it goes. |
 | 17 | <a id="an_absent_record_is_rejected"></a>`an_absent_record_is_rejected` | `LLR-XRD-03` | A record that cannot be opened is a rejection rather than a crash. |
 
-### 3.19. [test/integration/formats.bats](../test/integration/formats.bats)
+### 3.20. [test/integration/formats.bats](../test/integration/formats.bats)
 
 Role: **integration**. **16 test(s).**
 
@@ -615,7 +635,7 @@ Role: **integration**. **16 test(s).**
 | 15 | <a id="HLR-032: every format is byte-identical across runs"></a>`HLR-032: every format is byte-identical across runs` | — | Repeating a run in any format produces identical bytes. |
 | 16 | <a id="HLR-066: every format renders an empty run"></a>`HLR-066: every format renders an empty run` | — | A run that analysed nothing still produces output in every format. |
 
-### 3.20. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
+### 3.21. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
 
 Role: **fixture**. **20 test(s).**
 
@@ -642,7 +662,7 @@ Role: **fixture**. **20 test(s).**
 | 19 | <a id="HLR-048: a catch clause is a decision point"></a>`HLR-048: a catch clause is a decision point` | — | A handler is a path out of the guarded block and raises complexity; `try` and `throw` choose nothing and do not. |
 | 20 | <a id="HLR-011: a language with no exception construct still reports"></a>`HLR-011: a language with no exception construct still reports` | — | C has no exception handling and analysing it is not thereby an error — no language is required to have every category. |
 
-### 3.21. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
+### 3.22. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -656,7 +676,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-016: inline syntax inside a block comment excludes no line twice"></a>`HLR-016: inline syntax inside a block comment excludes no line twice` | — | Comment-like openers inside a block comment do not cause any line to be excluded more than once. |
 | 7 | <a id="HLR-020: a file of only comments reports zero ELOC"></a>`HLR-020: a file of only comments reports zero ELOC` | — | A file with nothing but comments reports zero, without error. |
 
-### 3.22. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
+### 3.23. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
 
 Role: **fixture**. **17 test(s).**
 
@@ -680,7 +700,7 @@ Role: **fixture**. **17 test(s).**
 | 16 | <a id="HLR-018: a C++ lambda's conditional lands on the enclosing function"></a>`HLR-018: a C++ lambda's conditional lands on the enclosing function` | — | The conditional expression inside a lambda raises the enclosing function's complexity. |
 | 17 | <a id="HLR-067: a nested named function is reported where a lambda is not"></a>`HLR-067: a nested named function is reported where a lambda is not` | — | The distinction the two requirements draw, in one language and one function body: Rust's nested `fn` is reported and the closure beside it is not. |
 
-### 3.23. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
+### 3.24. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
 
 Role: **fixture**. **13 test(s).**
 
@@ -700,7 +720,7 @@ Role: **fixture**. **13 test(s).**
 | 12 | <a id="HLR-065: XML carrying such an identifier is well-formed"></a>`HLR-065: XML carrying such an identifier is well-formed` | — | An independent parser accepts the document, so the escaping is correct rather than merely present. |
 | 13 | <a id="HLR-056: such an identifier survives a record round trip"></a>`HLR-056: such an identifier survives a record round trip` | — | Regeneration matches a direct run, so escaping on the way out and reading on the way in agree about the identifier. |
 
-### 3.24. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
+### 3.25. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
 
 Role: **fixture**. **16 test(s).**
 
@@ -723,7 +743,7 @@ Role: **fixture**. **16 test(s).**
 | 15 | <a id="HLR-063: an explicit Markdown selection is accepted"></a>`HLR-063: an explicit Markdown selection is accepted` | — | Saying the default out loud is not an error; only asking for something else is. |
 | 16 | <a id="HLR-063: a target alongside --from-xml is a usage error"></a>`HLR-063: a target alongside --from-xml is a usage error` | — | The record is the input; a target would name a second source of truth for one report. |
 
-### 3.25. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
+### 3.26. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -749,7 +769,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-059: the environment variable still wins over the installed layout"></a>`HLR-059: the environment variable still wins over the installed layout` | `LLR-ROP-02` | The variable takes precedence over a runtime the installed layout would otherwise have found, as it does over the adjacent one. |
 | 19 | <a id="HLR-036: a binary with no runtime anywhere names every path it tried"></a>`HLR-036: a binary with no runtime anywhere names every path it tried` | `LLR-ROP-10` | The diagnostic lists each candidate and the variable that overrides them. The message it replaced quoted one path no layout uses, sending the reader to look for a runtime directory inside a directory of executables. |
 
-### 3.26. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
+### 3.27. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
 
 Role: **fixture**. **11 test(s).**
 
@@ -767,7 +787,7 @@ Role: **fixture**. **11 test(s).**
 | 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
 | 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
 
-### 3.27. [test/fixtures/deadcode.bats](../test/fixtures/deadcode.bats)
+### 3.28. [test/fixtures/deadcode.bats](../test/fixtures/deadcode.bats)
 
 Role: **fixture**. **22 test(s).**
 
@@ -796,7 +816,7 @@ Role: **fixture**. **22 test(s).**
 | 21 | <a id="HLR-139: dead code is found in every language supplying a query"></a>`HLR-139: dead code is found in every language supplying a query` | `LLR-DED-01` | Python, Rust and C++ each find the statement after a terminator, so the mechanism is not C's alone. |
 | 22 | <a id="HLR-138: no language claims a branch guarded by a variable"></a>`HLR-138: no language claims a branch guarded by a variable` | `LLR-DED-03` | The restraint holds in Python and Rust as it does in C: no language module is permitted to infer a value. |
 
-### 3.28. [test/fixtures/reachability.bats](../test/fixtures/reachability.bats)
+### 3.29. [test/fixtures/reachability.bats](../test/fixtures/reachability.bats)
 
 Role: **fixture**. **24 test(s).**
 
@@ -827,7 +847,7 @@ Role: **fixture**. **24 test(s).**
 | 23 | <a id="HLR-032: the state sections survive a record round trip byte-identically"></a>`HLR-032: the state sections survive a record round trip byte-identically` | `LLR-XWR-11` | A report regenerated from the saved record is byte-identical to the live one, with the reachability and global-state sections included. |
 | 24 | <a id="HLR-032: a global-state finding survives the round trip"></a>`HLR-032: a global-state finding survives the round trip` | `LLR-XWR-12` | The verdict and its participants are carried in the record, and the citation is derived from the verdict on both paths rather than stored. |
 
-### 3.29. [test/fixtures/arch.bats](../test/fixtures/arch.bats)
+### 3.30. [test/fixtures/arch.bats](../test/fixtures/arch.bats)
 
 Role: **fixture**. **30 test(s).**
 
@@ -864,7 +884,34 @@ Role: **fixture**. **30 test(s).**
 | 29 | <a id="HLR-032: the architecture sections survive a record round trip"></a>`HLR-032: the architecture sections survive a record round trip` | `LLR-XWR-13` | A report regenerated from the saved record is byte-identical to the live one, with the coupling, cycle and layering sections included. |
 | 30 | <a id="HLR-032: a cycle and its loop survive the round trip"></a>`HLR-032: a cycle and its loop survive the round trip` | `LLR-XWR-13` | The ordered loop and the coupling figures come back from the record, neither being recomputable without a graph. |
 
-### 3.30. [test/fixtures/calltree.bats](../test/fixtures/calltree.bats)
+### 3.31. [test/fixtures/thresholds.bats](../test/fixtures/thresholds.bats)
+
+Role: **fixture**. **20 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-086: each boundary value classifies into exactly one band"></a>`HLR-086: each boundary value classifies into exactly one band` | `LLR-THR-05` | The three boundaries that produce findings band as the published table says. |
+| 2 | <a id="HLR-086: the bands below the warning threshold produce nothing"></a>`HLR-086: the bands below the warning threshold produce nothing` | `LLR-THR-05` | Five of the eight boundaries are silent. An implementation banding 8 and 10 as warnings would pass the test above and fail this one. |
+| 3 | <a id="HLR-086: the acceptable band is silent, not a gap"></a>`HLR-086: the acceptable band is silent, not a gap` | `LLR-THR-05` | The 8-10 range produces no finding, which is the band an earlier reading of the thresholds left out. |
+| 4 | <a id="HLR-086: exactly three findings come out of the boundary file"></a>`HLR-086: exactly three findings come out of the boundary file` | `LLR-THR-05` | The count catches a band claiming a value twice, which a per-value assertion would not. |
+| 5 | <a id="HLR-031: a measurement inside its band is still reported"></a>`HLR-031: a measurement inside its band is still reported` | `LLR-THR-13` | A fan-out of 10 produces no finding and is still in the fan-out table. The findings list is the subset that crossed a line, never a replacement for the measurements. |
+| 6 | <a id="HLR-099: every finding names its source"></a>`HLR-099: every finding names its source` | `LLR-THR-02` | No finding row is emitted without a source column, and the fan-out rows cite Henry-Kafura. |
+| 7 | <a id="HLR-099: recursion is attributed to MISRA C Rule 17.2"></a>`HLR-099: recursion is attributed to MISRA C Rule 17.2` | `LLR-THR-07` | The safety standard the recursion finding rests on is named in the report. |
+| 8 | <a id="HLR-099: a single-function global is attributed to MISRA C Rule 8.9"></a>`HLR-099: a single-function global is attributed to MISRA C Rule 8.9` | `LLR-THR-02` | The global-state verdict carries a severity and the published rule that draws the line. |
+| 9 | <a id="HLR-099: the bottleneck threshold is marked as elc's own"></a>`HLR-099: the bottleneck threshold is marked as elc's own` | `LLR-THR-02` | The one threshold that is not a published standard says so where it is read, which is what keeps the no-built-in-opinion claim honest while shipping MISRA and Martin values beside it. |
+| 10 | <a id="HLR-099: no published threshold is labelled as elc's own"></a>`HLR-099: no published threshold is labelled as elc's own` | `LLR-THR-02` | Paired with the test above: the marker appears on the row that earns it and nowhere else. |
+| 11 | <a id="HLR-084: every dependency cycle is reported at critical severity"></a>`HLR-084: every dependency cycle is reported at critical severity` | `LLR-CYC-04` | The acceptable count of cycles is strictly zero, so each is critical. |
+| 12 | <a id="HLR-123: every finding carries a severity from the closed set"></a>`HLR-123: every finding carries a severity from the closed set` | `LLR-THR-03` | No row carries a severity outside info, warning and critical. |
+| 13 | <a id="HLR-123: findings are ranked most severe first"></a>`HLR-123: findings are ranked most severe first` | `LLR-THR-13` | Critical rows precede warning rows, because the list exists to be worked from the top. |
+| 14 | <a id="HLR-100: severity does not move the exit status"></a>`HLR-100: severity does not move the exit status` | `LLR-THR-03` | A project reporting critical findings still exits 0 when every file was read. The exit status is reserved for failures; deciding what a finding warrants is the caller's business. |
+| 15 | <a id="HLR-100: the summary counts findings without gating on them"></a>`HLR-100: the summary counts findings without gating on them` | `LLR-THR-13` | The counts are figures to read rather than gates to pass, and the run still succeeds. |
+| 16 | <a id="HLR-098: a project inside every band reports no findings"></a>`HLR-098: a project inside every band reports no findings` | `LLR-THR-01` | A project whose every measurement sits inside its accepted range produces an empty findings list. |
+| 17 | <a id="HLR-031: the empty Findings section is still emitted"></a>`HLR-031: the empty Findings section is still emitted` | `LLR-THR-13` | The heading appears with nothing under it, because an absent section is indistinguishable from a renderer that forgot. |
+| 18 | <a id="HLR-101: no finding proposes a fix"></a>`HLR-101: no finding proposes a fix` | `LLR-THR-09` | No finding contains imperative remediation text. elc reports where a measurement falls and which standard says so, and stops there. |
+| 19 | <a id="HLR-032: findings survive a record round trip byte-identically"></a>`HLR-032: findings survive a record round trip byte-identically` | `LLR-THR-14` | A regenerated report is byte-identical to the live one with the findings section included. |
+| 20 | <a id="HLR-056: a regenerated report keeps each finding's attribution"></a>`HLR-056: a regenerated report keeps each finding's attribution` | `LLR-THR-14` | The citation cannot be re-derived on regeneration, which has no measurements to band, so the record carries it. |
+
+### 3.32. [test/fixtures/calltree.bats](../test/fixtures/calltree.bats)
 
 Role: **fixture**. **20 test(s).**
 
@@ -891,7 +938,7 @@ Role: **fixture**. **20 test(s).**
 | 19 | <a id="HLR-033: the targets may be given in either order"></a>`HLR-033: the targets may be given in either order` | — | The report does not depend on the order the targets were named in. |
 | 20 | <a id="HLR-056: the measurements survive a record round trip"></a>`HLR-056: the measurements survive a record round trip` | — | A report regenerated from a record is byte-identical and still carries the depth, since none of the call-tree measurements can be recomputed without the source. |
 
-### 3.31. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
+### 3.33. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
 Role: **fixture**. **16 test(s).**
 
@@ -914,7 +961,7 @@ Role: **fixture**. **16 test(s).**
 | 15 | <a id="HLR-032: two runs over the same tree produce identical GraphML"></a>`HLR-032: two runs over the same tree produce identical GraphML` | — | The export is byte-identical across runs, so no container's internal enumeration reaches the output. |
 | 16 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | — | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
-### 3.32. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+### 3.34. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -940,7 +987,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | — | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
 | 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | — | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
 
-### 3.33. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.35. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -954,7 +1001,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.34. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.36. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **22 test(s).**
 
@@ -983,7 +1030,7 @@ Role: **instrumented**. **22 test(s).**
 | 21 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 | 22 | <a id="HLR-125: the local sanitizer gate is as strong as the pipeline's"></a>`HLR-125: the local sanitizer gate is as strong as the pipeline's` | `LLR-BLD-18` | The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them. |
 
-### 3.35. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.37. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -1188,7 +1235,7 @@ verified by code review — see
 | `LLR-SDG-15` | `graph_build` | `HLR-124`, `HLR-113`, `HLR-120` | `the_library_returns_errors_instead_of_aborting` |
 | `LLR-SDG-11` | `graph_build` | `HLR-124`, `HLR-077` | **(no direct test)** |
 | `LLR-ARC-01` | `arch_analyse` | `HLR-081` | `a_bottleneck_needs_both_couplings_at_the_threshold`, `HLR-081: no component is a bottleneck at the default threshold`, `HLR-081: a component is a bottleneck when both couplings meet the threshold` |
-| `LLR-ARC-02` | `arch_analyse` | `HLR-081`, `HLR-099` | `the_bottleneck_threshold_is_marked_as_elcs_own`, `HLR-099: the bottleneck threshold is marked as elc's own heuristic` |
+| `LLR-ARC-02` | `arch_analyse` | `HLR-081`, `HLR-099` | `HLR-099: the bottleneck threshold is marked as elc's own heuristic` |
 | `LLR-ARC-03` | `arch_analyse` | `HLR-115` | `with_no_strata_declared_layering_is_omitted`, `an_empty_graph_analyses_without_incident`, `HLR-115: with no strata declared the analysis is omitted with a reason`, `LLR-CTR-09: omitting layering does not omit the coupling table` |
 | `LLR-ARC-04` | `arch_analyse` | `HLR-078` | `LLR-ARC-04: a stratum matching no component is diagnosed and retained` |
 | `LLR-CPL-01` | `compute_coupling` | `HLR-080` | `HLR-080: Ca and Ce match the hand-computed table`, `HLR-080: every component appears, not only the interesting ones` |
@@ -1197,11 +1244,11 @@ verified by code review — see
 | `LLR-CPL-04` | `compute_coupling` | `HLR-080`, `HLR-114` | `coupling_counts_components_not_calls`, `HLR-080: a repeated call does not raise efferent coupling` |
 | `LLR-INS-01` | `instability` | `HLR-082` | `instability_is_ce_over_the_sum`, `instability_is_zero_when_nothing_is_depended_upon`, `instability_is_one_when_nothing_depends_on_it`, `HLR-082: instability is Ce over Ce plus Ca` |
 | `LLR-INS-02` | `instability` | `HLR-082` | `instability_is_undefined_when_both_couplings_are_zero`, `HLR-082: a component with both couplings zero is undefined, not zero` |
-| `LLR-INS-03` | `instability` | `HLR-099`, `HLR-082` | `the_instability_metric_is_attributed` |
+| `LLR-INS-03` | `instability` | `HLR-099`, `HLR-082` | **(no direct test)** |
 | `LLR-CYC-01` | `find_cycles` | `HLR-083` | `an_acyclic_projection_yields_no_cycles`, `HLR-083: the same pair is a recursion finding as well`, `HLR-083: an acyclic project reports no cycles` |
 | `LLR-CYC-02` | `find_cycles` | `HLR-083` | `a_three_component_cycle_reports_its_whole_group`, `HLR-083: a cycle between two components is reported as an ordered loop` |
 | `LLR-CYC-03` | `find_cycles` | `HLR-083`, `HLR-089` | `mutual_recursion_within_one_component_is_not_a_cycle`, `LLR-CYC-03: mutual recursion within one file is NOT a component cycle` |
-| `LLR-CYC-04` | `find_cycles` | `HLR-084`, `HLR-123` | **(no direct test)** |
+| `LLR-CYC-04` | `find_cycles` | `HLR-084`, `HLR-123` | `HLR-084: every dependency cycle is reported at critical severity` |
 | `LLR-CYC-05` | `find_cycles` | `HLR-083`, `HLR-032` | `a_cycle_between_two_components_is_found_with_a_loop` |
 | `LLR-LAY-01` | `check_strata` | `HLR-079` | `a_call_descending_two_layers_is_skip_level_only`, `HLR-079: a call bypassing an intervening layer is skip-level`, `HLR-079: the layers crossed are reported with the finding` |
 | `LLR-LAY-02` | `check_strata` | `HLR-118` | `a_call_ascending_one_layer_is_inverted_only`, `HLR-118: a call inverting the declared direction is reported separately` |
@@ -1239,16 +1286,20 @@ verified by code review — see
 | `LLR-UGL-02` | `unreachable_globals` | `HLR-096`, `HLR-138` | `a_global_no_function_touches_is_not_claimed_dead` |
 | `LLR-ISO-01` | `check_scopes` | `HLR-094` | `an_edge_crossing_a_declared_boundary_is_reported`, `a_shared_global_crossing_a_boundary_is_reported`, `HLR-094: a call crossing a declared scope boundary is reported`, `HLR-094: a shared global crossing a boundary is reported too`, `HLR-094: exactly the two crossings are reported`, `HLR-094: an edge within one scope is not a crossing` |
 | `LLR-ISO-02` | `check_scopes` | `HLR-094`, `HLR-115` | `a_component_matching_no_declaration_is_outside_the_partition`, `HLR-094: a file matching no declaration is outside the partition` |
-| `LLR-THR-01` | `thresholds_apply` | `HLR-098` | **(no direct test)** |
-| `LLR-THR-02` | `thresholds_apply` | `HLR-099` | **(no direct test)** |
-| `LLR-THR-03` | `thresholds_apply` | `HLR-123` | **(no direct test)** |
-| `LLR-THR-04` | `thresholds_apply` | `HLR-123` | **(no direct test)** |
-| `LLR-THR-05` | `thresholds_apply` | `HLR-086` | **(no direct test)** |
-| `LLR-THR-06` | `thresholds_apply` | `HLR-087` | **(no direct test)** |
-| `LLR-THR-07` | `thresholds_apply` | `HLR-089`, `HLR-099` | **(no direct test)** |
-| `LLR-THR-08` | `thresholds_apply` | `HLR-098` | **(no direct test)** |
-| `LLR-THR-09` | `thresholds_apply` | `HLR-101` | **(no direct test)** |
+| `LLR-THR-01` | `thresholds_apply` | `HLR-098` | `a_clean_project_yields_no_findings`, `findinglist_free_is_safe_on_null_and_twice`, `HLR-098: a project inside every band reports no findings` |
+| `LLR-THR-02` | `thresholds_apply` | `HLR-099` | `every_catalogued_measurement_names_a_source`, `exactly_one_threshold_is_elcs_own_and_says_so`, `the_published_thresholds_are_not_marked_as_elcs_own`, `HLR-099: every finding names its source`, `HLR-099: a single-function global is attributed to MISRA C Rule 8.9`, `HLR-099: the bottleneck threshold is marked as elc's own`, `HLR-099: no published threshold is labelled as elc's own` |
+| `LLR-THR-03` | `thresholds_apply` | `HLR-123` | `the_severity_set_is_closed_and_ordered`, `an_unrecognised_severity_ranks_lowest_rather_than_faulting`, `every_finding_carries_exactly_one_severity`, `HLR-123: every finding carries a severity from the closed set`, `HLR-100: severity does not move the exit status` |
+| `LLR-THR-04` | `thresholds_apply` | `HLR-123` | `the_highest_applicable_band_is_the_one_reported` |
+| `LLR-THR-05` | `thresholds_apply` | `HLR-086` | `the_fan_out_bands_match_the_published_table`, `the_acceptable_band_produces_no_finding`, `every_fan_out_value_classifies_exactly_once`, `HLR-086: each boundary value classifies into exactly one band`, `HLR-086: the bands below the warning threshold produce nothing`, `HLR-086: the acceptable band is silent, not a gap`, `HLR-086: exactly three findings come out of the boundary file` |
+| `LLR-THR-06` | `thresholds_apply` | `HLR-087` | `call_depth_bands_at_eight_and_twelve` |
+| `LLR-THR-07` | `thresholds_apply` | `HLR-089`, `HLR-099` | `HLR-099: recursion is attributed to MISRA C Rule 17.2` |
+| `LLR-THR-08` | `thresholds_apply` | `HLR-098` | `a_kind_outside_the_catalogue_yields_no_entry` |
+| `LLR-THR-09` | `thresholds_apply` | `HLR-101` | `HLR-101: no finding proposes a fix` |
 | `LLR-THR-10` | `thresholds_apply` | `HLR-111` | **(no direct test)** |
+| `LLR-THR-11` | `thresholds_apply` | `HLR-098`, `HLR-099`, `HLR-111` | **(no direct test)** |
+| `LLR-THR-12` | `thresholds_apply` | `HLR-115`, `HLR-098` | `an_omitted_depth_is_not_banded_as_zero` |
+| `LLR-THR-13` | `thresholds_apply` | `HLR-031`, `HLR-123`, `HLR-032` | `HLR-031: a measurement inside its band is still reported`, `HLR-123: findings are ranked most severe first`, `HLR-100: the summary counts findings without gating on them`, `HLR-031: the empty Findings section is still emitted` |
+| `LLR-THR-14` | `thresholds_apply` | `HLR-054`, `HLR-056`, `HLR-099` | `HLR-032: findings survive a record round trip byte-identically`, `HLR-056: a regenerated report keeps each finding's attribution` |
 | `LLR-RPT-01` | `report_assemble` | `HLR-024` | `totals_sum_across_every_file` |
 | `LLR-RPT-02` | `report_assemble` | `HLR-025` | **(no direct test)** |
 | `LLR-RPT-03` | `report_assemble` | `HLR-026` | **(no direct test)** |

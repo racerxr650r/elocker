@@ -36,6 +36,7 @@
 #include "elc.h"
 #include "format_xml.h"
 #include "report.h"
+#include "thresholds.h"
 
 #define XML_READ_CHUNK 8192
 
@@ -285,6 +286,31 @@ int xml_write_report(const Report *report, FILE *out)
 	}
 	fputs("  </architecture>\n", out);
 
+	/* The findings. Carried because regeneration has no measurements to
+	 * re-band and no catalogue call to make against them, exactly as the
+	 * measurements themselves are (HLR-054, HLR-056).
+	 *
+	 * The source *is* written here, unlike the verdict citations elsewhere
+	 * in this record. Those are derived from a verdict the record already
+	 * carries; a finding's source is derived from its measurement kind,
+	 * which the record would otherwise have to carry as a number whose
+	 * meaning could shift between builds. A string that reads the same in
+	 * both is the more durable of the two. */
+	fputs("  <findings>\n", out);
+	for (size_t i = 0; i < report->finding_count; i++) {
+		const FindingRow *r = &report->findings[i];
+
+		fputs("    <finding", out);
+		write_attribute(out, "severity", r->severity);
+		write_attribute(out, "measurement", r->measurement);
+		write_attribute(out, "subject", r->subject);
+		write_attribute(out, "where", r->where);
+		write_attribute(out, "detail", r->detail);
+		write_attribute(out, "source", r->source);
+		fprintf(out, " line=\"%" PRIu32 "\"/>\n", r->line);
+	}
+	fputs("  </findings>\n", out);
+
 	fputs("  <discovery>\n", out);
 	for (size_t i = 0; i < report->routes.count; i++) {
 		fputs("    <route", out);
@@ -342,6 +368,8 @@ typedef struct {
 	size_t              unreachable_global_count;
 	CrossScopeRow      *cross_scope;
 	size_t              cross_scope_count;
+	FindingRow         *findings;
+	size_t              finding_count;
 	CouplingRow        *coupling;
 	size_t              coupling_count;
 	uint32_t            bottleneck_threshold;
@@ -842,6 +870,49 @@ static void on_start(void *user, const XML_Char *name,
 		return;
 	}
 
+	if (strcmp(name, "finding") == 0) {
+		const char *severity    = attribute(atts, "severity");
+		const char *measurement = attribute(atts, "measurement");
+		const char *subject     = attribute(atts, "subject");
+		const char *where       = attribute(atts, "where");
+		const char *detail      = attribute(atts, "detail");
+		const char *source      = attribute(atts, "source");
+
+		if (!severity || !measurement || !subject || !where ||
+		    !detail || !source) {
+			fail(state, "a finding element is incomplete");
+			return;
+		}
+
+		FindingRow *grown = realloc(state->findings,
+		                            (state->finding_count + 1) *
+		                                    sizeof *grown);
+
+		if (!grown) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->findings = grown;
+
+		FindingRow *row = &state->findings[state->finding_count];
+
+		memset(row, 0, sizeof *row);
+		row->severity    = strdup(severity);
+		row->measurement = strdup(measurement);
+		row->subject     = strdup(subject);
+		row->where       = strdup(where);
+		row->detail      = strdup(detail);
+		row->source      = strdup(source);
+		if (!row->severity || !row->measurement || !row->subject ||
+		    !row->where || !row->detail || !row->source) {
+			fail(state, "out of memory");
+			return;
+		}
+		row->line = uint_attribute(state, atts, "line");
+		state->finding_count++;
+		return;
+	}
+
 	if (strcmp(name, "architecture") == 0) {
 		const char *strata = attribute(atts, "strata-state");
 
@@ -1174,6 +1245,8 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	out->unreachable_global_count = state.unreachable_global_count;
 	out->cross_scope              = state.cross_scope;
 	out->cross_scope_count        = state.cross_scope_count;
+	out->findings                 = state.findings;
+	out->finding_count            = state.finding_count;
 	out->coupling                 = state.coupling;
 	out->coupling_count           = state.coupling_count;
 	out->bottleneck_threshold     = state.bottleneck_threshold;
@@ -1193,6 +1266,8 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	state.unreachable_global_count = 0;
 	state.cross_scope              = NULL;
 	state.cross_scope_count        = 0;
+	state.findings                 = NULL;
+	state.finding_count            = 0;
 	state.coupling                 = NULL;
 	state.coupling_count           = 0;
 	state.dep_cycles               = NULL;
@@ -1255,6 +1330,15 @@ cleanup:
 		free(state.cross_scope[i].object);
 	}
 	free(state.cross_scope);
+	for (size_t i = 0; i < state.finding_count; i++) {
+		free(state.findings[i].severity);
+		free(state.findings[i].measurement);
+		free(state.findings[i].subject);
+		free(state.findings[i].where);
+		free(state.findings[i].detail);
+		free(state.findings[i].source);
+	}
+	free(state.findings);
 	for (size_t i = 0; i < state.coupling_count; i++) {
 		free(state.coupling[i].component);
 		free(state.coupling[i].instability);

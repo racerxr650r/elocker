@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "arch.h"
+#include "thresholds.h"
 #include "format_text.h"
 #include "report.h"
 
@@ -292,6 +293,17 @@ static uint64_t unparsed_total(const Report *report)
 	return total;
 }
 
+/* Findings carrying one severity. */
+static uint64_t severity_total(const Report *report, const char *severity)
+{
+	uint64_t total = 0;
+
+	for (size_t i = 0; i < report->finding_count; i++)
+		if (strcmp(report->findings[i].severity, severity) == 0)
+			total++;
+	return total;
+}
+
 static void summary_section(const Report *report, Style style, FILE *out)
 {
 	const ProjectSummary *sum   = &report->summary;
@@ -332,6 +344,13 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	 * they start looking for the discrepancy (HLR-035). */
 	summary_pair(out, style, label, value, "Unparsed lines",
 	             (uint64_t)unparsed_total(report));
+	/* Counted in the summary so the shape of the run is visible before the
+	 * tables. A severity is a label and moves no exit status, so these are
+	 * figures to read rather than gates to pass (HLR-100). */
+	summary_pair(out, style, label, value, "Critical findings",
+	             severity_total(report, "critical"));
+	summary_pair(out, style, label, value, "Warnings",
+	             severity_total(report, "warning"));
 	/* Not a failure and not a defect — a measure of how complete the graph
 	 * is. A project calling into libc has unresolved calls by definition,
 	 * and a reader comparing fan-out against the source needs to know how
@@ -587,7 +606,7 @@ int render_report(const Report *report, Style style, FILE *out)
 		snprintf(heading, sizeof heading,
 		         "Component coupling (I = Ce/(Ce+Ca), %s; bottleneck "
 		         "at Ca and Ce >= %" PRIu32 ")",
-		         instability_attribution(),
+		         threshold_attribution(MEASURE_INSTABILITY),
 		         report->bottleneck_threshold);
 
 		grid_begin(&grid, heading, 5, names, numeric);
@@ -597,7 +616,9 @@ int render_report(const Report *report, Style style, FILE *out)
 			snprintf(a, sizeof a, "%" PRIu32, r->ca);
 			snprintf(b, sizeof b, "%" PRIu32, r->ce);
 			grid_row(&grid, r->component, a, b, r->instability,
-			         r->bottleneck ? bottleneck_attribution() : "");
+			         r->bottleneck
+			                 ? threshold_attribution(MEASURE_BOTTLENECK)
+			                 : "");
 		}
 		if (grid_render(&grid, style, out) != 0)
 			return -1;
@@ -834,6 +855,34 @@ int render_report(const Report *report, Style style, FILE *out)
 			grid_row(&grid, r->from_scope, r->from_function,
 			         r->to_scope, r->to_function,
 			         r->object && *r->object ? r->object : "call");
+		}
+		if (grid_render(&grid, style, out) != 0)
+			return -1;
+	}
+
+	{
+		/* Every measurement that crossed a published line, ranked most
+		 * severe first, each naming the source that draws the line.
+		 *
+		 * **Additional to the tables above, never a replacement for
+		 * them.** A measurement inside its accepted band is still
+		 * reported where it was measured (HLR-031); this section is
+		 * the subset a reader acts on, and its emptiness is a result
+		 * rather than an absence of information.
+		 *
+		 * No row advises. Each says what was measured, where, and
+		 * which standard places it outside the range — and stops
+		 * (HLR-101). */
+		static const char *const names[]   = { "Severity", "Measurement",
+		                                       "Subject", "Detail",
+		                                       "Source" };
+
+		grid_begin(&grid, "Findings", 5, names, NULL);
+		for (size_t i = 0; i < report->finding_count; i++) {
+			const FindingRow *r = &report->findings[i];
+
+			grid_row(&grid, r->severity, r->measurement, r->subject,
+			         r->detail, r->source);
 		}
 		if (grid_render(&grid, style, out) != 0)
 			return -1;

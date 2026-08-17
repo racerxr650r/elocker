@@ -573,6 +573,43 @@ exit status, never a reason to withhold the report itself.
 .BR \-h ", " \-\-help
 Display a usage summary on standard output and exit successfully. Requesting
 help is not an error, so the exit status is 0 rather than a failure code.
+.SS Findings, severity, and attribution
+Every analysis above measures. The
+.B Findings
+section judges, and it is the only part of
+.B elc
+that does. Each row states what was measured, where, how far outside the
+accepted range it fell, and
+.I which published source draws that line
+\(em MISRA C and its rule number, Robert C. Martin, or the Henry-Kafura
+information-flow metrics.
+.PP
+Exactly one threshold is
+.BR elc 's
+own rather than a published standard, the bottleneck of
+.BR \-\-bottleneck\-threshold ,
+and its rows say so where they are read. That label is what lets a reader tell
+a standard from a choice.
+.PP
+The fan-out bands are
+.BR exhaustive :
+0 to 2 is below the healthy range, 3 to 7 healthy, and 8 to 10 acceptable, none
+of which produces a finding; 11 to 15 warns; above 15 is critical. Every value
+classifies exactly once.
+.PP
+A severity is one of
+.BR info ", " warning " or " critical ,
+exactly one per finding, the highest applicable band winning where two apply.
+.B It is a label and nothing more:
+a run reporting critical findings still exits 0 provided every file was read,
+because the exit status is reserved for failures and deciding what a finding
+warrants belongs to the caller. Findings are ranked most severe first, and a
+measurement inside its accepted band is still reported in the table that
+measured it.
+.PP
+.B elc
+proposes no fix, ranks no design beyond what a cited standard states, and
+applies no style opinion of its own.
 .SS Partly unparsable files
 .B elc
 parses source as written and runs no preprocessor, so a grammar occasionally

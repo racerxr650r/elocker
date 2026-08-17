@@ -144,21 +144,6 @@ Test(arch, instability_is_undefined_when_both_couplings_are_zero)
 	cr_assert_not(defined);
 }
 
-Test(arch, the_instability_metric_is_attributed)
-{
-	cr_assert_str_eq(instability_attribution(), "Martin");
-}
-
-Test(arch, the_bottleneck_threshold_is_marked_as_elcs_own)
-{
-	/* Not a published standard, and presenting it beside Henry-Kafura and
-	 * MISRA without saying so would lend it authority it has not got
-	 * (HLR-099, LLR-ARC-02). */
-	cr_assert_not_null(strstr(bottleneck_attribution(), "elc heuristic"));
-	cr_assert_not_null(strstr(bottleneck_attribution(),
-	                          "not a published standard"));
-}
-
 /* -------------------------------------------------------------- coupling -- */
 
 Test(arch, coupling_counts_components_not_calls)

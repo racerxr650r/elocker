@@ -110,16 +110,12 @@ int find_cycles(const Sdg *g, ArchResults *out);
  * declared direction, as distinct findings (LLR-LAY-01 – LLR-LAY-03). */
 int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out);
 
-/* The published source the Instability metric is attributed to (LLR-INS-03),
- * and the marker identifying the bottleneck threshold as `elc`'s own rather
- * than a published standard (LLR-ARC-02, HLR-099).
- *
- * Here rather than in a renderer so that one answer exists for every format,
- * and so that a regenerated report attributes a measurement the same way as a
- * live run without the record having to carry the citation.
+/* Attribution for these measurements lives in the threshold catalogue, not
+ * here: `threshold_attribution(MEASURE_INSTABILITY)` and
+ * `MEASURE_BOTTLENECK`. Phase 12 absorbed the two functions that used to sit
+ * at this point, so that one table names every source and a citation cannot
+ * drift between the modules that quote it (HLR-099, LLR-INS-03, LLR-ARC-02).
  */
-const char *instability_attribution(void);
-const char *bottleneck_attribution(void);
 
 /* Copy the component-level measurements onto an assembled report. */
 int report_set_arch(Report *report, const ArchResults *arch, const Sdg *g,

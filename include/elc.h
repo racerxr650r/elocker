@@ -44,6 +44,25 @@ enum {
  * status (HLR-023, HLR-100). */
 #define ELC_DEFAULT_BOTTLENECK_THRESHOLD 5u
 
+/* The fan-out bands of PVD Appendix A.2, after Henry–Kafura.
+ *
+ * **Exhaustive by construction**: every value from 0 upward falls in exactly
+ * one band. 0–2 is below the healthy range, 3–7 is healthy, 8–10 is
+ * acceptable, and none of the three produces a finding; 11–15 warns, and
+ * above 15 is critical. The acceptable band is the one an earlier reading of
+ * the thresholds left as a gap, which is why the requirement states the bands
+ * are exhaustive rather than leaving it to be inferred (HLR-086). */
+#define ELC_FANOUT_HEALTHY_MIN 3u
+#define ELC_FANOUT_HEALTHY_MAX 7u
+#define ELC_FANOUT_WARNING    10u  /* above this, weak abstraction   */
+#define ELC_FANOUT_CRITICAL   15u  /* above this, a god function     */
+
+/* Call-depth bands, from embedded practice rather than a numbered rule: on a
+ * target with a couple of kilobytes of SRAM, depths beyond 8 to 12 layers risk
+ * the stack colliding with the heap (PVD Appendix A.2). */
+#define ELC_DEPTH_WARNING      8u
+#define ELC_DEPTH_CRITICAL    12u
+
 /* The structure of the XML record this build writes and accepts (HLR-061).
  *
  * Incremented whenever an element is removed or its meaning changes — not
@@ -229,6 +248,40 @@ typedef enum {
 	SCOPES_MEASURED = 0,
 	SCOPES_OMITTED_NONE_DECLARED
 } ScopeState;
+
+/* The severity of a finding: a closed, ordered set, exactly one per finding
+ * (HLR-123).
+ *
+ * **A label within the report and nothing more.** No severity reaches the exit
+ * status, which is reserved for the failure conditions of Section 7 — deciding
+ * what a critical finding warrants is the caller's business, not `elc`'s
+ * (HLR-100). The ordering exists so that where two bands apply to one
+ * measurement the higher wins, and so the report can be ranked.
+ */
+typedef enum {
+	SEVERITY_INFO = 0,
+	SEVERITY_WARNING,
+	SEVERITY_CRITICAL
+} Severity;
+
+/* Which measurement a finding is about.
+ *
+ * One entry per row of the threshold catalogue (SDD §12.2.1). A measurement
+ * whose kind has no catalogue entry is reported as a bare value with no
+ * severity rather than being dropped or given an invented band (HLR-098,
+ * LLR-THR-08).
+ */
+typedef enum {
+	MEASURE_FAN_OUT = 0,       /* per function   (HLR-086)  */
+	MEASURE_CALL_DEPTH,        /* per project    (HLR-087)  */
+	MEASURE_RECURSION,         /* per cycle      (HLR-089)  */
+	MEASURE_COMPONENT_CYCLE,   /* per cycle      (HLR-083)  */
+	MEASURE_SCOPE_REDUCTION,   /* per global     (HLR-092)  */
+	MEASURE_HIDDEN_CHANNEL,    /* per global     (HLR-093)  */
+	MEASURE_INSTABILITY,       /* per component  (HLR-082)  */
+	MEASURE_BOTTLENECK,        /* per component  (HLR-081)  */
+	MEASURE_KIND_COUNT
+} MeasurementKind;
 
 /* Whether the layering validation ran, and if not, why not.
  *

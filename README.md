@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 11 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 12 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, Python, and
 Ada**, in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -60,10 +60,19 @@ each as the entangled group *and* a concrete loop through it. Declare your
 layers with `--stratum` and it validates them: a call bypassing a layer is
 **skip-level**, a call running against the declared direction is
 **inverted**, and the two are independent — a call ascending two layers is
-reported as both, because each has its own remedy. Thresholds, severity and
-attribution are next, from Phase 12.
+reported as both, because each has its own remedy.
 
-**Progress: 12 of 17 phases complete.**
+Every one of those measurements is then evaluated against the published
+catalogue of **MISRA C**, **Robert C. Martin** and **Henry–Kafura**, and
+reported with a severity and, crucially, **the source that draws the line**.
+One module does all the judging, so the claim that `elc` carries no opinion of
+its own is something you can check by reading a single table — and the one
+threshold that *is* `elc`'s own says `elc heuristic — not a published
+standard` wherever it appears. Severity is a label and never the exit status:
+a project full of critical findings still exits 0, because deciding what a
+finding warrants is your call. Graph visualisation is next, from Phase 13.
+
+**Progress: 13 of 17 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -82,7 +91,7 @@ attribution are next, from Phase 12.
 | [9](doc/SDP.md#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
 | [10](doc/SDP.md#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | ✅ Complete |
 | [11](doc/SDP.md#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | ✅ Complete |
-| [12](doc/SDP.md#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | 🔲 Not started |
+| [12](doc/SDP.md#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | ✅ Complete |
 | [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |
 | [14](doc/SDP.md#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |
 | [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
