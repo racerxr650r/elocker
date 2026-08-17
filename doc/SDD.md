@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.5
-**Date:** 2026-08-21
+**Version:** 2.6
+**Date:** 2026-08-17
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -471,6 +471,7 @@ Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage`
 *   Record the statements within each function that cannot execute, and whether the language supplied the data needed to look (HLR-137, HLR-139).
 *   Measure a file the parser only partly understood from the parts it did, and record how many lines it did not, so that a grammar gap costs the lines it touches and not the file (HLR-035).
 *   Evaluate custom rule queries and record their matches.
+*   Omit every function the linked image does not define, and record which they were, so that no later stage need know a filter was applied (HLR-140, HLR-144).
 
 ### 7.2 External Interfaces
 #### 7.2.1 Deciding a Conditional Region
@@ -495,6 +496,12 @@ That merge forced the collector order to change. The exclusion must exist before
 
 It also widened the exclusion's reach. `byte_is_excluded` was consulted only by the ELOC pass, because no code node can begin inside a comment; every collector consults it now, because a node inside an inactive region is an ordinary parsed node and only this test distinguishes it.
 
+**The linked-image filter joins the same set**, which is the decision Phase 16 had to make deliberately: a filter drops whole *functions* where the other two mechanisms drop byte *ranges*, so it could have gated `collect_functions` alone. It does not, and the reason is HLR-145. A function dropped from the reported set with its bytes still measured leaves its statements attributed to no function — which is to say counted as file-scope ELOC, the one figure the filter is required to keep separate and honest. Excluding the extent instead makes HLR-144 fall out of machinery that already exists: no statement, decision point, call site, global access, dead span, or rule match inside an omitted function reaches any later stage, because every collector already asks whether a byte is measured.
+
+**The three exclusions are gathered in one order and it is load-bearing.** Comments, then inactive regions, then the functions the image lacks. The last is last because it is the only one that needs the others settled: a function inside a region this configuration does not compile was never built, and reporting it as one the linker discarded would answer a question about the image with a fact about the preprocessor (LLR-ANL-58).
+
+**The image's ranges are merged in only once its pass is over**, and not as each is found. `byte_is_excluded` exits early on the first span starting past the byte it was asked about, which is correct exactly while the list is ordered; appending to the list being read would leave an unsorted tail behind the merged head, and the answer for one function would then depend on which functions the query happened to report before it.
+
 #### 7.2.3 Query Capture Contract
 
 The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A pattern may also carry **predicates**, and this module evaluates them: the parser library returns a predicate as data rather than applying it, so a stage that never asks accepts every match as though none were written. Five filters are honoured — equality, inequality, membership, and match and its negation against a POSIX extended regular expression — each comparing the text a capture spans against a string the query file wrote. A directive, which carries information rather than filtering, is ignored; a filter this build does not implement discards the match. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).
@@ -508,7 +515,7 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
 
 #### 7.3.2 Key Functions
 
-*   **`int analyze_file(Registry *reg, const ElcOptions *opts, const char *path, FileMetrics **metrics, FileFacts **facts)`**
+*   **`int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image, const char *path, FileMetrics **metrics, FileFacts **facts)`**
     *   Purpose: Parse one file and produce both its metrics and its graph facts.
     *   Pre-condition: `path` names a readable regular file.
     *   Post-condition: The mapping has been released; the returned structures own their own memory.
@@ -519,14 +526,17 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
         3.  `mmap` the file and count `\n` occurrences for the physical line total, counting a final line that carries no terminating newline, since it is a line the reader sees. Every scan is bounded by the length from `fstat(2)`; the mapping is not NUL-terminated.
         4.  `ts_parser_set_language()` and `ts_parser_parse_string()` with the explicit `st_size` length — the mapping is not NUL-terminated.
         5.  Run `comments.scm`, collect spans, sort by start byte, and merge overlaps into a canonical excluded-line set (HLR-016).
-        6.  Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067). A match is a function only when it supplies **both** `@function.name` and `@function.body`; a match carrying one without the other is discarded rather than reported as a function with no line range or a line range with no name.
-        7.  Run `eloc.scm` and `complexity.scm`, attributing each capture to its innermost enclosing reported function, or to no function when it lies outside every one of them — file-scope code, which contributes to the file's ELOC alone (HLR-019). Record the line each capture starts on, discard any capture falling inside the merged comment set, and count distinct lines (HLR-053, HLR-068).
-        8.  Run `calls.scm` and `globals.scm`, recording each call site, each global access, and each address-taken function with its enclosing function, into `FileFacts`.
-        9.  Run every loaded custom rule query and record its matches (HLR-109). A match's identity is the rule file's basename plus the capture name that matched, so one `.scm` file may express several distinct named rules.
-        10.  `ts_tree_delete()` and `munmap()` on every exit path.
+        6.  Where an image was supplied, run `functions.scm` a first time and add to the excluded set the whole extent of every function the image does not define, recording its name and line as the file's absent list (HLR-140, HLR-143).
+        7.  Run `functions.scm` to establish the reported function set, including nested named functions, and build an innermost-enclosing lookup over their byte ranges (HLR-067). A match is a function only when it supplies **both** `@function.name` and `@function.body`; a match carrying one without the other is discarded rather than reported as a function with no line range or a line range with no name.
+        8.  Run `eloc.scm` and `complexity.scm`, attributing each capture to its innermost enclosing reported function, or to no function when it lies outside every one of them — file-scope code, which contributes to the file's ELOC alone (HLR-019). Record the line each capture starts on, discard any capture falling inside the merged comment set, and count distinct lines (HLR-053, HLR-068).
+        9.  Run `calls.scm` and `globals.scm`, recording each call site, each global access, and each address-taken function with its enclosing function, into `FileFacts`.
+        10.  Run every loaded custom rule query and record its matches (HLR-109). A match's identity is the rule file's basename plus the capture name that matched, so one `.scm` file may express several distinct named rules.
+        11.  `ts_tree_delete()` and `munmap()` on every exit path.
     *   Notes: Identifier text is `memcpy`'d out of the mapping into NUL-terminated allocations before the mapping is released, since every name outlives it.
 
-        The signature above is the complete one. The `FileFacts` output arrived with the graph in Phase 8 and the `ElcOptions` with conditional compilation in Phase 15 — measuring a file depends on the configuration being measured, so the configuration is a parameter rather than state the module reaches for. Earlier phases show the same function at an earlier stage of its construction, not a second entry point.
+        The signature above is the complete one. The `FileFacts` output arrived with the graph in Phase 8, the `ElcOptions` with conditional compilation in Phase 15, and the `SymbolSet` with the linked-image filter in Phase 16. Each is a parameter for one reason: measuring a file depends on which program is being measured, so the program is passed in rather than reached for. `image` is NULL where no image was named, and every difference a filtered run makes follows from that one pointer. Earlier phases show the same function at an earlier stage of its construction, not a second entry point.
+
+        **The function query is run twice for a filtered run and once otherwise.** That is a second query execution over a tree already parsed, not a second parse, so HLR-076 is untouched; and it buys order-independence, which a test inside the single pass could not give (LLR-ANL-59).
 
         **A skip and a failure are different outcomes, and the return value distinguishes them.** A file whose extension maps to no usable language was never attempted: it is reported skipped and leaves the exit status at 0 (HLR-012, HLR-037). A file that was attempted and could not be read or parsed makes it 1 (HLR-035). A single non-zero return would collapse the two and make every unsupported file look like a failure.
 
@@ -549,6 +559,8 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
 
         Nothing here evaluates an expression. A branch is dead only where the source writes a literal, which is why `if (0)` is found and `x = 0; if (x)` is not (HLR-138).
 
+*   **`int collect_absent_functions(const LanguageModule *m, Registry *reg, const SymbolSet *image, const char *data, TSNode root, SpanList *excluded, FileMetrics *metrics)`** — Record every function the image does not define and add its whole extent to the excluded set. Returns immediately where no image was supplied, which is what makes an unfiltered run byte-identical to one made before the option existed (HLR-140). A function already excluded — which in practice means one inside a region this configuration does not compile — is skipped rather than reported absent.
+*   **`bool function_match(const TSQuery *q, const TSQueryMatch *match, TSNode *name, TSNode *body)`** — Both halves of the function contract from one match, or false where the match supplies only one of them. Shared by the two passes over `functions.scm` so that what counts as a function is decided once and the two cannot disagree.
 *   **`uint32_t merge_comment_spans(SpanList *spans)`** — Sort by start byte and coalesce overlapping and nested spans, in place; returns the number of distinct lines the merged set covers.
 *   **`const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)`** — Return the narrowest reported function containing a byte offset, or NULL when the offset lies outside every one of them. Only *reported* functions are in the index, which is what makes an anonymous callable transparent to the lookup: an offset inside one resolves to the named function around it (HLR-018).
 *   **`void filemetrics_free(FileMetrics *m)`** — Release a file's metrics and every function name it owns.
@@ -850,6 +862,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   Record which analyses were omitted, and why.
 *   Resolve each dead-code span to its enclosing function by containment over the assembled model, rather than by the index the parse recorded against an array since reordered for presentation (LLR-RPT-28).
 *   Record the conditional-compilation definitions in force and the number of regions whose condition could not be decided, so that a figure which depends on a configuration is reported alongside it (HLR-136, HLR-133).
+*   Record the linked image a run was filtered by, the linkage names it could not resolve, the source functions it does not define, and the effective lines belonging to no function, so that a filtered figure is reported alongside the image that produced it (HLR-143, HLR-145, HLR-147).
 *   Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).
 *   Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).
 
@@ -866,11 +879,13 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
         2.  Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026). Both are chosen *after* the model is ordered, by scanning it and taking a new candidate only on a strictly greater value: scanning in presentation order and refusing to displace an equal value is what makes the winner whichever sorts first, and what makes the callout the same on every run.
         3.  For each file, filter its functions by the complexity threshold into the over-threshold list, at or above rather than strictly above (HLR-021). The list is built here rather than filtered by a renderer: a renderer is a pure consumer, and a threshold applied at render time would be applied once per format and could differ between them. The threshold reaches nothing else — not a total, not a callout, and never the exit status (HLR-023).
         4.  Attach the architectural findings, custom-rule matches, and omission notices.
-        5.  Sort files by path; functions by start line and then by name; per-language totals by language name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.
+        5.  Where an image was named, gather each file's absent functions into one list and sum the file-scope ELOC. The list is sorted on its own keys — file, then start line, then name — because a query match arrives in no source order, so without it the rows would carry the order the parser library happened to report them in (HLR-032, HLR-143).
+        6.  Sort files by path; functions by start line and then by name; per-language totals by language name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.
     *   Notes: Centralising every sort here is deliberate: it is the single place a reviewer must check to be satisfied that HLR-032's byte-identical guarantee holds, rather than auditing six renderers and three analysis modules.
 
         `discover.c` also sorts, and the two are not redundant. Its sort exists so that de-duplication can collapse equal canonical paths, and so that the *analysis* order is not the filesystem's; this one exists so that *presentation* order is a property of the model. A later phase that changes how files are discovered therefore cannot silently change how they are presented.
 
+*   **`int report_set_image(Report *r, const SymbolSet *image)`** — Record the image the run was filtered by and the number of its linkage names left unresolved. After assembly rather than within it, for the reason the unresolved-call count is: the image belongs to the run and is read before any file is measured, while the *effects* of the filter — which functions were omitted, and how much file-scope code remained — are properties of the measurement and are assembled with it (HLR-147).
 *   **`int metrics_add(MetricsAccumulator *acc, FileMetrics *m)`** — Append one file's metrics, taking ownership of them. Grows by doubling through a checked reallocation; on failure the accumulator is left intact and the caller still owns the metrics, so nothing is leaked and nothing is freed twice.
 *   **`void metrics_free(MetricsAccumulator *acc)`** — Release the accumulator and every FileMetrics it still owns.
 *   **`void report_free(Report *r)`** — Release the report model and everything it owns.
@@ -1178,7 +1193,13 @@ The demangler costs no new dependency. `__cxa_demangle` is part of the C++ runti
 
 The image is opened **once, before discovery**, for the reason the registry is (LLR-MAIN-05): a named image that cannot be read is fatal, and it is fatal before any source file is measured rather than after a full walk whose results are then discarded.
 
-The filter itself is not applied here. A function the image does not define is never recorded by `analyze.c` in the first place, which is what keeps the rest of the pipeline unaware that a filter exists: the graph, the analyses, the thresholds, and every renderer see a smaller set of functions and nothing else. The alternative — recording every function and filtering at each consumer — would put the same test in eleven places and let them disagree.
+The filter itself is not applied here. A function the image does not define is never recorded by `analyze.c` in the first place, which is what keeps the rest of the pipeline unaware that a filter exists: the graph, the analyses, the thresholds, and every renderer see a smaller set of functions and nothing else. The alternative — recording every function and filtering at each consumer — would put the same test in eleven places and let them disagree. How `analyze.c` achieves the omission — by excluding the function's bytes rather than merely its entry — is §7's decision and is argued there.
+
+**The C++ runtime has to be named on the link line, though it was always loaded.** `libstdc++` arrives as a transitive dependency of `igraph` and has been in `ldd` output since Phase 8. That is not enough to *reference* a symbol in it: a current `ld` will not resolve an undefined symbol from an indirect `DT_NEEDED`, so `-lstdc++` is now explicit (LLR-BLD-19). The dependency allowlist is unchanged — what changed is that the entry is deliberate rather than incidental.
+
+**The reduction has two forms it must not read as a signature, and both were found by writing it.** `operator()` is a name whose punctuation is a pair of parentheses, and `(anonymous namespace)` is a qualification that begins with one; a scan that stopped at the first top-level `(` would reduce the first to nothing and the second to nothing at all. The same applies in the other direction to the angle brackets of `operator<<`, which close nothing and would leave a backwards scan for a qualification permanently inside a template. Each is stepped over as a token rather than counted as structure (LLR-SYM-03).
+
+**What the demangler does not do is worth stating.** GCC's clone suffixes — `f.constprop.0`, `f.isra.0`, `f.cold` — are not a mangling and are returned unchanged, which is what LLR-SYM-01 requires. An optimised build in which a static function survives only under such a name therefore reports that function absent. That is a true statement about the symbol table rather than a defect in the reader, and it is visible in the list HLR-143 requires rather than hidden in a total.
 
 ### 18.4 Dependencies
 
@@ -1269,8 +1290,32 @@ The filter itself is not applied here. A function the image does not define is n
 | `unparsed_lines` | `uint32_t` | Distinct lines the grammar could not follow; non-zero means every other figure covers the rest of the file and not this part (HLR-035) |
 | `undecided_regions` | `uint32_t` | Conditional regions left active because their condition could not be decided. Reported for the reason the unresolved-call count is: a figure whose completeness is unstated cannot be acted on (HLR-133) |
 | `eloc` | `uint32_t` | File-level ELOC including code outside any function |
+| `scope_eloc` | `uint32_t` | The part of that total belonging to no function. Always measured; reported only where a filter is in force, the image's function set saying nothing about code that is not a function (HLR-145) |
 | `functions` | `FunctionMetric *` | Dynamic array, grown by doubling |
 | `function_count` | `size_t` | Populated entries |
+| `absent` | `AbsentFunction *` | The functions this file defines that the image does not, in the order the parse found them. Empty where no image was supplied (HLR-143) |
+| `absent_count` | `size_t` | Populated entries |
+*   **`AbsentFunction`** (defined in [inc/elc.h](../inc/elc.h)) — One function the source defines and the linked image does not, as the parse recorded it. Named and located, because the reader's next action is to open the file (HLR-143).
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `name` | `char *` | As the source writes it, copied out of the mapping before it is released |
+| `line` | `uint32_t` | 1-based, where the definition starts |
+*   **`SymbolSet`** (defined in [inc/elfsyms.h](../inc/elfsyms.h)) — The function set one image defines, resolved to source names. Sorted and de-duplicated on the resolved name, so membership is a binary search and no property of symbol-table order can reach the output (HLR-032, LLR-ELF-05).
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `names` | `char **` | Resolved source names, sorted and unique; owned |
+| `count` | `size_t` | Populated entries |
+| `unresolved` | `size_t` | Function symbols whose linkage name carried a mangling this build does not decode. Counted rather than guessed at, and reported with the run: a filter whose completeness is unstated cannot be acted on (HLR-143) |
+| `path` | `char *` | The image as the user named it, so the report can say which image it describes without the options having to outlive the run (HLR-147) |
+*   **`AbsentRow`** (defined in [inc/report.h](../inc/report.h)) — One function the image does not define, as the report presents it. Structurally an UnreachableRow and deliberately not one: both name a function no build needs, and they are established by different means — one inferred from the call graph, the other observed from what the linker did — so merging them would present an observation as an inference (HLR-143).
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `function` | `char *` | Owned |
+| `file` | `char *` | Owned |
+| `line` | `uint32_t` | 1-based |
 *   **`FileFacts`** (defined in [inc/elc.h](../inc/elc.h)) — The raw graph facts extracted during the same parse that produced FileMetrics.
 
     | Field | Type | Description |
@@ -1422,6 +1467,10 @@ The filter itself is not applied here. A function the image does not define is n
 | `unresolved_calls` | `size_t` | Call sites with no resolvable target, reported so graph completeness is visible (HLR-077) |
 | `definitions` | `char **` | The configuration the figures describe, copied and sorted: the model outlives argv on the regeneration path, and the order the user typed them in is not a property of the run (HLR-136) |
 | `undecided_regions` | `uint64_t` | Conditional regions left active because their condition could not be decided, summed over every file (HLR-133) |
+| `image` | `char *` | The linked image the run was filtered by, or NULL where it was not. Every field below is meaningless without it, and NULL is what every renderer tests: with no image the filter sections are not emitted at all, which is the one place the uniform-composition rule gives way — HLR-140 requires a run without the option to report exactly what it reported before the option existed, and an empty section is not nothing (HLR-147) |
+| `image_unresolved` | `uint64_t` | Linkage names carrying a mangling this build does not decode. The first direction of mismatch: it states the completeness of the filter as the unresolved-call count states the completeness of the graph (HLR-143) |
+| `absent` | `AbsentRow *` | The second direction, and the finding the option exists to produce: the source functions this build did not keep. Sorted by file, then start line, then name (HLR-143) |
+| `file_scope_eloc` | `uint64_t` | Effective lines belonging to no function, summed over every file — the part of the total the filter did not narrow (HLR-145) |
 | `undecided_regions` | `size_t` | Conditional regions left active because their condition could not be decided, reported so the completeness of the pruning is visible (HLR-133) |
 *   **Compile-time constants** (in [inc/elc.h](../inc/elc.h)):
 

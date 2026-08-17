@@ -57,7 +57,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf; build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -78,6 +78,14 @@ jobs:
           # library; OpenMP because its runtime allocates a thread pool
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
+          #
+          # libelf is the one linked library taken from the distribution.
+          # elfutils does not build it on its own — configuring the project
+          # pulls in bison, flex, gettext and three compression libraries,
+          # every one of them a distribution package — so building from
+          # source would import more of them than it removes (SDP §0).
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libelf-dev
           make prereqs-tree-sitter
           make prereqs-libgit2
           make prereqs-igraph
@@ -93,7 +101,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf; build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -114,6 +122,14 @@ jobs:
           # library; OpenMP because its runtime allocates a thread pool
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
+          #
+          # libelf is the one linked library taken from the distribution.
+          # elfutils does not build it on its own — configuring the project
+          # pulls in bison, flex, gettext and three compression libraries,
+          # every one of them a distribution package — so building from
+          # source would import more of them than it removes (SDP §0).
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libelf-dev
           make prereqs-tree-sitter
           make prereqs-libgit2
           make prereqs-igraph
@@ -131,7 +147,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf; build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -152,6 +168,14 @@ jobs:
           # library; OpenMP because its runtime allocates a thread pool
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
+          #
+          # libelf is the one linked library taken from the distribution.
+          # elfutils does not build it on its own — configuring the project
+          # pulls in bison, flex, gettext and three compression libraries,
+          # every one of them a distribution package — so building from
+          # source would import more of them than it removes (SDP §0).
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libelf-dev
           make prereqs-tree-sitter
           make prereqs-libgit2
           make prereqs-igraph
@@ -165,7 +189,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf; build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -186,6 +210,14 @@ jobs:
           # library; OpenMP because its runtime allocates a thread pool
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
+          #
+          # libelf is the one linked library taken from the distribution.
+          # elfutils does not build it on its own — configuring the project
+          # pulls in bison, flex, gettext and three compression libraries,
+          # every one of them a distribution package — so building from
+          # source would import more of them than it removes (SDP §0).
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libelf-dev
           make prereqs-tree-sitter
           make prereqs-libgit2
           make prereqs-igraph
@@ -208,7 +240,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf; build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -229,6 +261,14 @@ jobs:
           # library; OpenMP because its runtime allocates a thread pool
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
+          #
+          # libelf is the one linked library taken from the distribution.
+          # elfutils does not build it on its own — configuring the project
+          # pulls in bison, flex, gettext and three compression libraries,
+          # every one of them a distribution package — so building from
+          # source would import more of them than it removes (SDP §0).
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libelf-dev
           make prereqs-tree-sitter
           make prereqs-libgit2
           make prereqs-igraph
@@ -255,7 +295,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf; build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -276,6 +316,14 @@ jobs:
           # library; OpenMP because its runtime allocates a thread pool
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
+          #
+          # libelf is the one linked library taken from the distribution.
+          # elfutils does not build it on its own — configuring the project
+          # pulls in bison, flex, gettext and three compression libraries,
+          # every one of them a distribution package — so building from
+          # source would import more of them than it removes (SDP §0).
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libelf-dev
           make prereqs-tree-sitter
           make prereqs-libgit2
           make prereqs-igraph
@@ -305,7 +353,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf; build libtree-sitter, libgit2 and igraph from source
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -326,6 +374,14 @@ jobs:
           # library; OpenMP because its runtime allocates a thread pool
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
+          #
+          # libelf is the one linked library taken from the distribution.
+          # elfutils does not build it on its own — configuring the project
+          # pulls in bison, flex, gettext and three compression libraries,
+          # every one of them a distribution package — so building from
+          # source would import more of them than it removes (SDP §0).
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends libelf-dev
           make prereqs-tree-sitter
           make prereqs-libgit2
           make prereqs-igraph

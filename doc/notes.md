@@ -98,6 +98,30 @@ so code written for one does not compile against the other.
 It is a test framework that is never linked into the shipped binary, so
 a vulnerability in it reaches no user of elc.
 
+**`libelf` is the second exception, added in Phase 16, and unlike
+Criterion it is linked** — so it is worth stating rather than assuming.
+elfutils does not ship `libelf` as a library that builds on its own:
+configuring the project pulls in bison, flex, gettext, and three
+compression libraries, every one of them a distribution package.
+Building it from source would import *more* distribution packages than
+taking `libelf` from the distribution does, which inverts the reason the
+rule exists. It is in `PKGS_BUILD`, and `make check-prereqs` reports its
+version beside the pinned ones. Two consequences to know about: it
+brings `libzstd` with it, since elfutils supports compressed sections
+(the dependency allowlist has both now); and the read path takes a file
+the *user* names, which is the one place elc parses a binary it did not
+produce — so an advisory against libelf matters here in a way it would
+not for a library elc only feeds its own data to.
+
+**`libstdc++` was already linked and is now referenced deliberately.**
+It arrives with igraph, which is partly C++ inside, and has been in
+`ldd` output since Phase 8. From Phase 16 elc calls `__cxa_demangle` in
+it, which is *not* a new dependency but does mean naming `-lstdc++` on
+the link line: a current `ld` will not resolve an undefined symbol from
+an indirect `DT_NEEDED`, so the link fails without it while `ldd` would
+happily show the library either way. An instrumented test holds the flag
+in place, because nothing else would notice its removal.
+
 **The one gap in this story: nothing verifies what was downloaded.**
 `make prereqs-src` fetches four tarballs over HTTPS and builds whatever
 arrives. There is no checksum and no signature check, so the pinned

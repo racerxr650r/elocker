@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.4
-**Date:** 2026-08-21
+**Version:** 2.5
+**Date:** 2026-08-17
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -135,7 +135,7 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-CLI-15"></a>**LLR-CLI-15** — `cli_parse` shall reject as a usage error a command line that combines regeneration mode with an explicit request for a companion artefact, since a saved record does not carry the graph from which either could be produced.
     *Trace:* HLR-122 (No Companion Artefacts From a Saved Record), HLR-063 (Invalid Command-Line Rejection).
 
-*   <a id="LLR-CLI-22"></a>**LLR-CLI-22** — `cli_parse` shall accept the path of a linked image to filter by, and shall record it unvalidated, the image being read by the module that owns it rather than by the parser.
+*   <a id="LLR-CLI-22"></a>**LLR-CLI-22** — `cli_parse` shall accept the path of a linked image to filter by, and shall record it unvalidated, the image being read by the module that owns it rather than by the parser. An empty argument is the one thing the parser can settle for itself, and is a usage error: it names no file, so there is nothing for the reader of the image to diagnose.
     *Trace:* HLR-140 (Linked-Image Function Filter).
 
 *   <a id="LLR-CLI-23"></a>**LLR-CLI-23** — `cli_parse` shall reject as a usage error a command line combining regeneration mode with a linked image, since the filter is applied when a file is measured and a saved record holds only what a measured run produced.
@@ -536,7 +536,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-34"></a>**LLR-ANL-34** — `analyze_file` shall assign the result of every reallocation to a temporary and verify it before overwriting the original pointer, so that a failed growth of the function array neither loses the existing allocation nor leaves a dangling pointer.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
-*   <a id="LLR-ANL-51"></a>**LLR-ANL-51** — `analyze_file` shall omit from its results every function the supplied image does not define, so that no later stage need know a filter was applied and no two consumers can disagree about which functions are in scope.
+*   <a id="LLR-ANL-51"></a>**LLR-ANL-51** — `analyze_file` shall omit from its results every function the supplied image does not define, so that no later stage need know a filter was applied and no two consumers can disagree about which functions are in scope. The omission shall be by adding the function's whole extent to the excluded set the collectors already consult, rather than by dropping the function from the reported set alone: a function dropped without its bytes leaves its statements attributed to no function, which is to say counted as the file-scope figure HLR-145 keeps separate.
     *Trace:* HLR-144 (Scope of the Filter).
 
 *   <a id="LLR-ANL-52"></a>**LLR-ANL-52** — `analyze_file` shall record no call site, decision point, or global access belonging to an omitted function, the function not being part of the measured program.
@@ -553,6 +553,12 @@ Note on the division of labour, which determines where a failure lives: the requ
 
 *   <a id="LLR-ANL-56"></a>**LLR-ANL-56** — `analyze_file` shall exclude from every metric and every graph fact each statement, decision point, call site, global access, dead-code span, and custom-rule match lying in an inactive region.
     *Trace:* HLR-132 (Inactive-Region Exclusion).
+
+*   <a id="LLR-ANL-58"></a>**LLR-ANL-58** — `analyze_file` shall gather the functions the image does not define into the same excluded set, after the comment spans and the inactive regions and before any other collector runs. The order is load-bearing in both directions: the exclusion must be complete before anything consults it, and a function inside a region this configuration does not compile must not be reported as one the image failed to keep — that would answer a question about the linker with a fact about the preprocessor.
+    *Trace:* HLR-144 (Scope of the Filter), HLR-143 (Both Directions of Mismatch Counted and Reported).
+
+*   <a id="LLR-ANL-59"></a>**LLR-ANL-59** — `analyze_file` shall establish the absent set in a pass of its own over the function query rather than as a test inside the pass that records functions, since query matches arrive in no source order and a function nested inside an omitted one would otherwise be recorded before the omission that contains it was known.
+    *Trace:* HLR-144 (Scope of the Filter), HLR-032 (Deterministic Output).
 
 *   <a id="LLR-ANL-57"></a>**LLR-ANL-57** — `analyze_file` shall report results identical to those it produces with the option absent when no definition is supplied, save for regions a constant condition excludes, which are the same in every configuration.
     *Trace:* HLR-131 (Conditional-Compilation Configuration).
@@ -1033,7 +1039,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-16"></a>**LLR-RPT-16** — `report_assemble` shall grow every dynamic collection through a checked reallocation, and shall release the partially built model without leaking should any growth fail.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
-*   <a id="LLR-RPT-31"></a>**LLR-RPT-31** — `report_assemble` shall carry the image the filter was taken from, the count of linkage names left unresolved, and the source functions the image does not define, the last sorted by file and start line as every other collection is.
+*   <a id="LLR-RPT-31"></a>**LLR-RPT-31** — `report_assemble` shall carry the source functions the image does not define, sorted by file, then by start line, then by name as every other collection is, together with the total of the effective lines belonging to no function. Both are properties of the measurement and are assembled with it; the image itself and the count of names left unresolved are recorded by `report_set_image`, the run holding those before any file is measured.
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported), HLR-147 (Filter Recorded and Reported).
 
 *   <a id="LLR-RPT-32"></a>**LLR-RPT-32** — `report_assemble` shall carry the custom-rule matches sorted by file, then by the line a match starts at, then by its end, then by rule identity — the last key because two rules matching one node are two rows whose order would otherwise be the order the rules loaded.
@@ -1041,6 +1047,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-RPT-33"></a>**LLR-RPT-33** — `report_assemble` shall carry the definitions in force, sorted, and the count of undecided regions summed over every file, so that a report states the configuration it describes and how completely it could be applied.
     *Trace:* HLR-136 (Configuration Recorded and Reported), HLR-133 (Undecidable Conditions Left Active).
+
+*   <a id="LLR-RPT-34"></a>**LLR-RPT-34** — `report_set_image` shall record on the assembled report the image the run was filtered by and the number of its linkage names left unresolved, so that a report states which image it describes and how completely that image could be read. It is set after assembly rather than passed into it for the reason the unresolved-call count is: the image is read before any file is measured and belongs to the run, while the effects of the filter belong to the measurement.
+    *Trace:* HLR-147 (Filter Recorded and Reported), HLR-143 (Both Directions of Mismatch Counted and Reported).
 
 ## 36. `format_table` ([src/format_text.c](../src/format_text.c))
 
@@ -1075,7 +1084,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SUM-02"></a>**LLR-SUM-02** — `render_summary` shall traverse the report model in a single shared order for both the table and Markdown renderers, so that the two present the same tiers.
     *Trace:* HLR-031 (Uniform Report Composition Across Formats).
 
-*   <a id="LLR-SUM-06"></a>**LLR-SUM-06** — `render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion.
+*   <a id="LLR-SUM-06"></a>**LLR-SUM-06** — `render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, the effective lines belonging to no function, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion. These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported), HLR-031 (Uniform Report Composition Across Formats).
 
 *   <a id="LLR-SUM-07"></a>**LLR-SUM-07** — `render_summary` shall present the custom-rule matches in a section of their own, with no severity column and no source column, and shall emit that section whether or not any rule was supplied.
@@ -1289,7 +1298,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SYM-02"></a>**LLR-SYM-02** — `resolved_name` shall decode a linkage name encoded by a published mangling scheme, detecting the scheme from the name rather than from a language the user states, since an image may hold symbols from several compilers and states which produced none of them.
     *Trace:* HLR-142 (Linkage Names Resolved to Source Names).
 
-*   <a id="LLR-SYM-03"></a>**LLR-SYM-03** — `resolved_name` shall reduce a decoded name to the function name the report presents, discarding the signature, the enclosing qualification, and any hash suffix, so that both sides of the comparison are in one form.
+*   <a id="LLR-SYM-03"></a>**LLR-SYM-03** — `resolved_name` shall reduce a decoded name to the function name the report presents, discarding the signature, the enclosing qualification, the template argument list, any leading return type, and any hash suffix, so that both sides of the comparison are in one form. Two parenthesised forms are part of a name rather than a signature and shall be kept: the empty pair of `operator()`, and the `(anonymous namespace)` an internal-linkage definition is qualified by. Each would otherwise truncate the name to nothing, and the punctuation of an operator would likewise unbalance a scan that took it for structure.
     *Trace:* HLR-142 (Linkage Names Resolved to Source Names), HLR-014 (Per-Function Identity).
 
 *   <a id="LLR-SYM-04"></a>**LLR-SYM-04** — `resolved_name` shall return no name for a linkage name encoded by a scheme this build does not decode, so that the symbol is counted as unresolved rather than matched against a guess.
@@ -1349,6 +1358,9 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-18"></a>**LLR-BLD-18** — The sanitized build target shall set the sanitizer options it runs under rather than inheriting whatever the invoking environment supplies, and shall set the same ones the pipeline does. `abort_on_error` is what makes a leak reported inside a forked test child reach the parent's exit status; without it a leaking unit test is reported and the run still succeeds. A local gate weaker than the pipeline's is worse than none, because it is trusted — Phase 11 shipped two leaking tests past a green local run and was caught only by CI.
     *Trace:* HLR-125 (Complete Resource Release), HLR-124, HLR-119.
+
+*   <a id="LLR-BLD-19"></a>**LLR-BLD-19** — The build shall name the C++ runtime on the link line from the point `elc` references a symbol in it, even though the library was already loaded as a transitive dependency of the graph library. A symbol resolved through an indirect `DT_NEEDED` is not resolved at all by a current linker, so the demangler of HLR-142 fails to link without it — and the dependency allowlist is unchanged by the addition, the library having been there since the graph arrived.
+    *Trace:* HLR-142 (Linkage Names Resolved to Source Names), HLR-112.
 
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).

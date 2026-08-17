@@ -85,12 +85,27 @@ GIT2_LIBS    ?= $(shell $(PKG_CONFIG) --libs libgit2 2>/dev/null || echo -lgit2)
 # link a second XML library the project has no other use for (SDD §18).
 IGRAPH_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags igraph 2>/dev/null)
 IGRAPH_LIBS   ?= $(shell $(PKG_CONFIG) --libs igraph 2>/dev/null || echo -ligraph)
+
+# libelf parses the linked image --elf names, for the reason igraph holds the
+# graph: ELF is a well-specified format with a mature implementation, and
+# hand-rolling one would put endianness, class and section-header handling into
+# this project's defect surface (HLR-113, doc/SDD.md §18).
+#
+# -lstdc++ goes with it, and is not a new dependency: libstdc++ is already
+# loaded because igraph is partly C++ inside, and elc has linked it since
+# Phase 8. What changed in Phase 16 is that elc now *references* a symbol in
+# it — __cxa_demangle, which decodes the Itanium ABI and with it C++ and Rust's
+# legacy scheme. A symbol resolved through an indirect DT_NEEDED is not
+# resolved at all by a modern ld, so the library has to be named here even
+# though it was always loaded (doc/notes.md §1.1).
+ELF_CFLAGS   ?= $(shell $(PKG_CONFIG) --cflags libelf 2>/dev/null)
+ELF_LIBS     ?= $(shell $(PKG_CONFIG) --libs libelf 2>/dev/null || echo -lelf)
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
 # set before any include; they live here rather than in the .c files.
-CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS)
+CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
-LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) -ldl
+LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) $(ELF_LIBS) -lstdc++ -ldl
 
 # Flags the build requires whatever the caller chose, appended in the recipes
 # rather than folded into CFLAGS.
@@ -161,6 +176,15 @@ help:
 # Criterion is the deliberate exception. It is a test framework that is never
 # linked into the shipped binary, so a vulnerability in it reaches no user of
 # elc; it comes from the distribution, where it is one apt upgrade away.
+#
+# libelf is the second, and unlike Criterion it *is* linked, so the exception
+# is worth stating rather than assuming. elfutils does not ship libelf as a
+# library that builds on its own: configuring the project drags in bison, flex,
+# gettext, and three compression libraries, every one of them a distribution
+# package. Building it from source would therefore import more distribution
+# packages than taking libelf from the distribution does, which inverts the
+# reason the rule exists. It is listed in PKGS_BUILD below and tracked in
+# doc/notes.md §1.1.
 
 TREE_SITTER_VER ?= 0.26.2
 LIBGIT2_VER     ?= 1.9.0
@@ -182,7 +206,7 @@ SRC_PREFIX      ?= /usr/local
 SRC_WORK        ?= $(BUILD)/prereq-src
 
 # Toolchain, test framework, and the headers the source builds need.
-PKGS_BUILD  ?= build-essential pkg-config python3 cmake curl zlib1g-dev
+PKGS_BUILD  ?= build-essential pkg-config python3 cmake curl zlib1g-dev libelf-dev
 PKGS_TEST   ?= libcriterion-dev
 
 # Test and inspection tools. These are executables the suites invoke, never
@@ -315,7 +339,7 @@ check-prereqs:
 	@echo "== libraries =="
 	@command -v $(PKG_CONFIG) >/dev/null 2>&1 || { \
 		echo "  pkg-config missing; cannot report library versions" >&2; exit 0; }
-	@for l in criterion tree-sitter expat libgit2 igraph; do \
+	@for l in criterion tree-sitter expat libgit2 igraph libelf; do \
 		v=$$($(PKG_CONFIG) --modversion $$l 2>/dev/null); \
 		if [ -n "$$v" ]; then printf '  %-12s %s\n' "$$l" "$$v"; \
 		else printf '  %-12s MISSING\n' "$$l"; fi; \
@@ -326,6 +350,7 @@ check-prereqs:
 	@$(MAKE) --no-print-directory _check-min LIB=libgit2     MIN=1.7  PHASE=7
 	@$(MAKE) --no-print-directory _check-min LIB=igraph      MIN=1.0  PHASE=8
 	@$(MAKE) --no-print-directory _check-min LIB=criterion   MIN=2.4  PHASE=0
+	@$(MAKE) --no-print-directory _check-min LIB=libelf      MIN=0.18 PHASE=16
 	@echo "== grammars =="
 	@$(MAKE) --no-print-directory _check-grammar LANG=c \
 		REPO=tree-sitter/tree-sitter-c KIND=tag PIN=$(GRAMMAR_C_VER)

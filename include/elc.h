@@ -177,6 +177,14 @@ typedef struct {
 	const char  **defines;
 	size_t        define_count;
 	size_t        define_capacity;
+	/* The linked image every measurement is restricted to the functions of,
+	 * or NULL for no filtering (HLR-140). Borrowed from argv.
+	 *
+	 * The path only. The image is read by `elfsyms.c`, which owns the
+	 * failure, so a run with no image differs from a filtered one in
+	 * exactly one place — and the parser stays the module that reads argv
+	 * rather than becoming one that reads files (LLR-CLI-22). */
+	const char   *image_path;
 	/* The execution scopes cross-scope access is measured against
 	 * (HLR-094). Empty means the analysis is omitted with a stated
 	 * reason, exactly as an empty entry-point set does. Owned outright,
@@ -224,6 +232,18 @@ typedef struct {
 	uint32_t  complexity; /* 1 + the decision points attributed to it    */
 } FunctionMetric;
 
+/* One function the source defines and the linked image does not (HLR-143).
+ *
+ * The second of the two directions of mismatch, and the finding the `--elf`
+ * option exists to produce: it is dead code established by what the linker
+ * did, rather than inferred from the call graph (HLR-096). Named and located,
+ * because the reader's next action is to open the file.
+ */
+typedef struct {
+	char     *name;       /* as the source writes it; owned            */
+	uint32_t  line;       /* 1-based, where the definition starts      */
+} AbsentFunction;
+
 /* Per-file totals and the functions the file defines. */
 typedef struct {
 	char           *path;           /* canonical absolute path; owned   */
@@ -246,8 +266,22 @@ typedef struct {
 	uint32_t        undecided_regions;
 	uint32_t        eloc;           /* file-level ELOC, including code
 	                                 * outside any function (HLR-019)    */
+	/* The part of that total belonging to no function — an initialised
+	 * object at file scope, say. Always measured; reported only when a
+	 * filter is in force, because the image's *function* set says nothing
+	 * about code that is not a function, and folding it into the totals
+	 * would hide the one part of them the filter did not narrow
+	 * (HLR-145, LLR-ANL-53). */
+	uint32_t        scope_eloc;
 	FunctionMetric *functions;      /* dynamic array, grown by doubling  */
 	size_t          function_count;
+	/* The functions this file defines that the image does not, in the order
+	 * the parse found them — which is the query's, not the source's, so the
+	 * report sorts them before presenting them. Empty when no image was
+	 * supplied (HLR-143). */
+	AbsentFunction *absent;
+	size_t          absent_count;
+	size_t          absent_capacity;
 } FileMetrics;
 
 /* Why a depth figure is or is not present.

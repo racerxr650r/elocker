@@ -52,6 +52,24 @@ setup() {
 	# C++ internally — which is why those are on the list without elc
 	# containing a line of C++.
 	#
+	# libelf parses the linked image --elf names, and is a container reader
+	# rather than a runtime: it reads a symbol table and executes nothing.
+	# elc invokes no nm, objdump, readelf, compiler, or linker, which is a
+	# claim about our code rather than about the library — held by the
+	# execve test below, which observes that a filtered run starts no
+	# process at all (HLR-141).
+	#
+	# libzstd arrives with libelf rather than by our choice, as libz
+	# arrives with libgit2: elfutils supports compressed sections, so
+	# opening any ELF at all links its decompressor.
+	#
+	# libstdc++ was on this list from Phase 8 as something igraph brought
+	# in. From Phase 16 elc references a symbol in it deliberately —
+	# __cxa_demangle, which decodes the Itanium ABI and with it C++ and
+	# Rust's legacy mangling (HLR-142). The entry did not change; what it
+	# means did, which is why it is said here rather than left to a reader
+	# to infer from an unchanged line.
+	#
 	# Two libraries are deliberately *absent*, and this list is what
 	# noticed both.
 	#
@@ -75,7 +93,7 @@ setup() {
 	# instrumentation rather than a product dependency: it is absent from
 	# the binary `make all` produces and `make install` ships. Excluding
 	# them here would make the sanitized pass fail on its own scaffolding.
-	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libigraph|libasan|libubsan|ld-linux|/lib64/ld-linux)'
+	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libzstd|libelf|libigraph|libasan|libubsan|ld-linux|/lib64/ld-linux)'
 	while read -r line; do
 		[ -n "$line" ] || continue
 		local lib
@@ -232,6 +250,48 @@ setup() {
 	done
 }
 
+@test "HLR-141: filtering by an image spawns no toolchain utility" {
+	# The half a reading of the source cannot establish: a filtered run
+	# issues one execve, the kernel's own. No nm, no objdump, no readelf, no
+	# compiler and no linker — a result that depended on which toolchain was
+	# installed would not be a property of the image.
+	require_tool strace "HLR-141 no toolchain"
+	require_tool cc "HLR-141 no toolchain"
+	local log="$BATS_TEST_TMPDIR/exec.log"
+	local tree="$REPO_ROOT/test/fixtures/elf/tree"
+	local image="$BATS_TEST_TMPDIR/libkept.so"
+
+	cc -O0 -fPIC -shared -o "$image" "$tree/kept.c" 2>/dev/null || \
+		skip "cc cannot link here: HLR-141 unverified"
+
+	strace_elc "$log" "execve,execveat" --elf "$image" "$tree"
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+
+	run bash -c 'grep -cE "execve(at)?\(" "$0" || true' "$log"
+	assert_output "1"
+}
+
+@test "HLR-141: the image is opened once and nothing beside it" {
+	# The other half. The image is read for its symbol table alone, so it is
+	# opened once; no second image is searched for, and no debugging
+	# information is fetched from anywhere else. An implementation shelling
+	# out to a toolchain would show that tool's own reads here.
+	require_tool strace "HLR-141 no toolchain"
+	require_tool cc "HLR-141 no toolchain"
+	local log="$BATS_TEST_TMPDIR/open.log"
+	local tree="$REPO_ROOT/test/fixtures/elf/tree"
+	local image="$BATS_TEST_TMPDIR/libkept.so"
+
+	cc -O0 -fPIC -shared -o "$image" "$tree/kept.c" 2>/dev/null || \
+		skip "cc cannot link here: HLR-141 unverified"
+
+	strace_elc "$log" "openat,open" --elf "$image" "$tree"
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+
+	run bash -c 'grep -c "libkept.so\"" "$0" || true' "$log"
+	assert_output "1"
+}
+
 @test "HLR-041: elc references no thread-creation symbol" {
 	require_tool nm "HLR-041 single-threaded execution"
 	run bash -c 'nm -D --undefined-only "$0" 2>/dev/null || true' "$ELC"
@@ -255,6 +315,23 @@ setup() {
 	assert_output --partial "-Wpedantic"
 	assert_output --partial "-MMD"
 	assert_output --partial "-Werror"
+}
+
+# Verifies LLR-BLD-19: the C++ runtime is named on the link line.
+@test "the link line names the runtime the demangler lives in" {
+	# libstdc++ was already loaded — igraph is partly C++ inside, and it has
+	# been in ldd output since Phase 8. That is not enough to *reference* a
+	# symbol in it: a current ld will not resolve an undefined symbol from
+	# an indirect DT_NEEDED, so __cxa_demangle fails to link unless the
+	# library is named. Nothing in the suite would catch its removal, since
+	# ldd would still show the library.
+	run make -C "$REPO_ROOT" -Bn all
+	assert_success
+	assert_output --partial "-lstdc++"
+
+	require_tool nm "LLR-BLD-19 the demangler is linked"
+	run bash -c 'nm -D --undefined-only "$0" 2>/dev/null || true' "$ELC"
+	assert_output --partial "__cxa_demangle"
 }
 
 @test "HLR-041: the build passes no threading flag" {

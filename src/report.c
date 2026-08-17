@@ -184,6 +184,23 @@ static int by_start_line(const void *a, const void *b)
 	return strcmp(x->name, y->name);
 }
 
+/* The functions the image does not define, by file, then by where each starts,
+ * then by name — the last for the reason the function ordering carries one: two
+ * functions can begin on one line, and a comparator returning 0 there would
+ * leave their order to qsort, which is not stable (HLR-032). */
+static int by_absent(const void *a, const void *b)
+{
+	const AbsentRow *x = a;
+	const AbsentRow *y = b;
+	int              c = strcmp(x->file, y->file);
+
+	if (c != 0)
+		return c;
+	if (x->line != y->line)
+		return x->line < y->line ? -1 : 1;
+	return strcmp(x->function, y->function);
+}
+
 /* Add one function to the per-file threshold listing. */
 static int threshold_add(ThresholdList *list, const char *file,
                          const FunctionMetric *function)
@@ -290,6 +307,7 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 		out->summary.eloc           += out->files[i]->eloc;
 		out->summary.function_count += out->files[i]->function_count;
 		out->undecided_regions      += out->files[i]->undecided_regions;
+		out->file_scope_eloc        += out->files[i]->scope_eloc;
 
 		if (language_add(&out->languages, out->files[i]) != 0)
 			return -1;
@@ -336,8 +354,68 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 		}
 	}
 
+	/* The source functions the image does not define, gathered after the
+	 * files are ordered and sorted on their own keys: a query match arrives
+	 * in no source order, so without this the rows would carry the order
+	 * tree-sitter happened to report them in (HLR-032, LLR-RPT-31).
+	 *
+	 * Built only for a filtered run. With no image every list is empty
+	 * anyway, and the gate says why rather than leaving a reader to infer
+	 * it from an absence (HLR-140). */
+	if (opts->image_path) {
+		size_t total = 0;
+
+		for (size_t i = 0; i < out->file_count; i++)
+			total += out->files[i]->absent_count;
+
+		if (total > 0) {
+			out->absent = calloc(total, sizeof *out->absent);
+			if (!out->absent) {
+				fputs("elc: out of memory recording the "
+				      "functions the image does not define\n",
+				      stderr);
+				return -1;
+			}
+
+			for (size_t i = 0; i < out->file_count; i++) {
+				const FileMetrics *file = out->files[i];
+
+				for (size_t j = 0; j < file->absent_count; j++) {
+					AbsentRow *row =
+						&out->absent[out->absent_count];
+
+					row->function =
+						strdup(file->absent[j].name);
+					row->file = strdup(file->path);
+					if (!row->function || !row->file)
+						return -1;
+					row->line = file->absent[j].line;
+					out->absent_count++;
+				}
+			}
+
+			if (out->absent_count > 1)
+				qsort(out->absent, out->absent_count,
+				      sizeof *out->absent, by_absent);
+		}
+	}
+
 	select_callouts(out);
 
+	return 0;
+}
+
+int report_set_image(Report *report, const SymbolSet *image)
+{
+	if (!report || !image || !image->path)
+		return 0;
+
+	report->image = strdup(image->path);
+	if (!report->image) {
+		fputs("elc: out of memory recording the image\n", stderr);
+		return -1;
+	}
+	report->image_unresolved = elfsyms_unresolved(image);
 	return 0;
 }
 
@@ -1343,6 +1421,15 @@ void report_free(Report *report)
 	free(report->definitions);
 	report->definitions      = NULL;
 	report->definition_count = 0;
+	for (size_t i = 0; i < report->absent_count; i++) {
+		free(report->absent[i].function);
+		free(report->absent[i].file);
+	}
+	free(report->absent);
+	report->absent       = NULL;
+	report->absent_count = 0;
+	free(report->image);
+	report->image = NULL;
 	for (size_t i = 0; i < report->coupling_count; i++) {
 		free(report->coupling[i].component);
 		free(report->coupling[i].instability);

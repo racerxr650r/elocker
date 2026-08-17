@@ -1,38 +1,41 @@
 # Software Development Plan: elocker (elc)
 
-**Version:** 1.3
-**Date:** 2026-08-14
+**Version:** 1.4
+**Date:** 2026-08-17
 **Author(s):** John Anderson
 
-**Status:** Phase 15 complete, and it reverses a judgement standing since
-Phase 3: code inside `#if 0` no longer counts. `elc` still runs no
-preprocessor — an instrumented test observes a configured run issuing one
-`execve`, the kernel's own, and opening no file the source refers to. What
-changed is that a condition can be decided from the tree already parsed.
-Naming a configuration with `-D` measures that configuration; naming none
-measures what `elc` always measured, save for constant conditions, which decide
-the same way in every configuration and so need none — HLR-131 was amended to
-say that rather than leave the implementation reconciling with it. The division of
-labour is the phase's real content: **the query decides truth and `elc`
-decides bytes**. A `conditionals.scm` settles a condition it recognises with
-`@conditional.true` or `@conditional.false`, captured on the condition rather
-than on a span, and `elc` works out what that excludes. A query pointing at a
-span would have to know that a `#if` with an `#else` keeps half of itself,
-which is arithmetic rather than a fact about C — and Rust's `#[cfg]`, which has
-no `#else` at all, dropped in behind the same five captures with no line of
-`src/` changed. The safety rule is that **a symbol no `-D` mentions is
-undecidable, not undefined**: a build may define it in a header `elc` never
-sees, so both branches stay and the count says how often that happened. That
-one rule also delivers the opt-in guarantee, with no special case to say so.
-Two ordering discoveries went back into the design: inactive regions join the
-merged comment set rather than becoming a second mechanism, which forced the
-exclusion to be built before the functions are collected; and where several
-patterns match one region the earliest in the query file wins, without which a
-`#if 0` matched by both a literal pattern and a catch-all would be decided by
-whichever the library reported first. 743 catalogued tests verify 375 of 559
-requirements and the coverage baseline falls from 190 to 184. The linked-image
-set HLR-140 to HLR-147 is now the only specified-and-unbuilt group, and Phase
-16 builds it. Phase 16 — ELF-filtered analysis — is ready to start.
+**Status:** Phase 16 complete, and it answers the question Phase 15 answers a
+different way. Conditional compilation *re-decides* the conditions a build
+resolved, from definitions the user restates; `elc --elf build/app.elf src/`
+*observes what the build did*, restricting every measurement to the functions
+the linked image defines. Where both are available the image is the stronger
+evidence, and neither replaces the other: the image says which functions
+survived and nothing about which lines inside one were compiled out. `elc`
+invokes no toolchain to read it — an instrumented test observes a filtered run
+issuing one `execve`, the kernel's own, and opening the image exactly once.
+
+Three decisions carried the phase. **The filter is applied once, in
+`analyze.c`**, by adding an omitted function's whole extent to the excluded set
+the collectors already consult — not by dropping it from the reported set
+alone, which would leave its statements attributed to no function and so
+counted as the file-scope figure HLR-145 keeps separate. **A symbol must be a
+*defined* function**: without the `SHN_UNDEF` test every function the image
+calls into a shared library counts as one it contains, and the filter then
+retains source the build never compiled. And **an empty function set is fatal,
+not an empty filter** — a stripped image would otherwise report a project
+containing no functions at all, which is confidently wrong and
+indistinguishable from a correct result.
+
+Both directions of mismatch are reported and they are different claims: the
+linkage names `elc` could not decode state how complete the filter is, and the
+source functions the image lacks are dead code established by what the linker
+did rather than inferred from the call graph. Implementation added four LLRs —
+the ordering the three exclusions are gathered in, the separate pass that makes
+it independent of query order, the split between assembling a filter's effects
+and recording its provenance, and naming `libstdc++` on the link line now that
+`elc` references `__cxa_demangle` in it. 783 catalogued tests verify the spec
+and the coverage baseline falls from 184 to 151. Phase 17 — hardening and
+release readiness — is ready to start, and is the last.
 
 ## Status
 
@@ -54,7 +57,7 @@ set HLR-140 to HLR-147 is now the only specified-and-unbuilt group, and Phase
 | [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
 | [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | ✅ Complete |
 | [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
-| [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | 🔲 Not started |
+| [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
 | [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 
 ## 0. Required Tools for Development
@@ -70,6 +73,7 @@ set HLR-140 to HLR-147 is now the only specified-and-unbuilt group, and Phase
 | `libgit2` | ≥ 1.7 | Repository-aware discovery (Phase 7) |
 | `igraph` | ≥ 1.0 | Graph algorithms (Phase 8). **Built from source** with `-DIGRAPH_GRAPHML_SUPPORT=OFF -DIGRAPH_OPENMP_SUPPORT=OFF -DIGRAPH_USE_INTERNAL_GMP=ON` |
 | Expat | ≥ 2.6 | Streaming XML read for regeneration mode (Phase 5) |
+| `libelf` | ≥ 0.18 | Reading the symbol table of the image `--elf` names (Phase 16). **From the distribution** — see below |
 | Criterion | ≥ 2.4 | Unit test framework |
 | Bats | ≥ 1.10 | Integration, fixture, and instrumented levels |
 | `bats-support`, `bats-assert` | — | Assertion helpers; vendored under `test/helpers/` |
@@ -130,6 +134,22 @@ which is what Phase 6 will produce, and igraph 1.0 is API-breaking against
 **Criterion is the exception**, taken from the distribution: it is a test
 framework, never linked into the shipped binary, so a vulnerability in it
 reaches no user of `elc`.
+
+**`libelf` is the second exception, and unlike Criterion it is linked**, so it
+is worth stating rather than assuming. elfutils does not ship `libelf` as a
+library that builds on its own: configuring the project pulls in bison, flex,
+gettext, and three compression libraries, every one of them a distribution
+package. Building it from source would therefore import *more* distribution
+packages than taking `libelf` from the distribution does, which inverts the
+reason the rule exists. `make check-prereqs` reports its version alongside the
+rest, so a build too old to read a class of image is visible before it is a
+mystery.
+
+**`libstdc++` was already linked and is now referenced deliberately.** It
+arrives with `igraph`, which is partly C++ inside, and from Phase 16 `elc`
+calls `__cxa_demangle` in it to decode the Itanium ABI (HLR-142). That is not a
+new dependency, but it does mean naming the library on the link line: a symbol
+reached through an indirect `DT_NEEDED` is not resolved by a modern `ld`.
 
 ## 1. Motivation
 

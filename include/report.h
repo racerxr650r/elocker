@@ -18,6 +18,7 @@
 
 #include "discover.h"
 #include "elc.h"
+#include "elfsyms.h"
 
 /* One function's fan-out, as the report presents it: by name and location
  * rather than by node identifier, which means nothing to a reader and does
@@ -60,6 +61,21 @@ typedef struct {
 	char         *participants; /* owned */
 	GlobalVerdict verdict;
 } GlobalStateRow;
+
+/* One function the source defines and the linked image does not, as the report
+ * presents it (HLR-143).
+ *
+ * Structurally an UnreachableRow and deliberately not one. Both name a
+ * function that no build needs, and they are established by different means:
+ * one is inferred from the call graph, the other is what the linker actually
+ * did. Merging them would present an observation as an inference, so the two
+ * are reported in separate sections and neither is offered as the other.
+ */
+typedef struct {
+	char     *function;  /* owned */
+	char     *file;      /* owned */
+	uint32_t  line;
+} AbsentRow;
 
 /* One function no path reaches from any root (HLR-096). */
 typedef struct {
@@ -318,6 +334,31 @@ typedef struct {
 	 * decided, summed over every file (HLR-133). */
 	uint64_t       undecided_regions;
 
+	/* The linked image this report was filtered by (HLR-147), or NULL
+	 * where the run was not filtered.
+	 *
+	 * Every field below it is meaningless without it, and NULL is what
+	 * every renderer tests: with no image the sections are not emitted at
+	 * all, which is the one place the uniform-composition rule gives way.
+	 * HLR-140 requires a run with the option absent to report exactly what
+	 * it reported before the option existed, and an empty section is not
+	 * nothing (HLR-031, HLR-145).
+	 */
+	char          *image;            /* owned                            */
+	/* Linkage names carrying a mangling this build does not decode. The
+	 * first direction of mismatch: it states the completeness of the
+	 * filter, as the unresolved-call count states the completeness of the
+	 * graph (HLR-143). */
+	uint64_t       image_unresolved;
+	/* The second direction, and the finding the option exists to produce:
+	 * the source functions this build did not keep. Sorted by file, then
+	 * by start line (HLR-143, LLR-RPT-31). */
+	AbsentRow     *absent;           /* owned                            */
+	size_t         absent_count;
+	/* Effective lines belonging to no function, summed over every file.
+	 * The part of the total the filter did not narrow (HLR-145). */
+	uint64_t       file_scope_eloc;
+
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;
 
@@ -350,6 +391,17 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
  * so the count does not exist yet when report_assemble runs (HLR-077).
  */
 void report_set_unresolved(Report *report, size_t unresolved);
+
+/* Record the image the run was filtered by, and the count of linkage names it
+ * could not resolve.
+ *
+ * Set after assembly rather than passed into it, for the reason the
+ * unresolved-call count is: the image is read before any file is measured and
+ * lives in `main`, while the *effects* of the filter — which functions were
+ * omitted, and how much file-scope code remained — are properties of the
+ * measurement and are assembled with it. Returns 0 on success (HLR-147).
+ */
+int report_set_image(Report *report, const SymbolSet *image);
 
 /* Copy the intra-procedural dead-code findings onto an assembled report,
  * resolving each span's function index to the name a reader can act on.
