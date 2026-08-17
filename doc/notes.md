@@ -434,8 +434,9 @@ None is a defect; each is a judgement that could go the other way.
     with no condition at all, which is the opposite of informative.
     `goto` is *not* counted, on the same reasoning read the other way:
     it moves control without choosing.
-*   **Code inside `#if 0` counts toward ELOC** (Phase 3) — *until
-    Phase 15*. `elc` parses; it does not run the preprocessor, so
+*   **Code inside `#if 0` counted toward ELOC** (Phase 3) — *until
+    Phase 15, which reversed it*. `elc` parses; it does not run the
+    preprocessor, so
     `tree-sitter-c` yields the statements inside a disabled block and
     they are counted like any other. The reasoning at the time: a
     preprocessing pass would be a second parse of the same file, which
@@ -444,7 +445,9 @@ None is a defect; each is a judgement that could go the other way.
     to matter, the honest fix is a query-level exclusion, not C."
 
     **It proved to matter, and that is the fix** — HLR-131 through
-    HLR-136, delivered in Phase 15. Worth being precise about what did
+    HLR-136, delivered in Phase 15, and the query-level exclusion is
+    exactly the shape the original note predicted. Worth being precise
+    about what did
     and did not change, because the two look alike:
 
     *   `elc` still runs **no preprocessor** (HLR-135). Not `cpp`, not
@@ -471,6 +474,25 @@ None is a defect; each is a judgement that could go the other way.
     delete code and produce a report indistinguishable from a correct
     one, which is the failure mode this whole design is arranged
     against.
+
+    Two things the implementation settled that the specification left
+    open, both recorded in the SDD:
+
+    *   **A symbol no `-D` mentions is undecidable, not undefined.** A
+        build may define it in a header or on a command line `elc` never
+        sees, and `-D` can only assert definedness — there is no `-U`.
+        That single rule is also what delivers HLR-131's "with no
+        definitions, nothing changes": with an empty set every
+        definedness test is undecidable, so nothing prunes, and no
+        special case says so. A constant condition is different in kind
+        and prunes whatever the definitions are, because `#if 0` means
+        the same thing in every configuration.
+    *   **The query decides truth; `elc` decides bytes.** A `.scm`
+        captures `@conditional.true` or `@conditional.false` on a
+        condition it recognises, and `elc` works out which bytes that
+        excludes. Pointing a query at a span instead would make it
+        responsible for knowing that a `#if` with an `#else` keeps half
+        of itself — arithmetic, not a fact about C.
 
     One consequence for the gap baseline, since it is the one place the
     protocol's arithmetic runs backwards: specifying these eighteen

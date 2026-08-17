@@ -141,6 +141,12 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-CLI-23"></a>**LLR-CLI-23** — `cli_parse` shall reject as a usage error a command line combining regeneration mode with a linked image, since the filter is applied when a file is measured and a saved record holds only what a measured run produced.
     *Trace:* HLR-147 (Filter Recorded and Reported), HLR-063 (Invalid Command-Line Rejection).
 
+*   <a id="LLR-CLI-24"></a>**LLR-CLI-24** — `cli_parse` shall reject as a usage error a command line combining regeneration mode with a conditional-compilation definition, since pruning is applied when a file is measured and a saved record already describes one configuration.
+    *Trace:* HLR-136 (Configuration Recorded and Reported), HLR-063 (Invalid Command-Line Rejection).
+
+*   <a id="LLR-CLI-25"></a>**LLR-CLI-25** — `cli_parse` shall accept zero or more conditional-compilation definitions and record each as given, `NAME` and `NAME=VALUE` alike, leaving what a definition means to the evaluation that alone knows what a language's conditions can test.
+    *Trace:* HLR-131 (Conditional-Compilation Configuration).
+
 ## 3. `cli_usage` ([src/cli.c](../src/cli.c))
 
 *   <a id="LLR-USG-01"></a>**LLR-USG-01** — `cli_usage` shall write a summary naming every accepted option, its argument if any, and its default value.
@@ -542,6 +548,15 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-54"></a>**LLR-ANL-54** — `analyze_file` shall produce, with no image supplied, results identical to those it produces for the same file with the option absent.
     *Trace:* HLR-140 (Linked-Image Function Filter).
 
+*   <a id="LLR-ANL-55"></a>**LLR-ANL-55** — `analyze_file` shall gather the comment spans and the inactive regions into one excluded set before any other collector runs, so that a function inside a region this configuration does not compile never reaches the report.
+    *Trace:* HLR-132 (Inactive-Region Exclusion).
+
+*   <a id="LLR-ANL-56"></a>**LLR-ANL-56** — `analyze_file` shall exclude from every metric and every graph fact each statement, decision point, call site, global access, dead-code span, and custom-rule match lying in an inactive region.
+    *Trace:* HLR-132 (Inactive-Region Exclusion).
+
+*   <a id="LLR-ANL-57"></a>**LLR-ANL-57** — `analyze_file` shall report results identical to those it produces with the option absent when no definition is supplied, save for regions a constant condition excludes, which are the same in every configuration.
+    *Trace:* HLR-131 (Conditional-Compilation Configuration).
+
 ## 15. `collect_dead_code` ([src/analyze.c](../src/analyze.c))
 
 *   <a id="LLR-DED-01"></a>**LLR-DED-01** — `collect_dead_code` shall record, as unreachable, every named sibling following a statement captured as a block terminator, within the same parent, stopping at the first sibling captured as a re-entry point.
@@ -612,7 +627,33 @@ The comment-deduction algorithm. A naive implementation is silently wrong on nes
 *   <a id="LLR-CRM-04"></a>**LLR-CRM-04** — `collect_rule_matches` shall record the line range each match spans, and shall attach no severity and no attribution to it — there is no judgement to record, and a column with nothing honest to put in it would invite one.
     *Trace:* HLR-109 (Custom Rule Match Reporting), HLR-111 (Custom Rules Carry No Built-In Opinion).
 
-## 19. `graph_build` ([src/graph.c](../src/graph.c))
+## 19. `collect_inactive_regions` ([src/analyze.c](../src/analyze.c))
+
+*   <a id="LLR-CND-01"></a>**LLR-CND-01** — `collect_inactive_regions` shall determine which regions are active from the syntax tree already parsed, invoking no preprocessor, compiler, or build system and reading no file the source refers to.
+    *Trace:* HLR-135 (No External Preprocessor).
+
+*   <a id="LLR-CND-02"></a>**LLR-CND-02** — `collect_inactive_regions` shall take the constructs that introduce a region, the part that is its alternative, and what its condition tests from the language's runtime query configuration rather than from logic compiled into the executable.
+    *Trace:* HLR-134 (Conditional Constructs Defined by Runtime Data).
+
+*   <a id="LLR-CND-03"></a>**LLR-CND-03** — `collect_inactive_regions` shall exclude the alternative when a condition holds, everything preceding the alternative when it does not, and the whole region where there is no alternative.
+    *Trace:* HLR-132 (Inactive-Region Exclusion).
+
+*   <a id="LLR-CND-04"></a>**LLR-CND-04** — `collect_inactive_regions` shall treat a region whose condition it cannot decide as active in both branches, and shall count it, over-counting being visible where under-counting is not.
+    *Trace:* HLR-133 (Undecidable Conditions Left Active).
+
+*   <a id="LLR-CND-05"></a>**LLR-CND-05** — `collect_inactive_regions` shall treat a definedness test over a symbol no definition names as undecided rather than as false, a build being free to define it where `elc` cannot see.
+    *Trace:* HLR-133 (Undecidable Conditions Left Active).
+
+*   <a id="LLR-CND-06"></a>**LLR-CND-06** — `collect_inactive_regions` shall decide a region by the earliest query pattern that matched it, so that a file's specific patterns take precedence over its catch-all rather than the library's reporting order deciding.
+    *Trace:* HLR-032 (Deterministic Output).
+
+*   <a id="LLR-CND-07"></a>**LLR-CND-07** — `collect_inactive_regions` shall neither exclude again nor count as undecided a region lying inside a region already excluded, a region nobody builds having no condition worth reporting.
+    *Trace:* HLR-133 (Undecidable Conditions Left Active).
+
+*   <a id="LLR-CND-08"></a>**LLR-CND-08** — `collect_inactive_regions` shall exclude nothing for a language whose module supplies no conditional query, that language having no conditional compilation.
+    *Trace:* HLR-134 (Conditional Constructs Defined by Runtime Data).
+
+## 20. `graph_build` ([src/graph.c](../src/graph.c))
 
 Cross-file resolution of the per-file facts into the System Dependence Graph.
 
@@ -667,7 +708,7 @@ Cross-file resolution of the per-file facts into the System Dependence Graph.
 *   <a id="LLR-SDG-11"></a>**LLR-SDG-11** — `graph_build` shall validate every node index against the node table's extent before dereferencing it, so that an unresolved or out-of-range symbol lookup cannot index outside the table.
     *Trace:* HLR-124 (Memory Safety), HLR-077 (Unresolvable Call Handling).
 
-## 20. `arch_analyse` ([src/arch.c](../src/arch.c))
+## 21. `arch_analyse` ([src/arch.c](../src/arch.c))
 
 Component-level analyses over the SDG's component projection.
 
@@ -683,7 +724,7 @@ Component-level analyses over the SDG's component projection.
 *   <a id="LLR-ARC-04"></a>**LLR-ARC-04** — `arch_analyse` shall emit a diagnostic when a declared stratum pattern matches no component, and shall retain the empty layer.
     *Trace:* HLR-078 (User-Declared Architectural Strata).
 
-## 21. `compute_coupling` ([src/arch.c](../src/arch.c))
+## 22. `compute_coupling` ([src/arch.c](../src/arch.c))
 
 *   <a id="LLR-CPL-01"></a>**LLR-CPL-01** — `compute_coupling` shall compute, for every component, the number of components depending upon it as its afferent coupling.
     *Trace:* HLR-080 (Afferent and Efferent Coupling).
@@ -697,7 +738,7 @@ Component-level analyses over the SDG's component projection.
 *   <a id="LLR-CPL-04"></a>**LLR-CPL-04** — `compute_coupling` shall count each depended-upon component once however many calls or shared objects connect the two, taking its figures from the de-duplicated component projection rather than from the call sites. Counting call sites would report a file that calls another in forty places as depending on forty things.
     *Trace:* HLR-080 (Afferent and Efferent Coupling), HLR-114.
 
-## 22. `instability` ([src/arch.c](../src/arch.c))
+## 23. `instability` ([src/arch.c](../src/arch.c))
 
 *   <a id="LLR-INS-01"></a>**LLR-INS-01** — `instability` shall compute the Instability metric as efferent coupling divided by the sum of efferent and afferent coupling.
     *Trace:* HLR-082 (Instability Metric).
@@ -708,7 +749,7 @@ Component-level analyses over the SDG's component projection.
 *   <a id="LLR-INS-03"></a>**LLR-INS-03** — The reported Instability shall be attributed to its published source.
     *Trace:* HLR-099 (Threshold Attribution), HLR-082 (Instability Metric).
 
-## 23. `find_cycles` ([src/arch.c](../src/arch.c))
+## 24. `find_cycles` ([src/arch.c](../src/arch.c))
 
 *   <a id="LLR-CYC-01"></a>**LLR-CYC-01** — `find_cycles` shall detect every cyclic dependency between components by topological analysis of the component projection.
     *Trace:* HLR-083 (Circular Dependency Detection).
@@ -725,7 +766,7 @@ Component-level analyses over the SDG's component projection.
 *   <a id="LLR-CYC-05"></a>**LLR-CYC-05** — `find_cycles` shall report, beside each cyclic group, a concrete loop through it found by a deterministic search from the group's lowest-numbered member. The group is what must be broken up and the loop is which edge to cut, and neither alone is enough to act on. One loop rather than every one: a group of n components can hold a number of distinct loops exponential in n, and the loop may therefore be shorter than the membership.
     *Trace:* HLR-083 (Circular Dependency Detection), HLR-032.
 
-## 24. `check_strata` ([src/arch.c](../src/arch.c))
+## 25. `check_strata` ([src/arch.c](../src/arch.c))
 
 *   <a id="LLR-LAY-01"></a>**LLR-LAY-01** — `check_strata` shall report every call that bypasses one or more intervening declared layers, identifying the calling function, the called function, and the layers crossed.
     *Trace:* HLR-079 (Skip-Level Call Detection).
@@ -742,7 +783,7 @@ Component-level analyses over the SDG's component projection.
 *   <a id="LLR-LAY-05"></a>**LLR-LAY-05** — `check_strata` shall consider call edges alone, since a global object two layers happen to share is a different fact with its own analyses, and shall treat a component matching no declaration as lying outside the partition rather than in a layer of its own.
     *Trace:* HLR-079 (Skip-Level Call Detection), HLR-118, HLR-093.
 
-## 25. `calltree_analyse` ([src/calltree.c](../src/calltree.c))
+## 26. `calltree_analyse` ([src/calltree.c](../src/calltree.c))
 
 Function-level call-tree measurements: width, height, the deepest stack, and recursion.
 
@@ -773,7 +814,7 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
 *   <a id="LLR-CTR-06"></a>**LLR-CTR-06** — `calltree_analyse` shall report the maximum depth together with the count of unresolved calls, since a chain continuing through an unresolved call is not followed and the depth is therefore a lower bound.
     *Trace:* HLR-087 (Maximum Call-Chain Depth), HLR-077 (Unresolvable Call Handling).
 
-## 26. `longest_path_dag` ([src/calltree.c](../src/calltree.c))
+## 27. `longest_path_dag` ([src/calltree.c](../src/calltree.c))
 
 *   <a id="LLR-LPD-01"></a>**LLR-LPD-01** — `longest_path_dag` shall compute the longest path from the declared entry points by memoised traversal in reverse topological order.
     *Trace:* HLR-087 (Maximum Call-Chain Depth).
@@ -787,7 +828,7 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
 *   <a id="LLR-LPD-03"></a>**LLR-LPD-03** — `longest_path_dag` shall return the ordered sequence of functions from entry point to deepest leaf, and not merely the depth as a number.
     *Trace:* HLR-088 (Deepest Call Stack Reported in Full).
 
-## 27. `state_analyse` ([src/state.c](../src/state.c))
+## 28. `state_analyse` ([src/state.c](../src/state.c))
 
 Global-state coupling, execution-scope isolation, and reachability.
 
@@ -803,7 +844,7 @@ Global-state coupling, execution-scope isolation, and reachability.
 *   <a id="LLR-STA-04"></a>**LLR-STA-04** — `state_analyse` shall perform the global-access mapping whether or not any declaration was supplied, so that omitting one analysis for want of a declaration does not omit its neighbours.
     *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-091.
 
-## 28. `classify_globals` ([src/state.c](../src/state.c))
+## 29. `classify_globals` ([src/state.c](../src/state.c))
 
 *   <a id="LLR-GLB-01"></a>**LLR-GLB-01** — `classify_globals` shall report, for every global object, the set of functions that write it and the set that read it.
     *Trace:* HLR-091 (Global Access Mapping).
@@ -820,7 +861,7 @@ Global-state coupling, execution-scope isolation, and reachability.
 *   <a id="LLR-GLB-05"></a>**LLR-GLB-05** — `classify_globals` shall determine the regions of the hidden-channel test as the *weakly* connected components of the call view, disregarding the object's own state edges. Weakly, because two functions in a one-directional calling relationship are still part of one design and requiring mutual reachability would report every ordinary caller and callee as disconnected; and over the call view, because including the object's own edges would join every pair sharing it and no object could ever be a channel.
     *Trace:* HLR-093 (Hidden Channel Detection), HLR-074.
 
-## 29. `collect_roots` ([src/state.c](../src/state.c))
+## 30. `collect_roots` ([src/state.c](../src/state.c))
 
 *   <a id="LLR-RTS-01"></a>**LLR-RTS-01** — `collect_roots` shall form the reachability root set as the union of the declared entry points and every function whose address is taken without being directly called.
     *Trace:* HLR-096 (Dead Code Detection by Reachability), HLR-095 (User-Declared Entry Points).
@@ -828,7 +869,7 @@ Global-state coupling, execution-scope isolation, and reachability.
 *   <a id="LLR-RTS-02"></a>**LLR-RTS-02** — `collect_roots` shall include address-taken functions because they may be invoked indirectly, so that a callback or interrupt handler is never reported as unreachable merely for want of a direct call.
     *Trace:* HLR-096 (Dead Code Detection by Reachability), HLR-097 (Dead Code Determined by Graph Mathematics).
 
-## 30. `reachability` ([src/state.c](../src/state.c))
+## 31. `reachability` ([src/state.c](../src/state.c))
 
 *   <a id="LLR-RCH-01"></a>**LLR-RCH-01** — `reachability` shall traverse the graph forward from the root set and report every function not visited as unreachable.
     *Trace:* HLR-096 (Dead Code Detection by Reachability).
@@ -839,7 +880,7 @@ Global-state coupling, execution-scope isolation, and reachability.
 *   <a id="LLR-RCH-03"></a>**LLR-RCH-03** — `reachability` shall report as unreachable a group of unused functions that call one another, since no path reaches the group from any root.
     *Trace:* HLR-097 (Dead Code Determined by Graph Mathematics).
 
-## 31. `unreachable_globals` ([src/state.c](../src/state.c))
+## 32. `unreachable_globals` ([src/state.c](../src/state.c))
 
 *   <a id="LLR-UGL-01"></a>**LLR-UGL-01** — `unreachable_globals` shall report as unreachable every global object accessed solely by functions that are themselves unreachable.
     *Trace:* HLR-096 (Dead Code Detection by Reachability).
@@ -847,7 +888,7 @@ Global-state coupling, execution-scope isolation, and reachability.
 *   <a id="LLR-UGL-02"></a>**LLR-UGL-02** — `unreachable_globals` shall not report as unreachable an object that no analysed function accesses. Such an object may be touched from file scope, from a language whose global captures record nothing, or from a translation unit outside the target, and the asymmetry that governs the functions governs the storage: an object wrongly called dead invites deleting memory something writes.
     *Trace:* HLR-096 (Dead Code Detection by Reachability), HLR-138.
 
-## 32. `check_scopes` ([src/state.c](../src/state.c))
+## 33. `check_scopes` ([src/state.c](../src/state.c))
 
 *   <a id="LLR-ISO-01"></a>**LLR-ISO-01** — `check_scopes` shall report every call edge and every global-state edge by which one declared execution scope reaches a function or object belonging to another.
     *Trace:* HLR-094 (Memory Map Boundary Validation).
@@ -855,7 +896,7 @@ Global-state coupling, execution-scope isolation, and reachability.
 *   <a id="LLR-ISO-02"></a>**LLR-ISO-02** — `check_scopes` shall treat a component matching no declaration as lying outside the partition rather than in a scope of its own, so that an edge touching it is not a crossing. The user said nothing about it, and inventing a boundary would report violations against a division nobody drew.
     *Trace:* HLR-094 (Memory Map Boundary Validation), HLR-115.
 
-## 33. `thresholds_apply` ([src/thresholds.c](../src/thresholds.c))
+## 34. `thresholds_apply` ([src/thresholds.c](../src/thresholds.c))
 
 Evaluation of every measurement against the published threshold catalogue, and assignment of severity and attribution.
 
@@ -901,7 +942,7 @@ Evaluation of every measurement against the published threshold catalogue, and a
 *   <a id="LLR-THR-14"></a>**LLR-THR-14** — The record shall carry each finding with its severity, subject, detail and source. Regeneration has no measurements to band and no catalogue call to make against them, so a finding not written is one the regenerated report cannot have.
     *Trace:* HLR-054 (Complete Run Record), HLR-056, HLR-099.
 
-## 34. `report_assemble` ([src/report.c](../src/report.c))
+## 35. `report_assemble` ([src/report.c](../src/report.c))
 
 The single place every reported collection is ordered. The audit point for determinism.
 
@@ -998,7 +1039,10 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-32"></a>**LLR-RPT-32** — `report_assemble` shall carry the custom-rule matches sorted by file, then by the line a match starts at, then by its end, then by rule identity — the last key because two rules matching one node are two rows whose order would otherwise be the order the rules loaded.
     *Trace:* HLR-109 (Custom Rule Match Reporting), HLR-032 (Deterministic Output).
 
-## 35. `format_table` ([src/format_text.c](../src/format_text.c))
+*   <a id="LLR-RPT-33"></a>**LLR-RPT-33** — `report_assemble` shall carry the definitions in force, sorted, and the count of undecided regions summed over every file, so that a report states the configuration it describes and how completely it could be applied.
+    *Trace:* HLR-136 (Configuration Recorded and Reported), HLR-133 (Undecidable Conditions Left Active).
+
+## 36. `format_table` ([src/format_text.c](../src/format_text.c))
 
 *   <a id="LLR-TBL-01"></a>**LLR-TBL-01** — `format_table` shall render the report as an aligned, human-readable table, computing column widths from the longest path and function name.
     *Trace:* HLR-027 (Default Human-Readable Output).
@@ -1009,12 +1053,12 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-TBL-03"></a>**LLR-TBL-03** — `format_table` shall write only results to the results stream, and no diagnostic.
     *Trace:* HLR-038 (Diagnostics on stderr, Results on stdout).
 
-## 36. `format_markdown` ([src/format_text.c](../src/format_text.c))
+## 37. `format_markdown` ([src/format_text.c](../src/format_text.c))
 
 *   <a id="LLR-MKD-01"></a>**LLR-MKD-01** — `format_markdown` shall render the report as GitHub-Flavored Markdown, grouping functions under a heading for the file containing them.
     *Trace:* HLR-029 (Markdown Output).
 
-## 37. `render_summary` ([src/format_text.c](../src/format_text.c))
+## 38. `render_summary` ([src/format_text.c](../src/format_text.c))
 
 *   <a id="LLR-SUM-01"></a>**LLR-SUM-01** — `render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion.
     *Trace:* HLR-031 (Uniform Report Composition Across Formats), HLR-127 (Discovery Route Reported), HLR-012 (Unsupported-Language File Handling), HLR-115 (Analyses Requiring User Declarations).
@@ -1037,7 +1081,10 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SUM-07"></a>**LLR-SUM-07** — `render_summary` shall present the custom-rule matches in a section of their own, with no severity column and no source column, and shall emit that section whether or not any rule was supplied.
     *Trace:* HLR-109 (Custom Rule Match Reporting), HLR-111 (Custom Rules Carry No Built-In Opinion), HLR-031 (Uniform Report Composition Across Formats).
 
-## 38. `format_csv` ([src/format_csv.c](../src/format_csv.c))
+*   <a id="LLR-SUM-08"></a>**LLR-SUM-08** — `render_summary` shall present the definitions in force and the undecided-region count, and shall emit the definitions section whether or not any definition was supplied.
+    *Trace:* HLR-136 (Configuration Recorded and Reported), HLR-031 (Uniform Report Composition Across Formats).
+
+## 39. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 
 *   <a id="LLR-CSV-01"></a>**LLR-CSV-01** — `format_csv` shall emit one record per function over the complete dataset, unfiltered by the complexity threshold.
     *Trace:* HLR-028 (CSV Output).
@@ -1045,7 +1092,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-CSV-02"></a>**LLR-CSV-02** — `format_csv` shall emit per-function metrics only, excluding the architectural findings.
     *Trace:* HLR-028 (CSV Output), HLR-031 (Uniform Report Composition Across Formats).
 
-## 39. `write_field` ([src/format_csv.c](../src/format_csv.c))
+## 40. `write_field` ([src/format_csv.c](../src/format_csv.c))
 
 *   <a id="LLR-FLD-01"></a>**LLR-FLD-01** — `write_field` shall quote and escape every field whose value contains a comma, a double-quote character, or a line break, in accordance with RFC 4180.
     *Trace:* HLR-064 (CSV Field Quoting and Escaping).
@@ -1053,7 +1100,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-FLD-02"></a>**LLR-FLD-02** — Every emitted CSV field shall pass through `write_field`, so that a value such as a template signature containing a comma cannot corrupt the record structure.
     *Trace:* HLR-064 (CSV Field Quoting and Escaping).
 
-## 40. `xml_write_report` ([src/format_xml.c](../src/format_xml.c))
+## 41. `xml_write_report` ([src/format_xml.c](../src/format_xml.c))
 
 *   <a id="LLR-XWR-01"></a>**LLR-XWR-01** — `xml_write_report` shall emit the complete dataset of a run, unfiltered by the complexity threshold.
     *Trace:* HLR-054 (XML Output).
@@ -1100,7 +1147,10 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-15"></a>**LLR-XWR-15** — `xml_write_report` shall record each custom-rule match with its identity, file, and line range, without which a regenerated report would omit a section the direct run presented.
     *Trace:* HLR-054 (XML Output), HLR-056 (Regenerated Report Equivalence).
 
-## 41. `write_escaped` ([src/format_xml.c](../src/format_xml.c))
+*   <a id="LLR-XWR-16"></a>**LLR-XWR-16** — `xml_write_report` shall record the definitions in force and the undecided-region count, without which a regenerated report would describe a configuration it does not name.
+    *Trace:* HLR-136 (Configuration Recorded and Reported).
+
+## 42. `write_escaped` ([src/format_xml.c](../src/format_xml.c))
 
 *   <a id="LLR-ESC-01"></a>**LLR-ESC-01** — `write_escaped` shall escape every character carrying structural meaning in XML, so that an identifier or path containing such a character cannot render the document unparseable.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).
@@ -1108,7 +1158,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-ESC-02"></a>**LLR-ESC-02** — Every emitted XML element body and attribute value shall pass through `write_escaped`.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).
 
-## 42. `xml_read_report` ([src/format_xml.c](../src/format_xml.c))
+## 43. `xml_read_report` ([src/format_xml.c](../src/format_xml.c))
 
 *   <a id="LLR-XRD-01"></a>**LLR-XRD-01** — `xml_read_report` shall reconstruct a report model from a previously written record without parsing or re-analysing any source file.
     *Trace:* HLR-055 (XML-to-Markdown Conversion Mode).
@@ -1152,7 +1202,10 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XRD-15"></a>**LLR-XRD-15** — `xml_read_report` shall reconstruct the custom-rule matches a record carries and render them identically to the run that wrote it.
     *Trace:* HLR-056 (Regenerated Report Equivalence).
 
-## 43. `graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))
+*   <a id="LLR-XRD-16"></a>**LLR-XRD-16** — `xml_read_report` shall reconstruct the configuration a record carries and render it identically to the run that wrote it.
+    *Trace:* HLR-136 (Configuration Recorded and Reported), HLR-056 (Regenerated Report Equivalence).
+
+## 44. `graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))
 
 *   <a id="LLR-WAR-01"></a>**LLR-WAR-01** — `graph_dot_warranted` shall return true by default, and false when the user has disabled `.dot` generation.
     *Trace:* HLR-103 (.dot Generation Enabled by Default).
@@ -1163,7 +1216,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-WAR-03"></a>**LLR-WAR-03** — `graph_dot_warranted` shall return false in regeneration mode, since a saved record does not carry the graph.
     *Trace:* HLR-122 (No Companion Artefacts From a Saved Record).
 
-## 44. `graph_write_dot` ([src/format_graph.c](../src/format_graph.c))
+## 45. `graph_write_dot` ([src/format_graph.c](../src/format_graph.c))
 
 *   <a id="LLR-DOT-01"></a>**LLR-DOT-01** — `graph_write_dot` shall emit the call tree in Graphviz DOT format.
     *Trace:* HLR-102 (Graphviz .dot Call Tree Output).
@@ -1180,7 +1233,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-DOT-05"></a>**LLR-DOT-05** — `graph_write_dot` shall emit a diagnostic and record a failure, while leaving the primary report written, when the companion file cannot be created.
     *Trace:* HLR-035 (Per-File Read- and Parse-Failure Tolerance).
 
-## 45. `node_style` ([src/format_graph.c](../src/format_graph.c))
+## 46. `node_style` ([src/format_graph.c](../src/format_graph.c))
 
 *   <a id="LLR-STY-01"></a>**LLR-STY-01** — `node_style` shall annotate nodes exceeding the coupling and fan-out thresholds, the functions forming the deepest call chain, the members of each dependency and recursive cycle, unreachable functions, and functions participating in a hidden channel.
     *Trace:* HLR-105 (Annotated .dot Output).
@@ -1188,7 +1241,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-STY-02"></a>**LLR-STY-02** — `node_style` shall emit annotations as attributes a renderer may ignore while still producing a valid call tree.
     *Trace:* HLR-105 (Annotated .dot Output).
 
-## 46. `graph_write_graphml` ([src/format_graph.c](../src/format_graph.c))
+## 47. `graph_write_graphml` ([src/format_graph.c](../src/format_graph.c))
 
 *   <a id="LLR-GML-01"></a>**LLR-GML-01** — `graph_write_graphml` shall export the graph in the GraphML serialisation schema so that it may be ingested by other tools.
     *Trace:* HLR-106 (Standard Graph Serialisation Export).
@@ -1202,7 +1255,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-GML-04"></a>**LLR-GML-04** — `graph_write_graphml` shall emit well-formed XML with every structurally significant character escaped.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping), HLR-106 (Standard Graph Serialisation Export).
 
-## 47. `elfsyms_open` ([src/elfsyms.c](../src/elfsyms.c))
+## 48. `elfsyms_open` ([src/elfsyms.c](../src/elfsyms.c))
 
 *   <a id="LLR-ELF-01"></a>**LLR-ELF-01** — `elfsyms_open` shall read the image named on the command line and shall populate the function set from the symbol table that image carries, preferring `.symtab` and falling back to `.dynsym`.
     *Trace:* HLR-140 (Linked-Image Function Filter).
@@ -1228,7 +1281,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-ELF-08"></a>**LLR-ELF-08** — `elfsyms_open` shall count the symbols whose linkage name it could not resolve, and shall make that count available to the report.
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported).
 
-## 48. `resolved_name` ([src/elfsyms.c](../src/elfsyms.c))
+## 49. `resolved_name` ([src/elfsyms.c](../src/elfsyms.c))
 
 *   <a id="LLR-SYM-01"></a>**LLR-SYM-01** — `resolved_name` shall return an unencoded linkage name unchanged, that being the C case and the `extern "C"` case alike.
     *Trace:* HLR-142 (Linkage Names Resolved to Source Names).
@@ -1242,7 +1295,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SYM-04"></a>**LLR-SYM-04** — `resolved_name` shall return no name for a linkage name encoded by a scheme this build does not decode, so that the symbol is counted as unresolved rather than matched against a guess.
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported).
 
-## 49. Build and Link Configuration ([Makefile](../Makefile))
+## 50. Build and Link Configuration ([Makefile](../Makefile))
 
 Requirements satisfied by the build rather than by any single function. Verified against the produced binary rather than at runtime.
 
@@ -1300,7 +1353,7 @@ Requirements satisfied by the build rather than by any single function. Verified
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
-## 50. User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))
+## 51. User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))
 
 Requirements met by the delivered documentation rather than by any function. Verified against the built binary and the install tree, in the manner of the build-configuration group.
 

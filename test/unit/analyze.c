@@ -87,7 +87,8 @@ static const FunctionMetric *function_named(const FileMetrics *m,
 static int analyze_metrics(Registry *reg, const char *path, FileMetrics **out)
 {
 	FileFacts *facts = NULL;
-	int        rc    = analyze_file(reg, path, out, &facts);
+	ElcOptions opts  = { 0 };
+	int        rc    = analyze_file(reg, &opts, path, out, &facts);
 
 	filefacts_free(facts);
 	return rc;
@@ -935,7 +936,10 @@ static FileFacts *analyze_facts(Registry *reg, const char *path)
 	FileMetrics *metrics = NULL;
 	FileFacts   *facts   = NULL;
 
-	cr_assert_eq(analyze_file(reg, path, &metrics, &facts), ANALYZE_OK);
+	ElcOptions opts = { 0 };
+
+	cr_assert_eq(analyze_file(reg, &opts, path, &metrics, &facts),
+	             ANALYZE_OK);
 	filemetrics_free(metrics);
 	return facts;
 }

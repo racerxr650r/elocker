@@ -128,7 +128,7 @@ int main(int argc, char *argv[])
 		 * at the end (HLR-035, LLR-MAIN-07). A skip is not a failure —
 		 * it is reported and leaves the status at 0 (HLR-012,
 		 * HLR-037). */
-		switch (analyze_file(&registry, files.paths[i], &metrics,
+		switch (analyze_file(&registry, &opts, files.paths[i], &metrics,
 		                     &facts)) {
 		case ANALYZE_SKIPPED:
 			fprintf(stderr,

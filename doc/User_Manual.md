@@ -1160,6 +1160,77 @@ what is missing is the module, not the rule.
 Writing the queries themselves is covered by `runtime/queries/README.md`, which
 ships with the runtime and is the contract a rule is written against.
 
+## Conditional compilation
+
+Source that is conditionally compiled describes several programs. Measuring it
+without saying which one gives you the union of them all — a number that
+describes no build that exists and overstates every figure taken from it. Name
+a configuration and you measure that configuration:
+
+```sh
+elc -DFEATURE_X -DTARGET=stm32 src/
+```
+
+**`elc` runs no preprocessor.** No `cpp`, no compiler, no build system, and it
+reads no file your source includes. A result that depended on which toolchain
+happened to be installed would not be a property of your source. It decides
+each region from the syntax tree it already parsed.
+
+### What gets decided, and what does not
+
+Exactly two things are decided:
+
+- **A constant condition.** `#if 0` and `#if 1` mean the same in every
+  configuration, so they prune whether or not you supplied any `-D`.
+- **A definedness test over a symbol you named.** `#ifdef`, `#ifndef` and
+  `#if defined(...)` are decided when the symbol appears in a `-D`.
+
+Everything else is **undecidable rather than false**. `#if VERSION > 2` needs
+macro values `elc` does not have, so both branches stay counted and the region
+is added to the **Undecided regions** figure in the project summary.
+
+That asymmetry is the whole safety argument, and it is worth understanding
+before you trust a number. Treating an unrecognised condition as false would
+silently delete code and hand you a report that is confidently wrong and looks
+exactly like a correct one. Treating it as true over-counts — which is visible,
+in a figure printed right beside the metrics.
+
+### A symbol you did not name is not thereby undefined
+
+`-D` can only say a symbol **is** defined. There is no `-U`. A symbol you never
+mention might still be defined by a header, or by a build system `elc` will
+never see, so `elc` calls such a condition undecidable rather than false.
+
+Two consequences follow, and both are intentional:
+
+- **Supplying no definitions prunes nothing** on that account, so adding the
+  option to an existing invocation cannot change a figure you already trusted.
+- **An `#ifndef` include guard is undecidable in every run.** A header-heavy
+  project reports a large undecided count. That is honest, not a defect — `elc`
+  genuinely cannot tell whether the guard is defined at that point.
+
+### Which constructs count as conditional is data
+
+The constructs that introduce a region, where the condition sits, and which
+part is the alternative are declared in the language's `conditionals.scm`, not
+in `elc`. A C preprocessor conditional and a Rust `#[cfg]` attribute are the
+same mechanism, and a language whose module ships no such file simply has no
+conditional compilation.
+
+Rust is worth a note. An attribute has no `#else`, so `#[cfg(X)]` can only be
+*removed*, never swapped for something else — and since a symbol you did not
+name is undecidable, `#[cfg(X)]` is pruned by nothing. It is `#[cfg(not(X))]`
+with `-DX` that prunes.
+
+### The configuration travels with the report
+
+The definitions in force appear in the report and in the saved record, so a
+report always states which configuration it describes — and one regenerated
+from a record still does. Because pruning happens when a file is measured
+rather than when a report is rendered, combining `-D` with `--from-xml` is a
+usage error rather than a silently ignored request: the record already
+describes one configuration, chosen when it was written.
+
 ## Languages
 
 `elc` works out each file's language from its extension and loads the parser
@@ -1279,6 +1350,7 @@ comparable.
 | `-b`, `--bottleneck-threshold` | `N` | `5` | Flag a component whose `Ca` and `Ce` are each `N` or greater |
 | `--stratum` | `NAME:GLOB[,GLOB…]` | none | Declare an architectural layer named `NAME` holding the matching files; repeatable |
 | `--stratum-order` | `NAME>NAME[>NAME…]` | none | State the permitted direction of dependency between the declared layers |
+| `-D`, `--define` | `NAME[=VALUE]` | none | Define a conditional-compilation symbol, so the metrics describe that configuration; repeatable |
 | `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `--no-dot` | — | `.dot` written | Do not write the annotated Graphviz call tree, which is otherwise written beside the report |

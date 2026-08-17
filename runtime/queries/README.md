@@ -81,11 +81,12 @@ a language name, a file extension, or a grammar node type — if you are typing
 | `globals.scm` | `@global.declaration` | A global's declaration |
 | | `@global.read` | An identifier reading a global |
 | | `@global.write` | An identifier writing a global |
-| `conditionals.scm` | `@conditional.symbol` | A symbol whose definedness the condition tests |
-| | `@conditional.negated` | Present when the region is active while the symbol is *un*defined |
-| | `@conditional.literal` | A condition that is a constant, such as C's `#if 0` |
-| | `@conditional.consequence` | The region active when the condition holds |
-| | `@conditional.alternative` | The region active when it does not |
+| `conditionals.scm` | `@conditional.region` | The whole conditional construct. Required in every pattern; a pattern without one describes nothing `elc` can act on |
+| | `@conditional.alternative` | The part of the region active when the condition does *not* hold — C's `#else` or `#elif`. Absent where the language has no such form |
+| | `@conditional.true` | The query recognised the condition and it holds |
+| | `@conditional.false` | The query recognised it and it does not |
+| | `@conditional.symbol` | A symbol whose definedness decides the region, for `elc` to look up |
+| | `@conditional.negated` | Present when the region is active while that symbol is *un*defined |
 | `deadcode.scm` | `@dead.terminator` | A statement after which control does not continue in this block |
 | | `@dead.reentry` | A construct that can be entered *without* falling into it |
 | | `@dead.branch` | A branch a literal condition excludes |
@@ -143,9 +144,49 @@ silently delete code and produce a report that is confidently wrong and looks
 exactly like a correct one. Treating it as true over-counts, which is visible
 in the undecided count printed beside the figures.
 
-A query file expresses only the *shape*: which node introduces a region, where
-its condition sits, and which branch each is. It never decides the answer.
-That is what keeps a C `#if` and a Rust `#[cfg]` the same mechanism.
+### Who decides what
+
+The division is exact, and it is what keeps a C `#if` and a Rust `#[cfg]` one
+mechanism.
+
+**The query decides truth.** A condition it recognises is settled with
+`@conditional.true` or `@conditional.false` — captured on the condition, not on
+a span. That is where a language's own rules about what counts as a false
+constant belong, and it is why `elc` never learns that `0` is false in C.
+
+**`elc` decides bytes.** Given a verdict it works out what that excludes: the
+alternative when the condition holds, everything up to the alternative when it
+does not, and the whole region where there is none. A query that pointed at a
+span would have to know that a `#if` with an `#else` keeps half of itself,
+which is arithmetic rather than a fact about the language.
+
+**`elc` decides definedness, and only `elc` can.** Where the answer depends on
+a `-D`, the query captures `@conditional.symbol` and stops. It has no way to
+know what the user supplied and must not guess.
+
+### A symbol no `-D` mentions is undecidable, not undefined
+
+`-D` can only assert that a symbol *is* defined; there is no `-U`. A symbol it
+never mentions may still be defined by a header or by a command line `elc` will
+never see, so the honest answer is that the region cannot be decided — both
+branches stay and the undecided count rises.
+
+That one rule is also why supplying no definitions at all changes nothing: with
+an empty set every definedness test is undecidable. A constant condition is
+different in kind and prunes regardless, because `#if 0` means the same thing
+in every configuration.
+
+An `#ifndef` guard is the case this is most visible on. It is undecidable in
+every run, which is correct and is also why a header-heavy project reports a
+large undecided count.
+
+### Patterns are tried in the order written
+
+Where several patterns match one region, **the earliest in the file wins**. So
+a `conditionals.scm` puts its specific cases first and a catch-all last, and
+the catch-all is what makes an unrecognised condition *undecided* rather than
+invisible. A region no pattern matches is not counted at all, and the count is
+the only thing telling a reader how complete the pruning was.
 
 ### Writing a `deadcode.scm`
 

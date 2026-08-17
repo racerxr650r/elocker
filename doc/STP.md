@@ -137,7 +137,7 @@ Snapshot: **357 test(s)** across
 
 ### 3.1. [test/unit/cli.c](../test/unit/cli.c)
 
-Role: **unit**. **41 test(s).**
+Role: **unit**. **46 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -182,6 +182,11 @@ Role: **unit**. **41 test(s).**
 | 39 | <a id="a_rule_argument_is_recorded_unsplit"></a>`a_rule_argument_is_recorded_unsplit` | `LLR-RLR-02` | The `lang:path` argument reaches the options as given. The parser does not split it, and deliberately: whether the named language exists is the registry's question, and answering it here would put a second copy of that knowledge in the option parser. |
 | 40 | <a id="rule_arguments_accumulate"></a>`rule_arguments_accumulate` | `LLR-RLR-01` | The option is repeatable and a second use does not replace the first. |
 | 41 | <a id="no_rule_is_supplied_by_default"></a>`no_rule_is_supplied_by_default` | — | elc ships no rule of its own beyond the catalogued metrics and thresholds, so an invocation naming none has none. |
+| 42 | <a id="a_definition_is_recorded_as_given"></a>`a_definition_is_recorded_as_given` | `LLR-CLI-25` | A definition reaches the options as given, `NAME` and `NAME=VALUE` alike. What one *means* belongs to the evaluation, which alone knows what a language's conditions can test. |
+| 43 | <a id="definitions_are_empty_by_default"></a>`definitions_are_empty_by_default` | — | With no definitions nothing prunes, which is how adding the option changes no existing result. |
+| 44 | <a id="an_empty_definition_is_a_usage_error"></a>`an_empty_definition_is_a_usage_error` | — | `-D` with an empty argument names no symbol and is rejected rather than recorded as one. |
+| 45 | <a id="a_definition_with_regeneration_is_a_usage_error"></a>`a_definition_with_regeneration_is_a_usage_error` | `LLR-CLI-24` | Pruning happens when a file is measured, so a saved record already describes one configuration and cannot be re-cut into another. |
+| 46 | <a id="regeneration_without_a_definition_is_accepted"></a>`regeneration_without_a_definition_is_accepted` | `LLR-CLI-24` | The boundary of the rule above: regeneration alone is ordinary, and only an explicit definition conflicts with it. |
 
 ### 3.2. [test/unit/registry.c](../test/unit/registry.c)
 
@@ -991,7 +996,40 @@ Role: **fixture**. **24 test(s).**
 | 23 | <a id="HLR-100: a critical annotation does not become an exit status"></a>`HLR-100: a critical annotation does not become an exit status` | — | A run full of critical findings in which every file was read still exits 0. Severity is a label, and drawing it on a graph does not change that. |
 | 24 | <a id="a forward declaration is not a node"></a>`a forward declaration is not a node` | — | Three nodes and not four, which also pins that the C module's function query captures definitions rather than declarations. |
 
-### 3.34. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
+### 3.34. [test/fixtures/conditional.bats](../test/fixtures/conditional.bats)
+
+Role: **fixture**. **26 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="the hand-counted totals match with no definitions"></a>`the hand-counted totals match with no definitions` | — | Nine functions, nine ELOC, five undecided regions, against a table worked out by hand. Every function holds exactly one statement so the second column can be checked against the first. |
+| 2 | <a id="HLR-132: -DFEATURE measures the configuration in which it is defined"></a>`HLR-132: -DFEATURE measures the configuration in which it is defined` | `LLR-CND-03` | The consequence survives and the alternative goes, and the figures are those of that configuration rather than of the union of both. |
+| 3 | <a id="HLR-132: a definition can make a condition false as well as true"></a>`HLR-132: a definition can make a condition false as well as true` | `LLR-CND-03` | `#ifndef LEAN` with `-DLEAN`: the symbol is defined, the negation makes the condition false, and the consequence goes. A rule that only ever pruned `#else` branches would pass every other case and fail this one. |
+| 4 | <a id="HLR-132: two definitions compose"></a>`HLR-132: two definitions compose` | — | Two regions decided independently in one run, with the undecided count falling by exactly the two that were settled. |
+| 5 | <a id="HLR-131: #if 0 prunes with no definitions supplied"></a>`HLR-131: #if 0 prunes with no definitions supplied` | `LLR-CND-06`, `LLR-ANL-55` | The one place the opt-in rule does not read literally, and deliberately: a constant condition is the same in every configuration, so it needs no configuration to decide. This is the Phase 3 judgement in doc/notes.md §3 reversed. |
+| 6 | <a id="HLR-133: a symbol no -D mentions leaves both branches counted"></a>`HLR-133: a symbol no -D mentions leaves both branches counted` | `LLR-CND-05` | Undecidable rather than false. A build may define the symbol in a header elc never sees, so both branches stay. |
+| 7 | <a id="HLR-133: an undecidable condition is counted, not silently kept"></a>`HLR-133: an undecidable condition is counted, not silently kept` | `LLR-CND-04` | Leaving the region active is the safe direction; leaving it unreported would hide how incomplete the pruning was, and the count is the only thing that says. |
+| 8 | <a id="HLR-133: a region inside an uncompiled region is not counted undecided"></a>`HLR-133: a region inside an uncompiled region is not counted undecided` | `LLR-CND-07` | A region nobody builds has no condition worth reporting. Counting it would inflate the one figure a reader uses to judge the pruning, which is the case a naive implementation gets wrong. |
+| 9 | <a id="HLR-131: defining a symbol the tree never mentions changes nothing"></a>`HLR-131: defining a symbol the tree never mentions changes nothing` | `LLR-ANL-57` | The narrow form of the opt-in guarantee, asserted directly rather than inferred from the rest of the suite passing. |
+| 10 | <a id="the alternative of a leading #if is the whole rest of the chain"></a>`the alternative of a leading #if is the whole rest of the chain` | `LLR-CND-03`, `LLR-CND-07` | `-DALPHA` decides the head true and the entire `#elif`/`#else` tail goes with it — and the `#elif` inside stops being undecided, so the count falls to zero rather than one. |
+| 11 | <a id="an #elif is decided on its own terms when the head is undecided"></a>`an #elif is decided on its own terms when the head is undecided` | `LLR-CND-05` | The head stays counted and unpruned while the `#elif` takes its `#else`. `alpha` survives because `ALPHA` is unknown, not because it is defined. |
+| 12 | <a id="an undecided chain keeps every branch"></a>`an undecided chain keeps every branch` | — | With nothing named, every branch of the chain stays and both conditions are counted. |
+| 13 | <a id="HLR-134: a Rust cfg attribute prunes by the same mechanism"></a>`HLR-134: a Rust cfg attribute prunes by the same mechanism` | `LLR-CND-02` | `#[cfg(not(feature_b))]` with `-Dfeature_b`: the symbol is known, the negation makes the condition false, and the item goes. No line of src/ changed to support Rust's shape. |
+| 14 | <a id="HLR-134: a cfg with no else cannot be pruned by defining its symbol"></a>`HLR-134: a cfg with no else cannot be pruned by defining its symbol` | — | An attribute has no alternative, so deciding the condition *true* prunes something that does not exist. The asymmetry is the language's rather than elc's, and is pinned so it is not read as a defect later. |
+| 15 | <a id="HLR-136: the definitions in force are reported"></a>`HLR-136: the definitions in force are reported` | `LLR-SUM-08` | A report states the configuration it describes, rather than leaving a reader to remember which command produced it. |
+| 16 | <a id="HLR-031: the section is emitted with no definitions supplied"></a>`HLR-031: the section is emitted with no definitions supplied` | — | "Measured with no definitions" and "measured with these" are different claims, and a reader of a report showing neither could not tell which they had. |
+| 17 | <a id="HLR-136: the definitions are reported in a stable order"></a>`HLR-136: the definitions are reported in a stable order` | `LLR-RPT-33` | The order the user typed them in is not a property of the run. |
+| 18 | <a id="HLR-056: a configured run survives a record round trip"></a>`HLR-056: a configured run survives a record round trip` | `LLR-XRD-16` | Byte-identical regeneration of a pruned run, which a record omitting the configuration could not deliver. |
+| 19 | <a id="HLR-136: the record names the configuration it describes"></a>`HLR-136: the record names the configuration it describes` | `LLR-XWR-16` | Both halves: the definitions in force and how completely they could be applied. |
+| 20 | <a id="HLR-063: -D with --from-xml is a usage error"></a>`HLR-063: -D with --from-xml is a usage error` | `LLR-CLI-24` | Pruning happens when a file is measured, so a record already describes one configuration and cannot be re-cut into another. Rejected rather than silently ignored. |
+| 21 | <a id="HLR-032: two configured runs produce identical output"></a>`HLR-032: two configured runs produce identical output` | — | A configuration changes what is measured, not whether the measurement is repeatable. |
+| 22 | <a id="HLR-132: a call inside an uncompiled region is not a call of this build"></a>`HLR-132: a call inside an uncompiled region is not a call of this build` | `LLR-ANL-56` | caller survives and the call inside its `#if 0` does not. A pruning that only removed whole functions would pass every other case in this group and fail this one. |
+| 23 | <a id="HLR-132: a decision point inside an uncompiled region is not counted"></a>`HLR-132: a decision point inside an uncompiled region is not counted` | `LLR-ANL-56` | Complexity describes the build rather than the source, which is the same claim the fan-out case makes about the graph. |
+| 24 | <a id="HLR-132: a global access inside an uncompiled region is not a fact"></a>`HLR-132: a global access inside an uncompiled region is not a fact` | `LLR-ANL-56` | The object is declared outside the region and read only inside it, so this build touches it nowhere and no row describes it. |
+| 25 | <a id="LLR-CND-08: a language supplying no conditional query has none"></a>`LLR-CND-08: a language supplying no conditional query has none` | `LLR-CND-08` | Python ships no `conditionals.scm`, which the contract permits by omission: the file is measured normally and nothing is excluded or counted undecided. |
+| 26 | <a id="LLR-CND-08: a definition changes nothing for such a language"></a>`LLR-CND-08: a definition changes nothing for such a language` | `LLR-CND-08` | A definition supplied against a language with no conditional compilation moves nothing but the section that names it. |
+
+### 3.35. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
 
 Role: **fixture**. **17 test(s).**
 
@@ -1015,7 +1053,7 @@ Role: **fixture**. **17 test(s).**
 | 16 | <a id="HLR-054: the record carries each match with its identity"></a>`HLR-054: the record carries each match with its identity` | `LLR-XWR-15` | The identity is what the report presents and all a reader of a regenerated report can act on, so it is what the record holds. |
 | 17 | <a id="HLR-032: two runs with the same rule produce identical output"></a>`HLR-032: two runs with the same rule produce identical output` | `LLR-RLR-11` | Rule loading walks a directory, and a directory yields whatever order the filesystem holds. |
 
-### 3.35. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
+### 3.36. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
 Role: **fixture**. **16 test(s).**
 
@@ -1038,7 +1076,7 @@ Role: **fixture**. **16 test(s).**
 | 15 | <a id="HLR-032: two runs over the same tree produce identical GraphML"></a>`HLR-032: two runs over the same tree produce identical GraphML` | — | The export is byte-identical across runs, so no container's internal enumeration reaches the output. |
 | 16 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | — | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
-### 3.36. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+### 3.37. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1064,7 +1102,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | — | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
 | 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | — | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
 
-### 3.37. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.38. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -1078,9 +1116,9 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.38. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.39. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
-Role: **instrumented**. **24 test(s).**
+Role: **instrumented**. **26 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1108,8 +1146,10 @@ Role: **instrumented**. **24 test(s).**
 | 22 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
 | 23 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
 | 24 | <a id="HLR-125: the local sanitizer gate is as strong as the pipeline's"></a>`HLR-125: the local sanitizer gate is as strong as the pipeline's` | `LLR-BLD-18` | The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them. |
+| 25 | <a id="HLR-135: deciding a conditional region spawns no preprocessor"></a>`HLR-135: deciding a conditional region spawns no preprocessor` | `LLR-CND-01` | The half a reading of the source cannot establish: a run over conditionally compiled source with definitions supplied issues one execve, the kernel's own. No cpp, no compiler, no build system. |
+| 26 | <a id="HLR-135: deciding a conditional region reads no other file"></a>`HLR-135: deciding a conditional region reads no other file` | `LLR-CND-01` | The other half: each fixture source is opened once and nothing else in the tree is read. An implementation resolving an include to decide a condition would show the header here. |
 
-### 3.39. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.40. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -1170,6 +1210,8 @@ verified by code review — see
 | `LLR-CLI-15` | `cli_parse` | `HLR-122`, `HLR-063` | `LLR-CLI-15: an explicit companion request with --from-xml is rejected`, `LLR-CLI-15: declining a companion alongside --from-xml is not an error` |
 | `LLR-CLI-22` | `cli_parse` | `HLR-140` | **(no direct test)** |
 | `LLR-CLI-23` | `cli_parse` | `HLR-147`, `HLR-063` | **(no direct test)** |
+| `LLR-CLI-24` | `cli_parse` | `HLR-136`, `HLR-063` | `a_definition_with_regeneration_is_a_usage_error`, `regeneration_without_a_definition_is_accepted`, `HLR-063: -D with --from-xml is a usage error` |
+| `LLR-CLI-25` | `cli_parse` | `HLR-131` | `a_definition_is_recorded_as_given` |
 | `LLR-USG-01` | `cli_usage` | `HLR-117` | **(no direct test)** |
 | `LLR-USG-02` | `cli_usage` | `HLR-117`, `HLR-063`, `HLR-038` | **(no direct test)** |
 | `LLR-USG-07` | `cli_usage` | `HLR-140`, `HLR-117` | **(no direct test)** |
@@ -1293,6 +1335,9 @@ verified by code review — see
 | `LLR-ANL-52` | `analyze_file` | `HLR-144` | **(no direct test)** |
 | `LLR-ANL-53` | `analyze_file` | `HLR-145` | **(no direct test)** |
 | `LLR-ANL-54` | `analyze_file` | `HLR-140` | **(no direct test)** |
+| `LLR-ANL-55` | `analyze_file` | `HLR-132` | `HLR-131: #if 0 prunes with no definitions supplied` |
+| `LLR-ANL-56` | `analyze_file` | `HLR-132` | `HLR-132: a call inside an uncompiled region is not a call of this build`, `HLR-132: a decision point inside an uncompiled region is not counted`, `HLR-132: a global access inside an uncompiled region is not a fact` |
+| `LLR-ANL-57` | `analyze_file` | `HLR-131` | `HLR-131: defining a symbol the tree never mentions changes nothing` |
 | `LLR-DED-01` | `collect_dead_code` | `HLR-137` | `statements_after_a_terminator_are_recorded`, `a_label_after_a_terminator_is_not_recorded`, `HLR-137: statements after a return are reported`, `HLR-138: a label following a return is NOT reported`, `HLR-137: statements after a break are reported`, `HLR-137: statements after a continue are reported`, `LLR-DED-01: the walk does not leave the terminator's own block`, `HLR-138: a switch arm does not leak into the next`, `HLR-137: the two causes are distinguished`, `HLR-139: dead code is found in every language supplying a query` |
 | `LLR-DED-02` | `collect_dead_code` | `HLR-137` | `a_literal_branch_is_recorded_with_its_whole_span`, `HLR-137: the consequence of if (0) and the else of if (1) are reported`, `HLR-137: the body of a literally false loop is reported`, `HLR-138: a do-while(0) body is NOT reported` |
 | `LLR-DED-03` | `collect_dead_code` | `HLR-138`, `HLR-013` | `a_branch_guarded_by_a_variable_is_never_recorded`, `HLR-138: a branch guarded by a variable is NOT reported`, `LLR-DED-03: a zero the source did not write as one is undecided`, `HLR-138: no language claims a branch guarded by a variable` |
@@ -1313,6 +1358,14 @@ verified by code review — see
 | `LLR-CRM-02` | `collect_rule_matches` | `HLR-107` | `HLR-107: a rule's predicate is evaluated, so free is not an allocation` |
 | `LLR-CRM-03` | `collect_rule_matches` | `HLR-109` | **(no direct test)** |
 | `LLR-CRM-04` | `collect_rule_matches` | `HLR-109`, `HLR-111` | **(no direct test)** |
+| `LLR-CND-01` | `collect_inactive_regions` | `HLR-135` | `HLR-135: deciding a conditional region spawns no preprocessor`, `HLR-135: deciding a conditional region reads no other file` |
+| `LLR-CND-02` | `collect_inactive_regions` | `HLR-134` | `HLR-134: a Rust cfg attribute prunes by the same mechanism` |
+| `LLR-CND-03` | `collect_inactive_regions` | `HLR-132` | `HLR-132: -DFEATURE measures the configuration in which it is defined`, `HLR-132: a definition can make a condition false as well as true`, `the alternative of a leading #if is the whole rest of the chain` |
+| `LLR-CND-04` | `collect_inactive_regions` | `HLR-133` | `HLR-133: an undecidable condition is counted, not silently kept` |
+| `LLR-CND-05` | `collect_inactive_regions` | `HLR-133` | `HLR-133: a symbol no -D mentions leaves both branches counted`, `an #elif is decided on its own terms when the head is undecided` |
+| `LLR-CND-06` | `collect_inactive_regions` | `HLR-032` | `HLR-131: #if 0 prunes with no definitions supplied` |
+| `LLR-CND-07` | `collect_inactive_regions` | `HLR-133` | `HLR-133: a region inside an uncompiled region is not counted undecided`, `the alternative of a leading #if is the whole rest of the chain` |
+| `LLR-CND-08` | `collect_inactive_regions` | `HLR-134` | `LLR-CND-08: a language supplying no conditional query has none`, `LLR-CND-08: a definition changes nothing for such a language` |
 | `LLR-SDG-01` | `graph_build` | `HLR-073` | `every_discovered_function_becomes_a_node`, `an_empty_project_builds_an_empty_graph` |
 | `LLR-SDG-02` | `graph_build` | `HLR-073` | `a_call_resolves_across_files` |
 | `LLR-SDG-03` | `graph_build` | `HLR-074` | `a_global_links_its_writer_to_its_reader` |
@@ -1427,6 +1480,7 @@ verified by code review — see
 | `LLR-RPT-16` | `report_assemble` | `HLR-124`, `HLR-125` | `a_failed_growth_leaves_the_accumulator_intact`, `free_is_safe_on_null` |
 | `LLR-RPT-31` | `report_assemble` | `HLR-143`, `HLR-147` | **(no direct test)** |
 | `LLR-RPT-32` | `report_assemble` | `HLR-109`, `HLR-032` | **(no direct test)** |
+| `LLR-RPT-33` | `report_assemble` | `HLR-136`, `HLR-133` | `HLR-136: the definitions are reported in a stable order` |
 | `LLR-TBL-01` | `format_table` | `HLR-027` | `the_table_carries_the_summary_and_every_file`, `columns_are_aligned_on_the_longest_path`, `an_empty_report_still_renders_a_table` |
 | `LLR-TBL-02` | `format_table` | `HLR-027` | **(no direct test)** |
 | `LLR-TBL-03` | `format_table` | `HLR-038` | `a_write_failure_is_reported` |
@@ -1438,6 +1492,7 @@ verified by code review — see
 | `LLR-SUM-02` | `render_summary` | `HLR-031` | **(no direct test)** |
 | `LLR-SUM-06` | `render_summary` | `HLR-143`, `HLR-031` | **(no direct test)** |
 | `LLR-SUM-07` | `render_summary` | `HLR-109`, `HLR-111`, `HLR-031` | `HLR-031: the section is emitted even with no rule supplied` |
+| `LLR-SUM-08` | `render_summary` | `HLR-136`, `HLR-031` | `HLR-136: the definitions in force are reported` |
 | `LLR-CSV-01` | `format_csv` | `HLR-028` | `the_header_row_is_written`, `an_empty_report_is_a_header_alone`, `a_write_failure_is_reported` |
 | `LLR-CSV-02` | `format_csv` | `HLR-028`, `HLR-031` | **(no direct test)** |
 | `LLR-FLD-01` | `write_field` | `HLR-064` | `an_ordinary_field_is_not_quoted`, `a_field_containing_a_comma_is_quoted`, `a_quote_is_doubled_not_backslashed`, `a_field_containing_a_newline_is_quoted`, `a_field_containing_a_carriage_return_is_quoted`, `a_field_needing_every_escape_survives`, `an_empty_field_is_emitted_empty`, `a_null_field_is_emitted_empty` |
@@ -1457,6 +1512,7 @@ verified by code review — see
 | `LLR-XWR-04` | `xml_write_report` | `HLR-065` | `the_record_carries_its_format_version`, `an_empty_report_is_still_a_complete_record`, `a_write_failure_is_reported` |
 | `LLR-XWR-14` | `xml_write_report` | `HLR-147` | **(no direct test)** |
 | `LLR-XWR-15` | `xml_write_report` | `HLR-054`, `HLR-056` | `HLR-054: the record carries each match with its identity` |
+| `LLR-XWR-16` | `xml_write_report` | `HLR-136` | `HLR-136: the record names the configuration it describes` |
 | `LLR-ESC-01` | `write_escaped` | `HLR-065` | `an_ampersand_is_escaped`, `angle_brackets_are_escaped`, `quotation_marks_are_escaped`, `an_ampersand_in_an_entity_is_escaped_once`, `ordinary_text_is_unchanged`, `escaping_null_emits_nothing` |
 | `LLR-ESC-02` | `write_escaped` | `HLR-065` | **(no direct test)** |
 | `LLR-XRD-01` | `xml_read_report` | `HLR-055` | `the_model_is_reconstructed_from_the_record` |
@@ -1473,6 +1529,7 @@ verified by code review — see
 | `LLR-XRD-08` | `xml_read_report` | `HLR-056` | **(no direct test)** |
 | `LLR-XRD-14` | `xml_read_report` | `HLR-147`, `HLR-056` | **(no direct test)** |
 | `LLR-XRD-15` | `xml_read_report` | `HLR-056` | `HLR-056: rule matches survive a record round trip byte-identically` |
+| `LLR-XRD-16` | `xml_read_report` | `HLR-136`, `HLR-056` | `HLR-056: a configured run survives a record round trip` |
 | `LLR-WAR-01` | `graph_dot_warranted` | `HLR-103` | `dot_is_written_without_being_asked_for`, `dot_is_suppressed_by_the_disable_switch` |
 | `LLR-WAR-02` | `graph_dot_warranted` | `HLR-104` | `dot_needs_an_output_path`, `dot_needs_an_output_path_even_when_disabled` |
 | `LLR-WAR-03` | `graph_dot_warranted` | `HLR-122` | `no_dot_is_written_from_a_saved_record`, `HLR-122: regeneration writes no .dot, default-on though it is` |
@@ -1545,7 +1602,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `repo/` | [test/fixtures/repo/](../test/fixtures/repo/) | A repository built into the test's own temporary directory, holding tracked source, an untracked file, a gitignored build directory, a tracked blob with binary content, a tracked file with an excluded extension, and tracked hidden entries; a subdirectory target; a repository with no commits; targets an enclosing repository does not track | The analysed file set and the route reported for each target; the scoped totals; the same file set by either route | HLR-002, HLR-003, HLR-004, HLR-005, HLR-033, HLR-055, HLR-056, HLR-126, HLR-127 |
 | `runtime/` | [test/fixtures/runtime/](../test/fixtures/runtime/) | An absent runtime directory; one with no valid module; a module missing its entry point; a module with an unparseable query; an invalid custom rule, both CLI-named and runtime-located | Expected diagnostic text and exit status per case | HLR-036, HLR-059, HLR-070, HLR-116, HLR-120 |
 | `elf/` | [test/fixtures/elf/](../test/fixtures/elf/) | A source tree and images built from it by the test rather than committed, since a binary in the repository would be a fixture nobody could review. A C image linked from a subset of the sources, so that some source functions are absent from it; the same image stripped; a C++ image exercising Itanium mangling; an Ada image exercising GNAT's encoding, which nothing decodes; a file that is not an object file; a path that does not exist; and a run with no image at all | Hand-counted metrics over the retained functions only, with the file-scope ELOC reported separately; the list of source functions the image does not define, and the count of linkage names left unresolved; byte-identical output to a run with the option absent when no image is supplied; exit 2 with no report for the stripped image, the non-object file, and the absent path, each with its own diagnostic; a large unresolved count and a stated one for the Ada image | HLR-140 – HLR-147 |
-| `conditional/` | [test/fixtures/conditional/](../test/fixtures/conditional/) | A C source with `#if 0`, `#ifdef`, `#ifndef`, and a nested conditional; the same logic under a Rust `cfg` attribute; a condition depending on a symbol no definition names; a run with no definitions at all | Hand-counted ELOC and complexity for each configuration; identical figures to a run made without the option when no definition is supplied; both branches counted and the region reported undecided where the condition names an unknown symbol | HLR-131 – HLR-136 |
+| `conditional/` | [test/fixtures/conditional/](../test/fixtures/conditional/) | A C source carrying `#if 0`, `#ifdef` with an `#else`, `#ifndef`, and a condition over macro values nothing can decide; a **nested** conditional inside an `#if 0`, in a file of its own; the same mechanism under Rust `cfg` attributes, both plain and negated; an `#elif` chain in a directory of its own, so that the main tree's totals stay one hand-checkable table; and runs with no definitions, with one, with two, and with a symbol the tree never mentions | Hand-counted functions, ELOC and undecided regions per configuration, with every function holding exactly one statement so ELOC can be checked against the function count without trusting either. `#if 0` pruned with no definitions supplied — the one place the opt-in rule does not read literally, and the Phase 3 judgement this reverses. A definition making a condition *false* as well as true, since a rule that only ever pruned `#else` branches would pass every other case. The nested region counted **neither** as pruned nor as undecided. `-DALPHA` collapsing an `#elif` chain to nothing, and the count falling to zero with it | HLR-031, HLR-032, HLR-056, HLR-063, HLR-131 – HLR-136 |
 | `escaping/` | [test/fixtures/escaping/](../test/fixtures/escaping/) | Identifiers containing commas, quotes, ampersands, and angle brackets — C++ template signatures being the natural source | CSV parsed back to the original field count; XML and GraphML parsed without error | HLR-064, HLR-065 |
 | `determinism/` | [test/fixtures/determinism/](../test/fixtures/determinism/) | A tree analysed twice; reached via differing target order; with decoy `.elcrc` and dotfiles planted in the working directory, the target, and an ancestor | Byte-identical output in every case | HLR-032, HLR-033, HLR-039 |
 | `regeneration/` | [test/fixtures/regeneration/](../test/fixtures/regeneration/) | A saved XML record; the same record with an unsupported version; a malformed record; a well-formed but structurally foreign document | Markdown byte-identical to direct analysis at the same threshold; rejection with exit 2 for the rest | HLR-055 – HLR-058, HLR-061, HLR-122 |

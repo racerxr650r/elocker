@@ -373,6 +373,8 @@ Installed, that same tree lives at `<prefix>/share/elc/runtime`; in the build tr
 
 `conditionals.scm` is a **seventh, optional** file. A module that supplies one gains conditional-region pruning; a module that omits one has no conditional compilation, which is the truth for a language that has none. The required set stays at six, so adding this breaks no module that already exists (HLR-121, HLR-134).
 
+`conditionals.scm` and `deadcode.scm` are loaded by the same code path the required six use, and the only difference is what an absence means: a file that is simply not there leaves a NULL for the consumer to notice, while one that is present and will not compile makes the module unusable exactly as a broken required file does.
+
 `deadcode.scm` is the **eighth**, and optional for the same reason. A module supplying one gains dead-code detection within functions; a module omitting one is analysed for every other measurement, and the report states that the analysis was *not performed* for that language rather than that none was found (HLR-139). Four of the five shipped modules supply one. Ada does not, deliberately: it writes its false literal as an ordinary identifier the grammar cannot distinguish from one the program declared, so capturing it would assert a resolution nothing performed — and shipping the terminator half alone would report Ada as *analysed* while quietly finding no literal branches, which is the confident-and-wrong outcome the whole design avoids.
 
 The distinction between the two ways an optional file can be absent is load-bearing. A file that is **not there** is a choice the contract allows. A file that is there and **will not compile** is a defect, and makes the module unusable exactly as a broken required file does; treating the two alike would let a typo silently disable an analysis.
@@ -471,7 +473,29 @@ Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage`
 *   Evaluate custom rule queries and record their matches.
 
 ### 7.2 External Interfaces
-#### 7.2.1 Query Capture Contract
+#### 7.2.1 Deciding a Conditional Region
+
+Which regions this configuration does not compile, and the exact division of labour that keeps the mechanism language-agnostic (HLR-131 – HLR-135).
+
+**The query decides truth; this module decides bytes.** A `conditionals.scm` settles a condition it recognises with `@conditional.true` or `@conditional.false`, captured on the condition rather than on a span. Given that verdict, `analyze.c` works out what it excludes: the alternative when the condition holds, everything up to the alternative when it does not, and the whole region where there is none. A query pointing at a span would have to know that a `#if` with an `#else` keeps half of itself — arithmetic, not a fact about C — and the same file would then have to be rewritten for a language whose conditional has a different shape.
+
+**Definedness is the one thing only this module can answer**, because only it holds the `-D` set. There the query captures `@conditional.symbol` and stops.
+
+**A symbol no `-D` mentions is undecidable, not undefined.** A build may define it in a header or on a command line `elc` never sees, and `-D` can only assert definedness — there is no `-U`. That single rule also delivers HLR-131's "with no definitions, nothing changes": with an empty set every definedness test is undecidable, so nothing prunes, and no special case says so. A constant condition is different in kind and prunes whatever the definitions are, because `#if 0` means the same thing in every configuration — which is the one place that rule does not read literally, and is the Phase 3 judgement this phase reverses.
+
+**Where several patterns match one region, the earliest in the query file wins.** A `.scm` writes its specific cases before its catch-all, and the catch-all is what makes an unrecognised condition *undecided* rather than invisible. Without the rule a `#if 0` matched by both a literal pattern and a fallback would be decided by whichever the library reported first.
+
+**A region inside an already-excluded region is neither pruned again nor counted undecided.** Regions are processed outermost first — sorted by start byte, which puts a parent before its children — and one starting inside an exclusion is skipped. A region nobody builds has no condition worth reporting, and counting it would inflate the one figure a reader uses to judge how complete the pruning was.
+
+#### 7.2.2 One Excluded Set, Not Two
+
+Inactive regions join the **merged comment set** rather than becoming a second mechanism (HLR-132). One question — is this byte measured? — answers both, so neither can remove a range twice and there is one thing to understand rather than two that could disagree.
+
+That merge forced the collector order to change. The exclusion must exist before anything consults it, so comments and conditional regions are gathered *first* and the functions after them: a function inside an inactive region must never reach the report, and until this phase `collect_functions` ran before the comment set was built.
+
+It also widened the exclusion's reach. `byte_is_excluded` was consulted only by the ELOC pass, because no code node can begin inside a comment; every collector consults it now, because a node inside an inactive region is an ordinary parsed node and only this test distinguishes it.
+
+#### 7.2.3 Query Capture Contract
 
 The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A pattern may also carry **predicates**, and this module evaluates them: the parser library returns a predicate as data rather than applying it, so a stage that never asks accepts every match as though none were written. Five filters are honoured — equality, inequality, membership, and match and its negation against a POSIX extended regular expression — each comparing the text a capture spans against a string the query file wrote. A directive, which carries information rather than filtering, is ignored; a filter this build does not implement discards the match. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).
 
@@ -484,7 +508,7 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
 
 #### 7.3.2 Key Functions
 
-*   **`int analyze_file(Registry *reg, const char *path, FileMetrics **metrics, FileFacts **facts)`**
+*   **`int analyze_file(Registry *reg, const ElcOptions *opts, const char *path, FileMetrics **metrics, FileFacts **facts)`**
     *   Purpose: Parse one file and produce both its metrics and its graph facts.
     *   Pre-condition: `path` names a readable regular file.
     *   Post-condition: The mapping has been released; the returned structures own their own memory.
@@ -502,12 +526,14 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
         10.  `ts_tree_delete()` and `munmap()` on every exit path.
     *   Notes: Identifier text is `memcpy`'d out of the mapping into NUL-terminated allocations before the mapping is released, since every name outlives it.
 
-        The signature above is the complete one. The `FileFacts` output arrives with the graph in Phase 8; until then the function is `int analyze_file(Registry *reg, const char *path, FileMetrics **metrics)`. That is the same function at an earlier stage of its construction, not a second entry point.
+        The signature above is the complete one. The `FileFacts` output arrived with the graph in Phase 8 and the `ElcOptions` with conditional compilation in Phase 15 — measuring a file depends on the configuration being measured, so the configuration is a parameter rather than state the module reaches for. Earlier phases show the same function at an earlier stage of its construction, not a second entry point.
 
         **A skip and a failure are different outcomes, and the return value distinguishes them.** A file whose extension maps to no usable language was never attempted: it is reported skipped and leaves the exit status at 0 (HLR-012, HLR-037). A file that was attempted and could not be read or parsed makes it 1 (HLR-035). A single non-zero return would collapse the two and make every unsupported file look like a failure.
 
         **The reported line span runs from `@function.name` to the end of `@function.body`**, not from the body's opening brace. A reader asked where a function starts points at its signature, so a span beginning at the brace would be an artefact of how the query is written rather than a property of the code — and a hand-counted fixture would have to encode that artefact. Where a language's query captures the name after the body, the span is the body's alone rather than an inverted one.
 
+*   **`int collect_inactive_regions(const LanguageModule *m, Registry *reg, const ElcOptions *opts, const char *data, TSNode root, SpanList *spans, uint32_t *undecided)`** — Append every region this configuration does not compile to the excluded set, and count the regions left active because their condition could not be decided. A language whose module supplies no `conditionals.scm` has no conditional compilation, which is the truth for a language that has none.
+*   **`bool symbol_defined(const ElcOptions *opts, const char *data, TSNode node)`** — Whether a symbol was named by a `-D`. Definedness is the only thing a definition can assert, so "mentioned" and "defined" are the same question — and a symbol that was not mentioned is undecidable rather than undefined (HLR-133).
 *   **`int collect_rule_matches(const LanguageModule *m, Registry *reg, const char *data, TSNode root, FileFacts *facts)`** — Record every match of every rule bound to this file's language, with its identity and line range. Runs through the same predicate evaluation the built-in queries use, which is what HLR-107's "same query mechanism" means in practice: a rule author's `#eq?` behaves as it does in `elc`'s own query files rather than being silently dropped. Records no severity, because there is none to record (HLR-111).
 *   **`int collect_dead_code(const LanguageModule *m, Registry *reg, const char *data, TSNode root, const FnRangeIndex *ranges, const SpanList *comments, FileFacts *facts)`**
     *   Purpose: Record every statement within a function that cannot execute (HLR-137).
@@ -1181,7 +1207,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `entry_points` | `SymbolList` | Empty when undeclared (HLR-095) |
 | `scopes` | `ScopeList` | Empty when undeclared (HLR-094) |
 | `rules` | `const char **` | Custom rule arguments in the `lang:path` form, borrowed from argv and left unsplit: the language and the path are both substrings of one argument, and splitting in the parser would allocate two strings for a decision `registry.c` has to make anyway — it is the module that knows which languages exist (HLR-107) |
-| `definitions` | `DefineList` | Conditional-compilation symbols; empty when none supplied, and an empty set prunes nothing (HLR-131) |
+| `defines` | `const char **` | Conditional-compilation symbols as given, `NAME` or `NAME=VALUE`, borrowed from argv. Empty when none supplied, and an empty set prunes nothing — not as a special case but because every definedness test is then undecidable, there being no way to assert that a symbol is *un*defined (HLR-131, HLR-133) |
 | `image_path` | `const char *` | The linked image to filter functions by, or NULL for no filtering. Borrowed from argv. The path only: the image is read by `elfsyms.c`, which owns the failure, so a run with no image differs from a filtered one in exactly one place (HLR-140) |
 | `targets` | `PathList` | One or more file or directory arguments (HLR-071) |
 *   **`FileList`** (defined in [inc/discover.h](../inc/discover.h)) — The discovered files: canonical absolute paths, each appearing exactly once, in ascending byte order. Owns every path it holds.
@@ -1241,6 +1267,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `language` | `const char *` | Borrowed from the language module |
 | `physical_lines` | `uint32_t` | Newline count from the mapping |
 | `unparsed_lines` | `uint32_t` | Distinct lines the grammar could not follow; non-zero means every other figure covers the rest of the file and not this part (HLR-035) |
+| `undecided_regions` | `uint32_t` | Conditional regions left active because their condition could not be decided. Reported for the reason the unresolved-call count is: a figure whose completeness is unstated cannot be acted on (HLR-133) |
 | `eloc` | `uint32_t` | File-level ELOC including code outside any function |
 | `functions` | `FunctionMetric *` | Dynamic array, grown by doubling |
 | `function_count` | `size_t` | Populated entries |
@@ -1393,7 +1420,8 @@ The filter itself is not applied here. A function the image does not define is n
 | `skipped_files` | `PathList` | Discovered files with no available language module, sorted by path (HLR-012) |
 | `routes` | `RouteList` | Per directory target, whether it was enumerated from a repository or traversed from the filesystem (HLR-127) |
 | `unresolved_calls` | `size_t` | Call sites with no resolvable target, reported so graph completeness is visible (HLR-077) |
-| `definitions` | `DefineList` | The configuration the figures describe, sorted by symbol (HLR-136) |
+| `definitions` | `char **` | The configuration the figures describe, copied and sorted: the model outlives argv on the regeneration path, and the order the user typed them in is not a property of the run (HLR-136) |
+| `undecided_regions` | `uint64_t` | Conditional regions left active because their condition could not be decided, summed over every file (HLR-133) |
 | `undecided_regions` | `size_t` | Conditional regions left active because their condition could not be decided, reported so the completeness of the pruning is visible (HLR-133) |
 *   **Compile-time constants** (in [inc/elc.h](../inc/elc.h)):
 

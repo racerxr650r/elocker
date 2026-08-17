@@ -306,6 +306,18 @@ typedef struct {
 	RuleMatchRow   *rule_matches;   /* sorted; owned                    */
 	size_t          rule_match_count;
 
+	/* The configuration this report describes (HLR-136).
+	 *
+	 * Carried even when empty, because "measured with no definitions" and
+	 * "measured with these definitions" are different claims and a reader
+	 * of a regenerated report has no other way to tell them apart. Sorted,
+	 * so the order the user typed them in does not reach the output. */
+	char         **definitions;   /* sorted; owned                     */
+	size_t         definition_count;
+	/* Conditional regions left active because their condition could not be
+	 * decided, summed over every file (HLR-133). */
+	uint64_t       undecided_regions;
+
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;
 

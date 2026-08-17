@@ -36,7 +36,8 @@ static const char *const QUERY_FILES[QUERY_COUNT] = {
 	[QUERY_ELOC]       = "eloc.scm",
 	[QUERY_CALLS]      = "calls.scm",
 	[QUERY_GLOBALS]    = "globals.scm",
-	[QUERY_DEADCODE]   = "deadcode.scm"
+	[QUERY_DEADCODE]   = "deadcode.scm",
+	[QUERY_CONDITIONALS] = "conditionals.scm"
 };
 
 /* What ts_query_new() reported, in words. The numeric code alone tells the
@@ -699,7 +700,8 @@ static int rules_load_located(Registry *reg, const char *language)
 	 * are reported in the order the rules were loaded within a file. Sorted
 	 * here, once, so no property of a directory's layout reaches the output
 	 * (HLR-032). */
-	qsort(names, count, sizeof *names, by_name);
+	if (count > 1)
+		qsort(names, count, sizeof *names, by_name);
 
 	const LanguageModule *module = NULL;
 

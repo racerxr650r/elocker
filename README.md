@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 14 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 15 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, Python, and
 Ada**, in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -103,9 +103,31 @@ what your rule matched and forms **no opinion about it** — no severity, no
 citation, because you decided the rule was worth writing, not `elc`. Matches
 get a section of their own beside the findings and never appear among them.
 
-Conditional compilation is next, from Phase 15.
+And you can say **which configuration** you mean. Conditionally compiled
+source describes several programs; measuring it without saying which gives you
+the union of them all. `-DFEATURE` measures the build in which `FEATURE` is
+defined:
 
-**Progress: 15 of 18 phases complete.**
+```sh
+elc -DFEATURE_X -DTARGET=stm32 src/
+```
+
+`elc` runs no preprocessor — no `cpp`, no compiler, no build system, and it
+reads no file your source includes. It decides each region from the tree it
+already parsed, which means it decides only what it honestly can: a constant
+condition like `#if 0`, or a definedness test over a symbol you named. Anything
+else is **undecidable rather than false** — both branches stay counted and the
+region is reported in an `Undecided regions` figure, because silently deleting
+code you did not ask to delete is the one failure this design is arranged
+against. A symbol you did not name is undecidable too: it might be defined in a
+header `elc` will never see.
+
+Which constructs count as conditional is data, not code, so a C `#if` and a Rust
+`#[cfg]` are the same mechanism.
+
+ELF-filtered analysis is next, from Phase 16.
+
+**Progress: 16 of 18 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -127,7 +149,7 @@ Conditional compilation is next, from Phase 15.
 | [12](doc/SDP.md#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | ✅ Complete |
 | [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
 | [14](doc/SDP.md#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | ✅ Complete |
-| [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
+| [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
 | [16](doc/SDP.md#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | 🔲 Not started |
 | [17](doc/SDP.md#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 

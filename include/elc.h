@@ -164,6 +164,19 @@ typedef struct {
 	const char  **rules;
 	size_t        rule_count;
 	size_t        rule_capacity;
+	/* The conditional-compilation symbols in force, each as given: `NAME`
+	 * or `NAME=VALUE` (HLR-131). Borrowed from argv like the rules.
+	 *
+	 * **An empty set prunes nothing**, and that is not an optimisation: a
+	 * symbol elc was not told about is one it cannot decide, since a build
+	 * may define it in a header or on a command line elc never sees. So no
+	 * definitions means every definedness test is undecidable, which is
+	 * exactly the "adding the option changes no existing result" that
+	 * HLR-131 requires — reached by the rule rather than by a special
+	 * case. */
+	const char  **defines;
+	size_t        define_count;
+	size_t        define_capacity;
 	/* The execution scopes cross-scope access is measured against
 	 * (HLR-094). Empty means the analysis is omitted with a stated
 	 * reason, exactly as an empty entry-point set does. Owned outright,
@@ -225,6 +238,12 @@ typedef struct {
 	 * part of it — carried so that a partial measurement can never be
 	 * mistaken for a complete one (HLR-035). */
 	uint32_t        unparsed_lines;
+	/* Conditional regions this configuration could not decide, left active
+	 * in full (HLR-133). Reported, because the completeness of the pruning
+	 * is a fact about the measurement in the way the unresolved-call count
+	 * is a fact about the graph — a figure whose accuracy is unstated
+	 * cannot be acted on. */
+	uint32_t        undecided_regions;
 	uint32_t        eloc;           /* file-level ELOC, including code
 	                                 * outside any function (HLR-019)    */
 	FunctionMetric *functions;      /* dynamic array, grown by doubling  */
