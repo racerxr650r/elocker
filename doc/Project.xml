@@ -107,8 +107,9 @@
         <step><![CDATA[`main()` calls `cli_parse()`. A help request prints usage to `stdout` and exits zero (HLR-117); an invalid invocation prints usage to `stderr` and exits non-zero (HLR-063).]]></step>
         <step><![CDATA[If the options select regeneration mode, `main()` calls `xml_read_report()` and jumps directly to the render step; no source file is touched (HLR-055). A read failure is a setup-class error and exits 2. Because the record carries findings rather than graph topology, `.dot` and GraphML cannot be produced in this mode and are suppressed.]]></step>
         <step><![CDATA[`registry_open()` resolves the runtime location and verifies that at least one language module is loadable; failure here is fatal (HLR-036, HLR-059).]]></step>
+        <step><![CDATA[Where a linked image was named, `elfsyms_open()` reads its function set. This is before discovery, for the reason the registry is: an image the user named and `elc` cannot read is fatal, and it is fatal before any source file is measured rather than after a walk whose results are then thrown away (HLR-140, HLR-146).]]></step>
         <step><![CDATA[`discover_targets()` validates every target argument up front, classifies each, walks it, and returns a de-duplicated file list in stable order (HLR-062, HLR-071, HLR-072).]]></step>
-        <step><![CDATA[For each file, `analyze_file()` maps it, obtains its language module from the registry, parses it once, and emits both `FileMetrics` and a `FileFacts` record of call sites and global accesses (HLR-013, HLR-076).]]></step>
+        <step><![CDATA[For each file, `analyze_file()` maps it, obtains its language module from the registry, parses it once, and emits both `FileMetrics` and a `FileFacts` record of call sites and global accesses (HLR-013, HLR-076). Where a function set was read, a function the image does not define is omitted here and nothing downstream learns it existed (HLR-144).]]></step>
         <step><![CDATA[`graph_build()` resolves the accumulated `FileFacts` into the SDG, recording unresolved call sites rather than failing (HLR-073, HLR-077).]]></step>
         <step><![CDATA[`arch_analyse()`, `calltree_analyse()`, and `state_analyse()` run over the SDG, each skipping any analysis whose user declaration was not supplied (HLR-115).]]></step>
         <step><![CDATA[`thresholds_apply()` evaluates every measurement against the Appendix A catalogue, attaching a severity and a source attribution to each finding (HLR-098, HLR-099).]]></step>
@@ -155,6 +156,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
               <step><![CDATA[Call `cli_parse()`. On help, print usage to `stdout` and return 0. On error, print usage to `stderr` and return 2.]]></step>
               <step><![CDATA[If `opts.mode == MODE_REGENERATE`, call `xml_read_report()`, then jump to step 8.]]></step>
               <step><![CDATA[Call `registry_open()`; on failure return 2 (HLR-036).]]></step>
+              <step><![CDATA[If an image was named, call `elfsyms_open()`; on failure return 2 (HLR-146).]]></step>
               <step><![CDATA[Call `discover_targets()`; on an invalid target return 2 without emitting a report (HLR-062).]]></step>
               <step><![CDATA[For each discovered file call `analyze_file()`, appending its `FileMetrics` to the accumulator and its `FileFacts` to the fact list; record but do not propagate per-file failures.]]></step>
               <step><![CDATA[Call `graph_build()` over the fact list.]]></step>
@@ -178,7 +180,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
 
       <module path="src/cli.c">
         <purpose><![CDATA[parses and validates the command line, producing an immutable `ElcOptions` value. It is the only module that reads `argv`, and the only source of user-supplied configuration in the entire program.]]></purpose>
-        <responsibility><![CDATA[Parse short and long options with `getopt_long()`, including the report format, output path, thresholds, custom-rule paths, and the `.dot` and GraphML switches.]]></responsibility>
+        <responsibility><![CDATA[Parse short and long options with `getopt_long()`, including the report format, output path, thresholds, custom-rule paths, the linked image to filter by, and the `.dot` and GraphML switches.]]></responsibility>
         <responsibility><![CDATA[Parse the structured declarations — architectural strata, entry points, and execution scopes — into their in-memory forms.]]></responsibility>
         <responsibility><![CDATA[Validate every option value and reject an unknown option, a missing argument, or a missing target before any analysis begins.]]></responsibility>
         <responsibility><![CDATA[Emit the usage summary, to `stdout` on request and to `stderr` on error.]]></responsibility>
@@ -199,6 +201,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
 | `--entry` | symbol | none | HLR-095 |
 | `--scope` | `name:glob[,glob…]` | none | HLR-094 |
 | `--rules` | `lang:path` | none | HLR-107 |
+| `--elf` | path | none | HLR-140 |
 | `--from-xml` | path | — | HLR-055 |
 | `-D`, `--define` | `name[=value]` | none | HLR-131 |
 | `-h`, `--help` | — | — | HLR-117 |
@@ -896,6 +899,56 @@ DOT quoted strings escape two characters, `"` and `\`. That escaper is deliberat
         </error_handling>
       </module>
 
+      <module path="src/elfsyms.c">
+        <purpose><![CDATA[reads the function symbols of a linked image the user named, and answers whether a given source function appears in it (HLR-140).]]></purpose>
+        <responsibility><![CDATA[Open and validate the named image, and extract every function it defines from the symbol table the linker wrote.]]></responsibility>
+        <responsibility><![CDATA[Resolve a linkage name to the source name the report presents, where the name carries a published mangling.]]></responsibility>
+        <responsibility><![CDATA[Answer membership for a source function, and account for both directions of mismatch.]]></responsibility>
+        <interfaces>
+          <interface title="What Counts as a Function the Image Defines"><![CDATA[A symbol is taken as a function the image defines when it is of type `STT_FUNC` and is **defined** rather than imported — its section index is not `SHN_UNDEF`. Both halves matter. Without the type test an object and a function of the same name are indistinguishable; without the definedness test every function the image *calls* out to a shared library would be counted as one the image contains, and a filter built from that set would retain source functions the build never compiled.
+
+`.symtab` is read where the image has one and `.dynsym` where it does not. `.dynsym` holds only the dynamically exported subset, so an image reduced to it yields a smaller set and a correspondingly larger unmatched list — which HLR-143 makes visible rather than leaving to be inferred. An image with neither is fatal (HLR-146).
+
+The set is **sorted and de-duplicated** on the resolved name, so that membership is a binary search and so that nothing about symbol-table order can reach the output (HLR-032).]]></interface>
+          <interface title="Resolving a Linkage Name"><![CDATA[C is the only supported language whose linkage name is its source name. The rest encode it, and HLR-142 requires the encoding be undone rather than worked around.
+
+Resolution is by published scheme, and the scheme is detected from the name rather than from a language the user states — the image does not say which compiler produced which symbol, and a mixed-language image is ordinary:
+
+| Prefix | Scheme | Yields |
+| ------ | ------ | ------ |
+| none | C, or an `extern "C"` definition | the name unchanged |
+| `_Z` | Itanium C++ ABI | a qualified name and a signature |
+| `_ZN`…`17h`…`E` | Rust legacy — Itanium-shaped | a path and a hash suffix |
+| `_R` | Rust v0 | a path |
+
+A demangled name is not yet a match: the Itanium ABI yields `ns::C::f(int) const`, and the report presents the function name alone (HLR-014). The resolved name is therefore the *identifier* the demangling ends in, with the signature, the qualification, and any hash suffix removed — reduced to the same form on both sides of the comparison, since reducing only one side would make every qualified name a mismatch.
+
+**GNAT's Ada encoding is not one of these.** `Pkg.Proc` links as `pkg__proc`, which is neither Itanium nor a published mangling with a decoder to hand; such names resolve to nothing and are counted under HLR-143. Ada is therefore the one supported language for which this option reports a large unresolved count rather than a filter, and it says so rather than appearing to work.]]></interface>
+        </interfaces>
+        <functions>
+          <function signature="int elfsyms_open(const char *path, SymbolSet *out)" summary="Read the named image and populate the function set. Returns 0; non-zero after a diagnostic naming the path, which the caller turns into a fatal exit rather than a degraded run (HLR-146)."/>
+          <function signature="bool elfsyms_defines(const SymbolSet *s, const char *function)" summary="Whether the image defines a function of this name, by binary search over the resolved names."/>
+          <function signature="size_t elfsyms_unresolved(const SymbolSet *s)" summary="How many of the image's function symbols carried an encoding this build does not decode (HLR-143)."/>
+          <function signature="void elfsyms_free(SymbolSet *s)" summary="Release the set and every name it owns."/>
+          <function signature="char *resolved_name(const char *linkage)" summary="The source-level function name a linkage name encodes, or NULL where the scheme is not one this build decodes. The reduction to a bare identifier lives here rather than at the call site, so that one definition of &quot;the name the report presents&quot; serves the whole comparison."/>
+        </functions>
+        <algorithm><![CDATA[`libelf` supplies the container parsing, for the reason `igraph` supplies the graph algorithms (HLR-113): an ELF reader is a well-specified format with a mature implementation, and hand-rolling one would put endianness, class, and section-header handling into this project's defect surface for no benefit. The library is a design choice under HLR-112 and nothing about the requirements depends on it.
+
+The demangler costs no new dependency. `__cxa_demangle` is part of the C++ runtime, which is already on the link line because `igraph` is partly C++ internally — a fact the instrumented dependency allowlist records and which this module now relies on deliberately rather than incidentally. It decodes the Itanium ABI, and therefore C++ and Rust's legacy scheme; Rust v0 decodes where the runtime is new enough and is counted as unresolved where it is not.
+
+The image is opened **once, before discovery**, for the reason the registry is (LLR-MAIN-05): a named image that cannot be read is fatal, and it is fatal before any source file is measured rather than after a full walk whose results are then discarded.
+
+The filter itself is not applied here. A function the image does not define is never recorded by `analyze.c` in the first place, which is what keeps the rest of the pipeline unaware that a filter exists: the graph, the analyses, the thresholds, and every renderer see a smaller set of functions and nothing else. The alternative — recording every function and filtering at each consumer — would put the same test in eleven places and let them disagree.]]></algorithm>
+        <dependencies>
+          <dep><![CDATA[`libelf` for the container, and the C++ runtime's `__cxa_demangle` for the Itanium ABI. No dependency on `src/`.]]></dep>
+        </dependencies>
+        <error_handling>
+          <case name="Image absent, unreadable, or not an object file"><![CDATA[Diagnostic naming the path, and a fatal exit before any file is measured. The user named it, so the failure is theirs to correct (HLR-146, HLR-063).]]></case>
+          <case name="Image carries no function symbols"><![CDATA[Fatal, and separately diagnosed. An empty set is not an empty project: filtering every function away would report a code base with none, which no reader could distinguish from a correct result (HLR-146).]]></case>
+          <case name="A linkage name this build does not decode"><![CDATA[Counted, not fatal, and reported with the run. The completeness of the filter is stated in the way the completeness of the graph is (HLR-143, HLR-077).]]></case>
+        </error_handling>
+      </module>
+
     </modules>
 
     <data_dictionary>
@@ -913,6 +966,7 @@ DOT quoted strings escape two characters, `"` and `\`. That escaper is deliberat
         <field name="scopes" type="ScopeList" desc="Empty when undeclared (HLR-094)"/>
         <field name="rule_paths" type="PathList" desc="Custom rule query files (HLR-107)"/>
         <field name="definitions" type="DefineList" desc="Conditional-compilation symbols; empty when none supplied, and an empty set prunes nothing (HLR-131)"/>
+        <field name="image_path" type="const char *" desc="The linked image to filter functions by, or NULL for no filtering. Borrowed from argv. The path only: the image is read by `elfsyms.c`, which owns the failure, so a run with no image differs from a filtered one in exactly one place (HLR-140)"/>
         <field name="targets" type="PathList" desc="One or more file or directory arguments (HLR-071)"/>
       </type>
       <type name="FileList" header="inc/discover.h" summary="The discovered files: canonical absolute paths, each appearing exactly once, in ascending byte order. Owns every path it holds.">
@@ -1341,6 +1395,11 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="expected" label="Expected" path="Expected diagnostic text and exit status per case"/>
         <artefact key="verifies" label="Verifies" path="HLR-036, HLR-059, HLR-070, HLR-116, HLR-120"/>
       </fixture>
+      <fixture name="`elf/`" source="[test/fixtures/elf/](../test/fixtures/elf/)">
+        <artefact key="inputs" label="Inputs" path="A source tree and images built from it by the test rather than committed, since a binary in the repository would be a fixture nobody could review. A C image linked from a subset of the sources, so that some source functions are absent from it; the same image stripped; a C++ image exercising Itanium mangling; an Ada image exercising GNAT's encoding, which nothing decodes; a file that is not an object file; a path that does not exist; and a run with no image at all"/>
+        <artefact key="expected" label="Expected" path="Hand-counted metrics over the retained functions only, with the file-scope ELOC reported separately; the list of source functions the image does not define, and the count of linkage names left unresolved; byte-identical output to a run with the option absent when no image is supplied; exit 2 with no report for the stripped image, the non-object file, and the absent path, each with its own diagnostic; a large unresolved count and a stated one for the Ada image"/>
+        <artefact key="verifies" label="Verifies" path="HLR-140 – HLR-147"/>
+      </fixture>
       <fixture name="`conditional/`" source="[test/fixtures/conditional/](../test/fixtures/conditional/)">
         <artefact key="inputs" label="Inputs" path="A C source with `#if 0`, `#ifdef`, `#ifndef`, and a nested conditional; the same logic under a Rust `cfg` attribute; a condition depending on a symbol no definition names; a run with no definitions at all"/>
         <artefact key="expected" label="Expected" path="Hand-counted ELOC and complexity for each configuration; identical figures to a run made without the option when no definition is supplied; both branches counted and the region reported undecided where the condition names an unknown symbol"/>
@@ -1375,6 +1434,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
       <tool name="`bats`" required_for="The integration, fixture, and instrumented levels" notes="With `bats-support` and `bats-assert`; vendored or provided by the platform"/>
       <tool name="`gcc` or `clang`" required_for="Building `elc` and the unit drivers" notes="C11, with `-Wall -Wextra -Wpedantic`; warnings are treated as defects"/>
       <tool name="`make`" required_for="Building and running the suite" notes="GNU make; `make test` is the single entry point"/>
+      <tool name="A C toolchain able to link" required_for="The `elf/` fixture group" notes="The images that group filters by are **built by the test**, never committed: a binary in the repository is a fixture nobody can review, and one built elsewhere pins the reviewer to a toolchain they may not have. Where a language's compiler is unavailable the case for that language skips explicitly and names the requirement left unverified"/>
       <tool name="Graphviz (`dot`)" required_for="The `dot/` fixture group" notes="Settles `.dot` validity by rendering the emitted file rather than by matching text that looks like DOT (HLR-102). A dependency of the *test* and never of the binary: `elc` neither links Graphviz nor invokes it, which an instrumented test holds separately. Absent, the affected tests skip explicitly and name the requirement left unverified"/>
       <tool name="AddressSanitizer + LeakSanitizer" required_for="HLR-124, HLR-125 — `make asan`" notes="`-fsanitize=address` with `detect_leaks=1`; catches out-of-bounds, use-after-free, invalid free, and leaks. Requires an instrumented rebuild"/>
       <tool name="UndefinedBehaviorSanitizer" required_for="HLR-124 — `make asan`" notes="`-fsanitize=undefined` with `halt_on_error=1`; catches signed overflow, misaligned and null dereference, and invalid shifts"/>
@@ -1538,7 +1598,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <text><![CDATA[`elc` shall support adding support for a new language by adding files to the runtime location of HLR-009 alone; adding a language shall require no modification to, and no recompilation of, the `elc` executable.]]></text>
       <traces>
         <trace target="SDD" ref="6"/>
-        <trace target="SDD" ref="18"/>
+        <trace target="SDD" ref="19"/>
       </traces>
       </hlr>
 
@@ -1546,7 +1606,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <text><![CDATA[The interface between the `elc` executable and a language module — the set of query files a language is required to supply, and the capture names by which those queries return their results — shall be documented, and a language module supplying exactly the documented set shall function correctly with no further configuration. A module omitting a required query file shall be handled under HLR-070 rather than producing undefined behaviour. This interface is the contract a third party codes against when adding a language (HLR-010): renaming a required query file or a capture name, or changing the meaning of either, is a breaking change to that contract rather than an internal adjustment. That last is a constraint on the project's release process, verified by review, rather than a property observable within any single run.]]></text>
       <traces>
         <trace target="SDD" ref="6"/>
-        <trace target="SDD" ref="18"/>
+        <trace target="SDD" ref="19"/>
       </traces>
       </hlr>
 
@@ -1554,7 +1614,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <text><![CDATA[The elocker *project* shall deliver runtime language support for C, C++, Rust, Python, and Ada. This requirement constrains the project's deliverables, not the `elc` executable: `elc` shall not require, verify, or assume the presence of any particular language's support files, and shall complete with the exit-status semantics of HLR-120, producing a report per HLR-031, over whatever set of valid language modules the runtime location happens to contain.]]></text>
       <traces>
         <trace target="SDD" ref="6"/>
-        <trace target="SDD" ref="18"/>
+        <trace target="SDD" ref="19"/>
       </traces>
       </hlr>
 
@@ -1966,21 +2026,21 @@ Where a syntax tree contains error nodes, `elc` shall measure the file from the 
       <hlr id="HLR-040" name="Excluded Runtime Dependencies">
         <text><![CDATA[`elc` shall not require an interpreter, a virtual machine, or network access at any point during execution, and shall not require code generation at build time.]]></text>
       <traces>
-        <trace target="SDD" ref="18"/>
+        <trace target="SDD" ref="19"/>
       </traces>
       </hlr>
 
       <hlr id="HLR-112" name="Library Selection Deferred to Design">
         <text><![CDATA[The specific third-party libraries `elc` links against shall be selected during design. Library names appearing in the PVD — for parsing, repository access, XML handling, and graph mathematics — are *suggested candidates rather than requirements*: a design that substitutes a different library satisfies this document provided the exclusions of HLR-040 are respected and the behaviour required elsewhere is delivered. The one exception is the Tree-sitter query language and grammar format, which are visible to the user in the `.scm` files and runtime grammars they author (HLR-009, HLR-107) and are therefore a product contract rather than an implementation choice.]]></text>
       <traces>
-        <trace target="SDD" ref="18"/>
+        <trace target="SDD" ref="19"/>
       </traces>
       </hlr>
 
       <hlr id="HLR-113" name="Graph Algorithms From an Established Library">
         <text><![CDATA[`elc` shall obtain its graph algorithms — cycle detection, topological ordering, reachability, and centrality — from an established graph library rather than hand-implementing adjacency structures and traversal algorithms, so that the correctness of the analyses in Sections 11 through 13 rests on proven code. Which library provides them is a design decision under HLR-112.]]></text>
       <traces>
-        <trace target="SDD" ref="18"/>
+        <trace target="SDD" ref="19"/>
       </traces>
       </hlr>
 
@@ -1998,7 +2058,7 @@ Where a syntax tree contains error nodes, `elc` shall measure the file from the 
         <trace target="SDD" ref="7"/>
         <trace target="SDD" ref="8"/>
         <trace target="SDD" ref="13"/>
-        <trace target="SDD" ref="18"/>
+        <trace target="SDD" ref="19"/>
       </traces>
       </hlr>
 
@@ -2009,7 +2069,7 @@ Where a syntax tree contains error nodes, `elc` shall measure the file from the 
         <trace target="SDD" ref="6"/>
         <trace target="SDD" ref="7"/>
         <trace target="SDD" ref="13"/>
-        <trace target="SDD" ref="18"/>
+        <trace target="SDD" ref="19"/>
       </traces>
       </hlr>
 
@@ -2554,6 +2614,79 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
       </hlr>
 
     </section>
+
+    <section number="19" title="Linked-Image Filtering">
+      <intro><![CDATA[Requirements governing how `elc` reports only the code a build actually kept, so that a metric describes the image that ships rather than the source it was drawn from.
+
+This is the same question Section 18 asks and a different way of answering it. Conditional compilation *re-decides* the conditions a build resolved, from definitions the user restates; a linked image *observes what the build did*, having been produced by the real toolchain with the real flags. Where both are available the image is the stronger evidence, and neither replaces the other: the image says which functions survived, and says nothing about which lines inside one were compiled out.]]></intro>
+
+      <hlr id="HLR-140" name="Linked-Image Function Filter">
+        <text><![CDATA[`elc` shall accept the path of a linked image as a command-line argument, shall extract the set of functions that image defines, and shall restrict every measurement and every analysis to the source functions appearing in that set. Source holds functions a build does not keep — excluded by configuration, discarded by the linker as unreachable, or belonging to a translation unit the link never included — and a report covering them describes no image that exists and overstates every measure taken from it. When no image is supplied, no function shall be excluded and the reported metrics shall be exactly those `elc` reports for the same source with the option absent, so that the capability is opt-in and adding it changes no existing result.]]></text>
+      <traces>
+        <trace target="SDD" ref="4"/>
+        <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="18"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-141" name="Image Read Without a Toolchain">
+        <text><![CDATA[`elc` shall obtain the function set from the named image alone: it shall not invoke a toolchain utility — `nm`, `objdump`, `readelf`, a compiler, a linker, or a build system — shall not search for an image the user did not name, and shall not require the image to carry debugging information. Requiring a toolchain would make the result depend on which one is installed and would breach the runtime-dependency exclusions of HLR-040; searching for an image would breach the zero-configuration guarantee of HLR-039, under which nothing is read that the user did not name. The symbol table a linker writes by default is sufficient, and requiring more would restrict the option to builds made for debugging.]]></text>
+      <traces>
+        <trace target="SDD" ref="4"/>
+        <trace target="SDD" ref="18"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-142" name="Linkage Names Resolved to Source Names">
+        <text><![CDATA[An image records a function under its linkage name, which for every language `elc` supports other than C is an encoding of the source name rather than the source name itself. `elc` shall resolve a linkage name to the function name its report presents wherever that name is encoded by a published mangling scheme, and shall match on the resolved name. Matching raw linkage names alone would retain nothing at all for C++, Rust, or Ada, and a filter that silently retains nothing is indistinguishable from a project that has no functions in it. Which schemes a build resolves is a design decision under HLR-112; a name encoded by a scheme this build does not resolve is reported under HLR-143 rather than silently dropped.]]></text>
+      <traces>
+        <trace target="SDD" ref="18"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-143" name="Both Directions of Mismatch Counted and Reported">
+        <text><![CDATA[`elc` shall report the number of functions the image defines that it could not resolve to a source name, and shall list the source functions the image does not define. Neither shall be a failure of the run. The first states the completeness of the resolution, which is the claim the unresolved-call count of HLR-077 makes about the graph and for the same reason: a filter whose accuracy is unstated cannot be acted on. The second is the finding the option exists to produce — the source functions this build did not keep — and it is dead code established by what the linker did rather than inferred from the call graph (HLR-096), so the two lists are reported separately and neither is presented as the other.]]></text>
+      <traces>
+        <trace target="SDD" ref="13"/>
+        <trace target="SDD" ref="18"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-144" name="Scope of the Filter">
+        <text><![CDATA[A function the image does not define shall contribute to no reported metric and shall become no node of the System Dependence Graph, so that every analysis of Sections 11 through 14 describes the image rather than the source. A call whose target was filtered out shall be counted as unresolved (HLR-077) rather than resolved to a function that is not in the image; inventing that edge would make the reachability claim of HLR-096 unsound in the one direction it is not already known to err.]]></text>
+      <traces>
+        <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="8"/>
+        <trace target="SDD" ref="13"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-145" name="Code Outside Any Function Retained and Separately Reported">
+        <text><![CDATA[Effective lines of code belonging to no function — an initialised object at file scope, say — shall be retained, and shall be reported as a figure of their own whenever a filter is in force, rather than excluded alongside the functions or folded silently into the totals. The image's *function* set says nothing about code outside a function, so excluding it would be a claim `elc` cannot support; and folding it in would hide the one part of the total the filter did not narrow, leaving a reader unable to tell a file of retained functions from a file of retained data. With no image supplied the figure shall not be reported, so that no existing output changes (HLR-140).]]></text>
+      <traces>
+        <trace target="SDD" ref="5"/>
+        <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="13"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-146" name="An Unusable Image Is Fatal">
+        <text><![CDATA[An image that is absent, unreadable, not an object file, of a class this build does not read, or carrying no function symbols at all shall be reported with a diagnostic naming it, and shall end the run with no report produced (HLR-063, HLR-120). The user named the file, so the failure is theirs to correct — the provenance rule HLR-116 draws for a custom rule named on the command line. The fully stripped image is the case that most needs this: an empty function set would otherwise filter every function away and report a project containing none, which is a confidently wrong result indistinguishable from a correct one.]]></text>
+      <traces>
+        <trace target="SDD" ref="4"/>
+        <trace target="SDD" ref="18"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-147" name="Filter Recorded and Reported">
+        <text><![CDATA[The image the filter was taken from, and the counts of HLR-143, shall appear in the report and in the saved XML record (HLR-054), so that a report states which image it describes and a report regenerated from a record stays byte-identical to one produced directly (HLR-056). Because the filter is applied when a file is measured and not when a report is rendered, supplying an image together with the regeneration mode of HLR-055 shall be rejected as a usage error (HLR-063) rather than silently ignored — the same rule, and for the same reason, that HLR-136 draws for a conditional-compilation definition.]]></text>
+      <traces>
+        <trace target="SDD" ref="4"/>
+        <trace target="SDD" ref="13"/>
+        <trace target="SDD" ref="16"/>
+      </traces>
+      </hlr>
+    </section>
   </hlrs>
 
   <!-- Low-Level Requirements (see tools/Developers_Guide.md §6). -->
@@ -2703,6 +2836,12 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
         </traces>
       </llr>
 
+      <llr id="LLR-MAIN-20">
+        <text><![CDATA[`main` shall read the linked image before discovery begins, so that an image that cannot be read ends the run before any source file is measured rather than after a full walk whose results are then discarded.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-146" name="An Unusable Image Is Fatal"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="2" title="`cli_parse` ([src/cli.c](../src/cli.c))" name="cli_parse" source="src/cli.c">
@@ -2862,6 +3001,19 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
         </traces>
       </llr>
 
+      <llr id="LLR-CLI-22">
+        <text><![CDATA[`cli_parse` shall accept the path of a linked image to filter by, and shall record it unvalidated, the image being read by the module that owns it rather than by the parser.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-140" name="Linked-Image Function Filter"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLI-23">
+        <text><![CDATA[`cli_parse` shall reject as a usage error a command line combining regeneration mode with a linked image, since the filter is applied when a file is measured and a saved record holds only what a measured run produced.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-147" name="Filter Recorded and Reported"/>
+          <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="3" title="`cli_usage` ([src/cli.c](../src/cli.c))" name="cli_usage" source="src/cli.c">
@@ -2877,6 +3029,13 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
           <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
           <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
           <trace target="HLR" ref="HLR-038" name="Diagnostics on stderr, Results on stdout"/>
+        </traces>
+      </llr>
+      <llr id="LLR-USG-07">
+        <text><![CDATA[`cli_usage` shall document the linked-image option, including that no image means no filtering and that the option takes the path of an image rather than of a source tree.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-140" name="Linked-Image Function Filter"/>
+          <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
         </traces>
       </llr>
     </function>
@@ -3669,6 +3828,30 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-ANL-51">
+        <text><![CDATA[`analyze_file` shall omit from its results every function the supplied image does not define, so that no later stage need know a filter was applied and no two consumers can disagree about which functions are in scope.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-144" name="Scope of the Filter"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-52">
+        <text><![CDATA[`analyze_file` shall record no call site, decision point, or global access belonging to an omitted function, the function not being part of the measured program.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-144" name="Scope of the Filter"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-53">
+        <text><![CDATA[`analyze_file` shall retain effective lines of code lying outside every function whether or not a filter is in force, and shall report their total separately when one is, the image saying nothing about code that is not a function.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-145" name="Code Outside Any Function Retained and Separately Reported"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ANL-54">
+        <text><![CDATA[`analyze_file` shall produce, with no image supplied, results identical to those it produces for the same file with the option absent.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-140" name="Linked-Image Function Filter"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="15" title="`collect_dead_code` ([src/analyze.c](../src/analyze.c))" name="collect_dead_code" source="src/analyze.c">
@@ -4628,6 +4811,13 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-RPT-31">
+        <text><![CDATA[`report_assemble` shall carry the image the filter was taken from, the count of linkage names left unresolved, and the source functions the image does not define, the last sorted by file and start line as every other collection is.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-143" name="Both Directions of Mismatch Counted and Reported"/>
+          <trace target="HLR" ref="HLR-147" name="Filter Recorded and Reported"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="34" title="`format_table` ([src/format_text.c](../src/format_text.c))" name="format_table" source="src/format_text.c">
@@ -4693,6 +4883,13 @@ Note on the division of labour, which determines where a failure lives: the requ
       <llr id="LLR-SUM-02">
         <text><![CDATA[`render_summary` shall traverse the report model in a single shared order for both the table and Markdown renderers, so that the two present the same tiers.]]></text>
         <traces>
+          <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SUM-06">
+        <text><![CDATA[`render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-143" name="Both Directions of Mismatch Counted and Reported"/>
           <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
         </traces>
       </llr>
@@ -4830,6 +5027,12 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-065" name="XML Well-Formedness and Escaping"/>
         </traces>
       </llr>
+      <llr id="LLR-XWR-14">
+        <text><![CDATA[`xml_write_report` shall record the image the filter was taken from and the counts derived from it, without which a regenerated report would describe a filtered run while naming no filter.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-147" name="Filter Recorded and Reported"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="40" title="`write_escaped` ([src/format_xml.c](../src/format_xml.c))" name="write_escaped" source="src/format_xml.c">
@@ -4923,6 +5126,13 @@ Note on the division of labour, which determines where a failure lives: the requ
       <llr id="LLR-XRD-08">
         <text><![CDATA[The reconstructed model shall render byte-identically to the report a direct analysis would have produced at the same threshold.]]></text>
         <traces>
+          <trace target="HLR" ref="HLR-056" name="Regenerated Report Equivalence"/>
+        </traces>
+      </llr>
+      <llr id="LLR-XRD-14">
+        <text><![CDATA[`xml_read_report` shall reconstruct the filter provenance a record carries and render it identically to the run that wrote it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-147" name="Filter Recorded and Reported"/>
           <trace target="HLR" ref="HLR-056" name="Regenerated Report Equivalence"/>
         </traces>
       </llr>
@@ -5027,7 +5237,86 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
     </function>
 
-    <function number="46" title="Build and Link Configuration ([Makefile](../Makefile))" name="build_configuration" source="Makefile">
+    <function number="46" title="`elfsyms_open` ([src/elfsyms.c](../src/elfsyms.c))" name="elfsyms_open" source="src/elfsyms.c">
+      <llr id="LLR-ELF-01">
+        <text><![CDATA[`elfsyms_open` shall read the image named on the command line and shall populate the function set from the symbol table that image carries, preferring `.symtab` and falling back to `.dynsym`.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-140" name="Linked-Image Function Filter"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ELF-02">
+        <text><![CDATA[`elfsyms_open` shall retain a symbol only where it is of function type and is defined by the image rather than imported by it, so that a function the image calls out to a shared library is not taken for one the image contains.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-140" name="Linked-Image Function Filter"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ELF-03">
+        <text><![CDATA[`elfsyms_open` shall read no file other than the image it was given, and shall invoke no toolchain utility, compiler, linker, or build system.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-141" name="Image Read Without a Toolchain"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ELF-04">
+        <text><![CDATA[`elfsyms_open` shall require no debugging information in the image, taking the function set from the symbol table a linker writes by default.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-141" name="Image Read Without a Toolchain"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ELF-05">
+        <text><![CDATA[`elfsyms_open` shall sort the function set on the resolved name and remove duplicates, so that no property of symbol-table order can reach the output.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-032" name="Deterministic Output"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ELF-06">
+        <text><![CDATA[`elfsyms_open` shall fail with a diagnostic naming the path when the image is absent, unreadable, not an object file, or of a class this build does not read.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-146" name="An Unusable Image Is Fatal"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ELF-07">
+        <text><![CDATA[`elfsyms_open` shall fail, with a diagnostic distinguishing the case, when the image carries no function symbols at all, rather than returning an empty set that would filter every function away.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-146" name="An Unusable Image Is Fatal"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ELF-08">
+        <text><![CDATA[`elfsyms_open` shall count the symbols whose linkage name it could not resolve, and shall make that count available to the report.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-143" name="Both Directions of Mismatch Counted and Reported"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="47" title="`resolved_name` ([src/elfsyms.c](../src/elfsyms.c))" name="resolved_name" source="src/elfsyms.c">
+      <llr id="LLR-SYM-01">
+        <text><![CDATA[`resolved_name` shall return an unencoded linkage name unchanged, that being the C case and the `extern "C"` case alike.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-142" name="Linkage Names Resolved to Source Names"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SYM-02">
+        <text><![CDATA[`resolved_name` shall decode a linkage name encoded by a published mangling scheme, detecting the scheme from the name rather than from a language the user states, since an image may hold symbols from several compilers and states which produced none of them.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-142" name="Linkage Names Resolved to Source Names"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SYM-03">
+        <text><![CDATA[`resolved_name` shall reduce a decoded name to the function name the report presents, discarding the signature, the enclosing qualification, and any hash suffix, so that both sides of the comparison are in one form.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-142" name="Linkage Names Resolved to Source Names"/>
+          <trace target="HLR" ref="HLR-014" name="Per-Function Identity"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SYM-04">
+        <text><![CDATA[`resolved_name` shall return no name for a linkage name encoded by a scheme this build does not decode, so that the symbol is counted as unresolved rather than matched against a guess.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-143" name="Both Directions of Mismatch Counted and Reported"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="48" title="Build and Link Configuration ([Makefile](../Makefile))" name="build_configuration" source="Makefile">
       <intro><![CDATA[Requirements satisfied by the build rather than by any single function. Verified against the produced binary rather than at runtime.]]></intro>
       <llr id="LLR-BLD-01">
         <text><![CDATA[The build shall link `elc` against no interpreter and no virtual machine, and the produced binary shall require none at execution.]]></text>
@@ -5159,7 +5448,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
     </function>
-    <function number="47" title="User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))" name="user_documentation" source="doc/elc.1">
+    <function number="49" title="User Documentation ([doc/elc.1](../doc/elc.1), [doc/User_Manual.md](../doc/User_Manual.md))" name="user_documentation" source="doc/elc.1">
       <intro><![CDATA[Requirements met by the delivered documentation rather than by any function. Verified against the built binary and the install tree, in the manner of the build-configuration group.]]></intro>
       <llr id="LLR-DOC-01">
         <text><![CDATA[A `man` page for `elc` shall be delivered in section-1 roff form, and shall render without diagnostic under a standard man-page formatter.]]></text>

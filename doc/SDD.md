@@ -85,8 +85,9 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   Section 15: Detailed design for [src/format_csv.c](../src/format_csv.c).
 *   Section 16: Detailed design for [src/format_xml.c](../src/format_xml.c).
 *   Section 17: Detailed design for [src/format_graph.c](../src/format_graph.c).
-*   Section 18: Data Dictionary.
-*   Section 19: Traceability.
+*   Section 18: Detailed design for [src/elfsyms.c](../src/elfsyms.c).
+*   Section 19: Data Dictionary.
+*   Section 20: Traceability.
 
 ## 2. System Overview
 
@@ -114,14 +115,15 @@ The runtime data flow of an analysis run is:
 1.  `main()` calls `cli_parse()`. A help request prints usage to `stdout` and exits zero (HLR-117); an invalid invocation prints usage to `stderr` and exits non-zero (HLR-063).
 2.  If the options select regeneration mode, `main()` calls `xml_read_report()` and jumps directly to the render step; no source file is touched (HLR-055). A read failure is a setup-class error and exits 2. Because the record carries findings rather than graph topology, `.dot` and GraphML cannot be produced in this mode and are suppressed.
 3.  `registry_open()` resolves the runtime location and verifies that at least one language module is loadable; failure here is fatal (HLR-036, HLR-059).
-4.  `discover_targets()` validates every target argument up front, classifies each, walks it, and returns a de-duplicated file list in stable order (HLR-062, HLR-071, HLR-072).
-5.  For each file, `analyze_file()` maps it, obtains its language module from the registry, parses it once, and emits both `FileMetrics` and a `FileFacts` record of call sites and global accesses (HLR-013, HLR-076).
-6.  `graph_build()` resolves the accumulated `FileFacts` into the SDG, recording unresolved call sites rather than failing (HLR-073, HLR-077).
-7.  `arch_analyse()`, `calltree_analyse()`, and `state_analyse()` run over the SDG, each skipping any analysis whose user declaration was not supplied (HLR-115).
-8.  `thresholds_apply()` evaluates every measurement against the Appendix A catalogue, attaching a severity and a source attribution to each finding (HLR-098, HLR-099).
-9.  `report_assemble()` merges metrics, findings, and custom-rule matches into one model and sorts every collection into its defined order (HLR-033).
-10.  The selected renderer writes the report; `format_graph.c` additionally writes the `.dot` companion unless disabled or the report is going to `stdout` (HLR-103, HLR-104).
-11.  `main()` returns non-zero if any per-file failure was recorded, zero otherwise (HLR-037).
+4.  Where a linked image was named, `elfsyms_open()` reads its function set. This is before discovery, for the reason the registry is: an image the user named and `elc` cannot read is fatal, and it is fatal before any source file is measured rather than after a walk whose results are then thrown away (HLR-140, HLR-146).
+5.  `discover_targets()` validates every target argument up front, classifies each, walks it, and returns a de-duplicated file list in stable order (HLR-062, HLR-071, HLR-072).
+6.  For each file, `analyze_file()` maps it, obtains its language module from the registry, parses it once, and emits both `FileMetrics` and a `FileFacts` record of call sites and global accesses (HLR-013, HLR-076). Where a function set was read, a function the image does not define is omitted here and nothing downstream learns it existed (HLR-144).
+7.  `graph_build()` resolves the accumulated `FileFacts` into the SDG, recording unresolved call sites rather than failing (HLR-073, HLR-077).
+8.  `arch_analyse()`, `calltree_analyse()`, and `state_analyse()` run over the SDG, each skipping any analysis whose user declaration was not supplied (HLR-115).
+9.  `thresholds_apply()` evaluates every measurement against the Appendix A catalogue, attaching a severity and a source attribution to each finding (HLR-098, HLR-099).
+10.  `report_assemble()` merges metrics, findings, and custom-rule matches into one model and sorts every collection into its defined order (HLR-033).
+11.  The selected renderer writes the report; `format_graph.c` additionally writes the `.dot` companion unless disabled or the report is going to `stdout` (HLR-103, HLR-104).
+12.  `main()` returns non-zero if any per-file failure was recorded, zero otherwise (HLR-037).
 
 ### 2.2 Design Goals and Constraints
 *   **Determinism by construction:** Every collection reaching a renderer is sorted by an explicit key before it is emitted, and no renderer iterates a hash container or a library-owned structure directly. This makes HLR-032 and HLR-033 properties of `report.c` rather than obligations spread across fifteen modules.
@@ -168,13 +170,14 @@ The runtime data flow of an analysis run is:
         1.  Call `cli_parse()`. On help, print usage to `stdout` and return 0. On error, print usage to `stderr` and return 2.
         2.  If `opts.mode == MODE_REGENERATE`, call `xml_read_report()`, then jump to step 8.
         3.  Call `registry_open()`; on failure return 2 (HLR-036).
-        4.  Call `discover_targets()`; on an invalid target return 2 without emitting a report (HLR-062).
-        5.  For each discovered file call `analyze_file()`, appending its `FileMetrics` to the accumulator and its `FileFacts` to the fact list; record but do not propagate per-file failures.
-        6.  Call `graph_build()` over the fact list.
-        7.  Call `arch_analyse()`, `calltree_analyse()`, `state_analyse()`, then `thresholds_apply()`, then `report_assemble()`.
-        8.  Open the output destination — the file named by the options, or standard output when none was named — and on a failure to open it emit a diagnostic and return 2 without writing a partial report (HLR-030).
-        9.  Dispatch to the selected renderer, then to `graph_write_dot()` when the companion artefact is warranted.
-        10.  Tear down in reverse order and return the computed status.
+        4.  If an image was named, call `elfsyms_open()`; on failure return 2 (HLR-146).
+        5.  Call `discover_targets()`; on an invalid target return 2 without emitting a report (HLR-062).
+        6.  For each discovered file call `analyze_file()`, appending its `FileMetrics` to the accumulator and its `FileFacts` to the fact list; record but do not propagate per-file failures.
+        7.  Call `graph_build()` over the fact list.
+        8.  Call `arch_analyse()`, `calltree_analyse()`, `state_analyse()`, then `thresholds_apply()`, then `report_assemble()`.
+        9.  Open the output destination — the file named by the options, or standard output when none was named — and on a failure to open it emit a diagnostic and return 2 without writing a partial report (HLR-030).
+        10.  Dispatch to the selected renderer, then to `graph_write_dot()` when the companion artefact is warranted.
+        11.  Tear down in reverse order and return the computed status.
     *   Notes: `main()` contains no analysis logic; its cyclomatic complexity is bounded by the number of stages and their failure branches, keeping it well inside the self-quality target of PVD §8.
 
 ### 3.4 Dependencies
@@ -192,7 +195,7 @@ The runtime data flow of an analysis run is:
 ### 4.1 Purpose and Responsibilities
 [src/cli.c](../src/cli.c) parses and validates the command line, producing an immutable `ElcOptions` value. It is the only module that reads `argv`, and the only source of user-supplied configuration in the entire program.
 
-*   Parse short and long options with `getopt_long()`, including the report format, output path, thresholds, custom-rule paths, and the `.dot` and GraphML switches.
+*   Parse short and long options with `getopt_long()`, including the report format, output path, thresholds, custom-rule paths, the linked image to filter by, and the `.dot` and GraphML switches.
 *   Parse the structured declarations — architectural strata, entry points, and execution scopes — into their in-memory forms.
 *   Validate every option value and reject an unknown option, a missing argument, or a missing target before any analysis begins.
 *   Emit the usage summary, to `stdout` on request and to `stderr` on error.
@@ -220,6 +223,7 @@ The set of accepted options appears in three places: this module's `getopt_long`
 | `--entry` | symbol | none | HLR-095 |
 | `--scope` | `name:glob[,glob…]` | none | HLR-094 |
 | `--rules` | `lang:path` | none | HLR-107 |
+| `--elf` | path | none | HLR-140 |
 | `--from-xml` | path | — | HLR-055 |
 | `-D`, `--define` | `name[=value]` | none | HLR-131 |
 | `-h`, `--help` | — | — | HLR-117 |
@@ -1081,7 +1085,72 @@ DOT quoted strings escape two characters, `"` and `\`. That escaper is deliberat
 
 *   **Report written to stdout** No `.dot` and no GraphML file is produced, since no output path exists from which to derive their names (HLR-104, HLR-106).
 *   **Companion file cannot be created** Diagnostic to `stderr`; the primary report is still written, and the run is recorded as failed.
-## 18. Data Dictionary
+
+## 18. Detailed Design for [src/elfsyms.c](../src/elfsyms.c)
+
+### 18.1 Purpose and Responsibilities
+[src/elfsyms.c](../src/elfsyms.c) reads the function symbols of a linked image the user named, and answers whether a given source function appears in it (HLR-140).
+
+*   Open and validate the named image, and extract every function it defines from the symbol table the linker wrote.
+*   Resolve a linkage name to the source name the report presents, where the name carries a published mangling.
+*   Answer membership for a source function, and account for both directions of mismatch.
+
+### 18.2 External Interfaces
+#### 18.2.1 What Counts as a Function the Image Defines
+
+A symbol is taken as a function the image defines when it is of type `STT_FUNC` and is **defined** rather than imported — its section index is not `SHN_UNDEF`. Both halves matter. Without the type test an object and a function of the same name are indistinguishable; without the definedness test every function the image *calls* out to a shared library would be counted as one the image contains, and a filter built from that set would retain source functions the build never compiled.
+
+`.symtab` is read where the image has one and `.dynsym` where it does not. `.dynsym` holds only the dynamically exported subset, so an image reduced to it yields a smaller set and a correspondingly larger unmatched list — which HLR-143 makes visible rather than leaving to be inferred. An image with neither is fatal (HLR-146).
+
+The set is **sorted and de-duplicated** on the resolved name, so that membership is a binary search and so that nothing about symbol-table order can reach the output (HLR-032).
+
+#### 18.2.2 Resolving a Linkage Name
+
+C is the only supported language whose linkage name is its source name. The rest encode it, and HLR-142 requires the encoding be undone rather than worked around.
+
+Resolution is by published scheme, and the scheme is detected from the name rather than from a language the user states — the image does not say which compiler produced which symbol, and a mixed-language image is ordinary:
+
+| Prefix | Scheme | Yields |
+| ------ | ------ | ------ |
+| none | C, or an `extern "C"` definition | the name unchanged |
+| `_Z` | Itanium C++ ABI | a qualified name and a signature |
+| `_ZN`…`17h`…`E` | Rust legacy — Itanium-shaped | a path and a hash suffix |
+| `_R` | Rust v0 | a path |
+
+A demangled name is not yet a match: the Itanium ABI yields `ns::C::f(int) const`, and the report presents the function name alone (HLR-014). The resolved name is therefore the *identifier* the demangling ends in, with the signature, the qualification, and any hash suffix removed — reduced to the same form on both sides of the comparison, since reducing only one side would make every qualified name a mismatch.
+
+**GNAT's Ada encoding is not one of these.** `Pkg.Proc` links as `pkg__proc`, which is neither Itanium nor a published mangling with a decoder to hand; such names resolve to nothing and are counted under HLR-143. Ada is therefore the one supported language for which this option reports a large unresolved count rather than a filter, and it says so rather than appearing to work.
+
+
+### 18.3 Internal Structure
+#### 18.3.1 Key Functions
+
+*   **`int elfsyms_open(const char *path, SymbolSet *out)`** — Read the named image and populate the function set. Returns 0; non-zero after a diagnostic naming the path, which the caller turns into a fatal exit rather than a degraded run (HLR-146).
+*   **`bool elfsyms_defines(const SymbolSet *s, const char *function)`** — Whether the image defines a function of this name, by binary search over the resolved names.
+*   **`size_t elfsyms_unresolved(const SymbolSet *s)`** — How many of the image's function symbols carried an encoding this build does not decode (HLR-143).
+*   **`void elfsyms_free(SymbolSet *s)`** — Release the set and every name it owns.
+*   **`char *resolved_name(const char *linkage)`** — The source-level function name a linkage name encodes, or NULL where the scheme is not one this build decodes. The reduction to a bare identifier lives here rather than at the call site, so that one definition of "the name the report presents" serves the whole comparison.
+
+#### 18.3.2 Parsing Strategy / Algorithm
+
+`libelf` supplies the container parsing, for the reason `igraph` supplies the graph algorithms (HLR-113): an ELF reader is a well-specified format with a mature implementation, and hand-rolling one would put endianness, class, and section-header handling into this project's defect surface for no benefit. The library is a design choice under HLR-112 and nothing about the requirements depends on it.
+
+The demangler costs no new dependency. `__cxa_demangle` is part of the C++ runtime, which is already on the link line because `igraph` is partly C++ internally — a fact the instrumented dependency allowlist records and which this module now relies on deliberately rather than incidentally. It decodes the Itanium ABI, and therefore C++ and Rust's legacy scheme; Rust v0 decodes where the runtime is new enough and is counted as unresolved where it is not.
+
+The image is opened **once, before discovery**, for the reason the registry is (LLR-MAIN-05): a named image that cannot be read is fatal, and it is fatal before any source file is measured rather than after a full walk whose results are then discarded.
+
+The filter itself is not applied here. A function the image does not define is never recorded by `analyze.c` in the first place, which is what keeps the rest of the pipeline unaware that a filter exists: the graph, the analyses, the thresholds, and every renderer see a smaller set of functions and nothing else. The alternative — recording every function and filtering at each consumer — would put the same test in eleven places and let them disagree.
+
+### 18.4 Dependencies
+
+*   `libelf` for the container, and the C++ runtime's `__cxa_demangle` for the Itanium ABI. No dependency on `src/`.
+
+### 18.5 Error Handling and Logging
+
+*   **Image absent, unreadable, or not an object file** Diagnostic naming the path, and a fatal exit before any file is measured. The user named it, so the failure is theirs to correct (HLR-146, HLR-063).
+*   **Image carries no function symbols** Fatal, and separately diagnosed. An empty set is not an empty project: filtering every function away would report a code base with none, which no reader could distinguish from a correct result (HLR-146).
+*   **A linkage name this build does not decode** Counted, not fatal, and reported with the run. The completeness of the filter is stated in the way the completeness of the graph is (HLR-143, HLR-077).
+## 19. Data Dictionary
 
 *   **`ElcOptions`** (defined in [inc/elc.h](../inc/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
 
@@ -1100,6 +1169,7 @@ DOT quoted strings escape two characters, `"` and `\`. That escaper is deliberat
 | `scopes` | `ScopeList` | Empty when undeclared (HLR-094) |
 | `rule_paths` | `PathList` | Custom rule query files (HLR-107) |
 | `definitions` | `DefineList` | Conditional-compilation symbols; empty when none supplied, and an empty set prunes nothing (HLR-131) |
+| `image_path` | `const char *` | The linked image to filter functions by, or NULL for no filtering. Borrowed from argv. The path only: the image is read by `elfsyms.c`, which owns the failure, so a run with no image differs from a filtered one in exactly one place (HLR-140) |
 | `targets` | `PathList` | One or more file or directory arguments (HLR-071) |
 *   **`FileList`** (defined in [inc/discover.h](../inc/discover.h)) — The discovered files: canonical absolute paths, each appearing exactly once, in ascending byte order. Owns every path it holds.
 
@@ -1347,7 +1417,7 @@ Two consequences follow. A grammar's ABI must lie inside the range the linked `l
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.
-## 19. Traceability
+## 20. Traceability
 
 The following table maps the high-level requirements in
 [doc/HLRs.md](HLRs.md) and the low-level requirements in

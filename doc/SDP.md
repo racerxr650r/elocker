@@ -21,9 +21,10 @@ and HLR-105 asks for the members; and the writer runs in two passes, gathering
 before emitting, so that the ordering guarantee of LLR-DOT-04 can be read off
 a walk rather than argued about a search. 682 catalogued tests verify 333 of
 497 requirements and the coverage baseline falls from 177 to 164. The
-conditional-compilation set HLR-131 to HLR-136 remains the only
-specified-and-unbuilt group, and Phase 15 builds it. Phase 14 — custom rules —
-is ready to start.
+conditional-compilation set HLR-131 to HLR-136 remains specified and unbuilt
+until Phase 15, and is now joined by HLR-140 to HLR-147 — the linked-image
+filter of the new Phase 16, which raises the baseline to 196 and moves
+hardening to Phase 17. Phase 14 — custom rules — is ready to start.
 
 ## Status
 
@@ -45,7 +46,8 @@ is ready to start.
 | [13](#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
 | [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |
 | [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
-| [16](#phase-16--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
+| [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | 🔲 Not started |
+| [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 
 ## 0. Required Tools for Development
 
@@ -431,6 +433,7 @@ requirements and no others.
 | Additional grammars | Phase 6 | Ada's is community-maintained but vetted and accepted ([notes.md](notes.md) §2.2) |
 | `libgit2` | Phase 7 | Isolated to one discovery route |
 | `igraph` | Phase 8 | With GraphML and OpenMP off, and its GMP choice pinned |
+| `libelf` | Phase 16 | The image container only; the demangler it needs is already linked, the C++ runtime arriving with `igraph` |
 
 **Ordering constraints beyond the obvious:**
 
@@ -444,6 +447,12 @@ requirements and no others.
 *   **Phase 2 must settle the query-file contract.** The six per-language
     queries and their capture names (HLR-121) are what Phase 6 codes against;
     changing them later invalidates every grammar shipped.
+*   **Phase 16 is independent of Phase 15**, though the two answer one
+    question. Conditional compilation re-decides the conditions a build
+    resolved; a linked image observes what the build did. Either may ship
+    first, and a project with a build to hand gets a sharper answer from
+    Phase 16 — but only about which *functions* survived, so neither
+    subsumes the other.
 *   **Phase 11 is independent of Phases 9 and 10.** It consumes only the
     Phase 8 graph, so it may be worked in parallel with either.
 *   **Phase 10 depends on Phase 9**, however — the two are not
@@ -1323,7 +1332,7 @@ When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
 update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
-before you push. Close by opening the issue for Phase 16
+before you push. Close by opening the issue for Phase 15
 from §8.
 ```
 
@@ -1396,7 +1405,85 @@ before you push. Close by opening the issue for Phase 16
 from §8.
 ```
 
-### Phase 16 — Hardening and Release Readiness
+### Phase 16 — ELF-Filtered Analysis
+
+1. `cli.c`: the `--elf` option, and its rejection alongside regeneration mode.
+2. `elfsyms.c`: the image reader, the function-symbol set, and its ordering.
+3. Linkage-name resolution — the published schemes, and the reduction of a
+   decoded name to the identifier the report presents.
+4. `analyze.c`: omitting a function the image does not define, and retaining
+   file-scope ELOC as a figure of its own.
+5. Both directions of mismatch carried into the report model, every format,
+   and the saved record.
+6. The `elf/` fixture group, with images the test builds rather than commits.
+
+**Requirements:** HLR-140 – HLR-147.
+
+**Acceptance:** `elc --elf build/app.elf src/` reports the metrics of the
+functions that image defines and lists the source functions it does not, with
+file-scope ELOC reported separately. `elc src/` reports byte-identically to a
+build made before the option existed. A C++ image matches through Itanium
+demangling. A stripped image, a file that is not an object file, and an absent
+path each exit 2 with no report and their own diagnostic. `--elf` with
+`--from-xml` is a usage error.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 16 — ELF-Filtered Analysis**, tracked by issue #<N>.
+
+Read first: `doc/SDD.md` §18 (`elfsyms.c`), §4 (`cli.c`), §7 (`analyze.c`);
+HLR-140 through HLR-147; LLR groups `LLR-ELF` and `LLR-SYM`.
+
+This answers the question Phase 15 answers a different way. Conditional
+compilation *re-decides* the conditions a build resolved; a linked image
+*observes what the build did*. Where both are available the image is the
+stronger evidence, and neither replaces the other — the image says which
+functions survived and says nothing about which lines inside one were
+compiled out.
+
+Watch for:
+* **The filter is applied once, in `analyze.c`.** A function the image does
+  not define is never recorded, so the graph, the analyses, the thresholds
+  and every renderer see a smaller set of functions and nothing else.
+  Filtering at each consumer would put the same test in eleven places and
+  let them disagree.
+* **A symbol must be a defined function**, not merely a function: without
+  the `SHN_UNDEF` test every function the image *calls* into a shared
+  library counts as one the image contains, and the filter then retains
+  source the build never compiled.
+* **Raw name matching retains nothing outside C.** C++, Rust and Ada all
+  encode the source name. `__cxa_demangle` costs no new dependency — the
+  C++ runtime is already linked because igraph is partly C++ — and covers
+  Itanium and Rust's legacy scheme. GNAT's `pkg__proc` is covered by
+  nothing, so Ada reports a large unresolved count and says so.
+* **A decoded name is not yet a match.** Itanium yields
+  `ns::C::f(int) const` and the report presents the identifier. Reduce both
+  sides to one form, or every qualified name is a mismatch.
+* **An empty function set is fatal, not an empty filter.** A stripped image
+  would otherwise filter every function away and report a project with
+  none — confidently wrong and indistinguishable from a correct result.
+* **Both directions of mismatch are reported and they are different
+  claims.** Unresolved linkage names state the completeness of the filter;
+  source functions the image lacks are the finding the option exists to
+  produce, and are dead code established by what the linker did rather than
+  inferred from the call graph.
+* **With no `--elf`, nothing changes.** Every existing fixture must report
+  the numbers it does today; that is the cheapest regression test available
+  and it is already written.
+* **Never commit an image.** A binary in the repository is a fixture nobody
+  can review. Build it in `$BATS_TEST_TMPDIR`, and skip explicitly where a
+  compiler is unavailable.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. Close by opening the issue for Phase 17
+from §8.
+```
+
+### Phase 17 — Hardening and Release Readiness
 
 1. Full sanitizer sweep across every fixture and target type, including every
    error path.
@@ -1503,7 +1590,8 @@ T-shirt sizes; no calendar commitment implied.
 | 13 | S | Text emission over an ordered model |
 | 14 | M | Binding and provenance-split error handling |
 | 15 | M | Conditional-region pruning; the evaluator and its fixtures |
-| 16 | M | Sweeping and closing, plus whatever Phase 16 uncovers |
+| 16 | M | libelf and the demangler are libraries; the name reduction is the work |
+| 17 | M | Sweeping and closing, plus whatever Phase 16 uncovers |
 
 Phase 8 is the one worth splitting if it proves oversized: symbol resolution
 and graph construction could ship separately from the GraphML writer, though
