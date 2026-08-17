@@ -256,9 +256,26 @@ render:
 		goto cleanup;
 	}
 
-	/* After the report, and never instead of it. A companion that cannot
-	 * be written is a recorded failure, not a reason to withhold the
-	 * results the user asked for (LLR-DOT-05). */
+	/* Both companions, after the report and never instead of it. One that
+	 * cannot be written is a recorded failure, not a reason to withhold the
+	 * results the user asked for (LLR-DOT-05). The `.dot` call tree is
+	 * written unless refused and the GraphML export only when asked for;
+	 * each predicate holds its own default, so this sequence expresses no
+	 * opinion about either (HLR-103, HLR-106). */
+	if (graph_built && graph_dot_warranted(&opts)) {
+		char *companion = graph_companion_path(opts.output_path, "dot");
+
+		if (!companion) {
+			fputs("elc: out of memory naming the call-tree file\n",
+			      stderr);
+			failures++;
+		} else {
+			if (graph_write_dot(&sdg, &report, companion) != 0)
+				failures++;
+			free(companion);
+		}
+	}
+
 	if (graph_built && graph_graphml_warranted(&opts)) {
 		char *companion = graph_companion_path(opts.output_path,
 		                                       "graphml");

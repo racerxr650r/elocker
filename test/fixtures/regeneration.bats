@@ -159,3 +159,36 @@ record() {
 	elc --from-xml "$RECORD" "$TREE"
 	assert_equal "$status" 2
 }
+
+# --- no companion from a record (HLR-122) ----------------------------------
+
+@test "HLR-122: regeneration writes no .dot, default-on though it is" {
+	# The record carries the findings of a run rather than the topology they
+	# were drawn from, so there is no graph to draw. Declining silently is
+	# what the requirement asks for here, because nothing was requested.
+	record
+	run bash -c '"$0" --from-xml "$1" -o "$2/again.md" 2>/dev/null' \
+		"$ELC" "$RECORD" "$BATS_TEST_TMPDIR"
+	assert_success
+	[ -f "$BATS_TEST_TMPDIR/again.md" ]
+	[ ! -e "$BATS_TEST_TMPDIR/again.dot" ] || {
+		echo "a .dot was reconstructed from a record that has no graph" >&2
+		false
+	}
+}
+
+@test "LLR-CLI-15: an explicit companion request with --from-xml is rejected" {
+	# Silently ignoring it would leave a user who asked for a file and got
+	# none to discover the absence rather than be told (HLR-063, HLR-122).
+	record
+	elc --from-xml "$RECORD" --graphml
+	assert_equal "$status" 2
+}
+
+@test "LLR-CLI-15: declining a companion alongside --from-xml is not an error" {
+	# --no-dot is a refusal, not a request, and refusing something that was
+	# never going to be produced conflicts with nothing.
+	record
+	elc --from-xml "$RECORD" --no-dot
+	assert_success
+}

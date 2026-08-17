@@ -190,6 +190,15 @@ jobs:
           make prereqs-libgit2
           make prereqs-igraph
           sudo ldconfig
+      - name: Install Graphviz
+        run: |
+          # The dot/ fixture group settles .dot validity by rendering the
+          # emitted file rather than by matching text that looks like DOT
+          # (HLR-102). elc neither links Graphviz nor invokes it — an
+          # instrumented test holds that — so this is a dependency of the
+          # *test*, never of the binary.
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends graphviz
       - name: Run the fixture suites
         run: make fixtures
 
@@ -275,6 +284,15 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends libcriterion-dev pkg-config
+      - name: Install Graphviz
+        run: |
+          # The dot/ fixture group settles .dot validity by rendering the
+          # emitted file rather than by matching text that looks like DOT
+          # (HLR-102). elc neither links Graphviz nor invokes it — an
+          # instrumented test holds that — so this is a dependency of the
+          # *test*, never of the binary.
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends graphviz
       - name: Run the whole suite instrumented
         env:
           ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:strict_string_checks=1
@@ -312,6 +330,15 @@ jobs:
           make prereqs-libgit2
           make prereqs-igraph
           sudo ldconfig
+      - name: Install Graphviz
+        run: |
+          # The dot/ fixture group settles .dot validity by rendering the
+          # emitted file rather than by matching text that looks like DOT
+          # (HLR-102). elc neither links Graphviz nor invokes it — an
+          # instrumented test holds that — so this is a dependency of the
+          # *test*, never of the binary.
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends graphviz
       - name: Install valgrind
         run: |
           sudo apt-get update -qq

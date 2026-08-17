@@ -849,6 +849,27 @@ The totals *are* written, for a consumer reading the record with something other
 
 Nodes are emitted in ascending stable node-id order and each node's edges in ascending target-id order (LLR-DOT-04); every value is escaped per HLR-065.]]></interface>
           <interface title="Companion Artefact Naming"><![CDATA[Both companion files derive their names from the report's output path by extension substitution: an output of `report.md` yields `report.dot` and `report.graphml`. Neither takes a path of its own. This is precisely why neither is produced when the report goes to standard output — there is no output path to derive a name from, which is the rationale HLR-104 and HLR-106 give (HLR-103, HLR-104, HLR-106).]]></interface>
+          <interface title="DOT Annotation Encoding"><![CDATA[The `.dot` file is the **call tree**, so only call edges are drawn. Coupling through a shared global object is not an edge here — it is not a call — and reaches the drawing as a property of the functions that take part in it, which is what HLR-105 asks for: the participants of a hidden channel, not the channel.
+
+Each source file becomes a `subgraph cluster_<n>` labelled with its path, and each function a node within it. Clustering costs the ordering of LLR-DOT-04 nothing, because node identifiers run in the report's sorted file order (LLR-SDG-09) and a component's nodes are therefore contiguous.
+
+**Each annotation takes a different attribute**, so that several may apply to one node without one overwriting another — a function that both takes part in a hidden channel and is unreachable must show both, and a drawing that showed one of the two would be silently incomplete.
+
+| Finding | Attribute | Requirement |
+| ------- | --------- | ----------- |
+| a warning- or critical-severity finding | `fillcolor` | HLR-081, HLR-086, HLR-098 |
+| member of a recursive cycle | `peripheries` | HLR-089 |
+| participant in a hidden channel | `shape=octagon` | HLR-093 |
+| sole user of a global object | `shape=note` | HLR-092 |
+| unreachable | `style=dashed` with a grey `color` | HLR-096 |
+| a step of the deepest call chain | `penwidth` and a blue `color`, on the node and on the edge | HLR-088 |
+| a finding on the source file | the cluster's `bgcolor` | HLR-081, HLR-083 |
+
+Every one is an attribute a renderer may ignore; ignoring all of them leaves the same nodes and the same edges (HLR-105, LLR-STY-02). The key to the encoding is emitted as a DOT **comment** rather than as a legend subgraph, because a legend would add nodes that are not functions to a graph whose every node is one — and a comment is dropped by every renderer rather than merely ignorable by one.
+
+**No severity is decided here.** Every one arrives in `report->findings`, decided by `thresholds.c`; this module looks up `severity_rank` and chooses a colour. A renderer forming its own view of what counts as exceeding a threshold would put a second opinion in a codebase whose central claim is that it holds exactly one (HLR-098, HLR-099).
+
+**Both cycle kinds are drawn from the report's cycle rows rather than from the findings.** The catalogue locates a cycle at a single subject, because a finding has one subject and a set has no single location; HLR-105 asks for the *members*, plural. `report->cycles` and `report->dep_cycles` carry the membership, and the catalogue's single-subject copy of the same finding is suppressed — matched on the measurement's name, which both sides take from the same catalogue row and which therefore cannot drift.]]></interface>
         </interfaces>
         <functions>
           <function signature="bool graph_dot_warranted(const ElcOptions *opts)" summary="True only when .dot generation is enabled and the report goes to a named file."/>
@@ -856,9 +877,16 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
           <function signature="int graph_write_graphml(const Sdg *g, const char *path)" summary="Write the SDG in GraphML, nodes in ascending identifier order and each node's edges by ascending target. Reuses `write_escaped` from `format_xml.c` rather than carrying a second escaper: one implementation of HLR-065 means one place for it to be wrong."/>
           <function signature="bool graph_graphml_warranted(const ElcOptions *opts)" summary="True only when the export was requested *and* the report goes to a named file. Both halves matter: the export is off by default (HLR-106), and requesting it with the report on standard output writes nothing, because there is no path to derive a name from (HLR-104)."/>
           <function signature="char *graph_companion_path(const char *output_path, const char *extension)" summary="The companion's name, by extension substitution on the report's output path. The extension search is scoped to the last path component, so a dot in a directory name is not mistaken for one."/>
-          <function signature="const char *node_style(const Report *r, uint32_t node)" summary="Return the Graphviz attributes for a node given the findings that apply to it."/>
+          <function signature="void node_style(FILE *out, const Annotation *a)" summary="Write the Graphviz attributes for a node given the findings that apply to it. `Annotation` is local to the module — a bitset of the marks that apply, the highest severity among them, and those findings joined for the tooltip — because nothing outside the writer has any use for it. Takes a gathered annotation rather than the report and a node identifier: the report is keyed by definition site and the graph by identifier, so matching the two is a search, and a styler that searched would entangle emission order with lookup order."/>
+          <function signature="int collect(const Sdg *g, const Report *r, Annotation *nodes, Annotation *comps, char **notes)" summary="Gather every finding and structural mark onto the node and component it applies to, so that emission is a pure walk. Findings are matched to a node by definition site rather than by name, because a name is not unique and a drawing that marked six functions called `grow` because one was unreachable would be worse than one that marked none."/>
         </functions>
-        <algorithm><![CDATA[Both writers are plain text emission, which keeps Graphviz a tool the user may run on the output rather than a library `elc` links against (HLR-102), and keeps GraphML generation independent of any XML library. Unlike the report renderers, these two walk the `Sdg` rather than the sorted report model, so they impose their own order explicitly: nodes are emitted in ascending stable node-id order and each node's adjacency in ascending target-id order. Without that the graph library's internal enumeration would leak into the output and break HLR-032. Annotations use colour and shape attributes that a renderer ignoring them will simply drop, leaving a valid call tree (HLR-105).]]></algorithm>
+        <algorithm><![CDATA[Both writers are plain text emission, which keeps Graphviz a tool the user may run on the output rather than a library `elc` links against (HLR-102), and keeps GraphML generation independent of any XML library. Unlike the report renderers, these two walk the `Sdg` rather than the sorted report model, so they impose their own order explicitly: nodes are emitted in ascending stable node-id order and each node's adjacency in ascending target-id order. Without that the graph library's internal enumeration would leak into the output and break HLR-032. Annotations use colour and shape attributes that a renderer ignoring them will simply drop, leaving a valid call tree (HLR-105).
+
+The DOT writer runs in two passes rather than one, and the split is what keeps the ordering guarantee cheap to check. `collect()` gathers every finding and structural mark onto the node or component it applies to; emission is then a pure walk in identifier order that consults nothing. A writer that searched the report while emitting would have its output order entangled with its lookup order, and LLR-DOT-04 would have to be argued rather than read.
+
+**A finding is matched to a node by definition site — file and line together — not by name.** Both halves are required: a file alone is a component finding, and a line alone would match the same line in every file. Name matching is used in exactly one place, the recursive cycle, because names are all `report->cycles` carries; it inherits the duplicate-`static` imprecision recorded in the SDG's own limits, and the drawing is where that imprecision is most visible and least caveated.
+
+DOT quoted strings escape two characters, `"` and `\`. That escaper is deliberately *not* folded into `write_escaped`: XML's five entities and DOT's two backslashes are different languages, and one escaper serving both would have to be told which, at which point it is two functions anyway.]]></algorithm>
         <dependencies>
           <dep><![CDATA[`src/graph.c` and `src/report.c`. No third-party dependency.]]></dep>
         </dependencies>
@@ -877,7 +905,7 @@ Nodes are emitted in ascending stable node-id order and each node's edges in asc
         <field name="output_path" type="const char *" desc="NULL when writing to stdout"/>
         <field name="complexity_threshold" type="uint32_t" desc="Default 15 (HLR-022)"/>
         <field name="bottleneck_threshold" type="uint32_t" desc="Default 5 (HLR-081)"/>
-        <field name="emit_dot" type="bool" desc="Default true (HLR-103)"/>
+        <field name="no_dot" type="bool" desc="The *refusal* of the `.dot` companion, not the request for it: generation is enabled by default (HLR-103), so a zeroed ElcOptions must mean enabled, which it does only if the flag records the negative"/>
         <field name="graphml_path" type="const char *" desc="NULL unless --graphml given"/>
         <field name="strata" type="StratumList" desc="Empty when undeclared; ordinals from declaration order unless --stratum-order states them (HLR-078)"/>
         <field name="stratum_order" type="const char *" desc="The declared dependency direction, resolved after parsing so it may precede the layers it orders (HLR-078)"/>
@@ -1283,6 +1311,11 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="expected" label="Expected" path="`expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. The ambiguous-call case pins what the grammar yields, so that the imprecision is a recorded decision rather than a later surprise — and so that a *false cycle* arising from it would be visible in the fixture rather than in a user's report. As of Phase 8 the Ada ambiguity resolves against no subprogram and lands in the unresolved count rather than becoming an edge, which is better than predicted and is pinned as such"/>
         <artefact key="verifies" label="Verifies" path="Phase 8: HLR-010, HLR-032, HLR-033, HLR-073 – HLR-077, HLR-085, HLR-096, HLR-104, HLR-106, HLR-114. Later phases add HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-097"/>
       </fixture>
+      <fixture name="`dot/`" source="[test/fixtures/dot/](../test/fixtures/dot/)">
+        <artefact key="inputs" label="Inputs" path="Two trees, and two because recursion makes the call depth unbounded so one tree cannot hold both a recursive cycle and a measured deepest chain. `tree/`: a six-function call chain; a function whose fan-out is 11, the first value that warns; two files that depend on each other while no function calls itself even indirectly; a global shared across two disconnected regions of the call graph; seven functions no path reaches from the declared entry point. `recursive/`: two mutually recursive functions and a forward declaration"/>
+        <artefact key="expected" label="Expected" path="That the emitted file is valid DOT is settled by rendering it under `dot`, never by matching text that looks like DOT. That the annotations say what the analyses found is asserted against the hand-worked node and component tables in `README.md`. And, uniquely to this artefact, that **stripping every annotation leaves the same tree** — performed by deleting every attribute from the file and requiring the remainder to render with the same nodes and the same edges"/>
+        <artefact key="verifies" label="Verifies" path="HLR-032, HLR-100, HLR-102 – HLR-105, HLR-119"/>
+      </fixture>
       <fixture name="`arch/`" source="[test/fixtures/arch/](../test/fixtures/arch/)">
         <artefact key="inputs" label="Inputs" path="A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all"/>
         <artefact key="expected" label="Expected" path="`expected-findings.tsv`, with the hand-computed `Ca`, `Ce`, and instability table, and the omission notice for the undeclared run"/>
@@ -1342,6 +1375,7 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
       <tool name="`bats`" required_for="The integration, fixture, and instrumented levels" notes="With `bats-support` and `bats-assert`; vendored or provided by the platform"/>
       <tool name="`gcc` or `clang`" required_for="Building `elc` and the unit drivers" notes="C11, with `-Wall -Wextra -Wpedantic`; warnings are treated as defects"/>
       <tool name="`make`" required_for="Building and running the suite" notes="GNU make; `make test` is the single entry point"/>
+      <tool name="Graphviz (`dot`)" required_for="The `dot/` fixture group" notes="Settles `.dot` validity by rendering the emitted file rather than by matching text that looks like DOT (HLR-102). A dependency of the *test* and never of the binary: `elc` neither links Graphviz nor invokes it, which an instrumented test holds separately. Absent, the affected tests skip explicitly and name the requirement left unverified"/>
       <tool name="AddressSanitizer + LeakSanitizer" required_for="HLR-124, HLR-125 — `make asan`" notes="`-fsanitize=address` with `detect_leaks=1`; catches out-of-bounds, use-after-free, invalid free, and leaks. Requires an instrumented rebuild"/>
       <tool name="UndefinedBehaviorSanitizer" required_for="HLR-124 — `make asan`" notes="`-fsanitize=undefined` with `halt_on_error=1`; catches signed overflow, misaligned and null dereference, and invalid shifts"/>
       <tool name="`valgrind`" required_for="HLR-124, HLR-125 — `make valgrind`" notes="`--leak-check=full --errors-for-leak-kinds=all` over a single file, a directory, and a repository target. Run in a separate pass from ASan, never combined; finds uninitialised reads ASan does not, and needs no rebuild"/>
@@ -6568,7 +6602,37 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/unit/format_graph.c" role="unit" count="7">
+  <file path="test/unit/format_graph.c" role="unit" count="13">
+    <test name="dot_is_written_without_being_asked_for">
+      <purpose><![CDATA[A zeroed ElcOptions with an output path warrants the companion: generation is enabled by default, which is the one place the `.dot` default runs opposite to GraphML's.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-WAR-01"/>
+      </traces>
+    </test>
+    <test name="dot_is_suppressed_by_the_disable_switch">
+      <purpose><![CDATA[The disable switch turns the default off.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-WAR-01"/>
+      </traces>
+    </test>
+    <test name="dot_needs_an_output_path">
+      <purpose><![CDATA[With the report going to standard output nothing is warranted, there being no path to derive the companion's name from.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-WAR-02"/>
+      </traces>
+    </test>
+    <test name="dot_needs_an_output_path_even_when_disabled">
+      <purpose><![CDATA["Whether or not generation was disabled" is the requirement's wording: the destination decides it and the switch cannot change the answer, so both paths are asserted rather than one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-WAR-02"/>
+      </traces>
+    </test>
+    <test name="no_dot_is_written_from_a_saved_record">
+      <purpose><![CDATA[A record carries the findings of a run rather than the topology they were drawn from, so regeneration warrants no companion even with an output path and the default in force.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-WAR-03"/>
+      </traces>
+    </test>
     <test name="graphml_is_off_unless_asked_for">
       <purpose><![CDATA[With an output path but no request, no export is warranted: the export is opt-in, unlike the .dot companion.]]></purpose>
       <traces>
@@ -6609,6 +6673,12 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[A dotted directory alongside a real extension substitutes the extension and leaves the directory alone.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-GML-03"/>
+      </traces>
+    </test>
+    <test name="both_companions_derive_from_one_output_path">
+      <purpose><![CDATA[One derivation serves both artefacts, which is what makes it impossible for either to take an output path of its own.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DOT-03"/>
       </traces>
     </test>
   </file>
@@ -6680,7 +6750,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/integration/cli.bats" role="integration" count="16">
+  <file path="test/integration/cli.bats" role="integration" count="18">
     <test name="--help exits 0">
       <purpose><![CDATA[Requesting help succeeds; it is not an error.]]></purpose>
       <traces>
@@ -6704,6 +6774,13 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[The usage summary names each accepted option, making it the reference the documentation is checked against.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+      </traces>
+    </test>
+    <test name="HLR-103: --help documents the switch that declines the call tree">
+      <purpose><![CDATA[The usage summary is the reference the documentation is checked against, so an option that parses must also print; without this the documentation test would compare two documents against a table missing an entry.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-103"/>
+        <trace target="LLR" ref="LLR-DOC-04"/>
       </traces>
     </test>
     <test name="--help documents the exit-status scheme">
@@ -6769,6 +6846,12 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[Several targets are accepted in one invocation, files and directories freely mixed.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-071" name="Multiple Target Arguments"/>
+      </traces>
+    </test>
+    <test name="HLR-103: --no-dot is accepted and takes no argument">
+      <purpose><![CDATA[The option parses as a flag rather than swallowing the target that follows it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-103"/>
       </traces>
     </test>
     <test name="an accepted invocation writes its report to stdout">
@@ -7925,7 +8008,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/fixtures/regeneration.bats" role="fixture" count="16">
+  <file path="test/fixtures/regeneration.bats" role="fixture" count="19">
     <test name="the hand-counted subject totals match">
       <purpose><![CDATA[The subject's totals match the values in the fixture's header, so a later failure is about the round trip rather than about the subject having changed.]]></purpose>
       <traces>
@@ -8024,6 +8107,28 @@ Note on the division of labour, which determines where a failure lives: the requ
       <traces>
         <trace target="HLR" ref="HLR-063"/>
         <trace target="HLR" ref="HLR-055"/>
+      </traces>
+    </test>
+    <test name="HLR-122: regeneration writes no .dot, default-on though it is">
+      <purpose><![CDATA[A record carries the findings of a run rather than the topology they were drawn from, so the default-on companion is simply not produced. Nothing was requested, so declining silently is what the requirement asks for.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-122"/>
+        <trace target="LLR" ref="LLR-WAR-03"/>
+      </traces>
+    </test>
+    <test name="LLR-CLI-15: an explicit companion request with --from-xml is rejected">
+      <purpose><![CDATA[An explicit request is a usage error rather than a silently ignored one, so a user who asked for a file and got none is told why instead of discovering the absence.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-122"/>
+        <trace target="HLR" ref="HLR-063"/>
+        <trace target="LLR" ref="LLR-CLI-15"/>
+      </traces>
+    </test>
+    <test name="LLR-CLI-15: declining a companion alongside --from-xml is not an error">
+      <purpose><![CDATA[The boundary of the rule above: --no-dot is a refusal rather than a request, and refusing something that was never going to be produced conflicts with nothing.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-122"/>
+        <trace target="LLR" ref="LLR-CLI-15"/>
       </traces>
     </test>
   </file>
@@ -9037,6 +9142,173 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
+  <file path="test/fixtures/dot.bats" role="fixture" count="24">
+    <test name="HLR-102: the emitted call tree renders under Graphviz">
+      <purpose><![CDATA[Validity is settled by handing the file to Graphviz and requiring it to render, never by matching text that looks like DOT — the first artefact elc produces for another program to read deserves the reader's own verdict.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-102"/>
+      </traces>
+    </test>
+    <test name="HLR-102: the recursive tree renders too">
+      <purpose><![CDATA[The second tree renders as well, so the annotations only it carries cannot have broken the syntax.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-102"/>
+      </traces>
+    </test>
+    <test name="LLR-STY-02: stripping every annotation leaves the same valid tree">
+      <purpose><![CDATA[The degradation claim tested by performing the degradation: every attribute is deleted from the file, and what is left must still render and must still hold the same twenty-five nodes and nineteen edges.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-105"/>
+        <trace target="LLR" ref="LLR-STY-02"/>
+      </traces>
+    </test>
+    <test name="HLR-103: the call tree is written without being asked for">
+      <purpose><![CDATA[The companion appears with no option naming it, which is the default the requirement states.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-103"/>
+      </traces>
+    </test>
+    <test name="HLR-103: --no-dot suppresses it">
+      <purpose><![CDATA[The report is still written and the companion is not, so declining the artefact costs the run nothing else.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-103"/>
+      </traces>
+    </test>
+    <test name="HLR-104: no call tree is written when the report goes to stdout">
+      <purpose><![CDATA[With no output path there is no name to derive, so nothing is written and no default name is invented.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-104"/>
+      </traces>
+    </test>
+    <test name="HLR-104: still none on stdout with generation disabled">
+      <purpose><![CDATA["Whether or not generation was disabled" is the requirement's wording, so both routes to the same absence are asserted: the destination decides it, not the switch.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-104"/>
+      </traces>
+    </test>
+    <test name="HLR-119: the companion is named from the report by substitution">
+      <purpose><![CDATA[An output of analysis.md yields analysis.dot rather than analysis.md.dot, and the companion takes no path of its own.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-119"/>
+        <trace target="LLR" ref="LLR-DOT-03"/>
+      </traces>
+    </test>
+    <test name="HLR-119: the .dot and the GraphML are siblings of one report">
+      <purpose><![CDATA[Both companions derive from the same output path in one run, which is what makes the naming rule one rule rather than two that happen to agree.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-119"/>
+      </traces>
+    </test>
+    <test name="the tree holds one cluster per source file and every function">
+      <purpose><![CDATA[Six clusters and twenty-five nodes, matching the hand-worked table: the drawing accounts for every function the report does.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-102"/>
+      </traces>
+    </test>
+    <test name="LLR-DOT-04: nodes are emitted in ascending identifier order">
+      <purpose><![CDATA[This is the one renderer that walks the graph rather than the sorted report model, so it must impose its own order; without this the graph library's internal enumeration would reach the output.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+        <trace target="LLR" ref="LLR-DOT-04"/>
+      </traces>
+    </test>
+    <test name="LLR-DOT-04: each node's adjacency is in ascending target order">
+      <purpose><![CDATA[The second half of the same guarantee, on the edges rather than the nodes.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-033"/>
+        <trace target="LLR" ref="LLR-DOT-04"/>
+      </traces>
+    </test>
+    <test name="HLR-032: two runs over the same tree produce an identical call tree">
+      <purpose><![CDATA[Byte-identical across runs, which is what the imposed ordering exists to deliver.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="only call edges are drawn; a shared global is not a call">
+      <purpose><![CDATA[The artefact is the call tree. Two functions joined by a shared global and by nothing else have no edge between them; their coupling reaches the drawing as a property of each node instead.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-102"/>
+        <trace target="HLR" ref="HLR-074"/>
+      </traces>
+    </test>
+    <test name="HLR-105: the deepest call chain is annotated, nodes and edges">
+      <purpose><![CDATA[Six functions and the five steps between them. The chain lies inside the accepted band, so it is annotated because it is the chain and not because it warned — which is the case a fixture built only from findings would miss.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-105"/>
+        <trace target="HLR" ref="HLR-088"/>
+        <trace target="LLR" ref="LLR-STY-01"/>
+      </traces>
+    </test>
+    <test name="HLR-105: every unreachable function is annotated">
+      <purpose><![CDATA[All seven, including the four that call one another in a region no path from the entry point enters — reachable and connected are different properties.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-105"/>
+        <trace target="HLR" ref="HLR-096"/>
+        <trace target="LLR" ref="LLR-STY-01"/>
+      </traces>
+    </test>
+    <test name="HLR-105: a fan-out over the band is annotated with its severity">
+      <purpose><![CDATA[Eleven distinct callees is the first value that warns, and the drawing carries the catalogue's severity rather than a view of its own.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-105"/>
+        <trace target="HLR" ref="HLR-086"/>
+        <trace target="LLR" ref="LLR-STY-01"/>
+      </traces>
+    </test>
+    <test name="HLR-105: both participants in a hidden channel are annotated">
+      <purpose><![CDATA[The writer and the reader, neither of which calls the other. HLR-105 asks for the participants, so the annotation is on the functions rather than on an edge.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-105"/>
+        <trace target="HLR" ref="HLR-093"/>
+        <trace target="LLR" ref="LLR-STY-01"/>
+      </traces>
+    </test>
+    <test name="HLR-105: two findings on one node ride two attributes">
+      <purpose><![CDATA[A function that both takes part in a hidden channel and is unreachable shows both, because each annotation takes a different Graphviz attribute. One overwriting the other would make a drawing silently incomplete.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-105"/>
+        <trace target="LLR" ref="LLR-STY-02"/>
+      </traces>
+    </test>
+    <test name="HLR-105: every member of a dependency cycle is annotated">
+      <purpose><![CDATA[Both components, not only the one the catalogue files the finding against: a finding has one subject and a set has no single location, and the requirement asks for the members.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-105"/>
+        <trace target="HLR" ref="HLR-083"/>
+        <trace target="LLR" ref="LLR-STY-01"/>
+      </traces>
+    </test>
+    <test name="HLR-105: a bottleneck component is annotated and attributed">
+      <purpose><![CDATA[The coupling finding reaches the cluster, and carries the label marking it as elc's own heuristic rather than a published standard.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-105"/>
+        <trace target="HLR" ref="HLR-081"/>
+        <trace target="LLR" ref="LLR-STY-01"/>
+      </traces>
+    </test>
+    <test name="HLR-105: every member of a recursive cycle is annotated">
+      <purpose><![CDATA[Both mutually recursive functions carry the mark and the finding, for the reason both members of a dependency cycle do.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-105"/>
+        <trace target="HLR" ref="HLR-089"/>
+        <trace target="LLR" ref="LLR-STY-01"/>
+      </traces>
+    </test>
+    <test name="HLR-100: a critical annotation does not become an exit status">
+      <purpose><![CDATA[A run full of critical findings in which every file was read still exits 0. Severity is a label, and drawing it on a graph does not change that.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-100"/>
+      </traces>
+    </test>
+    <test name="a forward declaration is not a node">
+      <purpose><![CDATA[Three nodes and not four, which also pins that the C module's function query captures definitions rather than declarations.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-013"/>
+      </traces>
+    </test>
+  </file>
+
   <file path="test/fixtures/graph.bats" role="fixture" count="16">
     <test name="HLR-106: the exported graph matches the expected topology exactly">
       <purpose><![CDATA[The emitted GraphML is compared node for node and edge for edge against a file written from the source, so a change in what elc believes about the code appears as a diff rather than as a number nobody questions.]]></purpose>
@@ -9314,7 +9586,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="22">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="24">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -9343,6 +9615,20 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[No threading library appears on the link line.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-041" name="Single-Threaded Execution"/>
+      </traces>
+    </test>
+    <test name="LLR-DOT-02: elc links no Graphviz library">
+      <purpose><![CDATA[Graphviz renders the output; elc writes it. Plain text emission is what keeps Graphviz a tool the user may run on the result rather than a dependency of producing it, and a link check is how that claim stays true.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-102"/>
+        <trace target="LLR" ref="LLR-DOT-02"/>
+      </traces>
+    </test>
+    <test name="LLR-DOT-02: writing the call tree spawns no process">
+      <purpose><![CDATA[The half a link check cannot make: a real run that writes a call tree issues one execve, the kernel's own, so elc does not shell out to dot either.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-102"/>
+        <trace target="LLR" ref="LLR-DOT-02"/>
       </traces>
     </test>
     <test name="HLR-041: elc references no thread-creation symbol">

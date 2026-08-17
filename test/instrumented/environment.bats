@@ -161,6 +161,41 @@ setup() {
 	refute_output --partial "libpthread"
 }
 
+@test "LLR-DOT-02: elc links no Graphviz library" {
+	# Graphviz renders the output; elc writes it. The `.dot` file is plain
+	# text emission for exactly this reason — it keeps Graphviz a tool the
+	# user may run on the result rather than a dependency of producing it
+	# (HLR-102).
+	require_tool ldd "LLR-DOT-02 no Graphviz dependency"
+	run ldd "$ELC"
+	assert_success
+	refute_output --partial "libgvc"
+	refute_output --partial "libcgraph"
+	refute_output --partial "libcdt"
+}
+
+@test "LLR-DOT-02: writing the call tree spawns no process" {
+	# The other half of the same claim, and the half a link check cannot
+	# make: elc does not shell out to `dot` either.
+	require_tool strace "LLR-DOT-02 no Graphviz invocation"
+	local log="$BATS_TEST_TMPDIR/exec.log"
+
+	# execve alone: a fork that never execs cannot have run Graphviz, and
+	# clone is already asserted at zero by the single-thread test above.
+	strace_elc "$log" "execve,execveat" \
+		-o "$BATS_TEST_TMPDIR/report.md" "$REPO_ROOT/src"
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+	[ -f "$BATS_TEST_TMPDIR/report.dot" ] || {
+		echo "no call tree was written, so nothing was observed" >&2
+		false
+	}
+
+	# strace -f prefixes each line with a pid, so the match is unanchored.
+	# The one execve is the kernel starting elc itself.
+	run bash -c 'grep -cE "execve(at)?\(" "$0" || true' "$log"
+	assert_output "1"
+}
+
 @test "HLR-041: elc references no thread-creation symbol" {
 	require_tool nm "HLR-041 single-threaded execution"
 	run bash -c 'nm -D --undefined-only "$0" 2>/dev/null || true' "$ELC"

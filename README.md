@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 12 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 13 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, Python, and
 Ada**, in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -70,9 +70,26 @@ its own is something you can check by reading a single table — and the one
 threshold that *is* `elc`'s own says `elc heuristic — not a published
 standard` wherever it appears. Severity is a label and never the exit status:
 a project full of critical findings still exits 0, because deciding what a
-finding warrants is your call. Graph visualisation is next, from Phase 13.
+finding warrants is your call.
 
-**Progress: 13 of 17 phases complete.**
+And with a report going to a named file, all of it is **drawn**: `elc` writes
+the call tree beside the report as an annotated Graphviz `.dot` file, one
+cluster per source file and one node per function, with every finding on an
+attribute a renderer is free to ignore. Recursive cycles get a second border,
+hidden-channel participants an octagon, unreachable functions a dash, the
+deepest chain a thick blue line through it, and each node a tooltip carrying
+its findings in full. `elc` writes the file and renders nothing — Graphviz is
+yours to run on it, and `elc` neither links it nor invokes it. Generation is on
+by default; `--no-dot` declines it.
+
+```sh
+elc --entry main -o report.md src/    # writes report.md and report.dot
+dot -Tsvg report.dot -o report.svg
+```
+
+Custom rules are next, from Phase 14.
+
+**Progress: 14 of 17 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -92,7 +109,7 @@ finding warrants is your call. Graph visualisation is next, from Phase 13.
 | [10](doc/SDP.md#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | ✅ Complete |
 | [11](doc/SDP.md#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | ✅ Complete |
 | [12](doc/SDP.md#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | ✅ Complete |
-| [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | 🔲 Not started |
+| [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
 | [14](doc/SDP.md#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | 🔲 Not started |
 | [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | 🔲 Not started |
 | [16](doc/SDP.md#phase-16--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |

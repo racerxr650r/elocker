@@ -33,6 +33,13 @@ setup() {
 	assert_output --partial "-h, --help"
 }
 
+@test "HLR-103: --help documents the switch that declines the call tree" {
+	# The usage summary is the reference the documentation is checked
+	# against (SDD §4.2.1), so an option that parses must also print.
+	elc --help
+	assert_output --partial "--no-dot"
+}
+
 @test "--help documents the exit-status scheme" {
 	elc --help
 	assert_output --partial "Exit status:"
@@ -88,6 +95,11 @@ setup() {
 
 @test "several targets are accepted, files and directories intermixed" {
 	elc "$REPO_ROOT/src/main.c" "$REPO_ROOT/src" "$REPO_ROOT/include/elc.h"
+	assert_success
+}
+
+@test "HLR-103: --no-dot is accepted and takes no argument" {
+	elc --no-dot "$REPO_ROOT/src/main.c"
 	assert_success
 }
 

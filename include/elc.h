@@ -175,6 +175,11 @@ typedef struct {
 	bool          graphml;      /* export the SDG (HLR-106); off unless
 	                             * asked for, and silently nothing when
 	                             * the report goes to stdout             */
+	/* The `.dot` call tree runs the other way round: it is written unless
+	 * refused (HLR-103), so the flag records the refusal rather than the
+	 * request. Stored negated so that a zeroed ElcOptions means the
+	 * default, which is what every unit test constructs (LLR-WAR-01). */
+	bool          no_dot;
 	const char  **targets;      /* borrowed from argv; not owned          */
 	size_t        target_count;
 } ElcOptions;
