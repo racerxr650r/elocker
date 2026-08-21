@@ -502,6 +502,899 @@ static uint32_t uint_attribute(ReadState *state, const XML_Char **atts,
 	return (uint32_t)value;
 }
 
+/* One handler per element of a record, and a table that finds it.
+ *
+ * The alternative — and what this was — is a single function testing the
+ * element name against every name in turn. It reached a cyclomatic complexity
+ * of 169, which is to say it had more independent paths through it than the
+ * rest of this module put together, and every one of them was the same path:
+ * compare a name, read some attributes, append a row. Nothing about the record
+ * format made it complicated; the shape of the dispatch did.
+ *
+ * Each handler is now reached only when its element has already been matched,
+ * so it begins where the interesting part begins. `on_start` does nothing but
+ * find the right one, and an element added to the format is a row in the table
+ * rather than another branch in a function nobody can hold in their head.
+ */
+static void on_root(ReadState *state, const XML_Char *name,
+                    const XML_Char **atts)
+{
+	/* The first element decides whether this is a record at all.
+	 * A well-formed document of some other shape is rejected here,
+	 * before anything is reconstructed from it (LLR-XRD-04). */
+	if (strcmp(name, "elc-report") != 0) {
+		fail(state, "not an elc report");
+		return;
+	}
+	state->saw_root = true;
+
+	const char *version = attribute(atts, "format-version");
+
+	if (!version) {
+		fail(state, "no format-version identifier");
+		return;
+	}
+	if (atoi(version) != ELC_XML_FORMAT_VERSION) {
+		/* Naming both versions is the difference between a
+		 * message a user can act on and one that only says no
+		 * (LLR-XRD-05). */
+		snprintf(state->detail, sizeof state->detail,
+		         "format version %s is not supported; this "
+		         "build reads version %d", version,
+		         ELC_XML_FORMAT_VERSION);
+		fail(state, state->detail);
+		return;
+	}
+}
+
+static void on_file(ReadState *state, const XML_Char **atts)
+{
+	/* A <file> while one is already open is a nested element of
+	 * some other shape, not a second file. It was ignored when the
+	 * test was part of the branch condition, and is ignored here. */
+	if (state->current)
+		return;
+
+	const char *path = attribute(atts, "path");
+
+	if (!path) {
+		fail(state, "a file element has no path");
+		return;
+	}
+
+	/* A <file> inside <skipped> carries a path and nothing else;
+	 * one inside <files> carries metrics. They are told apart by
+	 * their attributes rather than by tracking the parent, which
+	 * would need a stack for one distinction. */
+	if (!attribute(atts, "physical-lines")) {
+		if (metrics_add_skipped(state->acc, path) != 0)
+			fail(state, "out of memory");
+		return;
+	}
+
+	FileMetrics *file = calloc(1, sizeof *file);
+
+	if (!file) {
+		fail(state, "out of memory");
+		return;
+	}
+
+	file->path = strdup(path);
+	if (!file->path) {
+		free(file);
+		fail(state, "out of memory");
+		return;
+	}
+
+	const char *language = attribute(atts, "language");
+
+	if (language && *language) {
+		file->language = strdup(language);
+		if (!file->language) {
+			filemetrics_free(file);
+			fail(state, "out of memory");
+			return;
+		}
+	}
+
+	file->physical_lines = uint_attribute(state, atts,
+	                                      "physical-lines");
+	file->eloc           = uint_attribute(state, atts, "eloc");
+	/* Absent in a record written before the field existed, which
+	 * reads back as zero — no damage — and is the right answer for
+	 * a build that could not have measured any. */
+	file->unparsed_lines = uint_attribute(state, atts,
+	                                      "unparsed-lines");
+
+	state->current  = file;
+	state->capacity = 0;
+	return;
+}
+
+static void on_calltree(ReadState *state, const XML_Char **atts)
+{
+	const char *which = attribute(atts, "depth-state");
+	const char *depth = attribute(atts, "depth");
+
+	if (!which || !depth) {
+		fail(state, "a calltree element is incomplete");
+		return;
+	}
+	state->depth_state = (DepthState)strtol(which, NULL, 10);
+	state->depth       = (uint32_t)strtoul(depth, NULL, 10);
+	return;
+}
+
+static void on_fanout(ReadState *state, const XML_Char **atts)
+{
+	const char *fn   = attribute(atts, "function");
+	const char *file = attribute(atts, "file");
+	const char *line = attribute(atts, "line");
+	const char *val  = attribute(atts, "value");
+
+	if (!fn || !file || !line || !val) {
+		fail(state, "a fanout element is incomplete");
+		return;
+	}
+
+	FanOutRow *grown = realloc(state->fan_out,
+	                           (state->fan_out_count + 1) *
+	                                   sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->fan_out = grown;
+
+	FanOutRow *row = &state->fan_out[state->fan_out_count];
+
+	memset(row, 0, sizeof *row);
+	row->function = strdup(fn);
+	row->file     = strdup(file);
+	if (!row->function || !row->file) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->line    = (uint32_t)strtoul(line, NULL, 10);
+	row->fan_out = (uint32_t)strtoul(val, NULL, 10);
+	state->fan_out_count++;
+	return;
+}
+
+static void on_cycle(ReadState *state, const XML_Char **atts)
+{
+	/* A <cycle> carries no attributes of its own: it opens a group that
+	 * the <member> elements after it fill in. The parameter stays for the
+	 * table's one signature, which is what lets the dispatch be a lookup. */
+	(void)atts;
+
+	CycleRow *grown = realloc(state->cycles,
+	                          (state->cycle_count + 1) *
+	                                  sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->cycles = grown;
+	memset(&state->cycles[state->cycle_count], 0,
+	       sizeof *state->cycles);
+	state->cycle_count++;
+	return;
+}
+
+static void on_member(ReadState *state, const XML_Char **atts)
+{
+	const char *fn = attribute(atts, "function");
+
+	if (!fn || state->cycle_count == 0) {
+		fail(state, "a cycle member outside any cycle");
+		return;
+	}
+
+	CycleRow *row    = &state->cycles[state->cycle_count - 1];
+	char    **members = realloc(row->members,
+	                            (row->count + 1) * sizeof *members);
+
+	if (!members) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->members = members;
+	row->members[row->count] = strdup(fn);
+	if (!row->members[row->count]) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->count++;
+	return;
+}
+
+static void on_step(ReadState *state, const XML_Char **atts)
+{
+	const char *fn   = attribute(atts, "function");
+	const char *file = attribute(atts, "file");
+	const char *line = attribute(atts, "line");
+
+	if (!fn || !file || !line) {
+		fail(state, "a step element is incomplete");
+		return;
+	}
+
+	ChainRow *grown = realloc(state->deepest,
+	                          (state->deepest_count + 1) *
+	                                  sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->deepest = grown;
+
+	ChainRow *row = &state->deepest[state->deepest_count];
+
+	memset(row, 0, sizeof *row);
+	row->function = strdup(fn);
+	row->file     = strdup(file);
+	if (!row->function || !row->file) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->line = (uint32_t)strtoul(line, NULL, 10);
+	state->deepest_count++;
+	return;
+}
+
+static void on_state(ReadState *state, const XML_Char **atts)
+{
+	const char *reach = attribute(atts, "reach-state");
+	const char *scope = attribute(atts, "scope-state");
+
+	if (!reach || !scope) {
+		fail(state, "a state element is incomplete");
+		return;
+	}
+	state->reach_state = (ReachState)strtol(reach, NULL, 10);
+	state->scope_state = (ScopeState)strtol(scope, NULL, 10);
+	return;
+}
+
+static void on_global(ReadState *state, const XML_Char **atts)
+{
+	const char *object  = attribute(atts, "object");
+	const char *writers = attribute(atts, "writers");
+	const char *readers = attribute(atts, "readers");
+	const char *parts   = attribute(atts, "participants");
+	const char *verdict = attribute(atts, "verdict");
+
+	if (!object || !writers || !readers || !parts || !verdict) {
+		fail(state, "a global element is incomplete");
+		return;
+	}
+
+	GlobalStateRow *grown =
+		realloc(state->global_state,
+		        (state->global_state_count + 1) * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->global_state = grown;
+
+	GlobalStateRow *row = &state->global_state[state->global_state_count];
+
+	memset(row, 0, sizeof *row);
+	row->object       = strdup(object);
+	row->writers      = strdup(writers);
+	row->readers      = strdup(readers);
+	row->participants = strdup(parts);
+	if (!row->object || !row->writers || !row->readers ||
+	    !row->participants) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->verdict = (GlobalVerdict)strtol(verdict, NULL, 10);
+	state->global_state_count++;
+	return;
+}
+
+static void on_unreachable_function(ReadState *state, const XML_Char **atts)
+{
+	const char *fn   = attribute(atts, "function");
+	const char *file = attribute(atts, "file");
+	const char *line = attribute(atts, "line");
+
+	if (!fn || !file || !line) {
+		fail(state, "an unreachable-function element is incomplete");
+		return;
+	}
+
+	UnreachableRow *grown =
+		realloc(state->unreachable,
+		        (state->unreachable_count + 1) * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->unreachable = grown;
+
+	UnreachableRow *row = &state->unreachable[state->unreachable_count];
+
+	memset(row, 0, sizeof *row);
+	row->function = strdup(fn);
+	row->file     = strdup(file);
+	if (!row->function || !row->file) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->line = (uint32_t)strtoul(line, NULL, 10);
+	state->unreachable_count++;
+	return;
+}
+
+static void on_unreachable_global(ReadState *state, const XML_Char **atts)
+{
+	const char *object = attribute(atts, "object");
+
+	if (!object) {
+		fail(state, "an unreachable-global element has no object");
+		return;
+	}
+
+	char **grown = realloc(state->unreachable_globals,
+	                       (state->unreachable_global_count + 1) *
+	                               sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->unreachable_globals = grown;
+	state->unreachable_globals[state->unreachable_global_count] =
+		strdup(object);
+	if (!state->unreachable_globals[state->unreachable_global_count]) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->unreachable_global_count++;
+	return;
+}
+
+static void on_cross_scope(ReadState *state, const XML_Char **atts)
+{
+	const char *from_scope = attribute(atts, "from-scope");
+	const char *from       = attribute(atts, "from");
+	const char *to_scope   = attribute(atts, "to-scope");
+	const char *to         = attribute(atts, "to");
+	const char *object     = attribute(atts, "object");
+
+	if (!from_scope || !from || !to_scope || !to || !object) {
+		fail(state, "a cross-scope element is incomplete");
+		return;
+	}
+
+	CrossScopeRow *grown =
+		realloc(state->cross_scope,
+		        (state->cross_scope_count + 1) * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->cross_scope = grown;
+
+	CrossScopeRow *row = &state->cross_scope[state->cross_scope_count];
+
+	memset(row, 0, sizeof *row);
+	row->from_scope    = strdup(from_scope);
+	row->from_function = strdup(from);
+	row->to_scope      = strdup(to_scope);
+	row->to_function   = strdup(to);
+	row->object        = strdup(object);
+	if (!row->from_scope || !row->from_function || !row->to_scope ||
+	    !row->to_function || !row->object) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->cross_scope_count++;
+	return;
+}
+
+static void on_unanalysed(ReadState *state, const XML_Char **atts)
+{
+	const char *language = attribute(atts, "language");
+
+	if (!language) {
+		fail(state, "an unanalysed element names no language");
+		return;
+	}
+
+	PathList *list = &state->dead_unanalysed;
+
+	if (list->count == list->capacity) {
+		size_t next   = list->capacity ? list->capacity * 2 : 4;
+		char **bigger = realloc(list->paths, next * sizeof *bigger);
+
+		if (!bigger) {
+			fail(state, "out of memory");
+			return;
+		}
+		list->paths    = bigger;
+		list->capacity = next;
+	}
+	list->paths[list->count] = strdup(language);
+	if (!list->paths[list->count]) {
+		fail(state, "out of memory");
+		return;
+	}
+	list->count++;
+	return;
+}
+
+static void on_span(ReadState *state, const XML_Char **atts)
+{
+	const char *file = attribute(atts, "file");
+	const char *fn   = attribute(atts, "function");
+
+	if (!file || !fn) {
+		fail(state, "a span element is incomplete");
+		return;
+	}
+
+	DeadRow *grown = realloc(state->dead,
+	                         (state->dead_count + 1) * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->dead = grown;
+
+	DeadRow *row = &state->dead[state->dead_count];
+
+	memset(row, 0, sizeof *row);
+	row->file     = strdup(file);
+	row->function = strdup(fn);
+	if (!row->file || !row->function) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->start_line = uint_attribute(state, atts, "start-line");
+	row->end_line   = uint_attribute(state, atts, "end-line");
+	row->cause      = (DeadCause)uint_attribute(state, atts, "cause");
+	state->dead_count++;
+	return;
+}
+
+static void on_image(ReadState *state, const XML_Char **atts)
+{
+	const char *image = attribute(atts, "path");
+
+	if (!image) {
+		fail(state, "an image element has no path");
+		return;
+	}
+	/* A record `elc` wrote holds one image element. A hand-edited
+	 * one may hold two, and the last would then silently replace
+	 * the first and leak it — a rejected record must exit as
+	 * leak-clean as an accepted one (HLR-125). */
+	free(state->image);
+	state->image = strdup(image);
+	if (!state->image) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->image_unresolved = uint_attribute(state, atts,
+	                                         "unresolved");
+	state->file_scope_eloc  = uint_attribute(state, atts,
+	                                         "file-scope-eloc");
+	return;
+}
+
+static void on_absent(ReadState *state, const XML_Char **atts)
+{
+	const char *function = attribute(atts, "function");
+	const char *file     = attribute(atts, "file");
+
+	if (!function || !file) {
+		fail(state, "an absent element is incomplete");
+		return;
+	}
+
+	AbsentRow *grown = realloc(state->absent,
+	                           (state->absent_count + 1) *
+	                                   sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->absent = grown;
+
+	AbsentRow *row = &state->absent[state->absent_count];
+
+	memset(row, 0, sizeof *row);
+	row->function = strdup(function);
+	row->file     = strdup(file);
+	if (!row->function || !row->file) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->line = uint_attribute(state, atts, "line");
+	state->absent_count++;
+	return;
+}
+
+static void on_configuration(ReadState *state, const XML_Char **atts)
+{
+	state->undecided_regions = uint_attribute(state, atts,
+	                                          "undecided-regions");
+	return;
+}
+
+static void on_define(ReadState *state, const XML_Char **atts)
+{
+	const char *value = attribute(atts, "value");
+
+	if (!value) {
+		fail(state, "a define element is incomplete");
+		return;
+	}
+
+	char **grown = realloc(state->definitions,
+	                       (state->definition_count + 1) * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->definitions = grown;
+	state->definitions[state->definition_count] = strdup(value);
+	if (!state->definitions[state->definition_count]) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->definition_count++;
+	return;
+}
+
+static void on_match(ReadState *state, const XML_Char **atts)
+{
+	const char *rule = attribute(atts, "rule");
+	const char *file = attribute(atts, "file");
+
+	if (!rule || !file) {
+		fail(state, "a rule match element is incomplete");
+		return;
+	}
+
+	RuleMatchRow *grown =
+		realloc(state->rule_matches,
+		        (state->rule_match_count + 1) * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->rule_matches = grown;
+
+	RuleMatchRow *row = &state->rule_matches[state->rule_match_count];
+
+	memset(row, 0, sizeof *row);
+	row->rule = strdup(rule);
+	row->file = strdup(file);
+	if (!row->rule || !row->file) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->start_line = uint_attribute(state, atts, "start-line");
+	row->end_line   = uint_attribute(state, atts, "end-line");
+	state->rule_match_count++;
+	return;
+}
+
+static void on_finding(ReadState *state, const XML_Char **atts)
+{
+	const char *severity    = attribute(atts, "severity");
+	const char *measurement = attribute(atts, "measurement");
+	const char *subject     = attribute(atts, "subject");
+	const char *where       = attribute(atts, "where");
+	const char *detail      = attribute(atts, "detail");
+	const char *source      = attribute(atts, "source");
+
+	if (!severity || !measurement || !subject || !where ||
+	    !detail || !source) {
+		fail(state, "a finding element is incomplete");
+		return;
+	}
+
+	FindingRow *grown = realloc(state->findings,
+	                            (state->finding_count + 1) *
+	                                    sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->findings = grown;
+
+	FindingRow *row = &state->findings[state->finding_count];
+
+	memset(row, 0, sizeof *row);
+	row->severity    = strdup(severity);
+	row->measurement = strdup(measurement);
+	row->subject     = strdup(subject);
+	row->where       = strdup(where);
+	row->detail      = strdup(detail);
+	row->source      = strdup(source);
+	if (!row->severity || !row->measurement || !row->subject ||
+	    !row->where || !row->detail || !row->source) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->line = uint_attribute(state, atts, "line");
+	state->finding_count++;
+	return;
+}
+
+static void on_architecture(ReadState *state, const XML_Char **atts)
+{
+	const char *strata = attribute(atts, "strata-state");
+
+	if (!strata) {
+		fail(state, "an architecture element is incomplete");
+		return;
+	}
+	state->strata_state = (StrataState)strtol(strata, NULL, 10);
+	state->bottleneck_threshold =
+		uint_attribute(state, atts, "bottleneck-threshold");
+	return;
+}
+
+static void on_coupling(ReadState *state, const XML_Char **atts)
+{
+	const char *component   = attribute(atts, "component");
+	const char *instability = attribute(atts, "instability");
+	const char *bottleneck  = attribute(atts, "bottleneck");
+
+	if (!component || !instability || !bottleneck) {
+		fail(state, "a coupling element is incomplete");
+		return;
+	}
+
+	CouplingRow *grown = realloc(state->coupling,
+	                             (state->coupling_count + 1) *
+	                                     sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->coupling = grown;
+
+	CouplingRow *row = &state->coupling[state->coupling_count];
+
+	memset(row, 0, sizeof *row);
+	row->component   = strdup(component);
+	row->instability = strdup(instability);
+	if (!row->component || !row->instability) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->ca         = uint_attribute(state, atts, "ca");
+	row->ce         = uint_attribute(state, atts, "ce");
+	row->bottleneck = strcmp(bottleneck, "0") != 0;
+	state->coupling_count++;
+	return;
+}
+
+static void on_dependency_cycle(ReadState *state, const XML_Char **atts)
+{
+	const char *components = attribute(atts, "components");
+	const char *path       = attribute(atts, "path");
+
+	if (!components || !path) {
+		fail(state, "a dependency-cycle element is incomplete");
+		return;
+	}
+
+	CycleDependencyRow *grown =
+		realloc(state->dep_cycles,
+		        (state->dep_cycle_count + 1) * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->dep_cycles = grown;
+
+	CycleDependencyRow *row =
+		&state->dep_cycles[state->dep_cycle_count];
+
+	memset(row, 0, sizeof *row);
+	row->components = strdup(components);
+	row->path       = strdup(path);
+	if (!row->components || !row->path) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->dep_cycle_count++;
+	return;
+}
+
+static void on_layering(ReadState *state, const XML_Char **atts)
+{
+	const char *from_stratum = attribute(atts, "from-stratum");
+	const char *from         = attribute(atts, "from");
+	const char *from_file    = attribute(atts, "from-file");
+	const char *to_stratum   = attribute(atts, "to-stratum");
+	const char *to           = attribute(atts, "to");
+	const char *to_file      = attribute(atts, "to-file");
+	const char *kind         = attribute(atts, "kind");
+
+	if (!from_stratum || !from || !from_file || !to_stratum ||
+	    !to || !to_file || !kind) {
+		fail(state, "a layering element is incomplete");
+		return;
+	}
+
+	LayeringRow *grown = realloc(state->layering,
+	                             (state->layering_count + 1) *
+	                                     sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->layering = grown;
+
+	LayeringRow *row = &state->layering[state->layering_count];
+
+	memset(row, 0, sizeof *row);
+	row->from_stratum  = strdup(from_stratum);
+	row->from_function = strdup(from);
+	row->from_file     = strdup(from_file);
+	row->to_stratum    = strdup(to_stratum);
+	row->to_function   = strdup(to);
+	row->to_file       = strdup(to_file);
+	if (!row->from_stratum || !row->from_function ||
+	    !row->from_file || !row->to_stratum || !row->to_function ||
+	    !row->to_file) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->layers_crossed = uint_attribute(state, atts, "layers");
+	row->kind           = (LayerViolationKind)strtol(kind, NULL, 10);
+	state->layering_count++;
+	return;
+}
+
+static void on_graph(ReadState *state, const XML_Char **atts)
+{
+	const char *value = attribute(atts, "unresolved-calls");
+
+	if (!value) {
+		fail(state, "a graph element is incomplete");
+		return;
+	}
+	state->unresolved = strtoull(value, NULL, 10);
+	return;
+}
+
+static void on_route(ReadState *state, const XML_Char **atts)
+{
+	const char *target = attribute(atts, "target");
+	const char *via    = attribute(atts, "via");
+
+	if (!target || !via) {
+		fail(state, "a route element is incomplete");
+		return;
+	}
+
+	/* Named exhaustively rather than defaulted. A record carrying
+	 * an unrecognised route would otherwise regenerate as
+	 * "filesystem", which is not an unknown answer but a confident
+	 * wrong one — in the section whose whole purpose is explaining
+	 * a surprising file set. */
+	DiscoveryRoute route;
+
+	if (strcmp(via, "repository") == 0)
+		route = ROUTE_REPOSITORY;
+	else if (strcmp(via, "filesystem") == 0)
+		route = ROUTE_FILESYSTEM;
+	else {
+		fail(state, "a route element names an unknown route");
+		return;
+	}
+
+	if (routelist_add(&state->routes, target, route) != 0)
+		fail(state, "out of memory");
+	return;
+}
+
+static void on_function(ReadState *state, const XML_Char **atts)
+{
+	if (!state->current) {
+		fail(state, "a function outside any file");
+		return;
+	}
+
+	const char *fname = attribute(atts, "name");
+
+	if (!fname) {
+		fail(state, "a function element has no name");
+		return;
+	}
+
+	if (state->current->function_count == state->capacity) {
+		size_t          next = state->capacity ? state->capacity * 2 : 8;
+		FunctionMetric *bigger =
+			realloc(state->current->functions,
+			        next * sizeof *bigger);
+
+		if (!bigger) {
+			fail(state, "out of memory");
+			return;
+		}
+		state->current->functions = bigger;
+		state->capacity           = next;
+	}
+
+	FunctionMetric *fn =
+		&state->current->functions[state->current->function_count];
+
+	memset(fn, 0, sizeof *fn);
+	fn->name = strdup(fname);
+	if (!fn->name) {
+		fail(state, "out of memory");
+		return;
+	}
+	fn->start_line = uint_attribute(state, atts, "start-line");
+	fn->end_line   = uint_attribute(state, atts, "end-line");
+	fn->eloc       = uint_attribute(state, atts, "eloc");
+	fn->complexity = uint_attribute(state, atts, "complexity");
+
+	state->current->function_count++;
+	return;
+}
+
+typedef void (*ElementFn)(ReadState *state, const XML_Char **atts);
+
+static const struct {
+	const char *name;
+	ElementFn   handle;
+} ELEMENT_HANDLERS[] = {
+	{ "file",                on_file },
+	{ "calltree",            on_calltree },
+	{ "fanout",              on_fanout },
+	{ "cycle",               on_cycle },
+	{ "member",              on_member },
+	{ "step",                on_step },
+	{ "state",               on_state },
+	{ "global",              on_global },
+	{ "unreachable-function", on_unreachable_function },
+	{ "unreachable-global",  on_unreachable_global },
+	{ "cross-scope",         on_cross_scope },
+	{ "unanalysed",          on_unanalysed },
+	{ "span",                on_span },
+	{ "image",               on_image },
+	{ "absent",              on_absent },
+	{ "configuration",       on_configuration },
+	{ "define",              on_define },
+	{ "match",               on_match },
+	{ "finding",             on_finding },
+	{ "architecture",        on_architecture },
+	{ "coupling",            on_coupling },
+	{ "dependency-cycle",    on_dependency_cycle },
+	{ "layering",            on_layering },
+	{ "graph",               on_graph },
+	{ "route",               on_route },
+	{ "function",            on_function },
+};
+
 static void on_start(void *user, const XML_Char *name,
                              const XML_Char **atts)
 {
@@ -510,811 +1403,18 @@ static void on_start(void *user, const XML_Char *name,
 	if (state->failed)
 		return;
 
+	/* The first element decides whether this is a record at all. */
 	if (!state->saw_root) {
-		/* The first element decides whether this is a record at all.
-		 * A well-formed document of some other shape is rejected here,
-		 * before anything is reconstructed from it (LLR-XRD-04). */
-		if (strcmp(name, "elc-report") != 0) {
-			fail(state, "not an elc report");
-			return;
-		}
-		state->saw_root = true;
-
-		const char *version = attribute(atts, "format-version");
-
-		if (!version) {
-			fail(state, "no format-version identifier");
-			return;
-		}
-		if (atoi(version) != ELC_XML_FORMAT_VERSION) {
-			/* Naming both versions is the difference between a
-			 * message a user can act on and one that only says no
-			 * (LLR-XRD-05). */
-			snprintf(state->detail, sizeof state->detail,
-			         "format version %s is not supported; this "
-			         "build reads version %d", version,
-			         ELC_XML_FORMAT_VERSION);
-			fail(state, state->detail);
-			return;
-		}
+		on_root(state, name, atts);
 		return;
 	}
 
-	if (strcmp(name, "file") == 0 && !state->current) {
-		const char *path = attribute(atts, "path");
-
-		if (!path) {
-			fail(state, "a file element has no path");
+	for (size_t i = 0; i < sizeof ELEMENT_HANDLERS / sizeof *ELEMENT_HANDLERS;
+	     i++) {
+		if (strcmp(name, ELEMENT_HANDLERS[i].name) == 0) {
+			ELEMENT_HANDLERS[i].handle(state, atts);
 			return;
 		}
-
-		/* A <file> inside <skipped> carries a path and nothing else;
-		 * one inside <files> carries metrics. They are told apart by
-		 * their attributes rather than by tracking the parent, which
-		 * would need a stack for one distinction. */
-		if (!attribute(atts, "physical-lines")) {
-			if (metrics_add_skipped(state->acc, path) != 0)
-				fail(state, "out of memory");
-			return;
-		}
-
-		FileMetrics *file = calloc(1, sizeof *file);
-
-		if (!file) {
-			fail(state, "out of memory");
-			return;
-		}
-
-		file->path = strdup(path);
-		if (!file->path) {
-			free(file);
-			fail(state, "out of memory");
-			return;
-		}
-
-		const char *language = attribute(atts, "language");
-
-		if (language && *language) {
-			file->language = strdup(language);
-			if (!file->language) {
-				filemetrics_free(file);
-				fail(state, "out of memory");
-				return;
-			}
-		}
-
-		file->physical_lines = uint_attribute(state, atts,
-		                                      "physical-lines");
-		file->eloc           = uint_attribute(state, atts, "eloc");
-		/* Absent in a record written before the field existed, which
-		 * reads back as zero — no damage — and is the right answer for
-		 * a build that could not have measured any. */
-		file->unparsed_lines = uint_attribute(state, atts,
-		                                      "unparsed-lines");
-
-		state->current  = file;
-		state->capacity = 0;
-		return;
-	}
-
-	if (strcmp(name, "calltree") == 0) {
-		const char *which = attribute(atts, "depth-state");
-		const char *depth = attribute(atts, "depth");
-
-		if (!which || !depth) {
-			fail(state, "a calltree element is incomplete");
-			return;
-		}
-		state->depth_state = (DepthState)strtol(which, NULL, 10);
-		state->depth       = (uint32_t)strtoul(depth, NULL, 10);
-		return;
-	}
-
-	if (strcmp(name, "fanout") == 0) {
-		const char *fn   = attribute(atts, "function");
-		const char *file = attribute(atts, "file");
-		const char *line = attribute(atts, "line");
-		const char *val  = attribute(atts, "value");
-
-		if (!fn || !file || !line || !val) {
-			fail(state, "a fanout element is incomplete");
-			return;
-		}
-
-		FanOutRow *grown = realloc(state->fan_out,
-		                           (state->fan_out_count + 1) *
-		                                   sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->fan_out = grown;
-
-		FanOutRow *row = &state->fan_out[state->fan_out_count];
-
-		memset(row, 0, sizeof *row);
-		row->function = strdup(fn);
-		row->file     = strdup(file);
-		if (!row->function || !row->file) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->line    = (uint32_t)strtoul(line, NULL, 10);
-		row->fan_out = (uint32_t)strtoul(val, NULL, 10);
-		state->fan_out_count++;
-		return;
-	}
-
-	if (strcmp(name, "cycle") == 0) {
-		CycleRow *grown = realloc(state->cycles,
-		                          (state->cycle_count + 1) *
-		                                  sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->cycles = grown;
-		memset(&state->cycles[state->cycle_count], 0,
-		       sizeof *state->cycles);
-		state->cycle_count++;
-		return;
-	}
-
-	if (strcmp(name, "member") == 0) {
-		const char *fn = attribute(atts, "function");
-
-		if (!fn || state->cycle_count == 0) {
-			fail(state, "a cycle member outside any cycle");
-			return;
-		}
-
-		CycleRow *row    = &state->cycles[state->cycle_count - 1];
-		char    **members = realloc(row->members,
-		                            (row->count + 1) * sizeof *members);
-
-		if (!members) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->members = members;
-		row->members[row->count] = strdup(fn);
-		if (!row->members[row->count]) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->count++;
-		return;
-	}
-
-	if (strcmp(name, "step") == 0) {
-		const char *fn   = attribute(atts, "function");
-		const char *file = attribute(atts, "file");
-		const char *line = attribute(atts, "line");
-
-		if (!fn || !file || !line) {
-			fail(state, "a step element is incomplete");
-			return;
-		}
-
-		ChainRow *grown = realloc(state->deepest,
-		                          (state->deepest_count + 1) *
-		                                  sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->deepest = grown;
-
-		ChainRow *row = &state->deepest[state->deepest_count];
-
-		memset(row, 0, sizeof *row);
-		row->function = strdup(fn);
-		row->file     = strdup(file);
-		if (!row->function || !row->file) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->line = (uint32_t)strtoul(line, NULL, 10);
-		state->deepest_count++;
-		return;
-	}
-
-	if (strcmp(name, "state") == 0) {
-		const char *reach = attribute(atts, "reach-state");
-		const char *scope = attribute(atts, "scope-state");
-
-		if (!reach || !scope) {
-			fail(state, "a state element is incomplete");
-			return;
-		}
-		state->reach_state = (ReachState)strtol(reach, NULL, 10);
-		state->scope_state = (ScopeState)strtol(scope, NULL, 10);
-		return;
-	}
-
-	if (strcmp(name, "global") == 0) {
-		const char *object  = attribute(atts, "object");
-		const char *writers = attribute(atts, "writers");
-		const char *readers = attribute(atts, "readers");
-		const char *parts   = attribute(atts, "participants");
-		const char *verdict = attribute(atts, "verdict");
-
-		if (!object || !writers || !readers || !parts || !verdict) {
-			fail(state, "a global element is incomplete");
-			return;
-		}
-
-		GlobalStateRow *grown =
-			realloc(state->global_state,
-			        (state->global_state_count + 1) * sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->global_state = grown;
-
-		GlobalStateRow *row = &state->global_state[state->global_state_count];
-
-		memset(row, 0, sizeof *row);
-		row->object       = strdup(object);
-		row->writers      = strdup(writers);
-		row->readers      = strdup(readers);
-		row->participants = strdup(parts);
-		if (!row->object || !row->writers || !row->readers ||
-		    !row->participants) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->verdict = (GlobalVerdict)strtol(verdict, NULL, 10);
-		state->global_state_count++;
-		return;
-	}
-
-	if (strcmp(name, "unreachable-function") == 0) {
-		const char *fn   = attribute(atts, "function");
-		const char *file = attribute(atts, "file");
-		const char *line = attribute(atts, "line");
-
-		if (!fn || !file || !line) {
-			fail(state, "an unreachable-function element is incomplete");
-			return;
-		}
-
-		UnreachableRow *grown =
-			realloc(state->unreachable,
-			        (state->unreachable_count + 1) * sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->unreachable = grown;
-
-		UnreachableRow *row = &state->unreachable[state->unreachable_count];
-
-		memset(row, 0, sizeof *row);
-		row->function = strdup(fn);
-		row->file     = strdup(file);
-		if (!row->function || !row->file) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->line = (uint32_t)strtoul(line, NULL, 10);
-		state->unreachable_count++;
-		return;
-	}
-
-	if (strcmp(name, "unreachable-global") == 0) {
-		const char *object = attribute(atts, "object");
-
-		if (!object) {
-			fail(state, "an unreachable-global element has no object");
-			return;
-		}
-
-		char **grown = realloc(state->unreachable_globals,
-		                       (state->unreachable_global_count + 1) *
-		                               sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->unreachable_globals = grown;
-		state->unreachable_globals[state->unreachable_global_count] =
-			strdup(object);
-		if (!state->unreachable_globals[state->unreachable_global_count]) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->unreachable_global_count++;
-		return;
-	}
-
-	if (strcmp(name, "cross-scope") == 0) {
-		const char *from_scope = attribute(atts, "from-scope");
-		const char *from       = attribute(atts, "from");
-		const char *to_scope   = attribute(atts, "to-scope");
-		const char *to         = attribute(atts, "to");
-		const char *object     = attribute(atts, "object");
-
-		if (!from_scope || !from || !to_scope || !to || !object) {
-			fail(state, "a cross-scope element is incomplete");
-			return;
-		}
-
-		CrossScopeRow *grown =
-			realloc(state->cross_scope,
-			        (state->cross_scope_count + 1) * sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->cross_scope = grown;
-
-		CrossScopeRow *row = &state->cross_scope[state->cross_scope_count];
-
-		memset(row, 0, sizeof *row);
-		row->from_scope    = strdup(from_scope);
-		row->from_function = strdup(from);
-		row->to_scope      = strdup(to_scope);
-		row->to_function   = strdup(to);
-		row->object        = strdup(object);
-		if (!row->from_scope || !row->from_function || !row->to_scope ||
-		    !row->to_function || !row->object) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->cross_scope_count++;
-		return;
-	}
-
-	if (strcmp(name, "unanalysed") == 0) {
-		const char *language = attribute(atts, "language");
-
-		if (!language) {
-			fail(state, "an unanalysed element names no language");
-			return;
-		}
-
-		PathList *list = &state->dead_unanalysed;
-
-		if (list->count == list->capacity) {
-			size_t next   = list->capacity ? list->capacity * 2 : 4;
-			char **bigger = realloc(list->paths, next * sizeof *bigger);
-
-			if (!bigger) {
-				fail(state, "out of memory");
-				return;
-			}
-			list->paths    = bigger;
-			list->capacity = next;
-		}
-		list->paths[list->count] = strdup(language);
-		if (!list->paths[list->count]) {
-			fail(state, "out of memory");
-			return;
-		}
-		list->count++;
-		return;
-	}
-
-	if (strcmp(name, "span") == 0) {
-		const char *file = attribute(atts, "file");
-		const char *fn   = attribute(atts, "function");
-
-		if (!file || !fn) {
-			fail(state, "a span element is incomplete");
-			return;
-		}
-
-		DeadRow *grown = realloc(state->dead,
-		                         (state->dead_count + 1) * sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->dead = grown;
-
-		DeadRow *row = &state->dead[state->dead_count];
-
-		memset(row, 0, sizeof *row);
-		row->file     = strdup(file);
-		row->function = strdup(fn);
-		if (!row->file || !row->function) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->start_line = uint_attribute(state, atts, "start-line");
-		row->end_line   = uint_attribute(state, atts, "end-line");
-		row->cause      = (DeadCause)uint_attribute(state, atts, "cause");
-		state->dead_count++;
-		return;
-	}
-
-	if (strcmp(name, "image") == 0) {
-		const char *image = attribute(atts, "path");
-
-		if (!image) {
-			fail(state, "an image element has no path");
-			return;
-		}
-		/* A record `elc` wrote holds one image element. A hand-edited
-		 * one may hold two, and the last would then silently replace
-		 * the first and leak it — a rejected record must exit as
-		 * leak-clean as an accepted one (HLR-125). */
-		free(state->image);
-		state->image = strdup(image);
-		if (!state->image) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->image_unresolved = uint_attribute(state, atts,
-		                                         "unresolved");
-		state->file_scope_eloc  = uint_attribute(state, atts,
-		                                         "file-scope-eloc");
-		return;
-	}
-
-	if (strcmp(name, "absent") == 0) {
-		const char *function = attribute(atts, "function");
-		const char *file     = attribute(atts, "file");
-
-		if (!function || !file) {
-			fail(state, "an absent element is incomplete");
-			return;
-		}
-
-		AbsentRow *grown = realloc(state->absent,
-		                           (state->absent_count + 1) *
-		                                   sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->absent = grown;
-
-		AbsentRow *row = &state->absent[state->absent_count];
-
-		memset(row, 0, sizeof *row);
-		row->function = strdup(function);
-		row->file     = strdup(file);
-		if (!row->function || !row->file) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->line = uint_attribute(state, atts, "line");
-		state->absent_count++;
-		return;
-	}
-
-	if (strcmp(name, "configuration") == 0) {
-		state->undecided_regions = uint_attribute(state, atts,
-		                                          "undecided-regions");
-		return;
-	}
-
-	if (strcmp(name, "define") == 0) {
-		const char *value = attribute(atts, "value");
-
-		if (!value) {
-			fail(state, "a define element is incomplete");
-			return;
-		}
-
-		char **grown = realloc(state->definitions,
-		                       (state->definition_count + 1) * sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->definitions = grown;
-		state->definitions[state->definition_count] = strdup(value);
-		if (!state->definitions[state->definition_count]) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->definition_count++;
-		return;
-	}
-
-	if (strcmp(name, "match") == 0) {
-		const char *rule = attribute(atts, "rule");
-		const char *file = attribute(atts, "file");
-
-		if (!rule || !file) {
-			fail(state, "a rule match element is incomplete");
-			return;
-		}
-
-		RuleMatchRow *grown =
-			realloc(state->rule_matches,
-			        (state->rule_match_count + 1) * sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->rule_matches = grown;
-
-		RuleMatchRow *row = &state->rule_matches[state->rule_match_count];
-
-		memset(row, 0, sizeof *row);
-		row->rule = strdup(rule);
-		row->file = strdup(file);
-		if (!row->rule || !row->file) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->start_line = uint_attribute(state, atts, "start-line");
-		row->end_line   = uint_attribute(state, atts, "end-line");
-		state->rule_match_count++;
-		return;
-	}
-
-	if (strcmp(name, "finding") == 0) {
-		const char *severity    = attribute(atts, "severity");
-		const char *measurement = attribute(atts, "measurement");
-		const char *subject     = attribute(atts, "subject");
-		const char *where       = attribute(atts, "where");
-		const char *detail      = attribute(atts, "detail");
-		const char *source      = attribute(atts, "source");
-
-		if (!severity || !measurement || !subject || !where ||
-		    !detail || !source) {
-			fail(state, "a finding element is incomplete");
-			return;
-		}
-
-		FindingRow *grown = realloc(state->findings,
-		                            (state->finding_count + 1) *
-		                                    sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->findings = grown;
-
-		FindingRow *row = &state->findings[state->finding_count];
-
-		memset(row, 0, sizeof *row);
-		row->severity    = strdup(severity);
-		row->measurement = strdup(measurement);
-		row->subject     = strdup(subject);
-		row->where       = strdup(where);
-		row->detail      = strdup(detail);
-		row->source      = strdup(source);
-		if (!row->severity || !row->measurement || !row->subject ||
-		    !row->where || !row->detail || !row->source) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->line = uint_attribute(state, atts, "line");
-		state->finding_count++;
-		return;
-	}
-
-	if (strcmp(name, "architecture") == 0) {
-		const char *strata = attribute(atts, "strata-state");
-
-		if (!strata) {
-			fail(state, "an architecture element is incomplete");
-			return;
-		}
-		state->strata_state = (StrataState)strtol(strata, NULL, 10);
-		state->bottleneck_threshold =
-			uint_attribute(state, atts, "bottleneck-threshold");
-		return;
-	}
-
-	if (strcmp(name, "coupling") == 0) {
-		const char *component   = attribute(atts, "component");
-		const char *instability = attribute(atts, "instability");
-		const char *bottleneck  = attribute(atts, "bottleneck");
-
-		if (!component || !instability || !bottleneck) {
-			fail(state, "a coupling element is incomplete");
-			return;
-		}
-
-		CouplingRow *grown = realloc(state->coupling,
-		                             (state->coupling_count + 1) *
-		                                     sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->coupling = grown;
-
-		CouplingRow *row = &state->coupling[state->coupling_count];
-
-		memset(row, 0, sizeof *row);
-		row->component   = strdup(component);
-		row->instability = strdup(instability);
-		if (!row->component || !row->instability) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->ca         = uint_attribute(state, atts, "ca");
-		row->ce         = uint_attribute(state, atts, "ce");
-		row->bottleneck = strcmp(bottleneck, "0") != 0;
-		state->coupling_count++;
-		return;
-	}
-
-	if (strcmp(name, "dependency-cycle") == 0) {
-		const char *components = attribute(atts, "components");
-		const char *path       = attribute(atts, "path");
-
-		if (!components || !path) {
-			fail(state, "a dependency-cycle element is incomplete");
-			return;
-		}
-
-		CycleDependencyRow *grown =
-			realloc(state->dep_cycles,
-			        (state->dep_cycle_count + 1) * sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->dep_cycles = grown;
-
-		CycleDependencyRow *row =
-			&state->dep_cycles[state->dep_cycle_count];
-
-		memset(row, 0, sizeof *row);
-		row->components = strdup(components);
-		row->path       = strdup(path);
-		if (!row->components || !row->path) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->dep_cycle_count++;
-		return;
-	}
-
-	if (strcmp(name, "layering") == 0) {
-		const char *from_stratum = attribute(atts, "from-stratum");
-		const char *from         = attribute(atts, "from");
-		const char *from_file    = attribute(atts, "from-file");
-		const char *to_stratum   = attribute(atts, "to-stratum");
-		const char *to           = attribute(atts, "to");
-		const char *to_file      = attribute(atts, "to-file");
-		const char *kind         = attribute(atts, "kind");
-
-		if (!from_stratum || !from || !from_file || !to_stratum ||
-		    !to || !to_file || !kind) {
-			fail(state, "a layering element is incomplete");
-			return;
-		}
-
-		LayeringRow *grown = realloc(state->layering,
-		                             (state->layering_count + 1) *
-		                                     sizeof *grown);
-
-		if (!grown) {
-			fail(state, "out of memory");
-			return;
-		}
-		state->layering = grown;
-
-		LayeringRow *row = &state->layering[state->layering_count];
-
-		memset(row, 0, sizeof *row);
-		row->from_stratum  = strdup(from_stratum);
-		row->from_function = strdup(from);
-		row->from_file     = strdup(from_file);
-		row->to_stratum    = strdup(to_stratum);
-		row->to_function   = strdup(to);
-		row->to_file       = strdup(to_file);
-		if (!row->from_stratum || !row->from_function ||
-		    !row->from_file || !row->to_stratum || !row->to_function ||
-		    !row->to_file) {
-			fail(state, "out of memory");
-			return;
-		}
-		row->layers_crossed = uint_attribute(state, atts, "layers");
-		row->kind           = (LayerViolationKind)strtol(kind, NULL, 10);
-		state->layering_count++;
-		return;
-	}
-
-	if (strcmp(name, "graph") == 0) {
-		const char *value = attribute(atts, "unresolved-calls");
-
-		if (!value) {
-			fail(state, "a graph element is incomplete");
-			return;
-		}
-		state->unresolved = strtoull(value, NULL, 10);
-		return;
-	}
-
-	if (strcmp(name, "route") == 0) {
-		const char *target = attribute(atts, "target");
-		const char *via    = attribute(atts, "via");
-
-		if (!target || !via) {
-			fail(state, "a route element is incomplete");
-			return;
-		}
-
-		/* Named exhaustively rather than defaulted. A record carrying
-		 * an unrecognised route would otherwise regenerate as
-		 * "filesystem", which is not an unknown answer but a confident
-		 * wrong one — in the section whose whole purpose is explaining
-		 * a surprising file set. */
-		DiscoveryRoute route;
-
-		if (strcmp(via, "repository") == 0)
-			route = ROUTE_REPOSITORY;
-		else if (strcmp(via, "filesystem") == 0)
-			route = ROUTE_FILESYSTEM;
-		else {
-			fail(state, "a route element names an unknown route");
-			return;
-		}
-
-		if (routelist_add(&state->routes, target, route) != 0)
-			fail(state, "out of memory");
-		return;
-	}
-
-	if (strcmp(name, "function") == 0) {
-		if (!state->current) {
-			fail(state, "a function outside any file");
-			return;
-		}
-
-		const char *fname = attribute(atts, "name");
-
-		if (!fname) {
-			fail(state, "a function element has no name");
-			return;
-		}
-
-		if (state->current->function_count == state->capacity) {
-			size_t          next = state->capacity ? state->capacity * 2 : 8;
-			FunctionMetric *bigger =
-				realloc(state->current->functions,
-				        next * sizeof *bigger);
-
-			if (!bigger) {
-				fail(state, "out of memory");
-				return;
-			}
-			state->current->functions = bigger;
-			state->capacity           = next;
-		}
-
-		FunctionMetric *fn =
-			&state->current->functions[state->current->function_count];
-
-		memset(fn, 0, sizeof *fn);
-		fn->name = strdup(fname);
-		if (!fn->name) {
-			fail(state, "out of memory");
-			return;
-		}
-		fn->start_line = uint_attribute(state, atts, "start-line");
-		fn->end_line   = uint_attribute(state, atts, "end-line");
-		fn->eloc       = uint_attribute(state, atts, "eloc");
-		fn->complexity = uint_attribute(state, atts, "complexity");
-
-		state->current->function_count++;
-		return;
 	}
 
 	/* Anything else is ignored. A record written by a newer build of the
