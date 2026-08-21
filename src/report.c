@@ -256,13 +256,10 @@ static void select_callouts(Report *out)
 	}
 }
 
-int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
-                    const ElcOptions *opts, Report *out)
+/* Copied rather than moved: discovery owns its list until the run ends, and a
+ * regenerated report has none to move (LLR-RPT-17). */
+static int copy_routes(const RouteList *routes, Report *out)
 {
-	memset(out, 0, sizeof *out);
-
-	/* Copied rather than moved: discovery owns its list until the run
-	 * ends, and a regenerated report has none to move (LLR-RPT-17). */
 	for (size_t i = 0; routes && i < routes->count; i++)
 		if (routelist_add(&out->routes, routes->items[i].target,
 		                  routes->items[i].route) != 0) {
@@ -270,38 +267,37 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 			      stderr);
 			return -1;
 		}
-	out->complexity_threshold = opts->complexity_threshold;
+	return 0;
+}
 
-	/* The configuration this report describes, copied because the model
-	 * outlives argv on the regeneration path and sorted because the order
-	 * the user typed them in is not a property of the run (HLR-136). */
-	if (opts->define_count > 0) {
-		out->definitions = calloc(opts->define_count,
-		                          sizeof *out->definitions);
-		if (!out->definitions) {
-			fputs("elc: out of memory recording the "
-			      "configuration\n", stderr);
-			return -1;
-		}
-		for (size_t i = 0; i < opts->define_count; i++) {
-			out->definitions[i] = strdup(opts->defines[i]);
-			if (!out->definitions[i])
-				return -1;
-			out->definition_count++;
-		}
-		qsort(out->definitions, out->definition_count,
-		      sizeof *out->definitions, report_by_string);
+/* The configuration this report describes, copied because the model outlives
+ * argv on the regeneration path and sorted because the order the user typed
+ * them in is not a property of the run (HLR-136). */
+static int copy_definitions(const ElcOptions *opts, Report *out)
+{
+	if (opts->define_count == 0)
+		return 0;
+
+	out->definitions = calloc(opts->define_count, sizeof *out->definitions);
+	if (!out->definitions) {
+		fputs("elc: out of memory recording the configuration\n",
+		      stderr);
+		return -1;
 	}
+	for (size_t i = 0; i < opts->define_count; i++) {
+		out->definitions[i] = strdup(opts->defines[i]);
+		if (!out->definitions[i])
+			return -1;
+		out->definition_count++;
+	}
+	qsort(out->definitions, out->definition_count,
+	      sizeof *out->definitions, report_by_string);
+	return 0;
+}
 
-	out->files      = acc->files;
-	out->file_count = acc->count;
-	acc->files      = NULL;
-	acc->count      = 0;
-	acc->capacity   = 0;
-
-	out->skipped_files = acc->skipped;
-	memset(&acc->skipped, 0, sizeof acc->skipped);
-
+/* The project totals, and the per-language ones beside them. */
+static int total_files(Report *out)
+{
 	for (size_t i = 0; i < out->file_count; i++) {
 		out->summary.physical_lines += out->files[i]->physical_lines;
 		out->summary.eloc           += out->files[i]->eloc;
@@ -313,10 +309,14 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 			return -1;
 	}
 	out->summary.file_count = out->file_count;
+	return 0;
+}
 
-	/* Every collection in the model is ordered here, by an explicit key,
-	 * so that no renderer sorts and no enumeration order reaches the
-	 * output (LLR-RPT-10, LLR-RPT-11). */
+/* Every collection in the model is ordered here, by an explicit key, so that
+ * no renderer sorts and no enumeration order reaches the output (LLR-RPT-10,
+ * LLR-RPT-11). */
+static void order_collections(Report *out)
+{
 	if (out->file_count > 1)
 		qsort(out->files, out->file_count, sizeof *out->files, by_path);
 
@@ -337,10 +337,12 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 	if (out->routes.count > 1)
 		qsort(out->routes.items, out->routes.count,
 		      sizeof *out->routes.items, by_route_target);
+}
 
-	/* Both of these read the model *after* it is ordered, so the listing
-	 * comes out in presentation order and the callouts break their ties
-	 * by it (HLR-021, HLR-026). */
+/* The functions at or over the threshold, read from the model *after* it is
+ * ordered so the listing comes out in presentation order (HLR-021). */
+static int collect_over_threshold(Report *out)
+{
 	for (size_t i = 0; i < out->file_count; i++) {
 		const FileMetrics *file = out->files[i];
 
@@ -353,52 +355,96 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 				return -1;
 		}
 	}
+	return 0;
+}
 
-	/* The source functions the image does not define, gathered after the
-	 * files are ordered and sorted on their own keys: a query match arrives
-	 * in no source order, so without this the rows would carry the order
-	 * tree-sitter happened to report them in (HLR-032, LLR-RPT-31).
-	 *
-	 * Built only for a filtered run. With no image every list is empty
-	 * anyway, and the gate says why rather than leaving a reader to infer
-	 * it from an absence (HLR-140). */
-	if (opts->image_path) {
-		size_t total = 0;
+/* The source functions the image does not define, gathered after the files are
+ * ordered and sorted on their own keys: a query match arrives in no source
+ * order, so without this the rows would carry the order tree-sitter happened to
+ * report them in (HLR-032, LLR-RPT-31).
+ *
+ * Built only for a filtered run. With no image every list is empty anyway, and
+ * the gate says why rather than leaving a reader to infer it from an absence
+ * (HLR-140).
+ */
+static int collect_absent(const ElcOptions *opts, Report *out)
+{
+	size_t total = 0;
 
-		for (size_t i = 0; i < out->file_count; i++)
-			total += out->files[i]->absent_count;
+	if (!opts->image_path)
+		return 0;
 
-		if (total > 0) {
-			out->absent = calloc(total, sizeof *out->absent);
-			if (!out->absent) {
-				fputs("elc: out of memory recording the "
-				      "functions the image does not define\n",
-				      stderr);
+	for (size_t i = 0; i < out->file_count; i++)
+		total += out->files[i]->absent_count;
+
+	if (total == 0)
+		return 0;
+
+	out->absent = calloc(total, sizeof *out->absent);
+	if (!out->absent) {
+		fputs("elc: out of memory recording the functions the image "
+		      "does not define\n", stderr);
+		return -1;
+	}
+
+	for (size_t i = 0; i < out->file_count; i++) {
+		const FileMetrics *file = out->files[i];
+
+		for (size_t j = 0; j < file->absent_count; j++) {
+			AbsentRow *row = &out->absent[out->absent_count];
+
+			row->function = strdup(file->absent[j].name);
+			row->file     = strdup(file->path);
+			if (!row->function || !row->file)
 				return -1;
-			}
-
-			for (size_t i = 0; i < out->file_count; i++) {
-				const FileMetrics *file = out->files[i];
-
-				for (size_t j = 0; j < file->absent_count; j++) {
-					AbsentRow *row =
-						&out->absent[out->absent_count];
-
-					row->function =
-						strdup(file->absent[j].name);
-					row->file = strdup(file->path);
-					if (!row->function || !row->file)
-						return -1;
-					row->line = file->absent[j].line;
-					out->absent_count++;
-				}
-			}
-
-			if (out->absent_count > 1)
-				qsort(out->absent, out->absent_count,
-				      sizeof *out->absent, by_absent);
+			row->line = file->absent[j].line;
+			out->absent_count++;
 		}
 	}
+
+	if (out->absent_count > 1)
+		qsort(out->absent, out->absent_count, sizeof *out->absent,
+		      by_absent);
+
+	return 0;
+}
+
+int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
+                    const ElcOptions *opts, Report *out)
+{
+	memset(out, 0, sizeof *out);
+
+	if (copy_routes(routes, out) != 0)
+		return -1;
+
+	out->complexity_threshold = opts->complexity_threshold;
+
+	if (copy_definitions(opts, out) != 0)
+		return -1;
+
+	/* Moved, not copied: the accumulator's files become the report's, and
+	 * the accumulator is left holding nothing to free. */
+	out->files      = acc->files;
+	out->file_count = acc->count;
+	acc->files      = NULL;
+	acc->count      = 0;
+	acc->capacity   = 0;
+
+	out->skipped_files = acc->skipped;
+	memset(&acc->skipped, 0, sizeof acc->skipped);
+
+	if (total_files(out) != 0)
+		return -1;
+
+	order_collections(out);
+
+	/* Both of these read the model *after* it is ordered, so the listing
+	 * comes out in presentation order and the callouts break their ties by
+	 * it (HLR-021, HLR-026). */
+	if (collect_over_threshold(out) != 0)
+		return -1;
+	if (collect_absent(opts, out) != 0)
+		return -1;
 
 	select_callouts(out);
 
@@ -703,6 +749,92 @@ static int set_globals(Report *report, const StateResults *state, const Sdg *g)
 	return 0;
 }
 
+static int set_unreachable_functions(Report *report, const StateResults *state,
+                                     const Sdg *g)
+{
+	if (state->unreachable_count == 0)
+		return 0;
+
+	report->unreachable = calloc(state->unreachable_count,
+	                             sizeof *report->unreachable);
+	if (!report->unreachable)
+		return -1;
+
+	for (size_t i = 0; i < state->unreachable_count; i++) {
+		uint32_t node = state->unreachable[i];
+
+		if (node >= g->node_count)
+			continue;
+
+		UnreachableRow *row =
+			&report->unreachable[report->unreachable_count];
+
+		row->function = strdup(g->nodes[node].name);
+		row->file     = strdup(g->nodes[node].file);
+		if (!row->function || !row->file)
+			return -1;
+		row->line = g->nodes[node].line_start;
+		report->unreachable_count++;
+	}
+	return 0;
+}
+
+static int set_unreachable_globals(Report *report, const StateResults *state)
+{
+	if (state->dead_global_count == 0)
+		return 0;
+
+	report->unreachable_globals = calloc(state->dead_global_count,
+	                                     sizeof *report->unreachable_globals);
+	if (!report->unreachable_globals)
+		return -1;
+
+	for (size_t i = 0; i < state->dead_global_count; i++) {
+		report->unreachable_globals[i] = strdup(state->dead_globals[i]);
+		if (!report->unreachable_globals[i])
+			return -1;
+		report->unreachable_global_count++;
+	}
+	return 0;
+}
+
+static int set_cross_scope(Report *report, const StateResults *state,
+                           const Sdg *g, const ElcOptions *opts)
+{
+	if (state->violation_count == 0)
+		return 0;
+
+	report->cross_scope = calloc(state->violation_count,
+	                             sizeof *report->cross_scope);
+	if (!report->cross_scope)
+		return -1;
+
+	for (size_t i = 0; i < state->violation_count; i++) {
+		const ScopeViolation *v = &state->violations[i];
+
+		if (v->from >= g->node_count || v->to >= g->node_count ||
+		    v->from_scope >= opts->scopes.count ||
+		    v->to_scope >= opts->scopes.count)
+			continue;
+
+		CrossScopeRow *row =
+			&report->cross_scope[report->cross_scope_count];
+
+		row->from_scope =
+			strdup(opts->scopes.items[v->from_scope].name);
+		row->from_function = strdup(g->nodes[v->from].name);
+		row->to_scope =
+			strdup(opts->scopes.items[v->to_scope].name);
+		row->to_function = strdup(g->nodes[v->to].name);
+		row->object      = strdup(v->object ? v->object : "");
+		if (!row->from_scope || !row->from_function ||
+		    !row->to_scope || !row->to_function || !row->object)
+			return -1;
+		report->cross_scope_count++;
+	}
+	return 0;
+}
+
 int report_set_state(Report *report, const StateResults *state, const Sdg *g,
                      const ElcOptions *opts)
 {
@@ -712,85 +844,11 @@ int report_set_state(Report *report, const StateResults *state, const Sdg *g,
 	report->reach_state = state->reach_state;
 	report->scope_state = state->scope_state;
 
-	if (set_globals(report, state, g) != 0)
+	if (set_globals(report, state, g) != 0 ||
+	    set_unreachable_functions(report, state, g) != 0 ||
+	    set_unreachable_globals(report, state) != 0 ||
+	    set_cross_scope(report, state, g, opts) != 0)
 		return -1;
-
-	/* --- unreachable functions ---------------------------------------- */
-
-	if (state->unreachable_count > 0) {
-		report->unreachable = calloc(state->unreachable_count,
-		                             sizeof *report->unreachable);
-		if (!report->unreachable)
-			return -1;
-
-		for (size_t i = 0; i < state->unreachable_count; i++) {
-			uint32_t node = state->unreachable[i];
-
-			if (node >= g->node_count)
-				continue;
-
-			UnreachableRow *row =
-				&report->unreachable[report->unreachable_count];
-
-			row->function = strdup(g->nodes[node].name);
-			row->file     = strdup(g->nodes[node].file);
-			if (!row->function || !row->file)
-				return -1;
-			row->line = g->nodes[node].line_start;
-			report->unreachable_count++;
-		}
-	}
-
-	/* --- unreachable globals ------------------------------------------ */
-
-	if (state->dead_global_count > 0) {
-		report->unreachable_globals =
-			calloc(state->dead_global_count,
-			       sizeof *report->unreachable_globals);
-		if (!report->unreachable_globals)
-			return -1;
-
-		for (size_t i = 0; i < state->dead_global_count; i++) {
-			report->unreachable_globals[i] =
-				strdup(state->dead_globals[i]);
-			if (!report->unreachable_globals[i])
-				return -1;
-			report->unreachable_global_count++;
-		}
-	}
-
-	/* --- cross-scope access ------------------------------------------- */
-
-	if (state->violation_count > 0) {
-		report->cross_scope = calloc(state->violation_count,
-		                             sizeof *report->cross_scope);
-		if (!report->cross_scope)
-			return -1;
-
-		for (size_t i = 0; i < state->violation_count; i++) {
-			const ScopeViolation *v = &state->violations[i];
-
-			if (v->from >= g->node_count || v->to >= g->node_count ||
-			    v->from_scope >= opts->scopes.count ||
-			    v->to_scope >= opts->scopes.count)
-				continue;
-
-			CrossScopeRow *row =
-				&report->cross_scope[report->cross_scope_count];
-
-			row->from_scope =
-				strdup(opts->scopes.items[v->from_scope].name);
-			row->from_function = strdup(g->nodes[v->from].name);
-			row->to_scope =
-				strdup(opts->scopes.items[v->to_scope].name);
-			row->to_function = strdup(g->nodes[v->to].name);
-			row->object      = strdup(v->object ? v->object : "");
-			if (!row->from_scope || !row->from_function ||
-			    !row->to_scope || !row->to_function || !row->object)
-				return -1;
-			report->cross_scope_count++;
-		}
-	}
 
 	/* Every collection ordered by an explicit key before a renderer sees
 	 * it, as the rest of the model is. The globals and the unreachable
@@ -883,6 +941,116 @@ static char *join_components(const Sdg *g, const size_t *items, size_t count,
 	return joined_take(&out);
 }
 
+/* One row per component. */
+static int set_coupling(Report *report, const ArchResults *arch, const Sdg *g)
+{
+	if (arch->component_count == 0)
+		return 0;
+
+	report->coupling = calloc(arch->component_count,
+	                          sizeof *report->coupling);
+	if (!report->coupling)
+		return -1;
+
+	for (size_t i = 0; i < arch->component_count &&
+	     i < g->component_count; i++) {
+		const ComponentCoupling *c   = &arch->coupling[i];
+		CouplingRow             *row =
+			&report->coupling[report->coupling_count];
+		char                     value[32];
+
+		row->component = strdup(g->component_paths[i]);
+		if (!row->component)
+			return -1;
+		row->ca         = c->ca;
+		row->ce         = c->ce;
+		row->bottleneck = c->bottleneck;
+
+		/* Two decimal places, and the word where there is no number.
+		 * Formatting once here is what keeps the four renderers from
+		 * each deciding how to say "undefined" (HLR-082,
+		 * LLR-INS-02). */
+		if (c->instability_defined)
+			snprintf(value, sizeof value, "%.2f", c->instability);
+		else
+			snprintf(value, sizeof value, "undefined");
+
+		row->instability = strdup(value);
+		if (!row->instability)
+			return -1;
+		report->coupling_count++;
+	}
+	return 0;
+}
+
+static int set_dep_cycles(Report *report, const ArchResults *arch, const Sdg *g)
+{
+	if (arch->cycle_count == 0)
+		return 0;
+
+	report->dep_cycles = calloc(arch->cycle_count,
+	                            sizeof *report->dep_cycles);
+	if (!report->dep_cycles)
+		return -1;
+
+	for (size_t i = 0; i < arch->cycle_count; i++) {
+		const ComponentCycle *cycle = &arch->cycles[i];
+		CycleDependencyRow   *row   =
+			&report->dep_cycles[report->dep_cycle_count];
+
+		row->components = join_components(g, cycle->members,
+		                                  cycle->member_count,
+		                                  ", ", false);
+		row->path       = join_components(g, cycle->path,
+		                                  cycle->path_count,
+		                                  " -> ", true);
+		if (!row->components || !row->path)
+			return -1;
+		report->dep_cycle_count++;
+	}
+	return 0;
+}
+
+static int set_layering(Report *report, const ArchResults *arch, const Sdg *g,
+                        const ElcOptions *opts)
+{
+	if (arch->violation_count == 0)
+		return 0;
+
+	report->layering = calloc(arch->violation_count,
+	                          sizeof *report->layering);
+	if (!report->layering)
+		return -1;
+
+	for (size_t i = 0; i < arch->violation_count; i++) {
+		const LayerViolation *v = &arch->violations[i];
+
+		if (v->from >= g->node_count || v->to >= g->node_count ||
+		    v->from_stratum >= opts->strata.count ||
+		    v->to_stratum >= opts->strata.count)
+			continue;
+
+		LayeringRow *row = &report->layering[report->layering_count];
+
+		row->from_stratum =
+			strdup(opts->strata.items[v->from_stratum].name);
+		row->from_function = strdup(g->nodes[v->from].name);
+		row->from_file     = strdup(g->nodes[v->from].file);
+		row->to_stratum =
+			strdup(opts->strata.items[v->to_stratum].name);
+		row->to_function = strdup(g->nodes[v->to].name);
+		row->to_file     = strdup(g->nodes[v->to].file);
+		if (!row->from_stratum || !row->from_function ||
+		    !row->from_file || !row->to_stratum ||
+		    !row->to_function || !row->to_file)
+			return -1;
+		row->layers_crossed = (uint32_t)v->layers_crossed;
+		row->kind           = v->kind;
+		report->layering_count++;
+	}
+	return 0;
+}
+
 int report_set_arch(Report *report, const ArchResults *arch, const Sdg *g,
                     const ElcOptions *opts)
 {
@@ -892,106 +1060,10 @@ int report_set_arch(Report *report, const ArchResults *arch, const Sdg *g,
 	report->strata_state         = arch->strata_state;
 	report->bottleneck_threshold = opts->bottleneck_threshold;
 
-	/* --- coupling, one row per component ------------------------------ */
-
-	if (arch->component_count > 0) {
-		report->coupling = calloc(arch->component_count,
-		                          sizeof *report->coupling);
-		if (!report->coupling)
-			return -1;
-
-		for (size_t i = 0; i < arch->component_count &&
-		     i < g->component_count; i++) {
-			const ComponentCoupling *c   = &arch->coupling[i];
-			CouplingRow             *row =
-				&report->coupling[report->coupling_count];
-			char                     value[32];
-
-			row->component = strdup(g->component_paths[i]);
-			if (!row->component)
-				return -1;
-			row->ca         = c->ca;
-			row->ce         = c->ce;
-			row->bottleneck = c->bottleneck;
-
-			/* Two decimal places, and the word where there is no
-			 * number. Formatting once here is what keeps the four
-			 * renderers from each deciding how to say "undefined"
-			 * (HLR-082, LLR-INS-02). */
-			if (c->instability_defined)
-				snprintf(value, sizeof value, "%.2f",
-				         c->instability);
-			else
-				snprintf(value, sizeof value, "undefined");
-
-			row->instability = strdup(value);
-			if (!row->instability)
-				return -1;
-			report->coupling_count++;
-		}
-	}
-
-	/* --- dependency cycles -------------------------------------------- */
-
-	if (arch->cycle_count > 0) {
-		report->dep_cycles = calloc(arch->cycle_count,
-		                            sizeof *report->dep_cycles);
-		if (!report->dep_cycles)
-			return -1;
-
-		for (size_t i = 0; i < arch->cycle_count; i++) {
-			const ComponentCycle *cycle = &arch->cycles[i];
-			CycleDependencyRow   *row   =
-				&report->dep_cycles[report->dep_cycle_count];
-
-			row->components = join_components(g, cycle->members,
-			                                  cycle->member_count,
-			                                  ", ", false);
-			row->path       = join_components(g, cycle->path,
-			                                  cycle->path_count,
-			                                  " -> ", true);
-			if (!row->components || !row->path)
-				return -1;
-			report->dep_cycle_count++;
-		}
-	}
-
-	/* --- layering ------------------------------------------------------ */
-
-	if (arch->violation_count > 0) {
-		report->layering = calloc(arch->violation_count,
-		                          sizeof *report->layering);
-		if (!report->layering)
-			return -1;
-
-		for (size_t i = 0; i < arch->violation_count; i++) {
-			const LayerViolation *v = &arch->violations[i];
-
-			if (v->from >= g->node_count || v->to >= g->node_count ||
-			    v->from_stratum >= opts->strata.count ||
-			    v->to_stratum >= opts->strata.count)
-				continue;
-
-			LayeringRow *row =
-				&report->layering[report->layering_count];
-
-			row->from_stratum =
-				strdup(opts->strata.items[v->from_stratum].name);
-			row->from_function = strdup(g->nodes[v->from].name);
-			row->from_file     = strdup(g->nodes[v->from].file);
-			row->to_stratum =
-				strdup(opts->strata.items[v->to_stratum].name);
-			row->to_function = strdup(g->nodes[v->to].name);
-			row->to_file     = strdup(g->nodes[v->to].file);
-			if (!row->from_stratum || !row->from_function ||
-			    !row->from_file || !row->to_stratum ||
-			    !row->to_function || !row->to_file)
-				return -1;
-			row->layers_crossed = (uint32_t)v->layers_crossed;
-			row->kind           = v->kind;
-			report->layering_count++;
-		}
-	}
+	if (set_coupling(report, arch, g) != 0 ||
+	    set_dep_cycles(report, arch, g) != 0 ||
+	    set_layering(report, arch, g, opts) != 0)
+		return -1;
 
 	/* Every collection ordered by an explicit key before a renderer sees
 	 * it, as the rest of the model is (LLR-RPT-10). */
