@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.9
-**Date:** 2026-08-17
+**Version:** 0.10
+**Date:** 2026-08-20
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -16,8 +16,8 @@ It does **not** cover the correctness of the third-party Tree-sitter grammars th
 
 ### 1.3 Related Documents
 *   [PVD.md](PVD.md) — the vision and the Appendix A threshold catalogue the findings are measured against.
-*   [HLRs.md](HLRs.md) — the 122 externally observable requirements this plan verifies.
-*   [LLRs.md](LLRs.md) — the 233 per-function contracts bound to unit tests.
+*   [HLRs.md](HLRs.md) — the externally observable requirements this plan verifies.
+*   [LLRs.md](LLRs.md) — the per-function contracts bound to unit tests.
 *   [SDD.md](SDD.md) — the module and function structure the unit level mirrors.
 *   [Traceability.md](Traceability.md) — the generated coverage report and the gap list this plan exists to close.
 
@@ -132,7 +132,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **783 test(s)** across
+Snapshot: **789 test(s)** across
 **42 file(s)**.
 
 ### 3.1. [test/unit/elfsyms.c](../test/unit/elfsyms.c)
@@ -500,14 +500,14 @@ Role: **integration**. **18 test(s).**
 | - | ---- | -------- | ------- |
 | 1 | <a id="--help exits 0"></a>`--help exits 0` | — | Requesting help succeeds; it is not an error. |
 | 2 | <a id="-h exits 0"></a>`-h exits 0` | — | The short form of the help option behaves as the long form. |
-| 3 | <a id="--help writes the summary to stdout, not stderr"></a>`--help writes the summary to stdout, not stderr` | — | The help summary goes to the results stream and nothing goes to the diagnostic stream. |
+| 3 | <a id="--help writes the summary to stdout, not stderr"></a>`--help writes the summary to stdout, not stderr` | `LLR-MAIN-02` | The help summary goes to the results stream and nothing goes to the diagnostic stream. |
 | 4 | <a id="--help lists every option elc accepts"></a>`--help lists every option elc accepts` | — | The usage summary names each accepted option, making it the reference the documentation is checked against. |
 | 5 | <a id="HLR-103: --help documents the switch that declines the call tree"></a>`HLR-103: --help documents the switch that declines the call tree` | `LLR-DOC-04` | The usage summary is the reference the documentation is checked against, so an option that parses must also print; without this the documentation test would compare two documents against a table missing an entry. |
 | 6 | <a id="--help documents the exit-status scheme"></a>`--help documents the exit-status scheme` | — | The usage summary describes what each exit status means. |
 | 7 | <a id="--help is reported without validating other arguments"></a>`--help is reported without validating other arguments` | — | A help request short-circuits argument validation. |
-| 8 | <a id="an unrecognised long option exits 2"></a>`an unrecognised long option exits 2` | — | An unrecognised long option terminates with the fatal status. |
+| 8 | <a id="an unrecognised long option exits 2"></a>`an unrecognised long option exits 2` | `LLR-MAIN-10` | An unrecognised long option terminates with the fatal status. |
 | 9 | <a id="an unrecognised short option exits 2"></a>`an unrecognised short option exits 2` | — | An unrecognised short option terminates with the fatal status. |
-| 10 | <a id="no target exits 2"></a>`no target exits 2` | — | An invocation with no target terminates with the fatal status. |
+| 10 | <a id="no target exits 2"></a>`no target exits 2` | `LLR-MAIN-10` | An invocation with no target terminates with the fatal status. |
 | 11 | <a id="a usage error writes to stderr, not stdout"></a>`a usage error writes to stderr, not stdout` | — | A usage error writes its diagnostic and summary to the diagnostic stream, leaving the results stream empty. |
 | 12 | <a id="a usage error names the offending option"></a>`a usage error names the offending option` | — | The diagnostic identifies which option was rejected. |
 | 13 | <a id="no target is diagnosed explicitly"></a>`no target is diagnosed explicitly` | — | The missing-target case is diagnosed in its own words rather than as a generic failure. |
@@ -519,7 +519,7 @@ Role: **integration**. **18 test(s).**
 
 ### 3.15. [test/integration/docs.bats](../test/integration/docs.bats)
 
-Role: **integration**. **8 test(s).**
+Role: **integration**. **12 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -531,6 +531,10 @@ Role: **integration**. **8 test(s).**
 | 6 | <a id="every option in the usage summary appears in the user manual"></a>`every option in the usage summary appears in the user manual` | — | No accepted option is undocumented in the user manual. |
 | 7 | <a id="every long option the man page documents is accepted by elc"></a>`every long option the man page documents is accepted by elc` | — | No documented option is unimplemented. |
 | 8 | <a id="both documents describe the exit-status scheme"></a>`both documents describe the exit-status scheme` | — | Both documents describe the exit-status classes. |
+| 9 | <a id="no user document defers behaviour to a development phase"></a>`no user document defers behaviour to a development phase` | — | The option checks above are mechanical; everything else in these documents is prose, and prose is where drift actually happened. A sentence deferring behaviour to a later phase is the shape a claim takes once it has outlived the phase that wrote it, and it reads to a user as a capability the installed build lacks. Failing on the vocabulary catches the whole class at once. |
+| 10 | <a id="every shipped query file is named in the user manual"></a>`every shipped query file is named in the user manual` | — | A query file is part of the contract a module author codes against, so one shipped in the runtime and mentioned nowhere in the manual is a capability the reader cannot discover. Checked against what the runtime holds rather than against the last time somebody counted. |
+| 11 | <a id="every language in the runtime is named in the user manual"></a>`every language in the runtime is named in the user manual` | — | The manual states which languages ship, and that claim is checked against the runtime rather than against prose written when it was last true — a language withdrawn from the runtime left its count behind in the text. |
+| 12 | <a id="the counts block matches what Project.xml actually holds"></a>`the counts block matches what Project.xml actually holds` | — | Traceability.md reports the requirement, contract, and test totals from one hand-maintained block, and nothing else checks it against the artefacts it counts. Re-rendering cannot detect a stale figure, because the document and the block read the same number. |
 
 ### 3.16. [test/integration/discovery.bats](../test/integration/discovery.bats)
 
@@ -572,12 +576,12 @@ Role: **integration**. **30 test(s).**
 | 4 | <a id="HLR-014: each function is reported with its name and line range"></a>`HLR-014: each function is reported with its name and line range` | — | Every function discovered is reported with its name and its start and end lines. |
 | 5 | <a id="HLR-014: the line range starts at the signature, not the brace"></a>`HLR-014: the line range starts at the signature, not the brace` | — | The reported span begins where a reader says the function begins, rather than at the body's opening delimiter. |
 | 6 | <a id="HLR-033: functions are presented in start-line order"></a>`HLR-033: functions are presented in start-line order` | — | Functions appear in start-line order rather than in the order the query happened to match them. |
-| 7 | <a id="HLR-012: a file with no language module is listed as skipped"></a>`HLR-012: a file with no language module is listed as skipped` | — | A file whose extension maps to no language appears in the report's skipped list, so the report accounts for every discovered file. |
+| 7 | <a id="HLR-012: a file with no language module is listed as skipped"></a>`HLR-012: a file with no language module is listed as skipped` | `LLR-MAIN-18` | A file whose extension maps to no language appears in the report's skipped list, so the report accounts for every discovered file. |
 | 8 | <a id="HLR-012: a skipped file is also reported on stderr"></a>`HLR-012: a skipped file is also reported on stderr` | — | The skip is reported through both observables the requirement names: the list and a diagnostic. |
-| 9 | <a id="HLR-037: a skip does not make the exit status non-zero"></a>`HLR-037: a skip does not make the exit status non-zero` | — | A skipped file is not a failure and does not by itself make the status non-zero. |
+| 9 | <a id="HLR-037: a skip does not make the exit status non-zero"></a>`HLR-037: a skip does not make the exit status non-zero` | `LLR-MAIN-08` | A skipped file is not a failure and does not by itself make the status non-zero. |
 | 10 | <a id="HLR-012: a skipped file does not contribute to the totals"></a>`HLR-012: a skipped file does not contribute to the totals` | — | A skipped file is accounted for without being counted: the project totals are unchanged by its presence. |
-| 11 | <a id="HLR-035: a file that fails to parse does not abort the run"></a>`HLR-035: a file that fails to parse does not abort the run` | — | A file that fails to parse leaves the rest of the run intact and the report covers the files that succeeded. |
-| 12 | <a id="HLR-120: a parse failure degrades the run to 1"></a>`HLR-120: a parse failure degrades the run to 1` | — | A parse failure produces the status reserved for a run that completed but did not process every file. |
+| 11 | <a id="HLR-035: a file that fails to parse does not abort the run"></a>`HLR-035: a file that fails to parse does not abort the run` | `LLR-MAIN-07` | A file that fails to parse leaves the rest of the run intact and the report covers the files that succeeded. |
+| 12 | <a id="HLR-120: a parse failure degrades the run to 1"></a>`HLR-120: a parse failure degrades the run to 1` | `LLR-MAIN-09` | A parse failure produces the status reserved for a run that completed but did not process every file. |
 | 13 | <a id="HLR-035: a parse failure names the file on stderr"></a>`HLR-035: a parse failure names the file on stderr` | — | The diagnostic identifies the file that failed and reaches the diagnostic stream. |
 | 14 | <a id="HLR-019: each file reports its own line and function counts"></a>`HLR-019: each file reports its own line and function counts` | — | Each file's row carries its own physical line count and the number of functions it defines. |
 | 15 | <a id="HLR-066: a target of only skipped files still reports zero totals"></a>`HLR-066: a target of only skipped files still reports zero totals` | — | A run in which nothing could be analysed still emits a well-formed report with zero totals, and names what it skipped. |
@@ -1108,7 +1112,7 @@ Role: **fixture**. **17 test(s).**
 
 ### 3.38. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
-Role: **fixture**. **14 test(s).**
+Role: **fixture**. **16 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1125,7 +1129,9 @@ Role: **fixture**. **14 test(s).**
 | 11 | <a id="HLR-077: no destination is invented for an unresolved call"></a>`HLR-077: no destination is invented for an unresolved call` | — | The edge count is exactly what the fixture header accounts for; a tool guessing at an unresolved target would have more. |
 | 12 | <a id="HLR-033: node identifiers follow sorted file order"></a>`HLR-033: node identifiers follow sorted file order` | — | The exported node order is the sorted-path order of the files, which is not the order a directory walk yields them in. |
 | 13 | <a id="HLR-032: two runs over the same tree produce identical GraphML"></a>`HLR-032: two runs over the same tree produce identical GraphML` | — | The export is byte-identical across runs, so no container's internal enumeration reaches the output. |
-| 14 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | — | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
+| 14 | <a id="HLR-075: the graph spans every target argument, not each one alone"></a>`HLR-075: the graph spans every target argument, not each one alone` | `LLR-SDG-05` | Naming the two sources as separate arguments builds the same graph as naming the directory holding them, byte for byte. Identity is the right assertion rather than an over-strong one, since node identifiers run in sorted file order rather than in argument order: a resolver scoping resolution to one target would drop the cross-file edges and count them unresolved instead. |
+| 15 | <a id="HLR-075: a cross-target call resolves rather than counting unresolved"></a>`HLR-075: a cross-target call resolves rather than counting unresolved` | `LLR-SDG-05` | The half the identity above cannot see alone: two runs that both resolved nothing across the boundary would still match each other. A global written in one target and read in the other must produce an edge joining nodes the two separate arguments contributed. |
+| 16 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | — | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
 ### 3.39. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
@@ -1222,22 +1228,22 @@ verified by code review — see
 | LLR | Function | HLR(s) | Verifying Test(s) |
 | --- | -------- | ------ | ----------------- |
 | `LLR-MAIN-01` | `main` | `HLR-063` | **(no direct test)** |
-| `LLR-MAIN-02` | `main` | `HLR-117` | **(no direct test)** |
+| `LLR-MAIN-02` | `main` | `HLR-117` | `--help writes the summary to stdout, not stderr` |
 | `LLR-MAIN-03` | `main` | `HLR-055` | **(no direct test)** |
 | `LLR-MAIN-04` | `main` | `HLR-122` | **(no direct test)** |
 | `LLR-MAIN-05` | `main` | `HLR-036` | **(no direct test)** |
 | `LLR-MAIN-06` | `main` | `HLR-076` | **(no direct test)** |
-| `LLR-MAIN-07` | `main` | `HLR-035` | **(no direct test)** |
-| `LLR-MAIN-08` | `main` | `HLR-037`, `HLR-012` | **(no direct test)** |
-| `LLR-MAIN-09` | `main` | `HLR-037`, `HLR-120` | **(no direct test)** |
-| `LLR-MAIN-10` | `main` | `HLR-120`, `HLR-062`, `HLR-036`, `HLR-058` | **(no direct test)** |
+| `LLR-MAIN-07` | `main` | `HLR-035` | `HLR-035: a file that fails to parse does not abort the run` |
+| `LLR-MAIN-08` | `main` | `HLR-037`, `HLR-012` | `HLR-037: a skip does not make the exit status non-zero` |
+| `LLR-MAIN-09` | `main` | `HLR-037`, `HLR-120` | `HLR-120: a parse failure degrades the run to 1` |
+| `LLR-MAIN-10` | `main` | `HLR-120`, `HLR-062`, `HLR-036`, `HLR-058` | `an unrecognised long option exits 2`, `no target exits 2` |
 | `LLR-MAIN-11` | `main` | `HLR-100`, `HLR-023` | **(no direct test)** |
 | `LLR-MAIN-12` | `main` | `HLR-038`, `HLR-030` | **(no direct test)** |
 | `LLR-MAIN-13` | `main` | `HLR-036` | **(no direct test)** |
 | `LLR-MAIN-14` | `main` | `HLR-041` | **(no direct test)** |
 | `LLR-MAIN-15` | `main` | `HLR-103`, `HLR-104` | **(no direct test)** |
 | `LLR-MAIN-17` | `main` | `HLR-030`, `HLR-038`, `HLR-120` | `--output writes the report to the named file`, `an output file that cannot be opened exits 2`, `an output file that cannot be opened is diagnosed on stderr` |
-| `LLR-MAIN-18` | `main` | `HLR-012`, `HLR-037` | **(no direct test)** |
+| `LLR-MAIN-18` | `main` | `HLR-012`, `HLR-037` | `HLR-012: a file with no language module is listed as skipped` |
 | `LLR-MAIN-16` | `main` | `HLR-125`, `HLR-036` | **(no direct test)** |
 | `LLR-MAIN-19` | `main` | `HLR-125`, `HLR-063` | **(no direct test)** |
 | `LLR-MAIN-20` | `main` | `HLR-146` | `HLR-146: an unusable image ends the run before anything is measured` |
@@ -1426,7 +1432,7 @@ verified by code review — see
 | `LLR-SDG-02` | `graph_build` | `HLR-073` | `a_call_resolves_across_files` |
 | `LLR-SDG-03` | `graph_build` | `HLR-074` | `a_global_links_its_writer_to_its_reader` |
 | `LLR-SDG-04` | `graph_build` | `HLR-085` | `repeated_calls_collapse_to_one_edge_with_a_count` |
-| `LLR-SDG-05` | `graph_build` | `HLR-075`, `HLR-071` | **(no direct test)** |
+| `LLR-SDG-05` | `graph_build` | `HLR-075`, `HLR-071` | `HLR-075: the graph spans every target argument, not each one alone`, `HLR-075: a cross-target call resolves rather than counting unresolved` |
 | `LLR-SDG-06` | `graph_build` | `HLR-076` | **(no direct test)** |
 | `LLR-SDG-07` | `graph_build` | `HLR-077` | `an_unresolvable_call_is_counted_and_does_not_abort` |
 | `LLR-SDG-08` | `graph_build` | `HLR-077` | `an_unresolvable_call_is_counted_and_does_not_abort` |

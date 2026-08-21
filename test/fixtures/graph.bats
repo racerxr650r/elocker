@@ -168,6 +168,50 @@ normalised() {
 	assert_equal "$(normalised)" "$first"
 }
 
+# ------------------------------------------------------------ graph scope --
+
+@test "HLR-075: the graph spans every target argument, not each one alone" {
+	# The graph describes the project, not the target that happened to
+	# introduce a file. Naming the two sources as separate arguments must
+	# therefore build the same graph as naming the directory that holds
+	# them — cross-file edges and all.
+	#
+	# Byte-identical is the right assertion and not an over-strong one:
+	# node identifiers run in sorted file order rather than in the order
+	# the arguments arrived (LLR-SDG-09), so the two runs agree on
+	# numbering as well as on topology. A resolver that scoped resolution
+	# to one target would drop the core.c -> reader.c edges and show up
+	# here as a diff, having counted them unresolved instead.
+	run_elc
+	assert_success
+	local whole_tree
+	whole_tree="$(normalised)"
+
+	rm -f "$GRAPHML" "$OUT"
+	run bash -c '"$0" --graphml -o "$1" "$2" "$3" 2>/dev/null' \
+		"$ELC" "$OUT" "$TREE/core.c" "$TREE/reader.c"
+	assert_success
+
+	assert_equal "$(normalised)" "$whole_tree"
+}
+
+@test "HLR-075: a cross-target call resolves rather than counting unresolved" {
+	# The half of the requirement the identity above cannot see on its
+	# own: were both runs to resolve nothing across the boundary they
+	# would still match each other. `install` takes the address of
+	# `report` and `tick` calls `bump` across the file boundary, so the
+	# graph must carry edges whose ends lie in different targets.
+	rm -f "$GRAPHML" "$OUT"
+	run bash -c '"$0" --graphml -o "$1" "$2" "$3" 2>/dev/null' \
+		"$ELC" "$OUT" "$TREE/core.c" "$TREE/reader.c"
+	assert_success
+
+	# reader.c's report() reads the global core.c's bump() writes: an
+	# edge between two nodes the two separate targets contributed.
+	run bash -c 'grep -c "kind\">global<" "$0"' "$GRAPHML"
+	assert_output "1"
+}
+
 # ----------------------------------------------------------- one parse --
 
 @test "HLR-076: the graph is built without reopening a source file" {

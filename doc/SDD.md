@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.6
-**Date:** 2026-08-17
+**Version:** 2.9
+**Date:** 2026-08-20
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -12,7 +12,7 @@ POSIX C11 command-line application. It is intended for developers, testers, and 
 of the `elc` software.
 
 ### 1.2 Scope of the Document
-This document describes the design of the source modules that implement the 116 high-level requirements in [HLRs.md](HLRs.md):
+This document describes the design of the source modules that implement the high-level requirements in [HLRs.md](HLRs.md); [Traceability.md](Traceability.md) carries the current requirement, contract, and test counts, which are generated rather than restated here:
 
 *   [src/main.c](../src/main.c): Entry point. Sequences the pipeline, owns the run's top-level state, and computes the process exit status.
 *   [src/cli.c](../src/cli.c): Command-line parsing and validation: formats, thresholds, strata, entry points, execution scopes, custom rules, and the help path.
@@ -29,6 +29,10 @@ This document describes the design of the source modules that implement the 116 
 *   [src/format_csv.c](../src/format_csv.c): The RFC 4180 CSV renderer.
 *   [src/format_xml.c](../src/format_xml.c): The XML record writer and the reader that drives the report-regeneration mode.
 *   [src/format_graph.c](../src/format_graph.c): The Graphviz `.dot` call-tree writer and the GraphML graph-export writer.
+*   [src/elfsyms.c](../src/elfsyms.c): The linked-image reader: the function symbols an image defines, and the resolution of a linkage name to the source name the report presents.
+*   [src/purify.c](../src/purify.c): The graph purification engine: centrality-based classification of utility sinks, god objects, and peripheral nodes, the masked recovery view built from them, and the manifest by which a user overrules a classification.
+*   [src/recover.c](../src/recover.c): Architecture recovery: a proposed layering read off the purified recovery view, emitted in the form the stratum options accept.
+*   [src/format_dsm.c](../src/format_dsm.c): The Dependency Structure Matrix and its CSV and Markdown renderings.
 *   [doc/elc.1](../doc/elc.1): The section-1 man page: the reference form of every option, format, and finding category.
 *   [doc/User_Manual.md](../doc/User_Manual.md): The user manual: the same material in expository form, with worked examples.
 
@@ -55,7 +59,8 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 
 ### 1.5 References
 *   [Product Vision Document](PVD.md) — the vision, scope, and Appendix A threshold catalogue this design implements.
-*   [High-Level Requirements](HLRs.md) — the 116 requirements this design satisfies.
+*   [High-Level Requirements](HLRs.md) — the requirements this design satisfies.
+*   [Traceability Matrix](Traceability.md) — the generated requirement, contract, and test counts, and the coverage each has.
 *   Tree-sitter — incremental parsing library and `.scm` query language: <https://tree-sitter.github.io/tree-sitter/>
 *   libgit2 — Git repository access library: <https://libgit2.org/>
 *   igraph — graph algorithm library: <https://igraph.org/c/>
@@ -86,13 +91,16 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   Section 16: Detailed design for [src/format_xml.c](../src/format_xml.c).
 *   Section 17: Detailed design for [src/format_graph.c](../src/format_graph.c).
 *   Section 18: Detailed design for [src/elfsyms.c](../src/elfsyms.c).
-*   Section 19: Data Dictionary.
-*   Section 20: Traceability.
+*   Section 19: Detailed design for [src/purify.c](../src/purify.c).
+*   Section 20: Detailed design for [src/recover.c](../src/recover.c).
+*   Section 21: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
+*   Section 22: Data Dictionary.
+*   Section 23: Traceability.
 
 ## 2. System Overview
 
 ### 2.1 System Architecture
-`elc` is a single executable composed of fifteen translation units arranged as a one-way pipeline. Stages communicate only through the values they return; there is no global mutable state, no callback into an earlier stage, and no second read of any source file.
+`elc` is a single executable composed of nineteen translation units arranged as a one-way pipeline. Stages communicate only through the values they return; there is no global mutable state, no callback into an earlier stage, and no second read of any source file.
 
 *   **[src/main.c](../src/main.c)** — Sequences the pipeline and owns the exit status. Contains no analysis logic of its own.
 *   **[src/cli.c](../src/cli.c)** — Turns `argv` into a validated, immutable options structure. The only module that reads the command line.
@@ -109,6 +117,10 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   **[src/format_csv.c](../src/format_csv.c)** — Renders per-function records as RFC 4180 CSV.
 *   **[src/format_xml.c](../src/format_xml.c)** — Writes the complete XML record, and reads one back for regeneration mode.
 *   **[src/format_graph.c](../src/format_graph.c)** — Writes the `.dot` call tree and the GraphML export.
+*   **[src/elfsyms.c](../src/elfsyms.c)** — Reads the function symbols of a linked image and resolves each linkage name to the source name the report presents, so that a filtered run measures the program the build produced.
+*   **[src/purify.c](../src/purify.c)** — Classifies the functions that fuse unrelated domains — utility sinks, god objects, peripheral nodes — and builds the masked recovery view. Reads and writes the manifest that lets a user overrule a classification. Alters no graph any other stage reads.
+*   **[src/recover.c](../src/recover.c)** — Proposes a layering from the purified view, for a user who declared none. Depended upon by the report and by nothing in `arch.c`, which is what keeps a proposal from becoming the baseline it would be measured against.
+*   **[src/format_dsm.c](../src/format_dsm.c)** — Renders the Dependency Structure Matrix as CSV and as Markdown.
 
 The runtime data flow of an analysis run is:
 
@@ -687,12 +699,14 @@ The SDG is a **simple** directed graph: repeated calls from one function to the 
 *   Detect every component-level dependency cycle.
 *   Validate declared strata, reporting both skip-level calls (HLR-079) and direction-inverted calls (HLR-118), when strata were declared.
 *   Produce the coupling table and the cycle list on every run, so that omitting the layering for want of a declaration does not omit its neighbours (HLR-115).
+*   Aggregate the layering violations already found into the Back-Call and Skip-Call Violation Indices, by counting those findings rather than re-deriving them from the graph (HLR-162 – HLR-164).
 
 
 ### 9.3 Internal Structure
 #### 9.3.1 Key Functions
 
 *   **`int arch_analyse(const Sdg *g, const ElcOptions *opts, ArchResults *out)`** — Run every component-level analysis, skipping layering when no strata were declared.
+*   **`int conformance_indices(const ArchResults *a, ConformanceIndices *out)`** — Count the recorded layering violations into the two indices, over the inter-layer call edges as denominator; undefined where that denominator is zero (HLR-162, HLR-163).
 *   **`void arch_results_free(ArchResults *r)`** — Release the coupling table, instability values, cycle list, and violation list.
 *   **`int compute_coupling(const Sdg *g, ArchResults *out)`** — Populate Ca and Ce per component.
 *   **`double instability(uint32_t ca, uint32_t ce, bool *defined)`** — Ce/(Ce+Ca), with defined set false when both are zero.
@@ -1054,11 +1068,12 @@ The totals *are* written, for a consumer reading the record with something other
 ## 17. Detailed Design for [src/format_graph.c](../src/format_graph.c)
 
 ### 17.1 Purpose and Responsibilities
-[src/format_graph.c](../src/format_graph.c) writes the two graph-shaped outputs: the Graphviz `.dot` call tree for visual inspection, and the GraphML export for ingestion by other tools.
+[src/format_graph.c](../src/format_graph.c) writes the graph-shaped outputs: the Graphviz `.dot` call tree for visual inspection, the GraphML export for ingestion by other tools, and the raw and purified drawings that let a user see what purification did.
 
 *   Emit the call tree as `.dot`, annotated with every applicable architectural finding.
 *   Decide whether a `.dot` file is warranted, given the default-on setting, the disable switch, and the output destination.
 *   Emit the SDG as GraphML when explicitly requested.
+*   Emit, on request, the raw graph and the recovery view as two further `.dot` files, the masked and excluded nodes drawn detached rather than deleted, so that purification can be inspected instead of trusted (HLR-178).
 
 ### 17.2 External Interfaces
 #### 17.2.1 GraphML Content Model
@@ -1210,9 +1225,154 @@ The filter itself is not applied here. A function the image does not define is n
 *   **Image absent, unreadable, or not an object file** Diagnostic naming the path, and a fatal exit before any file is measured. The user named it, so the failure is theirs to correct (HLR-146, HLR-063).
 *   **Image carries no function symbols** Fatal, and separately diagnosed. An empty set is not an empty project: filtering every function away would report a code base with none, which no reader could distinguish from a correct result (HLR-146).
 *   **A linkage name this build does not decode** Counted, not fatal, and reported with the run. The completeness of the filter is stated in the way the completeness of the graph is (HLR-143, HLR-077).
-## 19. Data Dictionary
 
-*   **`ElcOptions`** (defined in [inc/elc.h](../inc/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
+## 19. Detailed Design for [src/purify.c](../src/purify.c)
+
+### 19.1 Purpose and Responsibilities
+[src/purify.c](../src/purify.c) builds the *recovery view* of the graph: a masked copy in which the utility sinks, god objects, and peripheral nodes that fuse unrelated domains are set aside, so that a layering can be read off what remains. It also owns the manifest by which a user overrules its classifications.
+
+*   Compute the hub-and-authority and betweenness centralities, and the coreness, of the call view.
+*   Classify each function as a utility sink, a god object, peripheral, or ordinary, against configurable thresholds that are `elc`'s own (HLR-171).
+*   Produce the masked recovery view, leaving the graph every other analysis reads untouched (HLR-167).
+*   Read a manifest where one was named, letting its statements overrule the computed classification, and write one on request (HLR-175 – HLR-177).
+*   Record every classification, with the metric and value that produced it, for the report of HLR-174.
+
+### 19.2 External Interfaces
+#### 19.2.1 The Recovery View Is a Second Graph, Not an Edit
+
+Masking produces a **copy** of the call view with edges removed; the `Sdg` every other stage reads is not modified. This is HLR-167 made structural rather than remembered: a stage that cannot reach a masked graph cannot accidentally measure one, and the alternative — masking in place and unmasking afterwards — makes every analysis order-dependent and one early return away from reporting a fan-out that omits real calls.
+
+The copy is of the **call view** alone. Global-state edges take no part in a layering: writing an object another function reads is coupling and not invocation (LLR-CTR-07), and including them would join every pair of functions sharing a variable into the layer structure.
+
+#### 19.2.2 What Each Classification Masks
+
+| Class | Trigger | Masked |
+| ----- | ------- | ------ |
+| Utility sink | high authority, near-zero hub | its **incoming** edges (HLR-168) |
+| God object | high betweenness *and* high hub | **all** its edges (HLR-169) |
+| Peripheral | coreness below the configured depth | the node, excluded from the view (HLR-170) |
+
+A utility sink keeps its outgoing edges because the fusion it causes is between its *callers*; a god object loses both directions because it short-circuits in both. A function meeting both tests is a god object, the stronger and more useful claim (HLR-169).
+
+#### 19.2.3 The Manifest Format, and What It Costs
+
+The manifest is **JSON**, restricted to a flat array of objects each naming a function, its file, its class, and whether it is masked. Two properties of the requirement decide the format between them: HLR-175 requires a user be able to edit it by hand, and HLR-176 requires `elc` read it back.
+
+Being read back is what makes this different from every other artefact `elc` emits. The `.dot`, GraphML, CSV and XML *writers* are hand-rolled precisely because emission needs only correct escaping (SDD §16.3.2) — but a format `elc` must also parse needs a parser, and the project has exactly one, Expat, which reads XML alone. So the choice is between reusing XML and taking on a reader for something else.
+
+JSON is chosen over both, and the reason is the audience rather than the engineering: this file exists to be edited by a person who disagrees with a classification, and of the candidates it is the one they are most likely to edit correctly.
+
+**Both directions go through Jansson** (≥ 2.14), the JSON library selected in §22 under HLR-112. This is the one place `elc` uses a library to *write* a format rather than hand-rolling emission, and the exception is argued in full beside that selection: the manifest is the only artefact that round-trips, so a hand-rolled writer paired with a library reader would be two implementations of one format with `elc` on both ends of the disagreement.
+
+What the module owes the library is bounded. Jansson parses and validates; `purify.c` maps the resulting values onto classifications and rejects anything it does not recognise. A manifest that is well-formed JSON but not a manifest — a missing class, a class name this build does not know, a version it does not read — is rejected exactly as a malformed one is (HLR-176), because well-formedness is a property of the syntax and this module is judging the contents.
+
+The format is versioned in the manner of the XML record (HLR-061), so that a manifest written by a later build is rejected by an earlier one rather than half-understood. Jansson's `json_error_t` carries the line, column, and byte offset of a syntax fault, and the diagnostic quotes them: a person who hand-edited the file needs to be told where they broke it, not merely that they did.
+
+
+### 19.3 Internal Structure
+#### 19.3.1 Key Functions
+
+*   **`int purify_analyse(const Sdg *g, const ElcOptions *opts, const Manifest *manual, PurifyResults *out)`** — Classify every function and build the masked recovery view.
+*   **`int classify_nodes(const Sdg *g, const PurifyThresholds *t, const Manifest *manual, Classification *out)`** — Assign each node its class, a manifest statement overruling a computed one.
+*   **`int build_recovery_view(const Sdg *g, const Classification *c, RecoveryView *out)`** — Copy the call view, omitting the masked edges and the peripheral nodes.
+*   **`int manifest_read(const char *path, Manifest *out)`** — Parse a named manifest; reject a malformed one rather than partially applying it (HLR-176).
+*   **`int manifest_write(const PurifyResults *r, const char *path)`** — Write the classifications in the documented format, ready to be edited and handed back.
+*   **`void purify_results_free(PurifyResults *r)`** — Release the classifications, the recovery view, and the manifest.
+
+#### 19.3.2 Parsing Strategy / Algorithm
+
+**The thresholds are compared against a ranking, not against a raw score.** A betweenness value means nothing on its own — it scales with the size of the graph, so a fixed number would classify every function in a large project and none in a small one. Classification is therefore made against a node's position in the ordered distribution of the score, which is comparable across projects and is what makes one default threshold serviceable for both.
+
+**Ties are broken by node identifier** (HLR-179). Two functions with equal scores must classify the same way on every run, and the graph library's enumeration order is not a property of the source tree.
+
+**Floating-point comparison is defined rather than left to the compiler.** HITS is iterative and its scores are approximations, so a comparison at the threshold boundary must be made to a stated tolerance; without one, the same source classifies differently on two machines and HLR-032 fails in a way no fixture would reliably catch.
+
+**A cyclic recovery view has no layering, and that is reported rather than worked around** (HLR-172). Purification often breaks the cycles that a god object created, which is much of its purpose — but where cycles remain, the cycles are the finding.
+
+### 19.4 Dependencies
+
+*   The graph library, for `igraph_hub_and_authority_scores`, `igraph_betweenness`, and `igraph_coreness` (HLR-113).
+*   **Jansson**, for the manifest in both directions — `json_load_file` and `json_error_t` on the read path, `json_dump_file` on the write path. The only third-party writer in the project, for the round-trip reason argued in §22.
+*   `src/graph.c` for the SDG and its call view. Depended upon by `src/recover.c`.
+
+### 19.5 Error Handling and Logging
+
+*   **Manifest cannot be read or parsed** Diagnostic naming the path, and a fatal exit. The user named the file, so the failure is theirs to correct (HLR-176).
+*   **Manifest names an unknown function** Diagnostic, the statement ignored, the run continues. Analysing one directory of a project whose manifest covers all of it is ordinary use (HLR-177).
+*   **No functions survive purification** Not an error. The recovery of HLR-172 is omitted with its reason stated, as an analysis short of its inputs always is (HLR-115).
+
+## 20. Detailed Design for [src/recover.c](../src/recover.c)
+
+### 20.1 Purpose and Responsibilities
+[src/recover.c](../src/recover.c) reads a proposed layering off the purified recovery view, for a user who has declared no architecture and wants to know what one their code already has.
+
+*   Order the recovery view topologically, and report the cycles instead where no ordering exists (HLR-172).
+*   Group the ordered functions into layers by the directory owning each component (HLR-160).
+*   Present the proposal in a form a user can adopt as a declaration without transcribing it (HLR-173).
+*   State which functions were masked or excluded in producing the proposal.
+
+
+### 20.3 Internal Structure
+#### 20.3.1 Key Functions
+
+*   **`int recover_layers(const RecoveryView *v, const Report *r, RecoveryResults *out)`** — Propose a layering, or report why none could be.
+*   **`int layer_by_directory(const RecoveryView *v, const size_t *order, RecoveryResults *out)`** — Fold the topological order into per-directory layers by edge density.
+*   **`void recovery_results_free(RecoveryResults *r)`** — Release the proposal and its exclusion list.
+
+#### 20.3.2 Parsing Strategy / Algorithm
+
+**A topological order is not yet a layering.** It orders functions; an architecture orders *directories*. The order is therefore folded by component directory, and a directory's layer is fixed by where the bulk of its edges point rather than by its earliest or latest member — one function reaching far down the order should not drag its whole directory with it.
+
+**The proposal is emitted as a declaration.** HLR-173 requires that a user who agrees with the recovered layering be able to adopt it without retyping, so the proposal is rendered in the form the `--stratum` and `--stratum-order` options accept. That is also the boundary the requirement draws made visible: what `elc` produces is an *argument list*, and it takes effect only when a user passes it back.
+
+**Nothing here feeds the conformance analyses** (HLR-173). `recover.c` is depended upon by the report and by nothing in `arch.c`; the dependency direction is what keeps a recovered layering from becoming the baseline it is measured against.
+
+### 20.4 Dependencies
+
+*   The graph library, for topological ordering. `src/purify.c` for the recovery view.
+
+### 20.5 Error Handling and Logging
+
+*   **Recovery view is cyclic** Not an error. The cycles are reported in place of a proposed layering, as HLR-090 does for call depth over a cyclic graph (HLR-172).
+*   **No strata declared** Not a reason to omit recovery — recovery is what a user without strata is given. It is the *conformance* analyses that stay omitted (HLR-115, HLR-173).
+
+## 21. Detailed Design for [src/format_dsm.c](../src/format_dsm.c)
+
+### 21.1 Purpose and Responsibilities
+[src/format_dsm.c](../src/format_dsm.c) renders the Dependency Structure Matrix — the square grid whose cells carry the call counts between layers or directories, and whose diagonal separates conforming dependencies from back-calls.
+
+*   Build the matrix over the declared layers, or over the analysed directories where no strata were declared (HLR-165).
+*   Order rows and columns identically, by layer index or by path, so a cell's position carries its meaning (HLR-166).
+*   Render as CSV and as Markdown, and state the diagonal convention wherever it renders.
+
+
+### 21.3 Internal Structure
+#### 21.3.1 Key Functions
+
+*   **`int dsm_build(const Sdg *g, const Report *r, const ElcOptions *opts, Dsm *out)`** — Populate the square matrix of call counts between subjects, in their defined order.
+*   **`int format_dsm_csv(const Dsm *m, FILE *out)`** — Render the matrix as CSV, every cell through the RFC 4180 field writer.
+*   **`int format_dsm_markdown(const Dsm *m, FILE *out)`** — Render the matrix as a GitHub-Flavored Markdown table.
+*   **`void dsm_free(Dsm *m)`** — Release the matrix and the subject labels it owns.
+
+#### 21.3.2 Parsing Strategy / Algorithm
+
+**Rows are callers and columns are callees**, both in the same ascending order, so the diagonal has a meaning a reader can rely on: above it are dependencies running the declared way, on it are dependencies inside one subject, and below it are the back-calls of HLR-162. A matrix whose orientation the reader must infer is worse than no matrix, so the convention is printed with it (HLR-166).
+
+**The matrix is dense and its subjects are few.** Rows and columns are layers or directories rather than files or functions, so the grid stays readable at the size an architecture actually has; a per-function DSM of a real project is a matrix nobody can look at.
+
+**Escaping is not this module's own.** The CSV rendering emits every cell through the same `write_field` the per-function renderer uses, and the Markdown rendering escapes the cell separator, so a directory containing a comma or a pipe cannot corrupt the grid (HLR-064).
+
+### 21.4 Dependencies
+
+*   `src/graph.c` for the component projection, `src/arch.c` for the layer assignment, and `src/format_csv.c` for the field writer. No third-party dependency.
+
+### 21.5 Error Handling and Logging
+
+*   **No strata declared** Not an error. The matrix is built over directories instead, so a reader with no declared architecture still receives one (HLR-165).
+*   **Write failure** Diagnostic and non-zero return, as for every other renderer.
+## 22. Data Dictionary
+
+*   **`ElcOptions`** (defined in [include/elc.h](../include/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1231,21 +1391,21 @@ The filter itself is not applied here. A function the image does not define is n
 | `defines` | `const char **` | Conditional-compilation symbols as given, `NAME` or `NAME=VALUE`, borrowed from argv. Empty when none supplied, and an empty set prunes nothing — not as a special case but because every definedness test is then undecidable, there being no way to assert that a symbol is *un*defined (HLR-131, HLR-133) |
 | `image_path` | `const char *` | The linked image to filter functions by, or NULL for no filtering. Borrowed from argv. The path only: the image is read by `elfsyms.c`, which owns the failure, so a run with no image differs from a filtered one in exactly one place (HLR-140) |
 | `targets` | `PathList` | One or more file or directory arguments (HLR-071) |
-*   **`FileList`** (defined in [inc/discover.h](../inc/discover.h)) — The discovered files: canonical absolute paths, each appearing exactly once, in ascending byte order. Owns every path it holds.
+*   **`FileList`** (defined in [include/discover.h](../include/discover.h)) — The discovered files: canonical absolute paths, each appearing exactly once, in ascending byte order. Owns every path it holds.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `paths` | `char **` | Dynamic array, grown by doubling |
 | `count` | `size_t` | Populated entries |
 | `capacity` | `size_t` | Allocated entries |
-*   **`ExtensionList`** (defined in [inc/discover.h](../inc/discover.h)) — The binary-extension exclusion list read from runtime data (HLR-005). Passed explicitly to every function that consults it rather than held in a global.
+*   **`ExtensionList`** (defined in [include/discover.h](../include/discover.h)) — The binary-extension exclusion list read from runtime data (HLR-005). Passed explicitly to every function that consults it rather than held in a global.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `exts` | `char **` | Each including its leading dot; matched case-insensitively |
 | `count` | `size_t` | Populated entries |
 | `capacity` | `size_t` | Allocated entries |
-*   **`Registry`** (defined in [inc/registry.h](../inc/registry.h)) — Everything loaded from the runtime location, plus the parser and cursor reused across the whole run.
+*   **`Registry`** (defined in [include/registry.h](../include/registry.h)) — Everything loaded from the runtime location, plus the parser and cursor reused across the whole run.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1255,13 +1415,13 @@ The filter itself is not applied here. A function the image does not define is n
 | `modules` | `LanguageModule *` | Loaded languages, cached after first use |
 | `parser` | `TSParser *` | One for the whole run; reuse needs only ts_parser_set_language() per file |
 | `cursor` | `TSQueryCursor *` | One for the whole run, for the same reason |
-*   **`ExtensionMapping`** (defined in [inc/registry.h](../inc/registry.h)) — One extension-to-language association read from runtime data.
+*   **`ExtensionMapping`** (defined in [include/registry.h](../include/registry.h)) — One extension-to-language association read from runtime data.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `extension` | `char *` | Including its leading period; matched without regard to case |
 | `language` | `char *` | Names the parser and query directory to load |
-*   **`LanguageModule`** (defined in [inc/elc.h](../inc/elc.h)) — One dynamically loaded language, cached by the registry after first use.
+*   **`LanguageModule`** (defined in [include/elc.h](../include/elc.h)) — One dynamically loaded language, cached by the registry after first use.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1270,7 +1430,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `ts_lang` | `const TSLanguage *` | Resolved grammar entry point |
 | `queries` | `TSQuery *[]` | Compiled comments, functions, complexity, eloc, calls, and globals queries |
 | `usable` | `bool` | False once a load failure has been reported, to avoid retrying (HLR-070) |
-*   **`FunctionMetric`** (defined in [inc/elc.h](../inc/elc.h)) — The metrics for one reported function, including nested named functions.
+*   **`FunctionMetric`** (defined in [include/elc.h](../include/elc.h)) — The metrics for one reported function, including nested named functions.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1280,7 +1440,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `eloc` | `uint32_t` | Executable statements attributed to this function only (HLR-068) |
 | `complexity` | `uint32_t` | 1 + decision points |
 | `node_id` | `uint32_t` | Index of this function's SDG node |
-*   **`FileMetrics`** (defined in [inc/elc.h](../inc/elc.h)) — Per-file totals and the functions the file defines.
+*   **`FileMetrics`** (defined in [include/elc.h](../include/elc.h)) — Per-file totals and the functions the file defines.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1295,13 +1455,13 @@ The filter itself is not applied here. A function the image does not define is n
 | `function_count` | `size_t` | Populated entries |
 | `absent` | `AbsentFunction *` | The functions this file defines that the image does not, in the order the parse found them. Empty where no image was supplied (HLR-143) |
 | `absent_count` | `size_t` | Populated entries |
-*   **`AbsentFunction`** (defined in [inc/elc.h](../inc/elc.h)) — One function the source defines and the linked image does not, as the parse recorded it. Named and located, because the reader's next action is to open the file (HLR-143).
+*   **`AbsentFunction`** (defined in [include/elc.h](../include/elc.h)) — One function the source defines and the linked image does not, as the parse recorded it. Named and located, because the reader's next action is to open the file (HLR-143).
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `name` | `char *` | As the source writes it, copied out of the mapping before it is released |
 | `line` | `uint32_t` | 1-based, where the definition starts |
-*   **`SymbolSet`** (defined in [inc/elfsyms.h](../inc/elfsyms.h)) — The function set one image defines, resolved to source names. Sorted and de-duplicated on the resolved name, so membership is a binary search and no property of symbol-table order can reach the output (HLR-032, LLR-ELF-05).
+*   **`SymbolSet`** (defined in [include/elfsyms.h](../include/elfsyms.h)) — The function set one image defines, resolved to source names. Sorted and de-duplicated on the resolved name, so membership is a binary search and no property of symbol-table order can reach the output (HLR-032, LLR-ELF-05).
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1309,14 +1469,14 @@ The filter itself is not applied here. A function the image does not define is n
 | `count` | `size_t` | Populated entries |
 | `unresolved` | `size_t` | Function symbols whose linkage name carried a mangling this build does not decode. Counted rather than guessed at, and reported with the run: a filter whose completeness is unstated cannot be acted on (HLR-143) |
 | `path` | `char *` | The image as the user named it, so the report can say which image it describes without the options having to outlive the run (HLR-147) |
-*   **`AbsentRow`** (defined in [inc/report.h](../inc/report.h)) — One function the image does not define, as the report presents it. Structurally an UnreachableRow and deliberately not one: both name a function no build needs, and they are established by different means — one inferred from the call graph, the other observed from what the linker did — so merging them would present an observation as an inference (HLR-143).
+*   **`AbsentRow`** (defined in [include/report.h](../include/report.h)) — One function the image does not define, as the report presents it. Structurally an UnreachableRow and deliberately not one: both name a function no build needs, and they are established by different means — one inferred from the call graph, the other observed from what the linker did — so merging them would present an observation as an inference (HLR-143).
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `function` | `char *` | Owned |
 | `file` | `char *` | Owned |
 | `line` | `uint32_t` | 1-based |
-*   **`FileFacts`** (defined in [inc/elc.h](../inc/elc.h)) — The raw graph facts extracted during the same parse that produced FileMetrics.
+*   **`FileFacts`** (defined in [include/elc.h](../include/elc.h)) — The raw graph facts extracted during the same parse that produced FileMetrics.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1325,21 +1485,21 @@ The filter itself is not applied here. A function the image does not define is n
 | `rule_matches` | `RuleMatch *` | Custom rule matches with rule identity and line range, recorded during the same parse the metrics come from (HLR-109) |
 | `dead` | `DeadSpan *` | Statements within a function that cannot execute (HLR-137) |
 | `dead_analysed` | `bool` | False when the language supplied no dead-code query, so that "not looked for" is distinguishable from "none found" (HLR-139) |
-*   **`CustomRule`** (defined in [inc/registry.h](../inc/registry.h)) — One compiled user-supplied rule, bound to the language it applies to. The binding is not decoration: a query compiles against one specific TSLanguage and has no meaning apart from it. By the time a rule is here the two provenances are indistinguishable, which is the point — what a rule does cannot depend on how it arrived.
+*   **`CustomRule`** (defined in [include/registry.h](../include/registry.h)) — One compiled user-supplied rule, bound to the language it applies to. The binding is not decoration: a query compiles against one specific TSLanguage and has no meaning apart from it. By the time a rule is here the two provenances are indistinguishable, which is the point — what a rule does cannot depend on how it arrived.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `stem` | `char *` | The file's basename with its extension removed — half an identity; the capture name that matched supplies the other half (HLR-109) |
 | `language` | `char *` | The language it is bound to, by the directory holding it or by the `lang:path` argument |
 | `query` | `TSQuery *` | Compiled against that language's grammar, and deleted with the built-in queries rather than after them |
-*   **`RuleMatch`** (defined in [inc/elc.h](../inc/elc.h)) — One match of a user-supplied rule, as the parse recorded it. Line-ranged and nothing else: a match is not a finding, so there is no severity here and no attribution — nothing to attach either to (HLR-111).
+*   **`RuleMatch`** (defined in [include/elc.h](../include/elc.h)) — One match of a user-supplied rule, as the parse recorded it. Line-ranged and nothing else: a match is not a finding, so there is no severity here and no attribution — nothing to attach either to (HLR-111).
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `rule` | `char *` | "<basename>.<capture>", so one file expresses as many named rules as it holds captures |
 | `start_line` | `uint32_t` | 1-based |
 | `end_line` | `uint32_t` | 1-based; a match may span many lines |
-*   **`RuleMatchRow`** (defined in [inc/report.h](../inc/report.h)) — One rule match as the report presents it, with the file it was found in. Sorted by file, then start line, then end line, then identity — the last key because two rules matching one node are two rows, and without a tiebreak their order would be the order a directory listing produced.
+*   **`RuleMatchRow`** (defined in [include/report.h](../include/report.h)) — One rule match as the report presents it, with the file it was found in. Sorted by file, then start line, then end line, then identity — the last key because two rules matching one node are two rows, and without a tiebreak their order would be the order a directory listing produced.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1347,7 +1507,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `file` | `char *` | Owned; the row outlives the FileMetrics it was taken from |
 | `start_line` | `uint32_t` | 1-based |
 | `end_line` | `uint32_t` | 1-based |
-*   **`DeadSpan`** (defined in [inc/elc.h](../inc/elc.h)) — One statement that cannot execute, and why.
+*   **`DeadSpan`** (defined in [include/elc.h](../include/elc.h)) — One statement that cannot execute, and why.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1355,7 +1515,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `start_line` | `uint32_t` | 1-based |
 | `end_line` | `uint32_t` | 1-based; a dead branch may span many lines |
 | `cause` | `DeadCause` | after-terminator or literal-condition — the reader's next action differs, so the two are not merged |
-*   **`Sdg`** (defined in [inc/elc.h](../inc/elc.h)) — The System Dependence Graph and the tables needed to interpret it.
+*   **`Sdg`** (defined in [include/elc.h](../include/elc.h)) — The System Dependence Graph and the tables needed to interpret it.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1366,14 +1526,14 @@ The filter itself is not applied here. A function the image does not define is n
 | `unresolved` | `size_t` | Call sites with no resolvable target (HLR-077) |
 | `touches` | `GlobalTouch *` | Per-object access records, carried beside the state edges rather than derived from them (HLR-091) |
 | `component_graph` | `void *` | The component projection as a graph; the view the architectural questions are asked of (HLR-083, HLR-114) |
-*   **`GlobalTouch`** (defined in [inc/graph.h](../inc/graph.h)) — One function's access to one global object. Recorded beside the global-state edges, not derived from them: an edge joins a writer to a reader, so an object touched by exactly one function produces none — and that object is precisely the scope-reduction candidate of HLR-092.
+*   **`GlobalTouch`** (defined in [include/graph.h](../include/graph.h)) — One function's access to one global object. Recorded beside the global-state edges, not derived from them: an edge joins a writer to a reader, so an object touched by exactly one function produces none — and that object is precisely the scope-reduction candidate of HLR-092.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `object` | `const char *` | Into the graph's own name table |
 | `node` | `uint32_t` | The accessing function |
 | `write` | `bool` | True writes the object, false reads it |
-*   **`StratumDecl`** (defined in [inc/elc.h](../inc/elc.h)) — One declared architectural layer: a name, the component patterns assigned to it, and its position in the declared dependency direction (HLR-078). The ordinal is what makes a direction out of a set of names — layer 0 is the top, permitted to depend on those below — and is fixed when the layer is first named.
+*   **`StratumDecl`** (defined in [include/elc.h](../include/elc.h)) — One declared architectural layer: a name, the component patterns assigned to it, and its position in the declared dependency direction (HLR-078). The ordinal is what makes a direction out of a set of names — layer 0 is the top, permitted to depend on those below — and is fixed when the layer is first named.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1381,7 +1541,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `patterns` | `char **` | Owned; matched against component paths with fnmatch(3) |
 | `pattern_count` | `size_t` | Populated entries; a repeated name adds to this rather than creating a second layer |
 | `ordinal` | `size_t` | 0 is the topmost declared layer; reassigned by --stratum-order where one is given |
-*   **`ArchResults`** (defined in [inc/arch.h](../inc/arch.h)) — What the component-level analyses measured. Owned by main and copied into the report model, as the call-tree and state results are.
+*   **`ArchResults`** (defined in [include/arch.h](../include/arch.h)) — What the component-level analyses measured. Owned by main and copied into the report model, as the call-tree and state results are.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1389,20 +1549,20 @@ The filter itself is not applied here. A function the image does not define is n
 | `cycles` | `ComponentCycle *` | Each mutually dependent group with a concrete loop through it (HLR-083) |
 | `strata_state` | `StrataState` | Measured, or omitted because no strata were declared (HLR-115) |
 | `violations` | `LayerViolation *` | Skip-level and direction-inverted calls, as distinct entries (HLR-079, HLR-118) |
-*   **`ComponentCycle`** (defined in [inc/arch.h](../inc/arch.h)) — One cyclic dependency between components. Two facts, because one alone misleads: the membership is the group that must be broken up, and the path is a concrete loop saying which edge to cut. The path may be shorter than the membership, since a group can hold a number of loops exponential in its size.
+*   **`ComponentCycle`** (defined in [include/arch.h](../include/arch.h)) — One cyclic dependency between components. Two facts, because one alone misleads: the membership is the group that must be broken up, and the path is a concrete loop saying which edge to cut. The path may be shorter than the membership, since a group can hold a number of loops exponential in its size.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `members` | `size_t *` | Component indices, ascending |
 | `path` | `size_t *` | A loop through them, in order; the first is not repeated at the end |
-*   **`ScopeDecl`** (defined in [inc/elc.h](../inc/elc.h)) — One declared execution scope: a name, and the component patterns belonging to it (HLR-094). Owned outright, unlike the entry-point symbols: a declaration is split on two separators, so neither half is a terminated substring of any argument.
+*   **`ScopeDecl`** (defined in [include/elc.h](../include/elc.h)) — One declared execution scope: a name, and the component patterns belonging to it (HLR-094). Owned outright, unlike the entry-point symbols: a declaration is split on two separators, so neither half is a terminated substring of any argument.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `name` | `char *` | Owned |
 | `patterns` | `char **` | Owned; matched against component paths with fnmatch(3) |
 | `pattern_count` | `size_t` | Populated entries |
-*   **`StateResults`** (defined in [inc/state.h](../inc/state.h)) — What the global-state, reachability, and scope-isolation analyses measured. Owned by main and copied into the report model, as the call-tree results are.
+*   **`StateResults`** (defined in [include/state.h](../include/state.h)) — What the global-state, reachability, and scope-isolation analyses measured. Owned by main and copied into the report model, as the call-tree results are.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1412,7 +1572,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `dead_globals` | `const char **` | Objects every accessor of which is unreachable (HLR-096) |
 | `scope_state` | `ScopeState` | Measured, or omitted because no execution scopes were declared (HLR-094, HLR-115) |
 | `violations` | `ScopeViolation *` | Every call and state edge crossing a declared boundary (HLR-094) |
-*   **`Threshold`** (defined in [inc/thresholds.h](../inc/thresholds.h)) — One row of the published catalogue. The counted bands are exclusive upper bounds, matching how the published tables are written; a kind whose finding is its mere occurrence carries a fixed severity instead of bounds.
+*   **`Threshold`** (defined in [include/thresholds.h](../include/thresholds.h)) — One row of the published catalogue. The counted bands are exclusive upper bounds, matching how the published tables are written; a kind whose finding is its mere occurrence carries a fixed severity instead of bounds.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1422,7 +1582,7 @@ The filter itself is not applied here. A function the image does not define is n
 | `fixed` | `Severity` | For a kind whose occurrence is the finding |
 | `attribution` | `const char *` | The published source, named for every row (HLR-099) |
 | `elc_own` | `bool` | True for the one row that is elc's own heuristic rather than a published standard |
-*   **`Finding`** (defined in [inc/elc.h](../inc/elc.h)) — One reportable observation. Severity is data and never influences the exit status (HLR-100).
+*   **`Finding`** (defined in [include/elc.h](../include/elc.h)) — One reportable observation. Severity is data and never influences the exit status (HLR-100).
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
@@ -1431,48 +1591,54 @@ The filter itself is not applied here. A function the image does not define is n
 | `attribution` | `const char *` | Citation, or an explicit marker for elc's own heuristics (HLR-099) |
 | `location` | `Location` | File, line, and node where applicable |
 | `detail` | `char *` | Rendered description, including cycle members or chain steps |
-*   **`MetricsAccumulator`** (defined in [inc/report.h](../inc/report.h)) — Per-file metrics as they accumulate during the run. Owns every FileMetrics handed to it, until report_assemble takes them.
+*   **`MetricsAccumulator`** (defined in [include/report.h](../include/report.h)) — Per-file metrics as they accumulate during the run. Owns every FileMetrics handed to it, until report_assemble takes them.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `files` | `FileMetrics **` | Dynamic array, grown by doubling through a checked reallocation (LLR-RPT-16) |
 | `count` | `size_t` | Populated entries |
 | `capacity` | `size_t` | Allocated entries |
-*   **`ProjectSummary`** (defined in [inc/report.h](../inc/report.h)) — The project-level totals across every analysed file (HLR-024), and the most-complex callouts once there are metrics to compare (HLR-026).
+*   **`ProjectSummary`** (defined in [include/report.h](../include/report.h)) — The project-level totals across every analysed file (HLR-024), and the most-complex callouts once there are metrics to compare (HLR-026).
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `file_count` | `size_t` | Files analysed in the run |
 | `physical_lines` | `uint64_t` | Combined physical line count; wider than the per-file field because it sums over the whole project |
-*   **`PathList`** (defined in [inc/report.h](../inc/report.h)) — A sorted, owned list of paths. Used for the files discovered but not analysed, so the report accounts for every discovered file (HLR-012).
+| `eloc` | `uint64_t` | Combined effective lines of code, summed over every analysed file (HLR-024) |
+| `function_count` | `uint64_t` | Functions reported across the run |
+| `largest_file, largest_file_eloc` | `const char *, uint32_t` | The file with the highest file-level ELOC, borrowed from the model it was chosen from. NULL where the run analysed nothing (HLR-026, HLR-066) |
+| `most_complex, most_complex_file, most_complex_value` | `const char *, const char *, uint32_t` | The function with the highest cyclomatic complexity and the file defining it, both borrowed. Ties are broken by the stable presentation order, so the callout is a property of the report rather than of discovery order (HLR-026, HLR-032) |
+*   **`PathList`** (defined in [include/report.h](../include/report.h)) — A sorted, owned list of paths. Used for the files discovered but not analysed, so the report accounts for every discovered file (HLR-012).
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `paths` | `char **` | Dynamic array, grown by doubling |
 | `count` | `size_t` | Populated entries |
 | `capacity` | `size_t` | Allocated entries |
-*   **`Report`** (defined in [inc/elc.h](../inc/elc.h)) — The format-independent model every renderer consumes. Every collection is sorted before a renderer sees it.
+*   **`Report`** (defined in [include/report.h](../include/report.h)) — The format-independent model every renderer consumes. Every collection is sorted before a renderer sees it. Each analysis stage's results are copied in rather than referenced, because the model outlives every input to it and regeneration from a record has no analysis to point at.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
-| `summary` | `ProjectSummary` | Combined and per-language totals, and the most-complex callouts |
-| `files` | `FileMetrics **` | Sorted by path |
-| `measurements` | `MeasurementList` | Per-component coupling and instability, per-function fan-out; reported whether or not a threshold was crossed (HLR-080, HLR-082, HLR-085) |
-| `findings` | `FindingList` | Sorted by severity, kind, then location |
-| `rule_matches` | `RuleMatchList` | Sorted by file then line |
-| `omissions` | `OmissionList` | Analyses skipped for want of a declaration, with reasons (HLR-115) |
-| `findings` | `FindingRow *` | Every measurement that crossed a published line, ranked most severe first, each naming its source (HLR-098, HLR-123) |
-| `skipped_files` | `PathList` | Discovered files with no available language module, sorted by path (HLR-012) |
+| `summary` | `ProjectSummary` | Combined totals and the most-complex callouts (HLR-024, HLR-026) |
+| `files` | `FileMetrics **` | Sorted by path; owned |
+| `languages` | `LanguageList` | Each language's share of the totals, sorted by language name (HLR-025) |
 | `routes` | `RouteList` | Per directory target, whether it was enumerated from a repository or traversed from the filesystem (HLR-127) |
 | `unresolved_calls` | `size_t` | Call sites with no resolvable target, reported so graph completeness is visible (HLR-077) |
+| `over_threshold` | `ThresholdList` | The per-file listing of functions at or above the complexity threshold, built here rather than filtered by a renderer so every format lists the same functions (HLR-021) |
+| `fan_out, cycles, depth_state, depth, deepest` | `FanOutRow *, CycleRow *, DepthState, uint32_t, ChainRow *` | The call-tree measurements: per-function fan-out reported whether or not a threshold was crossed, the recursive cycles, and the deepest chain in full with the state saying why a depth figure is absent (HLR-085, HLR-087 – HLR-090) |
+| `coupling, dep_cycles, strata_state, layering` | `CouplingRow *, CycleDependencyRow *, StrataState, LayeringRow *` | The component-level measurements: Ca, Ce and Instability per component, each dependency cycle with a concrete loop through it, and the layering findings with the state of that analysis (HLR-080 – HLR-083, HLR-118) |
+| `global_state, reach_state, unreachable, unreachable_globals, scope_state, cross_scope` | `GlobalStateRow *, ReachState, UnreachableRow *, char **, ScopeState, CrossScopeRow *` | The global-state and reachability measurements, each carrying the state that distinguishes a measurement from an analysis omitted for want of a declaration (HLR-091 – HLR-096, HLR-115) |
+| `findings` | `FindingRow *` | Every measurement that crossed a published line, ranked most severe first, each naming its source (HLR-098, HLR-123) |
+| `dead, dead_unanalysed` | `DeadRow *, PathList` | The unreachable statements within functions, sorted by file then start line, and the languages whose module supplied no dead-code query — the second because unanalysed and none-found are different claims (HLR-137, HLR-139) |
+| `rule_matches` | `RuleMatchRow *` | What the user's own rules matched, sorted and reported beside the findings rather than among them (HLR-109, HLR-111) |
 | `definitions` | `char **` | The configuration the figures describe, copied and sorted: the model outlives argv on the regeneration path, and the order the user typed them in is not a property of the run (HLR-136) |
 | `undecided_regions` | `uint64_t` | Conditional regions left active because their condition could not be decided, summed over every file (HLR-133) |
 | `image` | `char *` | The linked image the run was filtered by, or NULL where it was not. Every field below is meaningless without it, and NULL is what every renderer tests: with no image the filter sections are not emitted at all, which is the one place the uniform-composition rule gives way — HLR-140 requires a run without the option to report exactly what it reported before the option existed, and an empty section is not nothing (HLR-147) |
 | `image_unresolved` | `uint64_t` | Linkage names carrying a mangling this build does not decode. The first direction of mismatch: it states the completeness of the filter as the unresolved-call count states the completeness of the graph (HLR-143) |
 | `absent` | `AbsentRow *` | The second direction, and the finding the option exists to produce: the source functions this build did not keep. Sorted by file, then start line, then name (HLR-143) |
 | `file_scope_eloc` | `uint64_t` | Effective lines belonging to no function, summed over every file — the part of the total the filter did not narrow (HLR-145) |
-| `undecided_regions` | `size_t` | Conditional regions left active because their condition could not be decided, reported so the completeness of the pruning is visible (HLR-133) |
-*   **Compile-time constants** (in [inc/elc.h](../inc/elc.h)):
+| `skipped_files` | `PathList` | Discovered files with no available language module, sorted by path (HLR-012) |
+*   **Compile-time constants** (in [include/elc.h](../include/elc.h)):
 
     | Name | Value | Purpose |
     | ---- | ----- | ------- |
@@ -1511,7 +1677,7 @@ A grammar's external scanner must be located by a shell glob rather than by `$(w
 
 Two consequences follow. A grammar's ABI must lie inside the range the linked `libtree-sitter` supports, and a mismatch fails at *load* with a version error rather than at build, so the pin is checked against the library rather than assumed. And because grammars are gitignored build products that no `clean` should discard, `make clean` deliberately leaves them: the sanitized pass cleans twice, and refetching an upstream tarball on each is a network round trip for nothing.
 
-**Dependency selection.** HLR-112 defers library choice to this document. The selections below were made after confirming the maintenance status of each candidate named in the PVD:
+**Dependency selection.** HLR-112 defers library choice to this document. Every library `elc` links is recorded below, whether or not the PVD named a candidate for its role, so that this table and the instrumented dependency allowlist describe the same set:
 
 | Role | Selected | Rationale |
 | ---- | -------- | --------- |
@@ -1521,6 +1687,22 @@ Two consequences follow. A grammar's ABI must lie inside the range the linked `l
 | XML reading | **Expat** | Actively maintained, currently funded, streaming, and namespace-aware — everything the read path needs, and nothing it does not. |
 | XML and GraphML writing | **none** | Hand-rolled emission with centralised escaping. Removes a dependency rather than adding one. |
 | DOT writing | **none** | Plain text. Graphviz renders the output; `elc` never links it. |
+| Object-file reading | **libelf** | A well-specified container with a mature implementation; hand-rolling one would put endianness, class, and section-header handling into this project's defect surface for no benefit (SDD §18). Taken from the distribution rather than built from source — the one linked library that is, because building elfutils imports *more* distribution packages than using it does. |
+| Linkage-name demangling | **the C++ runtime's `__cxa_demangle`** | No new dependency: `libstdc++` has been linked as a transitive dependency of igraph since Phase 8, and is now named on the link line deliberately rather than relied upon indirectly (LLR-BLD-19). Decodes the Itanium ABI, and so C++ and Rust's legacy scheme alike. |
+| JSON generation and parsing | **Jansson** (≥ 2.14) | The purification manifest is the one artefact `elc` both writes and reads back (HLR-175, HLR-176), and Jansson does both through one API. C-native, MIT, no dependencies of its own, and built from a pinned release with no code generation (HLR-040). Its `json_error_t` reports the line, column, and byte position of a fault, which is what lets the rejection HLR-176 requires name *where* a hand-edited manifest went wrong rather than only that it did; and it validates UTF-8 strictly, which matters for a file carrying function names and paths lifted from source. See below for why the alternatives lost. |
+
+**Why a library writes the manifest when nothing else here uses one.** Every other format `elc` emits — XML, GraphML, CSV, DOT — is hand-rolled, because emission needs only correct escaping and a writer library would add a dependency for no benefit (§16.3.2). The manifest is the exception, and the reason is that it is the only artefact that **round-trips**: `elc` writes it, a user edits it by hand, and `elc` reads it back (HLR-175 – HLR-177).
+
+That changes what the writer has to guarantee. A hand-rolled writer paired with a library reader gives two independent implementations of one format, and the failure they produce is the one this project dislikes most — a manifest `elc` emitted that `elc` then rejects, or worse, silently reads as something other than what it wrote. One library on both sides makes the round trip a property of the design rather than of two pieces of code agreeing.
+
+Candidates weighed against Jansson, and why each lost:
+
+*   **jsmn** — a tokeniser. It parses and does not generate, so it fails the requirement outright.
+*   **cJSON** — smaller and easily vendored, but its parse failure reports a pointer into the buffer rather than a line and column, which would make the diagnostic of HLR-176 markedly less useful on a file people edit by hand. It has also carried the heavier CVE history of the two.
+*   **json-c** — widely packaged and long-lived, but with an older API and a heavier CVE history again, and no advantage here to set against either.
+*   **yyjson** — excellent, single-file, and considerably faster. Speed is not the constraint: a manifest holds one entry per classified function and is read once per run. Against Jansson's longer maintenance record — the property every other row in the table above was chosen on — throughput it does not need is not a reason to prefer it.
+
+The version is pinned and built from source with the rest (SDP §0), so an advisory against it is answered by bumping a version in the makefile rather than by waiting for a distribution. Jansson has no dependencies of its own, so the instrumented allowlist grows by exactly one entry.
 
 **Ownership of the intermediate structures.** HLR-125's leak gate makes this load-bearing rather than merely tidy, and the pipeline's shape leaves it otherwise ambiguous:
 
@@ -1530,7 +1712,7 @@ Two consequences follow. A grammar's ABI must lie inside the range the linked `l
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.
-## 20. Traceability
+## 23. Traceability
 
 The following table maps the high-level requirements in
 [doc/HLRs.md](HLRs.md) and the low-level requirements in
@@ -1546,13 +1728,21 @@ should be reconciled against the latest revisions of those documents.)
 | Report formats (HLR-027 – HLR-031, HLR-064) | §14, §15 |
 | XML record and regeneration (HLR-054 – HLR-058, HLR-061, HLR-065) | §16 |
 | Determinism (HLR-032, HLR-033) | §5, §13 |
-| Failure handling and exit status (HLR-035 – HLR-038, HLR-063, HLR-117) | §3, §4 |
-| Non-functional constraints (HLR-039 – HLR-043, HLR-112, HLR-113) | §3, §18 |
+| Failure handling and exit status (HLR-035 – HLR-038, HLR-063, HLR-117, HLR-120) | §3, §4 |
+| Non-functional constraints (HLR-039 – HLR-043, HLR-112, HLR-113) | §3, §22 |
+| Memory safety and resource release (HLR-124, HLR-125) | §3, §6, §7, §8, §13, §22 |
 | SDG construction (HLR-073 – HLR-077, HLR-115) | §8 |
 | Coupling, layering, and cycles (HLR-078 – HLR-084, HLR-114, HLR-118) | §9 |
 | Call tree dimensionality (HLR-085 – HLR-090) | §10 |
 | Global state and reachability (HLR-091 – HLR-097) | §8, §11 |
-| Threshold evaluation and severity (HLR-098 – HLR-101) | §12 |
-| Graph outputs (HLR-102 – HLR-106) | §17 |
+| Dead code within functions (HLR-137 – HLR-139) | §6, §7, §13 |
+| Threshold evaluation and severity (HLR-098 – HLR-101, HLR-123) | §12 |
+| Graph outputs (HLR-102 – HLR-106, HLR-119, HLR-122) | §17 |
 | Custom rules (HLR-107 – HLR-111, HLR-116) | §6, §7 |
+| Language module contract (HLR-121) | §6, §22 |
+| Conditional compilation (HLR-131 – HLR-136) | §4, §6, §7, §13, §16 |
+| Linked-image filtering (HLR-140 – HLR-147) | §4, §5, §7, §13, §16, §18 |
+| User documentation (HLR-128 – HLR-130) | §1.2 |
+| Architecture conformance measurement (HLR-160 – HLR-166) | §7, §9, §13, §21 |
+| Graph purification and architecture recovery (HLR-167 – HLR-179) | §9, §12, §13, §14, §17, §19, §20 |
 ---

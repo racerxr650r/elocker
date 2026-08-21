@@ -59,6 +59,12 @@ release readiness — is ready to start, and is the last.
 | [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
 | [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
 | [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
+| [18](#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | 🔲 Not started |
+| [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | 🔲 Not started |
+| [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | 🔲 Not started |
+| [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |
+| [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
+| [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
 
 ## 0. Required Tools for Development
 
@@ -74,6 +80,7 @@ release readiness — is ready to start, and is the last.
 | `igraph` | ≥ 1.0 | Graph algorithms (Phase 8). **Built from source** with `-DIGRAPH_GRAPHML_SUPPORT=OFF -DIGRAPH_OPENMP_SUPPORT=OFF -DIGRAPH_USE_INTERNAL_GMP=ON` |
 | Expat | ≥ 2.6 | Streaming XML read for regeneration mode (Phase 5) |
 | `libelf` | ≥ 0.18 | Reading the symbol table of the image `--elf` names (Phase 16). **From the distribution** — see below |
+| Jansson | ≥ 2.14 | Generating and parsing the purification manifest (Phase 23). **Built from source**; no dependencies of its own ([SDD](SDD.md) §22) |
 | Criterion | ≥ 2.4 | Unit test framework |
 | Bats | ≥ 1.10 | Integration, fixture, and instrumented levels |
 | `bats-support`, `bats-assert` | — | Assertion helpers; vendored under `test/helpers/` |
@@ -94,8 +101,8 @@ release readiness — is ready to start, and is the last.
 ### Installing them
 
 `make prereqs` installs everything. It takes the toolchain, the test
-framework, and the inspection tools from the distribution, then builds all
-four libraries elc links from pinned upstream releases.
+framework, and the inspection tools from the distribution, then builds the
+libraries elc links from pinned upstream releases.
 
 **The libraries are built from source deliberately.** When a security
 advisory lands against one of them, the fix is to bump a version in the
@@ -104,7 +111,7 @@ to rebuild and ship is not a control this project has. `make prereqs-<lib>`
 rebuilds one; `make check-prereqs` reports what is installed and flags
 anything below the minimums above.
 
-Two configure-time decisions fall out of building them ourselves, and both
+Three configure-time decisions fall out of building them ourselves, and all
 serve requirements rather than merely convenience:
 
 *   **libgit2 is built without network transports.** `elc` reads local
@@ -1531,13 +1538,28 @@ bound test.
 **Acceptance:** `make asan` and `make valgrind` both clean across the whole
 suite, including runs ending in usage errors, invalid targets, and rejected
 records. `Traceability.md` §6 lists nothing but the review-verified items the
-STP names. `elc` on its own source reports no function exceeding complexity
-15 and no dependency cycle. `make install` under a staging root produces a
-working binary and runtime tree.
+STP names **and the requirements specified for Phases 18 through 23** — those
+were captured ahead of their implementation, and closing them is each of
+those phases' acceptance rather than this one's. Every requirement covering
+behaviour this release *ships* has a bound test. `elc` on its own source
+reports no function exceeding complexity 15 and no dependency cycle.
+`make install` under a staging root produces a working binary and runtime
+tree.
+
+**On the gap baseline.** It stands at 175 rather than the figure a release
+would otherwise want, because 32 requirements are specified and not yet
+built. This phase lowers it by whatever it closes and no more; the run of
+phases after it brings it back to 143, which is where it stood before any of
+this was specified. A baseline that has *risen* is normally the signal that a
+phase shipped requirements without tests (§5.4 step 8) — here it is the
+recorded consequence of specifying ahead of building, and it is the one case
+where that is deliberate.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
 
 ```text
-Implement **Phase 16 — Hardening and Release Readiness**, tracked by
-issue #<N>. The final phase.
+Implement **Phase 17 — Hardening and Release Readiness**, tracked by
+issue #<N>. The last phase before the first release.
 
 Read first: `doc/STP.md` §2 and §7, `doc/Traceability.md` §6 for the
 outstanding gaps.
@@ -1559,17 +1581,597 @@ Deliver:
 * `main` created from `develop`, and `make install` verified against a
   staging root.
 
-There is no next phase. In place of step 12 of the protocol, open the release
-PR from `develop` to `main` and attach the `Traceability.md` at that commit as
-the evidence of verification. Confirm before doing so that the manual and man
-page describe the whole delivered product, not merely the last phase's
-additions.
+This phase closes the **first release**, not the project: Phases 18 through 20
+specify capability added after it. In place of step 12 of the protocol, open
+the release PR from `develop` to `main` and attach the `Traceability.md` at
+that commit as the evidence of verification. Confirm before doing so that the
+manual and man page describe the whole delivered product, not merely the last
+phase's additions. Open Phase 18's issue afterwards, as step 12 otherwise
+directs.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
 update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
 before you push. Close as that phase's prompt directs.
+```
+
+### Phase 18 — Output Format Selection and Report Verbosity
+
+Specified 2026-08-20, after the first release. The three phases from here are
+the first whose requirements were captured ahead of any design, so each opens
+with more open questions than a phase written alongside its implementation —
+step 6 of the protocol matters correspondingly more.
+
+1. `cli.c`: the report format derived from the output filename's extension,
+   the format option narrowed to standard output, and the usage errors for an
+   unrecognised extension and for an extension contradicting an explicit
+   format.
+2. `report.c` / `format_text.c`: the summary and verbose compositions, and the
+   one traversal that emits both — a tier must not be able to appear in one
+   verbosity and be forgotten in the other, exactly as it must not across
+   formats (LLR-SUM-02).
+3. The verbosity carried into regeneration, so a record renders at either
+   verbosity byte-identically to a direct run.
+4. XML and CSV left complete whatever the verbosity, and a verbose request
+   against them accepted rather than rejected.
+5. The manual and man page: the format table restated around extensions, and
+   the summary/detail partition published as HLR-150 requires.
+
+**Requirements:** HLR-148 – HLR-152, and the amendments to HLR-027, HLR-031
+and HLR-056.
+
+**Acceptance:** `elc -o report.csv src/` writes CSV with no format option
+given. `elc -o report.json src/` is a usage error naming the recognised
+extensions. `elc -f csv -o report.md src/` is a usage error naming both.
+`elc src/` prints the summary tiers alone; `elc --verbose src/` prints what
+`elc src/` printed before this phase, byte for byte. `elc -f xml src/` and
+`elc --verbose -f xml src/` produce identical bytes. A record regenerated at
+either verbosity matches a direct run at that verbosity.
+
+**Open questions for step 6.** Whether the format option survives at all is
+settled here by HLR-149 — it does, scoped to standard output — but the
+spelling of the verbosity option, and the exact assignment of each existing
+report section to the summary or detail tier, are design decisions this phase
+makes and records. HLR-150 fixes the partition *rule* and requires the result
+be published; it deliberately does not enumerate the sections.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 18 — Output Format Selection and Report Verbosity**,
+tracked by issue #<N>.
+
+Read first: `doc/SDD.md` §4 (`cli.c`, and its "Option List as Single
+Reference" section), §13 (`report.c`), and §14 (`format_text.c`, its
+Algorithm section); HLR-148 through HLR-152; and the amendments those
+requirements made to HLR-027, HLR-031 and HLR-056.
+
+This phase changes a default that most of the suite depends on, and that is
+the whole of its difficulty. HLR-151 defines the verbose report as *exactly*
+what elc printed before this phase, which turns the existing suite into the
+regression gate: capture every fixture's output before changing anything, and
+require a `--verbose` run to reproduce it byte for byte afterwards. Do that
+first rather than last — it is the only cheap proof that a presentation
+change did not become a measurement change.
+
+Watch for:
+* **The fixtures assert on detail tiers the new default omits.** Most will
+  need `--verbose`. Adding it mechanically is right where a test is about a
+  *measurement*, and wrong where a test is about *composition* — those need
+  a summary-mode counterpart instead, or HLR-150 ends the phase with no test
+  bound to it and the gap list will say so.
+* **Two invocations in the suite already break on the extension rule, and
+  they are the shape to search for.** `test/integration/formats.bats` writes
+  `out.table` for the table format: `.table` is not a recognised extension
+  (HLR-148), and it does not agree with the `-f table` beside it (HLR-149).
+  Audit every `-o` in the suite for both faults.
+* **`-o report.md` now selects Markdown.** Several graph and dot fixtures
+  name `report.md` while relying on the default table. Those change format
+  silently rather than failing, which is worse than breaking — read what
+  each one asserts before assuming it still holds.
+* **Regeneration now has two format rules that can contradict.** HLR-055
+  gives Markdown alone, and LLR-CLI-10 rejects only a format *explicitly*
+  selected and other than Markdown — but an output path's extension is not
+  an explicit selection. Decide what `--from-xml rec.xml -o out.txt` means,
+  record it as an amendment to HLR-055 or LLR-CLI-10 under step 6, and do
+  not leave it to fall out of whatever the parser happens to do.
+* **One traversal, still.** LLR-SUM-02 and LLR-SUM-03 make the table and
+  Markdown renderers share a single walk, so that a tier cannot be present
+  in one and forgotten in the other. Verbosity must be a property *of* that
+  walk rather than a second walk beside it, or a guarantee that currently
+  holds by construction becomes two things that have to be kept agreeing.
+* **`--verbose` with `-f xml` or `-f csv` is accepted, not rejected**
+  (HLR-152). Every other option pairing this project defines is a usage
+  error, so the analogy pulls the wrong way here: there is nothing
+  contradictory about asking for detail from a format that is already
+  complete, and the request simply has no effect.
+* **The summary keeps the findings.** HLR-150 lists them among the summary
+  tiers deliberately. A summary that dropped the one section a reader acts
+  on would be shorter and useless.
+* The verbosity option belongs in `cli_usage`, which is the reference the
+  documentation test checks both documents against (LLR-DOC-04).
+
+The gap baseline was raised to 155 when these requirements were specified
+ahead of any design. The five HLRs this phase closes must bring it to 150 or
+below; step 8 is not satisfied by a baseline that merely holds.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. Close by opening the issue for Phase 19 from §8.
+```
+
+### Phase 19 — Information-Flow Complexity
+
+1. `graph.c` / `calltree.c`: per-function fan-in over the call view, counted
+   distinctly and excluding global-state edges, as fan-out already is
+   (LLR-CTR-07 applies unchanged to its converse).
+2. The Henry–Kafura value per function, and its project-level sum, in an
+   integer width no run can overflow.
+3. `report.c`: both carried into the model, the per-function value in the
+   detail tier and the project total among the summary totals of HLR-024.
+4. `thresholds.c`: the metric reported as a bare measurement with no severity
+   — the path LLR-THR-08 already provides, exercised here for the first time
+   by a measurement that will never have a catalogue entry.
+5. The `graph/` and `calltree/` fixture groups extended with hand-computed
+   fan-in and Henry–Kafura values, including the zero cases at both ends of
+   the call graph.
+6. The manual and man page: the metric, its formula, and the two properties
+   HLR-159 requires be stated — the zero at either end, and the ordinal
+   rather than absolute reading.
+
+**Requirements:** HLR-156 – HLR-159.
+
+**Acceptance:** every function reports a fan-in, and a hand-computed
+Henry–Kafura value matches the fixture for each. An entry point and a leaf
+each report zero, and the report says why rather than leaving it to be read as
+an absence of code. The project total equals the sum of the per-function
+values. No Henry–Kafura row carries a severity, and the threshold-catalogue
+test still finds exactly one row marked as `elc`'s own heuristic.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 19 — Information-Flow Complexity**, tracked by issue #<N>.
+
+Read first: `doc/SDD.md` §8 (`graph.c`), §10 (`calltree.c`), §12
+(`thresholds.c`) and §13 (`report.c`); HLR-156 through HLR-159; and PVD
+Appendix A.2, which carries the formula and the two properties HLR-159
+requires be stated wherever the metric is documented.
+
+Fan-in is the only new *measurement* here; everything after it is arithmetic
+over figures the graph already holds. The care goes into which edges it
+counts and how wide the arithmetic is.
+
+Watch for:
+* **Fan-in is over the call view alone**, exactly as fan-out is
+  (LLR-CTR-07). A global-state edge joins a function that writes an object
+  to one that later reads it, and that is coupling rather than invocation.
+  Taking in-degree over the whole SDG would inflate every fan-in — and the
+  squared term would then inflate the Henry–Kafura value by the square of
+  that error.
+* **Widen before you multiply.** `(fan_in * fan_out)` evaluated in 32 bits
+  and squared afterwards overflows long before the result needs a wider
+  type. The widening has to happen before the multiplication, not at the
+  assignment. HLR-158 requires that no run overflow, and a wrapped total
+  renders as a perfectly ordinary number.
+* **Zero is a value, not an absence.** A function with no callers or no
+  callees scores zero and must print `0`. Instability — the metric this one
+  will sit beside — prints `undefined` where its inputs are zero (HLR-082).
+  Copying that pattern here would be wrong, and the two appearing in
+  adjacent columns is what makes it an easy mistake to make.
+* **No severity, and the catalogue stays honest.** The metric takes the path
+  LLR-THR-08 already provides for a measurement the catalogue holds no entry
+  for. Do not add a `Threshold` row for it. The existing test asserting that
+  exactly one catalogue row is marked as elc's own heuristic is what catches
+  an invented band, and it should keep passing untouched.
+* **The duplicate-name artefact reaches this metric raised to a power.**
+  Calls resolve by name, so a `static` helper defined in several files gives
+  the winning definition every caller's fan-in and the losers none
+  (SDD §8.5). That imprecision is already documented for reachability and
+  for coupling; here the squared term magnifies it. Document it rather than
+  leaving a reader to discover a four-order-of-magnitude figure built on it.
+* **Tier placement was decided in Phase 18.** The per-function value is a
+  detail tier and the project total belongs among the summary totals of
+  HLR-024. That is an assignment the verbosity partition has to accommodate,
+  not a fresh decision to make here.
+* **The record carries both or regeneration loses them.** Neither figure can
+  be recomputed from a record, for the reason the call-tree measurements
+  cannot (LLR-XWR-08): regeneration has no graph, and no source to build one
+  from.
+
+The five HLRs Phase 18 closed should have left the gap baseline at 150 or
+below; the four this phase closes must bring it to 146 or below.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. Close by opening the issue for Phase 20 from §8.
+```
+
+### Phase 20 — Debug-Line Pruning
+
+1. `elfsyms.c`, or a module beside it: the image's debug line information read
+   directly from the image, with no toolchain utility invoked (HLR-141).
+2. The set of source lines a covered translation unit compiled, per file.
+3. `analyze.c`: those lines joined to the excluded set the comment spans, the
+   inactive regions and the absent functions already share, so that one
+   mechanism governs every exclusion and none can remove a range twice
+   (LLR-ANL-43, LLR-ANL-55, LLR-ANL-58).
+4. Coverage established per file, and pruning confined to files the image's
+   line information demonstrably covers.
+5. Both counts of HLR-155 into the report model, every format, and the record.
+6. The `elf/` fixture group extended with images built at more than one
+   optimisation level and one translation unit compiled without debug
+   information, so that the uncovered-file path is exercised rather than
+   assumed.
+
+**Requirements:** HLR-153 – HLR-155, and the amendment to HLR-141.
+
+**Acceptance:** an image built with debug information prunes the lines a
+`#ifdef` excluded from that build, and `elc` reports how many. An image built
+without it produces byte-identical output to the same image before this phase.
+A translation unit compiled without debug information has no line pruned and
+is counted among those whose coverage could not be established. No file the
+image's line information does not cover loses a line.
+
+**Open questions for step 6.** Which library reads the line programme is a
+design decision under HLR-112, and it is the one place these three phases may
+add a dependency — `libdw` from elfutils is the obvious candidate, beside the
+`libelf` already linked, and the dependency allowlist and `make check-prereqs`
+both need updating if it is taken. Whether the optimiser's line-folding
+(HLR-154) proves tolerable in practice is the risk this phase carries, and the
+counts exist so that it is measurable rather than argued.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 20 — Debug-Line Pruning**, tracked by issue #<N>.
+
+Read first: `doc/SDD.md` §18 (`elfsyms.c`) and §7 (`analyze.c`, its "One
+Excluded Set, Not Two" section); HLR-153 through HLR-155; the amendment to
+HLR-141; and the Section 19 introduction, which sets out the two
+granularities an image answers at and which of them debug information adds.
+
+This is the most dangerous phase specified so far, and the reason is that its
+failure mode is silent. Over-pruning deletes code the build did compile and
+leaves a report that is smaller, internally consistent, and wrong — the exact
+outcome HLR-133 and HLR-138 are written to prevent in the two analyses that
+came before it.
+
+Watch for:
+* **The DWARF reader must not open a file the user did not name.** HLR-141
+  forbids it, and `test/instrumented/environment.bats` already asserts it —
+  "the image is opened once and nothing beside it". A DWARF library will
+  happily follow `.gnu_debuglink` into `/usr/lib/debug` given the chance.
+  Configure it not to, or the requirement is breached by the library rather
+  than by anything you wrote, and that test is what will tell you.
+* **Absence of a line proves nothing where coverage was never established**
+  (HLR-154). A translation unit compiled without `-g` contributes no line
+  entries at all, so a rule keyed on absence alone would delete the entire
+  file. Coverage is established per compilation unit, and must be
+  established before a single line inside it is excluded.
+* **The optimiser folds lines and the mapping does not record that it did.**
+  A line whose instructions were merged into a neighbour's entry is
+  indistinguishable, in the mapping alone, from one that produced none.
+  HLR-154 accepts that limit and requires it be documented. Do not attempt
+  to recover the difference, and do not let a fixture that happens to look
+  right at `-O2` be read as evidence the case does not arise.
+* **Join the exclusion set that already exists**, in the order LLR-ANL-58
+  fixes: comments, then inactive regions, then the functions the image does
+  not define — and these lines after all three. A line inside a function the
+  image never defined must be reported as a function the linker dropped, not
+  as a line the compiler did not emit. The two answers cite different
+  evidence and imply different remedies.
+* **Line granularity meets a byte-granular exclusion.** `byte_is_excluded`
+  works in byte ranges and DWARF speaks in line numbers, so the conversion
+  between them is yours to define — and a line's byte extent has to come
+  from the mapped source rather than be assumed.
+* **Code outside a function has to survive.** HLR-145 keeps file-scope ELOC
+  and reports it separately, and file-scope data has few line entries to its
+  name. A rule that pruned uncovered lines everywhere would delete precisely
+  the figure HLR-145 exists to protect, which is why HLR-154 confines
+  pruning to within functions the image defines.
+* **Both counts, or the result is unfalsifiable.** HLR-155's pruned-line and
+  uncovered-file counts are what let a reader tell a thoroughly pruned
+  report from one where the evidence was mostly absent. They are the
+  equivalent of the unresolved-call count and are read the same way.
+* The `elf/` fixtures build their images rather than committing them
+  (STP §6). Extend that to more than one optimisation level, and to a
+  translation unit deliberately compiled without `-g`, or the
+  uncovered-file path of HLR-154 ships untested.
+
+Taking a DWARF library is the one dependency these three phases may add, and
+it is a design decision under HLR-112. If `libdw` is chosen — beside the
+`libelf` already linked — the instrumented dependency allowlist and
+`make check-prereqs` both need it, and step 6 records the choice in the SDD's
+dependency table.
+
+The four HLRs Phase 19 closed should have left the gap baseline at 146 or
+below; the three this phase closes must bring it to 143 or below, which is
+where it stood before these requirements were specified.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. Close by opening the issue for Phase 21 from §8.
+```
+
+### Phase 21 — Architecture Conformance Measurement
+
+Section 11 already detects both kinds of layering breach. This phase adds the
+two things detection alone does not give a reader: an aggregate saying how
+much of the code base conforms, and a matrix showing where the breaches sit.
+
+1. `analyze.c` / `report.c`: the component directory recorded once and read
+   everywhere, rather than re-derived from a path at each use (HLR-160).
+2. `arch.c`: the Back-Call and Skip-Call Violation Indices, counted from the
+   layering violations already recorded — not re-derived from the graph.
+3. The undefined case for both, where no inter-layer call edge exists.
+4. `format_dsm.c`: the matrix over declared layers, or over directories where
+   none were declared, and its CSV and Markdown renderings.
+5. The `arch/` fixture group extended with a hand-computed index and a
+   hand-drawn matrix for a tree whose violations are known.
+
+**Requirements:** HLR-160 – HLR-166, and the `arch.c` and `format_dsm.c`
+sections of the SDD.
+
+**Acceptance:** a tree with a known layering reports indices matching the
+hand-computed values, and the matrix's below-diagonal cells account for
+exactly the back-calls the layering section lists. A project with no
+inter-layer call reports both indices `undefined` rather than 0 or 100%. A
+run with no strata declared still produces a matrix, over directories. The
+diagonal convention is printed with every rendering.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 21 — Architecture Conformance Measurement**, tracked by
+issue #<N>.
+
+Read first: `doc/SDD.md` §9 (`arch.c`) and §21 (`format_dsm.c`); HLR-160
+through HLR-166; and HLR-079 and HLR-118, which are the violations these
+indices count.
+
+Nothing here is a new *detection*. Both indices count findings `arch.c`
+already produces, and the matrix arranges edges the component projection
+already holds. The work is aggregation and presentation, and the hazards are
+all in the denominators and the ordering.
+
+Watch for:
+* **Count the findings, do not re-derive them** (HLR-164). A second code
+  path deciding what a back-call is will eventually disagree with the first
+  — over a call touching an unpartitioned component, over a call that both
+  skips and inverts, over an edge collapsed from several call sites — and a
+  percentage contradicted by the table printed beside it is worse than no
+  percentage at all.
+* **The denominator is inter-layer call edges, and it excludes three things
+  people forget.** Intra-layer edges have no direction to invert; edges
+  touching a component outside every declared stratum are excluded by
+  HLR-161 and LLR-LAY-05; and global-state edges are not calls (LLR-CTR-07).
+* **Zero denominator is `undefined`, not zero** (HLR-162). A project with no
+  inter-layer calls has demonstrated nothing either way, and reporting 100%
+  conformance for it would be the same error HLR-082 avoids by reporting an
+  undefined Instability rather than a stable 0.00.
+* **One call can be both a skip and an inversion** and is counted once in
+  each index (LLR-LAY-04). Do not sum the two indices into a single score —
+  it would double-count exactly the calls that most need attention.
+* **The matrix orientation is load-bearing and must be printed.** Rows are
+  callers, columns callees, both in ascending layer order, so back-calls
+  gather below the diagonal (HLR-166). A reader who has to infer which way
+  round it is gets the opposite answer half the time.
+* **Escaping is not this renderer's own.** The CSV cells go through the same
+  `write_field` the per-function renderer uses, and the Markdown rendering
+  must escape the cell separator — a directory containing a comma or a pipe
+  would otherwise corrupt the grid (HLR-064).
+* **The matrix appears without strata.** Falling back to directories is what
+  makes it useful to the reader who has declared nothing, which is most
+  readers on a first run.
+
+The gap baseline stands at 175, raised when these requirements were
+specified ahead of design. The seven HLRs this phase closes must bring it to
+156 or below, assuming Phases 18 to 20 closed theirs.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. Close by opening the issue for Phase 22 from §8.
+```
+
+### Phase 22 — Graph Purification
+
+A raw call graph rarely sorts into layers: a logger everything calls and a
+dispatcher that calls everything each fuse regions of a program that have
+nothing to do with one another. This phase builds the masked view that lets
+the structure underneath be seen, and reports every assumption it made in
+doing so. It recovers nothing — that is Phase 23.
+
+1. `purify.c`: hub-and-authority, betweenness, and coreness over the call
+   view, via `igraph`.
+2. Classification of utility sinks, god objects, and peripheral nodes
+   against configurable thresholds, compared by rank rather than by raw
+   score.
+3. The recovery view built as a **copy**, with the graph every other stage
+   reads left untouched (HLR-167).
+4. The transparency report: node, class, triggering metric and value, and
+   action taken — as a report section, not as raw `stdout`.
+5. Deterministic classification: a stated floating-point comparison, and
+   ties broken by stable node identifier.
+6. A fixture tree built around a known utility sink and a known dispatcher,
+   with the classification hand-worked in its header.
+
+**Requirements:** HLR-167 – HLR-171, HLR-174, HLR-179, and SDD §19.
+
+**Acceptance:** every metric `elc` reported before this phase is byte-identical
+after it, on every fixture — masking reaches nothing outside the recovery
+view. The fixture's planted utility sink and dispatcher are classified as
+such, and the report names the metric and value that triggered each. Two runs
+over the same tree classify identically. No classification carries a severity.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 22 — Graph Purification**, tracked by issue #<N>.
+
+Read first: `doc/SDD.md` §19 (`purify.c`, its two interface sections and its
+Algorithm section) and §8 (`graph.c`); HLR-167 through HLR-171, HLR-174 and
+HLR-179; and HLR-101, which bounds what this phase is allowed to claim.
+
+This is the first place elc forms a view of its own about a code base, and
+the requirements are shaped almost entirely around containing that. Read
+HLR-167 before writing anything: it is the constraint the rest of the phase
+is built on.
+
+Watch for:
+* **The recovery view is a copy, and that is structural rather than
+  disciplinary** (HLR-167). Mask into a second graph; never mask the `Sdg`
+  and unmask afterwards. The in-place version is one early return away from
+  reporting a fan-out that omits real calls, and every existing fixture is
+  the regression test — if any reported number moves, the phase is wrong.
+* **Rank, don't threshold on the raw score.** Betweenness scales with graph
+  size, so a fixed cut-off classifies everything in a large project and
+  nothing in a small one. Compare against position in the ordered
+  distribution, which is what makes one default serviceable for both.
+* **HITS is iterative and its scores are approximate.** A comparison at the
+  boundary must be made to a stated tolerance, or the same source classifies
+  differently on two machines and HLR-032 fails in a way no fixture reliably
+  catches. Ties break by node identifier, never by igraph's enumeration
+  order (HLR-179).
+* **A utility sink loses its incoming edges only; a god object loses both
+  directions** (HLR-168, HLR-169). The asymmetry is the point: a sink's
+  fusion is between its callers, so its outgoing edges harm nothing.
+* **A peripheral node is excluded, not placed** (HLR-170). It gets no
+  recovered layer at all — a function elc did not consider is not a function
+  elc put at the bottom, and conflating the two would drop every leaf into
+  the lowest layer.
+* **No severity, no finding, no advice** (HLR-171, HLR-101). "God object" is
+  an observation about a graph's shape, not a measurement banded against a
+  published range. The existing test asserting exactly one catalogue row is
+  marked as elc's own heuristic should still pass untouched.
+* **The transparency report goes to the results destination, not to
+  `stdout` directly** (HLR-174). HLR-038 reserves that stream: a run
+  redirecting its report to a file must not have a second report appear on
+  the terminal.
+* `igraph`'s error handler is already installed non-aborting (LLR-SDG-15);
+  every new call into it needs its return checked in the same way.
+
+The seven HLRs this phase closes must bring the gap baseline to 149 or
+below, assuming Phases 18 to 21 closed theirs.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. Close by opening the issue for Phase 23 from §8.
+```
+
+### Phase 23 — Architecture Recovery and the Manifest
+
+The payoff phase: a layering read off the purified view, a manifest by which
+a user overrules a classification they disagree with, and the two drawings
+that let them see what purification did before they trust it.
+
+1. `recover.c`: topological ordering of the recovery view, folded into
+   per-directory layers by edge density, with cycles reported where no
+   ordering exists.
+2. The proposal emitted in the form `--stratum` and `--stratum-order`
+   accept, so adopting it needs no transcription (HLR-173).
+3. `purify.c`: the manifest written on request and read only when named,
+   with a manual classification overruling a computed one and the report
+   distinguishing the two. Jansson joins the build here — the only
+   third-party library `elc` uses to *write* a format, and the reason is
+   argued in [SDD](SDD.md) §22.
+4. `format_graph.c`: the raw and purified `.dot` exports, masked nodes drawn
+   detached rather than deleted, named by the companion rule of HLR-119.
+5. A fixture asserting that a manifest overriding a classification changes
+   the recovered layering, and that a manifest naming an unknown function is
+   reported and ignored.
+
+**Requirements:** HLR-172, HLR-173, HLR-175 – HLR-178, and SDD §20.
+
+**Acceptance:** a fixture tree with a plain layered structure recovers that
+structure. A tree whose recovery view is cyclic reports the cycles instead of
+a layering. The emitted proposal, passed back as arguments, is accepted by
+`cli_parse` unmodified. A manifest marking the planted dispatcher
+`mask = false` changes the recovered layering, and the report attributes that
+classification to the manifest. A manifest that is not named is not read,
+including one sitting in the working directory.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 23 — Architecture Recovery and the Manifest**, tracked by
+issue #<N>.
+
+Read first: `doc/SDD.md` §20 (`recover.c`) and §19 (`purify.c`, its manifest
+interface); HLR-172, HLR-173, HLR-175 through HLR-178; and the amendments
+those requirements made to HLR-078, HLR-101 and HLR-119.
+
+The whole phase turns on one boundary, drawn by HLR-173: what this produces
+is a *proposal*, and a proposal is never the baseline it is measured against.
+Everything else follows from keeping that true.
+
+Watch for:
+* **`recover.c` must not be reachable from `arch.c`.** The conformance
+  analyses take their baseline from the declared strata and from nothing
+  else (HLR-173). Enforce it with the dependency direction rather than with
+  care: if the recovery results are not visible to the module that measures
+  conformance, elc cannot mark its own homework even by mistake.
+* **With no strata declared, conformance stays omitted** however confidently
+  a layering was recovered (HLR-115, HLR-173). Recovery is what that user
+  gets *instead*, not a substitute baseline.
+* **A topological order is not a layering.** It orders functions; an
+  architecture orders directories. Fold by directory using where the bulk of
+  a directory's edges point — one function reaching far down the order must
+  not drag its whole directory with it.
+* **Emit the proposal as arguments, not as prose** (HLR-173). Rendering it
+  in the form `--stratum` and `--stratum-order` accept is what makes
+  adoption a copy rather than a transcription, and it is the boundary made
+  visible: elc produces an argument list, and it takes effect only when the
+  user passes it back.
+* **The manifest is read only when named** (HLR-176). Never from the working
+  directory, the target, an ancestor, or a dotfile — HLR-039 is unchanged by
+  this phase, and the `determinism/` fixture group already plants decoy
+  dotfiles that will catch a violation.
+* **A malformed manifest is fatal; an unknown function in a valid one is
+  not** (HLR-176, HLR-177). The first is a file the user named and can fix;
+  the second is ordinary use when analysing one directory of a larger
+  project, exactly as a declared entry point that matches nothing is
+  (LLR-CTR-08).
+* **The report must say which classifications came from the manifest**
+  (HLR-177), or a reader cannot tell the tool's assumptions from their own
+  team's.
+* **Jansson is a new linked dependency and three places record that.**
+  `make prereqs` builds it from a pinned release like the rest, `make
+  check-prereqs` reports its version against the ≥ 2.14 minimum, and the
+  instrumented dependency allowlist — a fixed list by design (LLR-BLD-05) —
+  gains exactly one entry. The allowlist test fails until it does, which is
+  the intended order.
+* **Well-formed is not valid.** Jansson tells you the file is JSON; whether
+  it is a *manifest* — every class name known, the version one this build
+  reads — is this module's judgement, and both failures are rejected the
+  same way (HLR-176).
+* **Both drawings follow the companion rule** (HLR-119, HLR-178): names
+  derived from the output path, no path of their own, and nothing written
+  when the report goes to standard output. Masked nodes are drawn *detached
+  or greyed*, never deleted — a drawing that removed them could not show
+  what purification did, which is the entire reason there are two.
+
+The six HLRs this phase closes must bring the gap baseline to 143 or below —
+which is where it stood before any of these requirements were specified, and
+is the figure to check the whole run of phases against.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. No further phase is specified: in place of step 12, cut a
+release per §5.5, or open the issue for whatever is specified after this one.
 ```
 
 ## 9. Risks & Open Questions
