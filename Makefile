@@ -45,6 +45,7 @@
 #>  prereqs-libgit2      Build libgit2 from source, no network transports (needs sudo)
 #>  prereqs-igraph       Build igraph from source, GraphML off (needs sudo)
 #>  prereqs-expat        Build Expat from source (needs sudo)
+#>  prereqs-jansson      Build Jansson from source, shared, docs and tests off (needs sudo)
 #>  prereqs-clean   Remove the unpacked dependency sources
 #>  check-prereqs   Report which dependencies are present and flag version gaps
 #>
@@ -190,6 +191,7 @@ TREE_SITTER_VER ?= 0.26.2
 LIBGIT2_VER     ?= 1.9.0
 IGRAPH_VER      ?= 1.0.1
 EXPAT_VER       ?= 2.8.3
+JANSSON_VER     ?= 2.15.1
 
 # Grammars are pinned like the libraries, and for the same reason. Each is a
 # separate upstream project on its own release cadence, and the ABI it
@@ -230,9 +232,10 @@ prereqs:
 	@$(MAKE) --no-print-directory check-prereqs
 
 .PHONY: prereqs-src
-prereqs-src: prereqs-tree-sitter prereqs-libgit2 prereqs-igraph prereqs-expat
+prereqs-src: prereqs-tree-sitter prereqs-libgit2 prereqs-igraph prereqs-expat \
+             prereqs-jansson
 	@sudo ldconfig
-	@echo "prereqs-src: all four libraries built and installed under $(SRC_PREFIX)"
+	@echo "prereqs-src: every linked library built and installed under $(SRC_PREFIX)"
 
 # Fetch and unpack an upstream release into the work directory.
 #   $(1) archive URL   $(2) directory the archive unpacks to
@@ -321,6 +324,33 @@ prereqs-expat:
 	@cmake --build $(SRC_WORK)/expat-build --parallel
 	@sudo cmake --install $(SRC_WORK)/expat-build
 
+# Jansson generates and parses the purification manifest (Phase 23, HLR-175 –
+# HLR-177; doc/SDD.md §22). Every option below would otherwise be decided by
+# the library's own defaults, which LLR-BLD-05 forbids for anything that can
+# alter elc's link line:
+#   JANSSON_BUILD_SHARED_LIBS defaults OFF — the default builds a static
+#     archive, so without this the link line changes shape entirely.
+#   JANSSON_BUILD_DOCS defaults ON and wants python-sphinx, which is a
+#     distribution package this project does not otherwise need.
+#   JANSSON_WITHOUT_TESTS and JANSSON_EXAMPLES only cost build time, and are
+#     pinned for the same reason as the rest: nothing about what gets built
+#     should depend on what the build machine happens to have.
+.PHONY: prereqs-jansson
+prereqs-jansson:
+	@echo "jansson $(JANSSON_VER) (shared, docs off, tests off)"
+	$(call fetch,https://github.com/akheron/jansson/archive/refs/tags/v$(JANSSON_VER).tar.gz,jansson-$(JANSSON_VER))
+	@cmake -S $(SRC_WORK)/jansson-$(JANSSON_VER) -B $(SRC_WORK)/jansson-build \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DCMAKE_INSTALL_PREFIX=$(SRC_PREFIX) \
+		-DJANSSON_BUILD_SHARED_LIBS=ON \
+		-DBUILD_SHARED_LIBS=ON \
+		-DJANSSON_BUILD_DOCS=OFF \
+		-DJANSSON_WITHOUT_TESTS=ON \
+		-DJANSSON_EXAMPLES=OFF \
+		-DJANSSON_INSTALL=ON
+	@cmake --build $(SRC_WORK)/jansson-build --parallel
+	@sudo cmake --install $(SRC_WORK)/jansson-build
+
 .PHONY: prereqs-clean
 prereqs-clean:
 	@rm -rf $(SRC_WORK)
@@ -339,7 +369,7 @@ check-prereqs:
 	@echo "== libraries =="
 	@command -v $(PKG_CONFIG) >/dev/null 2>&1 || { \
 		echo "  pkg-config missing; cannot report library versions" >&2; exit 0; }
-	@for l in criterion tree-sitter expat libgit2 igraph libelf; do \
+	@for l in criterion tree-sitter expat libgit2 igraph libelf jansson; do \
 		v=$$($(PKG_CONFIG) --modversion $$l 2>/dev/null); \
 		if [ -n "$$v" ]; then printf '  %-12s %s\n' "$$l" "$$v"; \
 		else printf '  %-12s MISSING\n' "$$l"; fi; \
@@ -351,6 +381,7 @@ check-prereqs:
 	@$(MAKE) --no-print-directory _check-min LIB=igraph      MIN=1.0  PHASE=8
 	@$(MAKE) --no-print-directory _check-min LIB=criterion   MIN=2.4  PHASE=0
 	@$(MAKE) --no-print-directory _check-min LIB=libelf      MIN=0.18 PHASE=16
+	@$(MAKE) --no-print-directory _check-min LIB=jansson     MIN=2.14 PHASE=23
 	@echo "== grammars =="
 	@$(MAKE) --no-print-directory _check-grammar LANG=c \
 		REPO=tree-sitter/tree-sitter-c KIND=tag PIN=$(GRAMMAR_C_VER)

@@ -1,56 +1,40 @@
 # elc User Manual
 
-**Version:** 0.16 (Phase 16)
-**Applies to:** the `elc` build shipped alongside this file
-
-This manual describes the version it ships with. Every option `elc` accepts is
-documented here, and every option documented here is accepted — the
-documentation test in `test/integration/docs.bats` enforces both directions,
-so this file cannot silently drift from the tool.
-
 For the terse reference form, see `man elc`.
 
 ---
 
-## What `elc` is for
+## Why elc
 
-`elc` answers two kinds of question about a codebase:
+`elc` answers two kinds of questions about a codebase:
 
 - **Which functions carry the code and the complexity** — effective lines of
-  code and cyclomatic complexity, reported per function rather than aggregated
-  per file, where the problem function hides inside a large one.
+  code and cyclomatic complexity, reported per function.
 - **How the system hangs together** — what depends on what, where the
   dependency cycles are, how deep the call chains run, and which functions are
-  provably unreachable.
+  unreachable.
 
-Numbers are produced by parsing, not by pattern matching, and the same
-definitions apply to every language, so results from different parts of a
-repository are comparable and results from different runs can be diffed.
+The metrics are derived from parsing your code's syntax tree. 
+The definitions apply uniformly across all supported languages. 
+This allows you to directly compare results across different parts of a codebase and between successive runs.
 
-## Current state — read this first
+## What `elc` does
 
-`elc` is under active development, and this manual grows with it.
+It parses source files and reports two kinds of measurements:
 
-**What this build does:** finds the source files in your targets, parses each
-one, and reports **effective lines of code** and **cyclomatic complexity** per
-function — with project totals, a per-language breakdown, and a list of the
-functions over a complexity threshold you set. From the same single parse it
-builds the **System Dependence Graph** and reports what that graph says: fan-out
-and call depth, recursion, unreachable functions and unreachable globals, dead
-code within a function, component coupling and cycles, layering violations
-against strata you declare, and every one of those measurements banded against
-a published standard that the report names. It writes all of it as a table,
-Markdown, CSV, or XML, rebuilds a report from the XML alone, and draws the call
-tree as an annotated Graphviz `.dot` beside it. It ships with four languages —
-C, C++, Rust, and Python — and takes rules you write yourself. You can name a
-configuration with `-D` and measure that build, or name a linked image with
-`--elf` and measure the program it produced.
+- **Per-function metrics** — effective lines of code and cyclomatic
+  complexity. It provides project totals, a per-language breakdown, and lists the most complex functions.
+- **Whole-project architecture** — fan-out, call depth, recursion, unreachable functions, dead code, file dependencies, and layering violations. These are extracted from a call graph built during the initial parse. Each measurement is checked against a threshold.
 
-**What it does not do yet:** the hardening pass of Phase 17 — the full
-sanitizer sweep across every error path, the self-analysis, and the first
-tagged release.
+`elc` writes the report as a table, Markdown, CSV, or XML. It can rebuild a report
+later from a saved XML file. It can also
+draw the call graph as an annotated Graphviz diagram. It includes built-in support
+for C, C++, Rust, and Python. You can
+also point it at a specific build configuration using `-D`, or at a compiled
+binary using `--elf`.
 
-`doc/SDP.md` lists what each phase delivers.
+This manual describes the features and behavior of the `elc` application. `elc --help`
+lists the available options.
 
 ## Installing
 
@@ -78,8 +62,7 @@ elc [OPTION]... TARGET...
 elc --help
 ```
 
-A **target** is a source file or a directory. You may give several, in any
-combination of files and directories:
+A **target** is a source file or a directory. You can provide several targets in any combination:
 
 ```sh
 elc src/                       # a directory
@@ -87,60 +70,30 @@ elc src/main.c                 # a single file
 elc src/main.c src/ include/   # several, intermixed
 ```
 
-A file reached through more than one target is analysed once, so overlapping
-targets do not double-count: `elc src/main.c src/` reports `main.c` once, not
-twice.
+A file reached through more than one target is analysed once. `elc src/main.c src/` reports `main.c` once.
 
 ### What gets discovered
 
 A target that is a regular file is analysed directly. A target that is a
-directory is discovered by one of two routes, and `elc` tells you which one it
-used — see [The discovery route](#the-discovery-route) below.
+directory is discovered using one of two methods. `elc` indicates which method it used in its report.
 
 #### In a Git repository
 
-If the target directory is tracked by a Git repository, `elc` analyses **the
-files tracked at `HEAD`**. That is usually what you want, and it is the reason
-the two routes exist: a source tree with a build directory in it has more
-generated code than written code, and a filesystem walk counts all of it.
+If the target directory is tracked by a Git repository, `elc` analyzes the files tracked by `git` at `HEAD`. 
 
-The consequences are worth stating plainly, because they are what makes this
-route different rather than merely faster:
+- **A file you have not committed is not analyzed.** The analysis runs against the tree at `HEAD`, not your working directory.
+- **Binary files are excluded by content**. A tracked blob that git reports as binary is omitted.
+- **Naming a subdirectory analyzes only that subdirectory.**
 
-- **A file you have not committed is not analysed.** A new file you have
-  written but not `git add`ed is invisible to `elc`, and so is an
-  uncommitted change to a tracked file — the analysis is of the tree at
-  `HEAD`, not of your working directory.
-- **Nothing consults `.gitignore`.** Files are excluded because git does not
-  track them, which is the same answer `git ls-files` gives and is not an
-  interpretation of the ignore rules.
-- **Binary files are excluded by content**, not by name, so a tracked blob
-  that happens to end in `.c` is still left out.
-- **Naming a subdirectory analyses that subdirectory**, not the repository
-  around it.
-
-Hidden entries and binary extensions are excluded here exactly as they are
-below. Both routes answer the same question about a given directory; they
-differ only in which files they can see.
+Both discovery methods exclude hidden files and specific binary extensions.
 
 #### Anywhere else
 
-If the target is not in a repository, or is in one that does not track it — a
-`.gitignore`d build directory, or anything under a version-controlled home
-directory — the directory is walked recursively, and the walk leaves out:
+If the target is not in a Git repository, or is in one that does not track it, the directory is walked recursively. This walk excludes:
 
-- **hidden files and hidden directories** — anything whose name starts with a
-  dot, below the target. A hidden directory named *as* the target is walked:
-  naming it is explicit.
-- **files with a binary extension** — the list lives in
-  `runtime/binary.exts`, one extension per line. It is data, so you can add to
-  it without rebuilding.
-- **anything reached through a symbolic link** — a linked directory is never
-  descended into, which is what stops a self-referential link from walking for
-  ever, and stops a linked directory's files being counted twice.
-
-A symbolic link named *directly* as a target is the exception: it is resolved
-and its referent analysed, because naming it says which file you mean.
+- **Hidden files and directories**. Anything starting with a period (`.`) below the target is ignored. A hidden directory explicitly named as the target *is* walked.
+- **Files with a binary extension**. The list of extensions is in `runtime/binary.exts`. You can add to it.
+- **Symbolic links**. Linked directories are never descended into. However, a symbolic link passed directly as a target *is* resolved and analyzed.
 
 #### The discovery route
 
@@ -161,8 +114,9 @@ the directory you named.
 
 Every target is checked before any of them is walked. If one is missing,
 unreadable, or is something other than a file or a directory — a socket, a
-FIFO, a device node — `elc` says so and stops with status 2. You never get a
-report that quietly covers fewer targets than you asked for.
+FIFO (a named pipe), or a device node — `elc` says so and stops with status
+2. You never get a report that quietly covers fewer targets than you asked
+for.
 
 ## Effective lines of code
 
@@ -193,13 +147,13 @@ printf("%d items in %s\n",     // one statement...
        count, name);           // ...so one line of ELOC
 ```
 
-And two statements on one line also count once — that is one line to read:
+Multiple statements on a single line will result in that line being counted multiple times.
 
 ```c
-int a = 1; int b = 2;          // one line of ELOC, not two
+int a = 1; int b = 2;          // two ELOC
 ```
 
-Reformatting a file therefore cannot change its ELOC. That is the point: the
+Reformatting a file therefore cannot change its ELOC count, only the physical lines it spans. That is the point: the
 number describes the work the code does, not how it is laid out, so two
 versions of the same logic are comparable and a diff of two reports shows real
 change.
@@ -305,18 +259,44 @@ Skipped files (no language module)
   /home/u/proj/src/notes.md
 ```
 
-Eleven sections: the project totals, the callouts, the discovery route applied
+That example is **abridged**: it shows only the sections covered so far in
+this manual — the project totals, the callouts, the discovery route applied
 to each directory target, those totals broken down by language, one row per
-file, one row per function, the functions at or over the complexity threshold,
-each function's fan-out, any recursion, the deepest call chain, and whatever
-was skipped. Paths are canonical and absolute, and each column is
-padded to its longest value.
+file, one row per function, the functions at or over the complexity
+threshold, and whatever was skipped. A real run also prints the sections
+covered later in this manual, all derived from the call graph: fan-out,
+recursion, the deepest call chain, coupling, dependency cycles, layering,
+global state, dead code, cross-scope access, the findings, the configuration
+in force, and any custom-rule matches. Paths are canonical and absolute
+(the full path from the filesystem root, with no `..` or symlinks left in
+it), and each column is padded to its longest value.
 
 `Discovery` has a row per *directory* target only; a file named directly is
 analysed with no traversal, so there is no route to report for it.
 
-The `Languages` section is a partition of the totals, not a second count of
-them: with one language present its row equals the summary exactly.
+**What each summary row counts.** The rows are what the whole report is
+summarising, so they are worth reading precisely:
+
+| Row | Counts |
+| --- | ------ |
+| `Files` | Source files analysed. A skipped file is not among them |
+| `Physical lines` | Every line in those files, blanks and comments included |
+| `ELOC` | Effective lines of code, as defined above |
+| `Functions` | Functions reported, nested named functions counted in their own right |
+| `Skipped` | Files discovered but not analysed, for want of a language module |
+| `Unparsed lines` | Lines the grammar could not follow; every other figure covers the rest of the file — see [When the parser cannot follow your code](#when-the-parser-cannot-follow-your-code) |
+| `Critical findings`, `Warnings` | How many rows the **Findings** section holds at each severity. Neither reaches the exit status |
+| `Unresolved calls` | Call sites with no definition in what you analysed — a measure of how complete the graph is, not a defect |
+| `Undecided regions` | Conditional regions left counted because their condition could not be decided from the `-D` symbols you gave |
+
+Two of those state the *completeness* of a measurement rather than measuring
+anything: `Unresolved calls` and `Undecided regions`. They are printed beside
+the figures they qualify because a number whose accuracy is unstated cannot be
+acted on.
+
+The `Languages` section splits the project totals by language; it is not a
+second, separate count. With only one language present, its row matches the
+project summary exactly.
 
 A function's range runs from its signature to the end of its body — where you
 would point if asked where it starts. A function declared inside another is
@@ -326,10 +306,11 @@ Every section is printed whether or not it has anything in it. A heading with
 nothing under it tells you there was nothing; a missing heading would leave
 you wondering.
 
-Files appear in ascending byte order, and functions within a file in
-start-line order. That order comes from the report, not
-from the filesystem, which is why two runs over the same tree produce
-byte-identical output — and so do two runs naming the same targets in a
+Files appear in ascending byte order (alphabetical order, essentially), and
+functions within a file appear in the order their definitions start. This
+ordering is fixed by `elc` itself, not by the filesystem or the order you
+named the targets in. As a result, two runs over the same tree always
+produce byte-identical output, even if you list the same targets in a
 different order. That is what makes the output worth diffing:
 
 ```sh
@@ -344,8 +325,11 @@ empty tables, and exits 0. Silence would be indistinguishable from a crash.
 
 ## Cyclomatic complexity
 
-Complexity is **one plus** the number of decision points in a function: the
-number of paths through it. A function that never branches is 1.
+Cyclomatic complexity is a widely used measure of how tangled a function's
+control flow is — roughly, how many independent paths a test suite would
+need to exercise every branch at least once. `elc` computes it as **one
+plus** the number of decision points in a function. A function that never
+branches is 1.
 
 ```c
 int simple(int n)          // complexity 1 — one path
@@ -381,6 +365,28 @@ An `else if` counts once — for the `if` inside it.
 
 As with ELOC, a nested named function owns its own decision points and the
 function containing it gains none of them.
+
+### What counts as a decision differs by language
+
+The table above is C. Each language's `complexity.scm` decides what a decision
+point is for that language, because the constructs genuinely differ:
+
+| Language | Counted, beyond the common `if`, loop, and short-circuit operators |
+| -------- | ---------------------------------------------------- |
+| C | `case` labels, the `? :` conditional, `do` and `for` loops |
+| C++ | the same, plus each `catch` clause and the range-based `for` |
+| Rust | each `match` **arm**, the `?` operator, and `loop` |
+| Python | each `elif` and `except` clause, `match` cases, and the `if` and `for` clauses *inside* a comprehension |
+
+Two consequences follow. A Rust `match` scores one per arm, so it
+behaves like a `switch` whose arms each end in a `case` rather than like a
+single branch. And a Python comprehension carrying a filter is a decision
+point, so a densely written comprehension scores where the loop it replaces
+would have scored too.
+
+The authoritative list for any language is its `complexity.scm` under
+`runtime/queries/`, which is data you can read — and, if you disagree with it,
+change without rebuilding `elc`.
 
 ## The complexity threshold
 
@@ -441,25 +447,26 @@ elc -f xml src/          # the complete record of the run
 | Format | For | Notes |
 | ------ | --- | ----- |
 | `table` | reading | The default |
-| `md` | a pull request, a wiki | Same tiers as the table, in the same order |
+| `md` | a pull request, a wiki | Same sections as the table, in the same order |
 | `csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it |
 | `xml` | keeping | Complete record; what `--from-xml` reads back |
 
-**`table` and `md` are the same report.** They are one traversal of one
-model, so a tier cannot appear in one and be forgotten in the other. Only the
-decoration differs.
+**`table` and `md` are the same report,** built by walking the same
+underlying data once. A section cannot appear in one and be missing from the
+other — only the formatting differs.
 
-**`csv` and `xml` are unfiltered.** The complexity threshold governs the
-*listing* tier of a human-facing report. CSV has no such tier — it is the
-complete dataset, and filtering is what the tool you pipe it into is for:
+**`csv` and `xml` are unfiltered.** The complexity threshold only affects the
+*listing* section of a human-readable report. CSV has no such section — it is
+the complete, unfiltered dataset, and filtering is left to whatever tool you
+pipe it into:
 
 ```sh
 elc -f csv src/ | cut -d, -f3,7      # function names and complexities
 ```
 
-CSV carries per-function metrics only. The architectural findings that later
-phases add are absent by design: they are not expressible as one flat record
-set, which is what XML is for.
+CSV carries per-function metrics only. The architectural findings are excluded
+by design: they are not expressible as one flat record set, which is what XML
+is for.
 
 Every field containing a comma, a quotation mark, or a line break is quoted,
 so a name like `foo<int, long>` stays one field.
@@ -475,19 +482,20 @@ elc --from-xml build/metrics.xml         # any time after
 ```
 
 The regenerated Markdown is **byte-identical** to what a direct analysis
-would have produced at the same threshold. Not similar — identical, so a diff
-of the two is empty.
+would have produced at the same threshold — not merely similar, but
+identical byte for byte, so a diff between the two produces no output.
 
 That is achievable because the record carries the *measurements* and nothing
 derived from them. The totals, the callouts, the ordering, and the threshold
 listing are all worked out when the report is assembled, by the same code on
 both paths. There is no second implementation to drift.
 
-The discovery route is in the record for the same reason a measurement is:
-it is something the run observed and the report presents, and it cannot be
-worked out again later — by the time you regenerate, the tree may not be a
-repository, or may not exist. So a regenerated report still tells you how the
-files it describes were found.
+The saved record also includes which discovery route was used — Git
+repository or plain filesystem walk — for each target. That is something
+the original run observed and cannot be recovered later: by the time you
+regenerate the report, the tree may no longer be a Git repository, or may
+not exist at all. So a regenerated report still tells you how its files
+were originally found.
 
 ### The threshold is not in the record
 
@@ -524,13 +532,16 @@ format is a usage error rather than a request quietly ignored.
 
 ## The dependence graph
 
-From Phase 8 `elc` resolves the calls between your functions into one
-project-wide directed graph — the **System Dependence Graph**. Every analysis
-from here on reads it: fan-out, call depth, dead code, coupling, cycles.
+`elc` builds a **System Dependence Graph**: a map of your whole project in
+which each function is a point (a *node*), and each call from one function to
+another is an arrow (an *edge*) joining them. Every analysis in the rest of
+this section — fan-out, call depth, dead code, coupling, dependency cycles —
+is really a different question asked of that one map.
 
 Nothing is re-read to build it. The graph comes from the same single parse
-that produced the metrics, which is why analysing a project costs one pass
-over each file however many questions are asked of the result.
+that produced the per-function metrics, which is why analysing a project
+costs one pass over each file, however many questions are asked of the
+result.
 
 ### What is in it
 
@@ -570,8 +581,9 @@ you expect a small number and see a large one, you probably scoped the run
 more narrowly than you meant to.
 
 `elc` never guesses at a destination. An edge that does not exist would be
-worse than a missing one: the dead-code analysis of a later phase proves that
-nothing calls a function, and one invented edge would make that proof wrong.
+worse than a missing one: the [dead-code analysis](#dead-code-between-functions)
+proves that nothing calls a function, and one invented edge would make that
+proof wrong.
 
 ### Fan-out
 
@@ -587,8 +599,12 @@ Fan-out (distinct callees)
 Distinct, not call sites. A function that calls one helper in a loop body and
 again in its error path is coupled to *one* thing, and reports a fan-out of 1.
 
-`elc` reports the number and does not judge it. What counts as too many
-arrives in a later phase, along with the rest of the threshold catalogue.
+`elc` reports this measurement for every function, whether or not it is high
+enough to flag. What counts as too many is covered in
+[Findings](#findings-where-a-measurement-falls-and-on-whose-authority) below:
+10 or fewer draws no comment, 11 to 15 is a warning, and above 15 is
+critical. A function's rating, where it has one, appears in the **Findings**
+section rather than here — this table only measures; that section judges.
 
 ### Recursion
 
@@ -601,10 +617,12 @@ Recursion
 ```
 
 Direct recursion is a function that calls itself; mutual recursion is a group
-that can reach each other. Both are found the same way, and both matter for
-the same reason: MISRA C Rule 17.2 forbids recursion because it makes worst-
-case stack depth unpredictable, which on a target with a few kilobytes of
-stack is a crash waiting for the wrong input.
+of functions that call each other in a cycle. Both are found the same way,
+and both matter for the same reason: recursion makes the worst-case stack
+depth unpredictable, which on a target with only a few kilobytes of stack is
+a crash waiting for the wrong input. This is why **MISRA C Rule 17.2** — part
+of a widely used coding standard for safety-critical C — forbids recursion
+outright.
 
 The **Functions** column is a set, not a path. `elc` can tell you which
 functions are mutually recursive; it does not claim a particular cycle through
@@ -668,18 +686,23 @@ Component coupling (I = Ce/(Ce+Ca), Martin; bottleneck at Ca and Ce >= 5)
   /home/u/proj/util.c    0   0    undefined
 ```
 
-A **component is a source file**, and that is the unit for everything in this
-section and the two below it. A dependency runs from file X to file Y when any
-function in X calls any function in Y, or writes a global a function in Y
-reads.
+A **component is a source file**, and that is the unit of measurement for
+this section and the two after it. A dependency runs from file X to file Y
+when any function in X calls any function in Y, or writes a global variable
+that a function in Y reads.
 
-`Ca` counts the components that depend on this one, `Ce` the ones it depends
-upon. Both count **components, not calls**: a file calling another in forty
-places depends on it once.
+`Ca` (**afferent coupling**, or "fan-in") counts how many other components
+depend on this one. `Ce` (**efferent coupling**, or "fan-out" at the file
+level) counts how many other components this one depends on. Both count
+**components, not calls**: a file that calls another in forty different
+places still depends on it once.
 
-**Instability** is `Ce / (Ce + Ca)`. Approaching 0 it means maximum stability —
-widely depended upon, depending on little, and dangerous to change. Approaching
-1 it means the opposite: freely changeable, because nothing rests on it.
+**Instability**, `I = Ce / (Ce + Ca)`, is a score from 0 to 1 that captures
+how risky a file is to change. A value near 0 means many other files depend
+on this one and it depends on few of them in return — it is *stable*, in
+the sense that a change here is likely to ripple outward and break
+something. A value near 1 means the opposite: little to nothing depends on
+it, so it is free to change without wider consequences.
 
 **Where both couplings are zero it is `undefined`, not `0.00`.** A file nothing
 depends on that depends on nothing is entirely ordinary — a lone file in a
@@ -688,8 +711,9 @@ maximum stability for a component that has no relationships at all.
 
 A component whose `Ca` **and** `Ce` are each at or above the bottleneck
 threshold is flagged: it is simultaneously depended upon widely and dependent
-widely, so it is both dangerous to change and hard to isolate for testing.
-Both, not either — a widely-used leaf is stable, not a bottleneck.
+on much else, so it is both dangerous to change and hard to isolate for
+testing. Both conditions have to hold, not just one — a file that is widely
+used but depends on little itself is stable, not a bottleneck.
 
 ```sh
 elc -b 3 src/     # lower the bar from the default 5
@@ -709,11 +733,12 @@ Component dependency cycles
   /u/p/a.c, /u/p/b.c, /u/p/c.c  /u/p/a.c -> /u/p/b.c -> /u/p/c.c -> /u/p/a.c
 ```
 
-Files that depend on each other, directly or through a chain. Two columns
-because one alone misleads: the **group** is what has to be broken up, and the
-**loop** is which edge to cut. Where a group holds several overlapping loops
-one is shown — enumerating them all is exponential in the group's size, and one
-witness is what you act on.
+Files that depend on each other, either directly or through a chain of
+other files. Two columns are shown because one alone would be misleading:
+the **group** is the full set of files that has to be untangled, and the
+**loop** is one concrete example of a dependency cycle, showing exactly
+which link you could cut. A group can contain many overlapping loops — far
+too many to list — so `elc` shows one representative loop for you to act on.
 
 **This is not the same finding as recursion, and the difference is the unit.**
 Two mutually recursive functions in one file appear in the Recursion section
@@ -738,9 +763,9 @@ Layering (2)
   inverted    hal   hal_callback  app  app_notify       1
 ```
 
-The order layers are **first declared is the permitted direction of
-dependency**, topmost first. So above, `app` may depend on `hal`, and `hal` on
-`drv`. State it explicitly instead if you prefer:
+**The order layers are first declared in is the permitted direction of
+dependency**, topmost first. So above, `app` may depend on `hal`, and `hal`
+on `drv`. State it explicitly instead if you prefer:
 
 ```sh
 elc --stratum-order 'app>hal>drv' --stratum 'drv:src/drv/*' ...
@@ -765,11 +790,11 @@ The third row is reported **twice**, because both statements are true of it and
 each has its own remedy — you can fix the direction without fixing the skip.
 The fourth is reported not at all; that is the arrangement you declared.
 
-A file matching no `--stratum` lies outside the partition rather than in a
-layer of its own, so a call touching it is neither finding. And a layer whose
-pattern matches nothing is reported on standard error and kept — dropping it
-would renumber the layers below and change what everything else is compared
-against.
+A file that matches no `--stratum` pattern lies outside your declared layers
+entirely, rather than belonging to a layer of its own, so a call touching it
+triggers neither finding. And a layer whose pattern matches nothing is
+reported on standard error and kept anyway — dropping it would renumber the
+layers below it and change what everything else is compared against.
 
 Only **calls** are checked here. A global two layers happen to share is a
 different fact, with its own findings in Global state and `--scope`.
@@ -792,10 +817,12 @@ Unreachable functions (3; from the declared entry points and every address-taken
 the traversal never reaches. This is the analysis a grep cannot do, and the
 two properties below are why.
 
-**A clique of unused functions is correctly reported.** If `clique_a` and
-`clique_b` call each other and nothing else calls either, a rule looking for
-"a function nothing calls" finds a caller for each and reports neither. A
-traversal finds both, because no path leads into the pair from any root.
+**A clique of unused functions is correctly reported.** A *clique* here means
+a small group of functions that only call each other and nothing outside the
+group calls in. If `clique_a` and `clique_b` call each other and nothing else
+calls either one, a naive rule looking for "a function nothing calls" finds a
+caller for each of them and reports neither as dead. A full traversal catches
+both, because no path from any root leads into the pair at all.
 
 **The root set is the declared entry points *together with* every function
 whose address is taken**, and that second half is what makes the claim worth
@@ -826,10 +853,10 @@ Unreachable globals (touched only by unreachable functions)
   orphan_state
 ```
 
-An object every one of whose accessing functions is unreachable is unreachable
-itself. An object *no* analysed function touches is deliberately not claimed:
-it may be written from file scope, or from a translation unit outside what you
-pointed `elc` at.
+An object is reported unreachable when every function that touches it is
+itself unreachable. An object *no* analysed function touches at all is
+deliberately left unclaimed: it may be written to from outside any function,
+or from a source file outside what you pointed `elc` at.
 
 ### Global state
 
@@ -845,18 +872,22 @@ Global state
 Every global object, with the functions that write it and the functions that
 read it. Two arrangements carry a finding, both attributed to MISRA C Rule 8.9:
 
-**Scope reduction.** Only one function names the object, so it belongs at
-block scope inside that function. Note that this case produces no edge in the
-graph at all — a state edge joins a writer to a reader, and there is only one
-function here — which is why the finding is computed from the access sets
-rather than from the edges.
+**Scope reduction.** Only one function names the object, so nothing is lost
+by moving it from global scope to a local variable declared inside that one
+function ("block scope," in C terms) — it was never really shared. Note
+that this case produces no writer-to-reader edge in the graph at all, since
+there is only one function involved; that's why this finding comes from
+looking at *which* functions access the object, not from the graph's edges.
 
-**Hidden channel.** The object is shared between functions lying in
-*disconnected* regions of the call graph. The functions never call each other,
-so nothing in either region says that one must run before the other, and yet
-the program depends on it. That is temporal coupling, and it is the failure
-mode that survives every code review because no single file shows it. The
-finding names the disconnected groups, because the grouping is the finding.
+**Hidden channel.** The object is shared between functions that live in
+*disconnected* parts of the call graph — parts that never call each other,
+directly or indirectly. Nothing in the code says that one must run before
+the other, and yet the program only works if it does. That is called
+**temporal coupling**: a hidden dependency where *execution order* matters,
+even though nothing in the code makes that dependency visible. It is a
+failure mode that survives most code reviews, because no single file shows
+the connection. The finding names the disconnected groups involved, since
+identifying which parts of the program are secretly coupled is the point.
 
 Sharing *within* one call-connected region is ordinary — `producer` calling
 `consumer` and handing state through a variable is a design, not a defect —
@@ -888,11 +919,14 @@ Two classes are detected, from the syntax tree alone:
   whose condition is literally false. The whole span is reported, because the
   span is what you delete.
 
-**What `elc` deliberately will not tell you.** There is no data-flow analysis,
-no constant propagation, and no evaluation of expressions. `x = 0; if (x)` is
-not reported, and neither is `const int zero = 0; if (zero)`, however clearly
-you can see the answer. Nor is `if (0x0)`, because the query matches a decimal
-zero and nothing else.
+**What `elc` deliberately will not tell you.** There is no **data-flow
+analysis** (tracking how a value moves and changes through the code), no
+**constant propagation** (substituting a variable's known fixed value into
+the expressions that use it), and no evaluation of expressions at all.
+`x = 0; if (x)` is therefore not reported, and neither is
+`const int zero = 0; if (zero)`, however clearly you can see the answer by
+eye. Nor is `if (0x0)` reported, because the query matches a decimal zero
+and nothing else.
 
 That is a deliberate trade and it runs one way: a missed statement costs you a
 cleanup opportunity, and a false claim invites you to delete code that runs —
@@ -920,10 +954,11 @@ second.
 
 ### Execution scopes
 
-Some targets run several components that share one memory map and one symbol
-table — a host-driven sequential test harness, or a bootloader beside the
-application it starts. Nothing in the source says where one ends and the next
-begins, so you say it:
+Some targets combine several programs that end up sharing one address space
+and one set of global names at run time — a host-driven test harness calling
+into firmware, say, or a bootloader running beside the application it starts.
+Nothing in the source marks where one program ends and the next begins, so
+you tell `elc` yourself:
 
 ```sh
 elc --scope 'host:*/harness/*' --scope 'target:*/firmware/*' src/
@@ -943,10 +978,11 @@ calls into another but writes a variable the other reads has not been
 isolated, and a check that looked only at calls would call the arrangement
 clean.
 
-A file matching no declaration lies outside the partition rather than in a
-scope of its own: you said nothing about it, and inventing a boundary would
-report violations against a division nobody drew. With no `--scope` at all the
-analysis is omitted with the reason stated.
+A file matching no `--scope` declaration lies outside every declared scope
+entirely, rather than belonging to a scope of its own: you said nothing
+about it, and inventing a boundary would report violations against a
+division nobody actually drew. With no `--scope` at all, the analysis is
+omitted, with the reason stated.
 
 ### Exporting it
 
@@ -954,11 +990,13 @@ analysis is omitted with the reason stated.
 elc --graphml -o report.md src/     # writes report.md and report.graphml
 ```
 
-GraphML is a standard graph format that igraph, NetworkX, Gephi and yEd all
-read, so the graph can be queried and drawn by tools that already know how.
-The export is off unless you ask for it, and its name comes from `--output`
-by substituting the extension — it takes no path of its own. With the report
-going to standard output there is no name to derive, so no file is written.
+GraphML is a standard file format for describing graphs. Tools built for
+analysing or drawing graphs — igraph, NetworkX, Gephi, and yEd, among others
+— can all read it directly, so you can explore or visualise the dependence
+graph without writing your own reader for it. The export is off unless you
+ask for it, and its filename is derived from `--output` by substituting the
+extension; it takes no path of its own. With the report going to standard
+output there is no filename to derive one from, so no file is written.
 
 The node attributes are `name`, `file`, `line-start`, `line-end`,
 `component`, `eloc`, `complexity`, `fan-out` and `address-taken`; edges carry
@@ -967,64 +1005,76 @@ The node attributes are `name`, `file`, `line-start`, `line-end`,
 
 ### Where the graph is imprecise, and in which direction
 
-`elc` resolves calls by name across the files you gave it. Two consequences
-are worth knowing, because they affect how much weight to put on a number:
+`elc` resolves calls by matching names across the files you gave it, without
+using a compiler's full type information. Two consequences follow from that,
+and both affect how much weight you should put on a number:
 
-- **A name defined twice resolves to the first definition** in sorted file
-  order, and `elc` says so on standard error. Two `static` helpers of the
-  same name in two files is ordinary C; the edge may go to the other one.
-- **A method call resolves on the method name**, not on the receiver's type.
-  Working out which class a call lands on needs type resolution, which a
-  grammar does not do.
+- **A name defined more than once resolves to its first definition**, in
+  sorted file order, and `elc` says so on standard error. Two `static`
+  helper functions with the same name in two different files is ordinary C
+  — but every call meant for the second one will be resolved to the first
+  instead.
+- **A method call is matched by method name alone, not by the type of the
+  object it's called on.** Working out exactly which class's method a call
+  lands on requires full type analysis, which a grammar-based tool like
+  `elc` does not perform.
 
-`elc` does not correct for any of these, and the reason is the same each
-time: the correction would have to live in the binary and would encode one
-language's semantics there, which is exactly what makes adding a language a
-data change rather than a code change.
+`elc` does not attempt to correct for either of these. The fix would have to
+be built into the binary itself and would encode one language's rules for
+name resolution there — exactly what the data-driven language design is
+built to avoid.
 
-**The first of the two can produce a false unreachable claim, and that is
-worth knowing before you delete anything.** If two files each define a
-`static` helper called `grow`, every call to either resolves to the first,
-and the second has no incoming edge — so reachability reports it dead when it
-is not. This is the one place `elc` errs toward *un*reachable rather than
-toward reachable, and it is a limit of name-only resolution rather than a
-finding.
+**The first of these can produce a false "unreachable" claim, so it is worth
+knowing about before you delete anything.** If two files each define a
+`static` helper called `grow`, every call to either one resolves to the
+first definition, and the second function ends up with no incoming call in
+the graph — so reachability analysis reports it as dead when it is not.
+This is the one place `elc` errs toward calling something *un*reachable
+rather than reachable. It is a limitation of name-only resolution, not a
+genuine finding about your code.
 
-It is visible, and the diagnostic is how:
+`elc` makes this visible with a diagnostic:
 
 ```text
 elc: grow is defined 5 times; calls to it resolve to /home/u/proj/src/analyze.c:127
 ```
 
 **Read standard error before acting on the unreachable list.** A function
-named there and reported unreachable is a duplicate-name artefact, not dead
-code.
+named in a diagnostic like this and also reported unreachable is a
+duplicate-name artefact, not genuinely dead code.
 
-**The same artefact reaches the component analyses, and there it is worse.**
-Every call to the duplicated name resolves into one file, so that file gains
-afferent coupling it has not earned, the others lose it — and if the file
-holding the winning definition already depends on one of the losers, the
-invented edge **closes a dependency cycle that does not exist**. A false
-circular dependency is a more expensive mistake than a false dead-code claim,
-because it points at an architecture problem rather than at a line to delete.
+**The same problem reaches the component-coupling analyses too, and there
+it is worse.** Every call to the duplicated name resolves into the file
+with the winning definition, so that file gains afferent coupling
+(dependents) it has not actually earned, while the other files lose credit
+for depending on it. If the winning file already depends on one of the
+losing files, this invented edge can **close a dependency cycle that does
+not actually exist**. A false circular-dependency finding is a more
+expensive mistake than a false dead-code claim, because it points at an
+architecture problem rather than at a single line to delete.
 
-`elc` analysing its own source demonstrates both: six files define a `static
-grow` helper, one wins, and the report shows a cycle between the winner and one
-of the losers. The diagnostic naming the duplicate is the tell in every case.
-Give the helpers distinct names, or read the two outputs together.
+Running `elc` on its own source code demonstrates both problems at once:
+several of its files define a `static grow` helper, one definition wins,
+and the report shows a dependency cycle between the winning file and one of
+the others. The diagnostic naming the duplicate is the tell in every case.
+The fix is either to give the helpers distinct names, or to read the
+diagnostic and the report together and discount the false finding.
 
-**And all of it reaches the drawing**, which is the form of the report most
-likely to be circulated and least likely to arrive with its caveats attached: a
-function wrongly reported unreachable is drawn dashed, an invented dependency
-cycle colours two clusters red, and a recursive cycle is drawn on every
-function sharing a member's name. Read standard error alongside any picture you
-intend to show someone.
+**These same errors also show up in the call-tree drawing** (below), which is
+the part of the report most likely to be shared around — and least likely to
+be shared with its caveats attached. A function wrongly reported unreachable
+is drawn with a dashed outline, an invented dependency cycle colours two file
+clusters red, and a recursive cycle is drawn onto every function sharing that
+name. Check standard error alongside any picture before you show it to
+someone else.
 
 ## The call tree
 
-Alongside a report written to a named file, `elc` writes the call tree as a
-Graphviz `.dot` file — annotated with the findings that apply to it, and named
-from `--output` by substituting the extension:
+Graphviz is a widely used tool for drawing graphs from a plain-text
+description, and `.dot` is the name of that text format. Whenever a report is
+written to a named file, `elc` also writes the call graph as a `.dot` file
+beside it, annotated with the findings that apply to each part of it. The
+filename is derived from `--output` by substituting the extension:
 
 ```sh
 elc --entry main -o report.md src/    # writes report.md and report.dot
@@ -1063,9 +1113,10 @@ them and the same tree remains, with the same nodes and the same edges:
 | thick blue | a step of the deepest call chain, on nodes and edges alike |
 | coloured cluster | a finding applies to the source file as a whole |
 
-The severities are the ones the **Findings** section reports, on the authority
-named there. The drawing colours them and decides nothing: there is one
-threshold catalogue in `elc` and this is not a second one.
+The severities shown here are exactly the ones the **Findings** section
+reports, judged against the same published thresholds. The drawing only
+colours what Findings already decided — it does not apply a second, separate
+judgment of its own.
 
 Each node's tooltip carries its definition site and its findings in full, which
 an SVG renderer will show on hover. The head of the file carries the same key
@@ -1087,10 +1138,13 @@ unreachable is a dashed grey octagon.
 
 ## Custom rules
 
-A custom rule is a Tree-sitter query *you* write, checked against your source
-by the same mechanism that produces `elc`'s own metrics — during the same
-parse, with the same predicate handling. It is data: adding one needs no
-rebuild and no change to `elc`.
+`elc` is built on **Tree-sitter**, a parsing library that turns source code
+into a syntax tree and lets you search that tree with small pattern-matching
+programs called *queries*. A custom rule is simply a Tree-sitter query *you*
+write, checked against your source by the exact same mechanism that produces
+`elc`'s own built-in metrics — during the same parse, with the same handling
+of query conditions ("predicates"). A rule is just a data file, so adding one
+needs no rebuild and no change to `elc` itself.
 
 ```scheme
 ; house-style.scm
@@ -1121,10 +1175,12 @@ those are different things.
 
 ### A rule's identity
 
-The basename of the file, plus the capture name that matched. So one file
-expresses as many independently named rules as it holds captures, as above.
-The capture name is user-visible here in a way it is not anywhere else in
-`elc` — name it for whoever reads the report.
+A match is identified by the **basename** of the query file (its filename,
+without the directory path) plus the **capture name** that matched — the
+`@allocation`-style label in your query, shown above. So a single file can
+express as many independently named rules as it has captures. The capture
+name is visible in the report in a way it is not used anywhere else in
+`elc`, so choose one that will make sense to whoever reads it.
 
 ### Where rules come from
 
@@ -1163,19 +1219,24 @@ ships with the runtime and is the contract a rule is written against.
 
 ## Conditional compilation
 
-Source that is conditionally compiled describes several programs. Measuring it
-without saying which one gives you the union of them all — a number that
-describes no build that exists and overstates every figure taken from it. Name
-a configuration and you measure that configuration:
+**Conditional compilation** is when source code contains several possible
+variants of itself, selected by directives like C's `#if` and `#ifdef`, or
+Rust's `#[cfg(...)]` attribute — so which lines actually end up in a given
+build depends on which symbols are defined. Source that uses it effectively
+describes *several* programs at once. Measuring it without saying which one
+you mean gives you the union of all of them: a number that describes no
+build that actually exists, and overstates every figure drawn from it. Name
+a configuration, and `elc` measures that configuration:
 
 ```sh
 elc -DFEATURE_X -DTARGET=stm32 src/
 ```
 
-**`elc` runs no preprocessor.** No `cpp`, no compiler, no build system, and it
-reads no file your source includes. A result that depended on which toolchain
-happened to be installed would not be a property of your source. It decides
-each region from the syntax tree it already parsed.
+**`elc` runs no preprocessor.** It invokes no `cpp` (the C preprocessor), no
+compiler, and no build system, and it reads no file your source `#include`s.
+A result that depended on which toolchain happened to be installed would not
+be a property of your source code. Instead, `elc` decides each region using
+only the syntax tree it has already parsed.
 
 ### What gets decided, and what does not
 
@@ -1218,7 +1279,7 @@ in `elc`. A C preprocessor conditional and a Rust `#[cfg]` attribute are the
 same mechanism, and a language whose module ships no such file simply has no
 conditional compilation.
 
-Rust is worth a note. An attribute has no `#else`, so `#[cfg(X)]` can only be
+Rust is a special case. An attribute has no `#else`, so `#[cfg(X)]` can only be
 *removed*, never swapped for something else — and since a symbol you did not
 name is undecidable, `#[cfg(X)]` is pruned by nothing. It is `#[cfg(not(X))]`
 with `-DX` that prunes.
@@ -1234,23 +1295,36 @@ describes one configuration, chosen when it was written.
 
 ## Filtering by a linked image
 
-Your source holds functions your build does not keep. Some are excluded by
-configuration, some the linker discards as unreachable, and some belong to a
-translation unit the link never included. A report covering them describes no
-program that exists and overstates every figure taken from it. Point `elc` at
-the image and it measures what shipped:
+Your source code contains functions that your actual build does not keep.
+Some are excluded by conditional compilation, some the linker discards
+because nothing calls them, and some live in a source file the final link
+never included at all. A report that counts them describes a program that
+doesn't exist, and overstates every figure drawn from it.
+
+A **linked image** is the compiled program itself — the executable or
+shared library your build produces. It records each function it contains
+under its **linkage name**: the exact symbol name the compiler and linker
+use internally. For C this is just the function's name; for C++ and Rust it
+is usually an encoded ("mangled") form of the name, which `elc` decodes in
+order to match it against your source (more on this in
+[C++ and Rust names](#c-and-rust-names) below). Point `elc` at the image
+with `--elf` — named after **ELF** (Executable and Linkable Format), the
+standard binary format on Linux and most other Unix-like systems — and it
+measures only what actually shipped:
 
 ```sh
 elc --elf build/app.elf src/
 ```
 
-This is the question the previous chapter answers, answered a different way.
-A `-D` **re-decides** the conditions your build resolved, from definitions you
-restate. An image was produced by the real toolchain with the real flags and
-**observes what your build did** — which makes it the stronger evidence where
-you have one. Neither replaces the other, though: the image says which
-*functions* survived and says nothing about which lines inside one were
-compiled out. The two options compose, and you can give both.
+This answers the same question the previous section does, just a different
+way. A `-D` **re-decides** the conditions your build resolved, based on
+definitions you type in yourself. A linked image, by contrast, was produced
+by the real toolchain with the real build flags, so it **observes what your
+build actually did** — which makes it the stronger evidence, where you have
+one available. Neither option replaces the other: the image tells you which
+*functions* survived, but nothing about which lines inside a surviving
+function were compiled out. The two options can be combined, and you can
+give both at once.
 
 ### What the report looks like
 
@@ -1279,11 +1353,12 @@ know a filter was applied.
 
 ### The two figures are different claims
 
-**Unresolved linkage names** says how completely the image could be read. It is
-the claim the **Unresolved calls** figure makes about the graph, and it is
-there for the same reason: a number whose accuracy is unstated cannot be acted
-on. A large count means many of the image's symbols carried a mangling this
-build cannot decode, and the filter is correspondingly incomplete.
+**Unresolved linkage names** tells you how completely `elc` could read the
+image — the same kind of claim the **Unresolved calls** figure makes about
+the call graph, and reported for the same reason: a number whose accuracy is
+unstated cannot be acted on. A large count means many of the image's symbols
+used a mangling scheme this build cannot decode, so the filter is
+correspondingly incomplete.
 
 **Functions the image does not define** is the finding the option exists to
 produce. It is dead code established by what your linker did, rather than
@@ -1301,46 +1376,55 @@ totals would hide the one part of them the filter did not narrow.
 
 ### What counts as a function the image defines
 
-A symbol has to be of function type **and** defined by the image rather than
-imported by it. The second half is easy to overlook and load-bearing: without
-it, every function your program *calls* into libc would count as one your image
-contains, and a source file defining `printf` would be retained as though your
-build had compiled it.
+A symbol only counts as one of your program's functions if it is marked as a
+*function* symbol **and** is actually defined by the image, rather than
+merely imported from somewhere else, such as a shared library. That second
+condition is easy to overlook, and it matters: without it, every function
+your program merely *calls into* — like `printf` from the C library — would
+count as one your image contains, and a source file that happens to define
+its own `printf` would be retained as though your build had compiled it.
 
-`elc` reads `.symtab` where the image has one and falls back to `.dynsym`. A
-`static` function is in the first and not in the second, so an image reduced to
-its dynamic table yields a smaller set and a longer list of functions it does
-not define. Nothing is hidden by that; the list says so.
+`elc` reads the image's full symbol table (`.symtab`) where one is present,
+and falls back to the smaller, dynamically exported table (`.dynsym`) where
+it is not. A `static` function appears in the full table but not the dynamic
+one, so an image reduced to just its dynamic table yields a smaller set of
+defined functions and a longer list of ones it does not define. Nothing is
+hidden by that — the list says so explicitly.
 
 ### C++ and Rust names
 
-C is the only supported language whose linkage name is its source name. A C++
-member function reaches the image as `_ZNK8geometry4Rect4areaEv`, and matching
-raw names would retain nothing at all. `elc` decodes the Itanium C++ ABI —
-which covers C++ and Rust's legacy scheme — and reduces the result to the
-identifier your report presents, so `geometry::Rect::area() const` matches a
-function reported as `area`. The scheme is worked out from the name, not from a
-language you declare, because one image may hold symbols from several
-compilers.
+C is the only supported language whose linkage name is simply its source
+name. A C++ member function instead reaches the image encoded as something
+like `_ZNK8geometry4Rect4areaEv`, and matching that raw text against your
+source would retain nothing at all. `elc` decodes names following the
+**Itanium C++ ABI** — the naming convention most C++ compilers use, which
+also covers Rust's older ("legacy") mangling scheme — and reduces the result
+back down to the identifier your report presents. So `geometry::Rect::area()
+const` correctly matches a function reported simply as `area`. The scheme is
+worked out from the name itself, not from a language you declare, because
+one image may hold symbols produced by several different compilers.
 
-A name in a scheme this build cannot decode — Rust's v0 mangling, where the
-installed C++ runtime is not new enough for it — resolves to nothing and is
-**counted**, never guessed at. You will see it in the unresolved count rather
-than in a filter that quietly kept less than you asked for.
+A name using a scheme this build cannot decode — Rust's newer "v0" mangling,
+say, if the installed C++ runtime isn't recent enough to understand it —
+resolves to nothing and is **counted as unresolved**, never guessed at. You
+will see it in the unresolved count rather than in a filter that quietly
+kept less than you actually asked for.
 
 ### `elc` still invokes no toolchain
 
-No `nm`, no `objdump`, no `readelf`, no compiler, no linker, and no build
-system. `elc` opens the file you named, reads its symbol table, and closes it.
+No `nm`, `objdump`, or `readelf` (the usual command-line tools for inspecting
+a binary's symbols), no compiler, no linker, and no build system. `elc` opens
+the file you named, reads its symbol table, and closes it.
 It does not look for an image you did not name, and it does not need debugging
 information — the symbol table a linker writes by default is enough, so the
 option is not restricted to debug builds.
 
 ### When the image cannot be used
 
-An image that is absent, unreadable, not an object file, or **carrying no
-function symbols at all** ends the run with a diagnostic and no report, before
-any source file is measured:
+An image that is absent, unreadable, not actually a compiled binary (an
+"object file," in ELF terms), or **carrying no function symbols at all**
+ends the run with a diagnostic and no report, before any source file is
+measured:
 
 ```
 $ elc --elf build/app.stripped src/
@@ -1399,8 +1483,9 @@ Two functions doing the same work in two languages may report different ELOC,
 and that is correct rather than a defect. Each language's query files decide
 what counts, and the languages genuinely differ:
 
-* **Rust has no `else` node** — the alternative of an `if` is just a block —
-  so `} else {` is a line C counts and Rust does not.
+* **Rust's grammar has no separate `else` node** — the alternative branch of
+  an `if` is simply a block — so `} else {` is a line C counts and Rust does
+  not.
 * **Python's `pass` is excluded**, being the
   language's way of writing an empty block.
 * **`import`, `with`, and `use` clauses are excluded**, as `#include` is:
@@ -1442,23 +1527,29 @@ covering nothing.
 
 ### When a file does not parse
 
-A file that fails to parse is skipped whole and the run exits 1:
+Where the grammar cannot follow part of a file, that part is set aside and
+everything around it is measured. The run exits 1 and says what was lost:
 
 ```
-elc: /home/u/proj/src/broken.c: parse error; file skipped
+elc: /home/u/proj/src/broken.c:88: 3 lines could not be parsed; the rest of the file is measured
 ```
 
-Whole, not partly. A syntax error anywhere means the rest of the tree may be
-misread, and metrics from a damaged tree look exactly like sound ones once
-they are in a table. Discarding the file is the conservative choice: a
-visibly skipped file is better than a quietly wrong number.
+Only where a file cannot be read or decoded at all is it left out entirely.
+[When the parser cannot follow your code](#when-the-parser-cannot-follow-your-code)
+below covers what the report shows, why partial measurement is the right
+answer, and the one case — an unbalanced delimiter — where the damaged region
+runs to the end of the file.
 
 ### Adding a language
 
-Drop a grammar and six query files into `runtime/` and add one line to
+Drop a grammar and its query files into `runtime/` and add one line to
 `runtime/extensions.map`. No rebuild, no patch, no upstream release to wait
-for. The contract a module must satisfy — the file names, the capture names,
-and what each means — is `runtime/queries/README.md` in the distribution.
+for. Six query files are required and two are optional — a module that omits
+`conditionals.scm` has no conditional compilation, and one that omits
+`deadcode.scm` is analysed for everything else while the report states that
+dead-code analysis was not performed for that language. The contract a module
+must satisfy — the file names, the capture names, and what each means — is
+`runtime/queries/README.md` in the distribution.
 
 The report has the same shape whatever the target was — a single file, a
 directory, or a repository — so results from different targets are directly
@@ -1570,10 +1661,10 @@ paths it tried.
 
 ## The runtime directory
 
-Everything language-specific lives here as data, never in the binary. Installed
-it sits at `<prefix>/share/elc/runtime`; in a source checkout it is `runtime/`
-at the top, reached through a symlink the build creates beside `build/elc`. The
-contents are identical either way:
+Everything language-specific lives here as data, never in the binary. Once
+installed, it sits at `<prefix>/share/elc/runtime`; in a source checkout it
+is `runtime/` at the top level, reached through a symlink the build creates
+beside `build/elc`. The contents are identical either way:
 
 ```text
 runtime/
@@ -1581,17 +1672,28 @@ runtime/
 ├── binary.exts             # extensions excluded from analysis
 ├── parsers/<lang>.so       # Tree-sitter grammar, exports tree_sitter_<lang>
 └── queries/<lang>/
-    ├── comments.scm  functions.scm  complexity.scm
-    ├── eloc.scm      calls.scm      globals.scm
+    ├── comments.scm  functions.scm  complexity.scm   # required
+    ├── eloc.scm      calls.scm      globals.scm      # required
+    ├── conditionals.scm    # optional — the language's conditional compilation
+    ├── deadcode.scm        # optional — dead code within a function
     └── rules/*.scm         # your own coding standard, optional
 ```
+
+The six required files are what every module must supply. The two optional
+ones are genuinely optional rather than merely unwritten: a language with no
+conditional compilation has no `conditionals.scm` to write, and a language
+whose false literal the grammar cannot tell from an identifier your program
+declared should ship no `deadcode.scm` rather than guess. An optional file that
+is *absent* is a choice the contract allows; one that is *present and will not
+compile* is a defect, and disables the whole module exactly as a broken
+required file does.
 
 Adding a language means adding a directory here — no rebuild, no patch, no
 upstream release to wait for. The same mechanism is open to you: a team's own
 coding standard is expressed as `.scm` queries and checked by the same engine
 that produces the built-in metrics.
 
-All five shipped modules were added as data alone — no line of the executable
+Every shipped module was added as data alone — no line of the executable
 changed to support any of them, which is the claim `runtime/queries/README.md`
 exists to make good.
 
@@ -1605,15 +1707,15 @@ every grammar anyone has shipped.
 status 2.
 
 **`elc: unrecognised option '--foo'`** — the option does not exist in this
-build. Run `elc --help` for the current list; an option documented for a later
-phase is not accepted until that phase ships. Exit status 2.
+build. Run `elc --help` for the list this build accepts. Exit status 2.
 
 **`elc: <path>: No such file or directory`** — a target does not exist. All
 targets are validated before any is walked, so nothing was analysed. Exit
 status 2.
 
-**`elc: <path>: not a regular file or directory`** — the target is a socket, a
-FIFO, or a device node. Exit status 2.
+**`elc: <path>: not a regular file or directory`** — the target is something
+else the filesystem can name but `elc` cannot analyse: a socket, a FIFO (a
+named pipe), or a device node. Exit status 2.
 
 **A file you expected is missing from the table** — check the three exclusion
 rules under *What gets discovered*: it may be hidden, carry an extension
@@ -1719,16 +1821,31 @@ Findings
 
 Ranked most severe first, because the list exists to be worked from the top.
 
-**Every row names its source.** That column is the point of the section. `elc`
-ships thresholds from MISRA C, Robert C. Martin, and Henry–Kafura, and it does
-not invent them — so you can look up any line it draws. Where a threshold *is*
-`elc`'s own, the column says so in as many words:
+**Every row names its source.** That column is the point of the section: with
+one exception, `elc` does not invent its thresholds — it draws them from
+named, published sources, so you can look up and argue with any line it
+draws:
+
+- **MISRA C** is a widely used coding standard for safety-critical C,
+  published by the Motor Industry Software Reliability Association. It is
+  the source for the recursion and single-function-global/hidden-channel
+  rules.
+- **Henry–Kafura** refers to information-flow metrics published by S. Henry
+  and D. Kafura, which relate how likely a function is to contain a defect
+  to how much data flows through it. It is the source for the fan-out
+  bands.
+- **Martin** refers to Robert C. Martin's software design principles,
+  which include the Instability metric and the rule that dependencies
+  between components should never form a cycle.
+
+Where a threshold *is* `elc`'s own, the column says so in as many words:
 
 > `elc heuristic — not a published standard`
 
-There is exactly one such threshold today, the bottleneck. If you disagree with
-a published one, take it up with the standard; if you disagree with that one,
-it is only `elc`'s opinion and it is labelled as such.
+There is exactly one such threshold today: the bottleneck. If you disagree
+with a published threshold, take it up with the standard it comes from; if
+you disagree with the bottleneck threshold, it is only `elc`'s opinion, and
+it is labelled as such so you know that's all it is.
 
 ### The bands
 
@@ -1746,6 +1863,63 @@ it is only `elc`'s opinion and it is labelled as such.
 The fan-out bands are **exhaustive**: every value classifies exactly once, and
 three of the five bands produce nothing at all. A fan-out of 9 is acceptable
 and silent — that is a result, not an oversight.
+
+### Why the lines sit where they do
+
+A threshold you cannot argue with is one you cannot act on, so here is the
+reasoning behind each one:
+
+**Fan-out.** The healthy band of 3–7 is delegation working as intended:
+enough helper calls that the function composes rather than doing everything
+itself, few enough that a reader can hold them all in mind at once. Below 3
+is not necessarily a virtue — it is often a thin wrapper that earns nothing
+— which is why it reads as *below healthy* rather than as *best*. Past 15
+the function has stopped delegating and become a dispatcher: it violates the
+**Single Responsibility Principle** (the idea that a function or module
+should have one clear job) in a form you can literally count, and it is
+nearly impossible to isolate for unit testing, because every one of those
+callees has to be stood up first.
+
+**Call depth.** This one is about the call stack — the region of memory that
+tracks nested function calls — and the numbers come from embedded-systems
+practice rather than a published standard, which is why the source column
+says so. Each layer of nested calls costs one **stack frame** (a block of
+memory holding that call's local variables and return address), and on a
+target with only a few kilobytes of stack available, the depth multiplied by
+the average frame size is the whole budget. Past 8 layers there is little
+margin left for interrupt handling on top of it; past 12, the stack
+colliding with the heap (running out of memory entirely) stops being a
+theoretical risk. On a full-sized computer with megabytes of stack, the
+same figure is more a readability observation than a safety concern, which
+is why it is only a warning and not treated as a failure.
+
+**Recursion.** MISRA C Rule 17.2 forbids it outright, and the reason is not
+taste: with recursion the worst-case stack depth is a function of the input
+rather than of the program, so it cannot be computed ahead of time. That is
+also why `elc` reports the cycle *instead of* a depth figure — the number does
+not exist.
+
+**Component cycles.** This follows Martin's acyclic-dependencies principle:
+dependencies between files should never form a loop. The acceptable count is
+strictly zero because a cycle is not a matter of degree — the files caught
+in it are effectively one unit, however many there are, and cannot be
+built, tested, or understood separately from each other. Breaking a cycle is
+an all-or-nothing act, so the finding is reported the same way.
+
+**Single-function global and hidden channel.** Both are MISRA C Rule 8.9, from
+opposite directions. A global only one function names should be a local — the
+scope is simply wider than the use. A global shared across parts of the program
+that never call each other is the dangerous case: nothing in the code says
+which runs first, and the program works only as long as the order holds.
+
+**Bottleneck.** `elc`'s own heuristic, and the only row here that is. The
+rule requires `Ca` **and** `Ce` to both be at or above the threshold,
+because either alone is ordinary: a file that's widely used but depends on
+little itself is simply stable, and a file that depends on many others but
+few things depend on is merely sitting high in the architecture. Both at
+once is the trouble — hard to change because so much rests on it, hard to
+isolate because it rests on so much. The default of 5 is a starting point
+rather than a finding from research, and `-b` moves it.
 
 ### Three things findings are not
 
@@ -1794,17 +1968,21 @@ tables. The count is what tells you how far to trust the figures: 35 unparsed
 lines in 5151 is noise, and 35 in 60 is not.
 
 **Why not simply reject the file?** `elc` used to, and it was badly wrong. A
-single unparsable macro damages one line; discarding its file cost every metric
-in it. On one embedded project that turned 0.1%–1.4% damage per file into the
-loss of half the codebase and 137 correctly parsed functions. Parsing a
-language without compiling it means grammar gaps are permanent, so tolerating
-one locally is the general defence rather than a patch for one grammar.
+single unparsable macro damages one line; discarding the whole file over it
+threw away every metric in it. On one embedded project, that turned
+0.1%–1.4% of damaged code per file into the loss of half the codebase and
+137 correctly parsed functions. `elc` parses a language without actually
+compiling it, so gaps in its understanding of the grammar are permanent —
+there is no way to close all of them. Tolerating a small amount of local
+damage is therefore the general defence, not a one-off patch for a single
+grammar's shortcoming.
 
-There is a limit worth knowing. An **unbalanced delimiter** — a stray `(` or
-`{` — leaves the parser nothing to resynchronise on, so everything after it
-counts as damaged. That is not silent: the line count covers what was
-swallowed, so a large figure beside a small file is telling you the metrics are
-thin.
+There is one limit to know about. An **unbalanced delimiter** — a stray `(`
+or `{` with no matching closer — leaves the parser with no way to find its
+footing again ("resynchronise") and keep reading, so everything after it
+counts as damaged. That is not silent: the line count covers what was lost,
+so a large figure next to a small file is telling you the remaining metrics
+are thin.
 
 The run's exit status is 1 whenever any file was partly unparsed, because
 something in it went unanalysed.
@@ -1812,9 +1990,13 @@ something in it went unanalysed.
 ## Getting more detail
 
 - `man elc` — the reference form of this material
-- `doc/PVD.md` — why `elc` exists and what it will and will not do
-- `doc/SDP.md` — the phase plan, and what each phase adds
-- `doc/HLRs.md` — the requirements, if you need the precise contract
+- `runtime/queries/README.md` — the contract a language module or a custom rule
+  is written against
+- `doc/PVD.md` — why `elc` exists, and what it will and will not do
+
+If you are working on `elc` itself rather than using it, the development
+documents — the requirements, the design, the test plan, and the traceability
+between them — are under `doc/` in the source distribution.
 
 ## License
 

@@ -555,6 +555,36 @@ the call tree.
 
 The bands are exhaustive: every fan-out value falls in exactly one.
 
+**Structural complexity (the Henry–Kafura metric)**
+
+Fan-out alone weighs what a function calls and ignores what calls
+it, and effective lines of code weigh a function's size and ignore
+both. Henry and Kafura combine the three into one figure per
+procedure:
+
+> `HK = Length × (Fan-In × Fan-Out)²`
+
+`elc` reports it per function and summed across the project, taking
+**Length** to be the function's ELOC so that the figure is
+comparable with every other length in the report.
+
+Unlike the bands above, this metric carries **no threshold**. No
+published source divides it into accepted and unaccepted ranges, so
+`elc` reports the value and attaches no severity to it. Every other
+figure in this appendix is banded on someone else's published
+authority; inventing a band for this one would put an opinion of
+`elc`'s own beside them under a name — Henry–Kafura — that reads as
+a citation. Two properties of the formula are reported alongside it,
+because a reader who does not know them will misread the number:
+
+*   **A function at either end of the call graph scores zero.** The
+    product term vanishes when fan-in or fan-out is zero, so an
+    entry point and a leaf both score nothing whatever their length.
+*   **The figure is ordinal, not absolute.** The squared term
+    separates values by orders of magnitude, so it ranks functions
+    against each other within one project and means nothing compared
+    across projects.
+
 **Tree height (call-chain depth)**
 
 *   **Embedded constraint.** Call depth should be strictly

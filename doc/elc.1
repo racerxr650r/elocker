@@ -1,8 +1,4 @@
 .\" elc.1 — manual page for elc.
-.\"
-.\" This page describes the version it ships with (HLR-129). Every option elc
-.\" accepts appears here, and every option here is accepted; the documentation
-.\" test in test/integration/docs.bats enforces both directions.
 .TH ELC 1 "2026-08-20" "elocker" "User Commands"
 .SH NAME
 elc \- per-function code metrics and whole-project architecture analysis
@@ -20,45 +16,26 @@ elc \- per-function code metrics and whole-project architecture analysis
 .B \-\-help
 .SH DESCRIPTION
 .B elc
-reports code metrics per function, and analyses the architecture that connects
-them, for a codebase in any language it has runtime support for.
-.PP
-A
-.I TARGET
-is a source file or a directory. Several may be given in any combination; a
-file reached through more than one target is analysed once.
-.SS Current state
-.B elc
-is under active development. This release discovers the files in its targets,
-parses each one, and reports effective lines of code and cyclomatic
-complexity per function, per file, and per language, in any of four formats.
-The System Dependence Graph and the findings derived from it are delivered by
-later phases, and this page grows with them. See
-.B doc/SDP.md
-in the distribution for what each phase adds.
+calculates code metrics and performs architecture analysis per function. It calculates metrics based on 
+a codebase's syntax tree instead of textual matching.
+The definitions are consistent across all supported languages.
+
 .SS Effective lines of code
 .B ELOC
-is the count of lines carrying an executable statement: an assignment or
-operation, a control-flow construct, a call, a return, or exception handling.
-It excludes what serves only a structural, declarative, blank, or documentary
-purpose — a blank line, a line holding nothing but a brace, a declaration
-that initialises nothing, a preprocessor directive, and a comment.
-.PP
-Two properties follow from counting
-.I lines that carry statements
-rather than counting either physical lines or statements:
+is the count of lines carrying an executable statement.
+This includes an assignment, operation, control-flow construct, call, return, or exception handling.
+Declarations that initialize nothing, preprocessor directives, comments, blank lines, and lines containing only a brace do not count as ELOC.
+
+Because ELOC counts statements instead of physical lines:
 .TP
-.B Layout does not move the number.
-A statement spread over four lines counts once, at the line it starts on, so
-reformatting a long condition changes nothing. Two statements written on one
-line likewise count once — that line is one line to read.
+.B Layout does not change the ELOC count.
+A single statement spread across four lines counts as one ELOC.
+Two statements written on one line count as two ELOC.
 .TP
 .B A nested function's work belongs to it.
 Where a language allows a named function inside another,
 .B elc
-reports both, and each statement counts for the innermost function containing
-it and for no other. An enclosing function is not credited with what its
-nested functions do.
+reports both. Each statement is attributed to the innermost function containing it.
 .PP
 Comments are identified from the syntax tree, never by matching text. A
 comment opener inside a string literal opens nothing, a quote inside a comment
@@ -151,8 +128,10 @@ reports its
 \(em the number of
 .I distinct
 subroutines it invokes. A function calling one helper twice is coupled to one
-thing and reports 1. The figure is reported and not judged; the thresholds
-that turn it into a finding arrive with a later phase.
+thing and reports 1. The measurement itself carries no judgement; the bands
+that turn it into a finding are the published thresholds tabulated under
+.B "Findings, severity, and attribution"
+below, and the measurement is reported whether or not it crosses one.
 .PP
 .B Recursion
 is detected statically, direct and mutual alike, in accordance with MISRA C
@@ -307,16 +286,9 @@ reports the cycle in place of a number rather than a misleading finite value.
 .SS Language support
 .B elc
 determines each file's language from its extension, and loads the parser and
-queries for that language from the runtime directory at first use. Nothing
-language-specific is compiled into the executable: adding a language means
-adding files under
-.IR runtime/ ,
-never rebuilding. The interface a language module must satisfy is published
-as
-.I runtime/queries/README.md
-in the distribution.
-.PP
-This release ships five languages:
+queries for that language from the runtime directory at first use.
+
+It supports these out of the box:
 .TS
 tab(;);
 l l.
@@ -444,7 +416,7 @@ elc \-\-from\-xml build/metrics.xml \-c 20
 .PP
 A record that is not well-formed XML, that does not match
 .BR elc 's
-own structure, or that carries a format version this build does not read, is
+own structure, or that carries an unrecognized format version, is
 rejected with exit status 2 and no output at all. A partly reconstructed
 report is indistinguishable from a complete one once rendered, so none is
 attempted.
@@ -706,13 +678,17 @@ diagnostics are written to standard error. Nothing else is written to the
 results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
-The default format is an aligned table in eleven sections: the project
-summary, the project-wide callouts, the discovery route applied to each
-directory target, the totals broken down by language, one row per analysed
-file, one row per function, the functions at or over the complexity threshold,
-each function's fan-out, any recursion detected, the deepest call chain, and
-the files that were skipped. Column widths are taken from the longest value in each column so the
-figures line up:
+The default format is an aligned table in tiers: the project summary, the
+project-wide callouts, the discovery route applied to each directory target,
+the totals broken down by language, one row per analysed file, one row per
+function, and the functions at or over the complexity threshold; then the
+tiers derived from the dependence graph \(em fan-out, recursion, the deepest
+call chain, component coupling, dependency cycles, layering, global state,
+dead code, and cross-scope access \(em followed by the findings, the
+configuration in force, any custom-rule matches, any partly parsed files, and
+the files that were skipped. Every section is emitted whether or not it has
+rows. The example below is abridged. Column widths are taken from the longest
+value in each column so the figures line up:
 .PP
 .EX
 Project summary

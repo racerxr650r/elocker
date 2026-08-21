@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.4
-**Date:** 2026-08-17
+**Version:** 3.6
+**Date:** 2026-08-20
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -78,15 +78,15 @@ Requirements governing how `elc` identifies each file's programming language and
 
 *   <a id="HLR-010"></a>**HLR-010: No-Recompilation Language Addition.**
     `elc` shall support adding support for a new language by adding files to the runtime location of HLR-009 alone; adding a language shall require no modification to, and no recompilation of, the `elc` executable.
-    *Trace:* [SDD Section 6](SDD.md), [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 22](SDD.md).
 
 *   <a id="HLR-121"></a>**HLR-121: Language Module Interface Is a Stable Contract.**
     The interface between the `elc` executable and a language module — the set of query files a language is required to supply, and the capture names by which those queries return their results — shall be documented, and a language module supplying exactly the documented set shall function correctly with no further configuration. A module omitting a required query file shall be handled under HLR-070 rather than producing undefined behaviour. This interface is the contract a third party codes against when adding a language (HLR-010): renaming a required query file or a capture name, or changing the meaning of either, is a breaking change to that contract rather than an internal adjustment. That last is a constraint on the project's release process, verified by review, rather than a property observable within any single run.
-    *Trace:* [SDD Section 6](SDD.md), [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 22](SDD.md).
 
 *   <a id="HLR-011"></a>**HLR-011: Initial Delivered Language Set.**
     The elocker *project* shall deliver runtime language support for C, C++, Rust, and Python. This requirement constrains the project's deliverables, not the `elc` executable: `elc` shall not require, verify, or assume the presence of any particular language's support files, and shall complete with the exit-status semantics of HLR-120, producing a report per HLR-031, over whatever set of valid language modules the runtime location happens to contain.
-    *Trace:* [SDD Section 6](SDD.md), [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 22](SDD.md).
 
 *   <a id="HLR-012"></a>**HLR-012: Unsupported-Language File Handling.**
     When a discovered source file's extension does not map to any language available in the runtime location, `elc` shall skip that file rather than terminating the run, and shall report the skip through two observables: the file shall appear in the report's list of skipped files, and a diagnostic naming it shall be written to standard error. A skipped file is not a failure (HLR-037, HLR-120).
@@ -209,7 +209,7 @@ Requirements governing how `elc` aggregates and summarizes per-function metrics 
 Requirements governing how `elc` renders its computed results for human and machine consumption (PVD §5 item 7, §7.1).
 
 *   <a id="HLR-027"></a>**HLR-027: Default Human-Readable Output.**
-    By default, `elc` shall render its results as an aligned, human-readable table on standard output.
+    By default, `elc` shall render its results as an aligned, human-readable table on standard output. What that table presents by default is the summary composition of HLR-150; this requirement fixes the default *format* and destination, and says nothing about how much of the report they carry.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 14](SDD.md).
 
 *   <a id="HLR-028"></a>**HLR-028: CSV Output.**
@@ -241,8 +241,46 @@ Requirements governing how `elc` renders its computed results for human and mach
     *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md).
 
 *   <a id="HLR-031"></a>**HLR-031: Uniform Report Composition Across Formats.**
-    Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), and Graphviz `.dot` (HLR-102) shall present the same tiers of information: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
+    Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), and Graphviz `.dot` (HLR-102) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
+
+    The enumeration above is the **verbose** composition of HLR-151. Verbosity selects how much of it a given run presents (HLR-150), and this requirement governs the axis it does not touch: whichever verbosity is in force, every affected format shall present the same tiers as every other. Uniformity is across formats at a fixed verbosity, never across verbosities — a table and a Markdown report of the same run must not differ, and a summary report is not required to match a verbose one.
     *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md), [SDD Section 15](SDD.md).
+
+*   <a id="HLR-148"></a>**HLR-148: Output Format Determined by Filename Extension.**
+    Where the user names an output file (HLR-030), the extension of that filename shall determine the report format, and no separate format option shall be required to state what the filename has already said. `elc` shall recognise `.txt` as the aligned table (HLR-027), `.md` as Markdown (HLR-029), `.csv` as CSV (HLR-028), and `.xml` as the complete record (HLR-054).
+
+    An output filename carrying an extension `elc` does not recognise, or carrying none at all, shall be rejected as a usage error (HLR-063) naming the extension found and listing those that are recognised. Guessing a format for an unrecognised extension would write one format under a name promising another, and defaulting silently to the table would produce a file called `report.json` holding no JSON — each of which is a confidently wrong result of exactly the kind this document forbids elsewhere.
+
+    The extension governs the format alone. It has no bearing on the companion-artefact naming of HLR-119, which substitutes its own extension on the same path, so an output of `report.md` continues to yield `report.dot` and `report.graphml`.
+    *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md).
+
+*   <a id="HLR-149"></a>**HLR-149: Format Selection Without a Named Output File.**
+    Standard output has no filename and therefore no extension, so the format option shall remain the means of selecting a format for a report written there, defaulting to the aligned table when none is given (HLR-027). This is what keeps a machine-readable format available to a caller that pipes rather than redirects.
+
+    Where an output filename and an explicit format option are both supplied and they disagree, `elc` shall reject the invocation as a usage error (HLR-063) naming both, rather than silently preferring one. The two are then two statements of the same fact, and a run that honoured the option while writing to a contradicting filename — or the reverse — would leave the user's own command line disagreeing with the file it produced. Where they agree the invocation is accepted, since nothing is ambiguous about saying a thing twice.
+    *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md).
+
+*   <a id="HLR-150"></a>**HLR-150: Summary Report by Default.**
+    By default, a report `elc` renders in a human-readable format shall present the **summary** tiers alone: the project summary (HLR-024 through HLR-026), the discovery route of each directory target (HLR-127), the per-language breakdown (HLR-025), each file's totals (HLR-019), the per-file list of functions at or over the complexity threshold (HLR-021), the findings ranked by severity (HLR-098, HLR-123), the files skipped for want of a language module (HLR-012), any analysis omitted for want of a declaration (HLR-115), any partly unparsed files (HLR-035), and the provenance a run carries — the configuration in force (HLR-136) and the image filtered by (HLR-147).
+
+    It shall omit by default the **detail** tiers: every section presenting one row per function, per global object, per unreachable statement, per graph edge, or per custom-rule match. The partition rule is that a tier reporting a project-level or file-level aggregate, or a finding a reader is expected to act on, is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Which tier each section belongs to shall be stated in the delivered documentation (HLR-129), so that the partition is a published property of the report rather than an artefact of how a renderer was written.
+
+    The default changed with this requirement, and that is deliberate: the full report grew past the length at which it can be read in a terminal, and a default nobody reads is a default that serves nobody. Nothing is lost, because HLR-151 restores it in full and HLR-152 exempts the formats whose whole purpose is completeness.
+    *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
+
+*   <a id="HLR-151"></a>**HLR-151: Verbose Report on Request.**
+    `elc` shall provide a command-line option that selects a **verbose** report, presenting every tier of HLR-031 — the summary tiers of HLR-150 together with the detail tiers it omits — in the order and composition a report presented before HLR-150 was adopted. A verbose run and a run made before that change shall be identical in what they present, so that the capability is a restoration rather than a new format to learn.
+
+    The option shall govern presentation alone. It shall not change any measurement, any finding, any severity, or the process exit status, and a value absent from a summary report shall be absent because it was not printed rather than because it was not computed.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
+
+*   <a id="HLR-152"></a>**HLR-152: Complete-Record Formats Unaffected by Verbosity.**
+    The XML record (HLR-054) shall carry every element of a run whatever the verbosity, since its defining purpose is to be a complete and durable record sufficient to regenerate any report `elc` can produce (Section 9). A summarised record would silently destroy the measurements a later regeneration depends on, and the loss would not be visible in the file it produced.
+
+    CSV (HLR-028) is likewise unaffected, and for the same reason rather than a different one: it is defined as the complete per-function dataset, and a summarised CSV would be a record set with no rows in it. Verbosity therefore selects between two presentations of the human-readable formats, and says nothing about the two formats defined as complete.
+
+    It follows that supplying the verbosity option of HLR-151 together with an output format that is already complete changes nothing about the file produced. `elc` shall accept such an invocation rather than reject it: the option is a statement about presentation, the format has no presentation to vary, and nothing about the request is contradictory in the way HLR-149 rejects.
+    *Trace:* [SDD Section 15](SDD.md), [SDD Section 16](SDD.md).
 
 ## 6. Determinism and Correctness
 
@@ -318,15 +356,15 @@ Requirements constraining `elc`'s runtime environment, dependencies, execution m
 
 *   <a id="HLR-040"></a>**HLR-040: Excluded Runtime Dependencies.**
     `elc` shall not require an interpreter, a virtual machine, or network access at any point during execution, and shall not require code generation at build time.
-    *Trace:* [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md).
 
 *   <a id="HLR-112"></a>**HLR-112: Library Selection Deferred to Design.**
     The specific third-party libraries `elc` links against shall be selected during design. Library names appearing in the PVD — for parsing, repository access, XML handling, and graph mathematics — are *suggested candidates rather than requirements*: a design that substitutes a different library satisfies this document provided the exclusions of HLR-040 are respected and the behaviour required elsewhere is delivered. The one exception is the Tree-sitter query language and grammar format, which are visible to the user in the `.scm` files and runtime grammars they author (HLR-009, HLR-107) and are therefore a product contract rather than an implementation choice.
-    *Trace:* [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md).
 
 *   <a id="HLR-113"></a>**HLR-113: Graph Algorithms From an Established Library.**
     `elc` shall obtain its graph algorithms — cycle detection, topological ordering, reachability, and centrality — from an established graph library rather than hand-implementing adjacency structures and traversal algorithms, so that the correctness of the analyses in Sections 11 through 13 rests on proven code. Which library provides them is a design decision under HLR-112.
-    *Trace:* [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md).
 
 *   <a id="HLR-041"></a>**HLR-041: Single-Threaded Execution.**
     `elc` shall perform the entire run — target discovery, parsing, metric computation, graph construction, and every graph analysis — sequentially on a single thread.
@@ -334,11 +372,11 @@ Requirements constraining `elc`'s runtime environment, dependencies, execution m
 
 *   <a id="HLR-124"></a>**HLR-124: Memory Safety.**
     `elc` shall complete every run without a memory-safety error: without reading or writing outside the bounds of any allocation or mapping, without accessing memory after it has been freed or unmapped, without an invalid or repeated free, and without acting on an uninitialised value. This shall hold on error paths as well as on the success path, and shall hold for every target type and every output format.
-    *Trace:* [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 8](SDD.md), [SDD Section 13](SDD.md), [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 8](SDD.md), [SDD Section 13](SDD.md), [SDD Section 22](SDD.md).
 
 *   <a id="HLR-125"></a>**HLR-125: Complete Resource Release.**
     `elc` shall release, before it exits, every heap allocation it made, every file mapping it created, and every dynamic-library handle it opened. A run that terminates for any reason other than a fatal signal shall leave no allocation unreleased, including runs that end in a usage error, an invalid target, or a rejected saved record.
-    *Trace:* [SDD Section 3](SDD.md), [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 13](SDD.md), [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 3](SDD.md), [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 13](SDD.md), [SDD Section 22](SDD.md).
 
 *   <a id="HLR-043"></a>**HLR-043: Read-Only Operation.**
     `elc` shall only read the files it analyzes; `elc` shall never modify, rewrite, or delete any file under analysis.
@@ -353,7 +391,9 @@ Requirements governing `elc`'s ability to regenerate a Markdown report from a pr
     *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md), [SDD Section 16](SDD.md).
 
 *   <a id="HLR-056"></a>**HLR-056: Regenerated Report Equivalence.**
-    For a given complexity threshold, the Markdown report `elc` produces by converting a previously generated XML output file (HLR-055) shall be **byte-identical** to the Markdown report `elc` would have produced by analyzing the original target directly to Markdown with that same threshold — including the project summary, each file's totals and threshold list, full per-function detail, the architectural findings of Sections 11 through 14, and any custom-rule matches recorded in the source XML.
+    For a given complexity threshold *and verbosity*, the Markdown report `elc` produces by converting a previously generated XML output file (HLR-055) shall be **byte-identical** to the Markdown report `elc` would have produced by analyzing the original target directly to Markdown with that same threshold and verbosity — including the project summary, each file's totals and threshold list, full per-function detail, the architectural findings of Sections 11 through 14, and any custom-rule matches recorded in the source XML.
+
+    Verbosity joins the threshold as a property of the *rendering* rather than of the record. Both are supplied when the report is produced, neither is read back from the record, and the record carries every measurement either could select from (HLR-152) — so one record answers a summary question and a verbose one alike, and answers each identically to a direct run.
     *Trace:* [SDD Section 16](SDD.md).
 
 *   <a id="HLR-057"></a>**HLR-057: User-Supplied Threshold at Regeneration Time.**
@@ -406,6 +446,8 @@ Requirements governing the layering, coupling, and dependency-cycle analyses `el
 
 *   <a id="HLR-078"></a>**HLR-078: User-Declared Architectural Strata.**
     `elc` shall accept, as command-line arguments, a set of user-declared architectural strata — named layers such as Application Logic, Hardware Abstraction, and Driver — together with the mapping of components to those layers and the permitted direction of dependency between them. Strata shall never be discovered automatically from the filesystem or from any configuration file.
+
+    The architecture recovery of HLR-172 does not qualify that rule and is not an exception to it. What recovery produces is a *proposal* a user reads; what this requirement governs is the *declaration* the conformance analyses measure against, and nothing `elc` derives from a graph ever becomes one. A recovered layering takes effect only where a user has read it, agreed with it, and passed it back as the arguments this requirement describes (HLR-173).
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 9](SDD.md).
 
 *   <a id="HLR-079"></a>**HLR-079: Skip-Level Call Detection.**
@@ -539,6 +581,8 @@ Requirements governing how `elc` evaluates its measurements against published in
 
 *   <a id="HLR-101"></a>**HLR-101: No Remediation Advice.**
     `elc` shall report measurements, threshold positions, and violations of user-supplied criteria; it shall not propose a fix, rank one design as better than another beyond what a cited standard already states, or apply any style opinion of its own invention.
+
+    The classifications and proposal of Section 22 are bounded by this requirement rather than exempt from it, and the boundary is between *describing* a structure and *prescribing* one. Calling a function a god object states where it sits in the graph, and a recovered layering states the order the graph already has; neither says the design is wrong nor what to do about it. That is why no classification carries a severity or becomes a finding (HLR-171), why the thresholds behind them are labelled as `elc`'s own, and why a proposal is never measured against (HLR-173). A recovery that ranked the recovered architecture against the declared one, or named a component as belonging somewhere else, would cross into the advice this requirement forbids.
     *Trace:* [SDD Section 12](SDD.md).
 
 ## 15. Graph Output Formats
@@ -559,6 +603,8 @@ Requirements governing `elc`'s graph-specific outputs: the Graphviz call tree fo
 
 *   <a id="HLR-119"></a>**HLR-119: Companion Artefact Naming.**
     The `.dot` call tree (HLR-102) and the GraphML export (HLR-106) shall each derive its filename from the report's output path by substituting the corresponding extension — an output of `report.md` yielding `report.dot` and `report.graphml`. Neither shall accept an output path of its own. This derivation is precisely why neither can be produced when the report is written to standard output (HLR-104): there is no output path from which to derive a name.
+
+    Every companion artefact `elc` adds shall follow this same rule, including the raw and purified drawings of HLR-178 and the purification manifest of HLR-175 where it is written rather than read. One derivation rule for every companion is what keeps the set of files a run produces predictable from the one path the user gave, and what makes "no output path, no companions" a single fact rather than a list of exceptions.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 17](SDD.md).
 
 *   <a id="HLR-105"></a>**HLR-105: Annotated .dot Output.**
@@ -645,7 +691,9 @@ Requirements governing how `elc` reports a code base whose source is conditional
 
 Requirements governing how `elc` reports only the code a build actually kept, so that a metric describes the image that ships rather than the source it was drawn from.
 
-This is the same question Section 18 asks and a different way of answering it. Conditional compilation *re-decides* the conditions a build resolved, from definitions the user restates; a linked image *observes what the build did*, having been produced by the real toolchain with the real flags. Where both are available the image is the stronger evidence, and neither replaces the other: the image says which functions survived, and says nothing about which lines inside one were compiled out.
+This is the same question Section 18 asks and a different way of answering it. Conditional compilation *re-decides* the conditions a build resolved, from definitions the user restates; a linked image *observes what the build did*, having been produced by the real toolchain with the real flags. Where both are available the image is the stronger evidence, and neither replaces the other.
+
+The image answers that question at two granularities, and which of them is available depends on what the build wrote. Its **symbol table** names the functions the link kept, and is present in any image a linker produced by default (HLR-140 – HLR-147). Its **debug line information**, where the build emitted any, additionally maps machine instructions back to the source lines that produced them — and so answers the question the symbol table cannot: which lines *inside* a surviving function this build actually compiled (HLR-153 – HLR-155). Debug information is never required; its absence costs the finer granularity and nothing else.
 
 *   <a id="HLR-140"></a>**HLR-140: Linked-Image Function Filter.**
     `elc` shall accept the path of a linked image as a command-line argument, shall extract the set of functions that image defines, and shall restrict every measurement and every analysis to the source functions appearing in that set. Source holds functions a build does not keep — excluded by configuration, discarded by the linker as unreachable, or belonging to a translation unit the link never included — and a report covering them describes no image that exists and overstates every measure taken from it. When no image is supplied, no function shall be excluded and the reported metrics shall be exactly those `elc` reports for the same source with the option absent, so that the capability is opt-in and adding it changes no existing result.
@@ -653,6 +701,8 @@ This is the same question Section 18 asks and a different way of answering it. C
 
 *   <a id="HLR-141"></a>**HLR-141: Image Read Without a Toolchain.**
     `elc` shall obtain the function set from the named image alone: it shall not invoke a toolchain utility — `nm`, `objdump`, `readelf`, a compiler, a linker, or a build system — shall not search for an image the user did not name, and shall not require the image to carry debugging information. Requiring a toolchain would make the result depend on which one is installed and would breach the runtime-dependency exclusions of HLR-040; searching for an image would breach the zero-configuration guarantee of HLR-039, under which nothing is read that the user did not name. The symbol table a linker writes by default is sufficient, and requiring more would restrict the option to builds made for debugging.
+
+    "Shall not require" is not "shall not read". Where the image happens to carry debug line information, `elc` reads it to prune at line granularity (HLR-153), and reads it from the image directly under this requirement's own terms — no toolchain utility, and no file the user did not name. What this requirement forbids is *depending* on debug information: an image without it remains fully usable for everything Section 19 describes at function granularity.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 18](SDD.md).
 
 *   <a id="HLR-142"></a>**HLR-142: Linkage Names Resolved to Source Names.**
@@ -678,3 +728,211 @@ This is the same question Section 18 asks and a different way of answering it. C
 *   <a id="HLR-147"></a>**HLR-147: Filter Recorded and Reported.**
     The image the filter was taken from, and the counts of HLR-143, shall appear in the report and in the saved XML record (HLR-054), so that a report states which image it describes and a report regenerated from a record stays byte-identical to one produced directly (HLR-056). Because the filter is applied when a file is measured and not when a report is rendered, supplying an image together with the regeneration mode of HLR-055 shall be rejected as a usage error (HLR-063) rather than silently ignored — the same rule, and for the same reason, that HLR-136 draws for a conditional-compilation definition.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 13](SDD.md), [SDD Section 16](SDD.md).
+
+*   <a id="HLR-153"></a>**HLR-153: Debug-Line Pruning From the Image.**
+    Where the image named under HLR-140 carries debug line information, `elc` shall read the mapping it holds from machine instructions back to source lines, and shall exclude from every reported metric and every graph fact each source line the mapping shows this build did not compile. A line excluded this way is one the build did not keep, whether it was removed by a conditional-compilation directive the build resolved or eliminated by the compiler's optimiser — the mapping records what the build produced and does not distinguish the two, and neither claim needs distinguishing to justify excluding the line from a measure of what shipped.
+
+    This is the function filter of HLR-140 carried one granularity finer. That filter answers which *functions* the link kept; this one answers which *lines* inside a kept function the compiler emitted. The two compose: a function the image does not define is excluded whole (HLR-144), and within each function that survives, the lines this build did not compile are excluded as well.
+
+    Where the image carries no debug line information, no line shall be excluded on this account and the reported metrics shall be exactly those `elc` reports for the same image without it, so that the capability is governed by what the build wrote rather than by an option the user must remember.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-154"></a>**HLR-154: Pruning Confined to Established Coverage.**
+    `elc` shall exclude a line under HLR-153 only where the debug line information positively establishes that the line produced no instruction: the line must lie within a function the image defines, and the source file containing it must be one the image's line information covers. Where a file is not covered — because the translation unit holding it was compiled without debug information, or because the image's line information is partial — no line in that file shall be excluded on this account, and the file shall be counted among those whose coverage could not be established.
+
+    The asymmetry is the one HLR-133 and HLR-138 already draw, applied to a third kind of evidence. Absence of a line from the mapping is evidence that the build emitted nothing for it only where the mapping is known to describe that file; absence from a mapping that never covered the file is evidence of nothing at all. Treating the second as the first would silently delete measured code and produce a report that is confidently wrong and indistinguishable from a correct one, which is the outcome this project forbids in every analysis it performs.
+
+    One limit follows from the evidence rather than from the implementation, and shall be stated in the documentation rather than left to be discovered: an optimiser may fold the instructions of one source line into the entry recorded for a neighbouring line, and a line so folded is indistinguishable, in the mapping alone, from one that produced no instruction. `elc` shall not attempt to recover the difference, since nothing in the image records it. The counts of HLR-155 are what let a reader judge how much of a report rests on this.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-155"></a>**HLR-155: Debug-Line Pruning Recorded and Reported.**
+    `elc` shall report the number of source lines excluded under HLR-153 and the number of analysed files whose debug coverage could not be established under HLR-154, and shall write both to the saved XML record (HLR-054), so that a report states how far its figures were narrowed by the image and how completely the evidence supported the narrowing.
+
+    Both counts exist for the reason the unresolved-call count of HLR-077 and the undecided-region count of HLR-133 exist, and are read the same way: the first states what the filter removed, the second states where it could not look. A large second count beside a small first one says the report describes the source more nearly than the image, whatever the image was named — which a reader cannot infer from the metrics themselves.
+    *Trace:* [SDD Section 13](SDD.md), [SDD Section 16](SDD.md), [SDD Section 18](SDD.md).
+
+## 20. Information-Flow Complexity
+
+Requirements governing the Henry–Kafura information-flow metric, which weighs a function's size by the traffic passing through it rather than by either alone (PVD Appendix A.2).
+
+Sections 3 and 12 measure two properties separately: how much code a function holds, and how widely it connects. A function may be long and isolated, or short and central, and neither figure alone distinguishes those from a function that is both. The metric here is the product the published work forms from them, and it is reported beside its inputs rather than in place of them.
+
+*   <a id="HLR-156"></a>**HLR-156: Function Fan-In Measurement.**
+    For every function in the SDG, `elc` shall compute and report its fan-in: the number of distinct functions that invoke it directly. Fan-in is the converse of the fan-out of HLR-085 and is counted the same way — distinctly, over call edges alone, so that a caller invoking a function in forty places contributes one, and coupling through a global object (HLR-074) contributes nothing, since writing a variable another function reads is not calling it.
+
+    A function that no analysed function calls has a fan-in of zero. That figure is a measurement rather than a finding: an entry point, an exported API boundary, and an interrupt handler reached from a vector table all legitimately have none, and the reachability analysis of HLR-096 is what draws conclusions from an absence of callers.
+    *Trace:* [SDD Section 8](SDD.md), [SDD Section 10](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-157"></a>**HLR-157: Henry–Kafura Structural Complexity per Function.**
+    For every function, `elc` shall compute and report its Henry–Kafura structural complexity as its length multiplied by the square of the product of its fan-in and its fan-out:
+
+    `HK = Length × (Fan-In × Fan-Out)²`
+
+    where **Length** is the function's Effective Lines of Code (HLR-015), **Fan-In** is the measurement of HLR-156, and **Fan-Out** that of HLR-085. ELOC is the length used because it is the length this project measures everywhere else, and a metric mixing a length definition of its own into a report built on ELOC would not be comparable with the figures beside it.
+
+    The metric shall be attributed to Henry and Kafura wherever it is reported (HLR-099), the squared term being theirs rather than `elc`'s.
+    *Trace:* [SDD Section 10](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-158"></a>**HLR-158: Project-Level Henry–Kafura Total.**
+    Across all files analyzed in a single run, `elc` shall compute and report the combined Henry–Kafura complexity of the project as the sum of the per-function values of HLR-157, and shall present it among the project-level totals of HLR-024.
+
+    The total is a sum of the per-function figures rather than the formula applied to project-level aggregates, because the metric is defined over a single procedure's traffic and applying it to a project's totals would multiply a length by a connectivity no procedure has.
+
+    Both the per-function value and the project total shall be computed and carried in an integer type wide enough that no run overflows it. The squared term makes the value grow far faster than any figure `elc` otherwise reports — a function of a hundred effective lines with a fan-in and fan-out of thirty apiece scores over eighty million on its own — and a total that silently wrapped would be a wrong number presented with the authority of a right one.
+    *Trace:* [SDD Section 13](SDD.md).
+
+*   <a id="HLR-159"></a>**HLR-159: Henry–Kafura Reported Without an Invented Band.**
+    `elc` shall report the Henry–Kafura complexity of HLR-157 and HLR-158 as a bare measurement carrying no severity, since no published threshold divides the metric into accepted and unaccepted ranges. This is the treatment HLR-098 already prescribes for a measurement the catalogue holds no entry for, and inventing a band for this one would breach HLR-099's separation of published thresholds from `elc`'s own opinion — the more seriously for a metric whose name carries a citation.
+
+    Two properties of the formula shall be stated wherever the metric is documented, because a reader who does not know them will misread the figure rather than merely fail to act on it. **A function at either end of the call graph scores zero**: the product term is zero when fan-in or fan-out is zero, so an entry point that calls widely and a leaf that is widely called both score nothing whatever their length. And **the metric is ordinal rather than absolute** — the squared term means values are separated by orders of magnitude, so the figures rank functions against each other within one project and carry no meaning compared across projects. Both are properties of the published metric rather than of this implementation, and neither is a defect to be corrected.
+    *Trace:* [SDD Section 12](SDD.md), [SDD Section 13](SDD.md).
+
+## 21. Architecture Conformance Measurement
+
+Requirements governing how `elc` quantifies a code base's adherence to a layering the user declared, and presents the dependencies between layers as a matrix.
+
+Section 11 already *detects* the two ways a call can breach a declared layering: HLR-118 reports a call running against the declared direction, and HLR-079 a call bypassing an intervening layer. This section adds the two things that detection alone does not give a reader — an aggregate that says how much of the code base conforms, and a matrix that shows where the breaches sit. Neither introduces a second opinion about what a violation is: both count exactly the findings Section 11 already reports.
+
+*   <a id="HLR-160"></a>**HLR-160: Component Directory Recorded.**
+    `elc` shall retain, for every analysed component (HLR-114), the directory containing it, so that layers, matrices, and edge densities can be grouped by directory without re-deriving one from a path at each point of use.
+
+    The directory is a property of the component the discovery stage already resolved (HLR-072), not new information about the source, and recording it once is what keeps every consumer of it agreeing about which directory a component belongs to.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-161"></a>**HLR-161: Layer Index Taken From the Declared Strata.**
+    The layer index each analysis in this section compares against shall be the ordinal of the declared strata of HLR-078, and `elc` shall accept no second declaration syntax for the same fact. A stratum's ordinal *is* its layer index: the topmost declared layer is index 0, and an index increasing means a layer further from the caller and nearer the hardware.
+
+    A directory is named as a layer by giving it as a stratum pattern, which the existing declaration already accepts. Introducing a separate directory-to-index option beside it would give one concept two spellings, require a rule for what happens when the two disagree, and leave every downstream analysis asking which of them it was compiled against — for no capability the declaration does not already have.
+
+    A component matching no declared stratum lies outside the partition rather than in a layer of its own, exactly as it does for the analyses of Section 11, and shall contribute to no index and to no matrix cell.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 9](SDD.md).
+
+*   <a id="HLR-162"></a>**HLR-162: Back-Call Violation Index.**
+    Given declared strata, `elc` shall compute and report the **Back-Call Violation Index**: the proportion of the run's inter-layer call edges whose direction is inverted with respect to the declared order (HLR-118). It shall be reported alongside the complementary conforming proportion, so that a reader is given both the figure the index names and the figure they will quote.
+
+    The denominator shall be the call edges joining two components that lie in *different* declared layers. An edge within one layer has no direction to invert and is not a candidate; an edge touching a component outside the partition is excluded by HLR-161. Where that denominator is zero the index shall be reported as **undefined** rather than as zero or as one, by the rule HLR-082 already applies to Instability: a project with no inter-layer calls has not achieved perfect conformance, it has demonstrated nothing either way.
+    *Trace:* [SDD Section 9](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-163"></a>**HLR-163: Skip-Call Violation Index.**
+    Given declared strata, `elc` shall compute and report the **Skip-Call Violation Index**: the proportion of the run's inter-layer call edges that bypass one or more intervening layers (HLR-079), over the same denominator as HLR-162 and reported the same way, including its undefined case.
+
+    The two indices are independent and shall not be summed or combined into a single conformance score. A call may skip without inverting and invert without skipping, and one call may do both and be counted once in each (HLR-118, LLR-LAY-04) — so a combined figure would double-count exactly the calls that most need attention, and would name no remedy, where each index separately names one.
+    *Trace:* [SDD Section 9](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-164"></a>**HLR-164: Indices Counted From the Reported Violations.**
+    The indices of HLR-162 and HLR-163 shall be computed by counting the layering findings Section 11 already produced, and `elc` shall not re-derive from the graph what a violation is in order to compute them.
+
+    An index disagreeing with the list of violations printed beside it is the failure this requirement exists to make impossible. Two code paths deciding independently what counts as a back-call would eventually disagree — over a call touching an unpartitioned component, over a call that both skips and inverts, over an edge collapsed from several call sites — and a report carrying a percentage that its own table contradicts is worse than one carrying neither.
+    *Trace:* [SDD Section 9](SDD.md).
+
+*   <a id="HLR-165"></a>**HLR-165: Dependency Structure Matrix.**
+    `elc` shall produce a **Dependency Structure Matrix**: a square grid whose rows and columns are the same ordered sequence of subjects, and whose cell at row *i*, column *j* holds the number of call edges from subject *i* to subject *j*.
+
+    The subjects shall be the declared layers where strata were declared, and the analysed directories (HLR-160) where they were not, so that the matrix is available to a reader who has declared no architecture and is the shape they expect where they have. The matrix reports call edges alone, for the reason the layering analysis does (LLR-LAY-05): a global object two subjects happen to share is a different fact with its own analyses.
+    *Trace:* [SDD Section 9](SDD.md), [SDD Section 13](SDD.md).
+
+*   <a id="HLR-166"></a>**HLR-166: Matrix Ordering, the Diagonal, and Its Renderings.**
+    The matrix of HLR-165 shall order its subjects by ascending layer index where strata were declared, and by path where they were not, so that the position of a cell carries meaning rather than merely locating a number:
+
+    *   Cells **above** the diagonal are dependencies running in the declared direction, from a layer to one below it.
+    *   Cells **on** the diagonal are dependencies within one subject, which no declared order constrains.
+    *   Cells **below** the diagonal are back-calls (HLR-162) — the violations, gathered on one side of the grid where a reader can see them at a glance.
+
+    This convention shall be stated wherever the matrix is rendered, since a matrix whose orientation the reader has to infer conveys the opposite of what it is for. `elc` shall render the matrix as CSV and as Markdown, both governed by the escaping and determinism rules every other rendering obeys (HLR-064, HLR-032, HLR-033).
+    *Trace:* [SDD Section 9](SDD.md), [SDD Section 21](SDD.md).
+
+## 22. Graph Purification and Architecture Recovery
+
+Requirements governing how `elc` proposes a layering the user did not declare, and the graph surgery that makes such a proposal meaningful.
+
+A raw call graph rarely sorts into layers. A logger every module calls, and a dispatcher that calls everything, each connect parts of a program that have nothing to do with one another — and a topological ordering computed over such a graph collapses into one tangled stratum that describes nothing. The purification of HLR-167 through HLR-171 sets those nodes aside so that the structure underneath them can be seen; the recovery of HLR-172 reads a layering off what remains.
+
+Two boundaries govern the whole section, and both exist because this is the one place `elc` forms a view of its own. Purification changes **no reported metric** (HLR-167), and a recovered layering is a **proposal that is never a baseline** (HLR-173). Everything else here is subordinate to those two.
+
+*   <a id="HLR-167"></a>**HLR-167: Purification Confined to Recovery.**
+    The edge masking of HLR-168 through HLR-170 shall apply to a view of the graph constructed for architecture recovery alone. No measurement, finding, or artefact `elc` reports outside this section shall be computed over a masked graph: fan-out (HLR-085), fan-in (HLR-156), call depth (HLR-087), recursion (HLR-089), coupling and Instability (HLR-080, HLR-082), dependency cycles (HLR-083), reachability (HLR-096), the indices and matrix of Section 21, and the Henry–Kafura values of Section 20 shall each be exactly what they would be had no purification run.
+
+    This is the requirement the rest of the section is built on. Masking exists because a topological ordering over a tangled graph yields nothing; it is a lens for one question, not a correction to the graph. A fan-out that quietly omitted the calls into a masked utility would be a wrong number reported with the authority of a measured one, and a reachability analysis over a masked graph would call live code dead — the precise failure HLR-096 and HLR-144 are written to prevent.
+    *Trace:* [SDD Section 19](SDD.md), [SDD Section 20](SDD.md).
+
+*   <a id="HLR-168"></a>**HLR-168: Utility-Sink Detection.**
+    `elc` shall identify as a **utility sink** every function whose authority score is high and whose hub score is near zero, computed by the hub-and-authority (HITS) decomposition of the call graph, and shall mask that function's *incoming* edges in the recovery view.
+
+    A node many parts of the program call and which calls almost nothing back is domain-agnostic by construction — a logger, a string helper, an arithmetic routine. Its incoming edges join every caller to every other caller through it, fusing domains that share nothing but a dependency on it. Masking the incoming edges alone, rather than the node, is what removes that fusion while leaving the node's own position observable.
+    *Trace:* [SDD Section 19](SDD.md).
+
+*   <a id="HLR-169"></a>**HLR-169: God-Object Detection.**
+    `elc` shall identify as a **god object** every function whose betweenness centrality is high and whose hub score is also high, and shall mask its edges in the recovery view.
+
+    Betweenness counts the shortest paths a node lies on; a node lying on a great many is an architectural short circuit, joining regions whose only connection is that it dispatches to both. The hub score is required beside it because betweenness alone does not distinguish a dispatcher from a genuine intermediary that a layering ought to keep: a monolithic dispatcher calls widely, and a legitimate waypoint need not.
+
+    Where one function satisfies both this requirement and HLR-168, it shall be classified as a god object and reported as one, since masking its edges subsumes masking its incoming edges and the more specific claim is the more useful one to a reader.
+    *Trace:* [SDD Section 19](SDD.md).
+
+*   <a id="HLR-170"></a>**HLR-170: Peripheral Stripping by K-Core Decomposition.**
+    `elc` shall compute the coreness of every function and shall exclude from the recovery view those functions lying in the outermost cores, so that a layering is recovered from the mutually connected centre of the program rather than from the leaves hanging off it.
+
+    The core depth below which a function is treated as peripheral shall be user-configurable, since a program's periphery is a function of its size: a threshold that isolates the domain logic of a large code base strips a small one to nothing.
+
+    Peripheral functions shall be reported as excluded rather than silently dropped, and shall be assigned no recovered layer. A function `elc` did not consider is not a function `elc` placed at the edge of the architecture, and a proposal that did not distinguish the two would put every leaf in the bottom layer.
+    *Trace:* [SDD Section 19](SDD.md).
+
+*   <a id="HLR-171"></a>**HLR-171: Purification Thresholds Are elc's Own.**
+    Every threshold governing the classifications of HLR-168 through HLR-170 — the authority and hub scores that make a utility sink, the betweenness and hub scores that make a god object, and the core depth that makes a function peripheral — is `elc`'s own heuristic rather than a published standard, and shall be identified as such wherever a classification is reported, by the rule HLR-099 already applies to the bottleneck threshold of HLR-081.
+
+    Each shall be user-configurable. These are the values a user is most likely to disagree with, because unlike a published threshold they rest on nothing but this project's judgement, and a heuristic that cannot be adjusted is one whose disagreements have nowhere to go but the manifest of HLR-175.
+
+    No classification made under this section shall carry a severity or become a finding (HLR-123). A god object is an observation about the shape of a graph, not a measurement banded against an accepted range, and presenting one as a finding would place `elc`'s own opinion in the section whose whole claim is that it holds none.
+    *Trace:* [SDD Section 12](SDD.md), [SDD Section 19](SDD.md).
+
+*   <a id="HLR-172"></a>**HLR-172: Automated Layer Recovery.**
+    `elc` shall propose a layering of the analysed components by ordering the purified recovery view topologically and grouping the result by the directory each component belongs to (HLR-160), so that a user with no declared architecture is given a description of the one their code already has.
+
+    Where the recovery view is cyclic no topological ordering exists, and `elc` shall report the cycles in place of a proposed layering rather than ordering the graph arbitrarily — the rule HLR-090 applies to call depth, applied to the same underlying impossibility.
+
+    The proposal shall state which functions were masked or excluded in producing it (HLR-168 – HLR-170), since a layering recovered from a graph with parts of it set aside is a claim about that graph and not about the program.
+    *Trace:* [SDD Section 20](SDD.md).
+
+*   <a id="HLR-173"></a>**HLR-173: A Recovered Layering Is a Proposal, Never a Baseline.**
+    A layering recovered under HLR-172 shall never be used as the declared architecture that the conformance analyses measure against. The strata of HLR-078 are the sole baseline for the layering findings of Section 11 and the indices and matrix of Section 21, and where no strata are declared those analyses shall remain omitted with their reason stated (HLR-115) however confidently a layering was recovered.
+
+    `elc` measuring conformance against its own proposal would be a tool marking its own homework: every code base would conform, because the standard would have been read off the thing it was judging. HLR-078's rule that strata are never discovered automatically is unchanged by this section — what is added is a *proposal a user may read, adopt, and then declare*, and the declaring is theirs.
+
+    The proposal shall be presented in a form that can be adopted without transcription, so that a user who agrees with it can turn it into a declaration rather than retype it.
+    *Trace:* [SDD Section 9](SDD.md), [SDD Section 20](SDD.md).
+
+*   <a id="HLR-174"></a>**HLR-174: Purification Reported Before It Is Relied On.**
+    `elc` shall report every classification purification made: the function classified, the class assigned, the metric and value that triggered it, and the action taken upon it. Automated masking that a reader cannot inspect is a black box whose output they have no grounds to trust, and this report is what makes the recovery of HLR-172 something other than an assertion.
+
+    The report shall be a section of the rendered report, presented under the composition rules every other section obeys (HLR-031, HLR-150) and written to the results destination like every other result. It shall **not** be written directly to standard output when the report is going elsewhere: HLR-038 reserves that stream, and a run redirecting its report to a file must not have a second report appear on the terminal.
+    *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md), [SDD Section 19](SDD.md).
+
+*   <a id="HLR-175"></a>**HLR-175: The Purification Manifest.**
+    `elc` shall write, on request, a **purification manifest**: a machine-readable record of every classification it made, in a documented text format, structured so that a user may edit a classification and hand it back.
+
+    The manifest exists because these classifications are heuristics (HLR-171) and heuristics have false positives. A state machine's dispatcher legitimately lies on a great many shortest paths and legitimately calls widely; nothing in the graph distinguishes it from the monolith HLR-169 describes, and only the user knows which it is. Without a way to say so, a wrong classification is a permanent property of every future run.
+    *Trace:* [SDD Section 19](SDD.md).
+
+*   <a id="HLR-176"></a>**HLR-176: The Manifest Is Read Only When Named.**
+    `elc` shall read a purification manifest only from a path given on the command line, and shall never discover one from the working directory, the analysis target, any ancestor of either, or any dotfile. The zero-configuration guarantee of HLR-039 is unchanged by this section: a manifest is read for the same reason a custom rule file is (HLR-107, HLR-110) — because the user named it — and two people running the same command on the same tree must still obtain the same result.
+
+    A manifest that cannot be read, or whose contents `elc` does not understand, shall be rejected with a diagnostic and a non-zero exit status rather than partially applied. The user named the file, so the failure is theirs to correct — the provenance rule HLR-116 draws for a custom rule named on the command line, and HLR-146 for an unusable image.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 19](SDD.md).
+
+*   <a id="HLR-177"></a>**HLR-177: A Manual Classification Overrides a Computed One.**
+    Where a manifest supplied under HLR-176 states a classification for a function, that statement shall govern, and `elc` shall not recompute or overrule it. The report of HLR-174 shall distinguish a classification `elc` computed from one the manifest supplied, so that a reader can tell which of the assumptions in front of them are the tool's and which are the team's.
+
+    A manifest naming a function no analysed file defines shall be reported and ignored rather than ending the run: analysing one directory of a project whose manifest covers all of it is ordinary use, and rejecting it would make the manifest unusable exactly where a large code base most needs one — the rule HLR-095's entry points already follow (LLR-CTR-08).
+    *Trace:* [SDD Section 19](SDD.md).
+
+*   <a id="HLR-178"></a>**HLR-178: Raw and Purified Graph Exports.**
+    `elc` shall export, on request, two Graphviz `.dot` files: the graph as built, and the recovery view with the masked and excluded nodes of HLR-168 through HLR-170 visually distinguished rather than removed. Seeing what purification did is what lets a user judge whether it did the right thing, and a single drawing of the result cannot show what it acted on.
+
+    Both shall derive their names from the report's output path by extension substitution and shall accept no path of their own, exactly as the call tree and GraphML export do (HLR-119); both shall therefore be absent when the report is written to standard output, since no output path exists from which to derive a name (HLR-104). Neither shall replace the annotated call tree of HLR-102, which answers a different question and is enabled by a different default.
+    *Trace:* [SDD Section 17](SDD.md), [SDD Section 19](SDD.md).
+
+*   <a id="HLR-179"></a>**HLR-179: Deterministic Classification.**
+    Every classification, ordering, and proposal this section produces shall be identical across two runs over the same target, as HLR-032 requires of every other output. Two properties of the mathematics make that harder to satisfy here than elsewhere, and both shall be addressed rather than assumed.
+
+    The centrality scores of HLR-168 and HLR-169 are floating-point values produced by an iterative computation, so a comparison against a threshold shall be made in a defined way, and a run shall not classify differently on a different machine for want of one. And a ranking of nodes by such a score contains ties, which shall be broken by the stable node identifier of HLR-033 rather than by the order the graph library happened to enumerate them.
+    *Trace:* [SDD Section 19](SDD.md), [SDD Section 20](SDD.md).

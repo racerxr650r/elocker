@@ -159,7 +159,7 @@ is an error rather than an empty filter, because reporting a project with no
 functions in it would be confidently wrong and indistinguishable from a correct
 result.
 
-**Progress: 17 of 18 phases complete.**
+**Progress: 17 of 24 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -184,6 +184,12 @@ result.
 | [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
 | [16](doc/SDP.md#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
 | [17](doc/SDP.md#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
+| [18](doc/SDP.md#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | 🔲 Not started |
+| [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | 🔲 Not started |
+| [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | 🔲 Not started |
+| [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |
+| [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
+| [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
 
 </details>
 
