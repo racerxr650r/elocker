@@ -313,62 +313,131 @@ static int build_nodes(const Report *report, Sdg *g)
 	return 0;
 }
 
-int graph_build(const FactList *facts, const Report *report, Sdg *out)
+/* Hand a filled edge list to igraph and take ownership of the result.
+ *
+ * The three views below differ only in which edges they carry and how many
+ * vertices those edges span; everything else — allocate, create, check, release
+ * the vector — was written out three times, which is three places for the same
+ * mistake. The vector is destroyed here on both paths, so a caller that has
+ * filled one cannot leak it by taking an early return.
+ */
+static igraph_t *graph_create(igraph_vector_int_t *edges, size_t vertices)
 {
-	Symbol      *symbols     = NULL;
-	size_t       symbol_count = 0;
-	const char **declared    = NULL;
-	size_t       declared_count = 0;
-	igraph_t    *ig          = NULL;
-	igraph_t    *call_ig     = NULL;
-	igraph_t    *comp_ig     = NULL;
-	int          status      = -1;
+	igraph_t *g = calloc(1, sizeof *g);
 
-	memset(out, 0, sizeof *out);
+	if (!g) {
+		igraph_vector_int_destroy(edges);
+		return NULL;
+	}
 
-	/* **igraph aborts the process on error unless told not to.** Its
-	 * default handler calls abort(), so every `!= IGRAPH_SUCCESS` check
-	 * below is unreachable without this line — an allocation failure
-	 * inside the library would kill the run rather than produce the
-	 * diagnostic and exit status main promises (HLR-125).
-	 *
-	 * It matters more from Phase 9 on. `igraph_topological_sorting`
-	 * returns an error on a cyclic graph, which is exactly how the call
-	 * depth analysis will detect recursion — an ordinary, expected answer
-	 * that the default handler turns into a crash.
-	 *
-	 * Set here rather than in main() because this module is the only one
-	 * that touches igraph, and a global whose setting lives in a different
-	 * file from its use is a global waiting to be unset. */
-	igraph_set_error_handler(igraph_error_handler_ignore);
+	if (igraph_create(g, edges, (igraph_integer_t)vertices,
+	                  IGRAPH_DIRECTED) != IGRAPH_SUCCESS) {
+		igraph_vector_int_destroy(edges);
+		free(g);
+		return NULL;
+	}
 
-	if (build_nodes(report, out) != 0)
-		goto cleanup;
+	igraph_vector_int_destroy(edges);
+	return g;
+}
 
-	/* --- the symbol table ------------------------------------------- */
+/* The whole graph: every edge, calls and global state alike. */
+static igraph_t *build_full_view(const Sdg *out)
+{
+	igraph_vector_int_t edges;
 
-	symbols = calloc(out->node_count ? out->node_count : 1, sizeof *symbols);
+	if (igraph_vector_int_init(&edges,
+	                           (igraph_integer_t)(out->edge_count * 2)) !=
+	    IGRAPH_SUCCESS)
+		return NULL;
+
+	for (size_t i = 0; i < out->edge_count; i++) {
+		VECTOR(edges)[2 * i]     = out->edges[i].from;
+		VECTOR(edges)[2 * i + 1] = out->edges[i].to;
+	}
+
+	return graph_create(&edges, out->node_count);
+}
+
+/* The call-only view. Built here rather than by each consumer so that every
+ * analysis asking "what calls what" asks the same question of the same
+ * structure (see graph.h). */
+static igraph_t *build_call_view(const Sdg *out)
+{
+	igraph_vector_int_t edges;
+	size_t              calls = 0;
+	size_t              at    = 0;
+
+	for (size_t i = 0; i < out->edge_count; i++)
+		if (out->edges[i].kind == EDGE_CALL)
+			calls++;
+
+	if (igraph_vector_int_init(&edges, (igraph_integer_t)(calls * 2)) !=
+	    IGRAPH_SUCCESS)
+		return NULL;
+
+	for (size_t i = 0; i < out->edge_count; i++) {
+		if (out->edges[i].kind != EDGE_CALL)
+			continue;
+		VECTOR(edges)[at++] = out->edges[i].from;
+		VECTOR(edges)[at++] = out->edges[i].to;
+	}
+
+	return graph_create(&edges, out->node_count);
+}
+
+/* The component projection, as a graph rather than as the edge list it is built
+ * from. Phase 11's cycle detection is a decomposition of this and of nothing
+ * else: a dependency cycle is a statement about files, and two mutually
+ * recursive functions inside one file close no loop here, because a component
+ * does not depend on itself (HLR-083, HLR-114). */
+static igraph_t *build_component_view(const Sdg *out)
+{
+	igraph_vector_int_t edges;
+
+	if (igraph_vector_int_init(&edges,
+	                           (igraph_integer_t)(out->component_edge_count * 2)) !=
+	    IGRAPH_SUCCESS)
+		return NULL;
+
+	for (size_t i = 0; i < out->component_edge_count; i++) {
+		VECTOR(edges)[2 * i]     = (igraph_integer_t)
+			out->component_edges[i].from;
+		VECTOR(edges)[2 * i + 1] = (igraph_integer_t)
+			out->component_edges[i].to;
+	}
+
+	return graph_create(&edges, out->component_count);
+}
+
+/* Name to node id for every function the project defines, sorted once.
+ *
+ * A name defined more than once is reported here and resolves to its first
+ * definition. Two static functions of the same name in two files is ordinary
+ * C, so this is a note about the graph's precision rather than a complaint
+ * about the code — but a reader comparing fan-out against the source deserves
+ * to know an edge may have gone to the other one (SDD §8.5).
+ */
+static int build_symbol_table(const Sdg *out, Symbol **table, size_t *count)
+{
+	Symbol *symbols = calloc(out->node_count ? out->node_count : 1,
+	                         sizeof *symbols);
+	size_t  n       = 0;
+
 	if (!symbols)
-		goto cleanup;
+		return -1;
 
 	for (size_t i = 0; i < out->node_count; i++) {
-		symbols[symbol_count].name = out->nodes[i].name;
-		symbols[symbol_count].node = (uint32_t)i;
-		symbol_count++;
+		symbols[n].name = out->nodes[i].name;
+		symbols[n].node = (uint32_t)i;
+		n++;
 	}
-	qsort(symbols, symbol_count, sizeof *symbols, by_symbol_name);
+	qsort(symbols, n, sizeof *symbols, by_symbol_name);
 
-	/* A name defined more than once is reported once and resolves to its
-	 * first definition. Two static functions of the same name in two
-	 * files is ordinary C, so this is a note about the graph's precision
-	 * rather than a complaint about the code — but a reader comparing
-	 * fan-out against the source deserves to know an edge may have gone
-	 * to the other one (SDD §8.5). */
-	for (size_t i = 0; i < symbol_count; ) {
+	for (size_t i = 0; i < n; ) {
 		size_t run = i + 1;
 
-		while (run < symbol_count &&
-		       strcmp(symbols[run].name, symbols[i].name) == 0)
+		while (run < n && strcmp(symbols[run].name, symbols[i].name) == 0)
 			run++;
 
 		if (run - i > 1) {
@@ -383,7 +452,24 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 		i = run;
 	}
 
-	/* --- the set of names some file declares globally ---------------- */
+	*table = symbols;
+	*count = n;
+	return 0;
+}
+
+/* The graph's own copy of every name some file declares at file scope.
+ *
+ * De-duplicated on the way in: one object declared in a header six files
+ * include is one name, and every edge naming it points at the same string. The
+ * copy is what lets main() release the facts the instant the build returns —
+ * an edge holding a freed fact's string renders as a plausible object name
+ * rather than crashing, which is the worst way for it to be wrong (LLR-SDG-12).
+ */
+static int intern_global_names(const FactList *facts, Sdg *out)
+{
+	const char **declared       = NULL;
+	size_t       declared_count = 0;
+	int          status         = -1;
 
 	for (size_t i = 0; i < facts->count; i++)
 		for (size_t j = 0; j < facts->items[i]->global_count; j++)
@@ -392,7 +478,7 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 
 	declared = calloc(declared_count ? declared_count : 1, sizeof *declared);
 	if (!declared)
-		goto cleanup;
+		goto done;
 
 	declared_count = 0;
 	for (size_t i = 0; i < facts->count; i++)
@@ -402,25 +488,36 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 					facts->items[i]->globals[j].name;
 	qsort(declared, declared_count, sizeof *declared, graph_by_string);
 
-	/* Copied into the graph, de-duplicated on the way: one object declared
-	 * in a header included by six files is one name, and every edge naming
-	 * it points at the same string. The copy is what lets main() release
-	 * the facts the instant the build returns. */
 	out->global_names = calloc(declared_count ? declared_count : 1,
 	                           sizeof *out->global_names);
 	if (!out->global_names)
-		goto cleanup;
+		goto done;
 
 	for (size_t i = 0; i < declared_count; i++) {
 		if (i > 0 && strcmp(declared[i], declared[i - 1]) == 0)
 			continue;
 		out->global_names[out->global_name_count] = strdup(declared[i]);
 		if (!out->global_names[out->global_name_count])
-			goto cleanup;
+			goto done;
 		out->global_name_count++;
 	}
 
-	/* --- call edges --------------------------------------------------- */
+	status = 0;
+done:
+	free(declared);
+	return status;
+}
+
+/* Every call site resolved against the symbol table, and every address-taken
+ * name marked on the node it names. A call whose target is not a function
+ * this project defines — a library call, a system call, an indirect call
+ * through a pointer — is counted as unresolved rather than invented
+ * (HLR-077, LLR-SDG-02).
+ */
+static int build_call_edges(const FactList *facts, const Report *report,
+                            const Symbol *symbols, size_t symbol_count,
+                            Sdg *out)
+{
 
 	size_t node_base = 0;
 
@@ -448,7 +545,7 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 			if (!hit || site->caller == ELC_NO_FUNCTION) {
 				if (unresolved_add(out, site->callee, fm->path,
 				                   site->line) != 0)
-					goto cleanup;
+					return -1;
 				continue;
 			}
 
@@ -465,10 +562,10 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 
 			if (edge_add(out, first_edge, from, hit->node,
 			             EDGE_CALL, NULL) != 0)
-				goto cleanup;
+				return -1;
 			if (component_edge_add(out, out->nodes[from].component,
 			                       out->nodes[hit->node].component) != 0)
-				goto cleanup;
+				return -1;
 		}
 
 		/* --- address-taken ---------------------------------------- */
@@ -490,7 +587,18 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 		node_base += fm->function_count;
 	}
 
-	/* --- global-state edges ------------------------------------------- */
+	return 0;
+}
+
+/* An edge from every writer of an object to every reader of it, across the
+ * whole project — which is why this runs once every file's facts are in hand
+ * rather than per file (HLR-074, LLR-SDG-03).
+ */
+static int build_global_edges(const FactList *facts, const Report *report,
+                              Sdg *out)
+{
+	size_t node_base = 0;
+
 
 	node_base = 0;
 	for (size_t f = 0; f < report->file_count; f++) {
@@ -553,11 +661,11 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 
 					if (edge_add(out, 0, from, to,
 					             EDGE_GLOBAL, object) != 0)
-						goto cleanup;
+						return -1;
 					if (component_edge_add(out,
 					        out->nodes[from].component,
 					        out->nodes[to].component) != 0)
-						goto cleanup;
+						return -1;
 				}
 
 				reader_base += rfm->function_count;
@@ -567,7 +675,18 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 		node_base += fm->function_count;
 	}
 
-	/* --- the per-object access sets ----------------------------------- */
+	return 0;
+}
+
+/* Every read and every write, by the function that made it. Recorded beside
+ * the edges rather than derived from them because an edge needs both a writer
+ * and a reader, and the object touched by one function alone — the case
+ * HLR-092 is entirely about — produces none (LLR-SDG-16).
+ */
+static int build_touches(const FactList *facts, const Report *report, Sdg *out)
+{
+	size_t node_base = 0;
+
 	//
 	// Every read and every write, by the function that made it. Recorded
 	// separately from the edges because an edge needs both a writer and a
@@ -606,7 +725,7 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 			if (out->touch_count == out->touch_capacity &&
 			    graph_grow((void **)&out->touches, &out->touch_capacity,
 			         sizeof *out->touches) != 0)
-				goto cleanup;
+				return -1;
 
 			GlobalTouch *touch = &out->touches[out->touch_count++];
 
@@ -644,100 +763,65 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 	// indexed by edge position, because igraph's C attribute interface
 	// would mean carrying a second representation of data we already have.
 
-	ig = calloc(1, sizeof *ig);
+	return 0;
+}
+
+int graph_build(const FactList *facts, const Report *report, Sdg *out)
+{
+	Symbol      *symbols     = NULL;
+	size_t       symbol_count = 0;
+	igraph_t    *ig          = NULL;
+	igraph_t    *call_ig     = NULL;
+	igraph_t    *comp_ig     = NULL;
+	int          status      = -1;
+
+	memset(out, 0, sizeof *out);
+
+	/* **igraph aborts the process on error unless told not to.** Its
+	 * default handler calls abort(), so every `!= IGRAPH_SUCCESS` check
+	 * below is unreachable without this line — an allocation failure
+	 * inside the library would kill the run rather than produce the
+	 * diagnostic and exit status main promises (HLR-125).
+	 *
+	 * It matters more from Phase 9 on. `igraph_topological_sorting`
+	 * returns an error on a cyclic graph, which is exactly how the call
+	 * depth analysis will detect recursion — an ordinary, expected answer
+	 * that the default handler turns into a crash.
+	 *
+	 * Set here rather than in main() because this module is the only one
+	 * that touches igraph, and a global whose setting lives in a different
+	 * file from its use is a global waiting to be unset. */
+	igraph_set_error_handler(igraph_error_handler_ignore);
+
+	if (build_nodes(report, out) != 0)
+		goto cleanup;
+
+	if (build_symbol_table(out, &symbols, &symbol_count) != 0)
+		goto cleanup;
+
+	if (intern_global_names(facts, out) != 0)
+		goto cleanup;
+
+	if (build_call_edges(facts, report, symbols, symbol_count, out) != 0)
+		goto cleanup;
+
+	if (build_global_edges(facts, report, out) != 0)
+		goto cleanup;
+
+	if (build_touches(facts, report, out) != 0)
+		goto cleanup;
+
+	ig = build_full_view(out);
 	if (!ig)
 		goto cleanup;
 
-	igraph_vector_int_t edges;
-
-	if (igraph_vector_int_init(&edges, (igraph_integer_t)(out->edge_count * 2)) !=
-	    IGRAPH_SUCCESS) {
-		free(ig);
-		ig = NULL;
-		goto cleanup;
-	}
-	for (size_t i = 0; i < out->edge_count; i++) {
-		VECTOR(edges)[2 * i]     = out->edges[i].from;
-		VECTOR(edges)[2 * i + 1] = out->edges[i].to;
-	}
-
-	if (igraph_create(ig, &edges, (igraph_integer_t)out->node_count,
-	                  IGRAPH_DIRECTED) != IGRAPH_SUCCESS) {
-		igraph_vector_int_destroy(&edges);
-		free(ig);
-		ig = NULL;
-		goto cleanup;
-	}
-	igraph_vector_int_destroy(&edges);
-
-	/* The call-only view. Built here rather than by each consumer so that
-	 * every analysis asking "what calls what" asks the same question of
-	 * the same structure (see graph.h). */
-	call_ig = calloc(1, sizeof *call_ig);
+	call_ig = build_call_view(out);
 	if (!call_ig)
 		goto cleanup;
 
-	size_t call_edges = 0;
-
-	for (size_t i = 0; i < out->edge_count; i++)
-		if (out->edges[i].kind == EDGE_CALL)
-			call_edges++;
-
-	igraph_vector_int_t only_calls;
-
-	if (igraph_vector_int_init(&only_calls,
-	                           (igraph_integer_t)(call_edges * 2)) !=
-	    IGRAPH_SUCCESS)
-		goto cleanup;
-
-	size_t at = 0;
-
-	for (size_t i = 0; i < out->edge_count; i++) {
-		if (out->edges[i].kind != EDGE_CALL)
-			continue;
-		VECTOR(only_calls)[at++] = out->edges[i].from;
-		VECTOR(only_calls)[at++] = out->edges[i].to;
-	}
-
-	if (igraph_create(call_ig, &only_calls,
-	                  (igraph_integer_t)out->node_count,
-	                  IGRAPH_DIRECTED) != IGRAPH_SUCCESS) {
-		igraph_vector_int_destroy(&only_calls);
-		goto cleanup;
-	}
-	igraph_vector_int_destroy(&only_calls);
-
-	/* The component projection, as a graph rather than as the edge list it
-	 * is built from. Phase 11's cycle detection is a decomposition of this
-	 * and of nothing else: a dependency cycle is a statement about files,
-	 * and two mutually recursive functions inside one file close no loop
-	 * here because a component does not depend on itself (HLR-083,
-	 * HLR-114). */
-	comp_ig = calloc(1, sizeof *comp_ig);
+	comp_ig = build_component_view(out);
 	if (!comp_ig)
 		goto cleanup;
-
-	igraph_vector_int_t comp_edges;
-
-	if (igraph_vector_int_init(&comp_edges,
-	                           (igraph_integer_t)(out->component_edge_count * 2)) !=
-	    IGRAPH_SUCCESS)
-		goto cleanup;
-
-	for (size_t i = 0; i < out->component_edge_count; i++) {
-		VECTOR(comp_edges)[2 * i]     = (igraph_integer_t)
-			out->component_edges[i].from;
-		VECTOR(comp_edges)[2 * i + 1] = (igraph_integer_t)
-			out->component_edges[i].to;
-	}
-
-	if (igraph_create(comp_ig, &comp_edges,
-	                  (igraph_integer_t)out->component_count,
-	                  IGRAPH_DIRECTED) != IGRAPH_SUCCESS) {
-		igraph_vector_int_destroy(&comp_edges);
-		goto cleanup;
-	}
-	igraph_vector_int_destroy(&comp_edges);
 
 	out->graph           = ig;
 	out->call_graph      = call_ig;
@@ -749,7 +833,6 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 
 cleanup:
 	free(symbols);
-	free(declared);
 	free(ig);
 	free(call_ig);
 	free(comp_ig);
