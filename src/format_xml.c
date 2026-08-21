@@ -76,14 +76,18 @@ static void write_attribute(FILE *out, const char *name, const char *value)
 	fputc('"', out);
 }
 
-int xml_write_report(const Report *report, FILE *out)
-{
-	fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n", out);
-	fprintf(out, "<elc-report format-version=\"%d\">\n",
-	        ELC_XML_FORMAT_VERSION);
+/* --- one writer per section ------------------------------------------------
+ *
+ * None of them can fail. Every one writes to the stream and nothing else, and
+ * whether the stream took it is asked once at the end — for the reason the
+ * other writers give: a full disk shows up on the flush, not on the call that
+ * happened to fill the buffer.
+ */
 
-	/* Derived, and written for a consumer that is not elc. The reader
-	 * recomputes all of it rather than trusting it. */
+/* Derived, and written for a consumer that is not elc. The reader recomputes
+ * all of it rather than trusting it. */
+static void write_summary(const Report *report, FILE *out)
+{
 	fputs("  <summary", out);
 	fprintf(out, " files=\"%zu\"", report->summary.file_count);
 	fprintf(out, " physical-lines=\"%" PRIu64 "\"",
@@ -92,7 +96,10 @@ int xml_write_report(const Report *report, FILE *out)
 	fprintf(out, " functions=\"%" PRIu64 "\"",
 	        report->summary.function_count);
 	fputs("/>\n", out);
+}
 
+static void write_languages(const Report *report, FILE *out)
+{
 	fputs("  <languages>\n", out);
 	for (size_t i = 0; i < report->languages.count; i++) {
 		const LanguageTotals *l = &report->languages.items[i];
@@ -104,7 +111,10 @@ int xml_write_report(const Report *report, FILE *out)
 		        l->physical_lines, l->eloc);
 	}
 	fputs("  </languages>\n", out);
+}
 
+static void write_files(const Report *report, FILE *out)
+{
 	fputs("  <files>\n", out);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
@@ -130,21 +140,23 @@ int xml_write_report(const Report *report, FILE *out)
 		fputs("    </file>\n", out);
 	}
 	fputs("  </files>\n", out);
+}
 
-	/* Carried because the report presents it. A record that omitted the
-	 * routes would regenerate into a report with an empty Discovery
-	 * section, which is a different report — and HLR-056 says it must not
-	 * be (LLR-XWR-06). */
-	/* A measurement of the run, so it lives in the record beside the
-	 * others: it cannot be recomputed later, since regeneration has no
-	 * graph and no source to build one from (HLR-054, HLR-056). */
+/* A measurement of the run, so it lives in the record beside the others: it
+ * cannot be recomputed later, since regeneration has no graph and no source to
+ * build one from (HLR-054, HLR-056). */
+static void write_graph(const Report *report, FILE *out)
+{
 	fprintf(out, "  <graph unresolved-calls=\"%zu\"/>\n",
 	        report->unresolved_calls);
+}
 
-	/* The call-tree measurements. Every one is a fact about the run that
-	 * regeneration cannot recompute — there is no graph and no source to
-	 * build one from — so the record carries them exactly as it carries
-	 * the metrics (HLR-054, HLR-056). */
+/* The call-tree measurements. Every one is a fact about the run that
+ * regeneration cannot recompute — there is no graph and no source to build one
+ * from — so the record carries them exactly as it carries the metrics
+ * (HLR-054, HLR-056). */
+static void write_calltree(const Report *report, FILE *out)
+{
 	fprintf(out, "  <calltree depth-state=\"%d\" depth=\"%" PRIu32 "\">\n",
 	        (int)report->depth_state, report->depth);
 	for (size_t i = 0; i < report->fan_out_count; i++) {
@@ -172,16 +184,18 @@ int xml_write_report(const Report *report, FILE *out)
 		        report->deepest[i].line);
 	}
 	fputs("  </calltree>\n", out);
+}
 
-	/* The global-state and reachability measurements. Carried for the same
-	 * reason the call-tree ones are: regeneration has no graph and no
-	 * source to build one from, so a value not written here is a value the
-	 * regenerated report cannot have (HLR-054, HLR-056).
-	 *
-	 * The attribution of a verdict is deliberately *not* written. It is
-	 * derived from the verdict by one function both paths call, so a
-	 * record cannot carry a citation that disagrees with a live run's
-	 * (LLR-GLB-04). */
+/* The global-state and reachability measurements. Carried for the same reason
+ * the call-tree ones are: regeneration has no graph and no source to build one
+ * from, so a value not written here is a value the regenerated report cannot
+ * have (HLR-054, HLR-056).
+ *
+ * The attribution of a verdict is deliberately *not* written. It is derived
+ * from the verdict by one function both paths call, so a record cannot carry a
+ * citation that disagrees with a live run's (LLR-GLB-04). */
+static void write_state(const Report *report, FILE *out)
+{
 	fprintf(out, "  <state reach-state=\"%d\" scope-state=\"%d\">\n",
 	        (int)report->reach_state, (int)report->scope_state);
 	for (size_t i = 0; i < report->global_state_count; i++) {
@@ -218,12 +232,14 @@ int xml_write_report(const Report *report, FILE *out)
 		fputs("/>\n", out);
 	}
 	fputs("  </state>\n", out);
+}
 
-	/* The languages dead code was *not* looked for in are written beside
-	 * the findings, because the two together are the claim: a record
-	 * carrying the spans alone would regenerate into a report that reads
-	 * as a clean bill of health for a language nobody analysed
-	 * (HLR-139). */
+/* The languages dead code was *not* looked for in are written beside the
+ * findings, because the two together are the claim: a record carrying the
+ * spans alone would regenerate into a report that reads as a clean bill of
+ * health for a language nobody analysed (HLR-139). */
+static void write_deadcode(const Report *report, FILE *out)
+{
 	fputs("  <deadcode>\n", out);
 	for (size_t i = 0; i < report->dead_unanalysed.count; i++) {
 		fputs("    <unanalysed", out);
@@ -241,13 +257,15 @@ int xml_write_report(const Report *report, FILE *out)
 		        (int)r->cause);
 	}
 	fputs("  </deadcode>\n", out);
+}
 
-	/* What the user's rules matched. Carried for the reason every other
-	 * section is: regeneration has no source tree to re-run a query over,
-	 * so a match not written here is one the regenerated report cannot
-	 * have (HLR-054, HLR-056). The rule *file* is not recorded — the
-	 * identity is, which is what the report presents and all a reader of a
-	 * regenerated report can act on. */
+/* What the user's rules matched. Carried for the reason every other section
+ * is: regeneration has no source tree to re-run a query over, so a match not
+ * written here is one the regenerated report cannot have (HLR-054, HLR-056).
+ * The rule *file* is not recorded — the identity is, which is what the report
+ * presents and all a reader of a regenerated report can act on. */
+static void write_rules(const Report *report, FILE *out)
+{
 	fputs("  <rules>\n", out);
 	for (size_t i = 0; i < report->rule_match_count; i++) {
 		const RuleMatchRow *r = &report->rule_matches[i];
@@ -259,12 +277,15 @@ int xml_write_report(const Report *report, FILE *out)
 		        "\"/>\n", r->start_line, r->end_line);
 	}
 	fputs("  </rules>\n", out);
+}
 
-	/* The configuration these figures describe, and how completely it could
-	 * be applied. Pruning happens when a file is measured, so a record that
-	 * omitted this would regenerate into a report describing a
-	 * configuration it does not name — and one that could not be told from
-	 * a report of the whole source (HLR-136). */
+/* The configuration these figures describe, and how completely it could be
+ * applied. Pruning happens when a file is measured, so a record that omitted
+ * this would regenerate into a report describing a configuration it does not
+ * name — and one that could not be told from a report of the whole source
+ * (HLR-136). */
+static void write_configuration(const Report *report, FILE *out)
+{
 	fprintf(out, "  <configuration undecided-regions=\"%" PRIu64 "\">\n",
 	        report->undecided_regions);
 	for (size_t i = 0; i < report->definition_count; i++) {
@@ -273,42 +294,47 @@ int xml_write_report(const Report *report, FILE *out)
 		fputs("/>\n", out);
 	}
 	fputs("  </configuration>\n", out);
+}
 
-	/* The image the run was filtered by, both directions of mismatch
-	 * against it, and the one figure the filter did not narrow.
-	 *
-	 * Written only for a filtered run, and that asymmetry with every
-	 * section above is the requirement rather than an oversight: an
-	 * unfiltered run must produce exactly the record it produced before
-	 * the option existed (HLR-140). Without this element a regenerated
-	 * report would describe a filtered run while naming no filter
-	 * (HLR-147, LLR-XWR-14). */
-	if (report->image) {
-		fputs("  <image", out);
-		write_attribute(out, "path", report->image);
-		fprintf(out, " unresolved=\"%" PRIu64 "\" file-scope-eloc=\"%"
-		        PRIu64 "\">\n", report->image_unresolved,
-		        report->file_scope_eloc);
-		for (size_t i = 0; i < report->absent_count; i++) {
-			const AbsentRow *r = &report->absent[i];
+/* The image the run was filtered by, both directions of mismatch against it,
+ * and the one figure the filter did not narrow.
+ *
+ * Written only for a filtered run, and that asymmetry with every other section
+ * is the requirement rather than an oversight: an unfiltered run must produce
+ * exactly the record it produced before the option existed (HLR-140). Without
+ * this element a regenerated report would describe a filtered run while naming
+ * no filter (HLR-147, LLR-XWR-14). */
+static void write_image(const Report *report, FILE *out)
+{
+	if (!report->image)
+		return;
 
-			fputs("    <absent", out);
-			write_attribute(out, "function", r->function);
-			write_attribute(out, "file", r->file);
-			fprintf(out, " line=\"%" PRIu32 "\"/>\n", r->line);
-		}
-		fputs("  </image>\n", out);
+	fputs("  <image", out);
+	write_attribute(out, "path", report->image);
+	fprintf(out, " unresolved=\"%" PRIu64 "\" file-scope-eloc=\"%"
+	        PRIu64 "\">\n", report->image_unresolved,
+	        report->file_scope_eloc);
+	for (size_t i = 0; i < report->absent_count; i++) {
+		const AbsentRow *r = &report->absent[i];
+
+		fputs("    <absent", out);
+		write_attribute(out, "function", r->function);
+		write_attribute(out, "file", r->file);
+		fprintf(out, " line=\"%" PRIu32 "\"/>\n", r->line);
 	}
+	fputs("  </image>\n", out);
+}
 
-	/* The component-level measurements. Carried for the reason every other
-	 * analysis result is: regeneration has no graph and no source tree to
-	 * rebuild one from, so a value not written here is one the regenerated
-	 * report cannot have (HLR-054, HLR-056).
-	 *
-	 * The attributions are absent by the same rule the global-state
-	 * citation is: both are derived from one function each path calls, so
-	 * a record cannot carry an attribution that disagrees with a live
-	 * run's. */
+/* The component-level measurements. Carried for the reason every other
+ * analysis result is: regeneration has no graph and no source tree to rebuild
+ * one from, so a value not written here is one the regenerated report cannot
+ * have (HLR-054, HLR-056).
+ *
+ * The attributions are absent by the same rule the global-state citation is:
+ * both are derived from one function each path calls, so a record cannot carry
+ * an attribution that disagrees with a live run's. */
+static void write_architecture(const Report *report, FILE *out)
+{
 	fprintf(out, "  <architecture strata-state=\"%d\" bottleneck-threshold=\"%"
 	        PRIu32 "\">\n", (int)report->strata_state,
 	        report->bottleneck_threshold);
@@ -343,17 +369,20 @@ int xml_write_report(const Report *report, FILE *out)
 		        r->layers_crossed, (int)r->kind);
 	}
 	fputs("  </architecture>\n", out);
+}
 
-	/* The findings. Carried because regeneration has no measurements to
-	 * re-band and no catalogue call to make against them, exactly as the
-	 * measurements themselves are (HLR-054, HLR-056).
-	 *
-	 * The source *is* written here, unlike the verdict citations elsewhere
-	 * in this record. Those are derived from a verdict the record already
-	 * carries; a finding's source is derived from its measurement kind,
-	 * which the record would otherwise have to carry as a number whose
-	 * meaning could shift between builds. A string that reads the same in
-	 * both is the more durable of the two. */
+/* The findings. Carried because regeneration has no measurements to re-band
+ * and no catalogue call to make against them, exactly as the measurements
+ * themselves are (HLR-054, HLR-056).
+ *
+ * The source *is* written here, unlike the verdict citations elsewhere in this
+ * record. Those are derived from a verdict the record already carries; a
+ * finding's source is derived from its measurement kind, which the record
+ * would otherwise have to carry as a number whose meaning could shift between
+ * builds. A string that reads the same in both is the more durable of the
+ * two. */
+static void write_findings(const Report *report, FILE *out)
+{
 	fputs("  <findings>\n", out);
 	for (size_t i = 0; i < report->finding_count; i++) {
 		const FindingRow *r = &report->findings[i];
@@ -368,7 +397,13 @@ int xml_write_report(const Report *report, FILE *out)
 		fprintf(out, " line=\"%" PRIu32 "\"/>\n", r->line);
 	}
 	fputs("  </findings>\n", out);
+}
 
+/* Carried because the report presents it. A record that omitted the routes
+ * would regenerate into a report with an empty Discovery section, which is a
+ * different report — and HLR-056 says it must not be (LLR-XWR-06). */
+static void write_discovery(const Report *report, FILE *out)
+{
 	fputs("  <discovery>\n", out);
 	for (size_t i = 0; i < report->routes.count; i++) {
 		fputs("    <route", out);
@@ -378,7 +413,10 @@ int xml_write_report(const Report *report, FILE *out)
 		                ? "repository" : "filesystem");
 	}
 	fputs("  </discovery>\n", out);
+}
 
+static void write_skipped(const Report *report, FILE *out)
+{
 	fputs("  <skipped>\n", out);
 	for (size_t i = 0; i < report->skipped_files.count; i++) {
 		fputs("    <file", out);
@@ -386,12 +424,42 @@ int xml_write_report(const Report *report, FILE *out)
 		fputs("/>\n", out);
 	}
 	fputs("  </skipped>\n", out);
+}
 
-	/* The architectural findings, custom-rule matches, and omission
-	 * notices are written here once the analyses that produce them exist.
-	 * The elements are absent rather than empty, so that adding them is an
-	 * addition a reader of an older record ignores — which is why the
-	 * format version marks removals and meaning changes only. */
+int xml_write_report(const Report *report, FILE *out)
+{
+	/* The order the sections appear in the file, which is the order the
+	 * reader expects them and the order the schema in doc/ describes. Each
+	 * writes one element and returns; none inspects what another wrote. */
+	static void (*const SECTIONS[])(const Report *, FILE *) = {
+		write_summary,
+		write_languages,
+		write_files,
+		write_graph,
+		write_calltree,
+		write_state,
+		write_deadcode,
+		write_rules,
+		write_configuration,
+		write_image,
+		write_architecture,
+		write_findings,
+		write_discovery,
+		write_skipped
+	};
+
+	fputs("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n", out);
+	fprintf(out, "<elc-report format-version=\"%d\">\n",
+	        ELC_XML_FORMAT_VERSION);
+
+	for (size_t i = 0; i < sizeof SECTIONS / sizeof *SECTIONS; i++)
+		SECTIONS[i](report, out);
+
+	/* The architectural findings and omission notices are written here once
+	 * the analyses that produce them exist. The elements are absent rather
+	 * than empty, so that adding them is an addition a reader of an older
+	 * record ignores — which is why the format version marks removals and
+	 * meaning changes only. */
 
 	fputs("</elc-report>\n", out);
 
@@ -1436,6 +1504,261 @@ static void on_end(void *user, const XML_Char *name)
 	state->current = NULL;
 }
 
+/* --- what the parser still owns ------------------------------------------
+ *
+ * Released only on the paths where assembly did not take them. Grouped as
+ * the record itself is grouped, so that a row type added to one section is
+ * freed beside the rows it was added next to.
+ */
+
+static void free_calltree_state(ReadState *state)
+{
+	for (size_t i = 0; i < state->fan_out_count; i++) {
+		free(state->fan_out[i].function);
+		free(state->fan_out[i].file);
+	}
+	free(state->fan_out);
+	for (size_t i = 0; i < state->cycle_count; i++) {
+		for (size_t m = 0; m < state->cycles[i].count; m++)
+			free(state->cycles[i].members[m]);
+		free(state->cycles[i].members);
+	}
+	free(state->cycles);
+	for (size_t i = 0; i < state->deepest_count; i++) {
+		free(state->deepest[i].function);
+		free(state->deepest[i].file);
+	}
+	free(state->deepest);
+}
+
+static void free_global_state(ReadState *state)
+{
+	for (size_t i = 0; i < state->global_state_count; i++) {
+		free(state->global_state[i].object);
+		free(state->global_state[i].writers);
+		free(state->global_state[i].readers);
+		free(state->global_state[i].participants);
+	}
+	free(state->global_state);
+	for (size_t i = 0; i < state->unreachable_count; i++) {
+		free(state->unreachable[i].function);
+		free(state->unreachable[i].file);
+	}
+	free(state->unreachable);
+	for (size_t i = 0; i < state->unreachable_global_count; i++)
+		free(state->unreachable_globals[i]);
+	free(state->unreachable_globals);
+	for (size_t i = 0; i < state->cross_scope_count; i++) {
+		free(state->cross_scope[i].from_scope);
+		free(state->cross_scope[i].from_function);
+		free(state->cross_scope[i].to_scope);
+		free(state->cross_scope[i].to_function);
+		free(state->cross_scope[i].object);
+	}
+	free(state->cross_scope);
+}
+
+static void free_findings_state(ReadState *state)
+{
+	for (size_t i = 0; i < state->finding_count; i++) {
+		free(state->findings[i].severity);
+		free(state->findings[i].measurement);
+		free(state->findings[i].subject);
+		free(state->findings[i].where);
+		free(state->findings[i].detail);
+		free(state->findings[i].source);
+	}
+	free(state->findings);
+	for (size_t i = 0; i < state->coupling_count; i++) {
+		free(state->coupling[i].component);
+		free(state->coupling[i].instability);
+	}
+	free(state->coupling);
+	for (size_t i = 0; i < state->dep_cycle_count; i++) {
+		free(state->dep_cycles[i].components);
+		free(state->dep_cycles[i].path);
+	}
+	free(state->dep_cycles);
+	for (size_t i = 0; i < state->layering_count; i++) {
+		free(state->layering[i].from_stratum);
+		free(state->layering[i].from_function);
+		free(state->layering[i].from_file);
+		free(state->layering[i].to_stratum);
+		free(state->layering[i].to_function);
+		free(state->layering[i].to_file);
+	}
+	free(state->layering);
+}
+
+static void free_source_state(ReadState *state)
+{
+	for (size_t i = 0; i < state->dead_count; i++) {
+		free(state->dead[i].file);
+		free(state->dead[i].function);
+	}
+	free(state->dead);
+	for (size_t i = 0; i < state->rule_match_count; i++) {
+		free(state->rule_matches[i].rule);
+		free(state->rule_matches[i].file);
+	}
+	free(state->rule_matches);
+	for (size_t i = 0; i < state->definition_count; i++)
+		free(state->definitions[i]);
+	free(state->definitions);
+	for (size_t i = 0; i < state->absent_count; i++) {
+		free(state->absent[i].function);
+		free(state->absent[i].file);
+	}
+	free(state->absent);
+	free(state->image);
+	for (size_t i = 0; i < state->dead_unanalysed.count; i++)
+		free(state->dead_unanalysed.paths[i]);
+	free(state->dead_unanalysed.paths);
+}
+
+static void read_state_free(ReadState *state)
+{
+	free_calltree_state(state);
+	free_global_state(state);
+	free_findings_state(state);
+	free_source_state(state);
+	routelist_free(&state->routes);
+}
+
+/* Feed the file to the parser a chunk at a time, stopping at the first
+ * thing that is not a record this build can read: an I/O failure, a
+ * document that is not well formed, or a handler that rejected what it
+ * was given.
+ *
+ * Returns 0, or -1 with the diagnostic already written.
+ */
+static int parse_record(const char *path, XML_Parser parser, FILE *fp,
+                        ReadState *state)
+{
+	for (;;) {
+		void  *buffer = XML_GetBuffer(parser, XML_READ_CHUNK);
+		size_t got;
+
+		if (!buffer) {
+			fputs("elc: out of memory reading the record\n", stderr);
+			return -1;
+		}
+
+		got = fread(buffer, 1, XML_READ_CHUNK, fp);
+		if (ferror(fp)) {
+			fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+			return -1;
+		}
+
+		if (XML_ParseBuffer(parser, (int)got, got == 0) ==
+		    XML_STATUS_ERROR) {
+			fprintf(stderr, "elc: %s:%lu: %s\n", path,
+			        XML_GetCurrentLineNumber(parser),
+			        XML_ErrorString(XML_GetErrorCode(parser)));
+			return -1;
+		}
+
+		if (state->failed) {
+			fprintf(stderr, "elc: %s: %s\n", path, state->reason);
+			return -1;
+		}
+
+		if (got == 0)
+			break;
+	}
+
+	return 0;
+}
+
+/* Move what the parser reconstructed onto the report.
+ *
+ * Moved, not copied. The parser owns these until assembly succeeds, and the
+ * report owns them after — one transfer, so neither path frees what the
+ * other holds.
+ */
+static void move_to_report(ReadState *state, Report *out)
+{
+	out->depth_state     = state->depth_state;
+	out->depth           = state->depth;
+	out->fan_out         = state->fan_out;
+	out->fan_out_count   = state->fan_out_count;
+	out->cycles          = state->cycles;
+	out->cycle_count     = state->cycle_count;
+	out->deepest         = state->deepest;
+	out->deepest_count   = state->deepest_count;
+	state->fan_out       = NULL;
+	state->fan_out_count = 0;
+	state->cycles        = NULL;
+	state->cycle_count   = 0;
+	state->deepest       = NULL;
+	state->deepest_count = 0;
+
+	out->reach_state              = state->reach_state;
+	out->scope_state              = state->scope_state;
+	out->global_state             = state->global_state;
+	out->global_state_count       = state->global_state_count;
+	out->unreachable              = state->unreachable;
+	out->unreachable_count        = state->unreachable_count;
+	out->unreachable_globals      = state->unreachable_globals;
+	out->unreachable_global_count = state->unreachable_global_count;
+	out->cross_scope              = state->cross_scope;
+	out->cross_scope_count        = state->cross_scope_count;
+	out->findings                 = state->findings;
+	out->finding_count            = state->finding_count;
+	out->coupling                 = state->coupling;
+	out->coupling_count           = state->coupling_count;
+	out->bottleneck_threshold     = state->bottleneck_threshold;
+	out->dep_cycles               = state->dep_cycles;
+	out->dep_cycle_count          = state->dep_cycle_count;
+	out->strata_state             = state->strata_state;
+	out->layering                 = state->layering;
+	out->layering_count           = state->layering_count;
+	out->dead                     = state->dead;
+	out->dead_count               = state->dead_count;
+	out->rule_matches             = state->rule_matches;
+	out->rule_match_count         = state->rule_match_count;
+	out->definitions              = state->definitions;
+	out->definition_count         = state->definition_count;
+	out->undecided_regions        = state->undecided_regions;
+	/* The filter provenance the record carries, moved onto the model so a
+	 * regenerated report names the image the direct run named (HLR-147,
+	 * LLR-XRD-14). The rows are already ordered: they were sorted when the
+	 * record was written, and re-sorting a record's contents would let a
+	 * regenerated report disagree with the one it came from. */
+	out->image                      = state->image;
+	out->image_unresolved           = state->image_unresolved;
+	out->file_scope_eloc            = state->file_scope_eloc;
+	out->absent                     = state->absent;
+	out->absent_count               = state->absent_count;
+	out->dead_unanalysed            = state->dead_unanalysed;
+	state->global_state             = NULL;
+	state->global_state_count       = 0;
+	state->unreachable              = NULL;
+	state->unreachable_count        = 0;
+	state->unreachable_globals      = NULL;
+	state->unreachable_global_count = 0;
+	state->cross_scope              = NULL;
+	state->cross_scope_count        = 0;
+	state->findings                 = NULL;
+	state->finding_count            = 0;
+	state->coupling                 = NULL;
+	state->coupling_count           = 0;
+	state->dep_cycles               = NULL;
+	state->dep_cycle_count          = 0;
+	state->layering                 = NULL;
+	state->layering_count           = 0;
+	state->dead                     = NULL;
+	state->dead_count               = 0;
+	state->rule_matches             = NULL;
+	state->rule_match_count         = 0;
+	state->definitions              = NULL;
+	state->definition_count         = 0;
+	state->image                    = NULL;
+	state->absent                   = NULL;
+	state->absent_count             = 0;
+	memset(&state->dead_unanalysed, 0, sizeof state->dead_unanalysed);
+}
+
 int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 {
 	MetricsAccumulator acc    = { 0 };
@@ -1464,37 +1787,8 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	XML_SetUserData(parser, &state);
 	XML_SetElementHandler(parser, on_start, on_end);
 
-	for (;;) {
-		void  *buffer = XML_GetBuffer(parser, XML_READ_CHUNK);
-		size_t got;
-
-		if (!buffer) {
-			fputs("elc: out of memory reading the record\n", stderr);
-			goto cleanup;
-		}
-
-		got = fread(buffer, 1, XML_READ_CHUNK, fp);
-		if (ferror(fp)) {
-			fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
-			goto cleanup;
-		}
-
-		if (XML_ParseBuffer(parser, (int)got, got == 0) ==
-		    XML_STATUS_ERROR) {
-			fprintf(stderr, "elc: %s:%lu: %s\n", path,
-			        XML_GetCurrentLineNumber(parser),
-			        XML_ErrorString(XML_GetErrorCode(parser)));
-			goto cleanup;
-		}
-
-		if (state.failed) {
-			fprintf(stderr, "elc: %s: %s\n", path, state.reason);
-			goto cleanup;
-		}
-
-		if (got == 0)
-			break;
-	}
+	if (parse_record(path, parser, fp, &state) != 0)
+		goto cleanup;
 
 	if (!state.saw_root) {
 		fprintf(stderr, "elc: %s: not an elc report\n", path);
@@ -1507,88 +1801,7 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 		goto cleanup;
 	report_set_unresolved(out, state.unresolved);
 
-	/* Moved, not copied. The parser owns these until assembly succeeds,
-	 * and the report owns them after — one transfer, so neither path
-	 * frees what the other holds. */
-	out->depth_state    = state.depth_state;
-	out->depth          = state.depth;
-	out->fan_out        = state.fan_out;
-	out->fan_out_count  = state.fan_out_count;
-	out->cycles         = state.cycles;
-	out->cycle_count    = state.cycle_count;
-	out->deepest        = state.deepest;
-	out->deepest_count  = state.deepest_count;
-	state.fan_out       = NULL;
-	state.fan_out_count = 0;
-	state.cycles        = NULL;
-	state.cycle_count   = 0;
-	state.deepest       = NULL;
-	state.deepest_count = 0;
-
-	out->reach_state              = state.reach_state;
-	out->scope_state              = state.scope_state;
-	out->global_state             = state.global_state;
-	out->global_state_count       = state.global_state_count;
-	out->unreachable              = state.unreachable;
-	out->unreachable_count        = state.unreachable_count;
-	out->unreachable_globals      = state.unreachable_globals;
-	out->unreachable_global_count = state.unreachable_global_count;
-	out->cross_scope              = state.cross_scope;
-	out->cross_scope_count        = state.cross_scope_count;
-	out->findings                 = state.findings;
-	out->finding_count            = state.finding_count;
-	out->coupling                 = state.coupling;
-	out->coupling_count           = state.coupling_count;
-	out->bottleneck_threshold     = state.bottleneck_threshold;
-	out->dep_cycles               = state.dep_cycles;
-	out->dep_cycle_count          = state.dep_cycle_count;
-	out->strata_state             = state.strata_state;
-	out->layering                 = state.layering;
-	out->layering_count           = state.layering_count;
-	out->dead                     = state.dead;
-	out->dead_count               = state.dead_count;
-	out->rule_matches             = state.rule_matches;
-	out->rule_match_count         = state.rule_match_count;
-	out->definitions              = state.definitions;
-	out->definition_count         = state.definition_count;
-	out->undecided_regions        = state.undecided_regions;
-	/* The filter provenance the record carries, moved onto the model so a
-	 * regenerated report names the image the direct run named (HLR-147,
-	 * LLR-XRD-14). The rows are already ordered: they were sorted when the
-	 * record was written, and re-sorting a record's contents would let a
-	 * regenerated report disagree with the one it came from. */
-	out->image                    = state.image;
-	out->image_unresolved         = state.image_unresolved;
-	out->file_scope_eloc          = state.file_scope_eloc;
-	out->absent                   = state.absent;
-	out->absent_count             = state.absent_count;
-	out->dead_unanalysed          = state.dead_unanalysed;
-	state.global_state             = NULL;
-	state.global_state_count       = 0;
-	state.unreachable              = NULL;
-	state.unreachable_count        = 0;
-	state.unreachable_globals      = NULL;
-	state.unreachable_global_count = 0;
-	state.cross_scope              = NULL;
-	state.cross_scope_count        = 0;
-	state.findings                 = NULL;
-	state.finding_count            = 0;
-	state.coupling                 = NULL;
-	state.coupling_count           = 0;
-	state.dep_cycles               = NULL;
-	state.dep_cycle_count          = 0;
-	state.layering                 = NULL;
-	state.layering_count           = 0;
-	state.dead                     = NULL;
-	state.dead_count               = 0;
-	state.rule_matches             = NULL;
-	state.rule_match_count         = 0;
-	state.definitions              = NULL;
-	state.definition_count         = 0;
-	state.image                    = NULL;
-	state.absent                   = NULL;
-	state.absent_count             = 0;
-	memset(&state.dead_unanalysed, 0, sizeof state.dead_unanalysed);
+	move_to_report(&state, out);
 
 	status = 0;
 
@@ -1602,97 +1815,7 @@ cleanup:
 		report_free(out);
 		memset(out, 0, sizeof *out);
 	}
-	/* Released only on the paths where assembly did not take them. */
-	for (size_t i = 0; i < state.fan_out_count; i++) {
-		free(state.fan_out[i].function);
-		free(state.fan_out[i].file);
-	}
-	free(state.fan_out);
-	for (size_t i = 0; i < state.cycle_count; i++) {
-		for (size_t m = 0; m < state.cycles[i].count; m++)
-			free(state.cycles[i].members[m]);
-		free(state.cycles[i].members);
-	}
-	free(state.cycles);
-	for (size_t i = 0; i < state.deepest_count; i++) {
-		free(state.deepest[i].function);
-		free(state.deepest[i].file);
-	}
-	free(state.deepest);
-	for (size_t i = 0; i < state.global_state_count; i++) {
-		free(state.global_state[i].object);
-		free(state.global_state[i].writers);
-		free(state.global_state[i].readers);
-		free(state.global_state[i].participants);
-	}
-	free(state.global_state);
-	for (size_t i = 0; i < state.unreachable_count; i++) {
-		free(state.unreachable[i].function);
-		free(state.unreachable[i].file);
-	}
-	free(state.unreachable);
-	for (size_t i = 0; i < state.unreachable_global_count; i++)
-		free(state.unreachable_globals[i]);
-	free(state.unreachable_globals);
-	for (size_t i = 0; i < state.cross_scope_count; i++) {
-		free(state.cross_scope[i].from_scope);
-		free(state.cross_scope[i].from_function);
-		free(state.cross_scope[i].to_scope);
-		free(state.cross_scope[i].to_function);
-		free(state.cross_scope[i].object);
-	}
-	free(state.cross_scope);
-	for (size_t i = 0; i < state.finding_count; i++) {
-		free(state.findings[i].severity);
-		free(state.findings[i].measurement);
-		free(state.findings[i].subject);
-		free(state.findings[i].where);
-		free(state.findings[i].detail);
-		free(state.findings[i].source);
-	}
-	free(state.findings);
-	for (size_t i = 0; i < state.coupling_count; i++) {
-		free(state.coupling[i].component);
-		free(state.coupling[i].instability);
-	}
-	free(state.coupling);
-	for (size_t i = 0; i < state.dep_cycle_count; i++) {
-		free(state.dep_cycles[i].components);
-		free(state.dep_cycles[i].path);
-	}
-	free(state.dep_cycles);
-	for (size_t i = 0; i < state.layering_count; i++) {
-		free(state.layering[i].from_stratum);
-		free(state.layering[i].from_function);
-		free(state.layering[i].from_file);
-		free(state.layering[i].to_stratum);
-		free(state.layering[i].to_function);
-		free(state.layering[i].to_file);
-	}
-	free(state.layering);
-	for (size_t i = 0; i < state.dead_count; i++) {
-		free(state.dead[i].file);
-		free(state.dead[i].function);
-	}
-	free(state.dead);
-	for (size_t i = 0; i < state.rule_match_count; i++) {
-		free(state.rule_matches[i].rule);
-		free(state.rule_matches[i].file);
-	}
-	free(state.rule_matches);
-	for (size_t i = 0; i < state.definition_count; i++)
-		free(state.definitions[i]);
-	free(state.definitions);
-	for (size_t i = 0; i < state.absent_count; i++) {
-		free(state.absent[i].function);
-		free(state.absent[i].file);
-	}
-	free(state.absent);
-	free(state.image);
-	for (size_t i = 0; i < state.dead_unanalysed.count; i++)
-		free(state.dead_unanalysed.paths[i]);
-	free(state.dead_unanalysed.paths);
-	routelist_free(&state.routes);
+	read_state_free(&state);
 	if (parser)
 		XML_ParserFree(parser);
 	if (fp)
