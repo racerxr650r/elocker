@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.9
-**Date:** 2026-08-20
+**Version:** 2.10
+**Date:** 2026-08-21
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -1046,6 +1046,12 @@ Nothing reconstructed before a rejection survives it. The partially built model 
 *   **`void write_escaped(const char *value, FILE *out)`** — Emit text with &, <, >, and quotation marks escaped.
 
 #### 16.3.2 Parsing Strategy / Algorithm
+
+**One handler per element, found in a table.** The read path's element callback does nothing but match the incoming name against a table of handlers and call the one that matches; each handler is reached only when its element has already been identified, so it begins where the interesting part begins.
+
+It was, until Phase 17, a single function testing the name against every element in turn. That function reached a cyclomatic complexity of 169 — more independent paths through it than the rest of this module put together, and every one of them the same path: compare a name, read some attributes, append a row. Nothing about the record format made it complicated; the shape of the dispatch did. Split, the largest handler is 15 and the callback itself is 5. An element added to the format is now a row in the table rather than another branch in a function nobody can hold in their head.
+
+The order of the table is the order the elements are documented in, and it carries no meaning: the names are distinct, so at most one matches and the search stops there. An element the table does not name is ignored, which is what makes a later build's additions readable by an earlier one of the same format version.
 
 Writing is hand-rolled text emission; reading is streamed through a parser. This asymmetry is deliberate. Emission needs only correct escaping, which `write_escaped()` provides in one place, so a writer library would add a dependency for no benefit. Ingestion needs a hardened parser, because the input is a file the user supplies and may not be one `elc` wrote.
 
