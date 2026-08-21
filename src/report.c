@@ -164,7 +164,7 @@ static int by_route_target(const void *a, const void *b)
 	return strcmp(x->target, y->target);
 }
 
-static int by_string(const void *a, const void *b)
+static int report_by_string(const void *a, const void *b)
 {
 	return strcmp(*(char *const *)a, *(char *const *)b);
 }
@@ -290,7 +290,7 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 			out->definition_count++;
 		}
 		qsort(out->definitions, out->definition_count,
-		      sizeof *out->definitions, by_string);
+		      sizeof *out->definitions, report_by_string);
 	}
 
 	out->files      = acc->files;
@@ -328,7 +328,7 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 
 	if (out->skipped_files.count > 1)
 		qsort(out->skipped_files.paths, out->skipped_files.count,
-		      sizeof *out->skipped_files.paths, by_string);
+		      sizeof *out->skipped_files.paths, report_by_string);
 
 	if (out->languages.count > 1)
 		qsort(out->languages.items, out->languages.count,
@@ -806,7 +806,7 @@ int report_set_state(Report *report, const StateResults *state, const Sdg *g,
 	if (report->unreachable_global_count > 1)
 		qsort(report->unreachable_globals,
 		      report->unreachable_global_count,
-		      sizeof *report->unreachable_globals, by_string);
+		      sizeof *report->unreachable_globals, report_by_string);
 
 	return 0;
 }
@@ -1325,7 +1325,7 @@ int report_set_dead(Report *report, const FactList *facts)
 	if (report->dead_unanalysed.count > 1)
 		qsort(report->dead_unanalysed.paths,
 		      report->dead_unanalysed.count,
-		      sizeof *report->dead_unanalysed.paths, by_string);
+		      sizeof *report->dead_unanalysed.paths, report_by_string);
 
 	return 0;
 }

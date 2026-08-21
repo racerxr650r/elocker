@@ -61,7 +61,7 @@ static const char *query_error_text(TSQueryError error)
  * original is overwritten. `x = realloc(x, n)` loses the allocation on
  * failure and leaves a dangling pointer, which is an HLR-125 violation.
  */
-static int grow(void **items, size_t *capacity, size_t item_size)
+static int registry_grow(void **items, size_t *capacity, size_t item_size)
 {
 	size_t next   = *capacity ? *capacity * 2 : 8;
 	void  *bigger = realloc(*items, next * item_size);
@@ -211,7 +211,7 @@ static int map_add(Registry *reg, const char *ext, const char *lang)
 	}
 
 	if (reg->map_count == reg->map_capacity &&
-	    grow((void **)&reg->map, &reg->map_capacity, sizeof *reg->map) != 0) {
+	    registry_grow((void **)&reg->map, &reg->map_capacity, sizeof *reg->map) != 0) {
 		free(extension);
 		free(language);
 		return -1;
@@ -489,7 +489,7 @@ static const LanguageModule *module_for_language(Registry *reg,
 			return reg->modules[i].usable ? &reg->modules[i] : NULL;
 
 	if (reg->module_count == reg->module_capacity &&
-	    grow((void **)&reg->modules, &reg->module_capacity,
+	    registry_grow((void **)&reg->modules, &reg->module_capacity,
 	         sizeof *reg->modules) != 0) {
 		fputs("elc: out of memory loading a language module\n", stderr);
 		return NULL;
@@ -575,7 +575,7 @@ static int rule_compile(Registry *reg, const LanguageModule *module,
 	}
 
 	if (reg->rule_count == reg->rule_capacity &&
-	    grow((void **)&reg->rules, &reg->rule_capacity,
+	    registry_grow((void **)&reg->rules, &reg->rule_capacity,
 	         sizeof *reg->rules) != 0) {
 		ts_query_delete(query);
 		fputs("elc: out of memory loading a custom rule\n", stderr);
@@ -687,7 +687,7 @@ static int rules_load_located(Registry *reg, const char *language)
 		if (!dot || strcmp(dot, ".scm") != 0)
 			continue;
 		if (count == capacity &&
-		    grow((void **)&names, &capacity, sizeof *names) != 0)
+		    registry_grow((void **)&names, &capacity, sizeof *names) != 0)
 			break;
 		names[count] = strdup(entry->d_name);
 		if (!names[count])

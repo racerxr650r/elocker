@@ -30,7 +30,7 @@
 
 /* ------------------------------------------------------------- utilities -- */
 
-static int grow(void **items, size_t *capacity, size_t item_size)
+static int graph_grow(void **items, size_t *capacity, size_t item_size)
 {
 	size_t next   = *capacity ? *capacity * 2 : 32;
 	void  *bigger = realloc(*items, next * item_size);
@@ -105,7 +105,7 @@ static const Symbol *symbol_find(const Symbol *table, size_t count,
  * which is a question no single file's facts can answer.
  */
 
-static int by_string(const void *a, const void *b)
+static int graph_by_string(const void *a, const void *b)
 {
 	return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
@@ -183,7 +183,7 @@ static int edge_add(Sdg *g, size_t first_of_caller, uint32_t from, uint32_t to,
 	}
 
 	if (g->edge_count == g->edge_capacity &&
-	    grow((void **)&g->edges, &g->edge_capacity, sizeof *g->edges) != 0)
+	    graph_grow((void **)&g->edges, &g->edge_capacity, sizeof *g->edges) != 0)
 		return -1;
 
 	SdgEdge *e = &g->edges[g->edge_count++];
@@ -207,7 +207,7 @@ static int component_edge_add(Sdg *g, size_t from, size_t to)
 			return 0;
 
 	if (g->component_edge_count == g->component_edge_capacity &&
-	    grow((void **)&g->component_edges, &g->component_edge_capacity,
+	    graph_grow((void **)&g->component_edges, &g->component_edge_capacity,
 	         sizeof *g->component_edges) != 0)
 		return -1;
 
@@ -239,7 +239,7 @@ static int unresolved_add(Sdg *g, const char *callee, const char *file,
 	g->unresolved_names[g->unresolved_name_count++] = owned;
 
 	if (g->unresolved == g->unresolved_capacity &&
-	    grow((void **)&g->unresolved_sites, &g->unresolved_capacity,
+	    graph_grow((void **)&g->unresolved_sites, &g->unresolved_capacity,
 	         sizeof *g->unresolved_sites) != 0)
 		return -1;
 
@@ -400,7 +400,7 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 			if (facts->items[i]->globals[j].kind == GLOBAL_DECLARATION)
 				declared[declared_count++] =
 					facts->items[i]->globals[j].name;
-	qsort(declared, declared_count, sizeof *declared, by_string);
+	qsort(declared, declared_count, sizeof *declared, graph_by_string);
 
 	/* Copied into the graph, de-duplicated on the way: one object declared
 	 * in a header included by six files is one name, and every edge naming
@@ -604,7 +604,7 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 				continue;
 
 			if (out->touch_count == out->touch_capacity &&
-			    grow((void **)&out->touches, &out->touch_capacity,
+			    graph_grow((void **)&out->touches, &out->touch_capacity,
 			         sizeof *out->touches) != 0)
 				goto cleanup;
 

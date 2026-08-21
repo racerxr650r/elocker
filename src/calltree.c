@@ -26,7 +26,7 @@
 
 /* ------------------------------------------------------------- utilities -- */
 
-static int grow(void **items, size_t *capacity, size_t item_size)
+static int calltree_grow(void **items, size_t *capacity, size_t item_size)
 {
 	size_t next   = *capacity ? *capacity * 2 : 16;
 	void  *bigger = realloc(*items, next * item_size);
@@ -39,7 +39,7 @@ static int grow(void **items, size_t *capacity, size_t item_size)
 	return 0;
 }
 
-static int by_node_id(const void *a, const void *b)
+static int calltree_by_node_id(const void *a, const void *b)
 {
 	uint32_t x = *(const uint32_t *)a;
 	uint32_t y = *(const uint32_t *)b;
@@ -79,14 +79,14 @@ static int compute_fan_out(const Sdg *g, TreeResults *out)
  * call graph answers both at once, which is why the requirement names them
  * together (HLR-089, LLR-CTR-02).
  */
-static int cycle_add(TreeResults *out, uint32_t *members, size_t count)
+static int calltree_cycle_add(TreeResults *out, uint32_t *members, size_t count)
 {
 	if (out->cycle_count == out->cycle_capacity &&
-	    grow((void **)&out->cycles, &out->cycle_capacity,
+	    calltree_grow((void **)&out->cycles, &out->cycle_capacity,
 	         sizeof *out->cycles) != 0)
 		return -1;
 
-	qsort(members, count, sizeof *members, by_node_id);
+	qsort(members, count, sizeof *members, calltree_by_node_id);
 	out->cycles[out->cycle_count].members = members;
 	out->cycles[out->cycle_count].count   = count;
 	out->cycle_count++;
@@ -170,7 +170,7 @@ static int detect_recursion(const Sdg *g, TreeResults *out)
 			if (VECTOR(membership)[i] == c)
 				members[at++] = (uint32_t)i;
 
-		if (cycle_add(out, members, n) != 0) {
+		if (calltree_cycle_add(out, members, n) != 0) {
 			free(members);
 			goto cleanup;
 		}

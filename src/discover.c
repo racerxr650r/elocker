@@ -52,7 +52,7 @@ enum { TARGET_FILE, TARGET_DIR };
  * shorthand `x = realloc(x, n)` loses the allocation on failure and leaves a
  * dangling pointer, which is an HLR-125 violation.
  */
-static int grow(void **items, size_t *capacity, size_t item_size)
+static int discover_grow(void **items, size_t *capacity, size_t item_size)
 {
 	size_t next = *capacity ? *capacity * 2 : 16;
 	void  *bigger = realloc(*items, next * item_size);
@@ -82,7 +82,7 @@ static int filelist_add(FileList *list, const char *path)
 	}
 
 	if (list->count == list->capacity &&
-	    grow((void **)&list->paths, &list->capacity, sizeof *list->paths) != 0) {
+	    discover_grow((void **)&list->paths, &list->capacity, sizeof *list->paths) != 0) {
 		fprintf(stderr, "elc: out of memory recording %s\n", canonical);
 		free(canonical);
 		return -1;
@@ -111,7 +111,7 @@ int routelist_add(RouteList *list, const char *target, DiscoveryRoute route)
 		return -1;
 
 	if (list->count == list->capacity &&
-	    grow((void **)&list->items, &list->capacity, sizeof *list->items) != 0) {
+	    discover_grow((void **)&list->items, &list->capacity, sizeof *list->items) != 0) {
 		free(owned);
 		return -1;
 	}
@@ -200,7 +200,7 @@ static int extlist_add(ExtensionList *list, const char *ext)
 		return -1;
 
 	if (list->count == list->capacity &&
-	    grow((void **)&list->exts, &list->capacity, sizeof *list->exts) != 0) {
+	    discover_grow((void **)&list->exts, &list->capacity, sizeof *list->exts) != 0) {
 		free(copy);
 		return -1;
 	}

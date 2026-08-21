@@ -32,7 +32,7 @@
 
 /* ------------------------------------------------------------- utilities -- */
 
-static int grow(void **items, size_t *capacity, size_t item_size)
+static int state_grow(void **items, size_t *capacity, size_t item_size)
 {
 	size_t next   = *capacity ? *capacity * 2 : 16;
 	void  *bigger = realloc(*items, next * item_size);
@@ -45,7 +45,7 @@ static int grow(void **items, size_t *capacity, size_t item_size)
 	return 0;
 }
 
-static int by_node_id(const void *a, const void *b)
+static int state_by_node_id(const void *a, const void *b)
 {
 	uint32_t x = *(const uint32_t *)a;
 	uint32_t y = *(const uint32_t *)b;
@@ -102,7 +102,7 @@ int collect_roots(const Sdg *g, const ElcOptions *opts, uint32_t **out,
 			roots[count++] = (uint32_t)n;
 
 	if (count > 1) {
-		qsort(roots, count, sizeof *roots, by_node_id);
+		qsort(roots, count, sizeof *roots, state_by_node_id);
 
 		size_t kept = 1;
 
@@ -424,7 +424,7 @@ static int check_scopes(const Sdg *g, const ElcOptions *opts,
 			continue;
 
 		if (out->violation_count == out->violation_capacity &&
-		    grow((void **)&out->violations, &out->violation_capacity,
+		    state_grow((void **)&out->violations, &out->violation_capacity,
 		         sizeof *out->violations) != 0)
 			goto cleanup;
 

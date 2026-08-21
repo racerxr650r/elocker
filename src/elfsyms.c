@@ -239,7 +239,7 @@ char *resolved_name(const char *linkage)
 
 /* ------------------------------------------------------------ the image -- */
 
-static int by_string(const void *a, const void *b)
+static int elfsyms_by_string(const void *a, const void *b)
 {
 	return strcmp(*(char *const *)a, *(char *const *)b);
 }
@@ -282,7 +282,7 @@ static void sort_and_dedupe(SymbolSet *set)
 		return;
 	}
 
-	qsort(set->names, set->count, sizeof *set->names, by_string);
+	qsort(set->names, set->count, sizeof *set->names, elfsyms_by_string);
 
 	size_t kept = 1;
 
@@ -456,7 +456,7 @@ bool elfsyms_defines(const SymbolSet *set, const char *function)
 	/* bsearch, because the set is sorted; a linear scan would make a
 	 * filtered run quadratic in the size of the image. */
 	hit = bsearch(&key, set->names, set->count, sizeof *set->names,
-	              by_string) != NULL;
+	              elfsyms_by_string) != NULL;
 	free(key);
 	return hit;
 }

@@ -143,7 +143,7 @@ void factlist_free(FactList *list)
 
 /* Grow any of the analyser's arrays by doubling, with the realloc result
  * checked in a temporary before the original is overwritten (HLR-125). */
-static int grow(void **items, size_t *capacity, size_t item_size)
+static int analyze_grow(void **items, size_t *capacity, size_t item_size)
 {
 	size_t next   = *capacity ? *capacity * 2 : 32;
 	void  *bigger = realloc(*items, next * item_size);
@@ -658,7 +658,7 @@ static int absent_add(FileMetrics *metrics, SpanList *spans, char *name,
 	 * cannot leave the name owned by the list and freed by the caller
 	 * too (HLR-125). */
 	if (spans->count == spans->capacity &&
-	    grow((void **)&spans->items, &spans->capacity,
+	    analyze_grow((void **)&spans->items, &spans->capacity,
 	         sizeof *spans->items) != 0)
 		return -1;
 
@@ -756,7 +756,7 @@ static int collect_absent_functions(const LanguageModule *module, Registry *reg,
 	 * happened to report before it. */
 	for (size_t i = 0; i < absent.count; i++) {
 		if (excluded->count == excluded->capacity &&
-		    grow((void **)&excluded->items, &excluded->capacity,
+		    analyze_grow((void **)&excluded->items, &excluded->capacity,
 		         sizeof *excluded->items) != 0)
 			goto cleanup;
 		excluded->items[excluded->count++] = absent.items[i];
@@ -838,7 +838,7 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 		 * from the one shown would let a statement count for a function
 		 * whose printed line range does not contain it. */
 		if (ranges->count == ranges->capacity &&
-		    grow((void **)&ranges->items, &ranges->capacity,
+		    analyze_grow((void **)&ranges->items, &ranges->capacity,
 		         sizeof *ranges->items) != 0)
 			return -1;
 
@@ -877,7 +877,7 @@ static int collect_comments(const LanguageModule *module, Registry *reg,
 				continue;
 
 			if (spans->count == spans->capacity &&
-			    grow((void **)&spans->items, &spans->capacity,
+			    analyze_grow((void **)&spans->items, &spans->capacity,
 			         sizeof *spans->items) != 0)
 				return -1;
 
@@ -1041,7 +1041,7 @@ static int span_add(SpanList *spans, uint32_t start, uint32_t end,
                     uint32_t start_line, uint32_t end_line)
 {
 	if (spans->count == spans->capacity &&
-	    grow((void **)&spans->items, &spans->capacity,
+	    analyze_grow((void **)&spans->items, &spans->capacity,
 	         sizeof *spans->items) != 0)
 		return -1;
 
@@ -1056,7 +1056,7 @@ static int span_add(SpanList *spans, uint32_t start, uint32_t end,
 static int condlist_add(CondList *list, const CondRegion *region)
 {
 	if (list->count == list->capacity &&
-	    grow((void **)&list->items, &list->capacity,
+	    analyze_grow((void **)&list->items, &list->capacity,
 	         sizeof *list->items) != 0)
 		return -1;
 	list->items[list->count++] = *region;
@@ -1236,7 +1236,7 @@ static int collect_statements(const LanguageModule *module, Registry *reg,
 				continue;
 
 			if (sites->count == sites->capacity &&
-			    grow((void **)&sites->items, &sites->capacity,
+			    analyze_grow((void **)&sites->items, &sites->capacity,
 			         sizeof *sites->items) != 0)
 				return -1;
 
@@ -1358,7 +1358,7 @@ static int collect_calls(const LanguageModule *module, Registry *reg,
 
 			if (capture_is(query, index, CAPTURE_CALL_NAME)) {
 				if (facts->call_count == facts->call_capacity &&
-				    grow((void **)&facts->calls,
+				    analyze_grow((void **)&facts->calls,
 				         &facts->call_capacity,
 				         sizeof *facts->calls) != 0)
 					return -1;
@@ -1379,7 +1379,7 @@ static int collect_calls(const LanguageModule *module, Registry *reg,
 			                      CAPTURE_CALL_ADDRESS)) {
 				if (facts->address_taken_count ==
 				        facts->address_taken_capacity &&
-				    grow((void **)&facts->address_taken,
+				    analyze_grow((void **)&facts->address_taken,
 				         &facts->address_taken_capacity,
 				         sizeof *facts->address_taken) != 0)
 					return -1;
@@ -1439,7 +1439,7 @@ static int collect_globals(const LanguageModule *module, Registry *reg,
 				continue;
 
 			if (facts->global_count == facts->global_capacity &&
-			    grow((void **)&facts->globals,
+			    analyze_grow((void **)&facts->globals,
 			         &facts->global_capacity,
 			         sizeof *facts->globals) != 0)
 				return -1;
@@ -1492,7 +1492,7 @@ typedef struct {
 static int nodelist_add(NodeList *list, TSNode node)
 {
 	if (list->count == list->capacity &&
-	    grow((void **)&list->items, &list->capacity, sizeof *list->items) != 0)
+	    analyze_grow((void **)&list->items, &list->capacity, sizeof *list->items) != 0)
 		return -1;
 	list->items[list->count++] = node;
 	return 0;
@@ -1533,7 +1533,7 @@ static int dead_add(FileFacts *facts, const FnRangeIndex *ranges, TSNode node,
 		return 0;
 
 	if (facts->dead_count == facts->dead_capacity &&
-	    grow((void **)&facts->dead, &facts->dead_capacity,
+	    analyze_grow((void **)&facts->dead, &facts->dead_capacity,
 	         sizeof *facts->dead) != 0)
 		return -1;
 
@@ -1751,7 +1751,7 @@ static int collect_rule_matches(const LanguageModule *module, Registry *reg,
 
 				if (facts->rule_match_count ==
 				        facts->rule_match_capacity &&
-				    grow((void **)&facts->rule_matches,
+				    analyze_grow((void **)&facts->rule_matches,
 				         &facts->rule_match_capacity,
 				         sizeof *facts->rule_matches) != 0)
 					return -1;
