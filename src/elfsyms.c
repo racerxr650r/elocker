@@ -296,14 +296,151 @@ static void sort_and_dedupe(SymbolSet *set)
 	set->count = kept;
 }
 
+/* Open the image the user named and confirm it is one this build can read.
+ *
+ * The image the user named and nothing else: no toolchain utility is invoked,
+ * no image is searched for, and no debugging information is required (HLR-141,
+ * LLR-ELF-03, LLR-ELF-04).
+ *
+ * Returns 0 with `*fd` and `*elf` owned by the caller, or -1 after a
+ * diagnostic.
+ */
+static int open_image(const char *path, int *fd, Elf **elf)
+{
+	*fd  = open(path, O_RDONLY);
+	if (*fd < 0) {
+		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+
+	*elf = elf_begin(*fd, ELF_C_READ, NULL);
+	if (!*elf || elf_kind(*elf) != ELF_K_ELF) {
+		/* An archive, a linker script, a shell script, a core file, or
+		 * a source file the user meant to pass as a target. Named,
+		 * because the user named it and the failure is theirs to
+		 * correct (HLR-146, LLR-ELF-06). */
+		fprintf(stderr, "elc: %s: not an object file\n", path);
+		return -1;
+	}
+
+	if (gelf_getclass(*elf) == ELFCLASSNONE) {
+		fprintf(stderr,
+		        "elc: %s: an object file of a class this build does not "
+		        "read\n", path);
+		return -1;
+	}
+
+	return 0;
+}
+
+/* The symbol table to read, and its header.
+ *
+ * `.symtab` where the image has one and `.dynsym` where it does not. `.dynsym`
+ * holds only the dynamically exported subset, so an image reduced to it yields
+ * a smaller set and a correspondingly larger unmatched list — which the report
+ * states rather than leaving to be inferred (HLR-143, LLR-ELF-01).
+ *
+ * Returns NULL when the image has neither, or when the header cannot be read.
+ */
+static Elf_Scn *symbol_section(Elf *elf, GElf_Shdr *shdr)
+{
+	Elf_Scn *symtab = NULL;
+	Elf_Scn *dynsym = NULL;
+	Elf_Scn *scn    = NULL;
+	Elf_Scn *chosen;
+
+	while ((scn = elf_nextscn(elf, scn)) != NULL) {
+		GElf_Shdr this_shdr;
+
+		if (!gelf_getshdr(scn, &this_shdr))
+			continue;
+		if (this_shdr.sh_type == SHT_SYMTAB && !symtab)
+			symtab = scn;
+		else if (this_shdr.sh_type == SHT_DYNSYM && !dynsym)
+			dynsym = scn;
+	}
+
+	chosen = symtab ? symtab : dynsym;
+	if (chosen && !gelf_getshdr(chosen, shdr))
+		return NULL;
+	return chosen;
+}
+
+/* Record one symbol if it is a function the image itself defines.
+ *
+ * Both halves of the test matter. Without the type test an object and a
+ * function of the same name are indistinguishable; without the definedness test
+ * every function the image *calls* out to a shared library counts as one the
+ * image contains, and the filter then retains source the build never compiled
+ * (LLR-ELF-02).
+ *
+ * Returns 1 when the symbol was a function, 0 when it was not, and -1 after a
+ * diagnostic when the name could not be recorded.
+ */
+static int take_symbol(Elf *elf, const GElf_Shdr *shdr, const GElf_Sym *sym,
+                       SymbolSet *out)
+{
+	const char *name;
+	char       *resolved;
+
+	if (GELF_ST_TYPE(sym->st_info) != STT_FUNC)
+		return 0;
+	if (sym->st_shndx == SHN_UNDEF)
+		return 0;
+
+	name = elf_strptr(elf, shdr->sh_link, sym->st_name);
+	if (!name || !*name)
+		return 0;
+
+	resolved = resolved_name(name);
+	if (!resolved) {
+		out->unresolved++;
+		return 1;
+	}
+	if (names_add(out, resolved) != 0) {
+		free(resolved);
+		fputs("elc: out of memory reading the image\n", stderr);
+		return -1;
+	}
+	return 1;
+}
+
+/* Every function symbol in the chosen section, and the count of them.
+ *
+ * Returns 0, or -1 after a diagnostic.
+ */
+static int read_symbols(Elf *elf, Elf_Scn *chosen, const GElf_Shdr *shdr,
+                        SymbolSet *out, size_t *functions)
+{
+	Elf_Data *data = NULL;
+
+	*functions = 0;
+
+	while (chosen && (data = elf_getdata(chosen, data)) != NULL) {
+		size_t entries = shdr->sh_entsize
+		                         ? data->d_size / shdr->sh_entsize : 0;
+
+		for (size_t i = 0; i < entries; i++) {
+			GElf_Sym sym;
+			int      taken;
+
+			if (!gelf_getsym(data, (int)i, &sym))
+				continue;
+
+			taken = take_symbol(elf, shdr, &sym, out);
+			if (taken < 0)
+				return -1;
+			*functions += (size_t)taken;
+		}
+	}
+
+	return 0;
+}
+
 int elfsyms_open(const char *path, SymbolSet *out)
 {
 	Elf      *elf       = NULL;
-	Elf_Scn  *symtab    = NULL;
-	Elf_Scn  *dynsym    = NULL;
 	Elf_Scn  *chosen    = NULL;
-	Elf_Scn  *scn       = NULL;
-	Elf_Data *data      = NULL;
 	GElf_Shdr shdr;
 	size_t    functions = 0;
 	int       fd        = -1;
@@ -325,95 +462,13 @@ int elfsyms_open(const char *path, SymbolSet *out)
 		return -1;
 	}
 
-	/* The image the user named and nothing else: no toolchain utility is
-	 * invoked, no image is searched for, and no debugging information is
-	 * required (HLR-141, LLR-ELF-03, LLR-ELF-04). */
-	fd = open(path, O_RDONLY);
-	if (fd < 0) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+	if (open_image(path, &fd, &elf) != 0)
 		goto cleanup;
-	}
 
-	elf = elf_begin(fd, ELF_C_READ, NULL);
-	if (!elf || elf_kind(elf) != ELF_K_ELF) {
-		/* An archive, a linker script, a shell script, a core file, or
-		 * a source file the user meant to pass as a target. Named,
-		 * because the user named it and the failure is theirs to
-		 * correct (HLR-146, LLR-ELF-06). */
-		fprintf(stderr, "elc: %s: not an object file\n", path);
+	chosen = symbol_section(elf, &shdr);
+
+	if (read_symbols(elf, chosen, &shdr, out, &functions) != 0)
 		goto cleanup;
-	}
-
-	if (gelf_getclass(elf) == ELFCLASSNONE) {
-		fprintf(stderr,
-		        "elc: %s: an object file of a class this build does not "
-		        "read\n", path);
-		goto cleanup;
-	}
-
-	/* `.symtab` where the image has one and `.dynsym` where it does not.
-	 * `.dynsym` holds only the dynamically exported subset, so an image
-	 * reduced to it yields a smaller set and a correspondingly larger
-	 * unmatched list — which the report states rather than leaving to be
-	 * inferred (HLR-143, LLR-ELF-01). */
-	while ((scn = elf_nextscn(elf, scn)) != NULL) {
-		GElf_Shdr this_shdr;
-
-		if (!gelf_getshdr(scn, &this_shdr))
-			continue;
-		if (this_shdr.sh_type == SHT_SYMTAB && !symtab)
-			symtab = scn;
-		else if (this_shdr.sh_type == SHT_DYNSYM && !dynsym)
-			dynsym = scn;
-	}
-
-	chosen = symtab ? symtab : dynsym;
-	if (chosen && !gelf_getshdr(chosen, &shdr))
-		chosen = NULL;
-
-	while (chosen && (data = elf_getdata(chosen, data)) != NULL) {
-		size_t entries = shdr.sh_entsize
-		                         ? data->d_size / shdr.sh_entsize : 0;
-
-		for (size_t i = 0; i < entries; i++) {
-			GElf_Sym    sym;
-			const char *name;
-			char       *resolved;
-
-			if (!gelf_getsym(data, (int)i, &sym))
-				continue;
-
-			/* Both halves of the test matter. Without the type
-			 * test an object and a function of the same name are
-			 * indistinguishable; without the definedness test
-			 * every function the image *calls* out to a shared
-			 * library counts as one the image contains, and the
-			 * filter then retains source the build never compiled
-			 * (LLR-ELF-02). */
-			if (GELF_ST_TYPE(sym.st_info) != STT_FUNC)
-				continue;
-			if (sym.st_shndx == SHN_UNDEF)
-				continue;
-
-			name = elf_strptr(elf, shdr.sh_link, sym.st_name);
-			if (!name || !*name)
-				continue;
-
-			functions++;
-
-			resolved = resolved_name(name);
-			if (!resolved) {
-				out->unresolved++;
-				continue;
-			}
-			if (names_add(out, resolved) != 0) {
-				free(resolved);
-				fputs("elc: out of memory reading the image\n",
-				      stderr);
-				goto cleanup;
-			}
-		}
-	}
 
 	/* An empty function set is not an empty project. Filtering every
 	 * function away would report a code base containing none, which is a
