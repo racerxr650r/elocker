@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 21 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 22 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, and Python**,
 in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -205,7 +205,24 @@ is an error rather than an empty filter, because reporting a project with no
 functions in it would be confidently wrong and indistinguishable from a correct
 result.
 
-**Progress: 21 of 24 phases complete.**
+A raw call graph rarely sorts into layers, so `elc` builds a second graph — a
+**recovery view** — with the functions that fuse unrelated domains set aside: a
+**utility sink** everything calls loses its incoming edges, a **god object**
+that dispatches everywhere loses its edges in both directions, and a
+**peripheral** function outside the connected centre is left out entirely. The
+report names every function it classified, the metric and value that classified
+it, and what the masking did.
+
+The view is a **copy**, and that is the point of it: no fan-out, coupling
+figure, conformance index, or matrix cell anywhere else in the report is
+computed over a masked graph. The five thresholds behind the classifications
+are `elc`'s own heuristics rather than published standards, are compared
+against a function's rank rather than its raw score so that one default serves
+a small project and a large one, and say so wherever a classification appears.
+No classification carries a severity: `elc` says where a function sits in a
+graph, not that the design is wrong.
+
+**Progress: 22 of 24 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -234,7 +251,7 @@ result.
 | [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
 | [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
 | [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
-| [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
+| [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
 
 </details>

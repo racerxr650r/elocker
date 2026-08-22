@@ -562,6 +562,7 @@ match — is a detail tier.
 | Fan-out, Information flow, Recursion, Deepest call chain | — | ✅ |
 | Component coupling, Component dependency cycles, Layering | — | ✅ |
 | Dependency structure matrix | — | ✅ |
+| Graph purification | — | ✅ |
 | Global state, Unreachable globals | — | ✅ |
 | Unreachable functions, Dead code within functions | — | ✅ |
 | Cross-scope access | — | ✅ |
@@ -1169,6 +1170,99 @@ contains a comma is quoted rather than splitting the row. Like `--graphml`, the
 companion is off unless you ask for it and needs `--output` to derive a name
 from — but unlike `--graphml`, it works in regeneration mode too, because a
 saved record carries the matrix where it carries no graph.
+
+### Graph purification
+
+A raw call graph rarely sorts into layers. A logger everything calls, and a
+dispatcher that calls everything, each join parts of a program that have
+nothing to do with one another; an ordering computed over such a graph
+collapses into one tangled stratum that describes nothing.
+
+So `elc` builds a second graph — a **recovery view** — with those functions
+set aside, and reports every classification it made in doing so.
+
+```text
+Graph purification (recovery view only, no measurement above is taken over it; elc heuristic — not a published standard: sink at authority >= 90% and hub <= 10%, god object at betweenness >= 90% and hub >= 90%, peripheral below core depth 2; 9 functions retained, 12 call edges masked)
+  File                    Function  Class         Metric       Value                                            Action
+  ----------------------  --------  ------------  -----------  -----------------------------------------------  ----------------------
+  /home/u/proj/app/d.c    dispatch  god object    betweenness  14.00, above 100% of functions (hub above 100%)   all edges masked
+  /home/u/proj/feat/f.c   helper_c  peripheral    coreness     1, below the core depth of 2                      excluded from the view
+  /home/u/proj/util/l.c   util_log  utility sink  authority    1.0000, above 100% of functions (hub above 0%)    incoming edges masked
+```
+
+**The view is a copy, and that is the property to hold on to.** Nothing else
+in the report is computed over it. Fan-out, fan-in, call depth, recursion,
+coupling, Instability, dependency cycles, reachability, the conformance
+indices, every cell of the matrix, and the Henry-Kafura values are each
+exactly what they would be if purification had never run. `util_log` above has
+every one of its incoming edges masked in the view and still reports a fan-in
+of six in the Information flow table. Change a purification threshold and no
+number in the report moves but the ones in this one section.
+
+#### The three classifications
+
+A **utility sink** has high authority and a hub score near zero: many parts of
+the program call it and it calls almost nothing back — a logger, a string
+helper, an arithmetic routine. Its *incoming* edges are masked and its outgoing
+edges are not. The asymmetry is the point: the fusion such a function causes is
+between its *callers*, who are joined to one another through it, so its own
+calls harm nothing. Masking the edges rather than the node is what removes the
+fusion while leaving the function's position observable.
+
+A **god object** has high betweenness *and* a high hub score: it lies on a
+great many shortest paths and calls widely. It loses its edges in **both**
+directions, because it short-circuits in both. The hub score is required beside
+the betweenness because betweenness alone would not tell a monolithic
+dispatcher from a genuine intermediary a layering ought to keep — a legitimate
+waypoint need not call widely. A function that meets the utility-sink test as
+well is reported as a god object: masking all its edges subsumes masking the
+incoming ones, and the more specific claim is the more useful one to read.
+
+A **peripheral** function lies below the configured core depth — outside the
+mutually connected centre of the program. It is **excluded** from the view
+rather than placed at the edge of it, and gets no recovered layer at all. A
+function `elc` did not consider is not a function `elc` put at the bottom of
+your architecture, and treating the two alike would drop every leaf into the
+lowest layer.
+
+#### Rank, not raw score
+
+Each threshold is a **position in the ordered distribution** of a score, not
+the score itself. A betweenness value means nothing on its own: it scales with
+the size of the graph, so a fixed cut-off serviceable on a project whose
+dispatcher lies on ten thousand shortest paths would classify nothing in a
+nine-function tree, and one serviceable there would classify half the large
+project. `above 100% of functions` in the table means the function outranks
+every other in the run.
+
+The scores come from an iterative computation, so a comparison at the boundary
+is made to a defined tolerance, and functions whose scores agree within it hold
+one position and classify alike. Ties in the ordering break by the same stable
+identifier every other output is ordered by. Two runs over one tree therefore
+classify identically, on any machine.
+
+#### These are `elc`'s own heuristics
+
+All five thresholds are `elc`'s judgement rather than a published standard, and
+the report says so wherever a classification appears. Each is adjustable:
+
+```sh
+elc --verbose --core-depth 3 src/                     # strip more of the periphery
+elc --verbose --sink-authority 95 --sink-hub 5 src/   # demand a stricter sink
+elc --verbose --god-betweenness 80 --god-hub 80 src/  # cast a wider net for dispatchers
+```
+
+The four centrality thresholds are percentages of the *other* functions, so 100
+is the ceiling and a larger figure is a usage error rather than a setting that
+silently classifies nothing. `--core-depth` is a coreness and has no ceiling.
+
+**No classification carries a severity, and none becomes a finding.** "God
+object" says where a function sits in a graph. It is not a measurement banded
+against an accepted range — no published source bands these — and `elc` says
+nothing about whether the arrangement is right, only that it is what the graph
+shows. That is why the section names the metric and the value behind every row:
+masking you cannot inspect is a black box, and this table is what lets you
+judge whether the right things were set aside.
 
 ### Dead code between functions
 
@@ -2026,6 +2120,11 @@ comparable.
 | `-b`, `--bottleneck-threshold` | `N` | `5` | Flag a component whose `Ca` and `Ce` are each `N` or greater |
 | `--stratum` | `NAME:GLOB[,GLOB…]` | none | Declare an architectural layer named `NAME` holding the matching files; repeatable |
 | `--stratum-order` | `NAME>NAME[>NAME…]` | none | State the permitted direction of dependency between the declared layers |
+| `--sink-authority` | `PCT` | `90` | Authority rank at or above which a function is a utility sink in the recovery view |
+| `--sink-hub` | `PCT` | `10` | Hub rank at or below which a utility sink's calls count as near zero |
+| `--god-betweenness` | `PCT` | `90` | Betweenness rank at or above which a function may be a god object |
+| `--god-hub` | `PCT` | `90` | Hub rank a god object must also reach |
+| `--core-depth` | `N` | `2` | Core depth below which a function is peripheral and left out of the recovery view |
 | `-D`, `--define` | `NAME[=VALUE]` | none | Define a conditional-compilation symbol, so the metrics describe that configuration; repeatable |
 | `--elf` | `FILE` | none | Restrict every measurement to the functions the linked image `FILE` defines |
 | `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |

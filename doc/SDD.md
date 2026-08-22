@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.14
+**Version:** 2.15
 **Date:** 2026-08-22
 **Author(s):** John Anderson
 
@@ -163,6 +163,7 @@ The runtime data flow of an analysis run is:
 *   Own the lifetime of the options, registry, accumulator, graph, and report objects, and release them in reverse order of acquisition.
 *   Branch between analysis mode and XML regeneration mode.
 *   Compute the exit status from the run's failure record, never from a finding severity.
+*   Sequence graph purification after every analysis that measures, so that nothing downstream can take a view `elc` formed of its own for a measurement (HLR-167).
 
 ### 3.2 External Interfaces
 #### 3.2.1 Command-Line Arguments
@@ -715,6 +716,7 @@ The SDG is a **simple** directed graph: repeated calls from one function to the 
 ### 8.5 Error Handling and Logging
 
 *   **Unresolvable call site** Not an error. Counted and reported so the reader can judge the graph's completeness (HLR-077).
+*   **A diagnostic from inside the graph library** Its *error* handler is installed non-aborting, so every failure returns a code the caller checks (LLR-SDG-15). Its **warning** handler is separately installed to discard, and that is a different judgement rather than the same one twice. A warning is by definition a result the library still produced, and it is written to standard error naming one of the library's own source files and lines — `Warning at src/centrality/hub_authority.c:77` — which is not a diagnostic a user of `elc` can act on and not `elc`'s own, the only thing HLR-038 admits to that stream. The warnings that actually arise are properties of a call graph rather than faults: the hub-and-authority decomposition warns whenever a third of the scores are zero, which is true of every program whose functions include leaves.
 *   **Duplicate symbol definition** Recorded once with a diagnostic; the first definition in sorted file order wins, keeping resolution deterministic.
 
     **The artefact reaches the information-flow metric raised to a power.** Where several files define a `static` helper of the same name, every call to that name resolves into the winning definition: it collects every caller's fan-in and the losing definitions collect none. Fan-in and fan-out are each wrong by that amount, and the Henry-Kafura value of HLR-157 multiplies the two and squares the product — so a fan-in overstated by a factor of three overstates the winner's Henry-Kafura value by a factor of nine, and understates each loser's to zero. A four-order-of-magnitude figure can therefore rest entirely on this, and the project total with it. The same imprecision is already recorded for reachability (§11) and for coupling (§9); it is worth stating a third time here because the squared term is what turns a modest resolution error into a dramatic-looking number, and because the metric is ordinal — a reader ranks functions by it, and this artefact moves one to the top of the ranking. Correcting it needs the type resolution the project does not perform; the diagnostic on standard error is what the report is read beside.
@@ -1409,9 +1411,11 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 ### 20.3 Internal Structure
 #### 20.3.1 Key Functions
 
-*   **`int purify_analyse(const Sdg *g, const ElcOptions *opts, const Manifest *manual, PurifyResults *out)`** — Classify every function and build the masked recovery view.
-*   **`int classify_nodes(const Sdg *g, const PurifyThresholds *t, const Manifest *manual, Classification *out)`** — Assign each node its class, a manifest statement overruling a computed one.
+*   **`int purify_analyse(const Sdg *g, const ElcOptions *opts, PurifyResults *out)`** — Classify every function and build the masked recovery view. `g` is taken by const pointer, which is where HLR-167 is enforced rather than remembered; the manifest of HLR-175 – HLR-177 enters as a further argument with the module that reads it.
+*   **`int classify_nodes(const Sdg *g, const PurifyThresholds *t, Classification *out)`** — Assign each node its class against the thresholds in force, a manifest statement overruling a computed one once the manifest exists.
 *   **`int build_recovery_view(const Sdg *g, const Classification *c, RecoveryView *out)`** — Copy the call view, omitting the masked edges and the peripheral nodes.
+*   **`int purify_score_cmp(double a, double b)`** — Compare two scores to the tolerance HLR-179 requires be stated, returning -1, 0, or 1.
+*   **`int report_set_purify(Report *report, const PurifyResults *purify, const Sdg *g, const ElcOptions *opts)`** — Copy the classifications onto an assembled report, resolving each node identifier to the name and location a reader can act on (HLR-174).
 *   **`int manifest_read(const char *path, Manifest *out)`** — Parse a named manifest; reject a malformed one rather than partially applying it (HLR-176).
 *   **`int manifest_write(const PurifyResults *r, const char *path)`** — Write the classifications in the documented format, ready to be edited and handed back.
 *   **`void purify_results_free(PurifyResults *r)`** — Release the classifications, the recovery view, and the manifest.
@@ -1420,9 +1424,17 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 
 **The thresholds are compared against a ranking, not against a raw score.** A betweenness value means nothing on its own — it scales with the size of the graph, so a fixed number would classify every function in a large project and none in a small one. Classification is therefore made against a node's position in the ordered distribution of the score, which is comparable across projects and is what makes one default threshold serviceable for both.
 
+A rank is expressed as the percentage of the **other** nodes scoring strictly below, so the top of any distribution is 100 whatever the size of the graph. Over *all* the nodes it would be 8 of 9 for the highest in a nine-function tree, and no threshold above 89 could ever be met there — one default would then be unusable on small projects and unusably loose on large ones, which is the failure ranking exists to avoid. The comparison itself is made in integers, `below × 100 ≥ percent × (n − 1)`, so the boundary is exact and the only floating-point comparison purification makes is the tolerance below.
+
 **Ties are broken by node identifier** (HLR-179). Two functions with equal scores must classify the same way on every run, and the graph library's enumeration order is not a property of the source tree.
 
 **Floating-point comparison is defined rather than left to the compiler.** HITS is iterative and its scores are approximations, so a comparison at the threshold boundary must be made to a stated tolerance; without one, the same source classifies differently on two machines and HLR-032 fails in a way no fixture would reliably catch.
+
+The two are applied in that order and not the other way about. The ordering is built on an **exact** comparison with the node identifier breaking equal scores, because a sort whose comparator is tolerant rests on a relation that is not transitive, and its result would then depend on the order the library's sort happened to visit the elements in — the very property HLR-179 exists to remove. The tolerance is applied afterwards, over the exact order, where it merges neighbours into one position; a run of equal scores is delimited by comparing each member against the run's *first* element rather than against its predecessor, so the grouping is a property of the sorted order rather than of how far a chain of near-equal neighbours happens to reach.
+
+**Precedence between the classes is fixed** (HLR-169, HLR-170). A god object is decided first, then a utility sink, then a peripheral node. The first two are statements about a function's part in *fusing* domains and each carries a masking action; the third is the residual statement that a function is not part of the mutually connected centre, and a function the centrality tests already named is by construction part of it.
+
+**Coreness is taken over the undirected neighbourhood.** A *k*-core is the mutually connected centre of a program, and a leaf hanging off it is peripheral whichever way its one edge points (HLR-170).
 
 **A cyclic recovery view has no layering, and that is reported rather than worked around** (HLR-172). Purification often breaks the cycles that a god object created, which is much of its purpose — but where cycles remain, the cycles are the finding.
 
@@ -1437,6 +1449,8 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 *   **Manifest cannot be read or parsed** Diagnostic naming the path, and a fatal exit. The user named the file, so the failure is theirs to correct (HLR-176).
 *   **Manifest names an unknown function** Diagnostic, the statement ignored, the run continues. Analysing one directory of a project whose manifest covers all of it is ordinary use (HLR-177).
 *   **No functions survive purification** Not an error. The recovery of HLR-172 is omitted with its reason stated, as an analysis short of its inputs always is (HLR-115).
+*   **A graph with fewer than two nodes** Not an error, and nothing is classified by centrality. There is no distribution to hold a position in, and a rank over zero other nodes is met by every threshold at once — which would classify the single function as all three at the boundary. The coreness test still applies, since it is absolute.
+*   **A call view with no edges** The hub-and-authority decomposition is not asked for. It is undefined there — every score is zero — and the library reports the fact on standard error, which would put a diagnostic naming one of its own source files into the stream HLR-038 reserves for `elc`'s. A program whose functions call nothing has no hub-and-authority structure to find, and leaving the scores at their zero says exactly that.
 
 ## 21. Detailed Design for [src/recover.c](../src/recover.c)
 
@@ -1828,6 +1842,60 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 | `count` | `size_t` | The order of the square matrix |
 | `cells` | `size_t *` | Row-major, count * count; owned. Cell (i, j) is the number of call edges from subject i to subject j |
 | `from_strata` | `bool` | True where the subjects are declared layers, false where they are directories. The two are read differently — only a declared order makes a below-diagonal cell a violation — so the reader is told which they are looking at rather than left to infer it |
+*   **`PurifyThresholds`** (defined in [include/elc.h](../include/elc.h)) — The five thresholds the recovery view is purified against (HLR-168 – HLR-171). Every one is `elc`'s own heuristic rather than a published standard, and is marked as such wherever a classification made against it is reported. The four centrality figures are rank positions expressed as a percentage of the other functions, never raw scores; the core depth is the one absolute figure, because a coreness is a small integer.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `sink_authority` | `uint32_t` | Authority rank at or above which a function may be a utility sink; 90 by default |
+| `sink_hub` | `uint32_t` | Hub rank at or below which a utility sink's own calls count as near zero; 10 by default |
+| `god_betweenness` | `uint32_t` | Betweenness rank at or above which a function may be a god object; 90 by default |
+| `god_hub` | `uint32_t` | Hub rank a god object must also reach; 90 by default |
+| `core_depth` | `uint32_t` | Coreness below which a function is peripheral and excluded from the view; 2 by default |
+*   **`Classification`** (defined in [include/purify.h](../include/purify.h)) — One function's centralities, its position in each distribution, and what followed from them (HLR-168 – HLR-171, HLR-174). The ranks are carried beside the raw scores because the rank is what the thresholds are compared against and the score is what a reader recognises: a report naming only the rank could not be checked against the graph, and one naming only the score could not be checked against the threshold that acted on it.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `hub` | `double` | The HITS hub score over the call view |
+| `authority` | `double` | The HITS authority score over the call view |
+| `betweenness` | `double` | Shortest paths the function lies on, unnormalised |
+| `coreness` | `uint32_t` | The k-core the function lies in, over the undirected neighbourhood |
+| `hub_rank` | `uint32_t` | Percentage of the *other* nodes scoring strictly below on hub |
+| `authority_rank` | `uint32_t` | The same, for authority |
+| `betweenness_rank` | `uint32_t` | The same, for betweenness |
+| `klass` | `PurifyClass` | Utility sink, god object, peripheral, or ordinary. Ordinary is the zero, so a zeroed table reads as `nothing was concluded` |
+| `metric` | `PurifyMetric` | Which measurement triggered the class, for the report of HLR-174 |
+| `value` | `double` | Its value — the number the comparison was actually made against |
+| `rank` | `uint32_t` | Its rank; unused where the metric is coreness, which is absolute |
+*   **`RecoveryView`** (defined in [include/purify.h](../include/purify.h)) — The masked copy of the call view (HLR-167 – HLR-170). Vertex identifiers are the `Sdg`'s own, so a result read off this graph indexes the node table directly and a tie broken by vertex identifier is a tie broken by the stable node identifier of HLR-033. A peripheral node is therefore excluded by its `included` flag and by holding no edge rather than by being renumbered out of existence — renumbering would put the determinism of HLR-179 on a mapping instead of on the identifier the rest of the run already agrees about.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `graph` | `void *` | igraph_t * over the retained call edges; owned. Opaque, so that no consumer links the graph library merely to read the flags beside it |
+| `included` | `bool *` | node_count entries; false for a peripheral node, which is given no recovered layer at all |
+| `node_count` | `size_t` | The Sdg's, unchanged |
+| `included_count` | `size_t` | Functions retained in the view |
+| `edge_count` | `size_t` | Call edges the view retained |
+| `masked_edges` | `size_t` | Call edges the masking removed |
+*   **`PurifyResults`** (defined in [include/purify.h](../include/purify.h)) — Everything one purification pass produced: a classification per function, the view the masking left behind, and the thresholds that were in force.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `classes` | `Classification *` | One per node, indexed by stable node identifier; owned |
+| `node_count` | `size_t` | The graph's node count |
+| `classified` | `size_t` | The non-ordinary among them — the rows the transparency report carries |
+| `view` | `RecoveryView` | The masked copy; owned |
+| `thresholds` | `PurifyThresholds` | The values the classifications were made against |
+*   **`PurificationRow`** (defined in [include/report.h](../include/report.h)) — One classification purification made, as the report presents it (HLR-174). **Not a finding**, and the difference is the requirement rather than a presentational choice: there is no severity here and nothing to attach one to, because a classification states where a function sits in a graph rather than that a measurement fell outside a published range (HLR-171, HLR-101). The metric and its value travel rendered, for the reason a component's Instability does — each metric is read on its own scale, and four renderers each choosing a precision is a decision that could differ between them.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `function` | `char *` | The classified function; owned |
+| `file` | `char *` | The file defining it; owned |
+| `line` | `uint32_t` | Where the definition starts |
+| `class_name` | `char *` | `utility sink`, `god object`, or `peripheral`; owned |
+| `metric` | `char *` | The measurement that triggered it; owned |
+| `value` | `char *` | Its value and rank, rendered; owned |
+| `action` | `char *` | What the masking did to the view; owned |
 *   **Compile-time constants** (in [include/elc.h](../include/elc.h)):
 
     | Name | Value | Purpose |

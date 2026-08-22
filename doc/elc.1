@@ -689,6 +689,64 @@ be a declared stratum: a partial order determines no direction, and a name for
 a layer that does not exist is a typo whose silent acceptance would leave the
 layering validated against something other than what was written.
 .TP
+.BI \-\-sink\-authority " PCT"
+.TQ
+.BI \-\-sink\-hub " PCT"
+.TQ
+.BI \-\-god\-betweenness " PCT"
+.TQ
+.BI \-\-god\-hub " PCT"
+.TQ
+.BI \-\-core\-depth " N"
+Adjust the purification of the architecture\-recovery view. A raw call graph
+rarely sorts into layers: a logger everything calls and a dispatcher that calls
+everything each join parts of a program that have nothing to do with one
+another.
+.B elc
+sets such functions aside in a
+.I copy
+of the call graph so that the structure underneath them can be seen, and
+reports every classification it made in doing so.
+.RS
+.PP
+A function is a
+.B utility sink
+where its authority score outranks
+.I PCT
+per cent of the other functions and its hub score outranks no more than
+.I PCT
+of them \(em the defaults are 90 and 10 \(em and its
+.I incoming
+edges are masked, since the fusion such a function causes is between its
+callers. A function is a
+.B god object
+where its betweenness centrality and its hub score each outrank
+.I PCT
+per cent of the others \(em the default is 90 for both \(em and it loses its
+edges in both directions, since it short\-circuits in both. A function lying
+below core depth
+.I N
+is
+.B peripheral
+\(em the default is 2 \(em and is left out of the view entirely rather than
+placed at the bottom of it.
+.PP
+The four centrality thresholds are positions in the ordered distribution of a
+score rather than the score itself, and are therefore percentages with a
+ceiling of 100. A betweenness value means nothing on its own, since it scales
+with the size of the graph: a fixed cut\-off would classify every function in a
+large project and none in a small one.
+.PP
+All five are
+.BR elc "'s"
+own heuristics rather than published standards, and the report says so wherever
+a classification made against one is presented. They govern the recovery view
+alone: no measurement, finding, or artefact
+.B elc
+reports elsewhere is taken over a masked graph, so changing one of these moves
+no reported number.
+.RE
+.TP
 .BI \-\-scope " NAME:GLOB[,GLOB...]"
 Declare an execution scope called
 .I NAME
@@ -1014,6 +1072,10 @@ dependence graph, one row per entity. Every one of these that crossed a
 published line is a finding, and the findings are in the summary.
 .IP \(bu 2
 The dependency structure matrix \(em one row per layer or per directory.
+.IP \(bu 2
+Graph purification \(em one row per function set aside from the
+architecture\-recovery view, with the metric and value that classified it and
+what the masking did about it.
 .IP \(bu 2
 Global state, and the globals reachable from nothing.
 .IP \(bu 2
@@ -1458,6 +1520,99 @@ The CSV carries the convention as its first record, then the grid: a corner
 cell naming the orientation, the subject names as column headings, and one row
 per subject. Every field passes through the same RFC 4180 quoting the CSV
 report uses, so a directory containing a comma cannot corrupt a row.
+.SH GRAPH PURIFICATION
+A raw call graph rarely sorts into layers. A logger every module calls, and a
+dispatcher that calls everything, each connect parts of a program that have
+nothing to do with one another, and an ordering computed over such a graph
+collapses into one tangled stratum that describes nothing.
+.B elc
+therefore builds a separate
+.I recovery view
+in which those functions are set aside, and reports every classification it
+made in doing so.
+.PP
+.B The recovery view is a copy, and this is the property to hold on to.
+No measurement, finding, or artefact
+.B elc
+reports anywhere else is computed over a masked graph. Fan\-out, fan\-in, call
+depth, recursion, coupling, Instability, dependency cycles, reachability, the
+conformance indices, every cell of the dependency structure matrix, and the
+Henry\-Kafura values are each exactly what they would be had no purification
+run. A masked utility sink still reports the fan\-in every one of its callers
+gives it. Changing a purification threshold moves no number in the report but
+the ones inside this one section.
+.PP
+Three classifications are made, and each masks something different:
+.RS
+.IP \(bu 2
+A
+.B utility sink
+\(em high authority, hub score near zero \(em is a function many parts of the
+program call and which calls almost nothing back: a logger, a string helper, an
+arithmetic routine. Its
+.I incoming
+edges are masked and its outgoing edges are not, because the fusion it causes
+is between its callers. Masking the edges rather than the node is what removes
+that fusion while leaving the function's own position observable.
+.IP \(bu 2
+A
+.B god object
+\(em high betweenness, high hub score \(em lies on a great many shortest paths
+and calls widely. It loses its edges in
+.I both
+directions, because it short\-circuits in both. A function meeting the
+utility\-sink test as well is reported as a god object: masking its edges
+subsumes masking its incoming ones, and the more specific claim is the more
+useful one. The hub score is required beside the betweenness because
+betweenness alone does not separate a monolithic dispatcher from a genuine
+intermediary a layering ought to keep.
+.IP \(bu 2
+A
+.B peripheral
+function \(em one lying below the configured core depth \(em is
+.I excluded
+from the view rather than placed at the edge of it, and is given no recovered
+layer at all. A function
+.B elc
+did not consider is not a function
+.B elc
+put at the bottom of the architecture, and conflating the two would drop every
+leaf into the lowest layer.
+.RE
+.PP
+Each threshold is compared against a function's
+.I position in the ordered distribution
+of the score rather than against the score itself, and ties are broken by the
+same stable identifier every other output is ordered by, so two runs over one
+tree classify identically. The scores are produced by an iterative computation,
+so a comparison at the boundary is made to a defined tolerance rather than left
+to the compiler.
+.PP
+.B No classification carries a severity, and none becomes a finding.
+"God object" states where a function sits in a graph. It is not a measurement
+banded against an accepted range, there is no published source that bands
+these, and
+.B elc
+says nothing about whether the arrangement is right \(em only that it is what
+the graph shows. The five thresholds behind the classifications are
+.BR elc "'s"
+own heuristics rather than standards, are reported as such wherever a
+classification appears, and are adjustable with
+.BR \-\-sink\-authority ,
+.BR \-\-sink\-hub ,
+.BR \-\-god\-betweenness ,
+.BR \-\-god\-hub ,
+and
+.BR \-\-core\-depth .
+.PP
+The report names, for each classified function, the class assigned, the metric
+and value that triggered it, and the action taken \(em masking a reader cannot
+inspect is a black box whose output they have no grounds to trust. The section
+is a detail tier, so it appears in a
+.B \-\-verbose
+report, and it is written to the results destination like every other result:
+a run redirecting its report to a file does not have a second one appear on the
+terminal.
 .SH THE CALL TREE
 Alongside a report written to a named file,
 .B elc

@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.9
+**Version:** 2.10
 **Date:** 2026-08-22
 **Author(s):** John Anderson
 
@@ -169,6 +169,9 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-CLI-30"></a>**LLR-CLI-30** — `cli_parse` shall accept the verbosity option together with a complete-record format rather than rejecting the pairing. It is the one option combination this parser decides that is not a usage error: there is no presentation for a verbosity to vary in a format defined as complete, so the request is honoured by changing nothing.
     *Trace:* HLR-152 (Complete-Record Formats Unaffected by Verbosity).
+
+*   <a id="LLR-CLI-32"></a>**LLR-CLI-32** — `cli_parse` shall accept the five purification thresholds of HLR-171 — the sink authority and hub ranks, the god-object betweenness and hub ranks, and the core depth — defaulting each to `elc`'s own value where none is given, and shall reject as a usage error a rank above 100. The four rank thresholds are positions in an ordered distribution, so 100 is the ceiling and a larger figure names a position no function can occupy; accepting it would leave a run silently classifying nothing rather than telling the user their setting is impossible.
+    *Trace:* HLR-171 (Purification Thresholds Are elc's Own), HLR-063, HLR-039.
 
 ## 3. `cli_usage` ([src/cli.c](../src/cli.c))
 
@@ -1111,6 +1114,9 @@ The single place every reported collection is ordered. The audit point for deter
     One function rather than a line in each of the two paths, so that "the total is the sum of the per-function values" is a property of the code rather than of two implementations agreeing. It shall not apply the formula to project-level aggregates: the metric is defined over one procedure's traffic, and doing so would multiply a length by a connectivity no procedure has.
     *Trace:* HLR-158 (Project-Level Henry–Kafura Total), HLR-024 (Project-Level Totals), HLR-056 (Regeneration Fidelity).
 
+*   <a id="LLR-RPT-36"></a>**LLR-RPT-36** — `report_set_purify` shall copy onto the assembled report one row per function purification classified, resolving each node identifier to the function's name and location and carrying the metric that triggered the classification, the value it took, and the action taken; and shall order the rows by file, then by the line the function starts on. A function purification classified as ordinary shall carry no row, since HLR-174 asks for the classifications that were made and `elc` concluded nothing about that function. No row shall carry a severity, there being nothing for one to mean.
+    *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-171, HLR-032.
+
 ## 36. `format_table` ([src/format_text.c](../src/format_text.c))
 
 *   <a id="LLR-TBL-01"></a>**LLR-TBL-01** — `format_table` shall render the report as an aligned, human-readable table, computing column widths from the longest path and function name.
@@ -1177,6 +1183,9 @@ The single place every reported collection is ordered. The audit point for deter
 
     **The zero is printed as a number and never as `undefined`.** The Instability column of the coupling tier prints `undefined` where its own inputs vanish (HLR-082); this value does not vanish where a degree is zero, it equals zero, and borrowing that spelling would report a measurement as a missing one. The two appearing in nearby tables is what makes the substitution an easy mistake rather than an unlikely one.
     *Trace:* HLR-157 (Henry–Kafura Structural Complexity per Function), HLR-158 (Project-Level Henry–Kafura Total), HLR-159 (Henry–Kafura Reported Without an Invented Band), HLR-156 (Function Fan-In Measurement), HLR-024 (Project-Level Totals), HLR-150 (Summary Report by Default).
+
+*   <a id="LLR-SUM-12"></a>**LLR-SUM-12** — `render_summary` shall present the classifications purification made as a **detail** tier in both human-facing formats, one row per classified function naming the class, the metric and value that triggered it, and the action taken; and shall state in the section's heading that the thresholds are `elc`'s own heuristic rather than a published standard, together with the five values in force and what the masking left behind. The section shall carry no severity column. It is written to the results destination like every other section: HLR-038 reserves standard output, and a run redirecting its report to a file must not have a second report appear on the terminal.
+    *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-171, HLR-150, HLR-038, HLR-031.
 
 ## 39. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 
@@ -1251,6 +1260,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-16"></a>**LLR-XWR-16** — `xml_write_report` shall record the definitions in force and the undecided-region count, without which a regenerated report would describe a configuration it does not name.
     *Trace:* HLR-136 (Configuration Recorded and Reported).
 
+*   <a id="LLR-XWR-18"></a>**LLR-XWR-18** — `xml_write_report` shall record every classification purification made — the function, its file and line, the class assigned, the metric and value that triggered it, and the action taken — together with the five thresholds they were decided against and the counts the recovery view was left with. A record carries no graph, so a classification absent from it is one a regenerated report cannot present; and the thresholds travel beside the rows because a record read a year later has no command line to consult.
+    *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-054, HLR-171.
+
 ## 42. `write_escaped` ([src/format_xml.c](../src/format_xml.c))
 
 *   <a id="LLR-ESC-01"></a>**LLR-ESC-01** — `write_escaped` shall escape every character carrying structural meaning in XML, so that an identifier or path containing such a character cannot render the document unparseable.
@@ -1308,6 +1320,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XRD-16"></a>**LLR-XRD-16** — `xml_read_report` shall reconstruct the configuration a record carries and render it identically to the run that wrote it.
     *Trace:* HLR-136 (Configuration Recorded and Reported), HLR-056 (Regenerated Report Equivalence).
+
+*   <a id="LLR-XRD-18"></a>**LLR-XRD-18** — `xml_read_report` shall restore the classifications and the thresholds a record carries as the run rendered them, recomputing no centrality, and shall reject as malformed a classification element lacking the class, the metric, the value, or the action. A regenerated report must say what the run it describes said rather than what this build would conclude today; and a classification without the number that produced it is precisely what HLR-174 forbids reporting, so it is rejected rather than half-read.
+    *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-056, HLR-058.
 
 ## 44. `graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))
 
@@ -1571,3 +1586,66 @@ The Dependency Structure Matrix: the arrangement of the graph's call edges into 
 
 *   <a id="LLR-DSM-08"></a>**LLR-DSM-08** — `dsm_warranted` shall be true only where the CSV companion was requested and the report has a named output path, and shall not be made false by regeneration mode. The first two are the tests the GraphML export makes, since the companion's name is derived from the report's and a report on standard output offers none; the third is where this companion differs from the two graph companions, a saved record carrying the matrix where it carries no topology.
     *Trace:* HLR-180 (The Matrix Written Beside the Report on Request), HLR-104, HLR-119.
+
+## 56. `purify_analyse` ([src/purify.c](../src/purify.c))
+
+The purification pass: the centralities of the call view, the classifications read off them, and the masked copy a layering can later be read from. The one place `elc` forms a view of its own about a code base, and every requirement below is shaped around containing that.
+
+*   <a id="LLR-PUR-01"></a>**LLR-PUR-01** — `purify_analyse` shall compute the hub-and-authority scores, the betweenness centrality, and the coreness of the **call view** alone, and of no other view of the graph. A global-state edge joins a writer to a reader; it is coupling and not invocation, and a layering read off a graph containing them would join every pair of functions sharing a variable.
+    *Trace:* HLR-168 (Utility-Sink Detection), HLR-169 (God-Object Detection), HLR-170 (Peripheral Stripping by K-Core Decomposition).
+
+*   <a id="LLR-PUR-02"></a>**LLR-PUR-02** — `purify_analyse` shall take the `Sdg` by constant pointer and shall leave it unmodified, producing the masked graph as a separate object no other stage is given. Masking in place and unmasking afterwards would make every analysis order-dependent and leave the run one early return away from reporting a fan-out that omits real calls — a wrong number carrying the authority of a measured one. A stage that cannot reach a masked graph cannot accidentally measure one.
+    *Trace:* HLR-167 (Purification Confined to Recovery).
+
+*   <a id="LLR-PUR-03"></a>**LLR-PUR-03** — `purify_analyse` shall check the return of every call it makes into the graph library and shall release every vector it allocated on both the success and the failure paths, the library's error handler having been installed non-aborting when the graph was built.
+    *Trace:* HLR-125 (Memory Discipline), HLR-113.
+
+*   <a id="LLR-PUR-04"></a>**LLR-PUR-04** — `purify_analyse` shall not ask the graph library for a hub-and-authority decomposition of a call view holding no edges, and shall leave every score at zero there instead. The decomposition is undefined on such a graph and the library says so on standard error, naming one of its own source files — which is neither a diagnostic a user of `elc` can act on nor `elc`'s own, the only thing that stream admits. A program whose functions call nothing has no hub-and-authority structure to find.
+    *Trace:* HLR-038 (Diagnostics on stderr, Results on stdout), HLR-115.
+
+*   <a id="LLR-PUR-05"></a>**LLR-PUR-05** — `purify_analyse` shall treat a graph too small to hold a distribution as an ordinary outcome rather than a failure, classifying nothing by centrality where fewer than two functions exist. A rank over zero other nodes is met by every threshold at once, which would classify a lone function as all three classes simultaneously.
+    *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-066.
+
+## 57. `classify_nodes` ([src/purify.c](../src/purify.c))
+
+The three classifications, the precedence between them, and the two properties of the mathematics that make determinism harder to satisfy here than anywhere else in the program.
+
+*   <a id="LLR-CLS-01"></a>**LLR-CLS-01** — `classify_nodes` shall compare each threshold against a node's **position in the ordered distribution** of the score rather than against the score itself, expressed as the percentage of the *other* nodes scoring strictly below it, and shall make that comparison in integers. A betweenness value means nothing on its own — it scales with the size of the graph — so a fixed cut-off would classify every function in a large project and none in a small one; and a rank over *all* the nodes rather than the others would cap the top of a nine-function distribution at 88 per cent, leaving one default unusable on small projects and unusably loose on large ones.
+    *Trace:* HLR-168 (Utility-Sink Detection), HLR-169 (God-Object Detection), HLR-171.
+
+*   <a id="LLR-CLS-02"></a>**LLR-CLS-02** — `classify_nodes` shall decide whether two scores hold the same position in a distribution by a comparison made to a stated relative tolerance, floored at one so that the same figure serves a betweenness in the thousands and a HITS score in the thousandths. HITS is iterative and its scores are approximations; without a stated tolerance the same source classifies differently on two machines, and HLR-032 fails in a way no fixture would reliably catch.
+    *Trace:* HLR-179 (Deterministic Classification), HLR-032.
+
+*   <a id="LLR-CLS-03"></a>**LLR-CLS-03** — `classify_nodes` shall order the nodes of each distribution by an **exact** score comparison with the stable node identifier of HLR-033 breaking equal scores, and shall apply the tolerance of LLR-CLS-02 afterwards over that order, delimiting a run of equal scores by comparing each member against the run's first element. A sort whose comparator is tolerant rests on a relation that is not transitive, and its result would then depend on the order the library's sort happened to visit the elements in — the very property this requirement exists to remove.
+    *Trace:* HLR-179 (Deterministic Classification), HLR-033.
+
+*   <a id="LLR-CLS-04"></a>**LLR-CLS-04** — `classify_nodes` shall classify as a **utility sink** every function whose authority rank is at or above the configured sink-authority threshold *and* whose hub rank is at or below the configured sink-hub threshold. Both halves are required: a function passing the hub half alone is any leaf or entry point, and reporting one would name half the functions in a program a utility sink.
+    *Trace:* HLR-168 (Utility-Sink Detection).
+
+*   <a id="LLR-CLS-05"></a>**LLR-CLS-05** — `classify_nodes` shall classify as a **god object** every function whose betweenness rank and whose hub rank are each at or above their configured thresholds, and shall decide that class before the utility-sink test so that a function satisfying both is reported as a god object. Betweenness alone does not separate a monolithic dispatcher from a genuine intermediary a layering ought to keep; and masking a god object's edges subsumes masking its incoming ones, so the more specific claim is the more useful one to a reader.
+    *Trace:* HLR-169 (God-Object Detection).
+
+*   <a id="LLR-CLS-06"></a>**LLR-CLS-06** — `classify_nodes` shall classify as **peripheral** every function whose coreness, taken over the undirected neighbourhood of the call view, is strictly below the configured core depth, and shall make that test only where neither centrality test spoke. A *k*-core is the mutually connected centre of a program and a leaf hanging off it is peripheral whichever way its one edge points; and a function the centrality tests named is by construction part of that centre.
+    *Trace:* HLR-170 (Peripheral Stripping by K-Core Decomposition).
+
+*   <a id="LLR-CLS-07"></a>**LLR-CLS-07** — `classify_nodes` shall record, for each classification it makes, the measurement that triggered it and the value that measurement took, and shall attach no severity to any of them. A classification a reader cannot trace back to a number is an assertion; and a god object is an observation about the shape of a graph rather than a measurement banded against an accepted range, so there is nothing for a severity to mean and no published source to attribute one to.
+    *Trace:* HLR-171 (Purification Thresholds Are elc's Own), HLR-174, HLR-101.
+
+## 58. `build_recovery_view` ([src/purify.c](../src/purify.c))
+
+The masked copy itself: which edges each class costs a function, and why the three answers differ.
+
+*   <a id="LLR-RCV-01"></a>**LLR-RCV-01** — `build_recovery_view` shall construct a new graph over the same vertex set from the graph's own call-edge table, and shall leave the `Sdg`'s call view holding every edge it held before. The copy is what makes HLR-167 structural: every measurement reported outside architecture recovery is taken over the graph as built, and nothing in the program can reach a masked one.
+    *Trace:* HLR-167 (Purification Confined to Recovery).
+
+*   <a id="LLR-RCV-02"></a>**LLR-RCV-02** — `build_recovery_view` shall omit every edge whose *target* is a utility sink and shall retain every edge whose source is one. The fusion a sink causes is between its callers, who are joined to one another through it; its own calls join nothing that was not joined already, and masking the node rather than the edges into it would remove the function's own position from view along with the fusion.
+    *Trace:* HLR-168 (Utility-Sink Detection).
+
+*   <a id="LLR-RCV-03"></a>**LLR-RCV-03** — `build_recovery_view` shall omit every edge touching a god object in either direction, and shall retain the node itself in the view. It short-circuits in both directions, so it loses both; and it is masked rather than excluded, since it is part of the connected centre the layering is being read from.
+    *Trace:* HLR-169 (God-Object Detection).
+
+*   <a id="LLR-RCV-04"></a>**LLR-RCV-04** — `build_recovery_view` shall mark every peripheral function as excluded from the view and shall omit every edge touching one, so that nothing downstream can assign it a recovered layer. A function `elc` did not consider is not a function `elc` placed at the edge of the architecture, and a view that did not distinguish the two would put every leaf in the bottom layer.
+    *Trace:* HLR-170 (Peripheral Stripping by K-Core Decomposition).
+
+*   <a id="LLR-RCV-05"></a>**LLR-RCV-05** — `build_recovery_view` shall number the vertices of the view with the graph's own stable node identifiers rather than renumbering the retained nodes, and shall account for every call edge as either retained or masked. Renumbering would put the determinism of HLR-179 on a mapping instead of on the identifier the rest of the run already agrees about; and a view that dropped an edge without counting it would report a masking a reader could not check.
+    *Trace:* HLR-179 (Deterministic Classification), HLR-033, HLR-174.
