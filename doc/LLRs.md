@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.5
-**Date:** 2026-08-17
+**Version:** 2.6
+**Date:** 2026-08-22
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -68,6 +68,9 @@ Orchestration and exit status. `main` performs no analysis; every requirement be
 *   <a id="LLR-MAIN-20"></a>**LLR-MAIN-20** — `main` shall read the linked image before discovery begins, so that an image that cannot be read ends the run before any source file is measured rather than after a full walk whose results are then discarded.
     *Trace:* HLR-146 (An Unusable Image Is Fatal).
 
+*   <a id="LLR-MAIN-21"></a>**LLR-MAIN-21** — `main` shall pass the selected verbosity to the two human-facing renderers and to no other, so that the CSV and XML writers produce the same bytes whatever was asked for. The dispatch is where that stops: the complete-record formats have no presentation for a verbosity to select between, and giving them the parameter would create a place for one to be honoured by mistake.
+    *Trace:* HLR-152 (Complete-Record Formats Unaffected by Verbosity), HLR-151 (Verbose Report on Request).
+
 ## 2. `cli_parse` ([src/cli.c](../src/cli.c))
 
 Command-line parsing and validation. `cli_parse` is the sole reader of `argv` and the sole source of user-supplied configuration.
@@ -102,7 +105,7 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-CLI-09"></a>**LLR-CLI-09** — `cli_parse` shall accept custom rule declarations that name both a language and a path, and shall reject a declaration naming only a path.
     *Trace:* HLR-107 (User-Supplied Rule Queries), HLR-063 (Invalid Command-Line Rejection).
 
-*   <a id="LLR-CLI-10"></a>**LLR-CLI-10** — `cli_parse` shall accept a regeneration-mode input path. In regeneration mode the report format shall default to Markdown rather than to the table format, and only a format *explicitly* selected and other than Markdown shall be rejected.
+*   <a id="LLR-CLI-10"></a>**LLR-CLI-10** — `cli_parse` shall accept a regeneration-mode input path. In regeneration mode the report format shall default to Markdown rather than to the table format, and only a format *explicitly* selected and other than Markdown shall be rejected. A format is explicitly selected either by `--format` or by the extension of an `--output` path (LLR-CLI-28), the two being two spellings of one statement (HLR-148, HLR-149); the diagnostic shall name whichever the user wrote.
     *Trace:* HLR-055 (XML-to-Markdown Conversion Mode), HLR-122 (No Companion Artefacts From a Saved Record).
 
 *   <a id="LLR-CLI-11"></a>**LLR-CLI-11** — `cli_parse` shall accept a complexity threshold in regeneration mode independently of any threshold recorded in the input file, defaulting to 15.
@@ -147,6 +150,23 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-CLI-25"></a>**LLR-CLI-25** — `cli_parse` shall accept zero or more conditional-compilation definitions and record each as given, `NAME` and `NAME=VALUE` alike, leaving what a definition means to the evaluation that alone knows what a language's conditions can test.
     *Trace:* HLR-131 (Conditional-Compilation Configuration).
 
+*   <a id="LLR-CLI-26"></a>**LLR-CLI-26** — `cli_parse` shall derive the report format from the extension of an `--output` path, recognising `.txt` as the aligned table, `.md` as Markdown, `.csv` as CSV, and `.xml` as the complete record, so that no format option is required to repeat what the filename has already said.
+
+    The extension is the last dot of the *basename*: a directory component carrying one lends nothing to a file that has none, a leading dot names a hidden file rather than an extension, and a trailing dot names nothing. An extension `elc` does not recognise, and a path with none, shall each be rejected as a usage error naming the extension found and listing those that are recognised, the list being generated from the same table that resolves so it cannot come to name a set of formats `elc` no longer has.
+    *Trace:* HLR-148 (Output Format Determined by Filename Extension), HLR-063 (Invalid Command-Line Rejection).
+
+*   <a id="LLR-CLI-27"></a>**LLR-CLI-27** — `cli_parse` shall resolve the format after the option loop rather than within it, so that `--format` and `--output` may be given in either order and still be compared against one another. Where both name a format and they agree, the invocation shall be accepted; where they disagree it shall be rejected as a usage error naming both, neither being silently preferred. Where no output path is given the option alone decides, and its default stands.
+    *Trace:* HLR-149 (Format Selection Without a Named Output File), HLR-063 (Invalid Command-Line Rejection).
+
+*   <a id="LLR-CLI-28"></a>**LLR-CLI-28** — `cli_parse` shall record whether the format was selected by the extension of an output path separately from whether `--format` named it, and shall treat the former as an explicit selection in regeneration mode. An output filename naming any format other than Markdown shall therefore be rejected there on the terms LLR-CLI-10 applies to `--format`, and one naming Markdown accepted, so that the mode can never write Markdown into a file whose name promises something else.
+    *Trace:* HLR-055 (XML-to-Markdown Conversion Mode), HLR-148 (Output Format Determined by Filename Extension), HLR-063 (Invalid Command-Line Rejection).
+
+*   <a id="LLR-CLI-29"></a>**LLR-CLI-29** — `cli_parse` shall accept a verbosity option in a short and a long spelling, recording the request in the options structure. The summary shall be the default, stored as the absence of the request, so that a zeroed options structure means the composition a run presents when nothing was asked for.
+    *Trace:* HLR-151 (Verbose Report on Request), HLR-150 (Summary Report by Default).
+
+*   <a id="LLR-CLI-30"></a>**LLR-CLI-30** — `cli_parse` shall accept the verbosity option together with a complete-record format rather than rejecting the pairing. It is the one option combination this parser decides that is not a usage error: there is no presentation for a verbosity to vary in a format defined as complete, so the request is honoured by changing nothing.
+    *Trace:* HLR-152 (Complete-Record Formats Unaffected by Verbosity).
+
 ## 3. `cli_usage` ([src/cli.c](../src/cli.c))
 
 *   <a id="LLR-USG-01"></a>**LLR-USG-01** — `cli_usage` shall write a summary naming every accepted option, its argument if any, and its default value.
@@ -160,6 +180,9 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-USG-08"></a>**LLR-USG-08** — `cli_usage` shall emit the summary as more than one string literal, no single literal exceeding the 4095 characters ISO C11 requires a translation unit to support. The build treats a warning as a defect, so a summary that outgrew the guaranteed minimum would stop the build rather than degrade — and it outgrew it as soon as the option list reached this size.
     *Trace:* HLR-117 (Help Request Is Not an Error).
+
+*   <a id="LLR-USG-09"></a>**LLR-USG-09** — `cli_usage` shall document the verbosity option, and shall state under `--output` that the extension of the named file selects the report format and that an unrecognised extension is a usage error rather than a guess. It shall also describe both compositions in its output summary, so that the reference the delivered documentation is checked against (LLR-DOC-04) states what a default run prints as well as which options exist.
+    *Trace:* HLR-151 (Verbose Report on Request), HLR-148 (Output Format Determined by Filename Extension), HLR-130 (Documentation Currency), HLR-117 (Help Request Is Not an Error).
 
 ## 4. `parse_stratum` ([src/cli.c](../src/cli.c))
 
@@ -1069,7 +1092,7 @@ The single place every reported collection is ordered. The audit point for deter
 
 ## 38. `render_summary` ([src/format_text.c](../src/format_text.c))
 
-*   <a id="LLR-SUM-01"></a>**LLR-SUM-01** — `render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion.
+*   <a id="LLR-SUM-01"></a>**LLR-SUM-01** — `render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion. That enumeration is the composition of the **verbose** report; which of those tiers a given run reaches is settled by LLR-SUM-09, and the uniformity this requirement states holds at whichever verbosity is in force.
     *Trace:* HLR-031 (Uniform Report Composition Across Formats), HLR-127 (Discovery Route Reported), HLR-012 (Unsupported-Language File Handling), HLR-115 (Analyses Requiring User Declarations).
 
 *   <a id="LLR-SUM-03"></a>**LLR-SUM-03** — `render_summary` shall emit every tier from one traversal shared by both human-facing formats, so that a tier cannot be present in one format and absent from the other.
@@ -1085,6 +1108,8 @@ The single place every reported collection is ordered. The audit point for deter
     *Trace:* HLR-031 (Uniform Report Composition Across Formats).
 
 *   <a id="LLR-SUM-06"></a>**LLR-SUM-06** — `render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, the effective lines belonging to no function, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion. These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.
+
+    The two are separate sections, because the tier boundary of LLR-SUM-09 runs between them: the image and its two counts are the provenance of a filtered run and are a summary tier, while the functions the image does not define are one row per function and are a detail tier. They remain adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split.
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported), HLR-031 (Uniform Report Composition Across Formats).
 
 *   <a id="LLR-SUM-07"></a>**LLR-SUM-07** — `render_summary` shall present the custom-rule matches in a section of their own, with no severity column and no source column, and shall emit that section whether or not any rule was supplied.
@@ -1092,6 +1117,13 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-SUM-08"></a>**LLR-SUM-08** — `render_summary` shall present the definitions in force and the undecided-region count, and shall emit the definitions section whether or not any definition was supplied.
     *Trace:* HLR-136 (Configuration Recorded and Reported), HLR-031 (Uniform Report Composition Across Formats).
+
+*   <a id="LLR-SUM-09"></a>**LLR-SUM-09** — `render_summary` shall classify each tier of the traversal as a **summary** or a **detail** tier, and shall emit, at the summary verbosity, the summary tiers alone; at the verbose verbosity it shall emit every tier. The classification shall be a property of the one shared traversal — a filter over the ordered section list both human-facing formats walk — rather than a second traversal beside it, so that a tier cannot be present at one verbosity and forgotten at the other, by the same construction that stops it being present in one format and forgotten in the other (LLR-SUM-02).
+
+    The summary tiers are the project summary and callouts, the discovery route, the per-language breakdown, each file's own totals, the threshold listing, the findings, the definitions in force, the linked-image provenance, the partly parsed files, and the skipped files. Every remaining tier is a detail tier: it enumerates one row per analysed entity — per function, per global object, per unreachable statement, per graph edge, per custom-rule match. The measurements taken over the dependence graph — fan-out, recursion, the deepest chain, coupling, dependency cycles, layering — are detail tiers on that rule, each row naming one entity of the graph rather than a file's own totals; nothing is thereby lost from the summary, because every one of them that crossed a published line is a finding and the findings are a summary tier.
+
+    A detail section whose analysis was **omitted for want of a declaration** shall be emitted at the summary verbosity as well, since HLR-150 counts the omission notices among the summary tiers. No separate notice is needed: an omitted analysis produced no rows, so the section renders as its heading and the reason in it.
+    *Trace:* HLR-150 (Summary Report by Default), HLR-151 (Verbose Report on Request), HLR-031 (Uniform Report Composition Across Formats), HLR-115 (Analyses Requiring User Declarations).
 
 ## 39. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 

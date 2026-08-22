@@ -18,12 +18,20 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 16 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 18 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, and Python**,
 in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
 a directory the repository does not track is traversed instead; every report
 names the route it used.
+
+A report that goes to a file takes its format from the filename: `-o
+report.csv` writes CSV, and an extension `elc` does not recognise is a usage
+error rather than a guess. A report that goes to standard output still takes
+`-f`. By default the report is a **summary** — the totals, the findings, and
+the provenance, sized to be read in a terminal; **`--verbose`** adds the
+per-function and per-entity tables behind it. Verbosity is presentation
+only, so `-f csv` and `-f xml` are complete either way.
 
 It also builds the **System Dependence Graph** — every call resolved across
 file boundaries, every global linked from its writers to its readers, all
@@ -159,7 +167,7 @@ is an error rather than an empty filter, because reporting a project with no
 functions in it would be confidently wrong and indistinguishable from a correct
 result.
 
-**Progress: 17 of 24 phases complete.**
+**Progress: 18 of 24 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -184,7 +192,7 @@ result.
 | [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
 | [16](doc/SDP.md#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
 | [17](doc/SDP.md#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
-| [18](doc/SDP.md#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | 🔲 Not started |
+| [18](doc/SDP.md#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
 | [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | 🔲 Not started |
 | [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | 🔲 Not started |
 | [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |

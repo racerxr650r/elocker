@@ -212,6 +212,11 @@ preprocessor, so a disabled block is ordinary source to it.
 
 ### The report
 
+The report below is what `elc --verbose src/` prints. Without `--verbose` it
+presents the *summary* tiers alone — the `Functions` table below is one of
+the tiers the default omits. Which tiers belong to which is set out in
+[Summary and verbose reports](#summary-and-verbose-reports).
+
 ```
 Project summary
   Files               2
@@ -437,19 +442,62 @@ shows real change rather than a coin toss.
 
 ## Output formats
 
+There are two ways to name a format, and which one you use depends on where
+the report is going.
+
+**Writing to a file, the extension names it.** Nothing else is needed:
+
+```sh
+elc -o report.txt src/   # an aligned table
+elc -o report.md src/    # GitHub-Flavored Markdown
+elc -o report.csv src/   # one record per function, RFC 4180
+elc -o report.xml src/   # the complete record of the run
+```
+
+**Writing to standard output, `-f` names it.** Standard output has no
+filename and so no extension, which is what keeps a machine-readable format
+available to a caller that pipes rather than redirects:
+
 ```sh
 elc src/                 # an aligned table, the default
 elc -f md src/           # GitHub-Flavored Markdown
-elc -f csv src/          # one record per function, RFC 4180
+elc -f csv src/ | ...    # one record per function, RFC 4180
 elc -f xml src/          # the complete record of the run
 ```
 
-| Format | For | Notes |
-| ------ | --- | ----- |
-| `table` | reading | The default |
-| `md` | a pull request, a wiki | Same sections as the table, in the same order |
-| `csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it |
-| `xml` | keeping | Complete record; what `--from-xml` reads back |
+| Format | Extension | For | Notes |
+| ------ | --------- | --- | ----- |
+| `table` | `.txt` | reading | The default on standard output |
+| `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order |
+| `csv` | `.csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it |
+| `xml` | `.xml` | keeping | Complete record; what `--from-xml` reads back |
+
+**An extension `elc` does not recognise is an error, not a guess.**
+
+```sh
+$ elc -o report.json src/
+elc: '.json' is not a report format extension; expected .txt, .md, .csv, or .xml
+```
+
+Guessing would write one format under a name promising another, and quietly
+defaulting to the table would leave you with a `report.json` holding no JSON.
+A filename with no extension at all is rejected for the same reason.
+
+**Naming the format twice is fine; naming it two different ways is not.**
+`-f md -o report.md` is accepted, because nothing is ambiguous about saying a
+thing twice. `-f csv -o report.md` is a usage error naming both — honouring
+either one would leave your own command line disagreeing with the file it
+produced:
+
+```sh
+$ elc -f csv -o report.md src/
+elc: --format csv and an output file named 'report.md' disagree; the extension
+already names the format, so name it once or name it the same twice
+```
+
+The extension picks the format and nothing else. The companion artefacts put
+their own extension on the same path, so `-o report.md` still gives you
+`report.dot` and `report.graphml`.
 
 **`table` and `md` are the same report,** built by walking the same
 underlying data once. A section cannot appear in one and be missing from the
@@ -470,6 +518,101 @@ is for.
 
 Every field containing a comma, a quotation mark, or a line break is quoted,
 so a name like `foo<int, long>` stays one field.
+
+## Summary and verbose reports
+
+A report comes at one of two verbosities. The default is the **summary**;
+`-v` / `--verbose` gives you the **verbose** report, which is everything the
+summary has plus the detail tiers it leaves out.
+
+```sh
+elc src/                 # the summary — what fits in a terminal
+elc --verbose src/       # every tier, as elc printed before the summary existed
+```
+
+The default changed deliberately. The full report outgrew the length at which
+it can be read in a terminal, and a default nobody reads is a default that
+serves nobody. Nothing is lost: `--verbose` restores it exactly, and the two
+complete formats are untouched.
+
+### Which tiers are which
+
+The rule is by *tier*, so the partition is a property of the report rather
+than of how it happened to be printed. A tier presenting a project-level
+aggregate, a file's own totals, or a finding you are expected to act on is a
+summary tier. A tier enumerating one row per analysed entity — per function,
+per global object, per unreachable statement, per graph edge, per custom-rule
+match — is a detail tier.
+
+| Tier | Summary | Verbose |
+| ---- | ------- | ------- |
+| Project summary, Callouts | ✅ | ✅ |
+| Discovery | ✅ | ✅ |
+| Languages | ✅ | ✅ |
+| Files | ✅ | ✅ |
+| At or over the complexity threshold | ✅ | ✅ |
+| An analysis omitted for want of a declaration, with its reason | ✅ | ✅ |
+| Findings | ✅ | ✅ |
+| Conditional-compilation definitions | ✅ | ✅ |
+| Linked-image filter | ✅ | ✅ |
+| Partially parsed files | ✅ | ✅ |
+| Skipped files | ✅ | ✅ |
+| Functions | — | ✅ |
+| Fan-out, Recursion, Deepest call chain | — | ✅ |
+| Component coupling, Component dependency cycles, Layering | — | ✅ |
+| Global state, Unreachable globals | — | ✅ |
+| Unreachable functions, Dead code within functions | — | ✅ |
+| Cross-scope access | — | ✅ |
+| Functions the image does not define | — | ✅ |
+| Custom rule matches | — | ✅ |
+
+**The summary keeps the findings.** That is the point of it. Every
+architectural measurement that crossed a published line becomes a finding,
+and the findings are in the summary — so the summary tells you what to act
+on, and `--verbose` tells you every number behind it. A summary that dropped
+the one section you act on would be shorter and useless.
+
+**An omitted analysis still says so.** The sections carrying those notices
+are detail tiers, but the notice itself is not: if you did not declare an
+entry point, the summary still tells you that reachability was not measured,
+rather than leaving an absence you might read as a clean bill of health.
+
+```
+Unreachable functions (omitted: no entry points declared, see --entry)
+  File  Function  Line
+  ----  --------  ----
+```
+
+### Verbosity changes presentation and nothing else
+
+No measurement, no finding, no severity, and not the exit status. A value
+absent from a summary is absent because it was not printed, never because it
+was not computed.
+
+`csv` and `xml` are defined as *complete* — one record per function, and
+every element of a run — so there is no presentation for a verbosity to
+select between. Both are byte-identical whichever way you ask:
+
+```sh
+elc -f xml src/ > a.xml
+elc --verbose -f xml src/ > b.xml
+diff a.xml b.xml            # no output
+```
+
+Asking for `--verbose` alongside `-f xml` or `-f csv` is **accepted**, not
+rejected. Every other conflicting pair of options `elc` defines is a usage
+error, so this one is worth stating: there is nothing contradictory about
+asking a format that is already complete for more detail, and the request
+simply has no effect.
+
+Because the record is complete whatever the verbosity, one saved record
+answers both questions, and answers each one identically to a direct run:
+
+```sh
+elc -f xml -o build/metrics.xml src/
+elc --from-xml build/metrics.xml              # summary Markdown
+elc --from-xml build/metrics.xml --verbose    # verbose Markdown
+```
 
 ## Keeping a record
 
