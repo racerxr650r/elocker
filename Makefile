@@ -526,12 +526,53 @@ clean-grammars:
 
 .PHONY: all
 all: $(BIN) $(BUILD)/runtime $(GRAMMARS)
+	@$(MAKE) --no-print-directory _warning-summary
 
 $(BIN): $(OBJ) | $(BUILD)
 	$(CC) $(CFLAGS) $(ELC_CFLAGS) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
+# Compiling one translation unit of the application image.
+#
+# The compiler's diagnostics go to the terminal as they always have, and a copy
+# is kept beside the object so the build can total them when it finishes. A
+# warning that scrolled past fifteen compile lines ago is a warning nobody
+# reads, and this project treats one as a defect (doc/STP.md §6) — so a build
+# that emitted warnings and exited 0 in silence was the one outcome the rule
+# most needed to make visible.
+#
+# The status comes from the compiler, not from the copy. Piping into `tee` would
+# report tee's success instead and turn a failed compile into a silent one,
+# which is the trap this arrangement exists to avoid rather than to set.
+#
+# The copy is per object rather than one shared log, for two reasons: `make -j`
+# would interleave a shared one, and a per-object file survives an incremental
+# build — so the total describes the warnings *this image was built with*, not
+# merely those from the files that happened to be recompiled just now.
 $(BUILD)/%.o: src/%.c | $(BUILD)
-	$(CC) $(CPPFLAGS) $(CFLAGS) $(ELC_CFLAGS) -c -o $@ $<
+	@echo "$(CC) $(CPPFLAGS) $(CFLAGS) $(ELC_CFLAGS) -c -o $@ $<"
+	@$(CC) $(CPPFLAGS) $(CFLAGS) $(ELC_CFLAGS) -c -o $@ $< 2> $@.diag; \
+	status=$$?; \
+	if [ -s $@.diag ]; then cat $@.diag >&2; fi; \
+	cp -f $@.diag $(@:.o=.warn) 2>/dev/null || : ; \
+	rm -f $@.diag; \
+	exit $$status
+
+# What the image was built with, said once, where it cannot be missed.
+#
+# Silent when there is nothing to report: a clean build should look clean, and a
+# line saying "0 warnings" after every build is a line people stop reading.
+.PHONY: _warning-summary
+_warning-summary:
+	@count=$$(cat $(OBJ:.o=.warn) 2>/dev/null | grep -c 'warning:' || :); \
+	if [ "$${count:-0}" -gt 0 ]; then \
+		echo ""; \
+		echo "  $$count compiler warning(s) in the application image."; \
+		echo "  This project treats a warning as a defect (doc/STP.md §6);"; \
+		echo "  CI builds with -Werror, so these fail the build there."; \
+		echo ""; \
+		grep -h 'warning:' $(OBJ:.o=.warn) 2>/dev/null | sed 's/^/    /'; \
+		echo ""; \
+	fi
 
 $(BUILD):
 	@mkdir -p $(BUILD)

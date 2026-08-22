@@ -315,21 +315,65 @@ static bool listed_in_group(const char *group, const char *path)
 	return false;
 }
 
-/* Everything the drawing knows, gathered in one pass so that emission is a
- * pure walk. `notes` receives the findings that belong to no node, no global
- * object and no component — the depth of the call tree is the case that
- * exists — which reach the file as a comment rather than being dropped. */
-static int collect(const Sdg *g, const Report *r, Annotation *nodes,
-                   Annotation *comps, char **notes)
+/* Place one finding on everything it describes.
+ *
+ * Returns 1 if it landed somewhere, 0 if it belongs to no node, no component
+ * and no global object and so belongs to the graph as a whole, or -1 on
+ * failure.
+ */
+static int place_finding(const Sdg *g, const FindingRow *row, const char *text,
+                         Annotation *nodes, Annotation *comps)
+{
+	bool placed  = false;
+	bool touched = false;
+
+	for (size_t i = 0; i < g->node_count; i++) {
+		if (!finding_is_node(row, &g->nodes[i]))
+			continue;
+		if (annotate(&nodes[i], row->severity, text) != 0)
+			return -1;
+		placed = true;
+	}
+
+	for (size_t c = 0; c < g->component_count && !placed; c++) {
+		if (strcmp(row->subject, g->component_paths[c]) != 0)
+			continue;
+		if (annotate(&comps[c], row->severity, text) != 0)
+			return -1;
+		placed = true;
+	}
+
+	/* A finding about a global object names neither a definition site nor a
+	 * component, so it is placed on the functions that touch the object —
+	 * which is where a reader looking at the drawing would expect to find
+	 * it, and the only place it can go on a graph whose nodes are functions
+	 * (HLR-091, HLR-105). */
+	for (size_t t = 0; !placed && t < g->touch_count; t++) {
+		if (g->touches[t].node >= g->node_count ||
+		    strcmp(row->subject, g->touches[t].object) != 0)
+			continue;
+		if (annotate(&nodes[g->touches[t].node], row->severity,
+		             text) != 0)
+			return -1;
+		touched = true;
+	}
+
+	return placed || touched;
+}
+
+/* Every finding in the catalogue, on whatever it describes. `notes` receives
+ * the ones that belong to the graph as a whole — the depth of the call tree is
+ * the case that exists — which reach the file as a comment rather than being
+ * dropped.
+ */
+static int place_findings(const Sdg *g, const Report *r, Annotation *nodes,
+                          Annotation *comps, char **notes)
 {
 	char text[768];
 
-	/* The findings first, so that the severity a node is filled with is
-	 * the catalogue's and the marks below only add shape. */
 	for (size_t f = 0; f < r->finding_count; f++) {
-		const FindingRow *row     = &r->findings[f];
-		bool              placed  = false;
-		bool              touched = false;
+		const FindingRow *row = &r->findings[f];
+		int               where;
 
 		if (drawn_from_a_cycle_row(row))
 			continue;
@@ -337,49 +381,27 @@ static int collect(const Sdg *g, const Report *r, Annotation *nodes,
 		snprintf(text, sizeof text, "%s: %s (%s)", row->severity,
 		         row->measurement, row->detail);
 
-		for (size_t i = 0; i < g->node_count; i++) {
-			if (!finding_is_node(row, &g->nodes[i]))
-				continue;
-			if (annotate(&nodes[i], row->severity, text) != 0)
-				return -1;
-			placed = true;
-		}
-
-		for (size_t c = 0; c < g->component_count && !placed; c++) {
-			if (strcmp(row->subject, g->component_paths[c]) != 0)
-				continue;
-			if (annotate(&comps[c], row->severity, text) != 0)
-				return -1;
-			placed = true;
-		}
-
-		/* A finding about a global object names neither a definition
-		 * site nor a component, so it is placed on the functions that
-		 * touch the object — which is where a reader looking at the
-		 * drawing would expect to find it, and the only place it can
-		 * go on a graph whose nodes are functions (HLR-091, HLR-105). */
-		for (size_t t = 0; !placed && t < g->touch_count; t++) {
-			if (g->touches[t].node >= g->node_count ||
-			    strcmp(row->subject, g->touches[t].object) != 0)
-				continue;
-			if (annotate(&nodes[g->touches[t].node], row->severity,
-			             text) != 0)
-				return -1;
-			touched = true;
-		}
-		placed = placed || touched;
-
-		/* What is left belongs to the graph as a whole — the depth of
-		 * the call tree is the case that exists — and reaches the file
-		 * as a comment rather than being dropped. */
-		if (!placed && note_append(notes, text) != 0)
+		where = place_finding(g, row, text, nodes, comps);
+		if (where < 0)
+			return -1;
+		if (where == 0 && note_append(notes, text) != 0)
 			return -1;
 	}
 
-	/* Both kinds of cycle, on every member. From the cycle rows rather than
-	 * from the findings, because the catalogue locates a cycle at one
-	 * subject and HLR-105 asks for the members; the severity is still the
-	 * catalogue's, and only the membership is decided here. */
+	return 0;
+}
+
+/* Both kinds of cycle, on every member.
+ *
+ * From the cycle rows rather than from the findings, because the catalogue
+ * locates a cycle at one subject and HLR-105 asks for the members; the
+ * severity is still the catalogue's, and only the membership is decided here.
+ */
+static int mark_cycles(const Sdg *g, const Report *r, Annotation *nodes,
+                       Annotation *comps)
+{
+	char text[768];
+
 	for (size_t i = 0; i < r->dep_cycle_count; i++) {
 		const Threshold *t = thresholds_lookup(MEASURE_COMPONENT_CYCLE);
 
@@ -416,7 +438,14 @@ static int collect(const Sdg *g, const Report *r, Annotation *nodes,
 		}
 	}
 
-	/* Then the structural marks, each from the collection that owns it. */
+	return 0;
+}
+
+/* The structural marks, each from the collection that owns it. None of them
+ * can fail: a mark is a bit on an annotation that already exists.
+ */
+static void mark_structure(const Sdg *g, const Report *r, Annotation *nodes)
+{
 	for (size_t i = 0; i < r->unreachable_count; i++) {
 		uint32_t n = node_at(g, r->unreachable[i].file,
 		                     r->unreachable[i].line);
@@ -452,7 +481,22 @@ static int collect(const Sdg *g, const Report *r, Annotation *nodes,
 			    strcmp(g->touches[t].object, row->object) == 0)
 				nodes[g->touches[t].node].marks |= mark;
 	}
+}
 
+/* Everything the drawing knows, gathered in one pass so that emission is a
+ * pure walk.
+ *
+ * The findings come first, so that the severity a node is filled with is the
+ * catalogue's and the marks after it only add shape.
+ */
+static int collect(const Sdg *g, const Report *r, Annotation *nodes,
+                   Annotation *comps, char **notes)
+{
+	if (place_findings(g, r, nodes, comps, notes) != 0)
+		return -1;
+	if (mark_cycles(g, r, nodes, comps) != 0)
+		return -1;
+	mark_structure(g, r, nodes);
 	return 0;
 }
 
@@ -563,68 +607,42 @@ static void write_cluster_open(FILE *out, const Sdg *g, size_t c,
 	}
 }
 
-int graph_write_dot(const Sdg *g, const Report *r, const char *path)
+/* The call edges, copied out and sorted, so that the file records the graph
+ * rather than the order the resolver happened to build it in (LLR-DOT-04).
+ *
+ * Returns 0 with `*sorted` owned by the caller — NULL when the graph has no
+ * edges at all — or -1 after a diagnostic.
+ */
+static int sort_call_edges(const Sdg *g, SdgEdge **sorted, size_t *calls)
 {
-	FILE       *out     = NULL;
-	Annotation *nodes   = NULL;
-	Annotation *comps   = NULL;
-	char       *notes   = NULL;
-	uint32_t   *chain   = NULL;
-	SdgEdge    *sorted  = NULL;
-	size_t      calls   = 0;
-	size_t      open    = SIZE_MAX;
-	int         status  = -1;
+	*sorted = NULL;
+	*calls  = 0;
 
-	nodes = calloc(g->node_count ? g->node_count : 1, sizeof *nodes);
-	comps = calloc(g->component_count ? g->component_count : 1,
-	               sizeof *comps);
-	chain = calloc(r->deepest_count ? r->deepest_count : 1, sizeof *chain);
-	if (!nodes || !comps || !chain) {
+	if (g->edge_count == 0)
+		return 0;
+
+	*sorted = malloc(g->edge_count * sizeof **sorted);
+	if (!*sorted) {
 		fputs("elc: out of memory writing the call tree\n", stderr);
-		goto done;
+		return -1;
 	}
+	for (size_t i = 0; i < g->edge_count; i++)
+		if (g->edges[i].kind == EDGE_CALL)
+			(*sorted)[(*calls)++] = g->edges[i];
+	qsort(*sorted, *calls, sizeof **sorted, by_source_then_target);
+	return 0;
+}
 
-	if (collect(g, r, nodes, comps, &notes) != 0) {
-		fputs("elc: out of memory writing the call tree\n", stderr);
-		goto done;
-	}
+/* Every node, in ascending identifier order throughout, with a cluster opened
+ * where the component changes. The identifiers run in the report's sorted file
+ * order (LLR-SDG-09), so a component's nodes are contiguous and the clustering
+ * costs the ordering nothing.
+ */
+static void write_nodes(FILE *out, const Sdg *g, const Annotation *nodes,
+                        const Annotation *comps)
+{
+	size_t open = SIZE_MAX;
 
-	for (size_t i = 0; i < r->deepest_count; i++)
-		chain[i] = node_at(g, r->deepest[i].file, r->deepest[i].line);
-
-	/* Call edges only, copied out and sorted, so that the file records the
-	 * graph rather than the order the resolver happened to build it in
-	 * (LLR-DOT-04). */
-	if (g->edge_count > 0) {
-		sorted = malloc(g->edge_count * sizeof *sorted);
-		if (!sorted) {
-			fputs("elc: out of memory writing the call tree\n",
-			      stderr);
-			goto done;
-		}
-		for (size_t i = 0; i < g->edge_count; i++)
-			if (g->edges[i].kind == EDGE_CALL)
-				sorted[calls++] = g->edges[i];
-		qsort(sorted, calls, sizeof *sorted, by_source_then_target);
-	}
-
-	out = fopen(path, "w");
-	if (!out) {
-		perror(path);
-		goto done;
-	}
-
-	write_preamble(out, notes);
-	fputs("digraph elc {\n", out);
-	fputs("\tgraph [rankdir=LR, compound=true];\n", out);
-	fputs("\tnode [shape=box, style=filled, fillcolor=\"#ffffff\", "
-	      "fontname=\"Helvetica\", fontsize=10];\n", out);
-	fputs("\tedge [color=\"#666666\"];\n", out);
-
-	/* Ascending node identifier throughout, with a cluster opened where the
-	 * component changes. The identifiers run in the report's sorted file
-	 * order (LLR-SDG-09), so a component's nodes are contiguous and the
-	 * clustering costs the ordering nothing. */
 	for (uint32_t i = 0; i < g->node_count; i++) {
 		const SdgNode *n = &g->nodes[i];
 
@@ -654,15 +672,70 @@ int graph_write_dot(const Sdg *g, const Report *r, const char *path)
 	}
 	if (open != SIZE_MAX)
 		fputs("\t}\n", out);
+}
 
+/* Every call edge, with the steps of the deepest chain drawn apart from the
+ * rest (HLR-088).
+ */
+static void write_edges(FILE *out, const SdgEdge *sorted, size_t calls,
+                        const uint32_t *chain, size_t chain_count)
+{
 	for (size_t i = 0; i < calls; i++) {
 		const SdgEdge *e = &sorted[i];
 
 		fprintf(out, "\tn%" PRIu32 " -> n%" PRIu32, e->from, e->to);
-		if (on_chain(chain, r->deepest_count, e->from, e->to))
+		if (on_chain(chain, chain_count, e->from, e->to))
 			fputs(" [color=\"#1f6fb4\", penwidth=2]", out);
 		fputs(";\n", out);
 	}
+}
+
+int graph_write_dot(const Sdg *g, const Report *r, const char *path)
+{
+	FILE       *out    = NULL;
+	Annotation *nodes  = NULL;
+	Annotation *comps  = NULL;
+	char       *notes  = NULL;
+	uint32_t   *chain  = NULL;
+	SdgEdge    *sorted = NULL;
+	size_t      calls  = 0;
+	int         status = -1;
+
+	nodes = calloc(g->node_count ? g->node_count : 1, sizeof *nodes);
+	comps = calloc(g->component_count ? g->component_count : 1,
+	               sizeof *comps);
+	chain = calloc(r->deepest_count ? r->deepest_count : 1, sizeof *chain);
+	if (!nodes || !comps || !chain) {
+		fputs("elc: out of memory writing the call tree\n", stderr);
+		goto done;
+	}
+
+	if (collect(g, r, nodes, comps, &notes) != 0) {
+		fputs("elc: out of memory writing the call tree\n", stderr);
+		goto done;
+	}
+
+	for (size_t i = 0; i < r->deepest_count; i++)
+		chain[i] = node_at(g, r->deepest[i].file, r->deepest[i].line);
+
+	if (sort_call_edges(g, &sorted, &calls) != 0)
+		goto done;
+
+	out = fopen(path, "w");
+	if (!out) {
+		perror(path);
+		goto done;
+	}
+
+	write_preamble(out, notes);
+	fputs("digraph elc {\n", out);
+	fputs("\tgraph [rankdir=LR, compound=true];\n", out);
+	fputs("\tnode [shape=box, style=filled, fillcolor=\"#ffffff\", "
+	      "fontname=\"Helvetica\", fontsize=10];\n", out);
+	fputs("\tedge [color=\"#666666\"];\n", out);
+
+	write_nodes(out, g, nodes, comps);
+	write_edges(out, sorted, calls, chain, r->deepest_count);
 
 	fputs("}\n", out);
 

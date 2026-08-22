@@ -6,7 +6,7 @@ For the terse reference form, see `man elc`.
 
 ## Why elc
 
-`elc` answers two kinds of questions about a codebase:
+`elc` answers two questions about your codebase:
 
 - **Which functions carry the code and the complexity** — effective lines of
   code and cyclomatic complexity, reported per function.
@@ -20,7 +20,7 @@ This allows you to directly compare results across different parts of a codebase
 
 ## What `elc` does
 
-It parses source files and reports two kinds of measurements:
+It parses source files and reports two scopes of measurements:
 
 - **Per-function metrics** — effective lines of code and cyclomatic
   complexity. It provides project totals, a per-language breakdown, and lists the most complex functions.

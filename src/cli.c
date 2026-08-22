@@ -387,13 +387,356 @@ void cli_usage(FILE *stream)
 	      stream);
 }
 
+/* A value above any printable character, so a long-only option cannot
+ * collide with a short one. */
+enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
+       OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF };
+
+/* What reading one option needs: the options being built, and the record of
+ * whether a format was named. Both outlive the option that touches them —
+ * `--format` is remembered until the end of the parse, because whether the
+ * user chose Markdown or merely got it is a question only regeneration asks
+ * (LLR-CLI-10) — so neither belongs to any single handler.
+ */
+typedef struct {
+	ElcOptions *out;
+	bool        format_given;
+} CliParse;
+
+/* Read a threshold: digits and nothing else.
+ *
+ * strtoul accepts leading whitespace, a sign, and a trailing tail; none of
+ * those is a threshold. Both thresholds get the same test, which is why it is
+ * written once — `what` names the one being read, and is the only thing that
+ * differs between them.
+ *
+ * Returns 0, or -1 after a diagnostic.
+ */
+static int parse_threshold(const char *arg, const char *what, uint32_t *slot)
+{
+	char         *end = NULL;
+	unsigned long value;
+
+	errno = 0;
+	value = strtoul(arg, &end, 10);
+
+	if (arg[0] < '0' || arg[0] > '9' || !end || *end != '\0' ||
+	    errno == ERANGE || value > UINT32_MAX) {
+		fprintf(stderr, "elc: '%s' is not a %s threshold\n", arg, what);
+		return -1;
+	}
+	*slot = (uint32_t)value;
+	return 0;
+}
+
+/* Append one string borrowed from argv to a growable array.
+ *
+ * Three options collect their arguments this way — entry points, rule files,
+ * and definitions — and all three borrow: the string is a whole argument, and
+ * argv outlives the run, so only the array holding the pointers is owned.
+ * getopt hands them over one at a time, which is why the array grows rather
+ * than being sized up front.
+ *
+ * Returns 0, or -1 after a diagnostic when the array cannot grow.
+ */
+static int append_borrowed(const char ***items, size_t *count, size_t *capacity,
+                           const char *value)
+{
+	if (*count == *capacity) {
+		size_t       next  = *capacity ? *capacity * 2 : 8;
+		const char **grown = realloc(*items, next * sizeof *grown);
+
+		if (!grown) {
+			fputs("elc: out of memory\n", stderr);
+			return -1;
+		}
+		*items    = grown;
+		*capacity = next;
+	}
+	(*items)[(*count)++] = value;
+	return 0;
+}
+
+/* --- one handler per option ------------------------------------------------
+ *
+ * Each reads the option's argument — NULL for an option that takes none — and
+ * returns CLI_OK, CLI_ERROR for a usage error, or ELC_EXIT_FATAL for an
+ * allocation that failed. Every one of them has already written its own
+ * diagnostic before returning anything but CLI_OK.
+ */
+
+static int opt_format(const char *arg, CliParse *p)
+{
+	static const struct { const char *name; OutputFormat format; } formats[] = {
+		{ "table", FORMAT_TABLE },
+		{ "csv",   FORMAT_CSV   },
+		{ "xml",   FORMAT_XML   },
+		{ "md",    FORMAT_MARKDOWN }
+	};
+
+	for (size_t i = 0; i < sizeof formats / sizeof *formats; i++) {
+		if (strcmp(arg, formats[i].name) != 0)
+			continue;
+		p->out->format  = formats[i].format;
+		p->format_given = true;
+		return CLI_OK;
+	}
+
+	fprintf(stderr, "elc: '%s' is not a format; expected table, csv, xml, "
+	        "or md\n", arg);
+	return CLI_ERROR;
+}
+
+static int opt_from_xml(const char *arg, CliParse *p)
+{
+	p->out->mode       = MODE_REGENERATE;
+	p->out->input_path = arg;
+	return CLI_OK;
+}
+
+static int opt_complexity(const char *arg, CliParse *p)
+{
+	if (parse_threshold(arg, "complexity",
+	                    &p->out->complexity_threshold) != 0)
+		return CLI_ERROR;
+	return CLI_OK;
+}
+
+static int opt_bottleneck(const char *arg, CliParse *p)
+{
+	if (parse_threshold(arg, "bottleneck",
+	                    &p->out->bottleneck_threshold) != 0)
+		return CLI_ERROR;
+	return CLI_OK;
+}
+
+static int opt_output(const char *arg, CliParse *p)
+{
+	/* Borrowed from argv, which outlives the run. Recording standard
+	 * output as the destination is the default: output_path stays NULL
+	 * (LLR-CLI-03). */
+	p->out->output_path = arg;
+	return CLI_OK;
+}
+
+static int opt_entry(const char *arg, CliParse *p)
+{
+	if (append_borrowed(&p->out->entry_points, &p->out->entry_point_count,
+	                    &p->out->entry_point_capacity, arg) != 0)
+		return ELC_EXIT_FATAL;
+	return CLI_OK;
+}
+
+static int opt_stratum(const char *arg, CliParse *p)
+{
+	if (parse_stratum(arg, p->out) != 0)
+		return CLI_ERROR;
+	return CLI_OK;
+}
+
+static int opt_stratum_order(const char *arg, CliParse *p)
+{
+	/* Borrowed from argv and resolved after the loop, so that it may be
+	 * given before the layers it orders. */
+	p->out->stratum_order = arg;
+	return CLI_OK;
+}
+
+static int opt_scope(const char *arg, CliParse *p)
+{
+	/* Owned outright, unlike the entry points: the declaration is split on
+	 * two separators, so neither the name nor any pattern is a substring of
+	 * argv that could be borrowed. */
+	if (parse_scope(arg, p->out) != 0)
+		return CLI_ERROR;
+	return CLI_OK;
+}
+
+static int opt_graphml(const char *arg, CliParse *p)
+{
+	/* Recorded, not validated against --output here. A request for GraphML
+	 * with the report on stdout is not a usage error — it produces no
+	 * companion, which is what HLR-106 says happens, and rejecting it would
+	 * make `elc --graphml src/` fail where the requirement says it should
+	 * simply not write a file. */
+	(void)arg;
+	p->out->graphml = true;
+	return CLI_OK;
+}
+
+static int opt_no_dot(const char *arg, CliParse *p)
+{
+	/* A refusal, not a request, which is why it needs no validation against
+	 * --output: the companion is on by default (HLR-103) and declining it
+	 * can never be in conflict with anything (LLR-WAR-01). */
+	(void)arg;
+	p->out->no_dot = true;
+	return CLI_OK;
+}
+
+static int opt_rules(const char *arg, CliParse *p)
+{
+	/* Recorded unsplit and unvalidated. Whether the named language exists
+	 * is the registry's question — it is the module that knows — and
+	 * answering it here would put a second copy of that knowledge in the
+	 * parser (HLR-107, LLR-RLR-02). */
+	if (append_borrowed(&p->out->rules, &p->out->rule_count,
+	                    &p->out->rule_capacity, arg) != 0)
+		return ELC_EXIT_FATAL;
+	return CLI_OK;
+}
+
+static int opt_define(const char *arg, CliParse *p)
+{
+	/* Recorded as given, `NAME` and `NAME=VALUE` alike. What a definition
+	 * *means* is a question for the conditional evaluation, which is the
+	 * only place that knows what a language's conditions can test. */
+	if (arg[0] == '\0') {
+		fputs("elc: -D requires a symbol name\n", stderr);
+		return CLI_ERROR;
+	}
+	if (append_borrowed(&p->out->defines, &p->out->define_count,
+	                    &p->out->define_capacity, arg) != 0)
+		return ELC_EXIT_FATAL;
+	return CLI_OK;
+}
+
+static int opt_elf(const char *arg, CliParse *p)
+{
+	/* Recorded unvalidated and unopened. Whether the file is an image elc
+	 * can read is `elfsyms.c`'s question — it is the module that knows —
+	 * and answering it here would put a second copy of that knowledge in
+	 * the parser, which is the module that reads argv and not one that
+	 * reads files (HLR-140, LLR-CLI-22). */
+	if (arg[0] == '\0') {
+		fputs("elc: --elf requires the path of a linked image\n",
+		      stderr);
+		return CLI_ERROR;
+	}
+	p->out->image_path = arg;
+	return CLI_OK;
+}
+
+typedef int (*OptionFn)(const char *arg, CliParse *p);
+
+/* Which handler reads which option. A table rather than a switch: the loop is
+ * then one shape whatever the option is, and each option's meaning sits in a
+ * named function beside the requirement it serves rather than in a case label
+ * three hundred lines from the next one.
+ */
+static const struct { int code; OptionFn handle; } OPTION_HANDLERS[] = {
+	{ 'f',               opt_format        },
+	{ OPT_FROM_XML,      opt_from_xml      },
+	{ 'c',               opt_complexity    },
+	{ 'o',               opt_output        },
+	{ OPT_ENTRY,         opt_entry         },
+	{ 'b',               opt_bottleneck    },
+	{ OPT_STRATUM,       opt_stratum       },
+	{ OPT_STRATUM_ORDER, opt_stratum_order },
+	{ OPT_SCOPE,         opt_scope         },
+	{ OPT_GRAPHML,       opt_graphml       },
+	{ OPT_NO_DOT,        opt_no_dot        },
+	{ OPT_RULES,         opt_rules         },
+	{ 'D',               opt_define        },
+	{ OPT_ELF,           opt_elf           }
+};
+
+static OptionFn option_handler(int code)
+{
+	for (size_t i = 0; i < sizeof OPTION_HANDLERS / sizeof *OPTION_HANDLERS;
+	     i++) {
+		if (OPTION_HANDLERS[i].code == code)
+			return OPTION_HANDLERS[i].handle;
+	}
+	return NULL;
+}
+
+/* Report an option no handler can be found for: one missing its argument, and
+ * one that is not an option elc has. Always CLI_ERROR — the two are told apart
+ * for the reader's sake, not the caller's.
+ */
+static int report_bad_option(int code, char *argv[])
+{
+	if (code == ':')
+		fprintf(stderr, "elc: option '%s' requires an argument\n",
+		        argv[optind - 1]);
+	else if (optopt)
+		fprintf(stderr, "elc: unrecognised option '-%c'\n", optopt);
+	else
+		fprintf(stderr, "elc: unrecognised option '%s'\n",
+		        argv[optind - 1]);
+	return CLI_ERROR;
+}
+
+/* The checks that apply only when a saved record is the input, and the default
+ * that goes with it.
+ *
+ * Returns CLI_OK, or CLI_ERROR after a diagnostic.
+ */
+static int check_regenerate(int argc, char *argv[], CliParse *p)
+{
+	/* A record carries the findings of a run, not the topology of the
+	 * graph, so no companion artefact can be reconstructed from one. The
+	 * default-on `.dot` is therefore simply not written — declining to
+	 * produce it silently is what HLR-122 asks for — but an *explicit*
+	 * request is rejected, so that a user who asked for a file and got none
+	 * is told why rather than left to discover the absence (LLR-CLI-15). */
+	if (p->out->graphml) {
+		fputs("elc: --graphml cannot be combined with --from-xml: a "
+		      "saved record carries the findings of a run, not the "
+		      "graph they came from\n", stderr);
+		return CLI_ERROR;
+	}
+
+	/* Pruning happens when a file is measured, not when a report is
+	 * rendered, so a record already describes one configuration and cannot
+	 * be re-cut into another. Rejected rather than ignored, so that a user
+	 * who named a configuration and got a different one is told (HLR-136,
+	 * LLR-CLI-24). */
+	if (p->out->define_count > 0) {
+		fputs("elc: -D cannot be combined with --from-xml: a saved "
+		      "record already describes one configuration, chosen when "
+		      "it was written\n", stderr);
+		return CLI_ERROR;
+	}
+
+	/* The same rule the definitions get, and for the same reason: the
+	 * filter is applied when a file is measured, not when a report is
+	 * rendered, so a record already describes the run that was filtered and
+	 * cannot be re-cut against another image (HLR-147, LLR-CLI-23). */
+	if (p->out->image_path) {
+		fputs("elc: --elf cannot be combined with --from-xml: a saved "
+		      "record already describes one filtered run, chosen when "
+		      "it was written\n", stderr);
+		return CLI_ERROR;
+	}
+
+	/* A saved record is the input, so a target would name a second source
+	 * of truth for the same report. */
+	if (optind < argc) {
+		fprintf(stderr, "elc: --from-xml takes no target, but '%s' was "
+		        "given\n", argv[optind]);
+		return CLI_ERROR;
+	}
+
+	/* Markdown is the mode's output (HLR-055), and is therefore its default
+	 * rather than a format the user must remember. Only an *explicit*
+	 * choice of something else is an error — defaulting to table and then
+	 * rejecting it would make the mode unusable without a redundant option
+	 * (LLR-CLI-10). */
+	if (!p->format_given)
+		p->out->format = FORMAT_MARKDOWN;
+	else if (p->out->format != FORMAT_MARKDOWN) {
+		fputs("elc: --from-xml produces Markdown; no other format can "
+		      "be regenerated from a saved record\n", stderr);
+		return CLI_ERROR;
+	}
+
+	return CLI_OK;
+}
+
 int cli_parse(int argc, char *argv[], ElcOptions *out)
 {
-	/* A value above any printable character, so a long-only option cannot
-	 * collide with a short one. */
-	enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
-	       OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF };
-
 	static const struct option longopts[] = {
 		{ "format",               required_argument, NULL, 'f' },
 		{ "from-xml",             required_argument, NULL, OPT_FROM_XML },
@@ -413,14 +756,8 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ NULL,                   0,                 NULL, 0   }
 	};
 
-	static const struct { const char *name; OutputFormat format; } formats[] = {
-		{ "table", FORMAT_TABLE },
-		{ "csv",   FORMAT_CSV   },
-		{ "xml",   FORMAT_XML   },
-		{ "md",    FORMAT_MARKDOWN }
-	};
-
-	bool format_given = false;
+	CliParse p = { out, false };
+	int      c;
 
 	memset(out, 0, sizeof(*out));
 	out->mode                 = MODE_ANALYSE;
@@ -433,279 +770,31 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	opterr = 0;
 	optind = 1;
 
-	int c;
 	while ((c = getopt_long(argc, argv, ":ho:c:f:b:D:", longopts, NULL)) != -1) {
-		switch (c) {
-		case 'f': {
-			size_t i;
+		OptionFn handle;
+		int      status;
 
-			for (i = 0; i < sizeof formats / sizeof *formats; i++) {
-				if (strcmp(optarg, formats[i].name) != 0)
-					continue;
-				out->format  = formats[i].format;
-				format_given = true;
-				break;
-			}
-			if (i == sizeof formats / sizeof *formats) {
-				fprintf(stderr,
-				        "elc: '%s' is not a format; expected "
-				        "table, csv, xml, or md\n", optarg);
-				return CLI_ERROR;
-			}
-			break;
-		}
-		case OPT_FROM_XML:
-			out->mode       = MODE_REGENERATE;
-			out->input_path = optarg;
-			break;
-		case 'c': {
-			/* strtoul accepts leading whitespace, a sign, and a
-			 * trailing tail; none of those is a threshold. The
-			 * argument must be digits and nothing else. */
-			char         *end  = NULL;
-			unsigned long value;
-
-			errno = 0;
-			value = strtoul(optarg, &end, 10);
-
-			if (optarg[0] < '0' || optarg[0] > '9' || !end ||
-			    *end != '\0' || errno == ERANGE || value > UINT32_MAX) {
-				fprintf(stderr,
-				        "elc: '%s' is not a complexity threshold\n",
-				        optarg);
-				return CLI_ERROR;
-			}
-			out->complexity_threshold = (uint32_t)value;
-			break;
-		}
-		case 'o':
-			/* Borrowed from argv, which outlives the run. Recording
-			 * standard output as the destination is the default:
-			 * output_path stays NULL (LLR-CLI-03). */
-			out->output_path = optarg;
-			break;
-		case OPT_ENTRY:
-			if (out->entry_point_count == out->entry_point_capacity) {
-				size_t       next = out->entry_point_capacity
-				                            ? out->entry_point_capacity * 2
-				                            : 8;
-				const char **grown = realloc(out->entry_points,
-				                             next * sizeof *grown);
-
-				if (!grown) {
-					fputs("elc: out of memory\n", stderr);
-					return ELC_EXIT_FATAL;
-				}
-				out->entry_points         = grown;
-				out->entry_point_capacity = next;
-			}
-			/* Borrowed from argv, which outlives the run; only the
-			 * array holding them is owned. */
-			out->entry_points[out->entry_point_count++] = optarg;
-			break;
-		case 'b': {
-			/* The same test the complexity threshold gets, and for
-			 * the same reason: strtoul alone accepts a sign,
-			 * leading whitespace, and a trailing tail, none of
-			 * which is a threshold. */
-			char         *end  = NULL;
-			unsigned long value;
-
-			errno = 0;
-			value = strtoul(optarg, &end, 10);
-
-			if (optarg[0] < '0' || optarg[0] > '9' || !end ||
-			    *end != '\0' || errno == ERANGE ||
-			    value > UINT32_MAX) {
-				fprintf(stderr,
-				        "elc: '%s' is not a bottleneck "
-				        "threshold\n", optarg);
-				return CLI_ERROR;
-			}
-			out->bottleneck_threshold = (uint32_t)value;
-			break;
-		}
-		case OPT_STRATUM:
-			if (parse_stratum(optarg, out) != 0)
-				return CLI_ERROR;
-			break;
-		case OPT_STRATUM_ORDER:
-			/* Borrowed from argv and resolved after the loop, so
-			 * that it may be given before the layers it orders. */
-			out->stratum_order = optarg;
-			break;
-		case OPT_SCOPE:
-			/* Owned outright, unlike the entry points: the
-			 * declaration is split on two separators, so neither
-			 * the name nor any pattern is a substring of argv that
-			 * could be borrowed. */
-			if (parse_scope(optarg, out) != 0)
-				return CLI_ERROR;
-			break;
-		case OPT_GRAPHML:
-			/* Recorded, not validated against --output here. A
-			 * request for GraphML with the report on stdout is not
-			 * a usage error — it produces no companion, which is
-			 * what HLR-106 says happens, and rejecting it would
-			 * make `elc --graphml src/` fail where the requirement
-			 * says it should simply not write a file. */
-			out->graphml = true;
-			break;
-		case OPT_NO_DOT:
-			/* A refusal, not a request, which is why it needs no
-			 * validation against --output: the companion is on by
-			 * default (HLR-103) and declining it can never be in
-			 * conflict with anything (LLR-WAR-01). */
-			out->no_dot = true;
-			break;
-		case OPT_RULES:
-			/* Recorded unsplit and unvalidated. Whether the named
-			 * language exists is the registry's question — it is
-			 * the module that knows — and answering it here would
-			 * put a second copy of that knowledge in the parser
-			 * (HLR-107, LLR-RLR-02). */
-			if (out->rule_count == out->rule_capacity) {
-				size_t       next  = out->rule_capacity
-				                             ? out->rule_capacity * 2
-				                             : 8;
-				const char **grown = realloc(out->rules,
-				                             next * sizeof *grown);
-
-				if (!grown) {
-					fputs("elc: out of memory\n", stderr);
-					return ELC_EXIT_FATAL;
-				}
-				out->rules         = grown;
-				out->rule_capacity = next;
-			}
-			out->rules[out->rule_count++] = optarg;
-			break;
-		case 'D':
-			/* Recorded as given, `NAME` and `NAME=VALUE` alike.
-			 * What a definition *means* is a question for the
-			 * conditional evaluation, which is the only place that
-			 * knows what a language's conditions can test. */
-			if (optarg[0] == '\0') {
-				fputs("elc: -D requires a symbol name\n", stderr);
-				return CLI_ERROR;
-			}
-			if (out->define_count == out->define_capacity) {
-				size_t       next  = out->define_capacity
-				                             ? out->define_capacity * 2
-				                             : 8;
-				const char **grown = realloc(out->defines,
-				                             next * sizeof *grown);
-
-				if (!grown) {
-					fputs("elc: out of memory\n", stderr);
-					return ELC_EXIT_FATAL;
-				}
-				out->defines         = grown;
-				out->define_capacity = next;
-			}
-			out->defines[out->define_count++] = optarg;
-			break;
-		case OPT_ELF:
-			/* Recorded unvalidated and unopened. Whether the file
-			 * is an image elc can read is `elfsyms.c`'s question —
-			 * it is the module that knows — and answering it here
-			 * would put a second copy of that knowledge in the
-			 * parser, which is the module that reads argv and not
-			 * one that reads files (HLR-140, LLR-CLI-22). */
-			if (optarg[0] == '\0') {
-				fputs("elc: --elf requires the path of a linked "
-				      "image\n", stderr);
-				return CLI_ERROR;
-			}
-			out->image_path = optarg;
-			break;
-		case 'h':
+		/* The one option that answers rather than records, and so ends
+		 * the parse where it stands rather than adding to `out`. */
+		if (c == 'h') {
 			cli_usage(stdout);
 			return CLI_HELP;
-		case ':':
-			fprintf(stderr, "elc: option '%s' requires an argument\n",
-			        argv[optind - 1]);
-			return CLI_ERROR;
-		case '?':
-		default:
-			if (optopt)
-				fprintf(stderr, "elc: unrecognised option '-%c'\n",
-				        optopt);
-			else
-				fprintf(stderr, "elc: unrecognised option '%s'\n",
-				        argv[optind - 1]);
-			return CLI_ERROR;
 		}
+
+		handle = option_handler(c);
+		if (!handle)
+			return report_bad_option(c, argv);
+
+		status = handle(optarg, &p);
+		if (status != CLI_OK)
+			return status;
 	}
 
 	if (apply_stratum_order(out) != 0)
 		return CLI_ERROR;
 
-	if (out->mode == MODE_REGENERATE) {
-		/* A record carries the findings of a run, not the topology of
-		 * the graph, so no companion artefact can be reconstructed from
-		 * one. The default-on `.dot` is therefore simply not written —
-		 * declining to produce it silently is what HLR-122 asks for —
-		 * but an *explicit* request is rejected, so that a user who
-		 * asked for a file and got none is told why rather than left to
-		 * discover the absence (LLR-CLI-15). */
-		if (out->graphml) {
-			fputs("elc: --graphml cannot be combined with "
-			      "--from-xml: a saved record carries the findings "
-			      "of a run, not the graph they came from\n",
-			      stderr);
-			return CLI_ERROR;
-		}
-
-		/* Pruning happens when a file is measured, not when a report is
-		 * rendered, so a record already describes one configuration and
-		 * cannot be re-cut into another. Rejected rather than ignored,
-		 * so that a user who named a configuration and got a different
-		 * one is told (HLR-136, LLR-CLI-24). */
-		if (out->define_count > 0) {
-			fputs("elc: -D cannot be combined with --from-xml: a "
-			      "saved record already describes one "
-			      "configuration, chosen when it was written\n",
-			      stderr);
-			return CLI_ERROR;
-		}
-
-		/* The same rule the definitions get, and for the same reason:
-		 * the filter is applied when a file is measured, not when a
-		 * report is rendered, so a record already describes the run
-		 * that was filtered and cannot be re-cut against another image
-		 * (HLR-147, LLR-CLI-23). */
-		if (out->image_path) {
-			fputs("elc: --elf cannot be combined with --from-xml: a "
-			      "saved record already describes one filtered run, "
-			      "chosen when it was written\n", stderr);
-			return CLI_ERROR;
-		}
-
-		/* A saved record is the input, so a target would name a second
-		 * source of truth for the same report. */
-		if (optind < argc) {
-			fprintf(stderr, "elc: --from-xml takes no target, but "
-			        "'%s' was given\n", argv[optind]);
-			return CLI_ERROR;
-		}
-
-		/* Markdown is the mode's output (HLR-055), and is therefore its
-		 * default rather than a format the user must remember. Only an
-		 * *explicit* choice of something else is an error — defaulting
-		 * to table and then rejecting it would make the mode unusable
-		 * without a redundant option (LLR-CLI-10). */
-		if (!format_given) {
-			out->format = FORMAT_MARKDOWN;
-		} else if (out->format != FORMAT_MARKDOWN) {
-			fputs("elc: --from-xml produces Markdown; no other "
-			      "format can be regenerated from a saved record\n",
-			      stderr);
-			return CLI_ERROR;
-		}
-
-		return CLI_OK;
-	}
+	if (out->mode == MODE_REGENERATE)
+		return check_regenerate(argc, argv, &p);
 
 	if (optind >= argc) {
 		fputs("elc: no target given\n", stderr);

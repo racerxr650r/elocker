@@ -61,7 +61,7 @@ static const char *query_error_text(TSQueryError error)
  * original is overwritten. `x = realloc(x, n)` loses the allocation on
  * failure and leaves a dangling pointer, which is an HLR-125 violation.
  */
-static int grow(void **items, size_t *capacity, size_t item_size)
+static int registry_grow(void **items, size_t *capacity, size_t item_size)
 {
 	size_t next   = *capacity ? *capacity * 2 : 8;
 	void  *bigger = realloc(*items, next * item_size);
@@ -211,7 +211,7 @@ static int map_add(Registry *reg, const char *ext, const char *lang)
 	}
 
 	if (reg->map_count == reg->map_capacity &&
-	    grow((void **)&reg->map, &reg->map_capacity, sizeof *reg->map) != 0) {
+	    registry_grow((void **)&reg->map, &reg->map_capacity, sizeof *reg->map) != 0) {
 		free(extension);
 		free(language);
 		return -1;
@@ -221,6 +221,56 @@ static int map_add(Registry *reg, const char *ext, const char *lang)
 	reg->map[reg->map_count].language  = language;
 	reg->map_count++;
 	return 0;
+}
+
+/* Advance past spaces and tabs. */
+static char *skip_blanks(char *p)
+{
+	while (*p == ' ' || *p == '\t')
+		p++;
+	return p;
+}
+
+/* Advance to the end of the field starting at `p`: the next blank, the line
+ * ending, or the end of the string. */
+static char *field_end(char *p)
+{
+	while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r')
+		p++;
+	return p;
+}
+
+/* Split one line of the extension map into its two fields.
+ *
+ * Returns 0 with `*ext` and `*lang` pointing into the line, or -1 for a line
+ * that names no mapping: a comment, a blank, or an extension with no language.
+ * The last of those is reported — one malformed line is not a reason to discard
+ * the rest of the map — which is why the path is needed here.
+ */
+static int split_map_line(char *line, const char *path, char **ext, char **lang)
+{
+	char *p = skip_blanks(line);
+
+	if (*p == '#' || *p == '\n' || *p == '\r' || *p == '\0')
+		return -1;
+
+	*ext = p;
+	p    = field_end(p);
+	if (!*p || *p == '\n' || *p == '\r') {
+		/* An extension with no language names nothing. Say so and carry
+		 * on. */
+		*p = '\0';
+		fprintf(stderr, "elc: %s: no language for '%s'\n", path, *ext);
+		return -1;
+	}
+	*p++ = '\0';
+
+	p     = skip_blanks(p);
+	*lang = p;
+	p     = field_end(p);
+	*p    = '\0';
+
+	return (**ext && **lang) ? 0 : -1;
 }
 
 static int load_extension_map(Registry *reg)
@@ -243,37 +293,14 @@ static int load_extension_map(Registry *reg)
 		return -1;
 	}
 
-	ssize_t len;
-	while ((len = getline(&line, &cap, fp)) != -1) {
-		char *p = line;
+	while (getline(&line, &cap, fp) != -1) {
+		char *ext;
+		char *lang;
 
-		while (*p == ' ' || *p == '\t')
-			p++;
-		if (*p == '#' || *p == '\n' || *p == '\r' || *p == '\0')
+		if (split_map_line(line, path, &ext, &lang) != 0)
 			continue;
 
-		char *ext = p;
-		while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r')
-			p++;
-		if (!*p || *p == '\n' || *p == '\r') {
-			/* An extension with no language names nothing. Say so
-			 * and carry on; one malformed line is not a reason to
-			 * discard the rest of the map. */
-			*p = '\0';
-			fprintf(stderr, "elc: %s: no language for '%s'\n",
-			        path, ext);
-			continue;
-		}
-		*p++ = '\0';
-
-		while (*p == ' ' || *p == '\t')
-			p++;
-		char *lang = p;
-		while (*p && *p != ' ' && *p != '\t' && *p != '\n' && *p != '\r')
-			p++;
-		*p = '\0';
-
-		if (*ext && *lang && map_add(reg, ext, lang) != 0) {
+		if (map_add(reg, ext, lang) != 0) {
 			fputs("elc: out of memory reading the extension map\n",
 			      stderr);
 			status = -1;
@@ -489,7 +516,7 @@ static const LanguageModule *module_for_language(Registry *reg,
 			return reg->modules[i].usable ? &reg->modules[i] : NULL;
 
 	if (reg->module_count == reg->module_capacity &&
-	    grow((void **)&reg->modules, &reg->module_capacity,
+	    registry_grow((void **)&reg->modules, &reg->module_capacity,
 	         sizeof *reg->modules) != 0) {
 		fputs("elc: out of memory loading a language module\n", stderr);
 		return NULL;
@@ -575,7 +602,7 @@ static int rule_compile(Registry *reg, const LanguageModule *module,
 	}
 
 	if (reg->rule_count == reg->rule_capacity &&
-	    grow((void **)&reg->rules, &reg->rule_capacity,
+	    registry_grow((void **)&reg->rules, &reg->rule_capacity,
 	         sizeof *reg->rules) != 0) {
 		ts_query_delete(query);
 		fputs("elc: out of memory loading a custom rule\n", stderr);
@@ -687,7 +714,7 @@ static int rules_load_located(Registry *reg, const char *language)
 		if (!dot || strcmp(dot, ".scm") != 0)
 			continue;
 		if (count == capacity &&
-		    grow((void **)&names, &capacity, sizeof *names) != 0)
+		    registry_grow((void **)&names, &capacity, sizeof *names) != 0)
 			break;
 		names[count] = strdup(entry->d_name);
 		if (!names[count])

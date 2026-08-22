@@ -143,7 +143,7 @@ void factlist_free(FactList *list)
 
 /* Grow any of the analyser's arrays by doubling, with the realloc result
  * checked in a temporary before the original is overwritten (HLR-125). */
-static int grow(void **items, size_t *capacity, size_t item_size)
+static int analyze_grow(void **items, size_t *capacity, size_t item_size)
 {
 	size_t next   = *capacity ? *capacity * 2 : 32;
 	void  *bigger = realloc(*items, next * item_size);
@@ -446,6 +446,70 @@ static const char *step_string(const TSQuery *query,
 	return ts_query_string_value_for_id(query, step->value_id, &length);
 }
 
+/* A directive is not a filter. `#set!` and its relatives attach metadata for a
+ * consumer that wants it, and rejecting a match for carrying one would turn a
+ * note into a deletion. */
+static bool is_directive(const char *name, uint32_t length)
+{
+	size_t n = length;
+
+	while (n > 0 && name[n - 1] == '\0')
+		n--;
+	return n > 0 && name[n - 1] == '!';
+}
+
+/* `#eq?`, `#not-eq?` and `#any-of?`: does the captured text equal any of the
+ * remaining steps? */
+static bool any_step_equals(const TSQuery *query, const TSQueryMatch *match,
+                            const char *data,
+                            const TSQueryPredicateStep *steps, size_t count,
+                            const char *text)
+{
+	for (size_t i = 2; i < count; i++) {
+		const char *value = step_string(query, &steps[i]);
+		TSNode      other;
+
+		if (value) {
+			if (strcmp(text, value) == 0)
+				return true;
+			continue;
+		}
+
+		/* A capture on the right-hand side compares two spans of the
+		 * source against each other, which is how a query asks whether
+		 * two identifiers are the same. */
+		if (match_capture(match, steps[i].value_id, &other)) {
+			char *rhs = node_text(data, other);
+			bool  hit = rhs && strcmp(text, rhs) == 0;
+
+			free(rhs);
+			if (hit)
+				return true;
+		}
+	}
+	return false;
+}
+
+/* `#match?` and `#not-match?`, with `negated` selecting between them. */
+static bool regex_holds(const TSQuery *query,
+                        const TSQueryPredicateStep *steps, size_t count,
+                        const char *text, bool negated)
+{
+	const char *pattern = count >= 3 ? step_string(query, &steps[2]) : NULL;
+	regex_t     re;
+	bool        hit;
+
+	/* An uncompilable pattern is the query author's defect, and the safe
+	 * reading of a filter that cannot be applied is that nothing passes
+	 * it — which is why a bad pattern fails the negated form too. */
+	if (!pattern || regcomp(&re, pattern, REG_EXTENDED | REG_NOSUB) != 0)
+		return false;
+
+	hit = regexec(&re, text, 0, NULL, 0) == 0;
+	regfree(&re);
+	return negated ? !hit : hit;
+}
+
 /* One predicate's steps, minus its trailing sentinel, evaluated against the
  * match. `steps[0]` is the predicate name. */
 static bool predicate_holds(const TSQuery *query, const TSQueryMatch *match,
@@ -456,6 +520,7 @@ static bool predicate_holds(const TSQuery *query, const TSQueryMatch *match,
 	const char *name;
 	char       *text   = NULL;
 	bool        result = false;
+	TSNode      node;
 
 	if (count == 0 || steps[0].type != TSQueryPredicateStepTypeString)
 		return false;
@@ -464,22 +529,11 @@ static bool predicate_holds(const TSQuery *query, const TSQueryMatch *match,
 	if (!name || length == 0)
 		return false;
 
-	/* A directive is not a filter. `#set!` and its relatives attach
-	 * metadata for a consumer that wants it, and rejecting a match for
-	 * carrying one would turn a note into a deletion. */
-	{
-		size_t n = length;
-
-		while (n > 0 && name[n - 1] == '\0')
-			n--;
-		if (n > 0 && name[n - 1] == '!')
-			return true;
-	}
+	if (is_directive(name, length))
+		return true;
 
 	if (count < 2 || steps[1].type != TSQueryPredicateStepTypeCapture)
 		return false;
-
-	TSNode node;
 
 	if (!match_capture(match, steps[1].value_id, &node))
 		return false;
@@ -495,46 +549,12 @@ static bool predicate_holds(const TSQuery *query, const TSQueryMatch *match,
 	bool not_mat = text_is(name, length, "not-match?");
 
 	if (eq || not_eq || any_of) {
-		bool found = false;
+		bool found = any_step_equals(query, match, data, steps, count,
+		                             text);
 
-		for (size_t i = 2; i < count && !found; i++) {
-			const char *value = step_string(query, &steps[i]);
-
-			if (value) {
-				found = strcmp(text, value) == 0;
-				continue;
-			}
-
-			/* A capture on the right-hand side compares two spans
-			 * of the source against each other, which is how a
-			 * query asks whether two identifiers are the same. */
-			TSNode other;
-
-			if (match_capture(match, steps[i].value_id, &other)) {
-				char *rhs = node_text(data, other);
-
-				found = rhs && strcmp(text, rhs) == 0;
-				free(rhs);
-			}
-		}
 		result = not_eq ? !found : found;
 	} else if (match_p || not_mat) {
-		const char *pattern = count >= 3 ? step_string(query, &steps[2])
-		                                 : NULL;
-		regex_t     re;
-
-		if (pattern &&
-		    regcomp(&re, pattern, REG_EXTENDED | REG_NOSUB) == 0) {
-			bool hit = regexec(&re, text, 0, NULL, 0) == 0;
-
-			regfree(&re);
-			result = match_p ? hit : !hit;
-		} else {
-			/* An uncompilable pattern is the query author's
-			 * defect, and the safe reading of a filter that cannot
-			 * be applied is that nothing passes it. */
-			result = false;
-		}
+		result = regex_holds(query, steps, count, text, not_mat);
 	} else {
 		result = false;   /* an unrecognised filter rejects the match */
 	}
@@ -658,7 +678,7 @@ static int absent_add(FileMetrics *metrics, SpanList *spans, char *name,
 	 * cannot leave the name owned by the list and freed by the caller
 	 * too (HLR-125). */
 	if (spans->count == spans->capacity &&
-	    grow((void **)&spans->items, &spans->capacity,
+	    analyze_grow((void **)&spans->items, &spans->capacity,
 	         sizeof *spans->items) != 0)
 		return -1;
 
@@ -756,7 +776,7 @@ static int collect_absent_functions(const LanguageModule *module, Registry *reg,
 	 * happened to report before it. */
 	for (size_t i = 0; i < absent.count; i++) {
 		if (excluded->count == excluded->capacity &&
-		    grow((void **)&excluded->items, &excluded->capacity,
+		    analyze_grow((void **)&excluded->items, &excluded->capacity,
 		         sizeof *excluded->items) != 0)
 			goto cleanup;
 		excluded->items[excluded->count++] = absent.items[i];
@@ -838,7 +858,7 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 		 * from the one shown would let a statement count for a function
 		 * whose printed line range does not contain it. */
 		if (ranges->count == ranges->capacity &&
-		    grow((void **)&ranges->items, &ranges->capacity,
+		    analyze_grow((void **)&ranges->items, &ranges->capacity,
 		         sizeof *ranges->items) != 0)
 			return -1;
 
@@ -877,7 +897,7 @@ static int collect_comments(const LanguageModule *module, Registry *reg,
 				continue;
 
 			if (spans->count == spans->capacity &&
-			    grow((void **)&spans->items, &spans->capacity,
+			    analyze_grow((void **)&spans->items, &spans->capacity,
 			         sizeof *spans->items) != 0)
 				return -1;
 
@@ -1041,7 +1061,7 @@ static int span_add(SpanList *spans, uint32_t start, uint32_t end,
                     uint32_t start_line, uint32_t end_line)
 {
 	if (spans->count == spans->capacity &&
-	    grow((void **)&spans->items, &spans->capacity,
+	    analyze_grow((void **)&spans->items, &spans->capacity,
 	         sizeof *spans->items) != 0)
 		return -1;
 
@@ -1056,11 +1076,125 @@ static int span_add(SpanList *spans, uint32_t start, uint32_t end,
 static int condlist_add(CondList *list, const CondRegion *region)
 {
 	if (list->count == list->capacity &&
-	    grow((void **)&list->items, &list->capacity,
+	    analyze_grow((void **)&list->items, &list->capacity,
 	         sizeof *list->items) != 0)
 		return -1;
 	list->items[list->count++] = *region;
 	return 0;
+}
+
+/* Read one conditional match into a region.
+ *
+ * Returns false for a pattern that captures no region: it describes nothing
+ * this can act on, and is skipped rather than guessed at.
+ */
+static bool read_cond_region(const TSQuery *query, const TSQueryMatch *match,
+                             CondRegion *region)
+{
+	bool seen = false;
+
+	region->pattern = match->pattern_index;
+
+	for (uint16_t i = 0; i < match->capture_count; i++) {
+		uint32_t index = match->captures[i].index;
+		TSNode   node  = match->captures[i].node;
+
+		if (capture_is(query, index, CAPTURE_COND_REGION)) {
+			region->region_start = ts_node_start_byte(node);
+			region->region_end   = ts_node_end_byte(node);
+			seen                 = true;
+		} else if (capture_is(query, index, CAPTURE_COND_ALT)) {
+			region->alt_start = ts_node_start_byte(node);
+			region->alt_end   = ts_node_end_byte(node);
+			region->has_alt   = true;
+		} else if (capture_is(query, index, CAPTURE_COND_TRUE)) {
+			region->decided = true;
+			region->holds   = true;
+		} else if (capture_is(query, index, CAPTURE_COND_FALSE)) {
+			region->decided = true;
+			region->holds   = false;
+		} else if (capture_is(query, index, CAPTURE_COND_SYMBOL)) {
+			region->symbol     = node;
+			region->has_symbol = true;
+		} else if (capture_is(query, index, CAPTURE_COND_NEGATED)) {
+			region->negated = true;
+		}
+	}
+
+	return seen;
+}
+
+/* Every region the conditional query matched, in the order the cursor produced
+ * them.
+ */
+static int gather_cond_regions(const TSQuery *query, Registry *reg,
+                               const char *data, TSNode root, CondList *regions)
+{
+	TSQueryMatch match;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		CondRegion region = { 0 };
+
+		if (!predicates_hold(query, &match, data))
+			continue;
+
+		if (!read_cond_region(query, &match, &region))
+			continue;
+
+		if (condlist_add(regions, &region) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
+/* Exclude what one region's condition settles, or count it undecided.
+ *
+ * Returns 0, or -1 when a span cannot be recorded.
+ */
+static int apply_cond_region(const ElcOptions *opts, const char *data,
+                             const CondRegion *region, SpanList *spans,
+                             uint32_t *undecided)
+{
+	bool decided = region->decided;
+	bool holds   = region->holds;
+
+	if (!decided && region->has_symbol &&
+	    symbol_defined(opts, data, region->symbol)) {
+		/* Mentioned by a -D, so the definedness test has an answer. The
+		 * negated form is active while the symbol is *un*defined, so
+		 * being defined excludes it. */
+		decided = true;
+		holds   = !region->negated;
+	}
+
+	if (!decided) {
+		/* Either the query recognised nothing it could settle, or the
+		 * symbol was named by no -D. Both branches stay and the count
+		 * says how often that happened — the over-counting direction,
+		 * which is visible, rather than the under-counting one, which is
+		 * not (HLR-133). */
+		(*undecided)++;
+		return 0;
+	}
+
+	if (holds) {
+		/* Only the alternative goes; a region with none loses
+		 * nothing. */
+		if (region->has_alt &&
+		    span_add(spans, region->alt_start, region->alt_end, 0, 0) != 0)
+			return -1;
+		return 0;
+	}
+
+	/* Everything up to the alternative, or the whole region where there is
+	 * none. The directive lines go with it, which costs nothing: a directive
+	 * is not a statement, a decision, a call, or an access. */
+	uint32_t end = region->has_alt ? region->alt_start : region->region_end;
+
+	return span_add(spans, region->region_start, end, 0, 0);
 }
 
 /* Every region this configuration excludes, appended to `spans`, and the count
@@ -1075,61 +1209,16 @@ static int collect_inactive_regions(const LanguageModule *module, Registry *reg,
                                     TSNode root, SpanList *spans,
                                     uint32_t *undecided)
 {
-	TSQuery      *query = module->queries[QUERY_CONDITIONALS];
-	TSQueryMatch  match;
-	CondList      regions = { 0 };
-	int           status  = -1;
+	TSQuery *query = module->queries[QUERY_CONDITIONALS];
+	CondList regions = { 0 };
+	int      status  = -1;
 
 	*undecided = 0;
 	if (!query)
 		return 0;
 
-	ts_query_cursor_exec(reg->cursor, query, root);
-
-	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		CondRegion region = { 0 };
-		bool       seen   = false;
-
-		if (!predicates_hold(query, &match, data))
-			continue;
-
-		region.pattern = match.pattern_index;
-
-		for (uint16_t i = 0; i < match.capture_count; i++) {
-			uint32_t index = match.captures[i].index;
-			TSNode   node  = match.captures[i].node;
-
-			if (capture_is(query, index, CAPTURE_COND_REGION)) {
-				region.region_start = ts_node_start_byte(node);
-				region.region_end   = ts_node_end_byte(node);
-				seen                = true;
-			} else if (capture_is(query, index, CAPTURE_COND_ALT)) {
-				region.alt_start = ts_node_start_byte(node);
-				region.alt_end   = ts_node_end_byte(node);
-				region.has_alt   = true;
-			} else if (capture_is(query, index,
-			                      CAPTURE_COND_TRUE)) {
-				region.decided = true;
-				region.holds   = true;
-			} else if (capture_is(query, index,
-			                      CAPTURE_COND_FALSE)) {
-				region.decided = true;
-				region.holds   = false;
-			} else if (capture_is(query, index,
-			                      CAPTURE_COND_SYMBOL)) {
-				region.symbol     = node;
-				region.has_symbol = true;
-			} else if (capture_is(query, index,
-			                      CAPTURE_COND_NEGATED)) {
-				region.negated = true;
-			}
-		}
-
-		/* A pattern that captures no region describes nothing this can
-		 * act on. Skipped rather than guessed at. */
-		if (seen && condlist_add(&regions, &region) != 0)
-			goto done;
-	}
+	if (gather_cond_regions(query, reg, data, root, &regions) != 0)
+		goto done;
 
 	/* Guarded, and not as an optimisation: passing a null pointer to qsort
 	 * is undefined even with a count of zero, and a language whose module
@@ -1141,8 +1230,8 @@ static int collect_inactive_regions(const LanguageModule *module, Registry *reg,
 	for (size_t i = 0; i < regions.count; i++) {
 		const CondRegion *region = &regions.items[i];
 
-		/* One region, one decision: the earliest pattern that matched
-		 * it has already been sorted to the front. */
+		/* One region, one decision: the earliest pattern that matched it
+		 * has already been sorted to the front. */
 		if (i > 0 && regions.items[i - 1].region_start ==
 		                     region->region_start)
 			continue;
@@ -1152,47 +1241,8 @@ static int collect_inactive_regions(const LanguageModule *module, Registry *reg,
 		if (span_excluded(spans, region->region_start))
 			continue;
 
-		bool decided = region->decided;
-		bool holds   = region->holds;
-
-		if (!decided && region->has_symbol &&
-		    symbol_defined(opts, data, region->symbol)) {
-			/* Mentioned by a -D, so the definedness test has an
-			 * answer. The negated form is active while the symbol
-			 * is *un*defined, so being defined excludes it. */
-			decided = true;
-			holds   = !region->negated;
-		}
-
-		if (!decided) {
-			/* Either the query recognised nothing it could settle,
-			 * or the symbol was named by no -D. Both branches stay
-			 * and the count says how often that happened — the
-			 * over-counting direction, which is visible, rather
-			 * than the under-counting one, which is not
-			 * (HLR-133). */
-			(*undecided)++;
-			continue;
-		}
-
-		if (holds) {
-			/* Only the alternative goes; a region with none loses
-			 * nothing. */
-			if (region->has_alt &&
-			    span_add(spans, region->alt_start, region->alt_end,
-			             0, 0) != 0)
-				goto done;
-		} else {
-			/* Everything up to the alternative, or the whole
-			 * region where there is none. The directive lines go
-			 * with it, which costs nothing: a directive is not a
-			 * statement, a decision, a call, or an access. */
-			uint32_t end = region->has_alt ? region->alt_start
-			                               : region->region_end;
-
-			if (span_add(spans, region->region_start, end, 0, 0) != 0)
-				goto done;
-		}
+		if (apply_cond_region(opts, data, region, spans, undecided) != 0)
+			goto done;
 	}
 
 	status = 0;
@@ -1236,7 +1286,7 @@ static int collect_statements(const LanguageModule *module, Registry *reg,
 				continue;
 
 			if (sites->count == sites->capacity &&
-			    grow((void **)&sites->items, &sites->capacity,
+			    analyze_grow((void **)&sites->items, &sites->capacity,
 			         sizeof *sites->items) != 0)
 				return -1;
 
@@ -1358,7 +1408,7 @@ static int collect_calls(const LanguageModule *module, Registry *reg,
 
 			if (capture_is(query, index, CAPTURE_CALL_NAME)) {
 				if (facts->call_count == facts->call_capacity &&
-				    grow((void **)&facts->calls,
+				    analyze_grow((void **)&facts->calls,
 				         &facts->call_capacity,
 				         sizeof *facts->calls) != 0)
 					return -1;
@@ -1379,7 +1429,7 @@ static int collect_calls(const LanguageModule *module, Registry *reg,
 			                      CAPTURE_CALL_ADDRESS)) {
 				if (facts->address_taken_count ==
 				        facts->address_taken_capacity &&
-				    grow((void **)&facts->address_taken,
+				    analyze_grow((void **)&facts->address_taken,
 				         &facts->address_taken_capacity,
 				         sizeof *facts->address_taken) != 0)
 					return -1;
@@ -1439,7 +1489,7 @@ static int collect_globals(const LanguageModule *module, Registry *reg,
 				continue;
 
 			if (facts->global_count == facts->global_capacity &&
-			    grow((void **)&facts->globals,
+			    analyze_grow((void **)&facts->globals,
 			         &facts->global_capacity,
 			         sizeof *facts->globals) != 0)
 				return -1;
@@ -1492,7 +1542,7 @@ typedef struct {
 static int nodelist_add(NodeList *list, TSNode node)
 {
 	if (list->count == list->capacity &&
-	    grow((void **)&list->items, &list->capacity, sizeof *list->items) != 0)
+	    analyze_grow((void **)&list->items, &list->capacity, sizeof *list->items) != 0)
 		return -1;
 	list->items[list->count++] = node;
 	return 0;
@@ -1533,7 +1583,7 @@ static int dead_add(FileFacts *facts, const FnRangeIndex *ranges, TSNode node,
 		return 0;
 
 	if (facts->dead_count == facts->dead_capacity &&
-	    grow((void **)&facts->dead, &facts->dead_capacity,
+	    analyze_grow((void **)&facts->dead, &facts->dead_capacity,
 	         sizeof *facts->dead) != 0)
 		return -1;
 
@@ -1751,7 +1801,7 @@ static int collect_rule_matches(const LanguageModule *module, Registry *reg,
 
 				if (facts->rule_match_count ==
 				        facts->rule_match_capacity &&
-				    grow((void **)&facts->rule_matches,
+				    analyze_grow((void **)&facts->rule_matches,
 				         &facts->rule_match_capacity,
 				         sizeof *facts->rule_matches) != 0)
 					return -1;
@@ -1861,6 +1911,134 @@ static void apply_eloc(FileMetrics *metrics, SiteList *sites)
 	metrics->eloc = total;
 }
 
+/* The two records a measured file produces, and the strings they own outright.
+ *
+ * Returns 0 with both populated, or -1 after a diagnostic. On failure the
+ * caller's cleanup releases whatever was allocated.
+ */
+static int prepare_records(const LanguageModule *module, const char *path,
+                           FileMetrics **metrics_out, FileFacts **facts_out)
+{
+	FileMetrics *metrics = calloc(1, sizeof *metrics);
+	FileFacts   *facts   = calloc(1, sizeof *facts);
+
+	*metrics_out = metrics;
+	*facts_out   = facts;
+
+	if (metrics && facts) {
+		facts->path       = strdup(path);
+		metrics->path     = strdup(path);
+		metrics->language = strdup(module->language_name);
+	}
+
+	if (!metrics || !facts || !facts->path || !metrics->path ||
+	    !metrics->language) {
+		fprintf(stderr, "elc: out of memory measuring %s\n", path);
+		return -1;
+	}
+	return 0;
+}
+
+/* What every collector below must be able to ask about, gathered first.
+ *
+ * Comments, then the regions this configuration does not compile, and both into
+ * one set — because every collector asks the same question of it, and asking
+ * twice would be two mechanisms that could disagree (HLR-132).
+ *
+ * Before the functions, which is the ordering change conditional compilation
+ * forced: a function inside an inactive region must never reach the report, and
+ * the exclusion has to exist before anything consults it.
+ *
+ * The image is last of the three because it is the only one that needs the
+ * others settled — a function inside an inactive region was never built and is
+ * not one the linker discarded (HLR-144).
+ */
+static int build_exclusions(const LanguageModule *module, Registry *reg,
+                            const ElcOptions *opts, const SymbolSet *image,
+                            const char *data, TSNode root, const char *path,
+                            FileMetrics *metrics, SpanList *comments)
+{
+	if (collect_comments(module, reg, data, root, comments) != 0 ||
+	    collect_inactive_regions(module, reg, opts, data, root, comments,
+	                             &metrics->undecided_regions) != 0) {
+		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		return -1;
+	}
+	merge_comment_spans(comments);
+
+	if (collect_absent_functions(module, reg, image, data, root, comments,
+	                             metrics) != 0) {
+		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		return -1;
+	}
+	return 0;
+}
+
+/* Every measurement the file yields, each collector reading the same tree and
+ * the same exclusion set. The functions come first because the rest are located
+ * against their ranges.
+ */
+static int collect_all(const LanguageModule *module, Registry *reg,
+                       const char *data, TSNode root, const char *path,
+                       const SpanList *comments, FnRangeIndex *ranges,
+                       SiteList *sites, FileMetrics *metrics, FileFacts *facts)
+{
+	if (collect_functions(module, reg, data, root, comments, metrics,
+	                      ranges) != 0 ||
+	    collect_statements(module, reg, data, root, ranges, comments,
+	                       sites) != 0 ||
+	    collect_complexity(module, reg, data, root, ranges, comments,
+	                       metrics) != 0 ||
+	    collect_calls(module, reg, data, root, ranges, comments,
+	                  facts) != 0 ||
+	    collect_globals(module, reg, data, root, ranges, comments,
+	                    facts) != 0 ||
+	    collect_dead_code(module, reg, data, root, ranges, comments,
+	                      facts) != 0 ||
+	    collect_rule_matches(module, reg, data, root, comments,
+	                         facts) != 0) {
+		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		return -1;
+	}
+	return 0;
+}
+
+/* Tree-sitter always returns a tree, and error recovery keeps the well-formed
+ * parts of a damaged one intact. What cannot be parsed is measured and set
+ * aside; everything around it is analysed normally (HLR-035).
+ *
+ * **This used to discard the whole file, and that was too blunt by two orders
+ * of magnitude.** A single macro the grammar cannot follow — the
+ * `printf(BOLD FG_BLUE "%s")` idiom is one, since `tree-sitter-c` accepts only
+ * one identifier before the first string literal of a concatenation — damages a
+ * fraction of a percent of a file and cost every metric in it. On one embedded
+ * project that turned 0.1%–1.4% damage into the loss of half the codebase and
+ * 137 perfectly parsed functions.
+ *
+ * The original objection stands and is answered rather than dismissed: metrics
+ * from a damaged tree must not be mistakable for sound ones. So the damage is
+ * measured in lines, carried on the file, and reported beside the figures it
+ * qualifies — the same way the call depth is presented beside its
+ * unresolved-call count. A reader can see exactly how much of the file `elc`
+ * could not see.
+ */
+static void measure_damage(TSNode root, const char *path, FileMetrics *metrics)
+{
+	metrics->unparsed_lines = count_unparsed_lines(root);
+
+	if (!metrics->unparsed_lines)
+		return;
+
+	/* Names what was lost and where, rather than only that something was:
+	 * "skipped" told a reader nothing about the scale, and the scale is
+	 * usually a line or two. */
+	fprintf(stderr,
+	        "elc: %s:%" PRIu32 ": %" PRIu32 " line%s could not be "
+	        "parsed; the rest of the file is measured\n",
+	        path, first_unparsed_line(root), metrics->unparsed_lines,
+	        metrics->unparsed_lines == 1 ? "" : "s");
+}
+
 int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
                  const char *path, FileMetrics **out, FileFacts **facts_out)
 {
@@ -1897,29 +2075,8 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 		goto cleanup;
 	}
 
-	metrics = calloc(1, sizeof *metrics);
-	facts   = calloc(1, sizeof *facts);
-	if (!metrics || !facts) {
-		fprintf(stderr, "elc: out of memory measuring %s\n", path);
+	if (prepare_records(module, path, &metrics, &facts) != 0)
 		goto cleanup;
-	}
-
-	facts->path = strdup(path);
-	if (!facts->path) {
-		fprintf(stderr, "elc: out of memory measuring %s\n", path);
-		goto cleanup;
-	}
-
-	metrics->path = strdup(path);
-	if (!metrics->path) {
-		fprintf(stderr, "elc: out of memory measuring %s\n", path);
-		goto cleanup;
-	}
-	metrics->language = strdup(module->language_name);
-	if (!metrics->language) {
-		fprintf(stderr, "elc: out of memory measuring %s\n", path);
-		goto cleanup;
-	}
 
 	/* A zero-length file is short-circuited rather than mapped: mmap of an
 	 * empty file fails with EINVAL, and an empty file is not an error
@@ -1954,85 +2111,15 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 
 	TSNode root = ts_tree_root_node(tree);
 
-	/* Tree-sitter always returns a tree, and error recovery keeps the
-	 * well-formed parts of a damaged one intact. What cannot be parsed is
-	 * measured and set aside; everything around it is analysed normally
-	 * (HLR-035).
-	 *
-	 * **This used to discard the whole file, and that was too blunt by two
-	 * orders of magnitude.** A single macro the grammar cannot follow — the
-	 * `printf(BOLD FG_BLUE "%s")` idiom is one, since `tree-sitter-c`
-	 * accepts only one identifier before the first string literal of a
-	 * concatenation — damages a fraction of a percent of a file and cost
-	 * every metric in it. On one embedded project that turned 0.1%–1.4%
-	 * damage into the loss of half the codebase and 137 perfectly parsed
-	 * functions.
-	 *
-	 * The original objection stands and is answered rather than dismissed:
-	 * metrics from a damaged tree must not be mistakable for sound ones. So
-	 * the damage is measured in lines, carried on the file, and reported
-	 * beside the figures it qualifies — the same way the call depth is
-	 * presented beside its unresolved-call count. A reader can see exactly
-	 * how much of the file `elc` could not see. */
-	metrics->unparsed_lines = count_unparsed_lines(root);
+	measure_damage(root, path, metrics);
 
-	if (metrics->unparsed_lines) {
-		/* Names what was lost and where, rather than only that
-		 * something was: "skipped" told a reader nothing about the
-		 * scale, and the scale is usually a line or two. */
-		fprintf(stderr,
-		        "elc: %s:%" PRIu32 ": %" PRIu32 " line%s could not be "
-		        "parsed; the rest of the file is measured\n",
-		        path, first_unparsed_line(root), metrics->unparsed_lines,
-		        metrics->unparsed_lines == 1 ? "" : "s");
-	}
-
-	/* Comments first, then the regions this configuration does not
-	 * compile, and both into one set — because every collector below asks
-	 * the same question of it, and asking twice would be two mechanisms
-	 * that could disagree (HLR-132).
-	 *
-	 * Before the functions, which is the ordering change conditional
-	 * compilation forced: a function inside an inactive region must never
-	 * reach the report, and the exclusion has to exist before anything
-	 * consults it. */
-	if (collect_comments(module, reg, map, root, &comments) != 0 ||
-	    collect_inactive_regions(module, reg, opts, map, root, &comments,
-	                             &metrics->undecided_regions) != 0) {
-		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+	if (build_exclusions(module, reg, opts, image, map, root, path, metrics,
+	                     &comments) != 0)
 		goto cleanup;
-	}
-	merge_comment_spans(&comments);
 
-	/* And then the functions the linked image does not define, into the
-	 * same set and for the same reason: an exclusion must be complete
-	 * before anything consults it. The image is the last of the three
-	 * because it is the only one that needs the others settled — a
-	 * function inside an inactive region was never built and is not one
-	 * the linker discarded (HLR-144). */
-	if (collect_absent_functions(module, reg, image, map, root, &comments,
-	                             metrics) != 0) {
-		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+	if (collect_all(module, reg, map, root, path, &comments, &ranges,
+	                &sites, metrics, facts) != 0)
 		goto cleanup;
-	}
-
-	if (collect_functions(module, reg, map, root, &comments, metrics,
-	                      &ranges) != 0 ||
-	    collect_statements(module, reg, map, root, &ranges, &comments,
-	                       &sites) != 0 ||
-	    collect_complexity(module, reg, map, root, &ranges, &comments,
-	                       metrics) != 0 ||
-	    collect_calls(module, reg, map, root, &ranges, &comments,
-	                  facts) != 0 ||
-	    collect_globals(module, reg, map, root, &ranges, &comments,
-	                    facts) != 0 ||
-	    collect_dead_code(module, reg, map, root, &ranges, &comments,
-	                      facts) != 0 ||
-	    collect_rule_matches(module, reg, map, root, &comments,
-	                         facts) != 0) {
-		fprintf(stderr, "elc: out of memory analysing %s\n", path);
-		goto cleanup;
-	}
 
 	apply_eloc(metrics, &sites);
 

@@ -31,7 +31,7 @@
 
 /* ------------------------------------------------------------- utilities -- */
 
-static int grow(void **items, size_t *capacity, size_t item_size)
+static int arch_grow(void **items, size_t *capacity, size_t item_size)
 {
 	size_t next   = *capacity ? *capacity * 2 : 16;
 	void  *bigger = realloc(*items, next * item_size);
@@ -153,7 +153,7 @@ static bool find_loop(const Sdg *g, const size_t *group, size_t group_count,
 	return false;
 }
 
-static int cycle_add(const Sdg *g, ArchResults *out, size_t *members,
+static int arch_cycle_add(const Sdg *g, ArchResults *out, size_t *members,
                      size_t count)
 {
 	bool   *visited = calloc(g->component_count ? g->component_count : 1,
@@ -175,7 +175,7 @@ static int cycle_add(const Sdg *g, ArchResults *out, size_t *members,
 	free(visited);
 
 	if (out->cycle_count == out->cycle_capacity &&
-	    grow((void **)&out->cycles, &out->cycle_capacity,
+	    arch_grow((void **)&out->cycles, &out->cycle_capacity,
 	         sizeof *out->cycles) != 0) {
 		free(path);
 		return -1;
@@ -252,7 +252,7 @@ int find_cycles(const Sdg *g, ArchResults *out)
 			if (VECTOR(membership)[i] == c)
 				members[at++] = i;
 
-		if (cycle_add(g, out, members, n) != 0) {
+		if (arch_cycle_add(g, out, members, n) != 0) {
 			free(members);
 			goto cleanup;
 		}
@@ -334,7 +334,7 @@ static int violation_add(ArchResults *out, uint32_t from, uint32_t to,
                          LayerViolationKind kind, size_t crossed)
 {
 	if (out->violation_count == out->violation_capacity &&
-	    grow((void **)&out->violations, &out->violation_capacity,
+	    arch_grow((void **)&out->violations, &out->violation_capacity,
 	         sizeof *out->violations) != 0)
 		return -1;
 

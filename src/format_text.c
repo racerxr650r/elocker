@@ -370,670 +370,857 @@ static void summary_section(const Report *report, Style style, FILE *out)
  * One walk of the model, emitting every tier the uniform-composition rule
  * requires, in a fixed order (HLR-031, LLR-SUM-01, LLR-SUM-02).
  */
-int render_report(const Report *report, Style style, FILE *out)
+/* One function per section of the report, and a traversal that calls them in
+ * order.
+ *
+ * This was one function of 668 lines and a cyclomatic complexity of 83 — a
+ * sequence of brace-delimited blocks, each declaring its own column names,
+ * filling a grid and rendering it. The blocks were already the sections; only
+ * the braces around them said so, and nothing prevented one reaching into
+ * another's variables.
+ *
+ * Splitting them changes neither the order they run in nor what they emit,
+ * which is what LLR-SUM-02 and LLR-SUM-03 require: both human-facing formats
+ * still come from this one traversal, so a section cannot appear in the table
+ * and be forgotten in the Markdown. What changes is that a section is now a
+ * thing with a name, and the traversal is a list of them.
+ */
+static int callouts_section(const Report *report, Style style, FILE *out)
 {
 	Grid grid;
-	char a[32], b[32], c[32];
+	char a[32];
 
-	summary_section(report, style, out);
+	static const char *const names[]   = { "What", "Value", "Where" };
+	static const bool        numeric[] = { false, true, false };
+	const ProjectSummary    *sum       = &report->summary;
+	char                     where[2048];
 
-	{
-		static const char *const names[]   = { "What", "Value", "Where" };
-		static const bool        numeric[] = { false, true, false };
-		const ProjectSummary    *sum       = &report->summary;
-		char                     where[2048];
-
-		grid_begin(&grid, "Callouts", 3, names, numeric);
-		if (sum->largest_file) {
-			snprintf(a, sizeof a, "%" PRIu32, sum->largest_file_eloc);
-			grid_row(&grid, "Largest file", a, sum->largest_file);
-		}
-		if (sum->most_complex) {
-			snprintf(a, sizeof a, "%" PRIu32, sum->most_complex_value);
-			snprintf(where, sizeof where, "%s in %s",
-			         sum->most_complex, sum->most_complex_file);
-			grid_row(&grid, "Most complex", a, where);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
+	grid_begin(&grid, "Callouts", 3, names, numeric);
+	if (sum->largest_file) {
+		snprintf(a, sizeof a, "%" PRIu32, sum->largest_file_eloc);
+		grid_row(&grid, "Largest file", a, sum->largest_file);
 	}
-
-	{
-		static const char *const names[]   = { "Target", "Route" };
-
-		grid_begin(&grid, "Discovery", 2, names, NULL);
-		for (size_t i = 0; i < report->routes.count; i++)
-			grid_row(&grid, report->routes.items[i].target,
-			         report->routes.items[i].route == ROUTE_REPOSITORY
-			                 ? "repository" : "filesystem");
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
+	if (sum->most_complex) {
+		snprintf(a, sizeof a, "%" PRIu32, sum->most_complex_value);
+		snprintf(where, sizeof where, "%s in %s",
+		         sum->most_complex, sum->most_complex_file);
+		grid_row(&grid, "Most complex", a, where);
 	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
 
-	{
-		static const char *const names[]   = { "Language", "Files",
-		                                       "Lines", "ELOC" };
-		static const bool        numeric[] = { false, true, true, true };
+	return 0;
+}
 
-		grid_begin(&grid, "Languages", 4, names, numeric);
-		for (size_t i = 0; i < report->languages.count; i++) {
-			const LanguageTotals *l = &report->languages.items[i];
+static int discovery_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
 
-			snprintf(a, sizeof a, "%zu", l->file_count);
-			snprintf(b, sizeof b, "%" PRIu64, l->physical_lines);
-			snprintf(c, sizeof c, "%" PRIu64, l->eloc);
-			grid_row(&grid, l->language, a, b, c);
+	static const char *const names[]   = { "Target", "Route" };
+
+	grid_begin(&grid, "Discovery", 2, names, NULL);
+	for (size_t i = 0; i < report->routes.count; i++)
+		grid_row(&grid, report->routes.items[i].target,
+		         report->routes.items[i].route == ROUTE_REPOSITORY
+		                 ? "repository" : "filesystem");
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int languages_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+	char b[32];
+	char c[32];
+
+	static const char *const names[]   = { "Language", "Files",
+	                                       "Lines", "ELOC" };
+	static const bool        numeric[] = { false, true, true, true };
+
+	grid_begin(&grid, "Languages", 4, names, numeric);
+	for (size_t i = 0; i < report->languages.count; i++) {
+		const LanguageTotals *l = &report->languages.items[i];
+
+		snprintf(a, sizeof a, "%zu", l->file_count);
+		snprintf(b, sizeof b, "%" PRIu64, l->physical_lines);
+		snprintf(c, sizeof c, "%" PRIu64, l->eloc);
+		grid_row(&grid, l->language, a, b, c);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int files_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+	char b[32];
+	char c[32];
+
+	static const char *const names[]   = { "File", "Language",
+	                                       "Lines", "ELOC",
+	                                       "Functions" };
+	static const bool        numeric[] = { false, false, true,
+	                                       true, true };
+
+	grid_begin(&grid, "Files", 5, names, numeric);
+	for (size_t i = 0; i < report->file_count; i++) {
+		const FileMetrics *f = report->files[i];
+
+		snprintf(a, sizeof a, "%" PRIu32, f->physical_lines);
+		snprintf(b, sizeof b, "%" PRIu32, f->eloc);
+		snprintf(c, sizeof c, "%zu", f->function_count);
+		grid_row(&grid, f->path, f->language ? f->language : "",
+		         a, b, c);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int functions_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+	char b[32];
+	char c[32];
+
+	static const char *const names[]   = { "File", "Function",
+	                                       "Lines", "ELOC",
+	                                       "Complexity" };
+	static const bool        numeric[] = { false, false, true,
+	                                       true, true };
+
+	grid_begin(&grid, "Functions", 5, names, numeric);
+	for (size_t i = 0; i < report->file_count; i++) {
+		const FileMetrics *f = report->files[i];
+
+		for (size_t j = 0; j < f->function_count; j++) {
+			const FunctionMetric *fn = &f->functions[j];
+
+			snprintf(a, sizeof a, "%" PRIu32 "-%" PRIu32,
+			         fn->start_line, fn->end_line);
+			snprintf(b, sizeof b, "%" PRIu32, fn->eloc);
+			snprintf(c, sizeof c, "%" PRIu32, fn->complexity);
+			grid_row(&grid, f->path, fn->name, a, b, c);
 		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
 	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
 
-	{
-		static const char *const names[]   = { "File", "Language",
-		                                       "Lines", "ELOC",
-		                                       "Functions" };
-		static const bool        numeric[] = { false, false, true,
-		                                       true, true };
+	return 0;
+}
 
-		grid_begin(&grid, "Files", 5, names, numeric);
-		for (size_t i = 0; i < report->file_count; i++) {
-			const FileMetrics *f = report->files[i];
+static int threshold_listing_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
 
-			snprintf(a, sizeof a, "%" PRIu32, f->physical_lines);
-			snprintf(b, sizeof b, "%" PRIu32, f->eloc);
-			snprintf(c, sizeof c, "%zu", f->function_count);
-			grid_row(&grid, f->path, f->language ? f->language : "",
-			         a, b, c);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
+	static const char *const names[]   = { "File", "Function",
+	                                       "Complexity" };
+	static const bool        numeric[] = { false, false, true };
+	char                     heading[64];
+
+	snprintf(heading, sizeof heading,
+	         "At or over the complexity threshold (%" PRIu32 ")",
+	         report->complexity_threshold);
+
+	grid_begin(&grid, heading, 3, names, numeric);
+	for (size_t i = 0; i < report->over_threshold.count; i++) {
+		const ThresholdEntry *e = &report->over_threshold.items[i];
+
+		snprintf(a, sizeof a, "%" PRIu32, e->function->complexity);
+		grid_row(&grid, e->file, e->function->name, a);
 	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
 
-	{
-		static const char *const names[]   = { "File", "Function",
-		                                       "Lines", "ELOC",
-		                                       "Complexity" };
-		static const bool        numeric[] = { false, false, true,
-		                                       true, true };
+	return 0;
+}
 
-		grid_begin(&grid, "Functions", 5, names, numeric);
-		for (size_t i = 0; i < report->file_count; i++) {
-			const FileMetrics *f = report->files[i];
+static int fanout_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
 
-			for (size_t j = 0; j < f->function_count; j++) {
-				const FunctionMetric *fn = &f->functions[j];
+	static const char *const names[]   = { "File", "Function",
+	                                       "Fan-out" };
+	static const bool        numeric[] = { false, false, true };
 
-				snprintf(a, sizeof a, "%" PRIu32 "-%" PRIu32,
-				         fn->start_line, fn->end_line);
-				snprintf(b, sizeof b, "%" PRIu32, fn->eloc);
-				snprintf(c, sizeof c, "%" PRIu32, fn->complexity);
-				grid_row(&grid, f->path, fn->name, a, b, c);
-			}
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
+	grid_begin(&grid, "Fan-out (distinct callees)", 3, names,
+	           numeric);
+	for (size_t i = 0; i < report->fan_out_count; i++) {
+		const FanOutRow *r = &report->fan_out[i];
+
+		snprintf(a, sizeof a, "%" PRIu32, r->fan_out);
+		grid_row(&grid, r->file, r->function, a);
 	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
 
-	{
-		static const char *const names[]   = { "File", "Function",
-		                                       "Complexity" };
-		static const bool        numeric[] = { false, false, true };
-		char                     heading[64];
+	return 0;
+}
 
-		snprintf(heading, sizeof heading,
-		         "At or over the complexity threshold (%" PRIu32 ")",
-		         report->complexity_threshold);
+static int recursion_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
 
-		grid_begin(&grid, heading, 3, names, numeric);
-		for (size_t i = 0; i < report->over_threshold.count; i++) {
-			const ThresholdEntry *e = &report->over_threshold.items[i];
+	/* Recursion is presented as the cycle itself, not as a count:
+	 * "two cycles" tells the reader nothing to act on, and the
+	 * members are what MISRA C Rule 17.2 is about (HLR-089). */
+	static const char *const names[] = { "Kind", "Functions" };
 
-			snprintf(a, sizeof a, "%" PRIu32, e->function->complexity);
-			grid_row(&grid, e->file, e->function->name, a);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
+	grid_begin(&grid, "Recursion", 2, names, NULL);
+	for (size_t i = 0; i < report->cycle_count; i++) {
+		const CycleRow *c  = &report->cycles[i];
+		char            buf[512];
+		size_t          at = 0;
 
-	{
-		static const char *const names[]   = { "File", "Function",
-		                                       "Fan-out" };
-		static const bool        numeric[] = { false, false, true };
+		/* Members, comma-separated — not joined with arrows.
+		 * A strongly connected component is a *set*: every
+		 * member can reach every other, but the decomposition
+		 * does not yield an order, and "a -> b -> c" would
+		 * assert a path that may not exist. The set is the
+		 * true statement, and it is the one a reader needs:
+		 * breaking any edge among these functions breaks the
+		 * recursion. */
+		buf[0] = '\0';
+		for (size_t m = 0; m < c->count; m++) {
+			int n = snprintf(buf + at, sizeof buf - at,
+			                 "%s%s", m ? ", " : "",
+			                 c->members[m]);
 
-		grid_begin(&grid, "Fan-out (distinct callees)", 3, names,
-		           numeric);
-		for (size_t i = 0; i < report->fan_out_count; i++) {
-			const FanOutRow *r = &report->fan_out[i];
-
-			snprintf(a, sizeof a, "%" PRIu32, r->fan_out);
-			grid_row(&grid, r->file, r->function, a);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* Recursion is presented as the cycle itself, not as a count:
-		 * "two cycles" tells the reader nothing to act on, and the
-		 * members are what MISRA C Rule 17.2 is about (HLR-089). */
-		static const char *const names[] = { "Kind", "Functions" };
-
-		grid_begin(&grid, "Recursion", 2, names, NULL);
-		for (size_t i = 0; i < report->cycle_count; i++) {
-			const CycleRow *c  = &report->cycles[i];
-			char            buf[512];
-			size_t          at = 0;
-
-			/* Members, comma-separated — not joined with arrows.
-			 * A strongly connected component is a *set*: every
-			 * member can reach every other, but the decomposition
-			 * does not yield an order, and "a -> b -> c" would
-			 * assert a path that may not exist. The set is the
-			 * true statement, and it is the one a reader needs:
-			 * breaking any edge among these functions breaks the
-			 * recursion. */
-			buf[0] = '\0';
-			for (size_t m = 0; m < c->count; m++) {
-				int n = snprintf(buf + at, sizeof buf - at,
-				                 "%s%s", m ? ", " : "",
-				                 c->members[m]);
-
-				if (n < 0 || (size_t)n >= sizeof buf - at)
-					break;
-				at += (size_t)n;
-			}
-			grid_row(&grid, c->count == 1 ? "direct" : "mutual",
-			         buf);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* The depth and the chain that achieves it. Four outcomes, and
-		 * the heading says which one happened: a reader who sees no
-		 * number must not have to guess whether the analysis was
-		 * omitted, unbounded, or simply zero (HLR-087, HLR-090,
-		 * HLR-115). */
-		static const char *const names[] = { "Step", "File", "Function" };
-		char                     heading[192];
-
-		switch (report->depth_state) {
-		case DEPTH_MEASURED:
-			snprintf(heading, sizeof heading,
-			         "Deepest call chain (%" PRIu32 " layers; a lower "
-			         "bound, %zu calls unresolved)",
-			         report->depth, report->unresolved_calls);
-			break;
-		case DEPTH_UNBOUNDED_RECURSION:
-			snprintf(heading, sizeof heading,
-			         "Deepest call chain (unbounded: the call graph "
-			         "is recursive)");
-			break;
-		case DEPTH_OMITTED_ENTRY_UNRESOLVED:
-			snprintf(heading, sizeof heading,
-			         "Deepest call chain (omitted: no declared entry "
-			         "point matches an analysed function)");
-			break;
-		case DEPTH_OMITTED_NO_ENTRY_POINTS:
-		default:
-			snprintf(heading, sizeof heading,
-			         "Deepest call chain (omitted: no entry points "
-			         "declared, see --entry)");
-			break;
-		}
-
-		grid_begin(&grid, heading, 3, names, NULL);
-		for (size_t i = 0; i < report->deepest_count; i++) {
-			const ChainRow *r = &report->deepest[i];
-
-			snprintf(a, sizeof a, "%zu", i + 1);
-			grid_row(&grid, a, r->file, r->function);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* Coupling per component, with Instability beside it. The
-		 * attribution sits in the heading rather than in a column of
-		 * identical citations: it belongs to the metric, not to any one
-		 * row (HLR-082, LLR-INS-03).
-		 *
-		 * Reported for every component whether or not anything crossed
-		 * a line — a value inside its accepted band is still a
-		 * measurement the reader asked for. */
-		static const char *const names[]   = { "Component", "Ca", "Ce",
-		                                       "Instability", "Finding" };
-		static const bool        numeric[] = { false, true, true, true,
-		                                       false };
-		char                     heading[192];
-
-		snprintf(heading, sizeof heading,
-		         "Component coupling (I = Ce/(Ce+Ca), %s; bottleneck "
-		         "at Ca and Ce >= %" PRIu32 ")",
-		         threshold_attribution(MEASURE_INSTABILITY),
-		         report->bottleneck_threshold);
-
-		grid_begin(&grid, heading, 5, names, numeric);
-		for (size_t i = 0; i < report->coupling_count; i++) {
-			const CouplingRow *r = &report->coupling[i];
-
-			snprintf(a, sizeof a, "%" PRIu32, r->ca);
-			snprintf(b, sizeof b, "%" PRIu32, r->ce);
-			grid_row(&grid, r->component, a, b, r->instability,
-			         r->bottleneck
-			                 ? threshold_attribution(MEASURE_BOTTLENECK)
-			                 : "");
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* Circular dependencies between *components*, which is a
-		 * different fact from recursion between functions: two
-		 * mutually recursive functions in one file appear in the
-		 * Recursion section above and not here, because a file does
-		 * not depend on itself (HLR-083, HLR-114).
-		 *
-		 * Two columns because one alone misleads. The group is what
-		 * has to be broken up; the loop is which edge to cut. */
-		static const char *const names[] = { "Components",
-		                                     "Example loop" };
-
-		grid_begin(&grid, "Component dependency cycles", 2, names, NULL);
-		for (size_t i = 0; i < report->dep_cycle_count; i++)
-			grid_row(&grid, report->dep_cycles[i].components,
-			         report->dep_cycles[i].path);
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* Skip-level and direction-inverted, in one table and as
-		 * distinct kinds. A call ascending two layers appears twice,
-		 * because both statements are true of it and each has its own
-		 * remedy (HLR-079, HLR-118, LLR-LAY-03). */
-		static const char *const names[] = { "Kind", "From", "Function",
-		                                     "To", "Function",
-		                                     "Layers" };
-		static const bool        numeric[] = { false, false, false,
-		                                       false, false, true };
-		char                     heading[160];
-
-		if (report->strata_state == STRATA_MEASURED)
-			snprintf(heading, sizeof heading, "Layering (%zu)",
-			         report->layering_count);
-		else
-			snprintf(heading, sizeof heading,
-			         "Layering (omitted: no architectural strata "
-			         "declared, see --stratum)");
-
-		grid_begin(&grid, heading, 6, names, numeric);
-		for (size_t i = 0; i < report->layering_count; i++) {
-			const LayeringRow *r = &report->layering[i];
-
-			snprintf(a, sizeof a, "%" PRIu32, r->layers_crossed);
-			grid_row(&grid,
-			         r->kind == LAYER_SKIP_LEVEL ? "skip-level"
-			                                     : "inverted",
-			         r->from_stratum, r->from_function,
-			         r->to_stratum, r->to_function, a);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* Every global object, with the functions that write it and
-		 * the functions that read it, and the verdict on the pair
-		 * (HLR-091 – HLR-093). Reported whether or not anything
-		 * crossed a line: a value inside its accepted band is still a
-		 * measurement the reader asked for.
-		 *
-		 * The finding travels with its attribution, so a reader can
-		 * see what published rule the judgement rests on rather than
-		 * taking elc's word for it (HLR-099, LLR-GLB-04). */
-		static const char *const names[] = { "Object", "Writers",
-		                                     "Readers", "Finding" };
-
-		grid_begin(&grid, "Global state", 4, names, NULL);
-		for (size_t i = 0; i < report->global_state_count; i++) {
-			const GlobalStateRow *r     = &report->global_state[i];
-			const char           *where =
-				global_verdict_attribution(r->verdict);
-			char                  finding[1024];
-
-			switch (r->verdict) {
-			case GLOBAL_SCOPE_REDUCTION:
-				snprintf(finding, sizeof finding,
-				         "scope reduction — one function names "
-				         "it (%s)", where);
-				break;
-			case GLOBAL_HIDDEN_CHANNEL:
-				snprintf(finding, sizeof finding,
-				         "hidden channel — %s never call each "
-				         "other (%s)", r->participants, where);
-				break;
-			case GLOBAL_ORDINARY:
-			default:
-				finding[0] = '\0';
-				break;
-			}
-			grid_row(&grid, r->object, r->writers, r->readers,
-			         finding);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* The headline claim, and the heading says on what basis it
-		 * was or was not made. With no entry points declared nothing
-		 * is listed here — and the heading says *that*, rather than
-		 * leaving an empty table that reads as a clean bill of health
-		 * (HLR-096, HLR-115). */
-		static const char *const names[]   = { "File", "Function",
-		                                       "Line" };
-		static const bool        numeric[] = { false, false, true };
-		char                     heading[192];
-
-		switch (report->reach_state) {
-		case REACH_MEASURED:
-			snprintf(heading, sizeof heading,
-			         "Unreachable functions (%zu; from the declared "
-			         "entry points and every address-taken "
-			         "function)", report->unreachable_count);
-			break;
-		case REACH_OMITTED_ENTRY_UNRESOLVED:
-			snprintf(heading, sizeof heading,
-			         "Unreachable functions (omitted: no declared "
-			         "entry point matches an analysed function)");
-			break;
-		case REACH_OMITTED_NO_ENTRY_POINTS:
-		default:
-			snprintf(heading, sizeof heading,
-			         "Unreachable functions (omitted: no entry "
-			         "points declared, see --entry)");
-			break;
-		}
-
-		grid_begin(&grid, heading, 3, names, numeric);
-		for (size_t i = 0; i < report->unreachable_count; i++) {
-			const UnreachableRow *r = &report->unreachable[i];
-
-			snprintf(a, sizeof a, "%" PRIu32, r->line);
-			grid_row(&grid, r->file, r->function, a);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* Data the same traversal condemned: an object every one of
-		 * whose accessing functions is itself unreachable (HLR-096). */
-		static const char *const names[] = { "Object" };
-
-		grid_begin(&grid,
-		           "Unreachable globals (touched only by unreachable "
-		           "functions)", 1, names, NULL);
-		for (size_t i = 0; i < report->unreachable_global_count; i++)
-			grid_row(&grid, report->unreachable_globals[i]);
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* The other dead-code question, answered by a different means
-		 * against a different scope. A function may be perfectly
-		 * reachable and still contain statements that are not, so
-		 * neither analysis subsumes the other and both are reported
-		 * (HLR-137, LLR-DED-06).
-		 *
-		 * The heading names the languages the analysis was *not*
-		 * performed for. An empty table under a language with no
-		 * dead-code query would otherwise read as a clean file, which
-		 * is a claim elc has not made (HLR-139). */
-		static const char *const names[] = { "File", "Function",
-		                                     "Lines", "Cause" };
-		char                     heading[512];
-		char                     langs[256];
-		size_t                   at = 0;
-
-		langs[0] = '\0';
-		for (size_t i = 0; i < report->dead_unanalysed.count; i++) {
-			int n = snprintf(langs + at, sizeof langs - at, "%s%s",
-			                 i ? ", " : "",
-			                 report->dead_unanalysed.paths[i]);
-
-			if (n < 0 || (size_t)n >= sizeof langs - at)
+			if (n < 0 || (size_t)n >= sizeof buf - at)
 				break;
 			at += (size_t)n;
 		}
-
-		if (report->dead_unanalysed.count == 0)
-			snprintf(heading, sizeof heading,
-			         "Dead code within functions (every language "
-			         "analysed)");
-		else
-			snprintf(heading, sizeof heading,
-			         "Dead code within functions (not analysed "
-			         "for: %s)", langs);
-
-		grid_begin(&grid, heading, 4, names, NULL);
-		for (size_t i = 0; i < report->dead_count; i++) {
-			const DeadRow *r = &report->dead[i];
-
-			snprintf(a, sizeof a, "%" PRIu32 "-%" PRIu32,
-			         r->start_line, r->end_line);
-			grid_row(&grid, r->file, r->function, a,
-			         r->cause == DEAD_LITERAL_CONDITION
-			                 ? "literal condition"
-			                 : "after a terminator");
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
+		grid_row(&grid, c->count == 1 ? "direct" : "mutual",
+		         buf);
 	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
 
-	{
-		/* Every call and every shared global by which one declared
-		 * execution scope reaches another. Both kinds, because a scope
-		 * that never calls into another but writes a variable the
-		 * other reads has not been isolated (HLR-094). */
-		static const char *const names[] = { "From", "Function", "To",
-		                                     "Function", "Via" };
-		char                     heading[160];
+	return 0;
+}
 
-		if (report->scope_state == SCOPES_MEASURED)
-			snprintf(heading, sizeof heading,
-			         "Cross-scope access (%zu)",
-			         report->cross_scope_count);
-		else
-			snprintf(heading, sizeof heading,
-			         "Cross-scope access (omitted: no execution "
-			         "scopes declared, see --scope)");
+static int deepest_chain_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
 
-		grid_begin(&grid, heading, 5, names, NULL);
-		for (size_t i = 0; i < report->cross_scope_count; i++) {
-			const CrossScopeRow *r = &report->cross_scope[i];
+	/* The depth and the chain that achieves it. Four outcomes, and
+	 * the heading says which one happened: a reader who sees no
+	 * number must not have to guess whether the analysis was
+	 * omitted, unbounded, or simply zero (HLR-087, HLR-090,
+	 * HLR-115). */
+	static const char *const names[] = { "Step", "File", "Function" };
+	char                     heading[192];
 
-			grid_row(&grid, r->from_scope, r->from_function,
-			         r->to_scope, r->to_function,
-			         r->object && *r->object ? r->object : "call");
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* Every measurement that crossed a published line, ranked most
-		 * severe first, each naming the source that draws the line.
-		 *
-		 * **Additional to the tables above, never a replacement for
-		 * them.** A measurement inside its accepted band is still
-		 * reported where it was measured (HLR-031); this section is
-		 * the subset a reader acts on, and its emptiness is a result
-		 * rather than an absence of information.
-		 *
-		 * No row advises. Each says what was measured, where, and
-		 * which standard places it outside the range — and stops
-		 * (HLR-101). */
-		static const char *const names[]   = { "Severity", "Measurement",
-		                                       "Subject", "Detail",
-		                                       "Source" };
-
-		grid_begin(&grid, "Findings", 5, names, NULL);
-		for (size_t i = 0; i < report->finding_count; i++) {
-			const FindingRow *r = &report->findings[i];
-
-			grid_row(&grid, r->severity, r->measurement, r->subject,
-			         r->detail, r->source);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	{
-		/* The configuration these figures describe.
-		 *
-		 * A section rather than a summary line, because a definition is
-		 * a string and there may be several. Emitted whether or not any
-		 * was supplied: "measured with no definitions" and "measured
-		 * with these" are different claims, and a reader of a report
-		 * that showed nothing could not tell which they had
-		 * (HLR-031, HLR-136). */
-		static const char *const names[] = { "Definition" };
-		char                     heading[96];
-
+	switch (report->depth_state) {
+	case DEPTH_MEASURED:
 		snprintf(heading, sizeof heading,
-		         "Conditional-compilation definitions (%zu)",
-		         report->definition_count);
-		grid_begin(&grid, heading, 1, names, NULL);
-		for (size_t i = 0; i < report->definition_count; i++)
-			grid_row(&grid, report->definitions[i]);
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-	}
-
-	if (report->image) {
-		/* The linked image these figures describe, and both directions
-		 * of mismatch against it.
-		 *
-		 * **Emitted only for a filtered run**, which is the one place
-		 * the uniform-composition rule gives way and does so by
-		 * requirement rather than by preference: HLR-140 says a run
-		 * without the option reports exactly what it reported before
-		 * the option existed, and an empty section is not nothing.
-		 *
-		 * The two counts are different claims and are labelled as
-		 * such. The unresolved count states how complete the filter
-		 * is, as the unresolved-call count states how complete the
-		 * graph is; the list below states what the build did not keep
-		 * (HLR-143, LLR-SUM-06). */
-		static const char *const names[]   = { "Property", "Value" };
-		static const bool        numeric[] = { false, false };
-
-		grid_begin(&grid, "Linked-image filter", 2, names, numeric);
-		grid_row(&grid, "Image", report->image);
-		snprintf(a, sizeof a, "%" PRIu64, report->image_unresolved);
-		grid_row(&grid, "Unresolved linkage names", a);
-		/* The one figure the filter did not narrow. Folding it into
-		 * the totals would leave a reader unable to tell a file of
-		 * retained functions from a file of retained data (HLR-145). */
-		snprintf(b, sizeof b, "%" PRIu64, report->file_scope_eloc);
-		grid_row(&grid, "ELOC outside any function", b);
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
-
-		static const char *const absent_names[] = { "Function", "File",
-		                                            "Line" };
-		char                     heading[96];
-
+		         "Deepest call chain (%" PRIu32 " layers; a lower "
+		         "bound, %zu calls unresolved)",
+		         report->depth, report->unresolved_calls);
+		break;
+	case DEPTH_UNBOUNDED_RECURSION:
 		snprintf(heading, sizeof heading,
-		         "Functions the image does not define (%zu)",
-		         report->absent_count);
-		grid_begin(&grid, heading, 3, absent_names, NULL);
-		for (size_t i = 0; i < report->absent_count; i++) {
-			const AbsentRow *r = &report->absent[i];
+		         "Deepest call chain (unbounded: the call graph "
+		         "is recursive)");
+		break;
+	case DEPTH_OMITTED_ENTRY_UNRESOLVED:
+		snprintf(heading, sizeof heading,
+		         "Deepest call chain (omitted: no declared entry "
+		         "point matches an analysed function)");
+		break;
+	case DEPTH_OMITTED_NO_ENTRY_POINTS:
+	default:
+		snprintf(heading, sizeof heading,
+		         "Deepest call chain (omitted: no entry points "
+		         "declared, see --entry)");
+		break;
+	}
 
-			snprintf(c, sizeof c, "%" PRIu32, r->line);
-			grid_row(&grid, r->function, r->file, c);
+	grid_begin(&grid, heading, 3, names, NULL);
+	for (size_t i = 0; i < report->deepest_count; i++) {
+		const ChainRow *r = &report->deepest[i];
+
+		snprintf(a, sizeof a, "%zu", i + 1);
+		grid_row(&grid, a, r->file, r->function);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int coupling_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+	char b[32];
+
+	/* Coupling per component, with Instability beside it. The
+	 * attribution sits in the heading rather than in a column of
+	 * identical citations: it belongs to the metric, not to any one
+	 * row (HLR-082, LLR-INS-03).
+	 *
+	 * Reported for every component whether or not anything crossed
+	 * a line — a value inside its accepted band is still a
+	 * measurement the reader asked for. */
+	static const char *const names[]   = { "Component", "Ca", "Ce",
+	                                       "Instability", "Finding" };
+	static const bool        numeric[] = { false, true, true, true,
+	                                       false };
+	char                     heading[192];
+
+	snprintf(heading, sizeof heading,
+	         "Component coupling (I = Ce/(Ce+Ca), %s; bottleneck "
+	         "at Ca and Ce >= %" PRIu32 ")",
+	         threshold_attribution(MEASURE_INSTABILITY),
+	         report->bottleneck_threshold);
+
+	grid_begin(&grid, heading, 5, names, numeric);
+	for (size_t i = 0; i < report->coupling_count; i++) {
+		const CouplingRow *r = &report->coupling[i];
+
+		snprintf(a, sizeof a, "%" PRIu32, r->ca);
+		snprintf(b, sizeof b, "%" PRIu32, r->ce);
+		grid_row(&grid, r->component, a, b, r->instability,
+		         r->bottleneck
+		                 ? threshold_attribution(MEASURE_BOTTLENECK)
+		                 : "");
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int dependency_cycles_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+
+	/* Circular dependencies between *components*, which is a
+	 * different fact from recursion between functions: two
+	 * mutually recursive functions in one file appear in the
+	 * Recursion section above and not here, because a file does
+	 * not depend on itself (HLR-083, HLR-114).
+	 *
+	 * Two columns because one alone misleads. The group is what
+	 * has to be broken up; the loop is which edge to cut. */
+	static const char *const names[] = { "Components",
+	                                     "Example loop" };
+
+	grid_begin(&grid, "Component dependency cycles", 2, names, NULL);
+	for (size_t i = 0; i < report->dep_cycle_count; i++)
+		grid_row(&grid, report->dep_cycles[i].components,
+		         report->dep_cycles[i].path);
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int layering_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+
+	/* Skip-level and direction-inverted, in one table and as
+	 * distinct kinds. A call ascending two layers appears twice,
+	 * because both statements are true of it and each has its own
+	 * remedy (HLR-079, HLR-118, LLR-LAY-03). */
+	static const char *const names[] = { "Kind", "From", "Function",
+	                                     "To", "Function",
+	                                     "Layers" };
+	static const bool        numeric[] = { false, false, false,
+	                                       false, false, true };
+	char                     heading[160];
+
+	if (report->strata_state == STRATA_MEASURED)
+		snprintf(heading, sizeof heading, "Layering (%zu)",
+		         report->layering_count);
+	else
+		snprintf(heading, sizeof heading,
+		         "Layering (omitted: no architectural strata "
+		         "declared, see --stratum)");
+
+	grid_begin(&grid, heading, 6, names, numeric);
+	for (size_t i = 0; i < report->layering_count; i++) {
+		const LayeringRow *r = &report->layering[i];
+
+		snprintf(a, sizeof a, "%" PRIu32, r->layers_crossed);
+		grid_row(&grid,
+		         r->kind == LAYER_SKIP_LEVEL ? "skip-level"
+		                                     : "inverted",
+		         r->from_stratum, r->from_function,
+		         r->to_stratum, r->to_function, a);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int global_state_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+
+	/* Every global object, with the functions that write it and
+	 * the functions that read it, and the verdict on the pair
+	 * (HLR-091 – HLR-093). Reported whether or not anything
+	 * crossed a line: a value inside its accepted band is still a
+	 * measurement the reader asked for.
+	 *
+	 * The finding travels with its attribution, so a reader can
+	 * see what published rule the judgement rests on rather than
+	 * taking elc's word for it (HLR-099, LLR-GLB-04). */
+	static const char *const names[] = { "Object", "Writers",
+	                                     "Readers", "Finding" };
+
+	grid_begin(&grid, "Global state", 4, names, NULL);
+	for (size_t i = 0; i < report->global_state_count; i++) {
+		const GlobalStateRow *r     = &report->global_state[i];
+		const char           *where =
+			global_verdict_attribution(r->verdict);
+		char                  finding[1024];
+
+		switch (r->verdict) {
+		case GLOBAL_SCOPE_REDUCTION:
+			snprintf(finding, sizeof finding,
+			         "scope reduction — one function names "
+			         "it (%s)", where);
+			break;
+		case GLOBAL_HIDDEN_CHANNEL:
+			snprintf(finding, sizeof finding,
+			         "hidden channel — %s never call each "
+			         "other (%s)", r->participants, where);
+			break;
+		case GLOBAL_ORDINARY:
+		default:
+			finding[0] = '\0';
+			break;
 		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
+		grid_row(&grid, r->object, r->writers, r->readers,
+		         finding);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int unreachable_functions_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+
+	/* The headline claim, and the heading says on what basis it
+	 * was or was not made. With no entry points declared nothing
+	 * is listed here — and the heading says *that*, rather than
+	 * leaving an empty table that reads as a clean bill of health
+	 * (HLR-096, HLR-115). */
+	static const char *const names[]   = { "File", "Function",
+	                                       "Line" };
+	static const bool        numeric[] = { false, false, true };
+	char                     heading[192];
+
+	switch (report->reach_state) {
+	case REACH_MEASURED:
+		snprintf(heading, sizeof heading,
+		         "Unreachable functions (%zu; from the declared "
+		         "entry points and every address-taken "
+		         "function)", report->unreachable_count);
+		break;
+	case REACH_OMITTED_ENTRY_UNRESOLVED:
+		snprintf(heading, sizeof heading,
+		         "Unreachable functions (omitted: no declared "
+		         "entry point matches an analysed function)");
+		break;
+	case REACH_OMITTED_NO_ENTRY_POINTS:
+	default:
+		snprintf(heading, sizeof heading,
+		         "Unreachable functions (omitted: no entry "
+		         "points declared, see --entry)");
+		break;
 	}
 
-	{
-		/* What the user's own rules matched.
-		 *
-		 * **Beside the findings and deliberately not among them.** A
-		 * finding is a measurement `elc` banded against a published
-		 * threshold and can name the source that draws the line. A rule
-		 * match is a query somebody else wrote, and `elc` has no view
-		 * about whether it was worth writing — so there is no severity
-		 * column here and no source column, because there is nothing
-		 * honest to put in either (HLR-109, HLR-111).
-		 *
-		 * Emitted whether or not any rule was supplied, like every
-		 * other section: an absent section and an empty one are
-		 * different claims (HLR-031). */
-		static const char *const names[] = { "Rule", "File", "Lines" };
+	grid_begin(&grid, heading, 3, names, numeric);
+	for (size_t i = 0; i < report->unreachable_count; i++) {
+		const UnreachableRow *r = &report->unreachable[i];
 
-		snprintf(a, sizeof a, "Custom rule matches (%zu)",
-		         report->rule_match_count);
-		grid_begin(&grid, a, 3, names, NULL);
-		for (size_t i = 0; i < report->rule_match_count; i++) {
-			const RuleMatchRow *r = &report->rule_matches[i];
-			char                lines[32];
+		snprintf(a, sizeof a, "%" PRIu32, r->line);
+		grid_row(&grid, r->file, r->function, a);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
 
-			snprintf(lines, sizeof lines, "%" PRIu32 "-%" PRIu32,
-			         r->start_line, r->end_line);
-			grid_row(&grid, r->rule, r->file, lines);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
+	return 0;
+}
+
+static int unreachable_globals_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+
+	/* Data the same traversal condemned: an object every one of
+	 * whose accessing functions is itself unreachable (HLR-096). */
+	static const char *const names[] = { "Object" };
+
+	grid_begin(&grid,
+	           "Unreachable globals (touched only by unreachable "
+	           "functions)", 1, names, NULL);
+	for (size_t i = 0; i < report->unreachable_global_count; i++)
+		grid_row(&grid, report->unreachable_globals[i]);
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int dead_code_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+
+	/* The other dead-code question, answered by a different means
+	 * against a different scope. A function may be perfectly
+	 * reachable and still contain statements that are not, so
+	 * neither analysis subsumes the other and both are reported
+	 * (HLR-137, LLR-DED-06).
+	 *
+	 * The heading names the languages the analysis was *not*
+	 * performed for. An empty table under a language with no
+	 * dead-code query would otherwise read as a clean file, which
+	 * is a claim elc has not made (HLR-139). */
+	static const char *const names[] = { "File", "Function",
+	                                     "Lines", "Cause" };
+	char                     heading[512];
+	char                     langs[256];
+	size_t                   at = 0;
+
+	langs[0] = '\0';
+	for (size_t i = 0; i < report->dead_unanalysed.count; i++) {
+		int n = snprintf(langs + at, sizeof langs - at, "%s%s",
+		                 i ? ", " : "",
+		                 report->dead_unanalysed.paths[i]);
+
+		if (n < 0 || (size_t)n >= sizeof langs - at)
+			break;
+		at += (size_t)n;
 	}
 
-	{
-		/* The files whose measurements are partial, and by how much.
-		 * A file here *is* measured — its functions appear in every
-		 * table above — and this says how much of it the grammar could
-		 * not follow, so a partial figure is never mistaken for a
-		 * complete one (HLR-035).
-		 *
-		 * A section rather than a column on the Files table: the
-		 * number is zero for almost every file in almost every
-		 * project, and a column of zeros hides the rows that matter. */
-		static const char *const names[]   = { "File", "Unparsed lines" };
-		static const bool        numeric[] = { false, true };
+	if (report->dead_unanalysed.count == 0)
+		snprintf(heading, sizeof heading,
+		         "Dead code within functions (every language "
+		         "analysed)");
+	else
+		snprintf(heading, sizeof heading,
+		         "Dead code within functions (not analysed "
+		         "for: %s)", langs);
 
-		grid_begin(&grid,
-		           "Partially parsed files (measured except for these "
-		           "lines)", 2, names, numeric);
-		for (size_t i = 0; i < report->file_count; i++) {
-			const FileMetrics *f = report->files[i];
+	grid_begin(&grid, heading, 4, names, NULL);
+	for (size_t i = 0; i < report->dead_count; i++) {
+		const DeadRow *r = &report->dead[i];
 
-			if (!f->unparsed_lines)
-				continue;
-			snprintf(a, sizeof a, "%" PRIu32, f->unparsed_lines);
-			grid_row(&grid, f->path, a);
-		}
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
+		snprintf(a, sizeof a, "%" PRIu32 "-%" PRIu32,
+		         r->start_line, r->end_line);
+		grid_row(&grid, r->file, r->function, a,
+		         r->cause == DEAD_LITERAL_CONDITION
+		                 ? "literal condition"
+		                 : "after a terminator");
 	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
 
-	{
-		static const char *const names[] = { "File" };
+	return 0;
+}
 
-		grid_begin(&grid, "Skipped files (no language module)", 1,
-		           names, NULL);
-		for (size_t i = 0; i < report->skipped_files.count; i++)
-			grid_row(&grid, report->skipped_files.paths[i]);
-		if (grid_render(&grid, style, out) != 0)
-			return -1;
+static int cross_scope_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+
+	/* Every call and every shared global by which one declared
+	 * execution scope reaches another. Both kinds, because a scope
+	 * that never calls into another but writes a variable the
+	 * other reads has not been isolated (HLR-094). */
+	static const char *const names[] = { "From", "Function", "To",
+	                                     "Function", "Via" };
+	char                     heading[160];
+
+	if (report->scope_state == SCOPES_MEASURED)
+		snprintf(heading, sizeof heading,
+		         "Cross-scope access (%zu)",
+		         report->cross_scope_count);
+	else
+		snprintf(heading, sizeof heading,
+		         "Cross-scope access (omitted: no execution "
+		         "scopes declared, see --scope)");
+
+	grid_begin(&grid, heading, 5, names, NULL);
+	for (size_t i = 0; i < report->cross_scope_count; i++) {
+		const CrossScopeRow *r = &report->cross_scope[i];
+
+		grid_row(&grid, r->from_scope, r->from_function,
+		         r->to_scope, r->to_function,
+		         r->object && *r->object ? r->object : "call");
 	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
 
+	return 0;
+}
+
+static int findings_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+
+	/* Every measurement that crossed a published line, ranked most
+	 * severe first, each naming the source that draws the line.
+	 *
+	 * **Additional to the tables above, never a replacement for
+	 * them.** A measurement inside its accepted band is still
+	 * reported where it was measured (HLR-031); this section is
+	 * the subset a reader acts on, and its emptiness is a result
+	 * rather than an absence of information.
+	 *
+	 * No row advises. Each says what was measured, where, and
+	 * which standard places it outside the range — and stops
+	 * (HLR-101). */
+	static const char *const names[]   = { "Severity", "Measurement",
+	                                       "Subject", "Detail",
+	                                       "Source" };
+
+	grid_begin(&grid, "Findings", 5, names, NULL);
+	for (size_t i = 0; i < report->finding_count; i++) {
+		const FindingRow *r = &report->findings[i];
+
+		grid_row(&grid, r->severity, r->measurement, r->subject,
+		         r->detail, r->source);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int definitions_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+
+	/* The configuration these figures describe.
+	 *
+	 * A section rather than a summary line, because a definition is
+	 * a string and there may be several. Emitted whether or not any
+	 * was supplied: "measured with no definitions" and "measured
+	 * with these" are different claims, and a reader of a report
+	 * that showed nothing could not tell which they had
+	 * (HLR-031, HLR-136). */
+	static const char *const names[] = { "Definition" };
+	char                     heading[96];
+
+	snprintf(heading, sizeof heading,
+	         "Conditional-compilation definitions (%zu)",
+	         report->definition_count);
+	grid_begin(&grid, heading, 1, names, NULL);
+	for (size_t i = 0; i < report->definition_count; i++)
+		grid_row(&grid, report->definitions[i]);
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int rule_matches_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+
+	/* What the user's own rules matched.
+	 *
+	 * **Beside the findings and deliberately not among them.** A
+	 * finding is a measurement `elc` banded against a published
+	 * threshold and can name the source that draws the line. A rule
+	 * match is a query somebody else wrote, and `elc` has no view
+	 * about whether it was worth writing — so there is no severity
+	 * column here and no source column, because there is nothing
+	 * honest to put in either (HLR-109, HLR-111).
+	 *
+	 * Emitted whether or not any rule was supplied, like every
+	 * other section: an absent section and an empty one are
+	 * different claims (HLR-031). */
+	static const char *const names[] = { "Rule", "File", "Lines" };
+
+	snprintf(a, sizeof a, "Custom rule matches (%zu)",
+	         report->rule_match_count);
+	grid_begin(&grid, a, 3, names, NULL);
+	for (size_t i = 0; i < report->rule_match_count; i++) {
+		const RuleMatchRow *r = &report->rule_matches[i];
+		char                lines[32];
+
+		snprintf(lines, sizeof lines, "%" PRIu32 "-%" PRIu32,
+		         r->start_line, r->end_line);
+		grid_row(&grid, r->rule, r->file, lines);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int partially_parsed_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+
+	/* The files whose measurements are partial, and by how much.
+	 * A file here *is* measured — its functions appear in every
+	 * table above — and this says how much of it the grammar could
+	 * not follow, so a partial figure is never mistaken for a
+	 * complete one (HLR-035).
+	 *
+	 * A section rather than a column on the Files table: the
+	 * number is zero for almost every file in almost every
+	 * project, and a column of zeros hides the rows that matter. */
+	static const char *const names[]   = { "File", "Unparsed lines" };
+	static const bool        numeric[] = { false, true };
+
+	grid_begin(&grid,
+	           "Partially parsed files (measured except for these "
+	           "lines)", 2, names, numeric);
+	for (size_t i = 0; i < report->file_count; i++) {
+		const FileMetrics *f = report->files[i];
+
+		if (!f->unparsed_lines)
+			continue;
+		snprintf(a, sizeof a, "%" PRIu32, f->unparsed_lines);
+		grid_row(&grid, f->path, a);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int skipped_files_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+
+	static const char *const names[] = { "File" };
+
+	grid_begin(&grid, "Skipped files (no language module)", 1,
+	           names, NULL);
+	for (size_t i = 0; i < report->skipped_files.count; i++)
+		grid_row(&grid, report->skipped_files.paths[i]);
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int image_filter_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+	char b[32];
+	char c[32];
+
+if (report->image) {
+	/* The linked image these figures describe, and both directions
+	 * of mismatch against it.
+	 *
+	 * **Emitted only for a filtered run**, which is the one place
+	 * the uniform-composition rule gives way and does so by
+	 * requirement rather than by preference: HLR-140 says a run
+	 * without the option reports exactly what it reported before
+	 * the option existed, and an empty section is not nothing.
+	 *
+	 * The two counts are different claims and are labelled as
+	 * such. The unresolved count states how complete the filter
+	 * is, as the unresolved-call count states how complete the
+	 * graph is; the list below states what the build did not keep
+	 * (HLR-143, LLR-SUM-06). */
+	static const char *const names[]   = { "Property", "Value" };
+	static const bool        numeric[] = { false, false };
+
+	grid_begin(&grid, "Linked-image filter", 2, names, numeric);
+	grid_row(&grid, "Image", report->image);
+	snprintf(a, sizeof a, "%" PRIu64, report->image_unresolved);
+	grid_row(&grid, "Unresolved linkage names", a);
+	/* The one figure the filter did not narrow. Folding it into
+	 * the totals would leave a reader unable to tell a file of
+	 * retained functions from a file of retained data (HLR-145). */
+	snprintf(b, sizeof b, "%" PRIu64, report->file_scope_eloc);
+	grid_row(&grid, "ELOC outside any function", b);
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	static const char *const absent_names[] = { "Function", "File",
+	                                            "Line" };
+	char                     heading[96];
+
+	snprintf(heading, sizeof heading,
+	         "Functions the image does not define (%zu)",
+	         report->absent_count);
+	grid_begin(&grid, heading, 3, absent_names, NULL);
+	for (size_t i = 0; i < report->absent_count; i++) {
+		const AbsentRow *r = &report->absent[i];
+
+		snprintf(c, sizeof c, "%" PRIu32, r->line);
+		grid_row(&grid, r->function, r->file, c);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+}
+
+	return 0;
+}
+
+int render_report(const Report *report, Style style, FILE *out)
+{
+	static int (*const SECTIONS[])(const Report *, Style, FILE *) = {
+		callouts_section,
+		discovery_section,
+		languages_section,
+		files_section,
+		functions_section,
+		threshold_listing_section,
+		fanout_section,
+		recursion_section,
+		deepest_chain_section,
+		coupling_section,
+		dependency_cycles_section,
+		layering_section,
+		global_state_section,
+		unreachable_functions_section,
+		unreachable_globals_section,
+		dead_code_section,
+		cross_scope_section,
+		findings_section,
+		definitions_section,
+		image_filter_section,
+		rule_matches_section,
+		partially_parsed_section,
+		skipped_files_section,
+	};
+
+	summary_section(report, style, out);
+
+	for (size_t i = 0; i < sizeof SECTIONS / sizeof *SECTIONS; i++)
+		if (SECTIONS[i](report, style, out) != 0)
+			return -1;
+
+	/* The stream is checked once, after the last write rather than at every
+	 * one (SDD §14.3.1). A section returns non-zero only where its own
+	 * grid_render reported a failure, and a stream that filled partway
+	 * through the final section reports it here — so a truncated report is
+	 * never returned as success. */
 	if (fflush(out) != 0 || ferror(out))
 		return -1;
 

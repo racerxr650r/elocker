@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.10
-**Date:** 2026-08-20
+**Version:** 0.11
+**Date:** 2026-08-21
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -132,8 +132,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **789 test(s)** across
-**42 file(s)**.
+Snapshot: **802 test(s)** across
+**43 file(s)**.
 
 ### 3.1. [test/unit/elfsyms.c](../test/unit/elfsyms.c)
 
@@ -1218,6 +1218,26 @@ Role: **fixture**. **2 test(s).**
 | 1 | <a id="the fixture level is wired and elc is runnable"></a>`the fixture level is wired and elc is runnable` | — | The fixture-conformance level is wired and green before the first real fixture is written. |
 | 2 | <a id="every expected-value file has a fixture header beside it"></a>`every expected-value file has a fixture header beside it` | — | Guards the convention that expected values are hand-counted, never generated from elc's own output. |
 
+### 3.43. [test/instrumented/sanitized.bats](../test/instrumented/sanitized.bats)
+
+Role: **instrumented**. **13 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-125: a usage error frees the declarations parsed before it"></a>`HLR-125: a usage error frees the declarations parsed before it` | `LLR-MAIN-19`, `LLR-MAIN-16`, `LLR-STR-06` | The case LLR-MAIN-19 was written for. A --stratum is accepted and allocates a layer owning its name and patterns; the --stratum-order after it names a layer never declared, which is a usage error. Nothing else in the suite takes this path — every other usage-error test fails before allocating anything — so until this test the requirement rested on inspection. |
+| 2 | <a id="HLR-125: a usage error after two declarations is leak-clean"></a>`HLR-125: a usage error after two declarations is leak-clean` | `LLR-STR-06`, `LLR-MAIN-19` | Two layers and a partial order, which LLR-STR-05 rejects because a partial order determines no direction. Both layers and every pattern each copied out of argv are outstanding when the parse fails. |
+| 3 | <a id="HLR-125: a usage error after a scope declaration is leak-clean"></a>`HLR-125: a usage error after a scope declaration is leak-clean` | `LLR-SCP-03`, `LLR-MAIN-19` | The scope declarations copy their name and patterns as the strata do and for the same reason, so they leak the same way if the usage-error path forgets them. |
+| 4 | <a id="HLR-125: an invalid target exits leak-clean"></a>`HLR-125: an invalid target exits leak-clean` | `LLR-MAIN-16` | Past cli_parse and into discovery, which validates every target before walking any. The options are fully populated and the registry is open by now, so this path releases more than a usage error does. |
+| 5 | <a id="HLR-125: a target that is neither file nor directory exits leak-clean"></a>`HLR-125: a target that is neither file nor directory exits leak-clean` | `LLR-MAIN-16` | A FIFO named as a target: the same teardown reached through a different rejection, so a path that released correctly for a missing file but not for an unusable one is still caught. |
+| 6 | <a id="HLR-125: a rejected saved record exits leak-clean"></a>`HLR-125: a rejected saved record exits leak-clean` | `LLR-XRD-06`, `LLR-MAIN-16` | xml_read_report builds part of a model and then rejects the input. LLR-XRD-06 requires the partially built model be released rather than rendered, and this is what shows it was. |
+| 7 | <a id="HLR-125: a structurally foreign record exits leak-clean"></a>`HLR-125: a structurally foreign record exits leak-clean` | `LLR-XRD-06` | Well-formed XML of the wrong shape. The parser gets further before rejecting, so more of the model exists to be released than the malformed case leaves. |
+| 8 | <a id="HLR-125: an unusable image exits leak-clean"></a>`HLR-125: an unusable image exits leak-clean` | `LLR-MAIN-16`, `LLR-MAIN-20` | elfsyms_open fails after the registry is open and before discovery runs (LLR-MAIN-20), which is a teardown ordering no successful run exercises. |
+| 9 | <a id="HLR-125: an image that is not an object file exits leak-clean"></a>`HLR-125: an image that is not an object file exits leak-clean` | `LLR-ELF-06` | The same fatal exit reached by a different rejection inside elfsyms_open, where libelf has been given a file it can open and cannot use. |
+| 10 | <a id="HLR-125: a fatal runtime-location failure exits leak-clean"></a>`HLR-125: a fatal runtime-location failure exits leak-clean` | `LLR-MAIN-16`, `LLR-MAIN-13` | registry_open fails before anything else is acquired — the earliest fatal exit there is, and the one most likely to release something it never took. |
+| 11 | <a id="HLR-124: a complete run over a real target is free of memory errors"></a>`HLR-124: a complete run over a real target is free of memory errors` | `LLR-ANL-33`, `LLR-ANL-34`, `LLR-SDG-11` | The success path, instrumented. make valgrind covers this ground across every fixture; repeating one here is what makes this file a record of the ordinary run as well as of the error paths, which a record of the error paths alone would not be. |
+| 12 | <a id="LLR-BLD-09: the build provides a sanitized configuration"></a>`LLR-BLD-09: the build provides a sanitized configuration` | `LLR-BLD-09` | The configuration HLR-124 and HLR-125 are verified under must instrument for all three things they name — memory error, undefined behaviour, and leaks. A gate missing one reports the other two and reads as clean. |
+| 13 | <a id="LLR-BLD-09: the sanitized configuration rebuilds rather than reusing objects"></a>`LLR-BLD-09: the sanitized configuration rebuilds rather than reusing objects` | `LLR-BLD-09` | An instrumented run against objects compiled without instrumentation reports nothing and passes, which is the failure a sanitizer gate is least able to notice about itself. The target must clean first. |
+
 ## 4. LLR Coverage Matrix
 
 Every LLR in [LLRs.md](LLRs.md) and the test(s) that verify it.
@@ -1239,14 +1259,14 @@ verified by code review — see
 | `LLR-MAIN-10` | `main` | `HLR-120`, `HLR-062`, `HLR-036`, `HLR-058` | `an unrecognised long option exits 2`, `no target exits 2` |
 | `LLR-MAIN-11` | `main` | `HLR-100`, `HLR-023` | **(no direct test)** |
 | `LLR-MAIN-12` | `main` | `HLR-038`, `HLR-030` | **(no direct test)** |
-| `LLR-MAIN-13` | `main` | `HLR-036` | **(no direct test)** |
+| `LLR-MAIN-13` | `main` | `HLR-036` | `HLR-125: a fatal runtime-location failure exits leak-clean` |
 | `LLR-MAIN-14` | `main` | `HLR-041` | **(no direct test)** |
 | `LLR-MAIN-15` | `main` | `HLR-103`, `HLR-104` | **(no direct test)** |
 | `LLR-MAIN-17` | `main` | `HLR-030`, `HLR-038`, `HLR-120` | `--output writes the report to the named file`, `an output file that cannot be opened exits 2`, `an output file that cannot be opened is diagnosed on stderr` |
 | `LLR-MAIN-18` | `main` | `HLR-012`, `HLR-037` | `HLR-012: a file with no language module is listed as skipped` |
-| `LLR-MAIN-16` | `main` | `HLR-125`, `HLR-036` | **(no direct test)** |
-| `LLR-MAIN-19` | `main` | `HLR-125`, `HLR-063` | **(no direct test)** |
-| `LLR-MAIN-20` | `main` | `HLR-146` | `HLR-146: an unusable image ends the run before anything is measured` |
+| `LLR-MAIN-16` | `main` | `HLR-125`, `HLR-036` | `HLR-125: a usage error frees the declarations parsed before it`, `HLR-125: an invalid target exits leak-clean`, `HLR-125: a target that is neither file nor directory exits leak-clean`, `HLR-125: a rejected saved record exits leak-clean`, `HLR-125: an unusable image exits leak-clean`, `HLR-125: a fatal runtime-location failure exits leak-clean` |
+| `LLR-MAIN-19` | `main` | `HLR-125`, `HLR-063` | `HLR-125: a usage error frees the declarations parsed before it`, `HLR-125: a usage error after two declarations is leak-clean`, `HLR-125: a usage error after a scope declaration is leak-clean` |
+| `LLR-MAIN-20` | `main` | `HLR-146` | `HLR-146: an unusable image ends the run before anything is measured`, `HLR-125: an unusable image exits leak-clean` |
 | `LLR-CLI-01` | `cli_parse` | `HLR-071`, `HLR-063` | `missing_target_is_a_usage_error`, `single_target_is_collected`, `several_targets_are_collected_in_order` |
 | `LLR-CLI-02` | `cli_parse` | `HLR-027`, `HLR-028`, `HLR-054`, `HLR-029` | **(no direct test)** |
 | `LLR-CLI-18` | `cli_parse` | `HLR-095`, `HLR-039` | **(no direct test)** |
@@ -1281,10 +1301,10 @@ verified by code review — see
 | `LLR-STR-03` | `parse_stratum` | `HLR-063`, `HLR-078` | `a_malformed_stratum_declaration_is_rejected`, `HLR-063: a malformed stratum declaration is a usage error` |
 | `LLR-STR-04` | `parse_stratum` | `HLR-078`, `HLR-032` | `repeating_a_stratum_name_adds_patterns_to_that_layer` |
 | `LLR-STR-05` | `parse_stratum` | `HLR-078`, `HLR-063` | `stratum_order_reassigns_the_ordinals`, `stratum_order_may_precede_the_layers_it_orders`, `stratum_order_naming_an_undeclared_layer_is_an_error`, `a_partial_stratum_order_is_an_error`, `stratum_order_without_any_stratum_is_an_error`, `HLR-078: --stratum-order states the direction explicitly`, `HLR-063: --stratum-order naming an undeclared layer is a usage error`, `HLR-063: a partial --stratum-order is a usage error` |
-| `LLR-STR-06` | `parse_stratum` | `HLR-078`, `HLR-125` | **(no direct test)** |
+| `LLR-STR-06` | `parse_stratum` | `HLR-078`, `HLR-125` | `HLR-125: a usage error frees the declarations parsed before it`, `HLR-125: a usage error after two declarations is leak-clean` |
 | `LLR-SCP-01` | `parse_scope` | `HLR-094` | `a_scope_declaration_is_parsed_into_a_name_and_patterns`, `scope_declarations_accumulate`, `the_scope_option_reaches_the_options_structure` |
 | `LLR-SCP-02` | `parse_scope` | `HLR-063`, `HLR-094` | `a_malformed_scope_declaration_is_rejected`, `a_malformed_scope_option_is_a_usage_error`, `HLR-063: a malformed scope declaration is a usage error` |
-| `LLR-SCP-03` | `parse_scope` | `HLR-094`, `HLR-125` | **(no direct test)** |
+| `LLR-SCP-03` | `parse_scope` | `HLR-094`, `HLR-125` | `HLR-125: a usage error after a scope declaration is leak-clean` |
 | `LLR-DSC-01` | `discover_targets` | `HLR-062` | `every_target_is_validated_before_any_is_walked`, `filelist_free_is_safe_on_null` |
 | `LLR-DSC-02` | `discover_targets` | `HLR-062` | `a_missing_target_is_rejected_with_an_empty_list`, `a_target_that_is_neither_file_nor_directory_is_rejected` |
 | `LLR-DSC-03` | `discover_targets` | `HLR-071`, `HLR-001`, `HLR-126` | `files_and_directories_are_classified_independently` |
@@ -1373,7 +1393,7 @@ verified by code review — see
 | `LLR-ANL-30` | `analyze_file` | `HLR-014` | **(no direct test)** |
 | `LLR-ANL-31` | `analyze_file` | `HLR-043` | **(no direct test)** |
 | `LLR-ANL-32` | `analyze_file` | `HLR-034` | **(no direct test)** |
-| `LLR-ANL-33` | `analyze_file` | `HLR-124` | **(no direct test)** |
+| `LLR-ANL-33` | `analyze_file` | `HLR-124` | `HLR-124: a complete run over a real target is free of memory errors` |
 | `LLR-ANL-35` | `analyze_file` | `HLR-014` | `a_function_is_reported_with_its_name_and_line_range` |
 | `LLR-ANL-36` | `analyze_file` | `HLR-014`, `HLR-121` | `a_prototype_is_not_a_function` |
 | `LLR-ANL-37` | `analyze_file` | `HLR-012`, `HLR-035`, `HLR-037` | `an_unmapped_extension_is_a_skip_not_a_failure` |
@@ -1390,7 +1410,7 @@ verified by code review — see
 | `LLR-ANL-48` | `analyze_file` | `HLR-035`, `HLR-016` | `a_partly_unparsable_file_is_measured_around_the_damage`, `damage_that_swallows_the_rest_of_a_file_is_counted_as_such`, `a_sound_file_reports_no_damage`, `damage_is_counted_in_distinct_lines`, `the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable`, `HLR-035: a file with a syntax error is measured around it` |
 | `LLR-ANL-49` | `analyze_file` | `HLR-035`, `HLR-037` | `a_damaged_file_is_a_degraded_outcome_not_a_clean_one` |
 | `LLR-ANL-50` | `analyze_file` | `HLR-035`, `HLR-038` | `HLR-035: the diagnostic gives the line, the scale, and what was kept` |
-| `LLR-ANL-34` | `analyze_file` | `HLR-124`, `HLR-125` | **(no direct test)** |
+| `LLR-ANL-34` | `analyze_file` | `HLR-124`, `HLR-125` | `HLR-124: a complete run over a real target is free of memory errors` |
 | `LLR-ANL-51` | `analyze_file` | `HLR-144` | `HLR-140: the image restricts the report to the functions it defines` |
 | `LLR-ANL-52` | `analyze_file` | `HLR-144` | `LLR-ANL-52: a filtered function contributes no fact of any kind` |
 | `LLR-ANL-53` | `analyze_file` | `HLR-145` | `HLR-145: file-scope ELOC is retained and reported separately`, `HLR-145: a file the image kept nothing from still reports its data` |
@@ -1444,7 +1464,7 @@ verified by code review — see
 | `LLR-SDG-16` | `graph_build` | `HLR-091`, `HLR-092`, `HLR-032` | `a_global_touched_by_one_function_is_a_scope_reduction_candidate` |
 | `LLR-SDG-17` | `graph_build` | `HLR-083`, `HLR-114`, `HLR-113` | **(no direct test)** |
 | `LLR-SDG-15` | `graph_build` | `HLR-124`, `HLR-113`, `HLR-120` | `the_library_returns_errors_instead_of_aborting` |
-| `LLR-SDG-11` | `graph_build` | `HLR-124`, `HLR-077` | **(no direct test)** |
+| `LLR-SDG-11` | `graph_build` | `HLR-124`, `HLR-077` | `HLR-124: a complete run over a real target is free of memory errors` |
 | `LLR-ARC-01` | `arch_analyse` | `HLR-081` | `a_bottleneck_needs_both_couplings_at_the_threshold`, `HLR-081: no component is a bottleneck at the default threshold`, `HLR-081: a component is a bottleneck when both couplings meet the threshold` |
 | `LLR-ARC-02` | `arch_analyse` | `HLR-081`, `HLR-099` | `HLR-099: the bottleneck threshold is marked as elc's own heuristic` |
 | `LLR-ARC-03` | `arch_analyse` | `HLR-115` | `with_no_strata_declared_layering_is_omitted`, `an_empty_graph_analyses_without_incident`, `HLR-115: with no strata declared the analysis is omitted with a reason`, `LLR-CTR-09: omitting layering does not omit the coupling table` |
@@ -1587,7 +1607,7 @@ verified by code review — see
 | `LLR-XRD-10` | `xml_read_report` | `HLR-058` | **(no direct test)** |
 | `LLR-XRD-12` | `xml_read_report` | `HLR-055`, `HLR-056`, `HLR-127` | **(no direct test)** |
 | `LLR-XRD-13` | `xml_read_report` | `HLR-136`, `HLR-056` | **(no direct test)** |
-| `LLR-XRD-06` | `xml_read_report` | `HLR-058` | `well_formed_but_foreign_input_is_rejected`, `a_truncated_record_is_rejected` |
+| `LLR-XRD-06` | `xml_read_report` | `HLR-058` | `well_formed_but_foreign_input_is_rejected`, `a_truncated_record_is_rejected`, `HLR-125: a rejected saved record exits leak-clean`, `HLR-125: a structurally foreign record exits leak-clean` |
 | `LLR-XRD-07` | `xml_read_report` | `HLR-057` | `the_threshold_supplied_now_is_the_one_applied` |
 | `LLR-XRD-08` | `xml_read_report` | `HLR-056` | **(no direct test)** |
 | `LLR-XRD-14` | `xml_read_report` | `HLR-147`, `HLR-056` | `HLR-147: a report regenerated from the record is byte-identical` |
@@ -1612,7 +1632,7 @@ verified by code review — see
 | `LLR-ELF-03` | `elfsyms_open` | `HLR-141` | `HLR-141: filtering by an image spawns no toolchain utility`, `HLR-141: the image is opened once and nothing beside it` |
 | `LLR-ELF-04` | `elfsyms_open` | `HLR-141` | `HLR-140: a static function reaches .symtab and is retained`, `HLR-141: the image is opened once and nothing beside it` |
 | `LLR-ELF-05` | `elfsyms_open` | `HLR-032` | `every_member_of_the_set_is_found`, `an_empty_set_answers_without_searching`, `HLR-032: two filtered runs over the same tree are byte-identical` |
-| `LLR-ELF-06` | `elfsyms_open` | `HLR-146` | `an_absent_image_fails_and_owns_nothing`, `a_file_that_is_not_an_object_file_fails`, `HLR-146: a file that is not an object file is fatal`, `HLR-146: an absent image is fatal and names the path` |
+| `LLR-ELF-06` | `elfsyms_open` | `HLR-146` | `an_absent_image_fails_and_owns_nothing`, `a_file_that_is_not_an_object_file_fails`, `HLR-146: a file that is not an object file is fatal`, `HLR-146: an absent image is fatal and names the path`, `HLR-125: an image that is not an object file exits leak-clean` |
 | `LLR-ELF-07` | `elfsyms_open` | `HLR-146` | `HLR-146: a stripped image is fatal and diagnosed as its own case` |
 | `LLR-ELF-08` | `elfsyms_open` | `HLR-143` | `HLR-143: a name in a scheme this build cannot decode is counted` |
 | `LLR-SYM-01` | `resolved_name` | `HLR-142` | `an_unencoded_name_is_returned_unchanged` |
@@ -1637,7 +1657,7 @@ verified by code review — see
 | `LLR-BLD-17` | `build_configuration` | `HLR-011` | `check-prereqs reports every grammar against upstream`, `check-prereqs survives an unreachable upstream` |
 | `LLR-BLD-18` | `build_configuration` | `HLR-125`, `HLR-124`, `HLR-119` | `HLR-125: the local sanitizer gate is as strong as the pipeline's` |
 | `LLR-BLD-19` | `build_configuration` | `HLR-142`, `HLR-112` | `the link line names the runtime the demangler lives in` |
-| `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | **(no direct test)** |
+| `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | `LLR-BLD-09: the build provides a sanitized configuration`, `LLR-BLD-09: the sanitized configuration rebuilds rather than reusing objects` |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-03` | `user_documentation` | `HLR-128` | **(no direct test)** |
