@@ -1196,6 +1196,8 @@ static int image_filter_section(const Report *report, Style style, FILE *out)
 	Grid grid;
 	char a[32];
 	char b[32];
+	char c[32];
+	char d[32];
 
 	/* The linked image these figures describe.
 	 *
@@ -1225,6 +1227,15 @@ static int image_filter_section(const Report *report, Style style, FILE *out)
 	 * retained functions from a file of retained data (HLR-145). */
 	snprintf(b, sizeof b, "%" PRIu64, report->file_scope_eloc);
 	grid_row(&grid, "ELOC outside any function", b);
+	/* The finer granularity, and the pair that says how far it
+	 * reached. Both rows appear whether or not the image carried
+	 * line information: two zeroes state that nothing was pruned
+	 * and nothing was uncoverable, which is a different claim
+	 * from a section that omits the question (HLR-155). */
+	snprintf(c, sizeof c, "%" PRIu64, report->pruned_lines);
+	grid_row(&grid, "Lines not compiled by this build", c);
+	snprintf(d, sizeof d, "%" PRIu64, report->uncovered_files);
+	grid_row(&grid, "Files with no debug coverage", d);
 	if (grid_render(&grid, style, out) != 0)
 		return -1;
 

@@ -283,6 +283,25 @@ typedef struct {
 	 * would hide the one part of them the filter did not narrow
 	 * (HLR-145, LLR-ANL-53). */
 	uint32_t        scope_eloc;
+	/* Lines excluded because the image's debug line information shows this
+	 * build compiled no instruction for them (HLR-153). Counted per file
+	 * and summed for the report, so that a reader can see how far the
+	 * figures were narrowed by the image rather than inferring it. */
+	uint32_t        pruned_lines;
+	/* True where the image's line information does not cover this file —
+	 * because the translation unit holding it was compiled without debug
+	 * information, or because the image's line information is partial.
+	 *
+	 * The flag governs the pruning rather than merely describing it: no
+	 * line in an uncovered file is excluded on this account (HLR-154).
+	 * Absence of a line from a mapping that never described the file is
+	 * evidence of nothing at all, and treating it as evidence would
+	 * silently delete measured code — a report that is confidently wrong
+	 * and indistinguishable from a correct one.
+	 *
+	 * False on every run with no image, where the question does not arise
+	 * and nothing is pruned either way. */
+	bool            coverage_unestablished;
 	FunctionMetric *functions;      /* dynamic array, grown by doubling  */
 	size_t          function_count;
 	/* The functions this file defines that the image does not, in the order

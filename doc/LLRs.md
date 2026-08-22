@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.7
+**Version:** 2.8
 **Date:** 2026-08-22
 **Author(s):** John Anderson
 
@@ -580,6 +580,15 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-58"></a>**LLR-ANL-58** — `analyze_file` shall gather the functions the image does not define into the same excluded set, after the comment spans and the inactive regions and before any other collector runs. The order is load-bearing in both directions: the exclusion must be complete before anything consults it, and a function inside a region this configuration does not compile must not be reported as one the image failed to keep — that would answer a question about the linker with a fact about the preprocessor.
     *Trace:* HLR-144 (Scope of the Filter), HLR-143 (Both Directions of Mismatch Counted and Reported).
 
+*   <a id="LLR-ANL-60"></a>**LLR-ANL-60** — `analyze_file` shall exclude, from a file the image's line information covers, each line within a function the image defines that produced no instruction, and shall count those lines. Where the image's line information does not cover the file, it shall exclude nothing on this account and shall mark the file as one whose coverage could not be established.
+
+    The pass shall run **after** the comment, inactive-region, and absent-function exclusions, and shall skip a line already excluded by one of them: a line inside a comment, inside a region this configuration does not compile, or inside a function the linker discarded is already gone, and pruning it again would count it twice in a figure a reader is meant to act on.
+
+    It shall be **confined to within functions the image defines**, which is why the absent-function pass hands back the kept extents as well. Code at file scope has few line entries to its name and is the one figure HLR-145 requires be kept separate and honest; a rule pruning uncovered lines everywhere would delete precisely that.
+
+    A blank line shall be skipped rather than counted. It produces no instruction in any build, so its absence from the mapping says nothing about this one, and counting it would inflate the figure of HLR-155 with lines no measurement rested on.
+    *Trace:* HLR-153 (Debug-Line Pruning From the Image), HLR-154 (Pruning Confined to Established Coverage), HLR-155 (Debug-Line Pruning Recorded and Reported), HLR-145 (Code Outside Any Function Retained and Separately Reported).
+
 *   <a id="LLR-ANL-59"></a>**LLR-ANL-59** — `analyze_file` shall establish the absent set in a pass of its own over the function query rather than as a test inside the pass that records functions, since query matches arrive in no source order and a function nested inside an omitted one would otherwise be recorded before the omission that contains it was known.
     *Trace:* HLR-144 (Scope of the Filter), HLR-032 (Deterministic Output).
 
@@ -1129,10 +1138,12 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SUM-02"></a>**LLR-SUM-02** — `render_summary` shall traverse the report model in a single shared order for both the table and Markdown renderers, so that the two present the same tiers.
     *Trace:* HLR-031 (Uniform Report Composition Across Formats).
 
-*   <a id="LLR-SUM-06"></a>**LLR-SUM-06** — `render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, the effective lines belonging to no function, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion. These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.
+*   <a id="LLR-SUM-06"></a>**LLR-SUM-06** — `render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, the effective lines belonging to no function, the count of source lines this build compiled no instruction for, the count of analysed files whose debug coverage could not be established, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion.
+
+    The two line-granularity counts shall appear whether or not the image carried line information: two zeroes state that nothing was pruned and nothing was uncoverable, which is a different claim from a section that omits the question. They are read as the unresolved-call count and the undecided-region count are read — the first states what the filter removed, the second states where it could not look (HLR-155). These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.
 
     The two are separate sections, because the tier boundary of LLR-SUM-09 runs between them: the image and its two counts are the provenance of a filtered run and are a summary tier, while the functions the image does not define are one row per function and are a detail tier. They remain adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split.
-    *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported), HLR-031 (Uniform Report Composition Across Formats).
+    *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported), HLR-155 (Debug-Line Pruning Recorded and Reported), HLR-031 (Uniform Report Composition Across Formats).
 
 *   <a id="LLR-SUM-07"></a>**LLR-SUM-07** — `render_summary` shall present the custom-rule matches in a section of their own, with no severity column and no source column, and shall emit that section whether or not any rule was supplied.
     *Trace:* HLR-109 (Custom Rule Match Reporting), HLR-111 (Custom Rules Carry No Built-In Opinion), HLR-031 (Uniform Report Composition Across Formats).
@@ -1213,7 +1224,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-04"></a>**LLR-XWR-04** — `xml_write_report` shall emit well-formed XML.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping).
 
-*   <a id="LLR-XWR-14"></a>**LLR-XWR-14** — `xml_write_report` shall record the image the filter was taken from and the counts derived from it, without which a regenerated report would describe a filtered run while naming no filter.
+*   <a id="LLR-XWR-14"></a>**LLR-XWR-14** — `xml_write_report` shall record the image the filter was taken from and the counts derived from it — the unresolved linkage names, the effective lines belonging to no function, the source lines this build compiled no instruction for, and the analysed files whose debug coverage could not be established — without which a regenerated report would describe a filtered run while naming no filter, or would name one and understate what it did.
+
+    The line-granularity counts travel with the image element rather than with the per-file metrics, for the reason the file-scope figure does: they are properties of what the filter did to the run, and `report_assemble` on the regeneration path has no image to re-derive them from. Both shall be optional on read, since a record written before they existed carries the same format version and a run whose image held no line information writes them as zero either way (HLR-155).
     *Trace:* HLR-147 (Filter Recorded and Reported).
 
 *   <a id="LLR-XWR-15"></a>**LLR-XWR-15** — `xml_write_report` shall record each custom-rule match with its identity, file, and line range, without which a regenerated report would omit a section the direct run presented.
@@ -1370,6 +1383,31 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SYM-04"></a>**LLR-SYM-04** — `resolved_name` shall return no name for a linkage name encoded by a scheme this build does not decode, so that the symbol is counted as unresolved rather than matched against a guess.
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported).
 
+## 49.1. `dwarfline_read` ([src/dwarfline.c](../src/dwarfline.c))
+
+*   <a id="LLR-DWL-01"></a>**LLR-DWL-01** — `dwarfline_read` shall obtain the image's debug line information from the ELF descriptor `elfsyms_open` already holds, using the low-level DWARF interface and never the `Dwfl` layer above it. That layer resolves separate debug information by `.gnu_debuglink` and build-id, which opens a file under a separate-debug directory the user never named — forbidden by HLR-141.
+
+    Nothing in the module shall open, stat, or resolve a path against the filesystem, so that the answer is a property of the image's bytes and not of the machine reading it. Both live in one library and neither is visible in the link line, so the distinction shall be held by a test that observes the image's opens for a build carrying debug information rather than by the dependency allowlist.
+    *Trace:* HLR-141 (Image Read Without a Toolchain), HLR-153 (Debug-Line Pruning From the Image).
+
+*   <a id="LLR-DWL-02"></a>**LLR-DWL-02** — `dwarfline_read` shall bring each file name the image records to the form `elc`'s own paths take, joining a relative name to its unit's compilation directory and resolving `.` and `..` **lexically**. It shall not call `realpath(3)`: doing so would stat every path the image happens to name, headers among them, which is filesystem work on files the user did not name.
+
+    Where a build reaches its sources through a symbolic link the two spellings will not meet, the file shall report uncovered, and nothing in it shall be pruned. That is the safe direction, and the count of HLR-155 states it.
+    *Trace:* HLR-154 (Pruning Confined to Established Coverage), HLR-141 (Image Read Without a Toolchain).
+
+*   <a id="LLR-DWL-03"></a>**LLR-DWL-03** — `dwarfline_read` shall skip the end-of-sequence entry of each line programme, which carries the address one past the last instruction and names no line of source. Counting it would mark a line compiled on the strength of a marker rather than of an instruction.
+
+    Each file's lines shall be sorted and de-duplicated, since a line programme names one line once per instruction sequence attributed to it: the raw list is long and heavily repeated, and collapsing it makes membership a binary search and makes the set independent of how many sequences the compiler emitted.
+    *Trace:* HLR-153 (Debug-Line Pruning From the Image), HLR-032 (Deterministic Output).
+
+*   <a id="LLR-DWL-04"></a>**LLR-DWL-04** — An image carrying no debug line information shall yield an empty coverage set and shall not be a failure, since HLR-141 forbids requiring debug information. `dwarfline_read` shall return non-zero on allocation failure alone, and shall release the partially built set before doing so — a coverage set built halfway would prune on evidence it does not have.
+    *Trace:* HLR-153 (Debug-Line Pruning From the Image), HLR-141 (Image Read Without a Toolchain), HLR-125 (Complete Resource Release).
+
+*   <a id="LLR-DWL-05"></a>**LLR-DWL-05** — Coverage and compilation shall be two queries rather than one, and the first shall govern the second. `dwarfline_covers` shall answer whether the image's line information describes a file at all; `dwarfline_compiled` shall answer whether a line of it produced an instruction, and shall answer *false* for a file that is not covered.
+
+    That answer is deliberately the unsafe one, and separating the calls is what makes asking it safe. A caller that skipped the coverage test would find every line of a file compiled without debug information uncompiled and would delete the file — absence from a mapping that never described it read as evidence about it, which is the one failure in this phase that is silent (HLR-154).
+    *Trace:* HLR-154 (Pruning Confined to Established Coverage).
+
 ## 50. Build and Link Configuration ([Makefile](../Makefile))
 
 Requirements satisfied by the build rather than by any single function. Verified against the produced binary rather than at runtime.
@@ -1427,6 +1465,13 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-19"></a>**LLR-BLD-19** — The build shall name the C++ runtime on the link line from the point `elc` references a symbol in it, even though the library was already loaded as a transitive dependency of the graph library. A symbol resolved through an indirect `DT_NEEDED` is not resolved at all by a current linker, so the demangler of HLR-142 fails to link without it — and the dependency allowlist is unchanged by the addition, the library having been there since the graph arrived.
     *Trace:* HLR-142 (Linkage Names Resolved to Source Names), HLR-112.
+
+*   <a id="LLR-BLD-20"></a>**LLR-BLD-20** — The build shall link `libdw` for the debug line information of HLR-153, taking it from the distribution as it takes `libelf` and for the same reason: it is the same elfutils tree, produced by the same configure run, and building it from source would import more distribution packages than taking it does. It shall appear in the installable package list, in the version report of `make check-prereqs`, and in the dependency allowlist together with the `libbz2` and `liblzma` it brings with it.
+
+    The allowlist cannot hold the distinction that matters most about it. `libdw` contains both the low-level DWARF interface `elc` uses and the `Dwfl` layer that would open a file the user never named, and the link line is identical either way — so the rule is held by the instrumented test that counts the image's opens for a build carrying debug information (HLR-141, LLR-DWL-01).
+
+    **The package list and the pipeline's shall be held in agreement by a test.** They are two statements of one fact in two files, and nothing connected them: this library was added to the Makefile and not to the workflow, and every compiling job failed at once while the local gate stayed green, the developer machine having the package already. That is the drift LLR-BLD-18 guards for the sanitizer options, in the other place the two definitions meet.
+    *Trace:* HLR-153 (Debug-Line Pruning From the Image), HLR-141 (Image Read Without a Toolchain), HLR-112.
 
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).

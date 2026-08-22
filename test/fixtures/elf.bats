@@ -17,6 +17,7 @@ setup() {
 	PRUNED="$BATS_TEST_DIRNAME/elf/pruned"
 	CPP="$BATS_TEST_DIRNAME/elf/cpp"
 	MANGLED="$BATS_TEST_DIRNAME/elf/mangled"
+	DEBUGLINE="$BATS_TEST_DIRNAME/elf/debugline"
 }
 
 # The functions elc reported, in the order the report presents them.
@@ -72,6 +73,31 @@ report() {
 	OUT="$BATS_TEST_TMPDIR/report.txt"
 }
 
+# The debug-line image: covered.c compiled WITH -g and opaque.c WITHOUT it,
+# linked together, so that one image carries a covered file and an uncovered
+# one. The optimisation level is the argument, because HLR-154's line-folding
+# limit is a property of the optimiser and the suite asserts at two levels
+# (elf/debugline/README.md).
+build_debugline() {
+	require_tool cc "HLR-153 debug-line pruning"
+	local opt="${1--O0}"
+	IMAGE="$BATS_TEST_TMPDIR/dl$opt"
+	cc -g "$opt" -c "$DEBUGLINE/covered.c" -o "$BATS_TEST_TMPDIR/c.o" \
+		2>/dev/null &&
+	cc "$opt" -c "$DEBUGLINE/opaque.c" -o "$BATS_TEST_TMPDIR/o.o" \
+		2>/dev/null &&
+	cc -o "$IMAGE" "$BATS_TEST_TMPDIR/c.o" "$BATS_TEST_TMPDIR/o.o" \
+		2>/dev/null || \
+		skip "cc cannot build a debug image here: HLR-153 unverified"
+}
+
+# One function's ELOC, from the per-function tier.
+eloc_of() {
+	awk -v want="$2" '/^Functions$/ {s=1; next}
+	                  s && /^$/ {exit}
+	                  s && $2 == want {print $4}' "$1"
+}
+
 # ------------------------------------------------------- the hand counts --
 
 @test "the hand-counted totals match with no image" {
@@ -103,6 +129,206 @@ report() {
 
 	run bash -c 'grep -c "  scale  " "$0" || true' "$OUT"
 	[ "$output" -ge 1 ]
+}
+
+# ------------------------------------------------------ debug-line pruning --
+
+@test "HLR-153: a region the build excluded is pruned from a kept function" {
+	# The assertion the phase exists for. `guarded` survives the link, and
+	# three statements inside it produced no instruction; the condition
+	# that excluded them is one elc cannot decide from the source, so only
+	# the image's line information can rule them out.
+	build_debugline
+	report "$DEBUGLINE" --elf "$IMAGE"
+	assert_success
+
+	assert_equal "$(eloc_of "$OUT" guarded)" "4"
+	assert_equal "$(summary_of "$OUT" ELOC)" "12"
+}
+
+@test "HLR-153: a function every build compiles is kept whole" {
+	# The other direction, and what stops the test above passing against an
+	# implementation that pruned the file wholesale.
+	build_debugline
+	report "$DEBUGLINE" --elf "$IMAGE"
+	assert_success
+
+	assert_equal "$(eloc_of "$OUT" always)" "3"
+	assert_equal "$(eloc_of "$OUT" main)" "1"
+	assert_equal "$(summary_of "$OUT" Functions)" "4"
+}
+
+@test "HLR-154: a file compiled without debug information loses no line" {
+	# The dangerous case, and it is dangerous because it is silent. opaque.c
+	# contributes no line entries at all, so a rule keyed on absence would
+	# find every line of it uncompiled and delete the file — leaving a
+	# report that is smaller, internally consistent, and wrong.
+	build_debugline
+	report "$DEBUGLINE" --elf "$IMAGE"
+	assert_success
+	assert_equal "$(eloc_of "$OUT" opaque)" "4"
+}
+
+@test "HLR-155: both counts are reported" {
+	# Three statements and the two directives around them; one file whose
+	# coverage could not be established. The pair is read as the
+	# unresolved-call count and the undecided-region count are: the first
+	# states what the filter removed, the second where it could not look.
+	build_debugline
+	report "$DEBUGLINE" --elf "$IMAGE"
+	assert_success
+
+	assert_equal "$(filter_of "$OUT" "Lines not compiled by this build")" "5"
+	assert_equal "$(filter_of "$OUT" "Files with no debug coverage")" "1"
+}
+
+@test "HLR-133: the region is undecided, so only the image ruled it out" {
+	# The fixture's whole assertion rests on this. Were the condition
+	# decidable from the source, Phase 15 would have removed the region
+	# before the image was consulted and every test above would pass
+	# against an implementation that read no debug information at all.
+	build_debugline
+	report "$DEBUGLINE" --elf "$IMAGE"
+	assert_success
+	assert_equal "$(summary_of "$OUT" "Undecided regions")" "1"
+}
+
+@test "HLR-153: an image without debug information prunes nothing" {
+	# HLR-141 forbids *requiring* debug information. Its absence costs the
+	# finer granularity and nothing else, so every metric is what the same
+	# run reports with no image at all beyond the function filter.
+	require_tool cc "HLR-153 debug-line pruning"
+	local image="$BATS_TEST_TMPDIR/nodebug"
+
+	cc -O0 -o "$image" "$DEBUGLINE/covered.c" "$DEBUGLINE/opaque.c" \
+		2>/dev/null || \
+		skip "cc cannot link here: HLR-153 unverified"
+
+	report "$DEBUGLINE" --elf "$image"
+	assert_success
+
+	assert_equal "$(summary_of "$OUT" ELOC)" "15"
+	assert_equal "$(eloc_of "$OUT" guarded)" "7"
+	assert_equal "$(filter_of "$OUT" "Lines not compiled by this build")" "0"
+	# Both files uncovered, and said so rather than silently pruned.
+	assert_equal "$(filter_of "$OUT" "Files with no debug coverage")" "2"
+}
+
+@test "HLR-153: the metrics without debug information are the unfiltered ones" {
+	# Stated as an equality rather than left to two hand-counted tables:
+	# the figures a run reports for an image carrying no line information
+	# are the figures it reported before this phase existed.
+	require_tool cc "HLR-153 debug-line pruning"
+	local image="$BATS_TEST_TMPDIR/nodebug2"
+
+	cc -O0 -o "$image" "$DEBUGLINE/covered.c" "$DEBUGLINE/opaque.c" \
+		2>/dev/null || \
+		skip "cc cannot link here: HLR-153 unverified"
+
+	report "$DEBUGLINE"
+	local plain
+	plain="$(summary_of "$OUT" ELOC) $(summary_of "$OUT" Functions)"
+
+	report "$DEBUGLINE" --elf "$image"
+	assert_success
+	assert_equal "$(summary_of "$OUT" ELOC) $(summary_of "$OUT" Functions)" \
+		"$plain"
+}
+
+@test "HLR-154: at -O2 an uncovered file is still untouched" {
+	# The invariant that holds whatever the optimiser did, and the one the
+	# whole phase is unsafe without: coverage governs pruning, so a file
+	# the mapping never described loses nothing at any optimisation level.
+	# Every function is still reported for the same reason — pruning
+	# removes lines from within a function, never the function itself.
+	build_debugline -O2
+	report "$DEBUGLINE" --elf "$IMAGE"
+	assert_success
+
+	assert_equal "$(eloc_of "$OUT" opaque)" "4"
+	assert_equal "$(summary_of "$OUT" Functions)" "4"
+	assert_equal "$(filter_of "$OUT" "Files with no debug coverage")" "1"
+}
+
+@test "HLR-154: at -O2 the optimiser prunes more than the source excluded" {
+	# **The limit HLR-154 states, demonstrated rather than described.** At
+	# -O0 exactly the guarded region goes. At -O2 the compiler folds
+	# `guarded(2)` to a constant and emits nothing for its body at all, so
+	# lines the source plainly holds produce no instruction and are pruned
+	# with the rest — indistinguishable, in the mapping alone, from the
+	# ones the `#ifdef` excluded.
+	#
+	# That is not a defect to be corrected: nothing in the image records
+	# the difference, and the lines really did contribute nothing to what
+	# shipped. It is why HLR-155's count exists, and why no exact figure is
+	# asserted here — one would pin the fixture to a single compiler's
+	# optimiser rather than to a requirement.
+	build_debugline -O0
+	report "$DEBUGLINE" --elf "$IMAGE"
+	assert_success
+	local at_o0
+	at_o0="$(filter_of "$OUT" "Lines not compiled by this build")"
+	assert_equal "$at_o0" "5"
+
+	build_debugline -O2
+	report "$DEBUGLINE" --elf "$IMAGE"
+	assert_success
+	local at_o2
+	at_o2="$(filter_of "$OUT" "Lines not compiled by this build")"
+
+	[ "$at_o2" -ge "$at_o0" ] || {
+		echo "-O2 pruned $at_o2, -O0 pruned $at_o0" >&2
+		false
+	}
+}
+
+@test "LLR-DWL-02: a path with .. components still resolves to the file" {
+	# The compiler records the file name as the command line spelled it,
+	# joined to the unit's compilation directory. Compiled from a
+	# subdirectory the name carries a `..`, and the image's spelling and
+	# elc's canonical path meet only if the join is normalised.
+	#
+	# Lexically, never through realpath(3): resolving these against the
+	# filesystem would stat every path the image happens to name, which is
+	# work on files the user did not name (HLR-141). The assertion is that
+	# lexical normalisation is enough for the ordinary build.
+	require_tool cc "HLR-153 debug-line pruning"
+	local work="$BATS_TEST_TMPDIR/sub"
+	local image="$BATS_TEST_TMPDIR/relative"
+
+	mkdir -p "$work"
+	( cd "$work" &&
+	  cc -g -O0 -c "$DEBUGLINE/../debugline/./covered.c" -o c.o \
+		2>/dev/null &&
+	  cc -O0 -c "$DEBUGLINE/opaque.c" -o o.o 2>/dev/null &&
+	  cc -o "$image" c.o o.o 2>/dev/null ) || \
+		skip "cc cannot build through a relative path here"
+
+	report "$DEBUGLINE" --elf "$image"
+	assert_success
+
+	# Coverage established despite the `..` in the recorded name: the
+	# guarded region is pruned, which it could not be from an uncovered
+	# file.
+	assert_equal "$(eloc_of "$OUT" guarded)" "4"
+	assert_equal "$(filter_of "$OUT" "Files with no debug coverage")" "1"
+}
+
+@test "HLR-155: the counts survive a record round trip" {
+	# Neither can be recomputed from a record: regeneration has no image,
+	# and no debug information to read from one.
+	build_debugline
+	local record="$BATS_TEST_TMPDIR/dl.xml"
+
+	run bash -c '"$0" --elf "$1" -f xml "$2" > "$3" 2>/dev/null' \
+		"$ELC" "$IMAGE" "$DEBUGLINE" "$record"
+	assert_success
+
+	run bash -c '"$0" --verbose --from-xml "$1" 2>/dev/null' "$ELC" "$record"
+	assert_success
+	assert_output --partial "Lines not compiled by this build"
+	assert_output --regexp "Lines not compiled by this build *\| *5"
+	assert_output --regexp "Files with no debug coverage *\| *1"
 }
 
 # ---------------------------------------------------- with no image at all --

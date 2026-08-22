@@ -1188,6 +1188,78 @@ A call whose target the filter removed is counted
 .I unresolved
 rather than resolved to a function that is not in the image, so the
 reachability analysis stays sound.
+.SS Lines the build did not compile
+An image answers "what did this build keep?" at two granularities. Everything
+above is the first: the symbol table names the
+.I functions
+the link kept. Where the image also carries
+.B debug line information
+\(em where the build was made with
+.B \-g
+\(em
+.B elc
+reads it and answers the second: which
+.I lines
+inside a kept function the compiler emitted an instruction for. Lines it did
+not are excluded from every metric and every graph fact, exactly as a function
+the link dropped is.
+.PP
+Nothing is required of you for this. There is no option: the finer granularity
+is governed by what the build wrote, and an image made without debug
+information behaves exactly as it did before \(em the reported metrics are
+those of the function filter alone.
+.PP
+This is where an image outreaches
+.BR \-D .
+A region guarded by a symbol you did not restate is one
+.B elc
+cannot decide, so it is left whole and counted among the
+.BR "Undecided regions" .
+The image settles it: the build compiled nothing there, and the mapping says
+so.
+.PP
+.B Absence of a line is evidence only where coverage was established.
+A translation unit compiled without
+.B \-g
+contributes no line entries at all, so treating absence as proof would delete
+the whole file. Coverage is therefore established per file first, and a file
+the image's line information does not cover loses
+.I nothing
+and is counted instead. Two figures state both halves:
+.TP
+.B Lines not compiled by this build
+What the finer filter removed.
+.TP
+.B Files with no debug coverage
+Where it could not look. A large figure here beside a small one above says the
+report describes your source more nearly than your image, whatever image you
+named.
+.PP
+Read them as you read
+.B Unresolved calls
+and
+.BR "Undecided regions" ,
+and note that the first is a count of source lines excluded rather than a
+difference in ELOC: a preprocessor directive on its own line is excluded with
+the region it guards and was never effective code to begin with.
+.PP
+.B One limit follows from the evidence rather than from this implementation.
+An optimiser may fold one source line's instructions into the entry recorded
+for a neighbouring line, and a line so folded is indistinguishable, in the
+mapping alone, from one that produced no instruction. Nothing in the image
+records the difference and
+.B elc
+does not guess at it. At
+.B \-O0
+the mapping is dense and the result is close to what the source says; at
+.B \-O2
+and above expect more to be pruned than a
+.B #ifdef
+excluded \(em a call folded to a constant emits nothing for the function's
+body, and that body is pruned with it. The figures above are what let you
+judge how much of a report rests on this. Neither is a defect to be corrected:
+the lines really did contribute nothing to what shipped, which is what the
+option is for.
 .SS An unusable image is an error
 An image that is absent, unreadable, not an object file, of a class this build
 does not read, or carrying no function symbols at all ends the run with a
@@ -1199,7 +1271,7 @@ set would otherwise filter every function away and report a project containing
 none \(em a confidently wrong result that no reader could tell from a correct
 one.
 .SS The filter is reported and recorded
-The image and both counts appear in the report and in the saved record, so a
+The image and every count appear in the report and in the saved record, so a
 report states which image it describes and a regenerated one still does.
 Because the filter is applied when a file is measured rather than when a report
 is rendered, combining

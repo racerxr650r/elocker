@@ -304,6 +304,9 @@ static int total_files(Report *out)
 		out->summary.function_count += out->files[i]->function_count;
 		out->undecided_regions      += out->files[i]->undecided_regions;
 		out->file_scope_eloc        += out->files[i]->scope_eloc;
+		out->pruned_lines           += out->files[i]->pruned_lines;
+		out->uncovered_files        +=
+			out->files[i]->coverage_unestablished ? 1 : 0;
 
 		if (language_add(&out->languages, out->files[i]) != 0)
 			return -1;

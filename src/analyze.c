@@ -74,6 +74,8 @@ typedef struct {
  * every one of them asks whether a byte is measured, and the exclusion set
  * is built before any of them runs. */
 static bool byte_is_excluded(const SpanList *spans, uint32_t byte);
+static int  span_add(SpanList *spans, uint32_t start, uint32_t end,
+                     uint32_t start_line, uint32_t end_line);
 
 void filemetrics_free(FileMetrics *metrics)
 {
@@ -724,7 +726,7 @@ static int absent_add(FileMetrics *metrics, SpanList *spans, char *name,
 static int collect_absent_functions(const LanguageModule *module, Registry *reg,
                                     const SymbolSet *image, const char *data,
                                     TSNode root, SpanList *excluded,
-                                    FileMetrics *metrics)
+                                    SpanList *kept, FileMetrics *metrics)
 {
 	TSQuery     *query  = module->queries[QUERY_FUNCTIONS];
 	SpanList     absent = { 0 };
@@ -758,6 +760,20 @@ static int collect_absent_functions(const LanguageModule *module, Registry *reg,
 			goto cleanup;
 
 		if (elfsyms_defines(image, name)) {
+			/* Kept by the link, so its extent is where the finer
+			 * filter may look. HLR-154 confines line pruning to
+			 * within a function the image defines: a line outside
+			 * every one of them is file-scope code, which the
+			 * image's *function* set says nothing about and which
+			 * HLR-145 requires be measured and reported on its own
+			 * (LLR-ANL-60). */
+			if (span_add(kept, ts_node_start_byte(body_node),
+			             ts_node_end_byte(body_node),
+			             ts_node_start_point(body_node).row + 1,
+			             ts_node_end_point(body_node).row + 1) != 0) {
+				free(name);
+				goto cleanup;
+			}
 			free(name);
 			continue;
 		}
@@ -1953,11 +1969,125 @@ static int prepare_records(const LanguageModule *module, const char *path,
  * others settled — a function inside an inactive region was never built and is
  * not one the linker discarded (HLR-144).
  */
+/* True when a byte lies inside one of the spans, which here are function
+ * extents rather than exclusions and so are in no particular order: this is a
+ * plain scan, not `byte_is_excluded`'s early-exiting one. */
+static bool span_covers(const SpanList *spans, uint32_t byte)
+{
+	for (size_t i = 0; i < spans->count; i++)
+		if (byte >= spans->items[i].start_byte &&
+		    byte < spans->items[i].end_byte)
+			return true;
+	return false;
+}
+
+/* Whether a line holds anything a measurement could rest on.
+ *
+ * A blank line produces no instruction in any build, so its absence from the
+ * mapping says nothing about this one. Pruning it removes nothing and counting
+ * it would inflate the figure of HLR-155 — a report claiming four hundred
+ * lines pruned, most of them empty, would misstate how far the image narrowed
+ * it.
+ */
+static bool line_is_prunable(const char *data, size_t start, size_t end)
+{
+	for (size_t i = start; i < end; i++)
+		if (data[i] != ' ' && data[i] != '\t' && data[i] != '\r')
+			return true;
+	return false;
+}
+
+/* Exclude the lines this build compiled no instruction for (HLR-153).
+ *
+ * The fourth and last exclusion, and last for the reason the third is third:
+ * each needs the ones before it settled. A line inside a comment, inside a
+ * region this configuration does not compile, or inside a function the linker
+ * discarded is already gone, and pruning it again would count it twice in a
+ * figure a reader is meant to act on (LLR-ANL-58).
+ *
+ * **Two tests, and the first governs the second.** Coverage is established per
+ * file before any line within it is judged. A translation unit compiled
+ * without debug information contributes no line entries at all, so a rule
+ * keyed on absence alone would find every line of it uncompiled and delete the
+ * file — evidence of nothing at all read as evidence of everything. Where
+ * coverage is not established the file is counted and nothing in it is touched
+ * (HLR-154, HLR-155).
+ *
+ * **Confined to within functions the image defines.** Code at file scope has
+ * few line entries to its name, and it is the one figure HLR-145 requires be
+ * kept separate and honest; a rule that pruned uncovered lines everywhere
+ * would delete precisely that. The kept extents come from the pass above,
+ * which already had the image in hand.
+ *
+ * A line that is blank or already excluded is skipped rather than counted.
+ * Pruning it removes nothing, and counting it would inflate the figure of
+ * HLR-155 with lines no measurement rested on.
+ */
+static int prune_uncompiled_lines(const SymbolSet *image, const char *data,
+                                  size_t len, const char *path,
+                                  const SpanList *kept, SpanList *excluded,
+                                  FileMetrics *metrics)
+{
+	SpanList pruned = { 0 };
+	uint32_t line   = 1;
+	size_t   start  = 0;
+	int      status = -1;
+
+	if (!image)
+		return 0;
+
+	/* Only asked where an image was named: with none, the question does
+	 * not arise and the file is not counted as uncovered. */
+	if (!dwarfline_covers(&image->lines, path)) {
+		metrics->coverage_unestablished = true;
+		return 0;
+	}
+
+	for (size_t i = 0; i <= len; i++) {
+		if (i < len && data[i] != '\n')
+			continue;
+
+		if (line_is_prunable(data, start, i) &&
+		    span_covers(kept, (uint32_t)start) &&
+		    !byte_is_excluded(excluded, (uint32_t)start) &&
+		    !dwarfline_compiled(&image->lines, path, line)) {
+			if (span_add(&pruned, (uint32_t)start, (uint32_t)i,
+			             line, line) != 0)
+				goto cleanup;
+			metrics->pruned_lines++;
+		}
+
+		start = i + 1;
+		line++;
+	}
+
+	/* Merged once the pass is over, for the reason the absent functions
+	 * are: `byte_is_excluded` exits early on the first span starting past
+	 * the byte it was asked about, which is correct exactly while the list
+	 * is ordered. */
+	for (size_t i = 0; i < pruned.count; i++) {
+		if (excluded->count == excluded->capacity &&
+		    analyze_grow((void **)&excluded->items, &excluded->capacity,
+		         sizeof *excluded->items) != 0)
+			goto cleanup;
+		excluded->items[excluded->count++] = pruned.items[i];
+	}
+	merge_comment_spans(excluded);
+	status = 0;
+
+cleanup:
+	free(pruned.items);
+	return status;
+}
+
 static int build_exclusions(const LanguageModule *module, Registry *reg,
                             const ElcOptions *opts, const SymbolSet *image,
-                            const char *data, TSNode root, const char *path,
-                            FileMetrics *metrics, SpanList *comments)
+                            const char *data, size_t len, TSNode root,
+                            const char *path, FileMetrics *metrics,
+                            SpanList *comments)
 {
+	SpanList kept = { 0 };
+
 	if (collect_comments(module, reg, data, root, comments) != 0 ||
 	    collect_inactive_regions(module, reg, opts, data, root, comments,
 	                             &metrics->undecided_regions) != 0) {
@@ -1967,10 +2097,20 @@ static int build_exclusions(const LanguageModule *module, Registry *reg,
 	merge_comment_spans(comments);
 
 	if (collect_absent_functions(module, reg, image, data, root, comments,
-	                             metrics) != 0) {
+	                             &kept, metrics) != 0) {
 		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		free(kept.items);
 		return -1;
 	}
+
+	if (prune_uncompiled_lines(image, data, len, path, &kept, comments,
+	                           metrics) != 0) {
+		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		free(kept.items);
+		return -1;
+	}
+
+	free(kept.items);
 	return 0;
 }
 
@@ -2113,8 +2253,8 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 
 	measure_damage(root, path, metrics);
 
-	if (build_exclusions(module, reg, opts, image, map, root, path, metrics,
-	                     &comments) != 0)
+	if (build_exclusions(module, reg, opts, image, map, len, root, path,
+	                     metrics, &comments) != 0)
 		goto cleanup;
 
 	if (collect_all(module, reg, map, root, path, &comments, &ranges,

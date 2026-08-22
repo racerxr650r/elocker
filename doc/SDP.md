@@ -61,7 +61,7 @@ release readiness — is ready to start, and is the last.
 | [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 | [18](#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
 | [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
-| [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | 🔲 Not started |
+| [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
 | [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
@@ -80,6 +80,7 @@ release readiness — is ready to start, and is the last.
 | `igraph` | ≥ 1.0 | Graph algorithms (Phase 8). **Built from source** with `-DIGRAPH_GRAPHML_SUPPORT=OFF -DIGRAPH_OPENMP_SUPPORT=OFF -DIGRAPH_USE_INTERNAL_GMP=ON` |
 | Expat | ≥ 2.6 | Streaming XML read for regeneration mode (Phase 5) |
 | `libelf` | ≥ 0.18 | Reading the symbol table of the image `--elf` names (Phase 16). **From the distribution** — see below |
+| `libdw` | ≥ 0.18 | Reading the debug line information that image carries, where it carries any (Phase 20). **From the distribution**, with `libelf` and for the same reason — see below |
 | Jansson | ≥ 2.14 | Generating and parsing the purification manifest (Phase 23). **Built from source**; no dependencies of its own ([SDD](SDD.md) §22) |
 | Criterion | ≥ 2.4 | Unit test framework |
 | Bats | ≥ 1.10 | Integration, fixture, and instrumented levels |
@@ -1824,18 +1825,26 @@ before you push. Close by opening the issue for Phase 20 from §8.
 
 **Acceptance:** an image built with debug information prunes the lines a
 `#ifdef` excluded from that build, and `elc` reports how many. An image built
-without it produces byte-identical output to the same image before this phase.
-A translation unit compiled without debug information has no line pruned and
-is counted among those whose coverage could not be established. No file the
-image's line information does not cover loses a line.
+without it reports the **same metrics** as the same image before this phase —
+metrics rather than bytes, because HLR-155 adds two counts to the filter
+section whether or not the image carried line information, and a section that
+omitted the question would be a different claim from one answering it with two
+zeroes. A translation unit compiled without debug information has no line
+pruned and is counted among those whose coverage could not be established. No
+file the image's line information does not cover loses a line.
 
-**Open questions for step 6.** Which library reads the line programme is a
-design decision under HLR-112, and it is the one place these three phases may
-add a dependency — `libdw` from elfutils is the obvious candidate, beside the
-`libelf` already linked, and the dependency allowlist and `make check-prereqs`
-both need updating if it is taken. Whether the optimiser's line-folding
-(HLR-154) proves tolerable in practice is the risk this phase carries, and the
-counts exist so that it is measurable rather than argued.
+**Open questions for step 6.** *(Both settled by the phase.)* `libdw` was
+taken, beside the `libelf` already linked and from the same elfutils tree, so
+it extends that documented distribution exception rather than opening a new
+one; the dependency allowlist, `PKGS_BUILD` and `make check-prereqs` were
+updated with it, and the low-level `dwarf_*` interface is used rather than the
+`Dwfl` layer that would open a file the user never named — a distinction the
+allowlist cannot see and an instrumented test holds. The optimiser's
+line-folding (HLR-154) proves **material rather than marginal**: at `-O2` a
+call folded to a constant leaves the whole callee body without line entries and
+it is pruned entire. That is a true statement about what shipped, it is not
+recoverable from the image, and the counts of HLR-155 are what make it
+measurable — which is the outcome the requirement anticipated.
 
 **AI prompt.** Run after issue #<N> exists; `<N>` is its number.
 
@@ -1984,7 +1993,7 @@ Watch for:
 
 The gap baseline is re-derived from the figure this phase inherits rather
 than projected forward from 175: read `test/gap-baseline.txt`, and the seven
-HLRs this phase closes must bring it seven lower. Phase 19 left it at 151.
+HLRs this phase closes must bring it seven lower. Phase 20 left it at 148.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
