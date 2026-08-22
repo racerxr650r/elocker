@@ -437,3 +437,100 @@ Test(format_xml, an_absent_record_is_rejected)
 	              0);
 	report_free(&report);
 }
+
+/* The two conformance indices and the matrix are carried in the record and
+ * restored from it (LLR-XWR-17, LLR-XRD-17).
+ *
+ * Neither can be recomputed on the way back. Regeneration has no call graph,
+ * so a record that carried the layering rows alone would have no denominator
+ * to divide by and no edges to arrange — and a regenerated report would show
+ * an undefined index and an empty grid for a run whose report showed neither.
+ *
+ * The indices come back as *rendered* text rather than as the counts beside
+ * them, so a regenerated report cannot round a figure differently from the
+ * report it came from.
+ */
+Test(format_xml, the_conformance_indices_and_the_matrix_survive_the_record)
+{
+	ElcOptions opts   = { 0 };
+	Report     report = { 0 };
+	char       path[] = "/tmp/elc-xml-XXXXXX";
+	int        fd     = mkstemp(path);
+	const char body[] =
+		"<?xml version=\"1.0\"?>\n"
+		"<elc-report format-version=\"1\">\n"
+		"  <files>\n"
+		"    <file path=\"/a.c\" language=\"c\" physical-lines=\"6\" eloc=\"3\"/>\n"
+		"  </files>\n"
+		"  <architecture strata-state=\"0\" bottleneck-threshold=\"5\">\n"
+		"    <conformance kind=\"back-call\" index=\"16.67%\""
+		" conforming=\"83.33%\" violations=\"1\" edges=\"6\"/>\n"
+		"    <conformance kind=\"skip-call\" index=\"33.33%\""
+		" conforming=\"66.67%\" violations=\"2\" edges=\"6\"/>\n"
+		"  </architecture>\n"
+		"  <dsm from-strata=\"1\">\n"
+		"    <dsm-subject name=\"app\"/>\n"
+		"    <dsm-subject name=\"hal\"/>\n"
+		"    <dsm-cell row=\"0\" col=\"1\" calls=\"2\"/>\n"
+		"    <dsm-cell row=\"1\" col=\"0\" calls=\"1\"/>\n"
+		"  </dsm>\n"
+		"</elc-report>\n";
+
+	cr_assert_neq(fd, -1);
+	cr_assert_gt(write(fd, body, sizeof body - 1), 0);
+	close(fd);
+
+	opts.complexity_threshold = 15;
+	cr_assert_eq(xml_read_report(path, &opts, &report), 0);
+
+	cr_assert_str_eq(report.back_call.index, "16.67%");
+	cr_assert_str_eq(report.back_call.conforming, "83.33%");
+	cr_assert_eq(report.back_call.violations, 1);
+	cr_assert_eq(report.back_call.edges, 6);
+	cr_assert_str_eq(report.skip_call.index, "33.33%");
+	cr_assert_eq(report.skip_call.violations, 2);
+
+	cr_assert(report.dsm.from_strata);
+	cr_assert_eq(report.dsm.count, 2);
+	cr_assert_str_eq(report.dsm.subjects[0], "app");
+	cr_assert_str_eq(report.dsm.subjects[1], "hal");
+	/* Above the diagonal, then below it. The cells the document omits are
+	 * the zeroes, which is what keeps a mostly-empty grid small. */
+	cr_assert_eq(report.dsm.cells[0 * 2 + 1], 2);
+	cr_assert_eq(report.dsm.cells[1 * 2 + 0], 1);
+	cr_assert_eq(report.dsm.cells[0 * 2 + 0], 0);
+	cr_assert_eq(report.dsm.cells[1 * 2 + 1], 0);
+
+	unlink(path);
+	report_free(&report);
+}
+
+/* A record written before these elements existed reads back without them, and
+ * renders as an omitted conformance section and an empty grid rather than as
+ * a failure. Adding an element is an addition an older reader ignores, which
+ * is why the format version marks removals and meaning changes alone. */
+Test(format_xml, a_record_without_the_matrix_still_reads)
+{
+	ElcOptions opts   = { 0 };
+	Report     report = { 0 };
+	char       path[] = "/tmp/elc-xml-XXXXXX";
+	int        fd     = mkstemp(path);
+	const char body[] =
+		"<?xml version=\"1.0\"?>\n"
+		"<elc-report format-version=\"1\">\n"
+		"  <files>\n"
+		"    <file path=\"/a.c\" language=\"c\" physical-lines=\"6\" eloc=\"3\"/>\n"
+		"  </files>\n"
+		"</elc-report>\n";
+
+	cr_assert_neq(fd, -1);
+	cr_assert_gt(write(fd, body, sizeof body - 1), 0);
+	close(fd);
+
+	cr_assert_eq(xml_read_report(path, &opts, &report), 0);
+	cr_assert_null(report.back_call.index);
+	cr_assert_eq(report.dsm.count, 0);
+
+	unlink(path);
+	report_free(&report);
+}

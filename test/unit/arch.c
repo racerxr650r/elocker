@@ -631,6 +631,148 @@ Test(arch, a_state_edge_is_not_a_layering_violation)
 	report_free(&report);
 }
 
+/* ----------------------------------------------------- conformance indices -- */
+
+/* One layer's worth of hand-made findings, with no graph anywhere near them.
+ *
+ * That absence is the test rather than an economy: HLR-164 requires the
+ * indices to be counted from the violations already reported, so a function
+ * that could produce them from nothing but a violation list is the shape the
+ * requirement asks for. An implementation that re-derived them from the graph
+ * could not compile against this call.
+ */
+Test(arch, the_indices_count_the_reported_findings_rather_than_the_graph)
+{
+	ArchResults        arch = { 0 };
+	LayerViolation     v[3] = { 0 };
+	ConformanceIndices idx  = { 0 };
+
+	v[0].kind = LAYER_INVERTED;
+	v[1].kind = LAYER_SKIP_LEVEL;
+	v[2].kind = LAYER_SKIP_LEVEL;
+
+	arch.violations        = v;
+	arch.violation_count   = 3;
+	arch.inter_layer_edges = 8;
+
+	cr_assert_eq(conformance_indices(&arch, &idx), 0);
+	cr_assert(idx.defined);
+	cr_assert_eq(idx.inter_layer_edges, 8);
+	cr_assert_eq(idx.back_calls, 1);
+	cr_assert_eq(idx.skip_calls, 2);
+	cr_assert_float_eq(idx.back_call_index, 1.0 / 8.0, 1e-9);
+	cr_assert_float_eq(idx.skip_call_index, 2.0 / 8.0, 1e-9);
+}
+
+/* A project with no inter-layer call has demonstrated nothing either way, and
+ * saying so is the whole of HLR-162's undefined case. Reporting 0 there would
+ * claim perfect conformance for a code base that has never had the
+ * opportunity to breach anything — the error HLR-082 already avoids by
+ * reporting an undefined Instability rather than a stable 0.00. */
+Test(arch, a_zero_denominator_is_undefined_rather_than_perfect)
+{
+	ArchResults        arch = { 0 };
+	ConformanceIndices idx  = { 0 };
+
+	cr_assert_eq(conformance_indices(&arch, &idx), 0);
+	cr_assert_not(idx.defined);
+	cr_assert_eq(idx.inter_layer_edges, 0);
+	cr_assert_eq(idx.back_calls, 0);
+	cr_assert_eq(idx.skip_calls, 0);
+}
+
+Test(arch, a_call_that_both_skips_and_inverts_counts_once_in_each_index)
+{
+	Sdg                g      = { 0 };
+	Report             report = { 0 };
+	FactList           facts  = { 0 };
+	ElcOptions         opts   = three_layers();
+	ArchResults        arch   = { 0 };
+	ConformanceIndices idx    = { 0 };
+
+	/* One call, ascending two layers. It is a back-call and a skip-level
+	 * call at once, so each index is 100% of the single candidate edge —
+	 * and the two therefore sum to 200%, which is why they are never
+	 * summed into one conformance score (LLR-LAY-04, HLR-163). */
+	layered(&g, &report, &facts, "drv_fn", "app_fn", "drv");
+
+	cr_assert_eq(arch_analyse(&g, &opts, &arch), 0);
+	cr_assert_eq(conformance_indices(&arch, &idx), 0);
+
+	cr_assert(idx.defined);
+	cr_assert_eq(idx.inter_layer_edges, 1);
+	cr_assert_eq(idx.back_calls, 1);
+	cr_assert_eq(idx.skip_calls, 1);
+	cr_assert_float_eq(idx.back_call_index, 1.0, 1e-9);
+	cr_assert_float_eq(idx.skip_call_index, 1.0, 1e-9);
+	cr_assert_gt(idx.back_calls + idx.skip_calls, idx.inter_layer_edges);
+
+	arch_results_free(&arch);
+	cli_options_free(&opts);
+	graph_free(&g);
+	factlist_free(&facts);
+	report_free(&report);
+}
+
+Test(arch, an_intra_layer_call_is_not_in_the_denominator)
+{
+	Sdg                g      = { 0 };
+	Report             report = { 0 };
+	FactList           facts  = { 0 };
+	ElcOptions         opts   = default_options();
+	ArchResults        arch   = { 0 };
+	ConformanceIndices idx    = { 0 };
+
+	layered(&g, &report, &facts, "app_fn", "hal_fn", "app");
+
+	/* One layer holding every component: the call is real and inside it,
+	 * and an edge within one layer has no direction to invert. The
+	 * denominator is therefore zero and the indices undefined, rather than
+	 * zero over one. */
+	cr_assert_eq(parse_stratum("all:/p/*", &opts), 0);
+	cr_assert_eq(arch_analyse(&g, &opts, &arch), 0);
+	cr_assert_eq(arch.inter_layer_edges, 0);
+
+	cr_assert_eq(conformance_indices(&arch, &idx), 0);
+	cr_assert_not(idx.defined);
+
+	arch_results_free(&arch);
+	cli_options_free(&opts);
+	graph_free(&g);
+	factlist_free(&facts);
+	report_free(&report);
+}
+
+Test(arch, an_edge_touching_an_unpartitioned_component_is_not_in_the_denominator)
+{
+	Sdg                g      = { 0 };
+	Report             report = { 0 };
+	FactList           facts  = { 0 };
+	ElcOptions         opts   = default_options();
+	ArchResults        arch   = { 0 };
+	ConformanceIndices idx    = { 0 };
+
+	layered(&g, &report, &facts, "app_fn", "drv_fn", "app");
+
+	/* The call runs from a file no declaration names into another one, so
+	 * there is nothing to compare and nothing to count. Including it would
+	 * put an edge in the denominator that no numerator could ever reach,
+	 * and every index would drift downward with each undeclared file
+	 * (HLR-161, LLR-LAY-05). */
+	cr_assert_eq(parse_stratum("hal:/p/hal/*", &opts), 0);
+	cr_assert_eq(arch_analyse(&g, &opts, &arch), 0);
+	cr_assert_eq(arch.inter_layer_edges, 0);
+
+	cr_assert_eq(conformance_indices(&arch, &idx), 0);
+	cr_assert_not(idx.defined);
+
+	arch_results_free(&arch);
+	cli_options_free(&opts);
+	graph_free(&g);
+	factlist_free(&facts);
+	report_free(&report);
+}
+
 Test(arch, an_empty_graph_analyses_without_incident)
 {
 	Sdg                g      = { 0 };

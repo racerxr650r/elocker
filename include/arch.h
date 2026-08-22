@@ -78,7 +78,46 @@ typedef struct {
 	LayerViolation    *violations;    /* owned (HLR-079, HLR-118)      */
 	size_t             violation_count;
 	size_t             violation_capacity;
+	/* The denominator of both conformance indices: the run's call edges
+	 * joining two components that lie in *different* declared layers
+	 * (HLR-162, HLR-163).
+	 *
+	 * Counted by `check_strata` in the same pass that produces the
+	 * violations above, and that is the point rather than an economy. The
+	 * three exclusions the denominator needs — a call is not a global
+	 * edge, both ends lie inside the partition, and the two ends lie in
+	 * different layers — are the three tests that loop already makes
+	 * before it decides whether to report anything. A second traversal
+	 * applying them again would be a second opinion about which edges are
+	 * candidates, and the percentage would eventually contradict the table
+	 * printed beside it (HLR-164).
+	 *
+	 * Zero when no strata were declared, since the loop does not run. */
+	size_t             inter_layer_edges;
 } ArchResults;
+
+/* The two conformance indices over one run (HLR-162, HLR-163).
+ *
+ * Both are proportions of the same denominator and neither is a summary of
+ * the other. They are **never** added together: a call ascending two layers
+ * is a back-call and a skip-level call at once, counted once in each, and a
+ * combined score would count it twice — exactly the call most worth acting on
+ * (LLR-LAY-04).
+ *
+ * `defined` is false where the denominator is zero, and the caller must then
+ * report the index as undefined rather than as 0 or 1. A project with no
+ * inter-layer call has not achieved perfect conformance; it has demonstrated
+ * nothing either way, which is the rule HLR-082 already applies to
+ * Instability.
+ */
+typedef struct {
+	size_t inter_layer_edges;   /* the shared denominator          */
+	size_t back_calls;          /* inverted findings counted       */
+	size_t skip_calls;          /* skip-level findings counted     */
+	double back_call_index;     /* back_calls / inter_layer_edges  */
+	double skip_call_index;
+	bool   defined;             /* false where the denominator is 0 */
+} ConformanceIndices;
 
 /* Run every component-level analysis.
  *
@@ -109,6 +148,32 @@ int find_cycles(const Sdg *g, ArchResults *out);
 /* Report every call bypassing a declared layer and every call inverting the
  * declared direction, as distinct findings (LLR-LAY-01 – LLR-LAY-03). */
 int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out);
+
+/* The declared stratum each component lies in, as a `g->component_count`
+ * array the caller frees, or NULL on allocation failure. SIZE_MAX marks a
+ * component no declaration names (HLR-161, LLR-LAY-05).
+ *
+ * Exposed so that the dependency matrix assigns components to layers by the
+ * same rule the layering findings do. Two matchers over one set of patterns
+ * would eventually disagree about which layer a file is in, and the matrix's
+ * below-diagonal cells would then stop accounting for the back-calls listed
+ * beside them — the failure HLR-164 forbids for the indices, arriving instead
+ * through the grid.
+ */
+size_t *stratum_of_components(const Sdg *g, const ElcOptions *opts);
+
+/* Count the recorded layering violations into the two indices, over the
+ * inter-layer call edges as denominator (HLR-162 – HLR-164).
+ *
+ * **Counts, never re-derives.** The numerators come from `a->violations` and
+ * the denominator from the count `check_strata` took while producing them, so
+ * there is one decision in the program about what a back-call is and the
+ * indices cannot disagree with the table beside them.
+ *
+ * Returns 0. Exposed because the undefined case and the both-kinds case are
+ * the two worth pinning directly.
+ */
+int conformance_indices(const ArchResults *a, ConformanceIndices *out);
 
 /* Attribution for these measurements lives in the threshold catalogue, not
  * here: `threshold_attribution(MEASURE_INSTABILITY)` and

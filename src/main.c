@@ -27,6 +27,7 @@
 #include "elc.h"
 #include "elfsyms.h"
 #include "format_csv.h"
+#include "format_dsm.h"
 #include "format_text.h"
 #include "format_xml.h"
 #include "registry.h"
@@ -282,6 +283,19 @@ static int analyse_graph(Run *run)
 		return -1;
 	}
 
+	/* The matrix is built here rather than inside the arch pass, because
+	 * it is an arrangement of the graph's call edges over the report's
+	 * components and needs both. It is built whether or not strata were
+	 * declared: with none its subjects are the analysed directories, which
+	 * is what makes it useful to the reader who has declared nothing
+	 * (HLR-165). */
+	if (dsm_build(&run->sdg, &run->report, &run->opts,
+	              &run->report.dsm) != 0) {
+		fputs("elc: out of memory building the dependency matrix\n",
+		      stderr);
+		return -1;
+	}
+
 	if (thresholds_apply(&run->arch, &run->tree, &run->state, &run->sdg,
 	                     &run->opts, &run->findings) != 0 ||
 	    report_set_findings(&run->report, &run->findings) != 0) {
@@ -300,6 +314,32 @@ static int companion_dot(Run *run, const char *path)
 static int companion_graphml(Run *run, const char *path)
 {
 	return graph_write_graphml(&run->sdg, path);
+}
+
+/* The matrix as CSV, beside the report (HLR-180).
+ *
+ * Written from the report model rather than from the graph, which is what
+ * makes it available in regeneration mode where the other two companions are
+ * not: a saved record carries the matrix, and carries no topology to redraw
+ * the call tree from (HLR-054, HLR-122).
+ */
+static int companion_dsm(Run *run, const char *path)
+{
+	FILE *file = fopen(path, "w");
+	int   status;
+
+	if (!file) {
+		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+
+	status = format_dsm_csv(&run->report.dsm, file);
+	if (fclose(file) != 0 || status != 0) {
+		fprintf(stderr, "elc: %s: the dependency matrix could not be "
+		        "written\n", path);
+		return -1;
+	}
+	return 0;
 }
 
 /* Name a companion artefact beside the report and hand the path to its writer.
@@ -362,6 +402,13 @@ static int emit(Run *run)
 
 	if (run->graph_built && graph_graphml_warranted(&run->opts))
 		write_companion(run, "graphml", "GraphML", companion_graphml);
+
+	/* The third companion, and the only one a regenerated report can also
+	 * produce: it is written from the model rather than from the graph
+	 * (HLR-180). Off unless asked for, like the GraphML export. */
+	if (dsm_warranted(&run->opts))
+		write_companion(run, "dsm.csv", "dependency matrix",
+		                companion_dsm);
 
 	return 0;
 }

@@ -101,6 +101,98 @@ against an implementation that flagged every inter-layer call.
 coupling table is still produced — omitting one analysis for want of a
 declaration must not omit its neighbours.
 
+## `tree/` — the two conformance indices
+
+Both indices are proportions of **the same denominator**: the run's call edges
+joining two components in *different* declared layers. Counted by hand from
+the dependency table above, taking each distinct caller-to-callee edge once:
+
+| # | Call | From | To | Inter-layer? |
+| - | ---- | ---- | -- | ------------ |
+| 1 | `app_run` → `hal_read` | app (0) | hal (1) | yes |
+| 2 | `app_run` → `hal_write` | app (0) | hal (1) | yes |
+| 3 | `app_shortcut` → `drv_poke` | app (0) | drv (2) | yes — **skip** |
+| 4 | `hal_read` → `drv_poke` | hal (1) | drv (2) | yes |
+| 5 | `hal_write` → `drv_poke` | hal (1) | drv (2) | yes |
+| 6 | `hal_callback` → `app_notify` | hal (1) | app (0) | yes — **back-call** |
+
+**The denominator is 6.** `app_run` calls `hal_read` twice and that is one
+edge, not two — the same collapse the fan-out table relies on, so the
+percentages are over the figure the tables beside them show.
+
+| Index | Violating | Conforming |
+| ----- | --------- | ---------- |
+| Back-call (HLR-162) | 1/6 = **16.67%** | **83.33%** |
+| Skip-call (HLR-163) | 1/6 = **16.67%** | **83.33%** |
+
+**The two are never added.** Here they happen to describe different calls, but
+one call ascending two layers would be counted in each, and a combined score
+would count twice exactly the call most worth acting on. Each index names its
+own remedy; their sum names none.
+
+The two conforming figures are 83.33% rather than one of them being 83.34%:
+each is its own division rounded to two places, not one subtracted from the
+other, so a reader who checks 1/6 and 5/6 against the printed pair finds both.
+
+## `cycles/` — the undefined case for both indices
+
+Declared with a single layer holding both files:
+
+```sh
+elc --stratum 'all:*/cycles/*' cycles
+```
+
+`a_side` calls `b_side` and `b_side` calls `a_side`, so there are two call
+edges — and **both indices are `undefined`, not 0%**. Every edge is *within*
+one layer, and an edge inside a layer has no direction to invert, so the
+denominator is zero.
+
+This is the case worth being careful about: the project has calls, has a
+declared architecture, and has committed no violation — and reporting 0% (or
+100% conforming) would claim it had demonstrated conformance. It has
+demonstrated nothing either way. It is the same rule that makes Instability
+undefined in `lone/` rather than 0.00, and deliberately *not* the rule
+Henry–Kafura follows, which is genuinely zero when its inputs vanish.
+
+## `tree/` — the hand-drawn matrix
+
+**Rows are callers and columns are callees**, both in ascending layer order.
+Every cell is the count of call edges from the row's subject to the column's,
+taken from the six-edge table above:
+
+|   | app | hal | drv |
+| - | --- | --- | --- |
+| **app** | 0 | 2 | 1 |
+| **hal** | 1 | 0 | 2 |
+| **drv** | 0 | 0 | 0 |
+
+The cell that matters is `hal → app` = **1**, and it sits *below* the
+diagonal. Below-diagonal cells sum to 1, which is exactly the count of
+inverted findings in the layering table — the two views of one fact, which is
+what makes the grid checkable against the list printed beside it. A matrix
+built the other way round would still be a square of plausible numbers with
+every reading taken from it exactly backwards, which is why the convention is
+printed with every rendering.
+
+The diagonal is all zeroes here because each layer is a single file and a
+component does not call itself across a component boundary. A diagonal cell is
+not a violation in any case: no declared order constrains a dependency inside
+one subject.
+
+With **no** `--stratum` the same tree yields a matrix over directories,
+ordered by path — `app`, `drv`, `hal`, which is *not* the layer order:
+
+|   | app | drv | hal |
+| - | --- | --- | --- |
+| **app** | 0 | 1 | 2 |
+| **drv** | 0 | 0 | 0 |
+| **hal** | 1 | 2 | 0 |
+
+The two grids hold the same six edges arranged two ways, and that is the
+point of the fallback: a reader who has declared nothing still gets the
+dependencies, and is told in the heading that the order is alphabetical rather
+than architectural, so no cell below this diagonal is read as a violation.
+
 ## `cycles/` — both facts at once
 
 `a_side` calls `b_side` and `b_side` calls `a_side`, across two files.

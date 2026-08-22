@@ -187,3 +187,62 @@ Test(report, free_is_safe_on_null)
 	metrics_free(NULL);
 	cr_assert(1, "releasing a null model must not fault");
 }
+
+/* --------------------------------------------------- component directory -- */
+
+/* The directory a component belongs to, derived once so that every analysis
+ * grouping by directory reads the same answer (HLR-160).
+ *
+ * The two edge cases are the ones a naive split on the last separator gets
+ * wrong: a file directly under the root has an empty prefix, and a path with
+ * no separator at all has no directory to name.
+ */
+Test(report, a_components_directory_is_the_path_above_it)
+{
+	char *dir = component_directory("/p/app/a.c");
+
+	cr_assert_not_null(dir);
+	cr_assert_str_eq(dir, "/p/app", "no trailing separator, so that two "
+	                 "files in one directory compare equal");
+	free(dir);
+}
+
+Test(report, a_file_at_the_root_belongs_to_the_root)
+{
+	char *dir = component_directory("/a.c");
+
+	cr_assert_not_null(dir);
+	cr_assert_str_eq(dir, "/", "the empty prefix is the root, not nothing");
+	free(dir);
+}
+
+Test(report, a_path_with_no_separator_belongs_to_the_working_directory)
+{
+	char *dir = component_directory("a.c");
+
+	cr_assert_not_null(dir);
+	cr_assert_str_eq(dir, ".");
+	free(dir);
+}
+
+/* A measured file carries its directory, rather than every consumer slicing
+ * the path for itself. Asserted on the assembled model, because that is where
+ * the layering, the matrix, and the edge densities read it from. */
+Test(report, an_assembled_file_carries_its_directory)
+{
+	MetricsAccumulator acc    = { 0 };
+	Report             report = { 0 };
+	ElcOptions         opts   = { 0 };
+	FileMetrics       *m      = metrics_for("/p/app/a.c", 1);
+
+	m->directory = component_directory("/p/app/a.c");
+	cr_assert_not_null(m->directory);
+	cr_assert_eq(metrics_add(&acc, m), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
+
+	cr_assert_eq(report.file_count, 1);
+	cr_assert_str_eq(report.files[0]->directory, "/p/app");
+
+	report_free(&report);
+	metrics_free(&acc);
+}

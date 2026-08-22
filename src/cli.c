@@ -338,6 +338,14 @@ void cli_usage(FILE *stream)
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.graphml. Requires --output,\n"
 "                     since there is otherwise no name to derive\n"
+"      --dsm          also write the dependency structure matrix as CSV,\n"
+"                     beside the report and named from it: an --output of\n"
+"                     report.md yields report.dsm.csv. Rows are callers and\n"
+"                     columns callees, so back-calls gather below the\n"
+"                     diagonal. Requires --output, since there is otherwise\n"
+"                     no name to derive. The matrix is over the declared\n"
+"                     layers, or over the analysed directories where none\n"
+"                     were declared\n"
 "  -D, --define NAME[=VALUE]\n"
 "                     define a conditional-compilation symbol, so that the\n"
 "                     metrics describe the configuration in which it is\n"
@@ -411,7 +419,8 @@ void cli_usage(FILE *stream)
 /* A value above any printable character, so a long-only option cannot
  * collide with a short one. */
 enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
-       OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF };
+       OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF,
+       OPT_DSM };
 
 /* What reading one option needs: the options being built, and the record of
  * how the format came to be what it is. All three outlive the option that
@@ -613,6 +622,17 @@ static int opt_graphml(const char *arg, CliParse *p)
 	return CLI_OK;
 }
 
+static int opt_dsm(const char *arg, CliParse *p)
+{
+	/* Recorded, not validated against --output, by the rule --graphml
+	 * follows: a request for the matrix with the report on stdout produces
+	 * no companion rather than a usage error, since there is no name to
+	 * derive one from (HLR-104, HLR-180). */
+	(void)arg;
+	p->out->dsm = true;
+	return CLI_OK;
+}
+
 static int opt_no_dot(const char *arg, CliParse *p)
 {
 	/* A refusal, not a request, which is why it needs no validation against
@@ -696,6 +716,7 @@ static const struct { int code; OptionFn handle; } OPTION_HANDLERS[] = {
 	{ OPT_STRATUM_ORDER, opt_stratum_order },
 	{ OPT_SCOPE,         opt_scope         },
 	{ OPT_GRAPHML,       opt_graphml       },
+	{ OPT_DSM,           opt_dsm           },
 	{ OPT_NO_DOT,        opt_no_dot        },
 	{ 'v',               opt_verbose       },
 	{ OPT_RULES,         opt_rules         },
@@ -934,6 +955,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "complexity-threshold", required_argument, NULL, 'c' },
 		{ "output",               required_argument, NULL, 'o' },
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
+		{ "dsm",                  no_argument,       NULL, OPT_DSM },
 		{ "no-dot",               no_argument,       NULL, OPT_NO_DOT },
 		{ "verbose",              no_argument,       NULL, 'v' },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },

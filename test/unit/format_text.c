@@ -263,10 +263,12 @@ Test(format_text, both_styles_reach_the_same_tiers_at_each_verbosity)
 {
 	static const char *const summary_tiers[] = {
 		"Project summary", "Callouts", "Discovery", "Languages",
-		"Files", "Findings", "Skipped files"
+		"Files", "Architecture conformance", "Findings",
+		"Skipped files"
 	};
 	static const char *const detail_tiers[] = {
 		"Functions", "Fan-out", "Global state",
+		"Dependency structure matrix",
 		"Dead code within functions", "Custom rule matches"
 	};
 	FileMetrics *files[] = { metrics_for("/tree/a.c", 3) };
@@ -298,6 +300,44 @@ Test(format_text, both_styles_reach_the_same_tiers_at_each_verbosity)
 			          "style %d verbose omitted '%s'",
 			          s, detail_tiers[i]);
 		}
+		free(summary);
+		free(verbose);
+	}
+
+	report_free(&report);
+}
+
+/* The two conformance indices are a project-level aggregate and the matrix is
+ * one row per subject, so the first is a summary tier and the second a detail
+ * tier — the partition rule applied to the two tiers this phase added
+ * (LLR-SUM-11).
+ *
+ * Asserted in both styles, because a tier that reached one decoration and not
+ * the other would break the uniform composition the shared traversal exists
+ * to guarantee (HLR-031).
+ */
+Test(format_text, conformance_is_a_summary_tier_and_the_matrix_a_detail_tier)
+{
+	FileMetrics *files[] = { metrics_for("/tree/a.c", 3) };
+	Report       report  = report_of(files, 1);
+
+	for (int s = 0; s < 2; s++) {
+		Style style   = s ? STYLE_MARKDOWN : STYLE_TABLE;
+		char *summary = render_as(&report, style, VERBOSITY_SUMMARY);
+		char *verbose = render_as(&report, style, VERBOSITY_VERBOSE);
+
+		cr_assert_not_null(strstr(summary, "Architecture conformance"),
+		                   "style %d dropped a project-level aggregate "
+		                   "from the summary", s);
+		cr_assert_null(strstr(summary, "Dependency structure matrix"),
+		               "style %d presented a detail tier in the "
+		               "summary", s);
+		cr_assert_not_null(strstr(verbose, "Architecture conformance"),
+		                   "style %d", s);
+		cr_assert_not_null(strstr(verbose,
+		                          "Dependency structure matrix"),
+		                   "style %d", s);
+
 		free(summary);
 		free(verbose);
 	}
