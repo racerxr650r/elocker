@@ -9,7 +9,7 @@ setup() {
 	TREE="$BATS_TEST_DIRNAME/rules/tree"
 	RULE="$BATS_TEST_DIRNAME/rules/house-style.scm"
 	BROKEN="$BATS_TEST_DIRNAME/rules/broken.scm"
-	OUT="$BATS_TEST_TMPDIR/report.md"
+	OUT="$BATS_TEST_TMPDIR/report.txt"
 }
 
 # A runtime directory of this test's own, with a rules/ directory in it.
@@ -56,7 +56,7 @@ matches() {
 @test "HLR-109: one rule file expresses several independently named rules" {
 	# Three matches under two identities. A rule's identity is the file's
 	# basename plus the capture name that matched.
-	run bash -c '"$0" --rules "c:$1" -o "$2" "$3" 2>/dev/null' \
+	run bash -c '"$0" --verbose --rules "c:$1" -o "$2" "$3" 2>/dev/null' \
 		"$ELC" "$RULE" "$OUT" "$TREE"
 	assert_success
 
@@ -66,7 +66,7 @@ house-style.jump 30-30"
 }
 
 @test "HLR-109: the match count is reported in the heading" {
-	run bash -c '"$0" --rules "c:$1" -o "$2" "$3" 2>/dev/null' \
+	run bash -c '"$0" --verbose --rules "c:$1" -o "$2" "$3" 2>/dev/null' \
 		"$ELC" "$RULE" "$OUT" "$TREE"
 	assert_success
 
@@ -79,7 +79,7 @@ house-style.jump 30-30"
 	# none of them. Without elc evaluating (#eq? @allocation "malloc") this
 	# capture matches every call in the file and release's free appears as
 	# an allocation — a rule author's filter silently discarded.
-	run bash -c '"$0" --rules "c:$1" -o "$2" "$3" 2>/dev/null' \
+	run bash -c '"$0" --verbose --rules "c:$1" -o "$2" "$3" 2>/dev/null' \
 		"$ELC" "$RULE" "$OUT" "$TREE"
 	assert_success
 
@@ -89,7 +89,7 @@ house-style.jump 30-30"
 
 @test "HLR-031: the section is emitted even with no rule supplied" {
 	# An absent section and an empty one are different claims.
-	run bash -c '"$0" -o "$1" "$2" 2>/dev/null' "$ELC" "$OUT" "$TREE"
+	run bash -c '"$0" --verbose -o "$1" "$2" 2>/dev/null' "$ELC" "$OUT" "$TREE"
 	assert_success
 
 	run bash -c 'grep -c "^Custom rule matches (0)$" "$0"' "$OUT"
@@ -120,7 +120,7 @@ house-style.jump 30-30"
 	local dir
 	dir="$(runtime_with_rule "$RULE")"
 
-	run bash -c 'ELC_RUNTIME_DIR="$1" "$0" -o "$2" "$3" 2>/dev/null' \
+	run bash -c 'ELC_RUNTIME_DIR="$1" "$0" --verbose -o "$2" "$3" 2>/dev/null' \
 		"$ELC" "$dir" "$OUT" "$TREE"
 	assert_success
 
@@ -226,7 +226,7 @@ located.jump 30-30"
 	cp "$RULE" "$work/.elc/decoy.scm"
 	cp "$RULE" "$BATS_TEST_TMPDIR/target/decoy.scm"
 
-	run bash -c 'cd "$1" && "$0" -o "$2" "$3" 2>/dev/null' \
+	run bash -c 'cd "$1" && "$0" --verbose -o "$2" "$3" 2>/dev/null' \
 		"$ELC" "$work" "$OUT" "$BATS_TEST_TMPDIR/target"
 	assert_success
 

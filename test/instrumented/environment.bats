@@ -137,7 +137,10 @@ setup() {
 	require_path /proc/self/status "HLR-041 single-threaded execution"
 	require_tool timeout "HLR-041 single-threaded execution"
 
-	local fifo="$BATS_TEST_TMPDIR/report.fifo"
+	# Named `.txt` rather than `.fifo`: the extension of an output path
+	# names the report format, and `.fifo` names none (HLR-148). A FIFO is
+	# what the file *is*; the extension states what elc writes into it.
+	local fifo="$BATS_TEST_TMPDIR/report.txt"
 	mkfifo "$fifo"
 
 	"$ELC" -o "$fifo" "$REPO_ROOT/src" &

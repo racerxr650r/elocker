@@ -54,7 +54,7 @@ cross_scope() {
 @test "HLR-097: a clique of unused functions calling one another is reported" {
 	# The case textual linters get wrong. Each of the pair has a caller, so
 	# "no caller" finds neither; no path reaches the pair from any root.
-	elc --entry entry_main "$TREE/roots.c"
+	elc --verbose --entry entry_main "$TREE/roots.c"
 	assert_success
 	assert_equal "$(unreachable)" "clique_b
 clique_a
@@ -122,7 +122,7 @@ orphan"
 # ---------------------------------------------------- unreachable data --
 
 @test "HLR-096: a global touched only by unreachable functions is unreachable" {
-	elc --entry data_main "$TREE/unreachable.c"
+	elc --verbose --entry data_main "$TREE/unreachable.c"
 	assert_success
 	assert_equal "$(unreachable_globals)" "touched_by_dead"
 }
@@ -144,7 +144,7 @@ orphan"
 # -------------------------------------------------------- global state --
 
 @test "HLR-091: every global reports its writers and its readers" {
-	elc "$TREE/globals.c"
+	elc --verbose "$TREE/globals.c"
 	assert_success
 	assert_output --partial "producer"
 	assert_output --partial "consumer"
@@ -157,7 +157,7 @@ orphan"
 @test "HLR-092: a global touched by one function is flagged for scope reduction" {
 	# The case the edge table cannot see: one function means no
 	# writer-to-reader edge exists at all.
-	elc "$TREE/globals.c"
+	elc --verbose "$TREE/globals.c"
 	assert_success
 	assert_output --partial \
 		"scope reduction — one function names it (MISRA C Rule 8.9)"
@@ -168,7 +168,7 @@ orphan"
 }
 
 @test "HLR-093: a global spanning disconnected regions is a hidden channel" {
-	elc "$TREE/globals.c"
+	elc --verbose "$TREE/globals.c"
 	assert_success
 	assert_output --partial \
 		"hidden channel — {island_a} {island_b} never call each other"
@@ -178,7 +178,7 @@ orphan"
 	# producer calls consumer, so the two lie in one region and their
 	# shared variable is a design rather than a coupling nobody declared.
 	# Without this the finding would fire on every shared variable.
-	elc "$TREE/globals.c"
+	elc --verbose "$TREE/globals.c"
 	assert_success
 
 	# The finding column of this one row must be empty. Asserted on the row
@@ -190,7 +190,7 @@ orphan"
 }
 
 @test "LLR-GLB-04: both findings carry their published source" {
-	elc "$TREE/globals.c"
+	elc --verbose "$TREE/globals.c"
 	assert_success
 
 	local cited
@@ -203,7 +203,7 @@ orphan"
 # ------------------------------------------------------ scope isolation --
 
 @test "HLR-094: a call crossing a declared scope boundary is reported" {
-	elc --scope "host:*/scopes/host/*" --scope "target:*/scopes/target/*" \
+	elc --verbose --scope "host:*/scopes/host/*" --scope "target:*/scopes/target/*" \
 		"$TREE/scopes"
 	assert_success
 	assert_output --partial "host  host_drives  target  target_entry  call"
@@ -213,14 +213,14 @@ orphan"
 	# The reason the requirement exists. A scope that never calls into
 	# another but writes a variable the other reads has not been isolated,
 	# and an implementation checking only calls would report this clean.
-	elc --scope "host:*/scopes/host/*" --scope "target:*/scopes/target/*" \
+	elc --verbose --scope "host:*/scopes/host/*" --scope "target:*/scopes/target/*" \
 		"$TREE/scopes"
 	assert_success
 	assert_output --partial "host  host_writes  target  target_reads  mailbox"
 }
 
 @test "HLR-094: exactly the two crossings are reported" {
-	elc --scope "host:*/scopes/host/*" --scope "target:*/scopes/target/*" \
+	elc --verbose --scope "host:*/scopes/host/*" --scope "target:*/scopes/target/*" \
 		"$TREE/scopes"
 	assert_success
 
@@ -280,10 +280,10 @@ orphan"
 }
 
 @test "HLR-032: a global-state finding survives the round trip" {
-	elc -f xml -o "$BATS_TEST_TMPDIR/g.xml" "$TREE/globals.c"
+	elc --verbose -f xml -o "$BATS_TEST_TMPDIR/g.xml" "$TREE/globals.c"
 	assert_success
 
-	run "$ELC" --from-xml "$BATS_TEST_TMPDIR/g.xml"
+	run "$ELC" --verbose --from-xml "$BATS_TEST_TMPDIR/g.xml"
 	assert_success
 	assert_output --partial \
 		"hidden channel — {island_a} {island_b} never call each other"

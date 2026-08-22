@@ -72,7 +72,7 @@ layering_heading() {
 # --------------------------------------------------------------- coupling --
 
 @test "HLR-080: Ca and Ce match the hand-computed table" {
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 
 	assert_equal "$(coupling_of app.c)" "1 2 0.67"
@@ -84,7 +84,7 @@ layering_heading() {
 	# app_run calls hal_read twice. Coupling counts components depended
 	# upon, not calls made — if it counted call sites, app.c's Ce would be
 	# 3 and the whole table above would be wrong in the same way.
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 	assert_equal "$(coupling_of app.c)" "1 2 0.67"
 }
@@ -92,7 +92,7 @@ layering_heading() {
 @test "HLR-082: instability is Ce over Ce plus Ca" {
 	# drv.c is depended on by both others and depends on nothing: maximally
 	# stable, and 0.00 rather than undefined, because Ca is not zero.
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 	assert_equal "$(coupling_of drv.c)" "2 0 0.00"
 }
@@ -101,13 +101,13 @@ layering_heading() {
 	# The division the requirement forbids. A lone file in a single-file
 	# target has no relationships at all, and reporting 0.00 would claim
 	# maximum stability for it.
-	elc "$LONE/only.c"
+	elc --verbose "$LONE/only.c"
 	assert_success
 	assert_equal "$(coupling_of only.c)" "0 0 undefined"
 }
 
 @test "HLR-080: every component appears, not only the interesting ones" {
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 
 	local rows
@@ -140,14 +140,14 @@ layering_heading() {
 }
 
 @test "HLR-099: the bottleneck threshold is marked as elc's own heuristic" {
-	elc "${STRATA[@]}" -b 1 "$TREE"
+	elc --verbose "${STRATA[@]}" -b 1 "$TREE"
 	assert_success
 	assert_equal "$(finding_of app.c)" \
 		"elc heuristic — not a published standard"
 }
 
 @test "HLR-081: the threshold is configurable and appears in the heading" {
-	elc "${STRATA[@]}" -b 3 "$TREE"
+	elc --verbose "${STRATA[@]}" -b 3 "$TREE"
 	assert_success
 	assert_output --partial "bottleneck at Ca and Ce >= 3"
 }
@@ -155,7 +155,7 @@ layering_heading() {
 # ---------------------------------------------------------------- cycles --
 
 @test "HLR-083: a cycle between two components is reported as an ordered loop" {
-	elc "$CYCLES"
+	elc --verbose "$CYCLES"
 	assert_success
 	assert_equal "$(cycle_path)" "a.c -> b.c -> a.c"
 }
@@ -164,7 +164,7 @@ layering_heading() {
 	# Both, because they are different facts: one says the stack depth has
 	# no finite bound, the other says the two files cannot be built or
 	# understood apart.
-	elc "$CYCLES"
+	elc --verbose "$CYCLES"
 	assert_success
 
 	local kinds
@@ -187,7 +187,7 @@ layering_heading() {
 @test "LLR-CYC-03: that same file still reports the recursion" {
 	# Paired with the test above: without this one, an implementation that
 	# detected nothing anywhere would pass.
-	elc "$LONE/only.c"
+	elc --verbose "$LONE/only.c"
 	assert_success
 
 	local kinds
@@ -206,13 +206,13 @@ layering_heading() {
 # -------------------------------------------------------------- layering --
 
 @test "HLR-079: a call bypassing an intervening layer is skip-level" {
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 	assert_output --partial "skip-level  app   app_shortcut  drv  drv_poke"
 }
 
 @test "HLR-118: a call inverting the declared direction is reported separately" {
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 	assert_output --partial "inverted    hal   hal_callback  app  app_notify"
 }
@@ -223,7 +223,7 @@ layering_heading() {
 	# nothing. An implementation folding them into one "layering violation"
 	# fails here, and so does one that only reported a skip when the call
 	# also inverted.
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 
 	local kinds
@@ -244,7 +244,7 @@ inverted"
 }
 
 @test "HLR-079: the layers crossed are reported with the finding" {
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 
 	local distances
@@ -258,7 +258,7 @@ inverted"
 	# skipped downward now ascends two layers, so it is both inverted and
 	# skip-level, and the one that inverted now descends one and is
 	# nothing at all.
-	elc --stratum "drv:*/drv/*" --stratum "hal:*/hal/*" \
+	elc --verbose --stratum "drv:*/drv/*" --stratum "hal:*/hal/*" \
 	    --stratum "app:*/app/*" "$TREE"
 	assert_success
 
@@ -276,7 +276,7 @@ inverted"
 @test "HLR-078: --stratum-order states the direction explicitly" {
 	# The same three layers declared in the wrong order, put right by the
 	# order option — which may be given before or after the layers.
-	elc --stratum-order "app>hal>drv" \
+	elc --verbose --stratum-order "app>hal>drv" \
 	    --stratum "drv:*/drv/*" --stratum "hal:*/hal/*" \
 	    --stratum "app:*/app/*" "$TREE"
 	assert_success
@@ -316,7 +316,7 @@ inverted"
 }
 
 @test "LLR-CTR-09: omitting layering does not omit the coupling table" {
-	elc "$TREE"
+	elc --verbose "$TREE"
 	assert_success
 	assert_equal "$(coupling_of drv.c)" "2 0 0.00"
 }
@@ -357,10 +357,10 @@ inverted"
 }
 
 @test "HLR-032: a cycle and its loop survive the round trip" {
-	elc -f xml -o "$BATS_TEST_TMPDIR/c.xml" "$CYCLES"
+	elc --verbose -f xml -o "$BATS_TEST_TMPDIR/c.xml" "$CYCLES"
 	assert_success
 
-	run "$ELC" --from-xml "$BATS_TEST_TMPDIR/c.xml"
+	run "$ELC" --verbose --from-xml "$BATS_TEST_TMPDIR/c.xml"
 	assert_success
 
 	# Asserted against the raw output rather than through the extractors:

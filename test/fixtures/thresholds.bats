@@ -98,7 +98,7 @@ finding_rows() {
 @test "HLR-031: a measurement inside its band is still reported" {
 	# The Findings section is the subset that crossed a line. Every value
 	# is still in the table that measured it.
-	elc --entry bands_entry "$TREE/bands.c"
+	elc --verbose --entry bands_entry "$TREE/bands.c"
 	assert_success
 
 	local fanout

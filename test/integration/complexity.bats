@@ -20,7 +20,7 @@ setup() {
 # --- the metric (HLR-017) --------------------------------------------------
 
 @test "HLR-017: complexity is reported per function" {
-	elc "$TREE/pair.c"
+	elc --verbose "$TREE/pair.c"
 	assert_success
 	assert_output --regexp "simple +1-4 +1 +1"
 	assert_output --regexp "branchy +6-13 +5 +4"

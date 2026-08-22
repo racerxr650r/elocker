@@ -125,7 +125,7 @@ print(root.find("files/file").get("path"))' <<<"$output"
 # holding both.
 
 @test "HLR-014: a template specialisation is reported under its full name" {
-	elc "$BATS_TEST_DIRNAME/escaping/templates.cpp"
+	elc --verbose "$BATS_TEST_DIRNAME/escaping/templates.cpp"
 	assert_success
 	assert_output --partial "combine<int, long>"
 }

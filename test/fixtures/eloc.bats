@@ -17,15 +17,17 @@ totals() {
 		<<<"$output"
 }
 
+# Verbose, because every extractor below reads the per-function tier, which
+# the default composition omits.
 subject_row() {
-	elc "$1"
+	elc --verbose "$1"
 	awk -v want="$2" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
 	                  f && $2 == want { print $4, $5 }' <<<"$output"
 }
 
 # The ELOC figure elc reports for a named function.
 function_eloc() {
-	elc "$SUBJECT"
+	elc --verbose "$SUBJECT"
 	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
 	                  f && $2 == want { print $4 }' <<<"$output"
 }
@@ -56,7 +58,7 @@ function_eloc() {
 }
 
 @test "HLR-017: the hand-counted complexity matches" {
-	elc "$SUBJECT"
+	elc --verbose "$SUBJECT"
 	assert_success
 	# 1 + for + if + else-if's if + while + case 0 = 6. The switch itself,
 	# the default label, and the goto are not decisions.
@@ -66,7 +68,7 @@ function_eloc() {
 @test "HLR-017: a straight-line function is one" {
 	local f="$BATS_TEST_TMPDIR/straight.c"
 	printf 'int f(int n)\n{\n\tint a = n;\n\treturn a;\n}\n' > "$f"
-	elc "$f"
+	elc --verbose "$f"
 	assert_success
 	# Capturing the function itself as a decision point would report 2.
 	assert_output --regexp "f +1-5 +2 +1"
@@ -75,7 +77,7 @@ function_eloc() {
 @test "HLR-017: a short-circuit operator is a decision point" {
 	local f="$BATS_TEST_TMPDIR/logic.c"
 	printf 'int f(int a, int b)\n{\n\tif (a && b)\n\t\treturn 1;\n\treturn 0;\n}\n' > "$f"
-	elc "$f"
+	elc --verbose "$f"
 	assert_success
 	# 1 + the if + the && = 3.
 	assert_output --regexp "f +1-6 +3 +3"
@@ -84,7 +86,7 @@ function_eloc() {
 @test "HLR-017: a default label and a goto are not decisions" {
 	local f="$BATS_TEST_TMPDIR/switch.c"
 	printf 'int f(int n)\n{\n\tswitch (n) {\n\tcase 1:\n\t\tgoto done;\n\tdefault:\n\t\tbreak;\n\t}\ndone:\n\treturn 0;\n}\n' > "$f"
-	elc "$f"
+	elc --verbose "$f"
 	assert_success
 	# 1 + the single `case` = 2. The switch, the default, and the goto add
 	# nothing.
@@ -173,7 +175,7 @@ function_eloc() {
 @test "HLR-048: a catch clause is a decision point" {
 	local f="$BATS_TEST_TMPDIR/exc2.cpp"
 	printf 'int f(int n)\n{\n\ttry {\n\t\tthrow n;\n\t} catch (int e) {\n\t\treturn e;\n\t}\n\treturn 0;\n}\n' > "$f"
-	elc "$f"
+	elc --verbose "$f"
 	assert_success
 	# 1 + the catch. `try` and `throw` choose nothing.
 	assert_output --regexp "f +1-9 +5 +2"

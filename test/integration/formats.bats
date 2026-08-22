@@ -128,13 +128,21 @@ setup() {
 }
 
 @test "HLR-030: every format honours --output" {
-	for format in table md csv xml; do
+	# The extension is the format's name in a filename, so the pairs are
+	# not interchangeable: `.table` names no format at all and would be
+	# rejected before anything was written (HLR-148). `-f` is given as
+	# well, in agreement, because this test is about --output rather than
+	# about which of the two ways of naming a format is used (HLR-149).
+	for pair in table:txt md:md csv:csv xml:xml; do
+		local format="${pair%%:*}" extension="${pair##*:}"
+		local file="$BATS_TEST_TMPDIR/out.$extension"
+
 		# stderr carries the skipped-file notice; stdout must be empty.
 		run bash -c '"$0" -f "$1" -o "$2" "$3" 2>/dev/null' "$ELC" \
-			"$format" "$BATS_TEST_TMPDIR/out.$format" "$TREE"
+			"$format" "$file" "$TREE"
 		assert_success
 		assert_output ""
-		[ -s "$BATS_TEST_TMPDIR/out.$format" ] || {
+		[ -s "$file" ] || {
 			echo "$format wrote nothing to the file" >&2
 			false
 		}
@@ -164,4 +172,131 @@ setup() {
 			false
 		}
 	done
+}
+
+# --- the format an output filename names (HLR-148, HLR-149) ----------------
+
+@test "HLR-148: each recognised extension selects its format with no option" {
+	# The filename has already said what the format is; nothing should have
+	# to say it twice. Each file is identified by a marker only that format
+	# produces.
+	for pair in "txt:Project summary" "md:## Project summary" \
+	            "csv:file,language,function" "xml:<?xml"; do
+		local extension="${pair%%:*}" marker="${pair#*:}"
+		local file="$BATS_TEST_TMPDIR/named.$extension"
+
+		run bash -c '"$0" -o "$1" "$2" 2>/dev/null' "$ELC" "$file" \
+			"$TREE"
+		assert_success
+		run head -1 "$file"
+		case "$extension" in
+		txt|csv|xml) assert_output --partial "$marker" ;;
+		md)          run grep -c "^## Project summary$" "$file"
+		             assert_output "1" ;;
+		esac
+	done
+}
+
+@test "HLR-148: an unrecognised extension is a usage error naming both" {
+	run bash -c '"$0" -o "$1" "$2" 2>&1 >/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/report.json" "$TREE"
+	assert_failure 2
+	# The extension found, and the ones that would have worked. Guessing
+	# would write a report.json holding no JSON.
+	assert_output --partial ".json"
+	assert_output --partial ".txt"
+	assert_output --partial ".md"
+	assert_output --partial ".csv"
+	assert_output --partial ".xml"
+	[ ! -e "$BATS_TEST_TMPDIR/report.json" ]
+}
+
+@test "HLR-148: a filename with no extension is a usage error too" {
+	run bash -c '"$0" -o "$1" "$2" 2>&1 >/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/report" "$TREE"
+	assert_failure 2
+	assert_output --partial "no extension"
+	[ ! -e "$BATS_TEST_TMPDIR/report" ]
+}
+
+@test "HLR-148: a dotfile has no extension, and a trailing dot names nothing" {
+	for name in ".report" "report."; do
+		run bash -c '"$0" -o "$1" "$2" 2>&1 >/dev/null' "$ELC" \
+			"$BATS_TEST_TMPDIR/$name" "$TREE"
+		assert_failure 2
+		assert_output --partial "no extension"
+	done
+}
+
+@test "HLR-148: a directory carrying a dot does not lend its extension" {
+	# The last dot of the *basename*. A `build.d/report` has no extension
+	# of its own, and reading one out of the directory would pick `.d`.
+	mkdir -p "$BATS_TEST_TMPDIR/build.d"
+	run bash -c '"$0" -o "$1" "$2" 2>&1 >/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/build.d/report" "$TREE"
+	assert_failure 2
+	assert_output --partial "no extension"
+}
+
+@test "HLR-149: a format option contradicting the filename is a usage error" {
+	run bash -c '"$0" -f csv -o "$1" "$2" 2>&1 >/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/report.md" "$TREE"
+	assert_failure 2
+	# Both are named; neither is silently preferred.
+	assert_output --partial "csv"
+	assert_output --partial "report.md"
+	[ ! -e "$BATS_TEST_TMPDIR/report.md" ]
+}
+
+@test "HLR-149: a format option agreeing with the filename is accepted" {
+	# Nothing is ambiguous about saying a thing twice.
+	run bash -c '"$0" -f md -o "$1" "$2" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/agree.md" "$TREE"
+	assert_success
+	run grep -c "^## Project summary$" "$BATS_TEST_TMPDIR/agree.md"
+	assert_output "1"
+}
+
+@test "HLR-149: with no output file the option still selects the format" {
+	# Standard output has no filename and so no extension, which is what
+	# keeps a machine-readable format available to a caller that pipes.
+	elc -f csv "$TREE"
+	assert_success
+	assert_output --partial "file,language,function"
+}
+
+@test "HLR-148: the companion artefacts keep their own extensions" {
+	# The extension governs the format alone. HLR-119 substitutes its own
+	# on the same path, so an output of report.md still yields report.dot.
+	run bash -c '"$0" --graphml -o "$1" "$2" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/companions.md" "$TREE"
+	assert_success
+	[ -f "$BATS_TEST_TMPDIR/companions.dot" ]
+	[ -f "$BATS_TEST_TMPDIR/companions.graphml" ]
+}
+
+@test "LLR-CLI-10: a record cannot be regenerated into a filename naming a table" {
+	# An output path's extension is a format selection, differently spelt.
+	# Reading it as anything less would write Markdown into a file called
+	# out.txt — one format under a name promising another.
+	elc -f xml -o "$BATS_TEST_TMPDIR/rec.xml" "$TREE"
+	assert_success
+
+	run bash -c '"$0" --from-xml "$1" -o "$2" 2>&1 >/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/rec.xml" "$BATS_TEST_TMPDIR/out.txt"
+	assert_failure 2
+	assert_output --partial "Markdown"
+	assert_output --partial "out.txt"
+	[ ! -e "$BATS_TEST_TMPDIR/out.txt" ]
+}
+
+@test "LLR-CLI-10: a filename naming Markdown regenerates as it always did" {
+	elc -f xml -o "$BATS_TEST_TMPDIR/rec.xml" "$TREE"
+	assert_success
+
+	run bash -c '"$0" --from-xml "$1" -o "$2" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/rec.xml" "$BATS_TEST_TMPDIR/out.md"
+	assert_success
+	run grep -c "^## Project summary$" "$BATS_TEST_TMPDIR/out.md"
+	assert_output "1"
 }
