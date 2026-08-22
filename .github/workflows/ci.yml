@@ -275,8 +275,19 @@ jobs:
           sudo ldconfig
       - name: Install observation tools
         run: |
+          # strace and nm(binutils) are what the process, link and filesystem
+          # suites observe with.
+          #
+          # valgrind is here for sanitized.bats, which is at this level
+          # because it is a catalogued record rather than a re-run (STP §2.5).
+          # It needs an instrumented run to witness anything, and takes it
+          # from whichever of the two is present: under `make asan` the binary
+          # is already instrumented and ASan judges, and here it is not, so
+          # valgrind does. Without the package every one of its memory-safety
+          # tests skips, and the step below reads that — correctly — as
+          # HLR-124 and HLR-125 going unverified on this runner.
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends strace binutils
+          sudo apt-get install -y --no-install-recommends strace binutils valgrind
       - name: Run the instrumented suites
         run: make instrumented
       - name: Fail if any instrumented test skipped
