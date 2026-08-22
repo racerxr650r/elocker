@@ -19,7 +19,7 @@
     <counts>
       <count name="hlrs"       value="178"/>
       <count name="llrs"       value="438"/>
-      <count name="tests"      value="891"/>
+      <count name="tests"      value="892"/>
       <count name="test_files" value="45"/>
     </counts>
   </metadata>
@@ -6618,7 +6618,9 @@ That answer is deliberately the unsafe one, and separating the calls is what mak
       <llr id="LLR-BLD-20">
         <text><![CDATA[The build shall link `libdw` for the debug line information of HLR-153, taking it from the distribution as it takes `libelf` and for the same reason: it is the same elfutils tree, produced by the same configure run, and building it from source would import more distribution packages than taking it does. It shall appear in the installable package list, in the version report of `make check-prereqs`, and in the dependency allowlist together with the `libbz2` and `liblzma` it brings with it.
 
-The allowlist cannot hold the distinction that matters most about it. `libdw` contains both the low-level DWARF interface `elc` uses and the `Dwfl` layer that would open a file the user never named, and the link line is identical either way — so the rule is held by the instrumented test that counts the image's opens for a build carrying debug information (HLR-141, LLR-DWL-01).]]></text>
+The allowlist cannot hold the distinction that matters most about it. `libdw` contains both the low-level DWARF interface `elc` uses and the `Dwfl` layer that would open a file the user never named, and the link line is identical either way — so the rule is held by the instrumented test that counts the image's opens for a build carrying debug information (HLR-141, LLR-DWL-01).
+
+**The package list and the pipeline's shall be held in agreement by a test.** They are two statements of one fact in two files, and nothing connected them: this library was added to the Makefile and not to the workflow, and every compiling job failed at once while the local gate stayed green, the developer machine having the package already. That is the drift LLR-BLD-18 guards for the sanitizer options, in the other place the two definitions meet.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-153" name="Debug-Line Pruning From the Image"/>
           <trace target="HLR" ref="HLR-141" name="Image Read Without a Toolchain"/>
@@ -12373,7 +12375,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="30">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="31">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -12516,7 +12518,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="HLR" ref="HLR-043" name="Read-Only Operation"/>
       </traces>
     </test>
-      <test name="HLR-125: the local sanitizer gate is as strong as the pipeline's">
+      <test name="every linked library the Makefile takes from the distribution is installed by CI">
+      <purpose><![CDATA[`PKGS_BUILD` says which libraries elc links and takes from the distribution rather than building from source, and the workflow installs them on the runner; nothing connected the two. Phase 20 added libdw to one and not the other, and every compiling job failed at once while `make test` stayed green locally, the developer machine having the package already. Scoped to `lib*-dev`, which is exactly the set of linked libraries — the rest of PKGS_BUILD is the toolchain the runner image supplies.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-20"/>
+        <trace target="HLR" ref="HLR-112"/>
+      </traces>
+    </test>
+    <test name="HLR-125: the local sanitizer gate is as strong as the pipeline's">
       <purpose><![CDATA[The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-BLD-18"/>

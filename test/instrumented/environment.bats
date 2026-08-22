@@ -561,6 +561,56 @@ setup() {
 	}
 }
 
+@test "every linked library the Makefile takes from the distribution is installed by CI" {
+	# The same drift the sanitizer-option test above guards, in the other
+	# place the two definitions meet. `PKGS_BUILD` says which libraries elc
+	# links and takes from the distribution rather than building from
+	# source; the workflow installs them on the runner. Nothing connected
+	# the two, so Phase 20 added libdw to one and not the other and every
+	# compiling job failed at once — with `make test` green locally,
+	# because the developer machine had the package.
+	#
+	# Scoped to `lib*-dev`, which is exactly the set of linked libraries.
+	# The rest of PKGS_BUILD is the toolchain, and the runner image
+	# supplies that already.
+	local makefile="$REPO_ROOT/Makefile"
+	local workflow="$REPO_ROOT/.github/workflows/ci.yml"
+
+	require_path "$workflow" "LLR-BLD-20 dependency parity"
+
+	# PKGS_BUILD continues across lines with a backslash, so the value is
+	# joined before it is split into packages.
+	local declared
+	declared="$(awk '/^PKGS_BUILD/ { v = $0; sub(/^[^=]*= */, "", v);
+	                                 while (v ~ /\\$/) {
+	                                         sub(/\\$/, "", v);
+	                                         getline nx; sub(/^ */, "", nx);
+	                                         v = v nx;
+	                                 }
+	                                 print v; exit }' "$makefile")"
+	[ -n "$declared" ] || {
+		echo "PKGS_BUILD not found in the Makefile" >&2
+		false
+	}
+
+	local missing=()
+	local pkg
+	for pkg in $declared; do
+		case "$pkg" in
+		lib*-dev) ;;
+		*) continue ;;
+		esac
+		grep -q "apt-get install .*[ =]*$pkg\([ ]\|$\)" "$workflow" || \
+			missing+=("$pkg")
+	done
+
+	[ "${#missing[@]}" -eq 0 ] || {
+		echo "declared in PKGS_BUILD but never installed by CI: ${missing[*]}" >&2
+		echo "every compiling job will fail on a runner without them" >&2
+		false
+	}
+}
+
 # --- HLR-043: read-only operation ------------------------------------------
 
 @test "HLR-043: elc does not modify the tree it analyses" {

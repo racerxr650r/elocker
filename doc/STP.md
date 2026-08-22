@@ -132,7 +132,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **891 test(s)** across
+Snapshot: **892 test(s)** across
 **45 file(s)**.
 
 ### 3.1. [test/unit/dwarfline.c](../test/unit/dwarfline.c)
@@ -1277,7 +1277,7 @@ Role: **fixture**. **7 test(s).**
 
 ### 3.43. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
-Role: **instrumented**. **30 test(s).**
+Role: **instrumented**. **31 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1304,13 +1304,14 @@ Role: **instrumented**. **30 test(s).**
 | 21 | <a id="HLR-076: each source file is opened exactly once"></a>`HLR-076: each source file is opened exactly once` | — | No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it. |
 | 22 | <a id="HLR-009: the grammar is loaded from the runtime location, not linked"></a>`HLR-009: the grammar is loaded from the runtime location, not linked` | — | No grammar appears among the binary's link-time dependencies, and the grammar file is opened during the run — language support is loaded at run time rather than compiled in. |
 | 23 | <a id="HLR-043: elc runs against a read-only directory"></a>`HLR-043: elc runs against a read-only directory` | — | A run succeeds against a directory with write permission removed. |
-| 24 | <a id="HLR-125: the local sanitizer gate is as strong as the pipeline's"></a>`HLR-125: the local sanitizer gate is as strong as the pipeline's` | `LLR-BLD-18` | The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them. |
-| 25 | <a id="HLR-135: deciding a conditional region spawns no preprocessor"></a>`HLR-135: deciding a conditional region spawns no preprocessor` | `LLR-CND-01` | The half a reading of the source cannot establish: a run over conditionally compiled source with definitions supplied issues one execve, the kernel's own. No cpp, no compiler, no build system. |
-| 26 | <a id="HLR-135: deciding a conditional region reads no other file"></a>`HLR-135: deciding a conditional region reads no other file` | `LLR-CND-01` | The other half: each fixture source is opened once and nothing else in the tree is read. An implementation resolving an include to decide a condition would show the header here. |
-| 27 | <a id="HLR-141: filtering by an image spawns no toolchain utility"></a>`HLR-141: filtering by an image spawns no toolchain utility` | `LLR-ELF-03` | A filtered run issues one execve, the kernel's own. No nm, no objdump, no readelf, no compiler and no linker — the half of the no-toolchain claim that reading the source cannot establish. |
-| 28 | <a id="HLR-141: the image is opened once and nothing beside it"></a>`HLR-141: the image is opened once and nothing beside it` | `LLR-ELF-03`, `LLR-ELF-04` | The image is read for its symbol table alone: opened once, with no second image searched for and no debugging information fetched from elsewhere. An implementation shelling out to a toolchain would show that tool's own reads. |
-| 29 | <a id="HLR-141: an image carrying debug information is still opened once"></a>`HLR-141: an image carrying debug information is still opened once` | `LLR-DWL-01`, `LLR-BLD-20` | The same claim against the case that can break it. Reading debug line information is what a DWARF library offers to do *elsewhere*: given the chance it resolves a `.gnu_debuglink` or a build-id and opens a file under a separate-debug directory the user never named. elc uses the low-level interface, which reads the descriptor it is handed and nothing else — a distinction one API call deep, invisible in `ldd`, and observable only here. |
-| 30 | <a id="the link line names the runtime the demangler lives in"></a>`the link line names the runtime the demangler lives in` | `LLR-BLD-19` | libstdc++ was already loaded as a transitive dependency, which is not enough to reference a symbol in it: a current ld will not resolve an undefined symbol from an indirect DT_NEEDED. Nothing else in the suite would catch the flag's removal, since ldd would still show the library. |
+| 24 | <a id="every linked library the Makefile takes from the distribution is installed by CI"></a>`every linked library the Makefile takes from the distribution is installed by CI` | `LLR-BLD-20` | `PKGS_BUILD` says which libraries elc links and takes from the distribution rather than building from source, and the workflow installs them on the runner; nothing connected the two. Phase 20 added libdw to one and not the other, and every compiling job failed at once while `make test` stayed green locally, the developer machine having the package already. Scoped to `lib*-dev`, which is exactly the set of linked libraries — the rest of PKGS_BUILD is the toolchain the runner image supplies. |
+| 25 | <a id="HLR-125: the local sanitizer gate is as strong as the pipeline's"></a>`HLR-125: the local sanitizer gate is as strong as the pipeline's` | `LLR-BLD-18` | The sanitizer options the local target sets and those the pipeline sets are the same, and both abort on error. Without aborting, a leak reported inside a forked test child never reaches the parent's exit status, so a leaking unit test passes locally and fails only in CI — which is how Phase 11 shipped two of them. |
+| 26 | <a id="HLR-135: deciding a conditional region spawns no preprocessor"></a>`HLR-135: deciding a conditional region spawns no preprocessor` | `LLR-CND-01` | The half a reading of the source cannot establish: a run over conditionally compiled source with definitions supplied issues one execve, the kernel's own. No cpp, no compiler, no build system. |
+| 27 | <a id="HLR-135: deciding a conditional region reads no other file"></a>`HLR-135: deciding a conditional region reads no other file` | `LLR-CND-01` | The other half: each fixture source is opened once and nothing else in the tree is read. An implementation resolving an include to decide a condition would show the header here. |
+| 28 | <a id="HLR-141: filtering by an image spawns no toolchain utility"></a>`HLR-141: filtering by an image spawns no toolchain utility` | `LLR-ELF-03` | A filtered run issues one execve, the kernel's own. No nm, no objdump, no readelf, no compiler and no linker — the half of the no-toolchain claim that reading the source cannot establish. |
+| 29 | <a id="HLR-141: the image is opened once and nothing beside it"></a>`HLR-141: the image is opened once and nothing beside it` | `LLR-ELF-03`, `LLR-ELF-04` | The image is read for its symbol table alone: opened once, with no second image searched for and no debugging information fetched from elsewhere. An implementation shelling out to a toolchain would show that tool's own reads. |
+| 30 | <a id="HLR-141: an image carrying debug information is still opened once"></a>`HLR-141: an image carrying debug information is still opened once` | `LLR-DWL-01`, `LLR-BLD-20` | The same claim against the case that can break it. Reading debug line information is what a DWARF library offers to do *elsewhere*: given the chance it resolves a `.gnu_debuglink` or a build-id and opens a file under a separate-debug directory the user never named. elc uses the low-level interface, which reads the descriptor it is handed and nothing else — a distinction one API call deep, invisible in `ldd`, and observable only here. |
+| 31 | <a id="the link line names the runtime the demangler lives in"></a>`the link line names the runtime the demangler lives in` | `LLR-BLD-19` | libstdc++ was already loaded as a transitive dependency, which is not enough to reference a symbol in it: a current ld will not resolve an undefined symbol from an indirect DT_NEEDED. Nothing else in the suite would catch the flag's removal, since ldd would still show the library. |
 
 ### 3.44. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
@@ -1780,7 +1781,7 @@ verified by code review — see
 | `LLR-BLD-17` | `build_configuration` | `HLR-011` | `check-prereqs reports every grammar against upstream`, `check-prereqs survives an unreachable upstream` |
 | `LLR-BLD-18` | `build_configuration` | `HLR-125`, `HLR-124`, `HLR-119` | `HLR-125: the local sanitizer gate is as strong as the pipeline's` |
 | `LLR-BLD-19` | `build_configuration` | `HLR-142`, `HLR-112` | `the link line names the runtime the demangler lives in` |
-| `LLR-BLD-20` | `build_configuration` | `HLR-153`, `HLR-141`, `HLR-112` | `HLR-141: an image carrying debug information is still opened once` |
+| `LLR-BLD-20` | `build_configuration` | `HLR-153`, `HLR-141`, `HLR-112` | `every linked library the Makefile takes from the distribution is installed by CI`, `HLR-141: an image carrying debug information is still opened once` |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | `LLR-BLD-09: the build provides a sanitized configuration`, `LLR-BLD-09: the sanitized configuration rebuilds rather than reusing objects` |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |
