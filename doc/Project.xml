@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.13" date="2026-08-22" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.7" date="2026-08-22" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.8" date="2026-08-22" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.14" date="2026-08-22" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.15" date="2026-08-22" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.14" date="2026-08-22" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.8" date="2026-08-22" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.9" date="2026-08-22" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.15" date="2026-08-22" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.16" date="2026-08-22" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="178"/>
-      <count name="llrs"       value="438"/>
-      <count name="tests"      value="892"/>
-      <count name="test_files" value="45"/>
+      <count name="hlrs"       value="179"/>
+      <count name="llrs"       value="456"/>
+      <count name="tests"      value="937"/>
+      <count name="test_files" value="46"/>
     </counts>
   </metadata>
 
@@ -173,7 +173,8 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
               <step><![CDATA[Call `graph_build()` over the fact list.]]></step>
               <step><![CDATA[Call `arch_analyse()`, `calltree_analyse()`, `state_analyse()`, then `thresholds_apply()`, then `report_assemble()`.]]></step>
               <step><![CDATA[Open the output destination — the file named by the options, or standard output when none was named — and on a failure to open it emit a diagnostic and return 2 without writing a partial report (HLR-030).]]></step>
-              <step><![CDATA[Dispatch to the selected renderer, passing the verbosity to the two human-facing renderers and to neither complete-record writer, then to `graph_write_dot()` when the companion artefact is warranted (HLR-152, LLR-MAIN-21).]]></step>
+              <step><![CDATA[Call `dsm_build()` over the graph and the assembled model, so that the dependency matrix is carried on the report every renderer consumes. Here rather than inside the architecture pass, because the matrix is an arrangement of the graph's call edges over the report's components and needs both; and built whether or not strata were declared, since with none its subjects are the analysed directories (HLR-165).]]></step>
+              <step><![CDATA[Dispatch to the selected renderer, passing the verbosity to the two human-facing renderers and to neither complete-record writer, then to `graph_write_dot()` when the companion artefact is warranted (HLR-152, LLR-MAIN-21), and to `format_dsm_csv()` when `dsm_warranted()` says so. The matrix companion is written from the *model* rather than from the graph, which is what makes it the one companion a regenerated report can also produce (HLR-180).]]></step>
               <step><![CDATA[Tear down in reverse order and return the computed status.]]></step>
             </logic>
             <notes><![CDATA[`main()` contains no analysis logic; its cyclomatic complexity is bounded by the number of stages and their failure branches, keeping it well inside the self-quality target of PVD §8.]]></notes>
@@ -191,7 +192,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
 
       <module path="src/cli.c">
         <purpose><![CDATA[parses and validates the command line, producing an immutable `ElcOptions` value. It is the only module that reads `argv`, and the only source of user-supplied configuration in the entire program.]]></purpose>
-        <responsibility><![CDATA[Parse short and long options with `getopt_long()`, including the report format, output path, thresholds, custom-rule paths, the linked image to filter by, and the `.dot` and GraphML switches.]]></responsibility>
+        <responsibility><![CDATA[Parse short and long options with `getopt_long()`, including the report format, output path, thresholds, custom-rule paths, the linked image to filter by, and the `.dot`, GraphML, and dependency-matrix switches.]]></responsibility>
         <responsibility><![CDATA[Parse the structured declarations — architectural strata, entry points, and execution scopes — into their in-memory forms.]]></responsibility>
         <responsibility><![CDATA[Validate every option value and reject an unknown option, a missing argument, or a missing target before any analysis begins.]]></responsibility>
         <responsibility><![CDATA[Emit the usage summary, to `stdout` on request and to `stderr` on error.]]></responsibility>
@@ -208,6 +209,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
 | `-b`, `--bottleneck-threshold` | integer | `5` | HLR-081 |
 | `--no-dot` | — | `.dot` enabled | HLR-103 |
 | `--graphml` | — | disabled | HLR-106 |
+| `--dsm` | — | disabled | HLR-180 |
 | `--stratum` | `name:glob[,glob…]` | none | HLR-078 |
 | `--stratum-order` | `name>name[>name…]` | none | HLR-078 |
 | `--entry` | symbol | none | HLR-095 |
@@ -422,6 +424,7 @@ It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Alloca
         <responsibility><![CDATA[Merge comment spans and classify statements to compute ELOC per function and per file.]]></responsibility>
         <responsibility><![CDATA[Attribute each statement and decision point to its innermost enclosing reported function.]]></responsibility>
         <responsibility><![CDATA[Emit `FileFacts` — the call sites, global accesses, and address-taken functions — for later cross-file resolution.]]></responsibility>
+        <responsibility><![CDATA[Record on every measured file the directory containing it, derived once through `report.c`'s single definition of that derivation, so that the analyses which group by directory read a recorded value rather than re-deriving one from a path at each point of use (HLR-160).]]></responsibility>
         <responsibility><![CDATA[Record the statements within each function that cannot execute, and whether the language supplied the data needed to look (HLR-137, HLR-139).]]></responsibility>
         <responsibility><![CDATA[Measure a file the parser only partly understood from the parts it did, and record how many lines it did not, so that a grammar gap costs the lines it touches and not the file (HLR-035).]]></responsibility>
         <responsibility><![CDATA[Evaluate custom rule queries and record their matches.]]></responsibility>
@@ -619,11 +622,18 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
           <function signature="int compute_coupling(const Sdg *g, ArchResults *out)" summary="Populate Ca and Ce per component."/>
           <function signature="double instability(uint32_t ca, uint32_t ce, bool *defined)" summary="Ce/(Ce+Ca), with defined set false when both are zero."/>
           <function signature="int find_cycles(const Sdg *g, ArchResults *out)" summary="Strongly connected components of the component projection, excluding trivial single-node components, each with a concrete loop through it found by a deterministic search from its lowest-numbered member."/>
-          <function signature="int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out)" summary="Report calls that bypass declared layers and calls that invert the declared dependency direction."/>
+          <function signature="int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out)" summary="Report calls that bypass declared layers and calls that invert the declared dependency direction, and count the inter-layer call edges the indices are over as it goes."/>
+          <function signature="size_t *stratum_of_components(const Sdg *g, const ElcOptions *opts)" summary="The declared stratum each component lies in, SIZE_MAX for one no declaration names; exposed so the dependency matrix assigns layers by the same rule the findings do."/>
         </functions>
         <algorithm><![CDATA[Cycles are found as the non-trivial strongly connected components of the *component* projection, not of the function graph. This is what keeps mutual recursion between two functions in one file from being reported as a dependency cycle: within a single component there is no inter-component edge to close a loop. Mutual recursion across two files is legitimately both a recursion finding and a component cycle, because the two facts are different (HLR-083, HLR-089). Stratum checking compares the declared ordinal of the caller's stratum with the callee's, and yields two independent findings from that one comparison. A call descending more than one level is *skip-level* (HLR-079); a call ascending at all runs against the declared direction and is *direction-inverted* (HLR-118). The two are orthogonal — a driver calling one layer up inverts without skipping, and an application reaching two layers down skips without inverting — so each is reported in its own right rather than folded into a single "layering violation". The distance test runs in **both** directions, so a call ascending more than one layer is reported twice — as inverted and as skip-level — because both statements are true of it and each has its own remedy.
 
 Only call edges are considered. A global object two layers share is a different fact, with its own findings in the global-state and execution-scope analyses; folding state edges in here would report a layering violation for a variable two layers merely both read.
+
+**The denominator of both conformance indices is counted where the numerators are.** `check_strata` increments `inter_layer_edges` in the same loop, immediately after the three tests that decide whether an edge is a candidate at all: the edge is a call rather than a global, both of its ends lie inside the declared partition, and the two ends lie in different layers. A second traversal applying those tests again would be a second opinion about which edges the indices are over, and it is exactly the disagreements HLR-164 names — a call touching an unpartitioned component, a call that both skips and inverts, an edge collapsed from several call sites — that such a traversal would eventually get wrong. `conformance_indices` then tallies the recorded violations by kind and divides; it never reads the graph, and could not, because it is not given one.
+
+A call that both skips and inverts contributed one violation of each kind and is therefore counted once in each index. The two are consequently **not** summable: each is a proportion of the same denominator, and a project can hold more violations than candidate edges.
+
+**A layer assignment made twice is a layer assignment that can differ.** `stratum_of_components` is exposed for that reason: the dependency matrix places a component in a layer by calling it rather than by matching the patterns itself, so the cells below the matrix's diagonal account for exactly the back-calls the layering table lists.
 
 **A duplicate function name reaches these analyses too, and here it is more expensive than elsewhere.** Calls resolve by name, so where several files define a `static` helper of the same name every call resolves into one of them: that component gains afferent coupling it has not earned, the others lose it, and where the winner already depends on one of the losers the invented edge closes a dependency cycle that does not exist. A false circular dependency points at an architecture problem rather than at a line to delete, which makes it a worse wrong answer than the false dead-code claim the same artefact produces (SDD §8.5). It is diagnosed on standard error where the graph is built, and the two outputs are read together; correcting it needs the type resolution the project does not perform.]]></algorithm>
         <dependencies>
@@ -765,6 +775,8 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
         <responsibility><![CDATA[Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).]]></responsibility>
         <responsibility><![CDATA[Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).]]></responsibility>
         <responsibility><![CDATA[Sum the per-function Henry-Kafura values into the project total, in one function that both the live path and the record path call, so that the total *is* the sum of the rows rather than two implementations agreeing (HLR-158).]]></responsibility>
+        <responsibility><![CDATA[Define how a component's directory is derived from its path, in one function called at each of the two places a `FileMetrics` is constructed — the measurement of a source file and the reader that rebuilds a model from a record — so that every consumer reads one recorded answer rather than slicing the path for itself (HLR-160).]]></responsibility>
+        <responsibility><![CDATA[Render the two conformance indices, and the complementary conforming proportion of each, into the model as text — "undefined" being one of their legitimate values, exactly as it is for Instability (HLR-162, HLR-163).]]></responsibility>
         <functions>
           <function signature="int report_assemble(const MetricsAccumulator *acc, const ArchResults *a, const TreeResults *t, const StateResults *s, const FindingList *f, const ElcOptions *opts, Report *out)">
             <purpose><![CDATA[Produce the ordered, format-independent report model.]]></purpose>
@@ -786,7 +798,8 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
           <function signature="int report_set_image(Report *r, const SymbolSet *image)" summary="Record the image the run was filtered by and the number of its linkage names left unresolved. After assembly rather than within it, for the reason the unresolved-call count is: the image belongs to the run and is read before any file is measured, while the *effects* of the filter — which functions were omitted, and how much file-scope code remained — are properties of the measurement and are assembled with it (HLR-147)."/>
           <function signature="int metrics_add(MetricsAccumulator *acc, FileMetrics *m)" summary="Append one file's metrics, taking ownership of them. Grows by doubling through a checked reallocation; on failure the accumulator is left intact and the caller still owns the metrics, so nothing is leaked and nothing is freed twice."/>
           <function signature="void metrics_free(MetricsAccumulator *acc)" summary="Release the accumulator and every FileMetrics it still owns."/>
-          <function signature="void report_free(Report *r)" summary="Release the report model and everything it owns."/>
+          <function signature="char *component_directory(const char *path)" summary="The directory containing `path`, as a fresh allocation. Two edge cases a split on the last separator gets wrong are handled here rather than at each call site: a file directly under the root yields &quot;/&quot; rather than the empty string, and a path carrying no separator yields &quot;.&quot; (HLR-160)."/>
+          <function signature="void report_free(Report *r)" summary="Release the report model and everything it owns, the rendered conformance rows and the dependency matrix included."/>
         </functions>
         <dependencies>
           <dep><![CDATA[Every analysis module, for their results. Depended upon by every renderer, giving it high afferent coupling and low efferent coupling — a deliberately stable component.]]></dep>
@@ -803,6 +816,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
         <responsibility><![CDATA[Render Markdown with functions grouped under a per-file heading.]]></responsibility>
         <responsibility><![CDATA[Present every tier the uniform-composition rule requires, in both formats.]]></responsibility>
         <responsibility><![CDATA[Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).]]></responsibility>
+        <responsibility><![CDATA[Present the two conformance indices as a summary tier and the dependency matrix as a detail tier, delegating the matrix's decoration to `format_dsm.c` in both human-facing formats (HLR-162, HLR-163, HLR-166).]]></responsibility>
         <functions>
           <function signature="int format_table(const Report *r, Verbosity verbosity, FILE *out)" summary="Render the aligned ASCII table at the given verbosity. Returns non-zero when the stream reported a write failure, checked once after the last write rather than at every call."/>
           <function signature="int format_markdown(const Report *r, Verbosity verbosity, FILE *out)" summary="Render GitHub-Flavored Markdown at the given verbosity."/>
@@ -814,6 +828,12 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 **Verbosity is a second parameter of that same traversal, not a second traversal.** The ordered section list carries, beside each section's render function, the tier it belongs to; the walk emits a section when the verbosity is verbose, when its tier is `TIER_SUMMARY`, or when its analysis was omitted for want of a declaration. That last case is what carries HLR-115's omission notices into the summary: the section is a detail tier, but an omitted analysis produced no rows, so it renders as its heading and the reason in it — which is the notice, and needs no section of its own. A section is therefore written down once and classified once, and the guarantee that a tier cannot exist at one verbosity and not the other holds by the same construction as the guarantee across formats (LLR-SUM-09).
 
 The partition rule is HLR-150's: a tier presenting a project-level aggregate, a file's own totals, or a finding a reader is expected to act on is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Coupling, the cycles, the layering violations, and the recursive chains fall on the detail side even though each row names a component, because they enumerate the graph one entity at a time — a *file-level aggregate* in the rule's sense is a file's own totals, which is what the Files tier presents. Nothing is lost from the summary by it: each of those measurements that crossed a published line is a finding, and the findings tier is a summary tier.
+
+The two tiers of Section 21 divide along that same rule and land on opposite sides of it. The conformance indices are project-level aggregates — two rows whatever the size of the project — and are a summary tier, beside the findings a reader acts on. The matrix enumerates one row per layer or per directory and is a detail tier, like every other table that grows with the graph. They are adjacent in the traversal, so the aggregate and the arrangement it summarises are read together in a verbose report.
+
+The matrix is the one tier whose decoration is not a `Grid`. Its column count is the number of subjects rather than a fixed few, and its cells must escape the Markdown separator, so `dsm_section` calls `format_dsm_markdown` or `format_dsm_table` according to the style. That is two calls from *one* entry in the ordered section list, which is what keeps the guarantee intact: the tier is written down once and classified once, and there is still nowhere to forget it (LLR-SUM-02, LLR-SUM-09).
+
+The conformance tier tests the model rather than the state. `STRATA_MEASURED` is the zero of its enum, so a model carrying no rendered indices at all — a record written before they existed, or a report a test built by hand — would read as measured while holding nothing to print. A renderer is a pure consumer: it presents what the model has, not what the model's state implies it should have.
 
 The image-filter tier is split along the same boundary. `image_filter_section` presents the image and its two counts, which are the provenance of a filtered run and a summary tier; `absent_functions_section` presents the functions the image does not define, which is one row per function and a detail tier. The two are adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split (LLR-SUM-06).
 
@@ -881,12 +901,12 @@ Both renderers walk the identical model in the identical order and emit the iden
 
       <module path="src/format_xml.c">
         <purpose><![CDATA[writes the complete XML record of a run, and reads such a record back to drive the report-regeneration mode. It is the only module that both produces and consumes a serialised form.]]></purpose>
-        <responsibility><![CDATA[Emit every element of the report model, so the record is sufficient to regenerate any report `elc` can produce.]]></responsibility>
+        <responsibility><![CDATA[Emit every element of the report model, so the record is sufficient to regenerate any report `elc` can produce — the two conformance indices and the dependency matrix among them, since regeneration has no call graph to recompute either from (HLR-054).]]></responsibility>
         <responsibility><![CDATA[Carry a format-version identifier in the document root.]]></responsibility>
         <responsibility><![CDATA[Escape every character with structural meaning in XML.]]></responsibility>
         <responsibility><![CDATA[Parse a saved record back into a report model, rejecting anything malformed, structurally foreign, or of an unsupported version.]]></responsibility>
         <interfaces>
-          <interface title="XML Record Structure"><![CDATA[A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<files>` with nested `<function>` elements, `<skipped>`, `<architecture>` holding every graph finding, `<custom-rules>`, and `<omissions>`. The format version is incremented whenever an element is removed or its meaning changes.
+          <interface title="XML Record Structure"><![CDATA[A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<files>` with nested `<function>` elements, `<skipped>`, `<architecture>` holding every graph finding and the two `<conformance>` rows, `<dsm>` holding the dependency matrix, `<custom-rules>`, and `<omissions>`. The format version is incremented whenever an element is removed or its meaning changes.
 
 It is **not** incremented when an element is added, because a reader ignores elements it does not recognise. That asymmetry is what makes a later phase's additions compatible with a record written today, and it is why an element that does not yet exist is absent rather than present and empty.]]></interface>
           <interface title="Reading What elc Did Not Write"><![CDATA[The read path treats its input as hostile. The root element must be `elc-report`, its `format-version` must be one this build reads, and an attribute that should be numeric and is not makes the record malformed rather than zero — accepting it would produce a report that renders cleanly and is wrong, which is the outcome HLR-058 exists to prevent.
@@ -895,6 +915,7 @@ Nothing reconstructed before a rejection survives it. The partially built model 
         </interfaces>
         <functions>
           <function signature="int xml_write_report(const Report *r, FILE *out)" summary="Serialise the complete report model, escaping every emitted value."/>
+          <function signature="static void write_dsm(const Report *r, FILE *out)" summary="Emit the dependency matrix: the subjects in order, then the non-zero cells alone. A matrix over a real project is mostly zeroes — that is what makes it readable — and a cell absent from the document reads back as the zero it was. The subjects precede the cells so the order of the grid is known before an index into it arrives (HLR-165, HLR-166)."/>
           <function signature="int xml_read_report(const char *path, Report *out)">
             <purpose><![CDATA[Reconstruct a report model from a previously written record.]]></purpose>
             <returns><![CDATA[0 on success; non-zero after a diagnostic when the input is malformed, structurally foreign, or of an unsupported format version.]]></returns>
@@ -1192,24 +1213,37 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
         <purpose><![CDATA[renders the Dependency Structure Matrix — the square grid whose cells carry the call counts between layers or directories, and whose diagonal separates conforming dependencies from back-calls.]]></purpose>
         <responsibility><![CDATA[Build the matrix over the declared layers, or over the analysed directories where no strata were declared (HLR-165).]]></responsibility>
         <responsibility><![CDATA[Order rows and columns identically, by layer index or by path, so a cell's position carries its meaning (HLR-166).]]></responsibility>
-        <responsibility><![CDATA[Render as CSV and as Markdown, and state the diagonal convention wherever it renders.]]></responsibility>
+        <responsibility><![CDATA[Render as CSV, as Markdown, and as the report's aligned table, and state the diagonal convention wherever it renders (HLR-166).]]></responsibility>
+        <responsibility><![CDATA[Decide whether the CSV companion is warranted for a run: on request, and only where the report has a path to derive a name from (HLR-180).]]></responsibility>
         <functions>
           <function signature="int dsm_build(const Sdg *g, const Report *r, const ElcOptions *opts, Dsm *out)" summary="Populate the square matrix of call counts between subjects, in their defined order."/>
           <function signature="int format_dsm_csv(const Dsm *m, FILE *out)" summary="Render the matrix as CSV, every cell through the RFC 4180 field writer."/>
-          <function signature="int format_dsm_markdown(const Dsm *m, FILE *out)" summary="Render the matrix as a GitHub-Flavored Markdown table."/>
+          <function signature="int format_dsm_markdown(const Dsm *m, FILE *out)" summary="Render the matrix as a GitHub-Flavored Markdown table, escaping the cell separator."/>
+          <function signature="int format_dsm_table(const Dsm *m, FILE *out)" summary="Render the matrix as the report's aligned table, which is what keeps the tier from being present in one human-facing format and absent from the other (HLR-031)."/>
+          <function signature="bool dsm_warranted(const ElcOptions *opts)" summary="Whether the CSV companion is to be written: requested, and with a named output path to derive its own from (HLR-104, HLR-180)."/>
           <function signature="void dsm_free(Dsm *m)" summary="Release the matrix and the subject labels it owns."/>
         </functions>
         <algorithm><![CDATA[**Rows are callers and columns are callees**, both in the same ascending order, so the diagonal has a meaning a reader can rely on: above it are dependencies running the declared way, on it are dependencies inside one subject, and below it are the back-calls of HLR-162. A matrix whose orientation the reader must infer is worse than no matrix, so the convention is printed with it (HLR-166).
 
 **The matrix is dense and its subjects are few.** Rows and columns are layers or directories rather than files or functions, so the grid stays readable at the size an architecture actually has; a per-function DSM of a real project is a matrix nobody can look at.
 
-**Escaping is not this module's own.** The CSV rendering emits every cell through the same `write_field` the per-function renderer uses, and the Markdown rendering escapes the cell separator, so a directory containing a comma or a pipe cannot corrupt the grid (HLR-064).]]></algorithm>
+**Escaping is not this module's own.** The CSV rendering emits every cell through the same `write_field` the per-function renderer uses, and the Markdown rendering escapes the cell separator, so a directory containing a comma or a pipe cannot corrupt the grid (HLR-064). Markdown column widths are measured *after* escaping, since a column measured on the raw text comes out a character short for every pipe in it and the raw document goes ragged.
+
+**Three decorations, one walk.** The three renderings are thin wrappers over a single traversal of the grid, for the reason format_text.c's tiers share one traversal: three walks of one matrix is how two of them come to disagree about what is in it. The aligned table exists beside the Markdown because the matrix is a tier of the human-facing report, and HLR-031 does not allow a tier present in one of those formats and absent from the other; the CSV is the machine-readable copy HLR-180 writes beside the report. Each begins with the convention — a leading single-field record in CSV, which has no comment syntax, and a caption line under the heading in the other two — and each labels the corner cell `caller \ callee`, so the orientation is stated in the place a reader looks first as well as in the sentence above it.
+
+**The layer assignment is `arch.c`'s.** `dsm_build` calls `stratum_of_components` rather than matching the stratum patterns itself. Two matchers over one set of patterns would eventually disagree about which layer a file is in, and the matrix's below-diagonal cells would stop accounting for the back-calls listed beside them — the failure HLR-164 forbids for the indices, arriving instead through the grid.
+
+**The subject sequence is sorted here, and that is one of the two exceptions to `report.c` owning every sort.** It is the same exception the graph writers take (LLR-DOT-04): the order is a property of this artefact rather than of a collection the model already holds. Sorting is genuinely required rather than merely tidy — the components arrive in ascending *path* order, which is not ascending *directory* order. `/p/a-b/x.c` sorts before `/p/a/y.c` because `-` precedes `/`, yet `/p/a` precedes `/p/a-b`, so reading the directories off in component order would produce a sequence no rule describes. Under declared strata no sort is needed at all: a stratum's ordinal *is* its position, so each label is placed at its ordinal rather than appended in the order the options were parsed — which is what keeps `--stratum-order` from moving the back-calls above the diagonal.
+
+**The matrix is part of the report model, not a renderer's scratch space.** It is built once, in `main`, and carried on the `Report`, because the record of a run must be able to regenerate it and a record carries no call graph to rebuild it from (HLR-054). That is also why the CSV companion is the one companion available in regeneration mode.]]></algorithm>
         <dependencies>
           <dep><![CDATA[`src/graph.c` for the component projection, `src/arch.c` for the layer assignment, and `src/format_csv.c` for the field writer. No third-party dependency.]]></dep>
         </dependencies>
         <error_handling>
           <case name="No strata declared"><![CDATA[Not an error. The matrix is built over directories instead, so a reader with no declared architecture still receives one (HLR-165).]]></case>
           <case name="Write failure"><![CDATA[Diagnostic and non-zero return, as for every other renderer.]]></case>
+          <case name="No output path"><![CDATA[Not an error. `dsm_warranted` is false, no companion is written, and the report itself still carries the matrix — the rule the GraphML export follows, since the companion's name is derived from the report's and there is none to derive from (HLR-104).]]></case>
+          <case name="An empty matrix"><![CDATA[Renders as its heading, its convention, and its column names rather than as nothing. A section that vanishes when it has no content makes the report's shape vary with its content.]]></case>
         </error_handling>
       </module>
 
@@ -1217,7 +1251,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 
     <data_dictionary>
       <type name="ElcOptions" header="include/elc.h" summary="The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.">
-        <field name="mode" type="RunMode" desc="Analysis or XML regeneration; regeneration requires format md and suppresses both companion artefacts (HLR-055)"/>
+        <field name="mode" type="RunMode" desc="Analysis or XML regeneration; regeneration requires format md and suppresses both *graph* companion artefacts, the matrix companion excepted (HLR-055, HLR-180)"/>
         <field name="format" type="OutputFormat" desc="table, csv, xml, or md. Settled once, after the option loop, from `--format` and the extension of `output_path` together, so the two can be compared rather than one preferred (HLR-148, HLR-149)"/>
         <field name="output_path" type="const char *" desc="NULL when writing to stdout. Where it is not NULL its extension names the format, so the field carries a second meaning beyond the destination (HLR-148)"/>
         <field name="verbose" type="bool" desc="The *request* for the verbose report, not the selection between two compositions: the summary is the default (HLR-150), so a zeroed ElcOptions must mean the summary, which it does only if the flag records the positive. A property of the rendering alone — it changes no measurement, no finding, and not the exit status, and the complete-record formats ignore it (HLR-151, HLR-152)"/>
@@ -1225,6 +1259,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
         <field name="bottleneck_threshold" type="uint32_t" desc="Default 5 (HLR-081)"/>
         <field name="no_dot" type="bool" desc="The *refusal* of the `.dot` companion, not the request for it: generation is enabled by default (HLR-103), so a zeroed ElcOptions must mean enabled, which it does only if the flag records the negative"/>
         <field name="graphml_path" type="const char *" desc="NULL unless --graphml given"/>
+        <field name="dsm" type="bool" desc="The *request* for the dependency-matrix CSV companion (HLR-180). Off unless asked for, as the GraphML export is, so a zeroed ElcOptions means no companion; and silently nothing where the report goes to standard output, there being no path to derive a name from (HLR-104). Unlike the two graph companions it is accepted with `--from-xml`, because a record carries the matrix where it carries no topology"/>
         <field name="strata" type="StratumList" desc="Empty when undeclared; ordinals from declaration order unless --stratum-order states them (HLR-078)"/>
         <field name="stratum_order" type="const char *" desc="The declared dependency direction, resolved after parsing so it may precede the layers it orders (HLR-078)"/>
         <field name="entry_points" type="SymbolList" desc="Empty when undeclared (HLR-095)"/>
@@ -1273,6 +1308,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
       </type>
       <type name="FileMetrics" header="include/elc.h" summary="Per-file totals and the functions the file defines.">
         <field name="path" type="char *" desc="Canonical absolute path"/>
+        <field name="directory" type="char *" desc="The directory containing the file, derived once from the path and owned. A component *is* a file, so this is the directory a component belongs to; recorded rather than recomputed because more than one analysis groups by it, and two consumers each slicing the path for themselves is how two of them come to disagree. No trailing separator, and &quot;/&quot; for a file at the root, so that two files in one directory compare equal (HLR-160)"/>
         <field name="language" type="const char *" desc="Borrowed from the language module"/>
         <field name="physical_lines" type="uint32_t" desc="Newline count from the mapping"/>
         <field name="unparsed_lines" type="uint32_t" desc="Distinct lines the grammar could not follow; non-zero means every other figure covers the rest of the file and not this part (HLR-035)"/>
@@ -1362,6 +1398,14 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
         <field name="cycles" type="ComponentCycle *" desc="Each mutually dependent group with a concrete loop through it (HLR-083)"/>
         <field name="strata_state" type="StrataState" desc="Measured, or omitted because no strata were declared (HLR-115)"/>
         <field name="violations" type="LayerViolation *" desc="Skip-level and direction-inverted calls, as distinct entries (HLR-079, HLR-118)"/>
+        <field name="inter_layer_edges" type="size_t" desc="The denominator of both conformance indices: the run's call edges joining two components in *different* declared layers. Counted by `check_strata` in the same pass that produces the violations above, since the three exclusions it needs — the edge is a call, both ends lie inside the partition, the two ends lie in different layers — are the three tests that loop already makes. A second traversal applying them again would be a second opinion about which edges the indices are over (HLR-162 – HLR-164). Zero where no strata were declared, the loop not having run"/>
+      </type>
+      <type name="ConformanceIndices" header="include/arch.h" summary="The two conformance indices over one run (HLR-162, HLR-163). Both are proportions of one denominator and neither summarises the other; they are never added, since a call ascending two layers is counted in each and a combined score would count it twice.">
+        <field name="inter_layer_edges" type="size_t" desc="The shared denominator, taken from ArchResults rather than recounted"/>
+        <field name="back_calls" type="size_t" desc="Inverted findings counted from the recorded violations, never re-derived from the graph (HLR-164)"/>
+        <field name="skip_calls" type="size_t" desc="Skip-level findings, counted the same way"/>
+        <field name="back_call_index, skip_call_index" type="double" desc="Each numerator over the shared denominator; meaningless and untouched where `defined` is false"/>
+        <field name="defined" type="bool" desc="False where the denominator is zero, in which case the caller reports the index as undefined rather than as 0 or 1. A project with no inter-layer call has not achieved perfect conformance; it has demonstrated nothing either way — the rule HLR-082 already applies to Instability (HLR-162)"/>
       </type>
       <type name="ComponentCycle" header="include/arch.h" summary="One cyclic dependency between components. Two facts, because one alone misleads: the membership is the group that must be broken up, and the path is a concrete loop saying which edge to cut. The path may be shorter than the membership, since a group can hold a number of loops exponential in its size.">
         <field name="members" type="size_t *" desc="Component indices, ascending"/>
@@ -1424,6 +1468,8 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
         <field name="fan_out, cycles, depth_state, depth, deepest" type="FanOutRow *, CycleRow *, DepthState, uint32_t, ChainRow *" desc="The call-tree measurements: one FanOutRow per function carrying its fan-out, fan-in, ELOC and Henry-Kafura value — each reported whether or not a threshold was crossed, and three of the four never banded at all — the recursive cycles, and the deepest chain in full with the state saying why a depth figure is absent (HLR-085, HLR-087 – HLR-090, HLR-156, HLR-157)"/>
         <field name="coupling, dep_cycles, strata_state, layering" type="CouplingRow *, CycleDependencyRow *, StrataState, LayeringRow *" desc="The component-level measurements: Ca, Ce and Instability per component, each dependency cycle with a concrete loop through it, and the layering findings with the state of that analysis (HLR-080 – HLR-083, HLR-118)"/>
         <field name="global_state, reach_state, unreachable, unreachable_globals, scope_state, cross_scope" type="GlobalStateRow *, ReachState, UnreachableRow *, char **, ScopeState, CrossScopeRow *" desc="The global-state and reachability measurements, each carrying the state that distinguishes a measurement from an analysis omitted for want of a declaration (HLR-091 – HLR-096, HLR-115)"/>
+        <field name="back_call, skip_call" type="ConformanceRow" desc="The two conformance indices as the report presents them: the violations counted, the inter-layer call edges they are over, and both the index and its complementary conforming proportion as rendered text. Text because &quot;undefined&quot; is one of their legitimate values, exactly as it is for Instability, and a renderer choosing between a number and a word is a decision that would then be made four times (HLR-162, HLR-163)"/>
+        <field name="dsm" type="Dsm" desc="The dependency matrix: the ordered subject labels and the square grid of call counts between them, with a flag saying whether the subjects are declared layers or directories. Part of the model rather than a renderer's scratch space, because a record of a run must be able to regenerate it and a record carries no call graph to rebuild it from (HLR-165, HLR-166, HLR-054)"/>
         <field name="findings" type="FindingRow *" desc="Every measurement that crossed a published line, ranked most severe first, each naming its source (HLR-098, HLR-123)"/>
         <field name="dead, dead_unanalysed" type="DeadRow *, PathList" desc="The unreachable statements within functions, sorted by file then start line, and the languages whose module supplied no dead-code query — the second because unanalysed and none-found are different claims (HLR-137, HLR-139)"/>
         <field name="rule_matches" type="RuleMatchRow *" desc="What the user's own rules matched, sorted and reported beside the findings rather than among them (HLR-109, HLR-111)"/>
@@ -1434,6 +1480,18 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
         <field name="absent" type="AbsentRow *" desc="The second direction, and the finding the option exists to produce: the source functions this build did not keep. Sorted by file, then start line, then name (HLR-143)"/>
         <field name="file_scope_eloc" type="uint64_t" desc="Effective lines belonging to no function, summed over every file — the part of the total the filter did not narrow (HLR-145)"/>
         <field name="skipped_files" type="PathList" desc="Discovered files with no available language module, sorted by path (HLR-012)"/>
+      </type>
+      <type name="ConformanceRow" header="include/report.h" summary="One conformance index as the report presents it (HLR-162, HLR-163). The numerator and the denominator travel beside the rendered figures because a proportion is not interpretable without the count it is over — 50% of two edges and 50% of two hundred are different claims about a code base.">
+        <field name="violations" type="uint64_t" desc="The findings counted, never re-derived (HLR-164)"/>
+        <field name="edges" type="uint64_t" desc="Inter-layer call edges; the denominator"/>
+        <field name="index" type="char *" desc="Owned; a percentage to two places, or &quot;undefined&quot;"/>
+        <field name="conforming" type="char *" desc="Owned; the complement, computed from the counts rather than subtracted from the rendered index, so the pair is two roundings of one division rather than a rounding of a rounding — and need not read as exactly 100%"/>
+      </type>
+      <type name="Dsm" header="include/report.h" summary="The Dependency Structure Matrix (HLR-165, HLR-166). A square grid over the declared layers, or over the analysed directories where no layer was declared. Rows are callers and columns callees, both in the same ascending order, so a cell's position carries its meaning.">
+        <field name="subjects" type="char **" desc="The row and column labels, in order; owned. Ordered by ascending layer index under declared strata — a stratum's ordinal *is* its position — and by path otherwise"/>
+        <field name="count" type="size_t" desc="The order of the square matrix"/>
+        <field name="cells" type="size_t *" desc="Row-major, count * count; owned. Cell (i, j) is the number of call edges from subject i to subject j"/>
+        <field name="from_strata" type="bool" desc="True where the subjects are declared layers, false where they are directories. The two are read differently — only a declared order makes a below-diagonal cell a violation — so the reader is told which they are looking at rather than left to infer it"/>
       </type>
       <constants header="include/elc.h">
         <constant name="ELC_DEFAULT_COMPLEXITY_THRESHOLD" value="15" purpose="Per-file over-threshold listing (HLR-022, HLR-057)"/>
@@ -1717,9 +1775,10 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-032, HLR-100, HLR-102 – HLR-105, HLR-119"/>
       </fixture>
       <fixture name="`arch/`" source="[test/fixtures/arch/](../test/fixtures/arch/)">
-        <artefact key="inputs" label="Inputs" path="A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all"/>
-        <artefact key="expected" label="Expected" path="`expected-findings.tsv`, with the hand-computed `Ca`, `Ce`, and instability table, and the omission notice for the undeclared run"/>
-        <artefact key="verifies" label="Verifies" path="HLR-078 – HLR-082, HLR-094, HLR-114, HLR-115, HLR-118"/>
+        <artefact key="inputs" label="Inputs" path="A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all; a run declaring one layer over every component, so that calls exist and no inter-layer call does; a run reversing the declared direction with `--stratum-order`; and a directory whose name carries a comma, built in the test's own temporary directory"/>
+        <artefact key="expected" label="Expected" path="The hand-computed `Ca`, `Ce`, and instability table and the omission notice for the undeclared run, all worked out in `README.md` beside the fixture and never regenerated from `elc`'s output — and beside them the two conformance indices over their hand-counted six-edge denominator, the undefined pair where that denominator is zero, and the hand-drawn matrix in both of its arrangements: over the declared layers and over the analysed directories"/>
+        <artefact key="verifies" label="Verifies" path="HLR-064, HLR-078 – HLR-082, HLR-094, HLR-104, HLR-114, HLR-115, HLR-118, HLR-161 – HLR-166, HLR-180"/>
+        <artefact key="note" label="Note" path="The matrix and the layering list are asserted **together**, over one run: the cells below the diagonal must total exactly the inverted findings the table lists, and the indices must match the rows printed beside them. Each half asserted alone would pass against an implementation whose two answers had drifted apart, which is the failure HLR-164 exists to prevent."/>
       </fixture>
       <fixture name="`rules/`" source="[test/fixtures/rules/](../test/fixtures/rules/)">
         <artefact key="inputs" label="Inputs" path="One rule file holding **two** named captures, supplied from the runtime location and from the command line so that the same query is exercised by both bindings; one predicate-bearing capture, so that a rule whose filter is dropped would over-match visibly; **one** broken rule file used from *both* provenances, since two different broken files could not distinguish a provenance rule from a file-contents rule; a rule naming a language with no module; an argument with no language; decoy `.scm` files planted in the working directory, in a dotfile directory, and in the analysis target"/>
@@ -3259,6 +3318,7 @@ The subjects shall be the declared layers where strata were declared, and the an
       <traces>
         <trace target="SDD" ref="9"/>
         <trace target="SDD" ref="13"/>
+        <trace target="SDD" ref="22"/>
       </traces>
       </hlr>
 
@@ -3269,10 +3329,25 @@ The subjects shall be the declared layers where strata were declared, and the an
 *   Cells **on** the diagonal are dependencies within one subject, which no declared order constrains.
 *   Cells **below** the diagonal are back-calls (HLR-162) — the violations, gathered on one side of the grid where a reader can see them at a glance.
 
-This convention shall be stated wherever the matrix is rendered, since a matrix whose orientation the reader has to infer conveys the opposite of what it is for. `elc` shall render the matrix as CSV and as Markdown, both governed by the escaping and determinism rules every other rendering obeys (HLR-064, HLR-032, HLR-033).]]></text>
+This convention shall be stated wherever the matrix is rendered, since a matrix whose orientation the reader has to infer conveys the opposite of what it is for. `elc` shall render the matrix as CSV and as Markdown, both governed by the escaping and determinism rules every other rendering obeys (HLR-064, HLR-032, HLR-033).
+
+The matrix is a tier of the report and not a separate artefact, so the aligned table renders it too. HLR-031 does not permit a tier present in one human-facing format and absent from the other, and a rendering that existed only in Markdown would be exactly that. The Markdown rendering of this requirement is therefore the matrix as it appears in a Markdown report; the CSV rendering is the machine-readable copy written beside the report by HLR-180. The matrix is a detail tier by the partition rule of HLR-150, since it enumerates one row per subject, while the indices of HLR-162 and HLR-163 are project-level aggregates and are summary tiers.]]></text>
       <traces>
         <trace target="SDD" ref="9"/>
-        <trace target="SDD" ref="21"/>
+        <trace target="SDD" ref="22"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-180" name="The Matrix Written Beside the Report on Request">
+        <text><![CDATA[`elc` shall write, on request, the Dependency Structure Matrix of HLR-165 as a CSV file beside the report, named from the report's own output path by the extension substitution of HLR-119, and shall write nothing where the report has no path to derive a name from (HLR-104). This is the CSV rendering HLR-166 requires; the matrix itself is part of the report at either verbosity's detail tier whatever format is rendered, and this requirement governs the machine-readable copy of it alone.
+
+The companion shall be off unless asked for, by the rule HLR-106 applies to the GraphML export rather than the rule HLR-103 applies to the call tree. A run that did not ask for it shall produce exactly the files it produced before the option existed.
+
+Unlike the two graph companions, it shall be available in the regeneration mode of HLR-055. A saved record carries the matrix (HLR-054) where it carries no topology, so there is something to write from — and refusing a file the record is sufficient to produce would withhold it for a reason that does not apply.]]></text>
+      <traces>
+        <trace target="SDD" ref="3"/>
+        <trace target="SDD" ref="4"/>
+        <trace target="SDD" ref="22"/>
       </traces>
       </hlr>
     </section>
@@ -3349,7 +3424,9 @@ The proposal shall state which functions were masked or excluded in producing it
       </hlr>
 
       <hlr id="HLR-173" name="A Recovered Layering Is a Proposal, Never a Baseline">
-        <text><![CDATA[A layering recovered under HLR-172 shall never be used as the declared architecture that the conformance analyses measure against. The strata of HLR-078 are the sole baseline for the layering findings of Section 11 and the indices and matrix of Section 21, and where no strata are declared those analyses shall remain omitted with their reason stated (HLR-115) however confidently a layering was recovered.
+        <text><![CDATA[A layering recovered under HLR-172 shall never be used as the declared architecture that the conformance analyses measure against. The strata of HLR-078 are the sole baseline for the layering findings of Section 11 and the indices of HLR-162 and HLR-163, and where no strata are declared those analyses shall remain omitted with their reason stated (HLR-115) however confidently a layering was recovered.
+
+The matrix of HLR-165 is the one part of Section 21 this does not silence, and the distinction is what the requirement is about rather than an exception to it. The matrix *measures nothing against a baseline*: it counts the call edges between subjects, and with no declaration its subjects are the analysed directories — a grouping the discovery stage established (HLR-160) rather than one `elc` proposed. A recovered layering shall not become those subjects either, for the reason it shall not become the baseline: a matrix whose rows were read off the graph it arranges would make every project look layered.
 
 `elc` measuring conformance against its own proposal would be a tool marking its own homework: every code base would conform, because the standard would have been read off the thing it was judging. HLR-078's rule that strata are never discovered automatically is unchanged by this section — what is added is a *proposal a user may read, adopt, and then declare*, and the declaring is theirs.
 
@@ -3803,6 +3880,14 @@ The extension is the last dot of the *basename*: a directory component carrying 
         </traces>
       </llr>
 
+      <llr id="LLR-CLI-31">
+        <text><![CDATA[`cli_parse` shall record a request for the dependency-matrix companion without validating it against the output destination, and shall accept it together with the regeneration mode. A request with the report on standard output is not a usage error — it writes no file, which is what the companion rule says happens — and unlike the GraphML export it is not in conflict with regeneration, since a saved record carries the matrix.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-180" name="The Matrix Written Beside the Report on Request"/>
+          <trace target="HLR" ref="HLR-104"/>
+          <trace target="HLR" ref="HLR-055"/>
+        </traces>
+      </llr>
       <llr id="LLR-CLI-30">
         <text><![CDATA[`cli_parse` shall accept the verbosity option together with a complete-record format rather than rejecting the pairing. It is the one option combination this parser decides that is not a usage error: there is no presentation for a verbosity to vary in a format defined as complete, so the request is honoured by changing nothing.]]></text>
         <traces>
@@ -5219,7 +5304,18 @@ A blank line shall be skipped rather than counted. It produces no instruction in
           <trace target="HLR" ref="HLR-093"/>
         </traces>
       </llr>
+      <llr id="LLR-LAY-06">
+        <text><![CDATA[`check_strata` shall count, in the same pass that produces the violations, the call edges joining two components in different declared layers, and shall exclude from that count a global-state edge, an edge either of whose ends lies outside the declared partition, and an edge whose two ends lie in one layer. Counting it here rather than in a traversal of its own is what stops a second code path forming a second opinion about which edges the conformance indices are over: those three exclusions are the three tests this loop already makes before it decides whether to report anything.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-162" name="Back-Call Violation Index"/>
+          <trace target="HLR" ref="HLR-163" name="Skip-Call Violation Index"/>
+          <trace target="HLR" ref="HLR-164" name="Indices Counted From the Reported Violations"/>
+          <trace target="HLR" ref="HLR-161"/>
+        </traces>
+      </llr>
     </function>
+
+
 
     <function number="26" title="`calltree_analyse` ([src/calltree.c](../src/calltree.c))" name="calltree_analyse" source="src/calltree.c">
       <intro><![CDATA[Function-level call-tree measurements: width, height, the deepest stack, and recursion.]]></intro>
@@ -5958,6 +6054,20 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
         </traces>
       </llr>
 
+      <llr id="LLR-SUM-11">
+        <text><![CDATA[`render_summary` shall present the two conformance indices as a summary tier — each with its violating proportion, its complementary conforming proportion, and the inter-layer call-edge count it is over — and the dependency matrix as a detail tier, in both human-facing formats and from one entry apiece in the ordered section list. The indices are project-level aggregates, two rows whatever the size of the project; the matrix enumerates one row per subject, and falls on the detail side by the same rule that puts every other table growing with the graph there.
+
+The matrix's decoration is delegated to the renderer that owns the grid rather than built into a `Grid`, its column count being the number of subjects rather than a fixed few and its cells needing the Markdown separator escaped; the delegation is two calls from one section entry, so the tier is still written down once and classified once.
+
+The tier shall present the indices only where the model carries them rendered, rather than where the strata state says they were measured. `STRATA_MEASURED` is the zero of its enum, so a model holding no indices at all reads as measured while having nothing to print, and a renderer presents what the model has rather than what its state implies it should have.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-162" name="Back-Call Violation Index"/>
+          <trace target="HLR" ref="HLR-163" name="Skip-Call Violation Index"/>
+          <trace target="HLR" ref="HLR-166" name="Matrix Ordering, the Diagonal, and Its Renderings"/>
+          <trace target="HLR" ref="HLR-150"/>
+          <trace target="HLR" ref="HLR-031"/>
+        </traces>
+      </llr>
       <llr id="LLR-SUM-10">
         <text><![CDATA[`render_summary` shall present each function's fan-in, fan-out, effective lines and Henry-Kafura value as a detail tier, and the project-level Henry-Kafura total among the project summary's figures; and shall print a Henry-Kafura value of zero as `0`.
 
@@ -6124,6 +6234,14 @@ The line-granularity counts travel with the image element rather than with the p
           <trace target="HLR" ref="HLR-056" name="Regenerated Report Equivalence"/>
         </traces>
       </llr>
+      <llr id="LLR-XWR-17">
+        <text><![CDATA[`xml_write_report` shall record the two conformance indices as the run rendered them, with the counts they were formed from, and shall record the matrix as its ordered subjects followed by its non-zero cells alone. Neither can be recomputed on the way back — regeneration has no call graph — so a record carrying the layering rows alone would regenerate an undefined index and an empty grid for a run whose report showed neither. The zero cells are omitted because a matrix over a real project is mostly zeroes, and a cell absent from the document reads back as the zero it was; the subjects precede the cells so that the order of the grid is known before an index into it arrives.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-054" name="XML Output"/>
+          <trace target="HLR" ref="HLR-165" name="Dependency Structure Matrix"/>
+          <trace target="HLR" ref="HLR-162"/>
+        </traces>
+      </llr>
       <llr id="LLR-XWR-16">
         <text><![CDATA[`xml_write_report` shall record the definitions in force and the undecided-region count, without which a regenerated report would describe a configuration it does not name.]]></text>
         <traces>
@@ -6237,6 +6355,14 @@ The line-granularity counts travel with the image element rather than with the p
         <text><![CDATA[`xml_read_report` shall reconstruct the custom-rule matches a record carries and render them identically to the run that wrote it.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-056" name="Regenerated Report Equivalence"/>
+        </traces>
+      </llr>
+      <llr id="LLR-XRD-17">
+        <text><![CDATA[`xml_read_report` shall restore the two conformance indices from the record as text rather than recomputing them from the counts beside them, and shall restore the matrix from its subjects and cells, treating a record carrying neither as one whose conformance section is omitted and whose grid is empty rather than as malformed. Recomputing a figure would let a regenerated report round it differently from the report it came from; rejecting a record written before the elements existed would break the rule that adding an element is an addition an older reader ignores.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-056" name="Regenerated Report Equivalence"/>
+          <trace target="HLR" ref="HLR-054"/>
+          <trace target="HLR" ref="HLR-061"/>
         </traces>
       </llr>
       <llr id="LLR-XRD-16">
@@ -6682,6 +6808,115 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
 
     </function>
 
+    <function number="52" title="`conformance_indices` ([src/arch.c](../src/arch.c))" name="conformance_indices" source="src/arch.c">
+      <intro><![CDATA[The aggregate over the layering findings: how much of the code base conforms to the declared layering, as two independent proportions of one denominator.]]></intro>
+      <llr id="LLR-CNF-01">
+        <text><![CDATA[`conformance_indices` shall compute the Back-Call and Skip-Call Violation Indices by counting the layering violations already recorded, tallied by kind, over the inter-layer call-edge count recorded beside them, and shall not read the graph in order to do so. It is not given one: an implementation that re-derived what a violation is could not satisfy this signature, which is what makes the index and the table printed beside it two views of one answer rather than two opinions that can drift apart.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-164" name="Indices Counted From the Reported Violations"/>
+          <trace target="HLR" ref="HLR-162" name="Back-Call Violation Index"/>
+          <trace target="HLR" ref="HLR-163" name="Skip-Call Violation Index"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CNF-02">
+        <text><![CDATA[`conformance_indices` shall report both indices as undefined, performing no division, where the inter-layer call-edge count is zero, and the guard shall precede the division rather than follow it. A project whose layers never call one another has not achieved perfect conformance; it has demonstrated nothing either way, and reporting 0 — or 100% conforming — there would be the confidently wrong answer the same rule already prevents for Instability.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-162" name="Back-Call Violation Index"/>
+          <trace target="HLR" ref="HLR-163" name="Skip-Call Violation Index"/>
+          <trace target="HLR" ref="HLR-082"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CNF-03">
+        <text><![CDATA[`conformance_indices` shall count a call that both bypasses a layer and inverts the declared direction once in each index, and shall produce no combined score. The two are independent proportions of one denominator, so their sum may exceed the denominator itself; combining them would count twice exactly the call most worth acting on, and would name no remedy where each index separately names one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-163" name="Skip-Call Violation Index"/>
+          <trace target="HLR" ref="HLR-118"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="53" title="`component_directory` ([src/report.c](../src/report.c))" name="component_directory" source="src/report.c">
+      <intro><![CDATA[Where a component's directory is derived, once, for every consumer that groups by one.]]></intro>
+      <llr id="LLR-DIR-01">
+        <text><![CDATA[`component_directory` shall return the portion of a path preceding its last separator, carrying no trailing separator, and shall return `/` for a path whose last separator is its first character and `.` for a path carrying none. The two edge cases are handled here rather than at each call site because a split on the last separator gets both wrong: a file directly under the root would yield the empty string, which names no directory, and a path with no separator would yield nothing at all.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-160" name="Component Directory Recorded"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DIR-02">
+        <text><![CDATA[Every `FileMetrics` shall carry the directory containing it, set at construction by both of the paths that construct one — the measurement of a source file and the reader that rebuilds a model from a saved record — and every consumer that groups components by directory shall read that field rather than derive one from the path. One derivation reached from two construction sites is what keeps a component's directory the same string whichever way the model arrived.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-160" name="Component Directory Recorded"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="54" title="`dsm_build` ([src/format_dsm.c](../src/format_dsm.c))" name="dsm_build" source="src/format_dsm.c">
+      <intro><![CDATA[The Dependency Structure Matrix: the arrangement of the graph's call edges into a square grid whose position carries meaning.]]></intro>
+      <llr id="LLR-DSM-01">
+        <text><![CDATA[`dsm_build` shall take the matrix's subjects to be the declared strata where any were declared and the distinct directories of the analysed components otherwise, ordering the first by ascending layer index and the second ascending by path. A stratum's ordinal *is* its position, so each label is placed at its ordinal rather than appended in declaration order — without which `--stratum-order` would move the back-calls above the diagonal. The directories are sorted rather than read off in component order, since ascending path order over files is not ascending path order over their directories.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-165" name="Dependency Structure Matrix"/>
+          <trace target="HLR" ref="HLR-166" name="Matrix Ordering, the Diagonal, and Its Renderings"/>
+          <trace target="HLR" ref="HLR-160"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DSM-02">
+        <text><![CDATA[`dsm_build` shall obtain each component's layer from `check_strata`'s own assignment rather than by matching the stratum patterns itself, and shall place no component that matches no declaration in any subject. Two matchers over one set of patterns would eventually disagree about which layer a file is in, and the cells below the matrix's diagonal would then stop accounting for the back-calls listed beside them.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-161" name="Layer Index Taken From the Declared Strata"/>
+          <trace target="HLR" ref="HLR-164"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DSM-03">
+        <text><![CDATA[`dsm_build` shall count call edges alone, one per distinct edge of the graph rather than one per call site, and shall count no global-state edge. A global object two subjects share is coupling and not invocation, and counting one would put a number below the diagonal that no call put there; counting call sites rather than edges would give a cell a figure the conformance denominator does not share.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-165" name="Dependency Structure Matrix"/>
+          <trace target="HLR" ref="HLR-093"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DSM-04">
+        <text><![CDATA[`dsm_build` shall place the count of call edges from subject *i* to subject *j* at row *i*, column *j*, so that rows are callers and columns callees, and the cells below the diagonal shall therefore total exactly the number of direction-inverted findings the layering analysis reported. A matrix built the other way round is still a square of plausible numbers with every reading taken from it exactly backwards, which is why the orientation is asserted rather than inferred.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-166" name="Matrix Ordering, the Diagonal, and Its Renderings"/>
+          <trace target="HLR" ref="HLR-162"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="55" title="The matrix renderings ([src/format_dsm.c](../src/format_dsm.c))" name="format_dsm" source="src/format_dsm.c">
+      <intro><![CDATA[`format_dsm_csv`, `format_dsm_markdown`, and `format_dsm_table` — three decorations of one walk of the grid, and the decision of whether the CSV companion is written at all.]]></intro>
+      <llr id="LLR-DSM-05">
+        <text><![CDATA[Every rendering of the matrix shall state the orientation convention with the grid, and shall emit the heading, the convention, and the column names even where the matrix holds no subjects. The three renderings shall share one traversal of the grid, so that they cannot disagree about what is in it. A matrix whose orientation the reader must infer conveys the opposite of what it is for half the time, and a section that vanishes when it has no content makes the report's shape vary with its content.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-166" name="Matrix Ordering, the Diagonal, and Its Renderings"/>
+          <trace target="HLR" ref="HLR-031"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DSM-06">
+        <text><![CDATA[The CSV rendering shall emit every cell through `write_field`, and the Markdown rendering shall escape the cell separator and measure its column widths after that escaping. A directory containing a comma would otherwise split a record, one containing a pipe would shift every cell to its right by a column — each producing a grid that still parses and says something else — and a column measured on the raw text comes out a character short for every pipe in it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-064" name="CSV Field Quoting and Escaping"/>
+          <trace target="HLR" ref="HLR-166"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DSM-07">
+        <text><![CDATA[`dsm_free` shall release the subject labels and the cell array and leave the matrix zeroed, and shall tolerate a null pointer and a matrix already released, so that teardown is unconditional on every exit path.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-125" name="No Resource Leaks"/>
+          <trace target="HLR" ref="HLR-165"/>
+        </traces>
+      </llr>
+      <llr id="LLR-DSM-08">
+        <text><![CDATA[`dsm_warranted` shall be true only where the CSV companion was requested and the report has a named output path, and shall not be made false by regeneration mode. The first two are the tests the GraphML export makes, since the companion's name is derived from the report's and a report on standard output offers none; the third is where this companion differs from the two graph companions, a saved record carrying the matrix where it carries no topology.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-180" name="The Matrix Written Beside the Report on Request"/>
+          <trace target="HLR" ref="HLR-104"/>
+          <trace target="HLR" ref="HLR-119"/>
+        </traces>
+      </llr>
+    </function>
+
   </llrs>
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
@@ -6815,7 +7050,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       </traces>
     </test>
   </file>
-  <file path="test/unit/cli.c" role="unit" count="64">
+  <file path="test/unit/cli.c" role="unit" count="67">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -7211,6 +7446,28 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The pairing that is not a usage error. Both the request and the format survive the parse for XML and for CSV alike, so the acceptance is a property of the rule rather than of one format.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CLI-30"/>
+      </traces>
+    </test>
+    <test name="the_matrix_companion_is_off_unless_requested">
+      <purpose><![CDATA[A zeroed configuration means no companion, as it does for the GraphML export.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-31"/>
+        <trace target="HLR" ref="HLR-180"/>
+      </traces>
+    </test>
+    <test name="the_matrix_companion_is_requested_without_an_output_path">
+      <purpose><![CDATA[Recorded, not validated against `--output`. Asking for the matrix with the report on standard output writes no file and is not a usage error; rejecting it would make the invocation fail where the requirement says it should quietly produce no companion.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-31"/>
+        <trace target="HLR" ref="HLR-104"/>
+      </traces>
+    </test>
+    <test name="the_matrix_companion_is_accepted_with_regeneration">
+      <purpose><![CDATA[Where `--graphml` is rejected with `--from-xml`, this one is accepted: a saved record carries the matrix where it carries no graph, so there is something to write from.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-31"/>
+        <trace target="HLR" ref="HLR-180"/>
+        <trace target="HLR" ref="HLR-055"/>
       </traces>
     </test>
     <test name="the_usage_summary_documents_verbosity_and_the_extension_rule">
@@ -7672,7 +7929,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
 </file>
 
-  <file path="test/unit/calltree.c" role="unit" count="20">
+  <file path="test/unit/calltree.c" role="unit" count="21">
     <test name="fan_out_counts_distinct_callees">
       <purpose><![CDATA[Four call sites to two functions give a fan-out of two, so the measure is of subroutines invoked and not of invocations.]]></purpose>
       <traces>
@@ -8113,7 +8370,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/unit/arch.c" role="unit" count="19">
+  <file path="test/unit/arch.c" role="unit" count="24">
     <test name="instability_is_ce_over_the_sum">
       <purpose><![CDATA[Instability is efferent coupling divided by the sum of both couplings.]]></purpose>
       <traces>
@@ -8245,6 +8502,153 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-ARC-03"/>
         <trace target="HLR" ref="HLR-066"/>
+      </traces>
+    </test>
+    <test name="the_indices_count_the_reported_findings_rather_than_the_graph">
+      <purpose><![CDATA[The indices are formed from a hand-made violation list with no graph anywhere near them. That absence is the test: a function able to produce them from nothing but the recorded findings is the shape HLR-164 asks for, and an implementation that re-derived them from the graph could not compile against the call.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CNF-01"/>
+        <trace target="HLR" ref="HLR-164"/>
+      </traces>
+    </test>
+    <test name="a_zero_denominator_is_undefined_rather_than_perfect">
+      <purpose><![CDATA[With no inter-layer call edge both indices are undefined, not 0 — the error HLR-082 already avoids for Instability, arriving here instead as a claim of perfect conformance for a project that has demonstrated nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CNF-02"/>
+        <trace target="HLR" ref="HLR-162"/>
+      </traces>
+    </test>
+    <test name="a_call_that_both_skips_and_inverts_counts_once_in_each_index">
+      <purpose><![CDATA[One call ascending two layers makes each index 100% of the single candidate edge, so the two sum to 200%. The assertion that their sum exceeds the denominator is what pins the rule against combining them into one score.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CNF-03"/>
+        <trace target="HLR" ref="HLR-163"/>
+      </traces>
+    </test>
+    <test name="an_intra_layer_call_is_not_in_the_denominator">
+      <purpose><![CDATA[One layer holding every component: the call is real and inside it, an edge within a layer has no direction to invert, and the denominator is therefore zero rather than one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-06"/>
+        <trace target="LLR" ref="LLR-CNF-02"/>
+        <trace target="HLR" ref="HLR-162"/>
+      </traces>
+    </test>
+    <test name="an_edge_touching_an_unpartitioned_component_is_not_in_the_denominator">
+      <purpose><![CDATA[A call from a file no declaration names has nothing to be compared against and nothing to count. Including it would put an edge in the denominator no numerator could reach, so every index would drift downward with each undeclared file.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-LAY-06"/>
+        <trace target="HLR" ref="HLR-161"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/format_dsm.c" role="unit" count="15">
+    <test name="rows_are_callers_and_columns_are_callees">
+      <purpose><![CDATA[The orientation asserted directly rather than inferred from a total. A matrix built the other way round is still a square grid of plausible numbers, and every reading taken from it is exactly backwards.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-04"/>
+        <trace target="HLR" ref="HLR-166"/>
+      </traces>
+    </test>
+    <test name="back_calls_gather_below_the_diagonal">
+      <purpose><![CDATA[The sum of the cells below the diagonal is compared against the back-call count the conformance indices report over the same tree, so the grid and the list are pinned as two views of one fact.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-04"/>
+        <trace target="HLR" ref="HLR-166"/>
+        <trace target="HLR" ref="HLR-162"/>
+      </traces>
+    </test>
+    <test name="subjects_follow_the_layer_index_not_the_declaration_order">
+      <purpose><![CDATA[The permutation `--stratum-order` leaves behind moves a subject in the sequence, and the call that ascended two layers moves above the diagonal. Ordering by declaration order instead would put the back-calls above it for every project using the option.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-01"/>
+        <trace target="HLR" ref="HLR-161"/>
+      </traces>
+    </test>
+    <test name="with_no_strata_the_subjects_are_the_directories">
+      <purpose><![CDATA[The fallback that makes the matrix useful to the reader who has declared nothing, which is most readers on a first run.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-01"/>
+        <trace target="HLR" ref="HLR-165"/>
+      </traces>
+    </test>
+    <test name="directories_are_ordered_by_path_not_by_component_order">
+      <purpose><![CDATA[`/p/a-b/x.c` sorts before `/p/a/y.c` because `-` precedes `/`, yet `/p/a` precedes `/p/a-b`. Reading the directories off in component order would produce a sequence no rule describes — and one two runs over the same tree would agree on, so no determinism test would catch it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-01"/>
+        <trace target="HLR" ref="HLR-166"/>
+      </traces>
+    </test>
+    <test name="a_component_outside_every_stratum_reaches_no_cell">
+      <purpose><![CDATA[With only the middle layer declared every call touches a file it does not name, so the grid is one subject wide and entirely empty.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-02"/>
+        <trace target="LLR" ref="LLR-DSM-03"/>
+        <trace target="HLR" ref="HLR-161"/>
+      </traces>
+    </test>
+    <test name="a_shared_global_is_not_a_matrix_cell">
+      <purpose><![CDATA[A global object two subjects share is coupling and not invocation. Counting one would put a number below the diagonal that no call put there.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-03"/>
+        <trace target="HLR" ref="HLR-165"/>
+      </traces>
+    </test>
+    <test name="repeated_calls_to_one_callee_are_one_edge">
+      <purpose><![CDATA[A cell counts distinct call edges rather than call sites, which is the figure the conformance denominator is also over. A cell counting sites would disagree with the percentages printed above it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-03"/>
+        <trace target="HLR" ref="HLR-165"/>
+      </traces>
+    </test>
+    <test name="every_rendering_states_the_convention">
+      <purpose><![CDATA[All three decorations carry the same orientation sentence. A matrix whose orientation the reader must infer conveys the opposite of what it is for half the time.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-05"/>
+        <trace target="HLR" ref="HLR-166"/>
+      </traces>
+    </test>
+    <test name="an_empty_matrix_still_renders">
+      <purpose><![CDATA[An empty grid renders as its heading, its convention, and its column names rather than as nothing. A section that vanishes when it has no content makes the report's shape vary with its content.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-05"/>
+        <trace target="HLR" ref="HLR-031"/>
+      </traces>
+    </test>
+    <test name="a_comma_in_a_subject_is_quoted_in_the_csv">
+      <purpose><![CDATA[A directory carrying a comma is quoted by the same `write_field` the per-function renderer uses; the negative assertion pins that an unquoted one would have split the row.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-06"/>
+        <trace target="HLR" ref="HLR-064"/>
+      </traces>
+    </test>
+    <test name="a_pipe_in_a_subject_is_escaped_in_the_markdown">
+      <purpose><![CDATA[GFM ends a cell at an unescaped pipe, so a directory carrying one would shift every cell to its right by a column — a grid that still parses and says something else.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-06"/>
+        <trace target="HLR" ref="HLR-064"/>
+      </traces>
+    </test>
+    <test name="the_markdown_columns_are_measured_after_escaping">
+      <purpose><![CDATA[Every row of the grid is the same width with an escaped subject in it. A column measured before escaping comes out a character short for every pipe in it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-06"/>
+        <trace target="HLR" ref="HLR-064"/>
+      </traces>
+    </test>
+    <test name="the_companion_is_written_only_when_asked_and_named">
+      <purpose><![CDATA[Off unless requested, nothing without an output path to derive a name from, and — unlike the two graph companions — still warranted in regeneration mode, a record carrying the matrix where it carries no topology.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-08"/>
+        <trace target="HLR" ref="HLR-180"/>
+        <trace target="HLR" ref="HLR-104"/>
+      </traces>
+    </test>
+    <test name="free_is_safe_on_null_and_on_a_zeroed_matrix">
+      <purpose><![CDATA[Teardown is unconditional on every exit path, so releasing a matrix that was never built must not fault and must not free twice.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-07"/>
+        <trace target="HLR" ref="HLR-125"/>
       </traces>
     </test>
   </file>
@@ -8556,7 +8960,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/unit/report.c" role="unit" count="8">
+  <file path="test/unit/report.c" role="unit" count="12">
     <test name="totals_sum_across_every_file">
       <purpose><![CDATA[The project totals are the sum of the per-file physical line counts across every analysed file.]]></purpose>
       <traces>
@@ -8602,6 +9006,34 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="LLR" ref="LLR-RPT-16"/>
       </traces>
     </test>
+    <test name="a_components_directory_is_the_path_above_it">
+      <purpose><![CDATA[The directory is the path preceding the last separator, carrying no trailing one, so two files in one directory compare equal.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DIR-01"/>
+        <trace target="HLR" ref="HLR-160"/>
+      </traces>
+    </test>
+    <test name="a_file_at_the_root_belongs_to_the_root">
+      <purpose><![CDATA[The first of the two edge cases a split on the last separator gets wrong: the empty prefix is the root, not nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DIR-01"/>
+        <trace target="HLR" ref="HLR-160"/>
+      </traces>
+    </test>
+    <test name="a_path_with_no_separator_belongs_to_the_working_directory">
+      <purpose><![CDATA[The second: a path naming no directory belongs to the one it is relative to.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DIR-01"/>
+        <trace target="HLR" ref="HLR-160"/>
+      </traces>
+    </test>
+    <test name="an_assembled_file_carries_its_directory">
+      <purpose><![CDATA[The field survives assembly and is where the layering, the matrix, and the edge densities read it from — rather than each slicing the path for itself.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DIR-02"/>
+        <trace target="HLR" ref="HLR-160"/>
+      </traces>
+    </test>
     <test name="free_is_safe_on_null">
       <purpose><![CDATA[Releasing a null report or accumulator does not fault, so teardown is safe on every path.]]></purpose>
       <traces>
@@ -8610,7 +9042,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/unit/format_text.c" role="unit" count="8">
+  <file path="test/unit/format_text.c" role="unit" count="9">
     <test name="the_table_carries_the_summary_and_every_file">
       <purpose><![CDATA[The rendered table contains the project summary tier and one row for each file in the model.]]></purpose>
       <traces>
@@ -8654,10 +9086,19 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       </traces>
     </test>
     <test name="both_styles_reach_the_same_tiers_at_each_verbosity">
-      <purpose><![CDATA[The structural property behind the partition: one traversal under two decorations and two filters, so whichever tier a verbosity reaches it reaches in both styles. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it.]]></purpose>
+      <purpose><![CDATA[The structural property behind the partition: one traversal under two decorations and two filters, so whichever tier a verbosity reaches it reaches in both styles. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it. The tier lists include the conformance indices among the summary tiers and the dependency matrix among the detail tiers, so the two land on the same construction as the rest.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-SUM-09"/>
         <trace target="LLR" ref="LLR-SUM-02"/>
+        <trace target="LLR" ref="LLR-SUM-11"/>
+      </traces>
+    </test>
+    <test name="conformance_is_a_summary_tier_and_the_matrix_a_detail_tier">
+      <purpose><![CDATA[The partition rule applied to the two tiers this phase added: a project-level aggregate stays in the summary and a table with one row per subject does not. Asserted in both decorations, because a tier reaching one and not the other would break the uniform composition the shared traversal exists to guarantee.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-11"/>
+        <trace target="HLR" ref="HLR-150"/>
+        <trace target="HLR" ref="HLR-031"/>
       </traces>
     </test>
   </file>
@@ -9362,7 +9803,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/unit/format_xml.c" role="unit" count="19">
+  <file path="test/unit/format_xml.c" role="unit" count="21">
     <test name="an_ampersand_is_escaped">
       <purpose><![CDATA[An unescaped ampersand begins an entity reference and makes the document unparseable.]]></purpose>
       <traces>
@@ -9470,6 +9911,21 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-XWR-08"/>
         <trace target="HLR" ref="HLR-054"/>
+      </traces>
+    </test>
+    <test name="the_conformance_indices_and_the_matrix_survive_the_record">
+      <purpose><![CDATA[Neither can be recomputed on the way back — regeneration has no call graph — so a record carrying the layering rows alone would regenerate an undefined index and an empty grid for a run whose report showed neither. The indices come back as rendered text, so a regenerated report cannot round a figure differently from the report it came from; the cells the document omits read back as the zeroes they were.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-17"/>
+        <trace target="LLR" ref="LLR-XRD-17"/>
+        <trace target="HLR" ref="HLR-054"/>
+      </traces>
+    </test>
+    <test name="a_record_without_the_matrix_still_reads">
+      <purpose><![CDATA[A record written before these elements existed reads back without them and renders as an omitted conformance section and an empty grid, rather than as a failure. Adding an element is an addition an older reader ignores, which is why the format version marks removals and meaning changes alone.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-17"/>
+        <trace target="HLR" ref="HLR-061"/>
       </traces>
     </test>
     <test name="a_truncated_record_is_rejected">
@@ -10778,7 +11234,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/fixtures/arch.bats" role="fixture" count="30">
+  <file path="test/fixtures/arch.bats" role="fixture" count="45">
     <test name="HLR-080: Ca and Ce match the hand-computed table">
       <purpose><![CDATA[The three components' afferent and efferent couplings and their Instability values match the table worked out by hand in the fixture header.]]></purpose>
       <traces>
@@ -10988,6 +11444,115 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-XWR-13"/>
         <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="HLR-162: the back-call index matches the hand-computed value">
+      <purpose><![CDATA[One inverted call over the six inter-layer call edges the fixture's README counts by hand — 16.67% violating, 83.33% conforming, over 6.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-162"/>
+        <trace target="LLR" ref="LLR-CNF-01"/>
+      </traces>
+    </test>
+    <test name="HLR-163: the skip-call index matches the hand-computed value">
+      <purpose><![CDATA[One skip-level call over the same six edges, reported the same way and over the same denominator.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-163"/>
+        <trace target="LLR" ref="LLR-CNF-01"/>
+      </traces>
+    </test>
+    <test name="HLR-164: the indices agree with the violation table beside them">
+      <purpose><![CDATA[The percentages and the rows asserted in one test, over one run. An index disagreeing with the list printed beside it is the failure HLR-164 exists to make impossible, and only an assertion that reads both catches it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-164"/>
+        <trace target="LLR" ref="LLR-CNF-01"/>
+      </traces>
+    </test>
+    <test name="HLR-163: the two indices are reported apart and never summed">
+      <purpose><![CDATA[Two rows and no total. The combined figure a reader might expect — 33.33% here — is asserted absent, since summing would double-count exactly the call that both skips and inverts.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-163"/>
+        <trace target="LLR" ref="LLR-CNF-03"/>
+      </traces>
+    </test>
+    <test name="HLR-162: a project with no inter-layer call reports both undefined">
+      <purpose><![CDATA[Both files in one declared layer: two call edges exist and neither has a direction to invert, so the answer is "nothing demonstrated" rather than "perfectly conformant". Both 100.00% and 0.00% are asserted absent.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-162"/>
+        <trace target="HLR" ref="HLR-163"/>
+        <trace target="LLR" ref="LLR-CNF-02"/>
+      </traces>
+    </test>
+    <test name="HLR-115: with no strata the conformance section states the omission">
+      <purpose><![CDATA[With nothing declared the section is a stated omission naming the option that would fill it, rather than an empty table reading as a clean bill of health.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-115"/>
+        <trace target="LLR" ref="LLR-SUM-11"/>
+      </traces>
+    </test>
+    <test name="HLR-165: the matrix over declared layers matches the hand-drawn grid">
+      <purpose><![CDATA[The whole grid asserted against the one drawn by hand in the fixture's README, rather than a cell at a time — a per-cell assertion passes against a transposed matrix for every symmetric pair.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-165"/>
+        <trace target="LLR" ref="LLR-DSM-01"/>
+      </traces>
+    </test>
+    <test name="HLR-166: the below-diagonal cells account for exactly the back-calls">
+      <purpose><![CDATA[The sum below the diagonal and the count of inverted rows in the layering table, asserted together over one run. The grid and the list are two views of one fact, and this is where that is pinned end to end.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-166"/>
+        <trace target="LLR" ref="LLR-DSM-04"/>
+      </traces>
+    </test>
+    <test name="HLR-166: subjects run in ascending layer order, not declaration order">
+      <purpose><![CDATA[`--stratum-order` reverses the declared direction, and the call that was a back-call moves above the diagonal. Ordering by declaration order would put the violations on the wrong side of the grid for every project that uses the option.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-166"/>
+        <trace target="HLR" ref="HLR-161"/>
+        <trace target="LLR" ref="LLR-DSM-01"/>
+      </traces>
+    </test>
+    <test name="HLR-165: with no strata declared the matrix is over directories">
+      <purpose><![CDATA[The fallback, over the same six edges arranged by path rather than by layer, with the heading saying which of the two the reader is looking at — since with directories no cell below the diagonal is a violation.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-165"/>
+        <trace target="LLR" ref="LLR-DSM-01"/>
+      </traces>
+    </test>
+    <test name="HLR-161: a component outside every stratum reaches no matrix cell">
+      <purpose><![CDATA[With only the middle layer declared the grid is one subject wide and holds nothing, the same treatment the layering findings give an undeclared file.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-161"/>
+        <trace target="LLR" ref="LLR-DSM-02"/>
+      </traces>
+    </test>
+    <test name="HLR-166: the convention is printed with every rendering">
+      <purpose><![CDATA[The aligned table, the Markdown report, and the CSV companion all carry the orientation sentence. A reader who has to infer which way round the grid runs gets the opposite answer half the time.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-166"/>
+        <trace target="LLR" ref="LLR-DSM-05"/>
+      </traces>
+    </test>
+    <test name="HLR-166: the CSV companion carries the grid the report shows">
+      <purpose><![CDATA[The companion's rows are asserted against the same hand-drawn grid the report is, so the machine-readable copy cannot drift from the printed one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-180"/>
+        <trace target="HLR" ref="HLR-166"/>
+        <trace target="LLR" ref="LLR-DSM-05"/>
+      </traces>
+    </test>
+    <test name="HLR-064: a directory carrying a comma is quoted in the CSV matrix">
+      <purpose><![CDATA[Built in the test's temporary directory rather than committed, since a directory with a comma in its name is awkward to carry in a repository and the escaping rule is what is under test rather than the tree.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-064"/>
+        <trace target="LLR" ref="LLR-DSM-06"/>
+      </traces>
+    </test>
+    <test name="HLR-104: the matrix companion needs a name to derive">
+      <purpose><![CDATA[Asking for the companion with the report on standard output writes no file and is not an error, and the report still carries the matrix — only the companion needs a path to be named from.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-104"/>
+        <trace target="HLR" ref="HLR-180"/>
+        <trace target="LLR" ref="LLR-DSM-08"/>
       </traces>
     </test>
   </file>

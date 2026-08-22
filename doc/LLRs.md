@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.8
+**Version:** 2.9
 **Date:** 2026-08-22
 **Author(s):** John Anderson
 
@@ -163,6 +163,9 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-CLI-29"></a>**LLR-CLI-29** — `cli_parse` shall accept a verbosity option in a short and a long spelling, recording the request in the options structure. The summary shall be the default, stored as the absence of the request, so that a zeroed options structure means the composition a run presents when nothing was asked for.
     *Trace:* HLR-151 (Verbose Report on Request), HLR-150 (Summary Report by Default).
+
+*   <a id="LLR-CLI-31"></a>**LLR-CLI-31** — `cli_parse` shall record a request for the dependency-matrix companion without validating it against the output destination, and shall accept it together with the regeneration mode. A request with the report on standard output is not a usage error — it writes no file, which is what the companion rule says happens — and unlike the GraphML export it is not in conflict with regeneration, since a saved record carries the matrix.
+    *Trace:* HLR-180 (The Matrix Written Beside the Report on Request), HLR-104, HLR-055.
 
 *   <a id="LLR-CLI-30"></a>**LLR-CLI-30** — `cli_parse` shall accept the verbosity option together with a complete-record format rather than rejecting the pairing. It is the one option combination this parser decides that is not a usage error: there is no presentation for a verbosity to vary in a format defined as complete, so the request is honoured by changing nothing.
     *Trace:* HLR-152 (Complete-Record Formats Unaffected by Verbosity).
@@ -821,6 +824,9 @@ Component-level analyses over the SDG's component projection.
 *   <a id="LLR-LAY-05"></a>**LLR-LAY-05** — `check_strata` shall consider call edges alone, since a global object two layers happen to share is a different fact with its own analyses, and shall treat a component matching no declaration as lying outside the partition rather than in a layer of its own.
     *Trace:* HLR-079 (Skip-Level Call Detection), HLR-118, HLR-093.
 
+*   <a id="LLR-LAY-06"></a>**LLR-LAY-06** — `check_strata` shall count, in the same pass that produces the violations, the call edges joining two components in different declared layers, and shall exclude from that count a global-state edge, an edge either of whose ends lies outside the declared partition, and an edge whose two ends lie in one layer. Counting it here rather than in a traversal of its own is what stops a second code path forming a second opinion about which edges the conformance indices are over: those three exclusions are the three tests this loop already makes before it decides whether to report anything.
+    *Trace:* HLR-162 (Back-Call Violation Index), HLR-163 (Skip-Call Violation Index), HLR-164 (Indices Counted From the Reported Violations), HLR-161.
+
 ## 26. `calltree_analyse` ([src/calltree.c](../src/calltree.c))
 
 Function-level call-tree measurements: width, height, the deepest stack, and recursion.
@@ -1158,6 +1164,13 @@ The single place every reported collection is ordered. The audit point for deter
     A detail section whose analysis was **omitted for want of a declaration** shall be emitted at the summary verbosity as well, since HLR-150 counts the omission notices among the summary tiers. No separate notice is needed: an omitted analysis produced no rows, so the section renders as its heading and the reason in it.
     *Trace:* HLR-150 (Summary Report by Default), HLR-151 (Verbose Report on Request), HLR-031 (Uniform Report Composition Across Formats), HLR-115 (Analyses Requiring User Declarations).
 
+*   <a id="LLR-SUM-11"></a>**LLR-SUM-11** — `render_summary` shall present the two conformance indices as a summary tier — each with its violating proportion, its complementary conforming proportion, and the inter-layer call-edge count it is over — and the dependency matrix as a detail tier, in both human-facing formats and from one entry apiece in the ordered section list. The indices are project-level aggregates, two rows whatever the size of the project; the matrix enumerates one row per subject, and falls on the detail side by the same rule that puts every other table growing with the graph there.
+
+    The matrix's decoration is delegated to the renderer that owns the grid rather than built into a `Grid`, its column count being the number of subjects rather than a fixed few and its cells needing the Markdown separator escaped; the delegation is two calls from one section entry, so the tier is still written down once and classified once.
+
+    The tier shall present the indices only where the model carries them rendered, rather than where the strata state says they were measured. `STRATA_MEASURED` is the zero of its enum, so a model holding no indices at all reads as measured while having nothing to print, and a renderer presents what the model has rather than what its state implies it should have.
+    *Trace:* HLR-162 (Back-Call Violation Index), HLR-163 (Skip-Call Violation Index), HLR-166 (Matrix Ordering, the Diagonal, and Its Renderings), HLR-150, HLR-031.
+
 *   <a id="LLR-SUM-10"></a>**LLR-SUM-10** — `render_summary` shall present each function's fan-in, fan-out, effective lines and Henry-Kafura value as a detail tier, and the project-level Henry-Kafura total among the project summary's figures; and shall print a Henry-Kafura value of zero as `0`.
 
     The heading of the detail tier shall carry the formula, the attribution to Henry and Kafura, and the two properties HLR-159 requires be stated — that a function at either end of the call graph scores zero, and that the figure is ordinal rather than absolute. A reader who does not know them misreads the number rather than merely failing to act on it. Its inputs are repeated in the table beside the result, so the arithmetic is checkable on the line that reports it.
@@ -1232,6 +1245,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-15"></a>**LLR-XWR-15** — `xml_write_report` shall record each custom-rule match with its identity, file, and line range, without which a regenerated report would omit a section the direct run presented.
     *Trace:* HLR-054 (XML Output), HLR-056 (Regenerated Report Equivalence).
 
+*   <a id="LLR-XWR-17"></a>**LLR-XWR-17** — `xml_write_report` shall record the two conformance indices as the run rendered them, with the counts they were formed from, and shall record the matrix as its ordered subjects followed by its non-zero cells alone. Neither can be recomputed on the way back — regeneration has no call graph — so a record carrying the layering rows alone would regenerate an undefined index and an empty grid for a run whose report showed neither. The zero cells are omitted because a matrix over a real project is mostly zeroes, and a cell absent from the document reads back as the zero it was; the subjects precede the cells so that the order of the grid is known before an index into it arrives.
+    *Trace:* HLR-054 (XML Output), HLR-165 (Dependency Structure Matrix), HLR-162.
+
 *   <a id="LLR-XWR-16"></a>**LLR-XWR-16** — `xml_write_report` shall record the definitions in force and the undecided-region count, without which a regenerated report would describe a configuration it does not name.
     *Trace:* HLR-136 (Configuration Recorded and Reported).
 
@@ -1286,6 +1302,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XRD-15"></a>**LLR-XRD-15** — `xml_read_report` shall reconstruct the custom-rule matches a record carries and render them identically to the run that wrote it.
     *Trace:* HLR-056 (Regenerated Report Equivalence).
+
+*   <a id="LLR-XRD-17"></a>**LLR-XRD-17** — `xml_read_report` shall restore the two conformance indices from the record as text rather than recomputing them from the counts beside them, and shall restore the matrix from its subjects and cells, treating a record carrying neither as one whose conformance section is omitted and whose grid is empty rather than as malformed. Recomputing a figure would let a regenerated report round it differently from the report it came from; rejecting a record written before the elements existed would break the rule that adding an element is an addition an older reader ignores.
+    *Trace:* HLR-056 (Regenerated Report Equivalence), HLR-054, HLR-061.
 
 *   <a id="LLR-XRD-16"></a>**LLR-XRD-16** — `xml_read_report` shall reconstruct the configuration a record carries and render it identically to the run that wrote it.
     *Trace:* HLR-136 (Configuration Recorded and Reported), HLR-056 (Regenerated Report Equivalence).
@@ -1497,3 +1516,58 @@ Requirements met by the delivered documentation rather than by any function. Ver
 
 *   <a id="LLR-DOC-06"></a>**LLR-DOC-06** — A change altering an option, a format, an artefact, or a finding category shall update both documents within the same change, and shall be treated as incomplete otherwise.
     *Trace:* HLR-130 (Documentation Updated With the Behaviour It Describes).
+
+## 52. `conformance_indices` ([src/arch.c](../src/arch.c))
+
+The aggregate over the layering findings: how much of the code base conforms to the declared layering, as two independent proportions of one denominator.
+
+*   <a id="LLR-CNF-01"></a>**LLR-CNF-01** — `conformance_indices` shall compute the Back-Call and Skip-Call Violation Indices by counting the layering violations already recorded, tallied by kind, over the inter-layer call-edge count recorded beside them, and shall not read the graph in order to do so. It is not given one: an implementation that re-derived what a violation is could not satisfy this signature, which is what makes the index and the table printed beside it two views of one answer rather than two opinions that can drift apart.
+    *Trace:* HLR-164 (Indices Counted From the Reported Violations), HLR-162 (Back-Call Violation Index), HLR-163 (Skip-Call Violation Index).
+
+*   <a id="LLR-CNF-02"></a>**LLR-CNF-02** — `conformance_indices` shall report both indices as undefined, performing no division, where the inter-layer call-edge count is zero, and the guard shall precede the division rather than follow it. A project whose layers never call one another has not achieved perfect conformance; it has demonstrated nothing either way, and reporting 0 — or 100% conforming — there would be the confidently wrong answer the same rule already prevents for Instability.
+    *Trace:* HLR-162 (Back-Call Violation Index), HLR-163 (Skip-Call Violation Index), HLR-082.
+
+*   <a id="LLR-CNF-03"></a>**LLR-CNF-03** — `conformance_indices` shall count a call that both bypasses a layer and inverts the declared direction once in each index, and shall produce no combined score. The two are independent proportions of one denominator, so their sum may exceed the denominator itself; combining them would count twice exactly the call most worth acting on, and would name no remedy where each index separately names one.
+    *Trace:* HLR-163 (Skip-Call Violation Index), HLR-118.
+
+## 53. `component_directory` ([src/report.c](../src/report.c))
+
+Where a component's directory is derived, once, for every consumer that groups by one.
+
+*   <a id="LLR-DIR-01"></a>**LLR-DIR-01** — `component_directory` shall return the portion of a path preceding its last separator, carrying no trailing separator, and shall return `/` for a path whose last separator is its first character and `.` for a path carrying none. The two edge cases are handled here rather than at each call site because a split on the last separator gets both wrong: a file directly under the root would yield the empty string, which names no directory, and a path with no separator would yield nothing at all.
+    *Trace:* HLR-160 (Component Directory Recorded).
+
+*   <a id="LLR-DIR-02"></a>**LLR-DIR-02** — Every `FileMetrics` shall carry the directory containing it, set at construction by both of the paths that construct one — the measurement of a source file and the reader that rebuilds a model from a saved record — and every consumer that groups components by directory shall read that field rather than derive one from the path. One derivation reached from two construction sites is what keeps a component's directory the same string whichever way the model arrived.
+    *Trace:* HLR-160 (Component Directory Recorded).
+
+## 54. `dsm_build` ([src/format_dsm.c](../src/format_dsm.c))
+
+The Dependency Structure Matrix: the arrangement of the graph's call edges into a square grid whose position carries meaning.
+
+*   <a id="LLR-DSM-01"></a>**LLR-DSM-01** — `dsm_build` shall take the matrix's subjects to be the declared strata where any were declared and the distinct directories of the analysed components otherwise, ordering the first by ascending layer index and the second ascending by path. A stratum's ordinal *is* its position, so each label is placed at its ordinal rather than appended in declaration order — without which `--stratum-order` would move the back-calls above the diagonal. The directories are sorted rather than read off in component order, since ascending path order over files is not ascending path order over their directories.
+    *Trace:* HLR-165 (Dependency Structure Matrix), HLR-166 (Matrix Ordering, the Diagonal, and Its Renderings), HLR-160.
+
+*   <a id="LLR-DSM-02"></a>**LLR-DSM-02** — `dsm_build` shall obtain each component's layer from `check_strata`'s own assignment rather than by matching the stratum patterns itself, and shall place no component that matches no declaration in any subject. Two matchers over one set of patterns would eventually disagree about which layer a file is in, and the cells below the matrix's diagonal would then stop accounting for the back-calls listed beside them.
+    *Trace:* HLR-161 (Layer Index Taken From the Declared Strata), HLR-164.
+
+*   <a id="LLR-DSM-03"></a>**LLR-DSM-03** — `dsm_build` shall count call edges alone, one per distinct edge of the graph rather than one per call site, and shall count no global-state edge. A global object two subjects share is coupling and not invocation, and counting one would put a number below the diagonal that no call put there; counting call sites rather than edges would give a cell a figure the conformance denominator does not share.
+    *Trace:* HLR-165 (Dependency Structure Matrix), HLR-093.
+
+*   <a id="LLR-DSM-04"></a>**LLR-DSM-04** — `dsm_build` shall place the count of call edges from subject *i* to subject *j* at row *i*, column *j*, so that rows are callers and columns callees, and the cells below the diagonal shall therefore total exactly the number of direction-inverted findings the layering analysis reported. A matrix built the other way round is still a square of plausible numbers with every reading taken from it exactly backwards, which is why the orientation is asserted rather than inferred.
+    *Trace:* HLR-166 (Matrix Ordering, the Diagonal, and Its Renderings), HLR-162.
+
+## 55. The matrix renderings ([src/format_dsm.c](../src/format_dsm.c))
+
+`format_dsm_csv`, `format_dsm_markdown`, and `format_dsm_table` — three decorations of one walk of the grid, and the decision of whether the CSV companion is written at all.
+
+*   <a id="LLR-DSM-05"></a>**LLR-DSM-05** — Every rendering of the matrix shall state the orientation convention with the grid, and shall emit the heading, the convention, and the column names even where the matrix holds no subjects. The three renderings shall share one traversal of the grid, so that they cannot disagree about what is in it. A matrix whose orientation the reader must infer conveys the opposite of what it is for half the time, and a section that vanishes when it has no content makes the report's shape vary with its content.
+    *Trace:* HLR-166 (Matrix Ordering, the Diagonal, and Its Renderings), HLR-031.
+
+*   <a id="LLR-DSM-06"></a>**LLR-DSM-06** — The CSV rendering shall emit every cell through `write_field`, and the Markdown rendering shall escape the cell separator and measure its column widths after that escaping. A directory containing a comma would otherwise split a record, one containing a pipe would shift every cell to its right by a column — each producing a grid that still parses and says something else — and a column measured on the raw text comes out a character short for every pipe in it.
+    *Trace:* HLR-064 (CSV Field Quoting and Escaping), HLR-166.
+
+*   <a id="LLR-DSM-07"></a>**LLR-DSM-07** — `dsm_free` shall release the subject labels and the cell array and leave the matrix zeroed, and shall tolerate a null pointer and a matrix already released, so that teardown is unconditional on every exit path.
+    *Trace:* HLR-125 (No Resource Leaks), HLR-165.
+
+*   <a id="LLR-DSM-08"></a>**LLR-DSM-08** — `dsm_warranted` shall be true only where the CSV companion was requested and the report has a named output path, and shall not be made false by regeneration mode. The first two are the tests the GraphML export makes, since the companion's name is derived from the report's and a report on standard output offers none; the third is where this companion differs from the two graph companions, a saved record carrying the matrix where it carries no topology.
+    *Trace:* HLR-180 (The Matrix Written Beside the Report on Request), HLR-104, HLR-119.

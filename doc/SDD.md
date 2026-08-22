@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.13
+**Version:** 2.14
 **Date:** 2026-08-22
 **Author(s):** John Anderson
 
@@ -191,8 +191,9 @@ The runtime data flow of an analysis run is:
         7.  Call `graph_build()` over the fact list.
         8.  Call `arch_analyse()`, `calltree_analyse()`, `state_analyse()`, then `thresholds_apply()`, then `report_assemble()`.
         9.  Open the output destination — the file named by the options, or standard output when none was named — and on a failure to open it emit a diagnostic and return 2 without writing a partial report (HLR-030).
-        10.  Dispatch to the selected renderer, passing the verbosity to the two human-facing renderers and to neither complete-record writer, then to `graph_write_dot()` when the companion artefact is warranted (HLR-152, LLR-MAIN-21).
-        11.  Tear down in reverse order and return the computed status.
+        10.  Call `dsm_build()` over the graph and the assembled model, so that the dependency matrix is carried on the report every renderer consumes. Here rather than inside the architecture pass, because the matrix is an arrangement of the graph's call edges over the report's components and needs both; and built whether or not strata were declared, since with none its subjects are the analysed directories (HLR-165).
+        11.  Dispatch to the selected renderer, passing the verbosity to the two human-facing renderers and to neither complete-record writer, then to `graph_write_dot()` when the companion artefact is warranted (HLR-152, LLR-MAIN-21), and to `format_dsm_csv()` when `dsm_warranted()` says so. The matrix companion is written from the *model* rather than from the graph, which is what makes it the one companion a regenerated report can also produce (HLR-180).
+        12.  Tear down in reverse order and return the computed status.
     *   Notes: `main()` contains no analysis logic; its cyclomatic complexity is bounded by the number of stages and their failure branches, keeping it well inside the self-quality target of PVD §8.
 
 ### 3.4 Dependencies
@@ -210,7 +211,7 @@ The runtime data flow of an analysis run is:
 ### 4.1 Purpose and Responsibilities
 [src/cli.c](../src/cli.c) parses and validates the command line, producing an immutable `ElcOptions` value. It is the only module that reads `argv`, and the only source of user-supplied configuration in the entire program.
 
-*   Parse short and long options with `getopt_long()`, including the report format, output path, thresholds, custom-rule paths, the linked image to filter by, and the `.dot` and GraphML switches.
+*   Parse short and long options with `getopt_long()`, including the report format, output path, thresholds, custom-rule paths, the linked image to filter by, and the `.dot`, GraphML, and dependency-matrix switches.
 *   Parse the structured declarations — architectural strata, entry points, and execution scopes — into their in-memory forms.
 *   Validate every option value and reject an unknown option, a missing argument, or a missing target before any analysis begins.
 *   Emit the usage summary, to `stdout` on request and to `stderr` on error.
@@ -234,6 +235,7 @@ The set of accepted options appears in three places: this module's `getopt_long`
 | `-b`, `--bottleneck-threshold` | integer | `5` | HLR-081 |
 | `--no-dot` | — | `.dot` enabled | HLR-103 |
 | `--graphml` | — | disabled | HLR-106 |
+| `--dsm` | — | disabled | HLR-180 |
 | `--stratum` | `name:glob[,glob…]` | none | HLR-078 |
 | `--stratum-order` | `name>name[>name…]` | none | HLR-078 |
 | `--entry` | symbol | none | HLR-095 |
@@ -504,6 +506,7 @@ Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage`
 *   Merge comment spans and classify statements to compute ELOC per function and per file.
 *   Attribute each statement and decision point to its innermost enclosing reported function.
 *   Emit `FileFacts` — the call sites, global accesses, and address-taken functions — for later cross-file resolution.
+*   Record on every measured file the directory containing it, derived once through `report.c`'s single definition of that derivation, so that the analyses which group by directory read a recorded value rather than re-deriving one from a path at each point of use (HLR-160).
 *   Record the statements within each function that cannot execute, and whether the language supplied the data needed to look (HLR-137, HLR-139).
 *   Measure a file the parser only partly understood from the parts it did, and record how many lines it did not, so that a grammar gap costs the lines it touches and not the file (HLR-035).
 *   Evaluate custom rule queries and record their matches.
@@ -739,13 +742,20 @@ The SDG is a **simple** directed graph: repeated calls from one function to the 
 *   **`int compute_coupling(const Sdg *g, ArchResults *out)`** — Populate Ca and Ce per component.
 *   **`double instability(uint32_t ca, uint32_t ce, bool *defined)`** — Ce/(Ce+Ca), with defined set false when both are zero.
 *   **`int find_cycles(const Sdg *g, ArchResults *out)`** — Strongly connected components of the component projection, excluding trivial single-node components, each with a concrete loop through it found by a deterministic search from its lowest-numbered member.
-*   **`int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out)`** — Report calls that bypass declared layers and calls that invert the declared dependency direction.
+*   **`int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out)`** — Report calls that bypass declared layers and calls that invert the declared dependency direction, and count the inter-layer call edges the indices are over as it goes.
+*   **`size_t *stratum_of_components(const Sdg *g, const ElcOptions *opts)`** — The declared stratum each component lies in, SIZE_MAX for one no declaration names; exposed so the dependency matrix assigns layers by the same rule the findings do.
 
 #### 9.3.2 Parsing Strategy / Algorithm
 
 Cycles are found as the non-trivial strongly connected components of the *component* projection, not of the function graph. This is what keeps mutual recursion between two functions in one file from being reported as a dependency cycle: within a single component there is no inter-component edge to close a loop. Mutual recursion across two files is legitimately both a recursion finding and a component cycle, because the two facts are different (HLR-083, HLR-089). Stratum checking compares the declared ordinal of the caller's stratum with the callee's, and yields two independent findings from that one comparison. A call descending more than one level is *skip-level* (HLR-079); a call ascending at all runs against the declared direction and is *direction-inverted* (HLR-118). The two are orthogonal — a driver calling one layer up inverts without skipping, and an application reaching two layers down skips without inverting — so each is reported in its own right rather than folded into a single "layering violation". The distance test runs in **both** directions, so a call ascending more than one layer is reported twice — as inverted and as skip-level — because both statements are true of it and each has its own remedy.
 
 Only call edges are considered. A global object two layers share is a different fact, with its own findings in the global-state and execution-scope analyses; folding state edges in here would report a layering violation for a variable two layers merely both read.
+
+**The denominator of both conformance indices is counted where the numerators are.** `check_strata` increments `inter_layer_edges` in the same loop, immediately after the three tests that decide whether an edge is a candidate at all: the edge is a call rather than a global, both of its ends lie inside the declared partition, and the two ends lie in different layers. A second traversal applying those tests again would be a second opinion about which edges the indices are over, and it is exactly the disagreements HLR-164 names — a call touching an unpartitioned component, a call that both skips and inverts, an edge collapsed from several call sites — that such a traversal would eventually get wrong. `conformance_indices` then tallies the recorded violations by kind and divides; it never reads the graph, and could not, because it is not given one.
+
+A call that both skips and inverts contributed one violation of each kind and is therefore counted once in each index. The two are consequently **not** summable: each is a proportion of the same denominator, and a project can hold more violations than candidate edges.
+
+**A layer assignment made twice is a layer assignment that can differ.** `stratum_of_components` is exposed for that reason: the dependency matrix places a component in a layer by calling it rather than by matching the patterns itself, so the cells below the matrix's diagonal account for exactly the back-calls the layering table lists.
 
 **A duplicate function name reaches these analyses too, and here it is more expensive than elsewhere.** Calls resolve by name, so where several files define a `static` helper of the same name every call resolves into one of them: that component gains afferent coupling it has not earned, the others lose it, and where the winner already depends on one of the losers the invented edge closes a dependency cycle that does not exist. A false circular dependency points at an architecture problem rather than at a line to delete, which makes it a worse wrong answer than the false dead-code claim the same artefact produces (SDD §8.5). It is diagnosed on standard error where the graph is built, and the two outputs are read together; correcting it needs the type resolution the project does not perform.
 
@@ -914,6 +924,8 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).
 *   Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).
 *   Sum the per-function Henry-Kafura values into the project total, in one function that both the live path and the record path call, so that the total *is* the sum of the rows rather than two implementations agreeing (HLR-158).
+*   Define how a component's directory is derived from its path, in one function called at each of the two places a `FileMetrics` is constructed — the measurement of a source file and the reader that rebuilds a model from a record — so that every consumer reads one recorded answer rather than slicing the path for itself (HLR-160).
+*   Render the two conformance indices, and the complementary conforming proportion of each, into the model as text — "undefined" being one of their legitimate values, exactly as it is for Instability (HLR-162, HLR-163).
 
 
 ### 13.3 Internal Structure
@@ -938,7 +950,8 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   **`int report_set_image(Report *r, const SymbolSet *image)`** — Record the image the run was filtered by and the number of its linkage names left unresolved. After assembly rather than within it, for the reason the unresolved-call count is: the image belongs to the run and is read before any file is measured, while the *effects* of the filter — which functions were omitted, and how much file-scope code remained — are properties of the measurement and are assembled with it (HLR-147).
 *   **`int metrics_add(MetricsAccumulator *acc, FileMetrics *m)`** — Append one file's metrics, taking ownership of them. Grows by doubling through a checked reallocation; on failure the accumulator is left intact and the caller still owns the metrics, so nothing is leaked and nothing is freed twice.
 *   **`void metrics_free(MetricsAccumulator *acc)`** — Release the accumulator and every FileMetrics it still owns.
-*   **`void report_free(Report *r)`** — Release the report model and everything it owns.
+*   **`char *component_directory(const char *path)`** — The directory containing `path`, as a fresh allocation. Two edge cases a split on the last separator gets wrong are handled here rather than at each call site: a file directly under the root yields "/" rather than the empty string, and a path carrying no separator yields "." (HLR-160).
+*   **`void report_free(Report *r)`** — Release the report model and everything it owns, the rendered conformance rows and the dependency matrix included.
 ### 13.4 Dependencies
 
 *   Every analysis module, for their results. Depended upon by every renderer, giving it high afferent coupling and low efferent coupling — a deliberately stable component.
@@ -957,6 +970,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   Render Markdown with functions grouped under a per-file heading.
 *   Present every tier the uniform-composition rule requires, in both formats.
 *   Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).
+*   Present the two conformance indices as a summary tier and the dependency matrix as a detail tier, delegating the matrix's decoration to `format_dsm.c` in both human-facing formats (HLR-162, HLR-163, HLR-166).
 
 
 ### 14.3 Internal Structure
@@ -974,6 +988,12 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 **Verbosity is a second parameter of that same traversal, not a second traversal.** The ordered section list carries, beside each section's render function, the tier it belongs to; the walk emits a section when the verbosity is verbose, when its tier is `TIER_SUMMARY`, or when its analysis was omitted for want of a declaration. That last case is what carries HLR-115's omission notices into the summary: the section is a detail tier, but an omitted analysis produced no rows, so it renders as its heading and the reason in it — which is the notice, and needs no section of its own. A section is therefore written down once and classified once, and the guarantee that a tier cannot exist at one verbosity and not the other holds by the same construction as the guarantee across formats (LLR-SUM-09).
 
 The partition rule is HLR-150's: a tier presenting a project-level aggregate, a file's own totals, or a finding a reader is expected to act on is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Coupling, the cycles, the layering violations, and the recursive chains fall on the detail side even though each row names a component, because they enumerate the graph one entity at a time — a *file-level aggregate* in the rule's sense is a file's own totals, which is what the Files tier presents. Nothing is lost from the summary by it: each of those measurements that crossed a published line is a finding, and the findings tier is a summary tier.
+
+The two tiers of Section 21 divide along that same rule and land on opposite sides of it. The conformance indices are project-level aggregates — two rows whatever the size of the project — and are a summary tier, beside the findings a reader acts on. The matrix enumerates one row per layer or per directory and is a detail tier, like every other table that grows with the graph. They are adjacent in the traversal, so the aggregate and the arrangement it summarises are read together in a verbose report.
+
+The matrix is the one tier whose decoration is not a `Grid`. Its column count is the number of subjects rather than a fixed few, and its cells must escape the Markdown separator, so `dsm_section` calls `format_dsm_markdown` or `format_dsm_table` according to the style. That is two calls from *one* entry in the ordered section list, which is what keeps the guarantee intact: the tier is written down once and classified once, and there is still nowhere to forget it (LLR-SUM-02, LLR-SUM-09).
+
+The conformance tier tests the model rather than the state. `STRATA_MEASURED` is the zero of its enum, so a model carrying no rendered indices at all — a record written before they existed, or a report a test built by hand — would read as measured while holding nothing to print. A renderer is a pure consumer: it presents what the model has, not what the model's state implies it should have.
 
 The image-filter tier is split along the same boundary. `image_filter_section` presents the image and its two counts, which are the provenance of a filtered run and a summary tier; `absent_functions_section` presents the functions the image does not define, which is one row per function and a detail tier. The two are adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split (LLR-SUM-06).
 
@@ -1055,7 +1075,7 @@ Every field passes through `write_field()` without exception. A C++ template sig
 ### 16.1 Purpose and Responsibilities
 [src/format_xml.c](../src/format_xml.c) writes the complete XML record of a run, and reads such a record back to drive the report-regeneration mode. It is the only module that both produces and consumes a serialised form.
 
-*   Emit every element of the report model, so the record is sufficient to regenerate any report `elc` can produce.
+*   Emit every element of the report model, so the record is sufficient to regenerate any report `elc` can produce — the two conformance indices and the dependency matrix among them, since regeneration has no call graph to recompute either from (HLR-054).
 *   Carry a format-version identifier in the document root.
 *   Escape every character with structural meaning in XML.
 *   Parse a saved record back into a report model, rejecting anything malformed, structurally foreign, or of an unsupported version.
@@ -1063,7 +1083,7 @@ Every field passes through `write_field()` without exception. A C++ template sig
 ### 16.2 External Interfaces
 #### 16.2.1 XML Record Structure
 
-A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<files>` with nested `<function>` elements, `<skipped>`, `<architecture>` holding every graph finding, `<custom-rules>`, and `<omissions>`. The format version is incremented whenever an element is removed or its meaning changes.
+A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<files>` with nested `<function>` elements, `<skipped>`, `<architecture>` holding every graph finding and the two `<conformance>` rows, `<dsm>` holding the dependency matrix, `<custom-rules>`, and `<omissions>`. The format version is incremented whenever an element is removed or its meaning changes.
 
 It is **not** incremented when an element is added, because a reader ignores elements it does not recognise. That asymmetry is what makes a later phase's additions compatible with a record written today, and it is why an element that does not yet exist is absent rather than present and empty.
 
@@ -1078,6 +1098,7 @@ Nothing reconstructed before a rejection survives it. The partially built model 
 #### 16.3.1 Key Functions
 
 *   **`int xml_write_report(const Report *r, FILE *out)`** — Serialise the complete report model, escaping every emitted value.
+*   **`static void write_dsm(const Report *r, FILE *out)`** — Emit the dependency matrix: the subjects in order, then the non-zero cells alone. A matrix over a real project is mostly zeroes — that is what makes it readable — and a cell absent from the document reads back as the zero it was. The subjects precede the cells so the order of the grid is known before an index into it arrives (HLR-165, HLR-166).
 *   **`int xml_read_report(const char *path, Report *out)`**
     *   Purpose: Reconstruct a report model from a previously written record.
     *   Return Value: 0 on success; non-zero after a diagnostic when the input is malformed, structurally foreign, or of an unsupported format version.
@@ -1459,7 +1480,8 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 
 *   Build the matrix over the declared layers, or over the analysed directories where no strata were declared (HLR-165).
 *   Order rows and columns identically, by layer index or by path, so a cell's position carries its meaning (HLR-166).
-*   Render as CSV and as Markdown, and state the diagonal convention wherever it renders.
+*   Render as CSV, as Markdown, and as the report's aligned table, and state the diagonal convention wherever it renders (HLR-166).
+*   Decide whether the CSV companion is warranted for a run: on request, and only where the report has a path to derive a name from (HLR-180).
 
 
 ### 22.3 Internal Structure
@@ -1467,7 +1489,9 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 
 *   **`int dsm_build(const Sdg *g, const Report *r, const ElcOptions *opts, Dsm *out)`** — Populate the square matrix of call counts between subjects, in their defined order.
 *   **`int format_dsm_csv(const Dsm *m, FILE *out)`** — Render the matrix as CSV, every cell through the RFC 4180 field writer.
-*   **`int format_dsm_markdown(const Dsm *m, FILE *out)`** — Render the matrix as a GitHub-Flavored Markdown table.
+*   **`int format_dsm_markdown(const Dsm *m, FILE *out)`** — Render the matrix as a GitHub-Flavored Markdown table, escaping the cell separator.
+*   **`int format_dsm_table(const Dsm *m, FILE *out)`** — Render the matrix as the report's aligned table, which is what keeps the tier from being present in one human-facing format and absent from the other (HLR-031).
+*   **`bool dsm_warranted(const ElcOptions *opts)`** — Whether the CSV companion is to be written: requested, and with a named output path to derive its own from (HLR-104, HLR-180).
 *   **`void dsm_free(Dsm *m)`** — Release the matrix and the subject labels it owns.
 
 #### 22.3.2 Parsing Strategy / Algorithm
@@ -1476,7 +1500,15 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 
 **The matrix is dense and its subjects are few.** Rows and columns are layers or directories rather than files or functions, so the grid stays readable at the size an architecture actually has; a per-function DSM of a real project is a matrix nobody can look at.
 
-**Escaping is not this module's own.** The CSV rendering emits every cell through the same `write_field` the per-function renderer uses, and the Markdown rendering escapes the cell separator, so a directory containing a comma or a pipe cannot corrupt the grid (HLR-064).
+**Escaping is not this module's own.** The CSV rendering emits every cell through the same `write_field` the per-function renderer uses, and the Markdown rendering escapes the cell separator, so a directory containing a comma or a pipe cannot corrupt the grid (HLR-064). Markdown column widths are measured *after* escaping, since a column measured on the raw text comes out a character short for every pipe in it and the raw document goes ragged.
+
+**Three decorations, one walk.** The three renderings are thin wrappers over a single traversal of the grid, for the reason format_text.c's tiers share one traversal: three walks of one matrix is how two of them come to disagree about what is in it. The aligned table exists beside the Markdown because the matrix is a tier of the human-facing report, and HLR-031 does not allow a tier present in one of those formats and absent from the other; the CSV is the machine-readable copy HLR-180 writes beside the report. Each begins with the convention — a leading single-field record in CSV, which has no comment syntax, and a caption line under the heading in the other two — and each labels the corner cell `caller \ callee`, so the orientation is stated in the place a reader looks first as well as in the sentence above it.
+
+**The layer assignment is `arch.c`'s.** `dsm_build` calls `stratum_of_components` rather than matching the stratum patterns itself. Two matchers over one set of patterns would eventually disagree about which layer a file is in, and the matrix's below-diagonal cells would stop accounting for the back-calls listed beside them — the failure HLR-164 forbids for the indices, arriving instead through the grid.
+
+**The subject sequence is sorted here, and that is one of the two exceptions to `report.c` owning every sort.** It is the same exception the graph writers take (LLR-DOT-04): the order is a property of this artefact rather than of a collection the model already holds. Sorting is genuinely required rather than merely tidy — the components arrive in ascending *path* order, which is not ascending *directory* order. `/p/a-b/x.c` sorts before `/p/a/y.c` because `-` precedes `/`, yet `/p/a` precedes `/p/a-b`, so reading the directories off in component order would produce a sequence no rule describes. Under declared strata no sort is needed at all: a stratum's ordinal *is* its position, so each label is placed at its ordinal rather than appended in the order the options were parsed — which is what keeps `--stratum-order` from moving the back-calls above the diagonal.
+
+**The matrix is part of the report model, not a renderer's scratch space.** It is built once, in `main`, and carried on the `Report`, because the record of a run must be able to regenerate it and a record carries no call graph to rebuild it from (HLR-054). That is also why the CSV companion is the one companion available in regeneration mode.
 
 ### 22.4 Dependencies
 
@@ -1486,13 +1518,15 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 
 *   **No strata declared** Not an error. The matrix is built over directories instead, so a reader with no declared architecture still receives one (HLR-165).
 *   **Write failure** Diagnostic and non-zero return, as for every other renderer.
+*   **No output path** Not an error. `dsm_warranted` is false, no companion is written, and the report itself still carries the matrix — the rule the GraphML export follows, since the companion's name is derived from the report's and there is none to derive from (HLR-104).
+*   **An empty matrix** Renders as its heading, its convention, and its column names rather than as nothing. A section that vanishes when it has no content makes the report's shape vary with its content.
 ## 23. Data Dictionary
 
 *   **`ElcOptions`** (defined in [include/elc.h](../include/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
 
     | Field | Type | Description |
     | ----- | ---- | ----------- |
-| `mode` | `RunMode` | Analysis or XML regeneration; regeneration requires format md and suppresses both companion artefacts (HLR-055) |
+| `mode` | `RunMode` | Analysis or XML regeneration; regeneration requires format md and suppresses both *graph* companion artefacts, the matrix companion excepted (HLR-055, HLR-180) |
 | `format` | `OutputFormat` | table, csv, xml, or md. Settled once, after the option loop, from `--format` and the extension of `output_path` together, so the two can be compared rather than one preferred (HLR-148, HLR-149) |
 | `output_path` | `const char *` | NULL when writing to stdout. Where it is not NULL its extension names the format, so the field carries a second meaning beyond the destination (HLR-148) |
 | `verbose` | `bool` | The *request* for the verbose report, not the selection between two compositions: the summary is the default (HLR-150), so a zeroed ElcOptions must mean the summary, which it does only if the flag records the positive. A property of the rendering alone — it changes no measurement, no finding, and not the exit status, and the complete-record formats ignore it (HLR-151, HLR-152) |
@@ -1500,6 +1534,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 | `bottleneck_threshold` | `uint32_t` | Default 5 (HLR-081) |
 | `no_dot` | `bool` | The *refusal* of the `.dot` companion, not the request for it: generation is enabled by default (HLR-103), so a zeroed ElcOptions must mean enabled, which it does only if the flag records the negative |
 | `graphml_path` | `const char *` | NULL unless --graphml given |
+| `dsm` | `bool` | The *request* for the dependency-matrix CSV companion (HLR-180). Off unless asked for, as the GraphML export is, so a zeroed ElcOptions means no companion; and silently nothing where the report goes to standard output, there being no path to derive a name from (HLR-104). Unlike the two graph companions it is accepted with `--from-xml`, because a record carries the matrix where it carries no topology |
 | `strata` | `StratumList` | Empty when undeclared; ordinals from declaration order unless --stratum-order states them (HLR-078) |
 | `stratum_order` | `const char *` | The declared dependency direction, resolved after parsing so it may precede the layers it orders (HLR-078) |
 | `entry_points` | `SymbolList` | Empty when undeclared (HLR-095) |
@@ -1562,6 +1597,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `path` | `char *` | Canonical absolute path |
+| `directory` | `char *` | The directory containing the file, derived once from the path and owned. A component *is* a file, so this is the directory a component belongs to; recorded rather than recomputed because more than one analysis groups by it, and two consumers each slicing the path for themselves is how two of them come to disagree. No trailing separator, and "/" for a file at the root, so that two files in one directory compare equal (HLR-160) |
 | `language` | `const char *` | Borrowed from the language module |
 | `physical_lines` | `uint32_t` | Newline count from the mapping |
 | `unparsed_lines` | `uint32_t` | Distinct lines the grammar could not follow; non-zero means every other figure covers the rest of the file and not this part (HLR-035) |
@@ -1674,6 +1710,16 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 | `cycles` | `ComponentCycle *` | Each mutually dependent group with a concrete loop through it (HLR-083) |
 | `strata_state` | `StrataState` | Measured, or omitted because no strata were declared (HLR-115) |
 | `violations` | `LayerViolation *` | Skip-level and direction-inverted calls, as distinct entries (HLR-079, HLR-118) |
+| `inter_layer_edges` | `size_t` | The denominator of both conformance indices: the run's call edges joining two components in *different* declared layers. Counted by `check_strata` in the same pass that produces the violations above, since the three exclusions it needs — the edge is a call, both ends lie inside the partition, the two ends lie in different layers — are the three tests that loop already makes. A second traversal applying them again would be a second opinion about which edges the indices are over (HLR-162 – HLR-164). Zero where no strata were declared, the loop not having run |
+*   **`ConformanceIndices`** (defined in [include/arch.h](../include/arch.h)) — The two conformance indices over one run (HLR-162, HLR-163). Both are proportions of one denominator and neither summarises the other; they are never added, since a call ascending two layers is counted in each and a combined score would count it twice.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `inter_layer_edges` | `size_t` | The shared denominator, taken from ArchResults rather than recounted |
+| `back_calls` | `size_t` | Inverted findings counted from the recorded violations, never re-derived from the graph (HLR-164) |
+| `skip_calls` | `size_t` | Skip-level findings, counted the same way |
+| `back_call_index, skip_call_index` | `double` | Each numerator over the shared denominator; meaningless and untouched where `defined` is false |
+| `defined` | `bool` | False where the denominator is zero, in which case the caller reports the index as undefined rather than as 0 or 1. A project with no inter-layer call has not achieved perfect conformance; it has demonstrated nothing either way — the rule HLR-082 already applies to Instability (HLR-162) |
 *   **`ComponentCycle`** (defined in [include/arch.h](../include/arch.h)) — One cyclic dependency between components. Two facts, because one alone misleads: the membership is the group that must be broken up, and the path is a concrete loop saying which edge to cut. The path may be shorter than the membership, since a group can hold a number of loops exponential in its size.
 
     | Field | Type | Description |
@@ -1754,6 +1800,8 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 | `fan_out, cycles, depth_state, depth, deepest` | `FanOutRow *, CycleRow *, DepthState, uint32_t, ChainRow *` | The call-tree measurements: one FanOutRow per function carrying its fan-out, fan-in, ELOC and Henry-Kafura value — each reported whether or not a threshold was crossed, and three of the four never banded at all — the recursive cycles, and the deepest chain in full with the state saying why a depth figure is absent (HLR-085, HLR-087 – HLR-090, HLR-156, HLR-157) |
 | `coupling, dep_cycles, strata_state, layering` | `CouplingRow *, CycleDependencyRow *, StrataState, LayeringRow *` | The component-level measurements: Ca, Ce and Instability per component, each dependency cycle with a concrete loop through it, and the layering findings with the state of that analysis (HLR-080 – HLR-083, HLR-118) |
 | `global_state, reach_state, unreachable, unreachable_globals, scope_state, cross_scope` | `GlobalStateRow *, ReachState, UnreachableRow *, char **, ScopeState, CrossScopeRow *` | The global-state and reachability measurements, each carrying the state that distinguishes a measurement from an analysis omitted for want of a declaration (HLR-091 – HLR-096, HLR-115) |
+| `back_call, skip_call` | `ConformanceRow` | The two conformance indices as the report presents them: the violations counted, the inter-layer call edges they are over, and both the index and its complementary conforming proportion as rendered text. Text because "undefined" is one of their legitimate values, exactly as it is for Instability, and a renderer choosing between a number and a word is a decision that would then be made four times (HLR-162, HLR-163) |
+| `dsm` | `Dsm` | The dependency matrix: the ordered subject labels and the square grid of call counts between them, with a flag saying whether the subjects are declared layers or directories. Part of the model rather than a renderer's scratch space, because a record of a run must be able to regenerate it and a record carries no call graph to rebuild it from (HLR-165, HLR-166, HLR-054) |
 | `findings` | `FindingRow *` | Every measurement that crossed a published line, ranked most severe first, each naming its source (HLR-098, HLR-123) |
 | `dead, dead_unanalysed` | `DeadRow *, PathList` | The unreachable statements within functions, sorted by file then start line, and the languages whose module supplied no dead-code query — the second because unanalysed and none-found are different claims (HLR-137, HLR-139) |
 | `rule_matches` | `RuleMatchRow *` | What the user's own rules matched, sorted and reported beside the findings rather than among them (HLR-109, HLR-111) |
@@ -1764,6 +1812,22 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 | `absent` | `AbsentRow *` | The second direction, and the finding the option exists to produce: the source functions this build did not keep. Sorted by file, then start line, then name (HLR-143) |
 | `file_scope_eloc` | `uint64_t` | Effective lines belonging to no function, summed over every file — the part of the total the filter did not narrow (HLR-145) |
 | `skipped_files` | `PathList` | Discovered files with no available language module, sorted by path (HLR-012) |
+*   **`ConformanceRow`** (defined in [include/report.h](../include/report.h)) — One conformance index as the report presents it (HLR-162, HLR-163). The numerator and the denominator travel beside the rendered figures because a proportion is not interpretable without the count it is over — 50% of two edges and 50% of two hundred are different claims about a code base.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `violations` | `uint64_t` | The findings counted, never re-derived (HLR-164) |
+| `edges` | `uint64_t` | Inter-layer call edges; the denominator |
+| `index` | `char *` | Owned; a percentage to two places, or "undefined" |
+| `conforming` | `char *` | Owned; the complement, computed from the counts rather than subtracted from the rendered index, so the pair is two roundings of one division rather than a rounding of a rounding — and need not read as exactly 100% |
+*   **`Dsm`** (defined in [include/report.h](../include/report.h)) — The Dependency Structure Matrix (HLR-165, HLR-166). A square grid over the declared layers, or over the analysed directories where no layer was declared. Rows are callers and columns callees, both in the same ascending order, so a cell's position carries its meaning.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `subjects` | `char **` | The row and column labels, in order; owned. Ordered by ascending layer index under declared strata — a stratum's ordinal *is* its position — and by path otherwise |
+| `count` | `size_t` | The order of the square matrix |
+| `cells` | `size_t *` | Row-major, count * count; owned. Cell (i, j) is the number of call edges from subject i to subject j |
+| `from_strata` | `bool` | True where the subjects are declared layers, false where they are directories. The two are read differently — only a declared order makes a below-diagonal cell a violation — so the reader is told which they are looking at rather than left to infer it |
 *   **Compile-time constants** (in [include/elc.h](../include/elc.h)):
 
     | Name | Value | Purpose |
