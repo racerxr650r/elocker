@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.12
+**Version:** 2.13
 **Date:** 2026-08-22
 **Author(s):** John Anderson
 
@@ -30,6 +30,7 @@ This document describes the design of the source modules that implement the high
 *   [src/format_xml.c](../src/format_xml.c): The XML record writer and the reader that drives the report-regeneration mode.
 *   [src/format_graph.c](../src/format_graph.c): The Graphviz `.dot` call-tree writer and the GraphML graph-export writer.
 *   [src/elfsyms.c](../src/elfsyms.c): The linked-image reader: the function symbols an image defines, and the resolution of a linkage name to the source name the report presents.
+*   [src/dwarfline.c](../src/dwarfline.c): The image's debug line information: which source lines this build compiled an instruction for, and which files that mapping covers at all.
 *   [src/purify.c](../src/purify.c): The graph purification engine: centrality-based classification of utility sinks, god objects, and peripheral nodes, the masked recovery view built from them, and the manifest by which a user overrules a classification.
 *   [src/recover.c](../src/recover.c): Architecture recovery: a proposed layering read off the purified recovery view, emitted in the form the stratum options accept.
 *   [src/format_dsm.c](../src/format_dsm.c): The Dependency Structure Matrix and its CSV and Markdown renderings.
@@ -91,11 +92,12 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   Section 16: Detailed design for [src/format_xml.c](../src/format_xml.c).
 *   Section 17: Detailed design for [src/format_graph.c](../src/format_graph.c).
 *   Section 18: Detailed design for [src/elfsyms.c](../src/elfsyms.c).
-*   Section 19: Detailed design for [src/purify.c](../src/purify.c).
-*   Section 20: Detailed design for [src/recover.c](../src/recover.c).
-*   Section 21: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
-*   Section 22: Data Dictionary.
-*   Section 23: Traceability.
+*   Section 19: Detailed design for [src/dwarfline.c](../src/dwarfline.c).
+*   Section 20: Detailed design for [src/purify.c](../src/purify.c).
+*   Section 21: Detailed design for [src/recover.c](../src/recover.c).
+*   Section 22: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
+*   Section 23: Data Dictionary.
+*   Section 24: Traceability.
 
 ## 2. System Overview
 
@@ -118,6 +120,7 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   **[src/format_xml.c](../src/format_xml.c)** — Writes the complete XML record, and reads one back for regeneration mode.
 *   **[src/format_graph.c](../src/format_graph.c)** — Writes the `.dot` call tree and the GraphML export.
 *   **[src/elfsyms.c](../src/elfsyms.c)** — Reads the function symbols of a linked image and resolves each linkage name to the source name the report presents, so that a filtered run measures the program the build produced.
+*   **[src/dwarfline.c](../src/dwarfline.c)** — Reads the debug line information the same image carries, where it carries any, so that a filtered run can narrow to the lines the build compiled rather than to the functions alone.
 *   **[src/purify.c](../src/purify.c)** — Classifies the functions that fuse unrelated domains — utility sinks, god objects, peripheral nodes — and builds the masked recovery view. Reads and writes the manifest that lets a user overrule a classification. Alters no graph any other stage reads.
 *   **[src/recover.c](../src/recover.c)** — Proposes a layering from the purified view, for a user who declared none. Depended upon by the report and by nothing in `arch.c`, which is what keeps a proposal from becoming the baseline it would be measured against.
 *   **[src/format_dsm.c](../src/format_dsm.c)** — Renders the Dependency Structure Matrix as CSV and as Markdown.
@@ -531,7 +534,9 @@ It also widened the exclusion's reach. `byte_is_excluded` was consulted only by 
 
 **The linked-image filter joins the same set**, which is the decision Phase 16 had to make deliberately: a filter drops whole *functions* where the other two mechanisms drop byte *ranges*, so it could have gated `collect_functions` alone. It does not, and the reason is HLR-145. A function dropped from the reported set with its bytes still measured leaves its statements attributed to no function — which is to say counted as file-scope ELOC, the one figure the filter is required to keep separate and honest. Excluding the extent instead makes HLR-144 fall out of machinery that already exists: no statement, decision point, call site, global access, dead span, or rule match inside an omitted function reaches any later stage, because every collector already asks whether a byte is measured.
 
-**The three exclusions are gathered in one order and it is load-bearing.** Comments, then inactive regions, then the functions the image lacks. The last is last because it is the only one that needs the others settled: a function inside a region this configuration does not compile was never built, and reporting it as one the linker discarded would answer a question about the image with a fact about the preprocessor (LLR-ANL-58).
+**The four exclusions are gathered in one order and it is load-bearing.** Comments, then inactive regions, then the functions the image lacks, then the lines the build compiled no instruction for. Each needs the ones before it settled. The third is third because a function inside a region this configuration does not compile was never built, and reporting it as one the linker discarded would answer a question about the image with a fact about the preprocessor. The fourth is last for the same shape of reason: a line already gone — inside a comment, inside an undecided region that turned out inactive, or inside a function the linker discarded — must not be pruned again, or it is counted twice in a figure a reader is meant to act on (LLR-ANL-58, LLR-ANL-60).
+
+**The fourth exclusion is confined to within functions the image defines**, which is HLR-154's rule and is why the pass above hands back the *kept* extents as well as excluding the absent ones. Code at file scope has few line entries to its name and is the one figure HLR-145 requires be kept separate and honest; a rule that pruned uncovered lines everywhere would delete precisely that. A blank line and a line already excluded are skipped rather than counted, since pruning either removes nothing and counting it would inflate the figure of HLR-155 with lines no measurement rested on.
 
 **The image's ranges are merged in only once its pass is over**, and not as each is found. `byte_is_excluded` exits early on the first span starting past the byte it was asked about, which is correct exactly while the list is ordered; appending to the list being read would leave an unsorted tail behind the merged head, and the answer for one function would then depend on which functions the query happened to report before it.
 
@@ -1211,6 +1216,7 @@ DOT quoted strings escape two characters, `"` and `\`. That escaper is deliberat
 *   Open and validate the named image, and extract every function it defines from the symbol table the linker wrote.
 *   Resolve a linkage name to the source name the report presents, where the name carries a published mangling.
 *   Answer membership for a source function, and account for both directions of mismatch.
+*   Read the image's debug line information from the same open, so that the image is read once and nothing beside it (HLR-141, HLR-153).
 
 ### 18.2 External Interfaces
 #### 18.2.1 What Counts as a Function the Image Defines
@@ -1274,9 +1280,71 @@ The filter itself is not applied here. A function the image does not define is n
 *   **Image carries no function symbols** Fatal, and separately diagnosed. An empty set is not an empty project: filtering every function away would report a code base with none, which no reader could distinguish from a correct result (HLR-146).
 *   **A linkage name this build does not decode** Counted, not fatal, and reported with the run. The completeness of the filter is stated in the way the completeness of the graph is (HLR-143, HLR-077).
 
-## 19. Detailed Design for [src/purify.c](../src/purify.c)
+## 19. Detailed Design for [src/dwarfline.c](../src/dwarfline.c)
 
 ### 19.1 Purpose and Responsibilities
+[src/dwarfline.c](../src/dwarfline.c) reads the debug line information a linked image carries, where it carries any, and answers which source lines this build produced an instruction for (HLR-153).
+
+*   Read the line programme of every compilation unit from the ELF descriptor `elfsyms.c` already holds, and from nothing else.
+*   Answer, for one source file, whether the image's line information covers it at all.
+*   Answer, for one line of a covered file, whether this build compiled an instruction for it.
+*   Treat an image carrying no line information as an ordinary result rather than a failure, since HLR-141 forbids requiring debug information.
+
+### 19.2 External Interfaces
+#### 19.2.1 Coverage Governs Pruning
+
+Every query is in two parts and the first governs the second: **is this file covered**, and only then **is this line within it compiled**. They are separate calls rather than one so that the distinction cannot be made by accident.
+
+A line the mapping does not name produced no instruction — *in a file the mapping describes*. In a file it never described, absence is evidence of nothing at all. A translation unit compiled without debug information contributes no entries whatever, so a rule keyed on absence alone would find every line of it uncompiled and delete the file, leaving a report that is smaller, internally consistent, and wrong (HLR-154).
+
+That is the asymmetry HLR-133 already draws for a conditional region `elc` could not decide and HLR-138 for a language with no dead-code query, applied to a third kind of evidence. `dwarfline_compiled` deliberately answers *false* for an uncovered file: it is the unsafe answer, and `dwarfline_covers` is what makes asking it safe.
+
+#### 19.2.2 libdw, Never libdwfl
+
+`dwarf_begin_elf` reads the sections of the ELF descriptor it is handed and nothing else. The `Dwfl` layer above it resolves separate debug information by `.gnu_debuglink` and build-id, which means opening a file under a separate-debug directory the user never named — forbidden outright by HLR-141.
+
+The two live in one library, so `ldd` is identical either way and the dependency allowlist cannot see the difference. The distinction is held instead by an instrumented test that counts the image's opens for a build carrying debug information, and finds one (LLR-DWL-01).
+
+#### 19.2.3 Path Normalisation Is Lexical
+
+A compiler records a file name that may be relative to the unit's compilation directory and may carry `.` and `..` components. `elc`'s own paths are canonical and absolute, so the two are brought to one form before they are compared — by **lexical** normalisation, never `realpath(3)`.
+
+`realpath` would resolve symbolic links and give a better answer for the unusual build, at the cost of stat-ing every path the image happens to name, headers under `/usr/include` among them. That is filesystem work on files the user did not name, for a module whose whole contract is that it reads the image and nothing else. Lexical normalisation keeps the answer a property of the image's bytes.
+
+The cost is a build reaching its sources through a symbolic link: the two spellings do not meet, the file reports uncovered, and nothing in it is pruned. That is the safe direction — the count of HLR-155 says the coverage was not established, and no measured line is deleted on evidence that did not describe it (LLR-DWL-02).
+
+
+### 19.3 Internal Structure
+#### 19.3.1 Key Functions
+
+*   **`int dwarfline_read(void *elf, LineCoverage *out)`** — Read the line information of an already-opened image. The handle is passed opaquely so that no consumer links a DWARF library merely to ask whether a line was compiled, which is why the SDG carries its graph object the same way. An image with no line information yields an empty set and is not a failure.
+*   **`bool dwarfline_covers(const LineCoverage *c, const char *path)`** — Whether the image's line information covers this file. False for a unit compiled without debug information, for a file the mapping does not mention, and for every run with no image.
+*   **`bool dwarfline_compiled(const LineCoverage *c, const char *path, uint32_t line)`** — Whether this build compiled an instruction for this line. Meaningful only where the coverage test passed for the same path.
+*   **`void dwarfline_free(LineCoverage *c)`** — Release the coverage set and every path and line list it owns.
+
+#### 19.3.2 Parsing Strategy / Algorithm
+
+Every compilation unit's line programme is walked once. The end-of-sequence marker carries the address one past the last instruction and names no line of source; counting it would mark a line compiled on the strength of a marker rather than of an instruction, so it is skipped.
+
+Each file's lines are then sorted and de-duplicated, because a line programme names one line once per instruction sequence attributed to it: the raw list is long and heavily repeated, and collapsing it makes membership a binary search and makes the set independent of how many sequences the compiler emitted. The file table is sorted by path for the same reason.
+
+**The library is a design choice under HLR-112, and the argument is the one that took `libelf`.** The DWARF line-number programme is a state machine whose file and directory tables changed shape at version 5 and reach into `.debug_line_str`, and every compiler this project is aimed at now emits version 5 by default. Hand-rolling it would put a format parser into `elc`'s defect surface for no benefit. `libdw` comes from the same elfutils tree as the `libelf` already linked and is taken on the same terms (doc/notes.md §1.1).
+
+**What the mapping cannot record is the phase's standing limit.** An optimiser may fold one source line's instructions into the entry recorded for a neighbouring line, and a line so folded is indistinguishable here from one that produced no instruction. Nothing in the image records the difference and `elc` does not attempt to recover it (HLR-154). The `elf/debugline/` fixture demonstrates it rather than describing it: at `-O0` exactly the region a `#ifdef` excluded is pruned, and at `-O2` the compiler folds a whole call to a constant and the function's body is pruned with it. The counts of HLR-155 are what let a reader judge how much of a report rests on this.
+
+### 19.4 Dependencies
+
+*   `libdw` for the line programme, from the elfutils tree that supplies `libelf`. Called by `src/elfsyms.c` while it holds the image open; consumed by `src/analyze.c`. No other dependency on `src/`.
+
+### 19.5 Error Handling and Logging
+
+*   **Image carries no debug line information** Not an error, and not a degraded run. HLR-141 forbids *requiring* debug information, so the set comes back empty, every file is uncovered, nothing is pruned, and the reported metrics are those the same run reports at function granularity alone (HLR-153).
+*   **A compilation unit with no line programme** Contributes nothing and is not an error. Its files stay uncovered and are counted under HLR-155, which is the whole of what HLR-154 asks for.
+*   **Allocation failure** The only failure this module reports. The partially built set is released and the caller turns it into a fatal exit, since a coverage set built halfway would prune on evidence it does not have.
+
+## 20. Detailed Design for [src/purify.c](../src/purify.c)
+
+### 20.1 Purpose and Responsibilities
 [src/purify.c](../src/purify.c) builds the *recovery view* of the graph: a masked copy in which the utility sinks, god objects, and peripheral nodes that fuse unrelated domains are set aside, so that a layering can be read off what remains. It also owns the manifest by which a user overrules its classifications.
 
 *   Compute the hub-and-authority and betweenness centralities, and the coreness, of the call view.
@@ -1285,14 +1353,14 @@ The filter itself is not applied here. A function the image does not define is n
 *   Read a manifest where one was named, letting its statements overrule the computed classification, and write one on request (HLR-175 – HLR-177).
 *   Record every classification, with the metric and value that produced it, for the report of HLR-174.
 
-### 19.2 External Interfaces
-#### 19.2.1 The Recovery View Is a Second Graph, Not an Edit
+### 20.2 External Interfaces
+#### 20.2.1 The Recovery View Is a Second Graph, Not an Edit
 
 Masking produces a **copy** of the call view with edges removed; the `Sdg` every other stage reads is not modified. This is HLR-167 made structural rather than remembered: a stage that cannot reach a masked graph cannot accidentally measure one, and the alternative — masking in place and unmasking afterwards — makes every analysis order-dependent and one early return away from reporting a fan-out that omits real calls.
 
 The copy is of the **call view** alone. Global-state edges take no part in a layering: writing an object another function reads is coupling and not invocation (LLR-CTR-07), and including them would join every pair of functions sharing a variable into the layer structure.
 
-#### 19.2.2 What Each Classification Masks
+#### 20.2.2 What Each Classification Masks
 
 | Class | Trigger | Masked |
 | ----- | ------- | ------ |
@@ -1302,7 +1370,7 @@ The copy is of the **call view** alone. Global-state edges take no part in a lay
 
 A utility sink keeps its outgoing edges because the fusion it causes is between its *callers*; a god object loses both directions because it short-circuits in both. A function meeting both tests is a god object, the stronger and more useful claim (HLR-169).
 
-#### 19.2.3 The Manifest Format, and What It Costs
+#### 20.2.3 The Manifest Format, and What It Costs
 
 The manifest is **JSON**, restricted to a flat array of objects each naming a function, its file, its class, and whether it is masked. Two properties of the requirement decide the format between them: HLR-175 requires a user be able to edit it by hand, and HLR-176 requires `elc` read it back.
 
@@ -1317,8 +1385,8 @@ What the module owes the library is bounded. Jansson parses and validates; `puri
 The format is versioned in the manner of the XML record (HLR-061), so that a manifest written by a later build is rejected by an earlier one rather than half-understood. Jansson's `json_error_t` carries the line, column, and byte offset of a syntax fault, and the diagnostic quotes them: a person who hand-edited the file needs to be told where they broke it, not merely that they did.
 
 
-### 19.3 Internal Structure
-#### 19.3.1 Key Functions
+### 20.3 Internal Structure
+#### 20.3.1 Key Functions
 
 *   **`int purify_analyse(const Sdg *g, const ElcOptions *opts, const Manifest *manual, PurifyResults *out)`** — Classify every function and build the masked recovery view.
 *   **`int classify_nodes(const Sdg *g, const PurifyThresholds *t, const Manifest *manual, Classification *out)`** — Assign each node its class, a manifest statement overruling a computed one.
@@ -1327,7 +1395,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 *   **`int manifest_write(const PurifyResults *r, const char *path)`** — Write the classifications in the documented format, ready to be edited and handed back.
 *   **`void purify_results_free(PurifyResults *r)`** — Release the classifications, the recovery view, and the manifest.
 
-#### 19.3.2 Parsing Strategy / Algorithm
+#### 20.3.2 Parsing Strategy / Algorithm
 
 **The thresholds are compared against a ranking, not against a raw score.** A betweenness value means nothing on its own — it scales with the size of the graph, so a fixed number would classify every function in a large project and none in a small one. Classification is therefore made against a node's position in the ordered distribution of the score, which is comparable across projects and is what makes one default threshold serviceable for both.
 
@@ -1337,21 +1405,21 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 
 **A cyclic recovery view has no layering, and that is reported rather than worked around** (HLR-172). Purification often breaks the cycles that a god object created, which is much of its purpose — but where cycles remain, the cycles are the finding.
 
-### 19.4 Dependencies
+### 20.4 Dependencies
 
 *   The graph library, for `igraph_hub_and_authority_scores`, `igraph_betweenness`, and `igraph_coreness` (HLR-113).
 *   **Jansson**, for the manifest in both directions — `json_load_file` and `json_error_t` on the read path, `json_dump_file` on the write path. The only third-party writer in the project, for the round-trip reason argued in §22.
 *   `src/graph.c` for the SDG and its call view. Depended upon by `src/recover.c`.
 
-### 19.5 Error Handling and Logging
+### 20.5 Error Handling and Logging
 
 *   **Manifest cannot be read or parsed** Diagnostic naming the path, and a fatal exit. The user named the file, so the failure is theirs to correct (HLR-176).
 *   **Manifest names an unknown function** Diagnostic, the statement ignored, the run continues. Analysing one directory of a project whose manifest covers all of it is ordinary use (HLR-177).
 *   **No functions survive purification** Not an error. The recovery of HLR-172 is omitted with its reason stated, as an analysis short of its inputs always is (HLR-115).
 
-## 20. Detailed Design for [src/recover.c](../src/recover.c)
+## 21. Detailed Design for [src/recover.c](../src/recover.c)
 
-### 20.1 Purpose and Responsibilities
+### 21.1 Purpose and Responsibilities
 [src/recover.c](../src/recover.c) reads a proposed layering off the purified recovery view, for a user who has declared no architecture and wants to know what one their code already has.
 
 *   Order the recovery view topologically, and report the cycles instead where no ordering exists (HLR-172).
@@ -1360,14 +1428,14 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 *   State which functions were masked or excluded in producing the proposal.
 
 
-### 20.3 Internal Structure
-#### 20.3.1 Key Functions
+### 21.3 Internal Structure
+#### 21.3.1 Key Functions
 
 *   **`int recover_layers(const RecoveryView *v, const Report *r, RecoveryResults *out)`** — Propose a layering, or report why none could be.
 *   **`int layer_by_directory(const RecoveryView *v, const size_t *order, RecoveryResults *out)`** — Fold the topological order into per-directory layers by edge density.
 *   **`void recovery_results_free(RecoveryResults *r)`** — Release the proposal and its exclusion list.
 
-#### 20.3.2 Parsing Strategy / Algorithm
+#### 21.3.2 Parsing Strategy / Algorithm
 
 **A topological order is not yet a layering.** It orders functions; an architecture orders *directories*. The order is therefore folded by component directory, and a directory's layer is fixed by where the bulk of its edges point rather than by its earliest or latest member — one function reaching far down the order should not drag its whole directory with it.
 
@@ -1375,18 +1443,18 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 
 **Nothing here feeds the conformance analyses** (HLR-173). `recover.c` is depended upon by the report and by nothing in `arch.c`; the dependency direction is what keeps a recovered layering from becoming the baseline it is measured against.
 
-### 20.4 Dependencies
+### 21.4 Dependencies
 
 *   The graph library, for topological ordering. `src/purify.c` for the recovery view.
 
-### 20.5 Error Handling and Logging
+### 21.5 Error Handling and Logging
 
 *   **Recovery view is cyclic** Not an error. The cycles are reported in place of a proposed layering, as HLR-090 does for call depth over a cyclic graph (HLR-172).
 *   **No strata declared** Not a reason to omit recovery — recovery is what a user without strata is given. It is the *conformance* analyses that stay omitted (HLR-115, HLR-173).
 
-## 21. Detailed Design for [src/format_dsm.c](../src/format_dsm.c)
+## 22. Detailed Design for [src/format_dsm.c](../src/format_dsm.c)
 
-### 21.1 Purpose and Responsibilities
+### 22.1 Purpose and Responsibilities
 [src/format_dsm.c](../src/format_dsm.c) renders the Dependency Structure Matrix — the square grid whose cells carry the call counts between layers or directories, and whose diagonal separates conforming dependencies from back-calls.
 
 *   Build the matrix over the declared layers, or over the analysed directories where no strata were declared (HLR-165).
@@ -1394,15 +1462,15 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 *   Render as CSV and as Markdown, and state the diagonal convention wherever it renders.
 
 
-### 21.3 Internal Structure
-#### 21.3.1 Key Functions
+### 22.3 Internal Structure
+#### 22.3.1 Key Functions
 
 *   **`int dsm_build(const Sdg *g, const Report *r, const ElcOptions *opts, Dsm *out)`** — Populate the square matrix of call counts between subjects, in their defined order.
 *   **`int format_dsm_csv(const Dsm *m, FILE *out)`** — Render the matrix as CSV, every cell through the RFC 4180 field writer.
 *   **`int format_dsm_markdown(const Dsm *m, FILE *out)`** — Render the matrix as a GitHub-Flavored Markdown table.
 *   **`void dsm_free(Dsm *m)`** — Release the matrix and the subject labels it owns.
 
-#### 21.3.2 Parsing Strategy / Algorithm
+#### 22.3.2 Parsing Strategy / Algorithm
 
 **Rows are callers and columns are callees**, both in the same ascending order, so the diagonal has a meaning a reader can rely on: above it are dependencies running the declared way, on it are dependencies inside one subject, and below it are the back-calls of HLR-162. A matrix whose orientation the reader must infer is worse than no matrix, so the convention is printed with it (HLR-166).
 
@@ -1410,15 +1478,15 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 
 **Escaping is not this module's own.** The CSV rendering emits every cell through the same `write_field` the per-function renderer uses, and the Markdown rendering escapes the cell separator, so a directory containing a comma or a pipe cannot corrupt the grid (HLR-064).
 
-### 21.4 Dependencies
+### 22.4 Dependencies
 
 *   `src/graph.c` for the component projection, `src/arch.c` for the layer assignment, and `src/format_csv.c` for the field writer. No third-party dependency.
 
-### 21.5 Error Handling and Logging
+### 22.5 Error Handling and Logging
 
 *   **No strata declared** Not an error. The matrix is built over directories instead, so a reader with no declared architecture still receives one (HLR-165).
 *   **Write failure** Diagnostic and non-zero return, as for every other renderer.
-## 22. Data Dictionary
+## 23. Data Dictionary
 
 *   **`ElcOptions`** (defined in [include/elc.h](../include/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
 
@@ -1510,6 +1578,13 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
     | ----- | ---- | ----------- |
 | `name` | `char *` | As the source writes it, copied out of the mapping before it is released |
 | `line` | `uint32_t` | 1-based, where the definition starts |
+*   **`LineCoverage`** (defined in [include/dwarfline.h](../include/dwarfline.h)) — Every source file the image's debug line information covers, and the lines within each that produced at least one instruction (HLR-153).
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `files` | `CoveredFile *` | Sorted by path; owned. Each holds the file's path as the image records it, normalised lexically, and an ascending de-duplicated line list — a line programme names one line once per instruction sequence, so the raw list is long and heavily repeated |
+| `count` | `size_t` | Files covered |
+| `present` | `bool` | Whether the image carried line information at all. Distinguishes a build made without debug information from one whose debug information describes other code: both prune nothing, and only the second says anything about the target |
 *   **`SymbolSet`** (defined in [include/elfsyms.h](../include/elfsyms.h)) — The function set one image defines, resolved to source names. Sorted and de-duplicated on the resolved name, so membership is a binary search and no property of symbol-table order can reach the output (HLR-032, LLR-ELF-05).
 
     | Field | Type | Description |
@@ -1518,6 +1593,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 | `count` | `size_t` | Populated entries |
 | `unresolved` | `size_t` | Function symbols whose linkage name carried a mangling this build does not decode. Counted rather than guessed at, and reported with the run: a filter whose completeness is unstated cannot be acted on (HLR-143) |
 | `path` | `char *` | The image as the user named it, so the report can say which image it describes without the options having to outlive the run (HLR-147) |
+| `lines` | `LineCoverage` | The finer granularity, read from the same open as the symbols and empty where the build wrote no debug information. Here rather than in a structure of its own because it must come from the same *open*: the image is read once and nothing beside it, and a second module opening it again would break that while every unit test still passed (HLR-141, HLR-153) |
 *   **`AbsentRow`** (defined in [include/report.h](../include/report.h)) — One function the image does not define, as the report presents it. Structurally an UnreachableRow and deliberately not one: both name a function no build needs, and they are established by different means — one inferred from the call graph, the other observed from what the linker did — so merging them would present an observation as an inference (HLR-143).
 
     | Field | Type | Description |
@@ -1762,7 +1838,7 @@ The version is pinned and built from source with the rest (SDP §0), so an advis
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.
-## 23. Traceability
+## 24. Traceability
 
 The following table maps the high-level requirements in
 [doc/HLRs.md](HLRs.md) and the low-level requirements in

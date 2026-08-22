@@ -113,6 +113,31 @@ the *user* names, which is the one place elc parses a binary it did not
 produce — so an advisory against libelf matters here in a way it would
 not for a library elc only feeds its own data to.
 
+**`libdw` extends the `libelf` exception rather than opening a third one**,
+added in Phase 20 to read the debug line information an image carries
+(HLR-153). It is the same elfutils tree, produced by the same configure
+run, and shipped by the same distribution package family, so every word
+of the paragraph above applies to it unchanged — including that building
+it from source would import more distribution packages than taking it
+from the distribution does.
+
+Why take a library for it at all is HLR-113's argument, and it holds
+more strongly here than it did for the container. The DWARF
+line-number programme is a state machine whose file and directory
+tables changed shape at version 5 and reach into `.debug_line_str`, and
+every compiler this project is aimed at now emits version 5 by default.
+Hand-rolling it would put a format parser into elc's defect surface for
+no benefit — which is exactly the reasoning that took `libelf`.
+
+**Use `libdw`, never `libdwfl`.** The low-level `dwarf_*` interface
+reads the ELF descriptor `elfsyms.c` already holds. The `Dwfl` layer
+above it resolves separate debug information by `.gnu_debuglink` and
+build-id, which means opening a file under `/usr/lib/debug` that the
+user never named — forbidden outright by HLR-141. The distinction is
+one API call deep and is invisible in `ldd`, so it is held by an
+instrumented test that counts the image's opens rather than by this
+note.
+
 **`libstdc++` was already linked and is now referenced deliberately.**
 It arrives with igraph, which is partly C++ inside, and has been in
 `ldd` output since Phase 8. From Phase 16 elc calls `__cxa_demangle` in

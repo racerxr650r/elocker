@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.12" date="2026-08-22" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.13" date="2026-08-22" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.7" date="2026-08-22" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.7" date="2026-08-22" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.13" date="2026-08-22" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.14" date="2026-08-22" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.8" date="2026-08-22" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.14" date="2026-08-22" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.15" date="2026-08-22" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="178"/>
-      <count name="llrs"       value="431"/>
-      <count name="tests"      value="871"/>
-      <count name="test_files" value="44"/>
+      <count name="llrs"       value="438"/>
+      <count name="tests"      value="891"/>
+      <count name="test_files" value="45"/>
     </counts>
   </metadata>
 
@@ -47,6 +47,7 @@
       <file path="src/format_xml.c"><![CDATA[The XML record writer and the reader that drives the report-regeneration mode.]]></file>
       <file path="src/format_graph.c"><![CDATA[The Graphviz `.dot` call-tree writer and the GraphML graph-export writer.]]></file>
       <file path="src/elfsyms.c"><![CDATA[The linked-image reader: the function symbols an image defines, and the resolution of a linkage name to the source name the report presents.]]></file>
+      <file path="src/dwarfline.c"><![CDATA[The image's debug line information: which source lines this build compiled an instruction for, and which files that mapping covers at all.]]></file>
       <file path="src/purify.c"><![CDATA[The graph purification engine: centrality-based classification of utility sinks, god objects, and peripheral nodes, the masked recovery view built from them, and the manifest by which a user overrules a classification.]]></file>
       <file path="src/recover.c"><![CDATA[Architecture recovery: a proposed layering read off the purified recovery view, emitted in the form the stratum options accept.]]></file>
       <file path="src/format_dsm.c"><![CDATA[The Dependency Structure Matrix and its CSV and Markdown renderings.]]></file>
@@ -108,6 +109,7 @@
       <component path="src/format_xml.c"><![CDATA[Writes the complete XML record, and reads one back for regeneration mode.]]></component>
       <component path="src/format_graph.c"><![CDATA[Writes the `.dot` call tree and the GraphML export.]]></component>
       <component path="src/elfsyms.c"><![CDATA[Reads the function symbols of a linked image and resolves each linkage name to the source name the report presents, so that a filtered run measures the program the build produced.]]></component>
+      <component path="src/dwarfline.c"><![CDATA[Reads the debug line information the same image carries, where it carries any, so that a filtered run can narrow to the lines the build compiled rather than to the functions alone.]]></component>
       <component path="src/purify.c"><![CDATA[Classifies the functions that fuse unrelated domains — utility sinks, god objects, peripheral nodes — and builds the masked recovery view. Reads and writes the manifest that lets a user overrule a classification. Alters no graph any other stage reads.]]></component>
       <component path="src/recover.c"><![CDATA[Proposes a layering from the purified view, for a user who declared none. Depended upon by the report and by nothing in `arch.c`, which is what keeps a proposal from becoming the baseline it would be measured against.]]></component>
       <component path="src/format_dsm.c"><![CDATA[Renders the Dependency Structure Matrix as CSV and as Markdown.]]></component>
@@ -444,7 +446,9 @@ It also widened the exclusion's reach. `byte_is_excluded` was consulted only by 
 
 **The linked-image filter joins the same set**, which is the decision Phase 16 had to make deliberately: a filter drops whole *functions* where the other two mechanisms drop byte *ranges*, so it could have gated `collect_functions` alone. It does not, and the reason is HLR-145. A function dropped from the reported set with its bytes still measured leaves its statements attributed to no function — which is to say counted as file-scope ELOC, the one figure the filter is required to keep separate and honest. Excluding the extent instead makes HLR-144 fall out of machinery that already exists: no statement, decision point, call site, global access, dead span, or rule match inside an omitted function reaches any later stage, because every collector already asks whether a byte is measured.
 
-**The three exclusions are gathered in one order and it is load-bearing.** Comments, then inactive regions, then the functions the image lacks. The last is last because it is the only one that needs the others settled: a function inside a region this configuration does not compile was never built, and reporting it as one the linker discarded would answer a question about the image with a fact about the preprocessor (LLR-ANL-58).
+**The four exclusions are gathered in one order and it is load-bearing.** Comments, then inactive regions, then the functions the image lacks, then the lines the build compiled no instruction for. Each needs the ones before it settled. The third is third because a function inside a region this configuration does not compile was never built, and reporting it as one the linker discarded would answer a question about the image with a fact about the preprocessor. The fourth is last for the same shape of reason: a line already gone — inside a comment, inside an undecided region that turned out inactive, or inside a function the linker discarded — must not be pruned again, or it is counted twice in a figure a reader is meant to act on (LLR-ANL-58, LLR-ANL-60).
+
+**The fourth exclusion is confined to within functions the image defines**, which is HLR-154's rule and is why the pass above hands back the *kept* extents as well as excluding the absent ones. Code at file scope has few line entries to its name and is the one figure HLR-145 requires be kept separate and honest; a rule that pruned uncovered lines everywhere would delete precisely that. A blank line and a line already excluded are skipped rather than counted, since pruning either removes nothing and counting it would inflate the figure of HLR-155 with lines no measurement rested on.
 
 **The image's ranges are merged in only once its pass is over**, and not as each is found. `byte_is_excluded` exits early on the first span starting past the byte it was asked about, which is correct exactly while the list is ordered; appending to the list being read would leave an unsorted tail behind the merged head, and the answer for one function would then depend on which functions the query happened to report before it.]]></interface>
           <interface title="Query Capture Contract"><![CDATA[The `.scm` files communicate through capture names, which are the contract between `runtime/` and this module: `@function.name`, `@function.body`, `@comment`, `@statement`, `@decision`, `@call`, `@call.name`, `@function.address_taken`, `@global.read`, `@global.write`, `@dead.terminator`, `@dead.reentry`, `@dead.branch`. A pattern may also carry **predicates**, and this module evaluates them: the parser library returns a predicate as data rather than applying it, so a stage that never asks accepts every match as though none were written. Five filters are honoured — equality, inequality, membership, and match and its negation against a POSIX extended regular expression — each comparing the text a capture spans against a string the query file wrote. A directive, which carries information rather than filtering, is ignored; a filter this build does not implement discards the match. A capture name this module does not recognise is ignored, so a query file may carry extra captures for its own purposes. `@function.address_taken` marks a function whose address is taken without being called — the fact that keeps callbacks and interrupt handlers out of the dead-code report (§11).]]></interface>
@@ -1006,6 +1010,7 @@ DOT quoted strings escape two characters, `"` and `\`. That escaper is deliberat
         <responsibility><![CDATA[Open and validate the named image, and extract every function it defines from the symbol table the linker wrote.]]></responsibility>
         <responsibility><![CDATA[Resolve a linkage name to the source name the report presents, where the name carries a published mangling.]]></responsibility>
         <responsibility><![CDATA[Answer membership for a source function, and account for both directions of mismatch.]]></responsibility>
+        <responsibility><![CDATA[Read the image's debug line information from the same open, so that the image is read once and nothing beside it (HLR-141, HLR-153).]]></responsibility>
         <interfaces>
           <interface title="What Counts as a Function the Image Defines"><![CDATA[A symbol is taken as a function the image defines when it is of type `STT_FUNC` and is **defined** rather than imported — its section index is not `SHN_UNDEF`. Both halves matter. Without the type test an object and a function of the same name are indistinguishable; without the definedness test every function the image *calls* out to a shared library would be counted as one the image contains, and a filter built from that set would retain source functions the build never compiled.
 
@@ -1054,6 +1059,50 @@ The filter itself is not applied here. A function the image does not define is n
           <case name="Image absent, unreadable, or not an object file"><![CDATA[Diagnostic naming the path, and a fatal exit before any file is measured. The user named it, so the failure is theirs to correct (HLR-146, HLR-063).]]></case>
           <case name="Image carries no function symbols"><![CDATA[Fatal, and separately diagnosed. An empty set is not an empty project: filtering every function away would report a code base with none, which no reader could distinguish from a correct result (HLR-146).]]></case>
           <case name="A linkage name this build does not decode"><![CDATA[Counted, not fatal, and reported with the run. The completeness of the filter is stated in the way the completeness of the graph is (HLR-143, HLR-077).]]></case>
+        </error_handling>
+      </module>
+
+      <module path="src/dwarfline.c">
+        <purpose><![CDATA[reads the debug line information a linked image carries, where it carries any, and answers which source lines this build produced an instruction for (HLR-153).]]></purpose>
+        <responsibility><![CDATA[Read the line programme of every compilation unit from the ELF descriptor `elfsyms.c` already holds, and from nothing else.]]></responsibility>
+        <responsibility><![CDATA[Answer, for one source file, whether the image's line information covers it at all.]]></responsibility>
+        <responsibility><![CDATA[Answer, for one line of a covered file, whether this build compiled an instruction for it.]]></responsibility>
+        <responsibility><![CDATA[Treat an image carrying no line information as an ordinary result rather than a failure, since HLR-141 forbids requiring debug information.]]></responsibility>
+        <interfaces>
+          <interface title="Coverage Governs Pruning"><![CDATA[Every query is in two parts and the first governs the second: **is this file covered**, and only then **is this line within it compiled**. They are separate calls rather than one so that the distinction cannot be made by accident.
+
+A line the mapping does not name produced no instruction — *in a file the mapping describes*. In a file it never described, absence is evidence of nothing at all. A translation unit compiled without debug information contributes no entries whatever, so a rule keyed on absence alone would find every line of it uncompiled and delete the file, leaving a report that is smaller, internally consistent, and wrong (HLR-154).
+
+That is the asymmetry HLR-133 already draws for a conditional region `elc` could not decide and HLR-138 for a language with no dead-code query, applied to a third kind of evidence. `dwarfline_compiled` deliberately answers *false* for an uncovered file: it is the unsafe answer, and `dwarfline_covers` is what makes asking it safe.]]></interface>
+          <interface title="libdw, Never libdwfl"><![CDATA[`dwarf_begin_elf` reads the sections of the ELF descriptor it is handed and nothing else. The `Dwfl` layer above it resolves separate debug information by `.gnu_debuglink` and build-id, which means opening a file under a separate-debug directory the user never named — forbidden outright by HLR-141.
+
+The two live in one library, so `ldd` is identical either way and the dependency allowlist cannot see the difference. The distinction is held instead by an instrumented test that counts the image's opens for a build carrying debug information, and finds one (LLR-DWL-01).]]></interface>
+          <interface title="Path Normalisation Is Lexical"><![CDATA[A compiler records a file name that may be relative to the unit's compilation directory and may carry `.` and `..` components. `elc`'s own paths are canonical and absolute, so the two are brought to one form before they are compared — by **lexical** normalisation, never `realpath(3)`.
+
+`realpath` would resolve symbolic links and give a better answer for the unusual build, at the cost of stat-ing every path the image happens to name, headers under `/usr/include` among them. That is filesystem work on files the user did not name, for a module whose whole contract is that it reads the image and nothing else. Lexical normalisation keeps the answer a property of the image's bytes.
+
+The cost is a build reaching its sources through a symbolic link: the two spellings do not meet, the file reports uncovered, and nothing in it is pruned. That is the safe direction — the count of HLR-155 says the coverage was not established, and no measured line is deleted on evidence that did not describe it (LLR-DWL-02).]]></interface>
+        </interfaces>
+        <functions>
+          <function signature="int dwarfline_read(void *elf, LineCoverage *out)" summary="Read the line information of an already-opened image. The handle is passed opaquely so that no consumer links a DWARF library merely to ask whether a line was compiled, which is why the SDG carries its graph object the same way. An image with no line information yields an empty set and is not a failure."/>
+          <function signature="bool dwarfline_covers(const LineCoverage *c, const char *path)" summary="Whether the image's line information covers this file. False for a unit compiled without debug information, for a file the mapping does not mention, and for every run with no image."/>
+          <function signature="bool dwarfline_compiled(const LineCoverage *c, const char *path, uint32_t line)" summary="Whether this build compiled an instruction for this line. Meaningful only where the coverage test passed for the same path."/>
+          <function signature="void dwarfline_free(LineCoverage *c)" summary="Release the coverage set and every path and line list it owns."/>
+        </functions>
+        <algorithm><![CDATA[Every compilation unit's line programme is walked once. The end-of-sequence marker carries the address one past the last instruction and names no line of source; counting it would mark a line compiled on the strength of a marker rather than of an instruction, so it is skipped.
+
+Each file's lines are then sorted and de-duplicated, because a line programme names one line once per instruction sequence attributed to it: the raw list is long and heavily repeated, and collapsing it makes membership a binary search and makes the set independent of how many sequences the compiler emitted. The file table is sorted by path for the same reason.
+
+**The library is a design choice under HLR-112, and the argument is the one that took `libelf`.** The DWARF line-number programme is a state machine whose file and directory tables changed shape at version 5 and reach into `.debug_line_str`, and every compiler this project is aimed at now emits version 5 by default. Hand-rolling it would put a format parser into `elc`'s defect surface for no benefit. `libdw` comes from the same elfutils tree as the `libelf` already linked and is taken on the same terms (doc/notes.md §1.1).
+
+**What the mapping cannot record is the phase's standing limit.** An optimiser may fold one source line's instructions into the entry recorded for a neighbouring line, and a line so folded is indistinguishable here from one that produced no instruction. Nothing in the image records the difference and `elc` does not attempt to recover it (HLR-154). The `elf/debugline/` fixture demonstrates it rather than describing it: at `-O0` exactly the region a `#ifdef` excluded is pruned, and at `-O2` the compiler folds a whole call to a constant and the function's body is pruned with it. The counts of HLR-155 are what let a reader judge how much of a report rests on this.]]></algorithm>
+        <dependencies>
+          <dep><![CDATA[`libdw` for the line programme, from the elfutils tree that supplies `libelf`. Called by `src/elfsyms.c` while it holds the image open; consumed by `src/analyze.c`. No other dependency on `src/`.]]></dep>
+        </dependencies>
+        <error_handling>
+          <case name="Image carries no debug line information"><![CDATA[Not an error, and not a degraded run. HLR-141 forbids *requiring* debug information, so the set comes back empty, every file is uncovered, nothing is pruned, and the reported metrics are those the same run reports at function granularity alone (HLR-153).]]></case>
+          <case name="A compilation unit with no line programme"><![CDATA[Contributes nothing and is not an error. Its files stay uncovered and are counted under HLR-155, which is the whole of what HLR-154 asks for.]]></case>
+          <case name="Allocation failure"><![CDATA[The only failure this module reports. The partially built set is released and the caller turns it into a fatal exit, since a coverage set built halfway would prune on evidence it does not have.]]></case>
         </error_handling>
       </module>
 
@@ -1241,11 +1290,17 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
         <field name="line" type="uint32_t" desc="1-based, where the definition starts"/>
       </type>
 
+      <type name="LineCoverage" header="include/dwarfline.h" summary="Every source file the image's debug line information covers, and the lines within each that produced at least one instruction (HLR-153).">
+        <field name="files" type="CoveredFile *" desc="Sorted by path; owned. Each holds the file's path as the image records it, normalised lexically, and an ascending de-duplicated line list — a line programme names one line once per instruction sequence, so the raw list is long and heavily repeated"/>
+        <field name="count" type="size_t" desc="Files covered"/>
+        <field name="present" type="bool" desc="Whether the image carried line information at all. Distinguishes a build made without debug information from one whose debug information describes other code: both prune nothing, and only the second says anything about the target"/>
+      </type>
       <type name="SymbolSet" header="include/elfsyms.h" summary="The function set one image defines, resolved to source names. Sorted and de-duplicated on the resolved name, so membership is a binary search and no property of symbol-table order can reach the output (HLR-032, LLR-ELF-05).">
         <field name="names" type="char **" desc="Resolved source names, sorted and unique; owned"/>
         <field name="count" type="size_t" desc="Populated entries"/>
         <field name="unresolved" type="size_t" desc="Function symbols whose linkage name carried a mangling this build does not decode. Counted rather than guessed at, and reported with the run: a filter whose completeness is unstated cannot be acted on (HLR-143)"/>
         <field name="path" type="char *" desc="The image as the user named it, so the report can say which image it describes without the options having to outlive the run (HLR-147)"/>
+        <field name="lines" type="LineCoverage" desc="The finer granularity, read from the same open as the symbols and empty where the build wrote no debug information. Here rather than in a structure of its own because it must come from the same *open*: the image is read once and nothing beside it, and a second module opening it again would break that while every unit test still passed (HLR-141, HLR-153)"/>
       </type>
 
       <type name="AbsentRow" header="include/report.h" summary="One function the image does not define, as the report presents it. Structurally an UnreachableRow and deliberately not one: both name a function no build needs, and they are established by different means — one inferred from the call graph, the other observed from what the linker did — so merging them would present an observation as an inference (HLR-143).">
@@ -1687,9 +1742,9 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-036, HLR-059, HLR-070, HLR-116, HLR-120"/>
       </fixture>
       <fixture name="`elf/`" source="[test/fixtures/elf/](../test/fixtures/elf/)">
-        <artefact key="inputs" label="Inputs" path="A source tree and images built from it by the test rather than committed, since a binary in the repository would be a fixture nobody could review. The C image is a **shared object** linked from a subset of the sources, which is what lets one image express three cases at once: functions absent from it, a function it *imports* rather than defines, and a call from a retained function to one the filter removed. Beside it: the same sources stripped; a C++ image exercising Itanium mangling; an image carrying a symbol in a mangling this build does not decode, written in assembly rather than produced by a second toolchain; a source file defining a function the image only imports; a file holding a function inside a constant condition, which no configuration builds; a file that is not an object file; a path that does not exist; and a run with no image at all"/>
-        <artefact key="expected" label="Expected" path="Hand-counted metrics over the retained functions only, with the file-scope ELOC reported separately; the list of source functions the image does not define, located as well as named; the unresolved-call count rising by exactly the one call whose target the filter removed; the count of linkage names left unresolved; byte-identical output — and a record carrying no image element at all — for a run with no image supplied; exit 2 with no report for the stripped image, the non-object file, and the absent path, each with its own diagnostic; and a function no configuration builds reported as neither retained nor absent"/>
-        <artefact key="verifies" label="Verifies" path="HLR-140 – HLR-147"/>
+        <artefact key="inputs" label="Inputs" path="A source tree and images built from it by the test rather than committed, since a binary in the repository would be a fixture nobody could review. The C image is a **shared object** linked from a subset of the sources, which is what lets one image express three cases at once: functions absent from it, a function it *imports* rather than defines, and a call from a retained function to one the filter removed. Beside it: the same sources stripped; a C++ image exercising Itanium mangling; an image carrying a symbol in a mangling this build does not decode, written in assembly rather than produced by a second toolchain; a source file defining a function the image only imports; a file holding a function inside a constant condition, which no configuration builds; a file that is not an object file; a path that does not exist; and a run with no image at all. **Phase 20 adds `debugline/`**: one translation unit compiled *with* debug information, holding a region guarded by a symbol neither the build nor `elc` defines — so the condition is one `elc` cannot decide and only the image can rule the region out — and one compiled *without* it, linked into the same image, and built at two optimisation levels"/>
+        <artefact key="expected" label="Expected" path="Hand-counted metrics over the retained functions only, with the file-scope ELOC reported separately; the list of source functions the image does not define, located as well as named; the unresolved-call count rising by exactly the one call whose target the filter removed; the count of linkage names left unresolved; byte-identical output — and a record carrying no image element at all — for a run with no image supplied; exit 2 with no report for the stripped image, the non-object file, and the absent path, each with its own diagnostic; and a function no configuration builds reported as neither retained nor absent. For `debugline/`: the guarded region's three statements pruned at `-O0` and the two functions every build compiles kept whole; the unit compiled without debug information keeping every line and counted uncovered; both counts of HLR-155; and, at `-O2`, only what holds whatever the optimiser did — since the compiler folds a whole call to a constant there and prunes the function's body with it, which is HLR-154's limit demonstrated rather than described"/>
+        <artefact key="verifies" label="Verifies" path="HLR-140 – HLR-147, HLR-153 – HLR-155"/>
       </fixture>
       <fixture name="`conditional/`" source="[test/fixtures/conditional/](../test/fixtures/conditional/)">
         <artefact key="inputs" label="Inputs" path="A C source carrying `#if 0`, `#ifdef` with an `#else`, `#ifndef`, and a condition over macro values nothing can decide; a **nested** conditional inside an `#if 0`, in a file of its own; the same mechanism under Rust `cfg` attributes, both plain and negated; an `#elif` chain in a directory of its own, so that the main tree's totals stay one hand-checkable table; and runs with no definitions, with one, with two, and with a symbol the tree never mentions"/>
@@ -4651,6 +4706,22 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
 
+      <llr id="LLR-ANL-60">
+        <text><![CDATA[`analyze_file` shall exclude, from a file the image's line information covers, each line within a function the image defines that produced no instruction, and shall count those lines. Where the image's line information does not cover the file, it shall exclude nothing on this account and shall mark the file as one whose coverage could not be established.
+
+The pass shall run **after** the comment, inactive-region, and absent-function exclusions, and shall skip a line already excluded by one of them: a line inside a comment, inside a region this configuration does not compile, or inside a function the linker discarded is already gone, and pruning it again would count it twice in a figure a reader is meant to act on.
+
+It shall be **confined to within functions the image defines**, which is why the absent-function pass hands back the kept extents as well. Code at file scope has few line entries to its name and is the one figure HLR-145 requires be kept separate and honest; a rule pruning uncovered lines everywhere would delete precisely that.
+
+A blank line shall be skipped rather than counted. It produces no instruction in any build, so its absence from the mapping says nothing about this one, and counting it would inflate the figure of HLR-155 with lines no measurement rested on.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-153" name="Debug-Line Pruning From the Image"/>
+          <trace target="HLR" ref="HLR-154" name="Pruning Confined to Established Coverage"/>
+          <trace target="HLR" ref="HLR-155" name="Debug-Line Pruning Recorded and Reported"/>
+          <trace target="HLR" ref="HLR-145" name="Code Outside Any Function Retained and Separately Reported"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-ANL-59">
         <text><![CDATA[`analyze_file` shall establish the absent set in a pass of its own over the function query rather than as a test inside the pass that records functions, since query matches arrive in no source order and a function nested inside an omitted one would otherwise be recorded before the omission that contains it was known.]]></text>
         <traces>
@@ -5846,11 +5917,14 @@ One function rather than a line in each of the two paths, so that "the total is 
         </traces>
       </llr>
       <llr id="LLR-SUM-06">
-        <text><![CDATA[`render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, the effective lines belonging to no function, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion. These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.
+        <text><![CDATA[`render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, the effective lines belonging to no function, the count of source lines this build compiled no instruction for, the count of analysed files whose debug coverage could not be established, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion.
+
+The two line-granularity counts shall appear whether or not the image carried line information: two zeroes state that nothing was pruned and nothing was uncoverable, which is a different claim from a section that omits the question. They are read as the unresolved-call count and the undecided-region count are read — the first states what the filter removed, the second states where it could not look (HLR-155). These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.
 
 The two are separate sections, because the tier boundary of LLR-SUM-09 runs between them: the image and its two counts are the provenance of a filtered run and are a summary tier, while the functions the image does not define are one row per function and are a detail tier. They remain adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-143" name="Both Directions of Mismatch Counted and Reported"/>
+          <trace target="HLR" ref="HLR-155" name="Debug-Line Pruning Recorded and Reported"/>
           <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
         </traces>
       </llr>
@@ -6036,7 +6110,9 @@ The project-level Henry-Kafura total is **re-summed from the restored rows** rat
         </traces>
       </llr>
       <llr id="LLR-XWR-14">
-        <text><![CDATA[`xml_write_report` shall record the image the filter was taken from and the counts derived from it, without which a regenerated report would describe a filtered run while naming no filter.]]></text>
+        <text><![CDATA[`xml_write_report` shall record the image the filter was taken from and the counts derived from it — the unresolved linkage names, the effective lines belonging to no function, the source lines this build compiled no instruction for, and the analysed files whose debug coverage could not be established — without which a regenerated report would describe a filtered run while naming no filter, or would name one and understate what it did.
+
+The line-granularity counts travel with the image element rather than with the per-file metrics, for the reason the file-scope figure does: they are properties of what the filter did to the run, and `report_assemble` on the regeneration path has no image to re-derive them from. Both shall be optional on read, since a record written before they existed carries the same format version and a run whose image held no line information writes them as zero either way (HLR-155).]]></text>
         <traces>
           <trace target="HLR" ref="HLR-147" name="Filter Recorded and Reported"/>
         </traces>
@@ -6358,6 +6434,56 @@ The project-level Henry-Kafura total is **re-summed from the restored rows** rat
       </llr>
     </function>
 
+    <function number="49.1" title="`dwarfline_read` ([src/dwarfline.c](../src/dwarfline.c))" name="dwarfline_read" source="src/dwarfline.c">
+      <llr id="LLR-DWL-01">
+        <text><![CDATA[`dwarfline_read` shall obtain the image's debug line information from the ELF descriptor `elfsyms_open` already holds, using the low-level DWARF interface and never the `Dwfl` layer above it. That layer resolves separate debug information by `.gnu_debuglink` and build-id, which opens a file under a separate-debug directory the user never named — forbidden by HLR-141.
+
+Nothing in the module shall open, stat, or resolve a path against the filesystem, so that the answer is a property of the image's bytes and not of the machine reading it. Both live in one library and neither is visible in the link line, so the distinction shall be held by a test that observes the image's opens for a build carrying debug information rather than by the dependency allowlist.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-141" name="Image Read Without a Toolchain"/>
+          <trace target="HLR" ref="HLR-153" name="Debug-Line Pruning From the Image"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-DWL-02">
+        <text><![CDATA[`dwarfline_read` shall bring each file name the image records to the form `elc`'s own paths take, joining a relative name to its unit's compilation directory and resolving `.` and `..` **lexically**. It shall not call `realpath(3)`: doing so would stat every path the image happens to name, headers among them, which is filesystem work on files the user did not name.
+
+Where a build reaches its sources through a symbolic link the two spellings will not meet, the file shall report uncovered, and nothing in it shall be pruned. That is the safe direction, and the count of HLR-155 states it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-154" name="Pruning Confined to Established Coverage"/>
+          <trace target="HLR" ref="HLR-141" name="Image Read Without a Toolchain"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-DWL-03">
+        <text><![CDATA[`dwarfline_read` shall skip the end-of-sequence entry of each line programme, which carries the address one past the last instruction and names no line of source. Counting it would mark a line compiled on the strength of a marker rather than of an instruction.
+
+Each file's lines shall be sorted and de-duplicated, since a line programme names one line once per instruction sequence attributed to it: the raw list is long and heavily repeated, and collapsing it makes membership a binary search and makes the set independent of how many sequences the compiler emitted.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-153" name="Debug-Line Pruning From the Image"/>
+          <trace target="HLR" ref="HLR-032" name="Deterministic Output"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-DWL-04">
+        <text><![CDATA[An image carrying no debug line information shall yield an empty coverage set and shall not be a failure, since HLR-141 forbids requiring debug information. `dwarfline_read` shall return non-zero on allocation failure alone, and shall release the partially built set before doing so — a coverage set built halfway would prune on evidence it does not have.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-153" name="Debug-Line Pruning From the Image"/>
+          <trace target="HLR" ref="HLR-141" name="Image Read Without a Toolchain"/>
+          <trace target="HLR" ref="HLR-125" name="Complete Resource Release"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-DWL-05">
+        <text><![CDATA[Coverage and compilation shall be two queries rather than one, and the first shall govern the second. `dwarfline_covers` shall answer whether the image's line information describes a file at all; `dwarfline_compiled` shall answer whether a line of it produced an instruction, and shall answer *false* for a file that is not covered.
+
+That answer is deliberately the unsafe one, and separating the calls is what makes asking it safe. A caller that skipped the coverage test would find every line of a file compiled without debug information uncompiled and would delete the file — absence from a mapping that never described it read as evidence about it, which is the one failure in this phase that is silent (HLR-154).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-154" name="Pruning Confined to Established Coverage"/>
+        </traces>
+      </llr>
+    </function>
+
     <function number="50" title="Build and Link Configuration ([Makefile](../Makefile))" name="build_configuration" source="Makefile">
       <intro><![CDATA[Requirements satisfied by the build rather than by any single function. Verified against the produced binary rather than at runtime.]]></intro>
       <llr id="LLR-BLD-01">
@@ -6489,6 +6615,16 @@ The project-level Henry-Kafura total is **re-summed from the restored rows** rat
           <trace target="HLR" ref="HLR-112"/>
         </traces>
       </llr>
+      <llr id="LLR-BLD-20">
+        <text><![CDATA[The build shall link `libdw` for the debug line information of HLR-153, taking it from the distribution as it takes `libelf` and for the same reason: it is the same elfutils tree, produced by the same configure run, and building it from source would import more distribution packages than taking it does. It shall appear in the installable package list, in the version report of `make check-prereqs`, and in the dependency allowlist together with the `libbz2` and `liblzma` it brings with it.
+
+The allowlist cannot hold the distinction that matters most about it. `libdw` contains both the low-level DWARF interface `elc` uses and the `Dwfl` layer that would open a file the user never named, and the link line is identical either way — so the rule is held by the instrumented test that counts the image's opens for a build carrying debug information (HLR-141, LLR-DWL-01).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-153" name="Debug-Line Pruning From the Image"/>
+          <trace target="HLR" ref="HLR-141" name="Image Read Without a Toolchain"/>
+          <trace target="HLR" ref="HLR-112"/>
+        </traces>
+      </llr>
       <llr id="LLR-BLD-09">
         <text><![CDATA[The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.]]></text>
         <traces>
@@ -6548,6 +6684,64 @@ The project-level Henry-Kafura total is **re-summed from the restored rows** rat
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
   <tests>
+  <file path="test/unit/dwarfline.c" role="unit" count="8">
+    <test name="a_file_the_mapping_describes_is_covered">
+      <purpose><![CDATA[A file the coverage set names is covered and one it does not name is not — the test that governs every other query in the module.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-05"/>
+        <trace target="HLR" ref="HLR-154"/>
+      </traces>
+    </test>
+    <test name="an_empty_set_covers_nothing">
+      <purpose><![CDATA[An image carrying no debug information at all covers no file, so nothing is pruned and the run reports what it reported before this mechanism existed. Null arguments answer the same way rather than faulting.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-04"/>
+        <trace target="HLR" ref="HLR-153"/>
+      </traces>
+    </test>
+    <test name="a_line_the_mapping_names_was_compiled">
+      <purpose><![CDATA[Membership at the first line, the last, and one in the middle; a gap between named lines, a line before the first and one past the last all answer not compiled. The binary search is what a heavily repeated line programme is collapsed to, so its boundaries are worth pinning.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-03"/>
+        <trace target="HLR" ref="HLR-153"/>
+      </traces>
+    </test>
+    <test name="an_uncovered_file_answers_not_compiled_for_every_line">
+      <purpose><![CDATA[**The failure the two-part contract exists to prevent.** A caller asking only this question would find every line of an uncovered file uncompiled and delete the file. The answer is deliberately the unsafe one; the coverage call is what makes asking it safe, and it has to be asked first.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-05"/>
+        <trace target="HLR" ref="HLR-154"/>
+      </traces>
+    </test>
+    <test name="several_files_are_each_looked_up_on_their_own_lines">
+      <purpose><![CDATA[One file's lines are not another's, over a set sorted by path — which is what the binary search over the file table requires.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-03"/>
+      </traces>
+    </test>
+    <test name="a_covered_file_with_no_lines_compiled_nothing">
+      <purpose><![CDATA[Covered and empty is a different claim from uncovered, and both are representable: the mapping described this file and recorded no instruction for any line of it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-05"/>
+        <trace target="HLR" ref="HLR-154"/>
+      </traces>
+    </test>
+    <test name="free_is_safe_on_null_and_twice">
+      <purpose><![CDATA[Releasing a null set does not fault and releasing one twice does not double-free, so teardown is safe on every path.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-04"/>
+        <trace target="HLR" ref="HLR-125"/>
+      </traces>
+    </test>
+    <test name="reading_a_null_image_yields_an_empty_set">
+      <purpose><![CDATA[Not a failure. An image with no debug information is ordinary and HLR-141 forbids requiring it, so the set comes back empty and the run proceeds at function granularity alone.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-04"/>
+        <trace target="HLR" ref="HLR-141"/>
+      </traces>
+    </test>
+  </file>
+
   <file path="test/unit/elfsyms.c" role="unit" count="11">
     <test name="an_unencoded_name_is_returned_unchanged">
       <purpose><![CDATA[The C case and the `extern "C"` case alike: a linkage name nothing encoded is its source name, and returning it unchanged is the whole of the rule.]]></purpose>
@@ -11320,7 +11514,7 @@ The project-level Henry-Kafura total is **re-summed from the restored rows** rat
     </test>
   </file>
 
-  <file path="test/fixtures/elf.bats" role="fixture" count="26">
+  <file path="test/fixtures/elf.bats" role="fixture" count="37">
     <test name="the hand-counted totals match with no image">
       <purpose><![CDATA[Two files, 61 physical lines, five functions and 13 ELOC, against a table worked out by hand in the fixture's README. The unfiltered figures are the baseline every filtered one is read against.]]></purpose>
       <traces>
@@ -11339,6 +11533,86 @@ The project-level Henry-Kafura total is **re-summed from the restored rows** rat
       <traces>
         <trace target="LLR" ref="LLR-ELF-01"/>
         <trace target="LLR" ref="LLR-ELF-04"/>
+      </traces>
+    </test>
+    <test name="HLR-153: a region the build excluded is pruned from a kept function">
+      <purpose><![CDATA[`guarded` survives the link and three statements inside it produced no instruction; the condition that excluded them is one elc cannot decide from the source, so only the image's line information can rule them out. ELOC 7 falls to 4 and the project total 15 to 12.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-153"/>
+        <trace target="LLR" ref="LLR-ANL-60"/>
+      </traces>
+    </test>
+    <test name="HLR-153: a function every build compiles is kept whole">
+      <purpose><![CDATA[The other direction, and what stops the pruning test passing against an implementation that deleted the file wholesale: the two functions every configuration compiles keep their exact ELOC and all four functions are still reported.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-153"/>
+        <trace target="LLR" ref="LLR-ANL-60"/>
+      </traces>
+    </test>
+    <test name="HLR-154: a file compiled without debug information loses no line">
+      <purpose><![CDATA[The dangerous case, and it is dangerous because it is silent. The unit contributes no line entries at all, so a rule keyed on absence would find every line of it uncompiled and delete the file — leaving a report that is smaller, internally consistent, and wrong.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-154"/>
+        <trace target="LLR" ref="LLR-DWL-05"/>
+        <trace target="LLR" ref="LLR-ANL-60"/>
+      </traces>
+    </test>
+    <test name="HLR-155: both counts are reported">
+      <purpose><![CDATA[Three statements and the two directives around them pruned; one file whose coverage could not be established. The pair is read as the unresolved-call count and the undecided-region count are — the first states what the filter removed, the second where it could not look.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-155"/>
+        <trace target="LLR" ref="LLR-SUM-06"/>
+      </traces>
+    </test>
+    <test name="HLR-133: the region is undecided, so only the image ruled it out">
+      <purpose><![CDATA[The fixture's whole assertion rests on this. Were the condition decidable from the source, Phase 15 would have removed the region before the image was consulted and every pruning test would pass against an implementation that read no debug information at all.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-133"/>
+        <trace target="HLR" ref="HLR-153"/>
+      </traces>
+    </test>
+    <test name="HLR-153: an image without debug information prunes nothing">
+      <purpose><![CDATA[HLR-141 forbids *requiring* debug information, so its absence costs the finer granularity and nothing else: every ELOC figure is the unfiltered one, nothing is pruned, and both files are counted uncovered rather than silently emptied.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-153"/>
+        <trace target="HLR" ref="HLR-141"/>
+        <trace target="LLR" ref="LLR-DWL-04"/>
+      </traces>
+    </test>
+    <test name="HLR-153: the metrics without debug information are the unfiltered ones">
+      <purpose><![CDATA[Stated as an equality between two runs rather than left to two hand-counted tables: the figures reported for an image carrying no line information are the figures reported before this phase existed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-153"/>
+        <trace target="LLR" ref="LLR-DWL-04"/>
+      </traces>
+    </test>
+    <test name="HLR-154: at -O2 an uncovered file is still untouched">
+      <purpose><![CDATA[The invariant that holds whatever the optimiser did, and the one the phase is unsafe without: coverage governs pruning, so a file the mapping never described loses nothing at any optimisation level, every function is still reported, and the file is still counted uncovered.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-154"/>
+        <trace target="LLR" ref="LLR-DWL-05"/>
+      </traces>
+    </test>
+    <test name="HLR-154: at -O2 the optimiser prunes more than the source excluded">
+      <purpose><![CDATA[The limit HLR-154 states, demonstrated rather than described: at -O2 the compiler folds a whole call to a constant and emits nothing for the function's body, so lines the source plainly holds are pruned with the ones the directive excluded. No exact figure is asserted, since one would pin the fixture to a single compiler's optimiser rather than to a requirement.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-154"/>
+        <trace target="HLR" ref="HLR-155"/>
+      </traces>
+    </test>
+    <test name="LLR-DWL-02: a path with .. components still resolves to the file">
+      <purpose><![CDATA[The compiler records the file name as the command line spelled it, joined to the unit's compilation directory, so an ordinary build records a name carrying `.` and `..`. The image's spelling and elc's canonical path meet only if the join is normalised — lexically, never through `realpath(3)`, which would stat every path the image happens to name. Coverage is established despite the components, and the guarded region is pruned, which it could not be from an uncovered file.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-02"/>
+        <trace target="HLR" ref="HLR-154"/>
+        <trace target="HLR" ref="HLR-141"/>
+      </traces>
+    </test>
+    <test name="HLR-155: the counts survive a record round trip">
+      <purpose><![CDATA[Neither count can be recomputed from a record: regeneration has no image, and no debug information to read from one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-155"/>
+        <trace target="LLR" ref="LLR-XWR-14"/>
       </traces>
     </test>
     <test name="HLR-140: with no image nothing is filtered and no section is added">
@@ -12099,7 +12373,7 @@ The project-level Henry-Kafura total is **re-summed from the restored rows** rat
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="29">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="30">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -12277,6 +12551,15 @@ The project-level Henry-Kafura total is **re-summed from the restored rows** rat
         <trace target="HLR" ref="HLR-141"/>
         <trace target="LLR" ref="LLR-ELF-03"/>
         <trace target="LLR" ref="LLR-ELF-04"/>
+      </traces>
+    </test>
+    <test name="HLR-141: an image carrying debug information is still opened once">
+      <purpose><![CDATA[The same claim against the case that can break it. Reading debug line information is what a DWARF library offers to do *elsewhere*: given the chance it resolves a `.gnu_debuglink` or a build-id and opens a file under a separate-debug directory the user never named. elc uses the low-level interface, which reads the descriptor it is handed and nothing else — a distinction one API call deep, invisible in `ldd`, and observable only here.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-141" name="Image Read Without a Toolchain"/>
+        <trace target="HLR" ref="HLR-153" name="Debug-Line Pruning From the Image"/>
+        <trace target="LLR" ref="LLR-DWL-01"/>
+        <trace target="LLR" ref="LLR-BLD-20"/>
       </traces>
     </test>
       <test name="the link line names the runtime the demangler lives in">

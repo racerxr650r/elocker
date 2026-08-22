@@ -1572,11 +1572,13 @@ Two new sections appear, and only when you supply an image — a run without
 
 ```
 Linked-image filter
-  Property                   Value
-  -------------------------  ------------------
-  Image                      build/app.elf
-  Unresolved linkage names   0
-  ELOC outside any function  2
+  Property                          Value
+  --------------------------------  ------------------
+  Image                             build/app.elf
+  Unresolved linkage names          0
+  ELOC outside any function         2
+  Lines not compiled by this build  14
+  Files with no debug coverage      1
 
 Functions the image does not define (2)
   Function      File                Line
@@ -1603,6 +1605,88 @@ correspondingly incomplete.
 produce. It is dead code established by what your linker did, rather than
 inferred from a call-graph traversal the way **Unreachable functions** is. The
 two are reported separately and neither is offered as the other.
+
+### The finer granularity: lines the build did not compile
+
+Everything above works from the image's **symbol table**, which names the
+*functions* the link kept. Where your image also carries **debug line
+information** — where it was built with `-g` — `elc` reads that too, and
+answers a second question the symbol table cannot: which *lines inside a kept
+function* the compiler actually emitted an instruction for. Lines it did not
+are excluded from every metric, exactly as a dropped function is.
+
+There is no option for this and nothing to remember. The finer granularity is
+governed by what your build wrote; an image made without `-g` behaves exactly
+as it did before, reporting the function filter alone.
+
+**This is where an image outreaches `-D`.** Take a region you never restated
+on the command line:
+
+```c
+int configure(int flags)
+{
+	int n = flags;
+
+#ifdef FEATURE_TELEMETRY
+	n |= TELEMETRY_BIT;
+	n |= REPORTING_BIT;
+#endif
+	return n;
+}
+```
+
+`FEATURE_TELEMETRY` is a symbol `elc` cannot decide, so
+[conditional compilation](#conditional-compilation) leaves the region whole and
+counts it among the **Undecided regions** — the honest answer from the source
+alone. The image settles it. Your build compiled nothing there, the line
+mapping says so, and those two lines leave the count.
+
+#### Absence of a line proves nothing where coverage was never established
+
+A translation unit compiled **without** `-g` contributes no line entries at
+all. Treating that absence as proof would delete the entire file — a smaller
+report, internally consistent, and completely wrong.
+
+So `elc` establishes coverage **per file** before excluding a single line in
+it. A file the image's line information does not cover loses nothing, and is
+counted instead. The two figures state both halves:
+
+| Figure | What it says |
+| ------ | ------------ |
+| **Lines not compiled by this build** | what the finer filter removed |
+| **Files with no debug coverage** | where it could not look |
+
+Read them the way you read **Unresolved calls** and **Undecided regions**. A
+large second figure beside a small first one tells you the report describes
+your *source* more nearly than your *image*, whatever image you named — which
+you could not infer from the metrics themselves.
+
+The first is a count of **source lines excluded**, not a difference in ELOC.
+The `#ifdef` and `#endif` lines above are excluded along with the region they
+guard, and neither was effective code to begin with, so a run reporting four
+lines pruned there moved ELOC by two.
+
+#### Two things the optimiser does to this
+
+**Pruning happens only inside functions the image defines.** Code at file scope
+has few line entries to its name, and it is the one figure
+[kept separate](#code-outside-a-function-is-kept-and-counted-on-its-own) on
+purpose — a rule that pruned uncovered lines everywhere would delete exactly
+that.
+
+**An optimiser folds lines, and the mapping does not record that it did.** One
+source line's instructions can be merged into the entry recorded for its
+neighbour, and a line so folded is indistinguishable — in the mapping alone —
+from one that produced no instruction. Nothing in the image records the
+difference and `elc` does not guess at it.
+
+In practice: at `-O0` the mapping is dense and the result tracks what the
+source says. At `-O2` and above, expect **more** to be pruned than any
+`#ifdef` excluded. A call the compiler folds to a constant emits nothing for
+the function's body, so that whole body is pruned and the function reports an
+ELOC of 0. That is a true statement about what shipped — the code really did
+contribute no instructions — and it is why the two counts exist rather than
+being left to be inferred. Neither is a defect to correct.
 
 ### Code outside a function is kept, and counted on its own
 

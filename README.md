@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 19 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 20 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, and Python**,
 in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -168,13 +168,28 @@ names `elc` could not decode** state how complete the filter is — the claim th
 unresolved-call count makes about the graph. The **source functions the image
 does not define** are the finding the option exists to produce: dead code
 established by what your linker did, rather than inferred from a traversal.
+
+Where the image also carries **debug line information** — where it was built
+with `-g` — `elc` reads that too, and narrows one granularity further: from the
+functions the link kept to the **lines inside them the compiler emitted an
+instruction for**. This is where an image outreaches `-D`. A region guarded by
+a symbol you never restated is one `elc` cannot decide from the source, so it
+is left whole and counted undecided; the image settles it, because the build
+compiled nothing there and the mapping says so. No option is needed and none
+exists: an image without debug information behaves exactly as it did before.
+
+Absence of a line proves nothing where coverage was never established, so
+coverage is settled **per file** first — a translation unit compiled without
+`-g` loses not one line and is counted instead. Two figures state both halves,
+and are read the way the unresolved-call count is: **lines not compiled by this
+build**, and **files with no debug coverage**.
 Code outside any function is retained and counted on its own, because an
 image's function set says nothing about a table of data. And a stripped image
 is an error rather than an empty filter, because reporting a project with no
 functions in it would be confidently wrong and indistinguishable from a correct
 result.
 
-**Progress: 19 of 24 phases complete.**
+**Progress: 20 of 24 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -201,7 +216,7 @@ result.
 | [17](doc/SDP.md#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 | [18](doc/SDP.md#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
 | [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
-| [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | 🔲 Not started |
+| [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
 | [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |
 | [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
 | [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
