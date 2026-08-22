@@ -21,10 +21,43 @@
 #include "calltree.h"
 #include "discover.h"
 #include "arch.h"
+#include "format_dsm.h"
 #include "state.h"
 #include "thresholds.h"
 #include "elc.h"
 #include "report.h"
+
+/* The directory containing `path`, as a fresh allocation (HLR-160).
+ *
+ * Written once and called from both places a FileMetrics is constructed —
+ * the analysis of a source file, and the reader that rebuilds a model from a
+ * saved record — so that a component's directory is the same string whichever
+ * way the model arrived. Deriving it at each *use* is what HLR-160 forbids;
+ * deriving it once per component, here, is what the field is for.
+ *
+ * The last separator is the split point, and the two edge cases are the ones
+ * that make a naive rsplit wrong: a file directly under the root has an empty
+ * prefix and its directory is "/", and a path carrying no separator at all has
+ * no directory to name and yields "." — the working directory, which is what
+ * the path is relative to. Discovery canonicalises every analysed path
+ * (HLR-072), so the second case reaches this function only from a record
+ * someone wrote by hand.
+ */
+char *component_directory(const char *path)
+{
+	const char *slash;
+
+	if (!path)
+		return NULL;
+
+	slash = strrchr(path, '/');
+	if (!slash)
+		return strdup(".");
+	if (slash == path)
+		return strdup("/");
+
+	return strndup(path, (size_t)(slash - path));
+}
 
 int metrics_add(MetricsAccumulator *acc, FileMetrics *metrics)
 {
@@ -1010,6 +1043,57 @@ static int set_coupling(Report *report, const ArchResults *arch, const Sdg *g)
 	return 0;
 }
 
+/* One index and its complement, rendered (HLR-162, HLR-163).
+ *
+ * Formatted here, once, for the reason the Instability value is: "undefined"
+ * is one of the legitimate answers, and four renderers each choosing between a
+ * number and a word is a decision that could differ between them.
+ *
+ * The complement is computed from the counts rather than subtracted from the
+ * rendered index, so that the pair is two roundings of one division rather
+ * than a rounding of a rounding. The two therefore need not read as exactly
+ * 100%, which is honest: one call in six is 16.67% and five in six 83.33%.
+ */
+static int set_index(ConformanceRow *row, size_t violations, size_t edges,
+                     bool defined)
+{
+	char index[32];
+	char conforming[32];
+
+	row->violations = violations;
+	row->edges      = edges;
+
+	if (!defined) {
+		snprintf(index, sizeof index, "undefined");
+		snprintf(conforming, sizeof conforming, "undefined");
+	} else {
+		snprintf(index, sizeof index, "%.2f%%",
+		         100.0 * (double)violations / (double)edges);
+		snprintf(conforming, sizeof conforming, "%.2f%%",
+		         100.0 * (double)(edges - violations) / (double)edges);
+	}
+
+	row->index      = strdup(index);
+	row->conforming = strdup(conforming);
+	return row->index && row->conforming ? 0 : -1;
+}
+
+static int set_conformance(Report *report, const ArchResults *arch)
+{
+	ConformanceIndices idx;
+
+	/* Counted from the findings arch.c already recorded, never re-derived
+	 * from the graph — which is what keeps the percentage and the table
+	 * printed beside it two views of one answer (HLR-164). */
+	conformance_indices(arch, &idx);
+
+	if (set_index(&report->back_call, idx.back_calls,
+	              idx.inter_layer_edges, idx.defined) != 0)
+		return -1;
+	return set_index(&report->skip_call, idx.skip_calls,
+	                 idx.inter_layer_edges, idx.defined);
+}
+
 static int set_dep_cycles(Report *report, const ArchResults *arch, const Sdg *g)
 {
 	if (arch->cycle_count == 0)
@@ -1089,7 +1173,8 @@ int report_set_arch(Report *report, const ArchResults *arch, const Sdg *g,
 
 	if (set_coupling(report, arch, g) != 0 ||
 	    set_dep_cycles(report, arch, g) != 0 ||
-	    set_layering(report, arch, g, opts) != 0)
+	    set_layering(report, arch, g, opts) != 0 ||
+	    set_conformance(report, arch) != 0)
 		return -1;
 
 	/* Every collection ordered by an explicit key before a renderer sees
@@ -1554,6 +1639,13 @@ void report_free(Report *report)
 	free(report->layering);
 	report->layering       = NULL;
 	report->layering_count = 0;
+	free(report->back_call.index);
+	free(report->back_call.conforming);
+	free(report->skip_call.index);
+	free(report->skip_call.conforming);
+	memset(&report->back_call, 0, sizeof report->back_call);
+	memset(&report->skip_call, 0, sizeof report->skip_call);
+	dsm_free(&report->dsm);
 	for (size_t i = 0; i < report->finding_count; i++) {
 		free(report->findings[i].severity);
 		free(report->findings[i].measurement);

@@ -497,7 +497,7 @@ already names the format, so name it once or name it the same twice
 
 The extension picks the format and nothing else. The companion artefacts put
 their own extension on the same path, so `-o report.md` still gives you
-`report.dot` and `report.graphml`.
+`report.dot`, `report.graphml`, and `report.dsm.csv`.
 
 **`table` and `md` are the same report,** built by walking the same
 underlying data once. A section cannot appear in one and be missing from the
@@ -552,6 +552,7 @@ match — is a detail tier.
 | Files | ✅ | ✅ |
 | At or over the complexity threshold | ✅ | ✅ |
 | An analysis omitted for want of a declaration, with its reason | ✅ | ✅ |
+| Architecture conformance | ✅ | ✅ |
 | Findings | ✅ | ✅ |
 | Conditional-compilation definitions | ✅ | ✅ |
 | Linked-image filter | ✅ | ✅ |
@@ -560,6 +561,7 @@ match — is a detail tier.
 | Functions | — | ✅ |
 | Fan-out, Information flow, Recursion, Deepest call chain | — | ✅ |
 | Component coupling, Component dependency cycles, Layering | — | ✅ |
+| Dependency structure matrix | — | ✅ |
 | Global state, Unreachable globals | — | ✅ |
 | Unreachable functions, Dead code within functions | — | ✅ |
 | Cross-scope access | — | ✅ |
@@ -1034,6 +1036,139 @@ different fact, with its own findings in Global state and `--scope`.
 
 With no `--stratum` at all the section states that it was omitted. The coupling
 table above it is still produced.
+
+### How much of it conforms
+
+The Layering section says *which* calls breach the declaration. The two
+conformance indices say *how much of the code base* does not:
+
+```text
+Architecture conformance (over 6 inter-layer call edges; undefined where there are none)
+  Index      Violating  Conforming  Of
+  ---------  ---------  ----------  --
+  Back-call     16.67%      83.33%   6
+  Skip-call     16.67%      83.33%   6
+```
+
+Both are proportions of the same denominator: **the run's inter-layer call
+edges** — the call edges joining two components that lie in *different*
+declared layers. The tree above has six of them, one of which runs against the
+declared direction and one of which bypasses a layer, so each index is one in
+six.
+
+**Three things are outside that denominator**, and each is worth knowing about
+before you compare a figure against your own count:
+
+* A call **within** one layer. It has no direction to invert, so it is not a
+  candidate for either index.
+* A call touching a file **no `--stratum` names**. It lies outside the
+  partition, exactly as it does in the Layering section.
+* A **shared global**. It is coupling, not invocation, and has its own
+  findings in Global state.
+
+A repeated call counts once, as everywhere else: one function calling another
+in forty places is one edge, so the percentages are over the same figure the
+tables beside them show.
+
+**Where there is no inter-layer call at all, both read `undefined`** — not 0%,
+and not 100% conforming:
+
+```text
+Architecture conformance (over 0 inter-layer call edges; undefined where there are none)
+  Index      Violating   Conforming  Of
+  ---------  ----------  ----------  --
+  Back-call   undefined   undefined   0
+  Skip-call   undefined   undefined   0
+```
+
+A project whose layers never call one another has not achieved perfect
+conformance; it has demonstrated nothing either way. This is the same
+convention Instability follows when both its couplings are zero, and
+deliberately not the one Henry–Kafura follows — that metric is genuinely
+*equal to* zero when its inputs vanish, and prints `0`. The difference between
+the two is why each exists.
+
+**Do not add the two indices together.** A call ascending two layers is a
+back-call and a skip-level call at once and is counted once in each, so a
+combined score would count twice exactly the call most worth acting on — and
+would name no remedy, where each index separately names one. `elc` reports no
+combined score for that reason.
+
+Both are counted from the layering findings listed above them, never
+re-derived from the graph, so the percentage and the table cannot drift apart.
+
+### The dependency matrix
+
+The indices say how much conforms; the matrix says **where** the dependencies
+are:
+
+```text
+Dependency structure matrix (declared layers)
+  Rows are callers, columns callees, in ascending order. Above the diagonal: the declared direction. On it: within one subject. Below it: back-calls.
+  caller \ callee  app  hal  drv
+  ---------------  ---  ---  ---
+  app                0    2    1
+  hal                1    0    2
+  drv                0    0    0
+```
+
+**Rows are callers and columns are callees**, both in ascending layer order.
+That is what gives a cell's *position* a meaning:
+
+* **Above** the diagonal — dependencies running the way you declared, from a
+  layer to one below it. The `app → hal` cell of 2 is two such calls.
+* **On** the diagonal — dependencies inside one subject, which no declared
+  order constrains.
+* **Below** the diagonal — the back-calls. The single `hal → app` cell is the
+  one inverted call the Layering section lists, and the cells below the
+  diagonal always total exactly that count.
+
+The convention is printed with the matrix every time it renders. A grid whose
+orientation you have to infer gives you the opposite answer half the time,
+which is worse than no grid.
+
+**You get a matrix even with nothing declared** — over the analysed
+directories instead, ordered by path (the convention line is printed here too
+and is elided below for width):
+
+```text
+Dependency structure matrix (directories: no strata declared, see --stratum)
+  caller \ callee      /home/u/proj/src/app  /home/u/proj/src/drv  /home/u/proj/src/hal
+  -------------------  --------------------  --------------------  --------------------
+  /home/u/proj/src/app                    0                     1                     2
+  /home/u/proj/src/drv                    0                     0                     0
+  /home/u/proj/src/hal                    1                     2                     0
+```
+
+Same six edges, arranged two ways. The heading tells you which you are looking
+at, and it matters: with directories the order is alphabetical rather than
+architectural, so **no cell below this diagonal is a violation** — it is just a
+dependency that happens to point at an earlier name.
+
+The matrix counts call edges only, for the reason the layering analysis does. A
+global object two subjects share is a different fact.
+
+It is a detail tier, so it appears in `--verbose` reports. For a
+machine-readable copy beside the report:
+
+```sh
+elc --dsm -o report.md src/     # writes report.md and report.dsm.csv
+```
+
+```text
+"Rows are callers, columns callees, in ascending order. Above the diagonal: the declared direction. On it: within one subject. Below it: back-calls."
+caller \ callee,app,hal,drv
+app,0,2,1
+hal,1,0,2
+drv,0,0,0
+```
+
+The convention is the first record; the grid follows. Every field goes through
+the same RFC 4180 quoting the CSV report uses, so a directory whose name
+contains a comma is quoted rather than splitting the row. Like `--graphml`, the
+companion is off unless you ask for it and needs `--output` to derive a name
+from — but unlike `--graphml`, it works in regeneration mode too, because a
+saved record carries the matrix where it carries no graph.
 
 ### Dead code between functions
 
@@ -1895,6 +2030,7 @@ comparable.
 | `--elf` | `FILE` | none | Restrict every measurement to the functions the linked image `FILE` defines |
 | `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
+| `--dsm` | — | off | Also write the dependency structure matrix as CSV, named from `--output` |
 | `--no-dot` | — | `.dot` written | Do not write the annotated Graphviz call tree, which is otherwise written beside the report |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 

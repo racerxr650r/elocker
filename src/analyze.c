@@ -31,6 +31,10 @@
 #include "elc.h"
 #include "elfsyms.h"
 #include "registry.h"
+/* For `component_directory` alone: the model defines how a component's
+ * directory is derived, and this module records it on the FileMetrics it
+ * builds, so that one derivation serves every consumer (HLR-160). */
+#include "report.h"
 
 /* Capture names from runtime/queries/README.md. These are a contract with
  * every language module, not a property of any language. */
@@ -89,6 +93,7 @@ void filemetrics_free(FileMetrics *metrics)
 		free(metrics->absent[i].name);
 	free(metrics->absent);
 	free(metrics->language);
+	free(metrics->directory);
 	free(metrics->path);
 	free(metrics);
 }
@@ -1945,10 +1950,13 @@ static int prepare_records(const LanguageModule *module, const char *path,
 		facts->path       = strdup(path);
 		metrics->path     = strdup(path);
 		metrics->language = strdup(module->language_name);
+		/* Recorded here, once, rather than sliced off the path by
+		 * every analysis that groups by directory (HLR-160). */
+		metrics->directory = component_directory(path);
 	}
 
 	if (!metrics || !facts || !facts->path || !metrics->path ||
-	    !metrics->language) {
+	    !metrics->directory || !metrics->language) {
 		fprintf(stderr, "elc: out of memory measuring %s\n", path);
 		return -1;
 	}

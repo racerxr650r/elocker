@@ -30,6 +30,7 @@
 #include <string.h>
 
 #include "arch.h"
+#include "format_dsm.h"
 #include "thresholds.h"
 #include "format_text.h"
 #include "report.h"
@@ -836,6 +837,80 @@ static int layering_section(const Report *report, Style style, FILE *out)
 	return 0;
 }
 
+/* The two conformance indices, and the matrix beneath them.
+ *
+ * A project-level aggregate rather than one row per anything, so it sits in
+ * the summary tier beside the other figures a reader is given before the
+ * tables (LLR-SUM-11). The matrix that follows it enumerates one row per
+ * subject and is a detail tier by the same rule.
+ *
+ * **The two indices are never summed.** A call ascending two layers is a
+ * back-call and a skip-level call at once and is counted once in each, so a
+ * combined score would count twice exactly the call most worth acting on —
+ * and would name no remedy, where each index separately names one (HLR-163,
+ * LLR-LAY-04). They are presented as two rows for that reason, not as a
+ * decomposition of a total.
+ */
+static int conformance_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+	char a[32];
+
+	static const char *const names[]   = { "Index", "Violating",
+	                                       "Conforming", "Of" };
+	static const bool        numeric[] = { false, true, true, true };
+	char                     heading[224];
+
+	/* Measured *and* rendered. The state alone is not enough: STRATA_MEASURED
+	 * is the zero of its enum, so a model that carries no indices at all —
+	 * a record written before they existed, or a report a test built by
+	 * hand — reads as measured while holding nothing to print. A renderer
+	 * is a pure consumer, so it prints what the model has rather than what
+	 * the model's state implies it should have. */
+	bool measured = report->strata_state == STRATA_MEASURED &&
+	                report->back_call.index && report->back_call.conforming &&
+	                report->skip_call.index && report->skip_call.conforming;
+
+	if (measured)
+		snprintf(heading, sizeof heading,
+		         "Architecture conformance (over %" PRIu64
+		         " inter-layer call edges; undefined where there "
+		         "are none)", report->back_call.edges);
+	else
+		snprintf(heading, sizeof heading,
+		         "Architecture conformance (omitted: no "
+		         "architectural strata declared, see --stratum)");
+
+	grid_begin(&grid, heading, 4, names, numeric);
+	if (measured) {
+		snprintf(a, sizeof a, "%" PRIu64, report->back_call.edges);
+		grid_row(&grid, "Back-call", report->back_call.index,
+		         report->back_call.conforming, a);
+		snprintf(a, sizeof a, "%" PRIu64, report->skip_call.edges);
+		grid_row(&grid, "Skip-call", report->skip_call.index,
+		         report->skip_call.conforming, a);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+/* The matrix, in whichever decoration the traversal is wearing.
+ *
+ * One entry in the section table and two calls, so the tier cannot be present
+ * in one human-facing format and absent from the other. It is rendered by
+ * `format_dsm.c` rather than built into a Grid because its column count is the
+ * number of subjects rather than a fixed few, and because its cells must
+ * escape the Markdown separator (HLR-064, HLR-166).
+ */
+static int dsm_section(const Report *report, Style style, FILE *out)
+{
+	return style == STYLE_MARKDOWN
+	               ? format_dsm_markdown(&report->dsm, out)
+	               : format_dsm_table(&report->dsm, out);
+}
+
 static int global_state_section(const Report *report, Style style, FILE *out)
 {
 	Grid grid;
@@ -1359,6 +1434,8 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		{ coupling_section,              TIER_DETAIL,  NULL            },
 		{ dependency_cycles_section,     TIER_DETAIL,  NULL            },
 		{ layering_section,              TIER_DETAIL,  strata_omitted  },
+		{ conformance_section,           TIER_SUMMARY, NULL            },
+		{ dsm_section,                   TIER_DETAIL,  NULL            },
 		{ global_state_section,          TIER_DETAIL,  NULL            },
 		{ unreachable_functions_section, TIER_DETAIL,  reach_omitted   },
 		{ unreachable_globals_section,   TIER_DETAIL,  NULL            },

@@ -34,6 +34,7 @@
 #include "calltree.h"
 #include "discover.h"
 #include "elc.h"
+#include "format_dsm.h"
 #include "format_xml.h"
 #include "report.h"
 #include "thresholds.h"
@@ -345,6 +346,24 @@ static void write_image(const Report *report, FILE *out)
 	fputs("  </image>\n", out);
 }
 
+/* One conformance index, as the run rendered it.
+ *
+ * The figures are written rather than the division that produced them, for the
+ * reason a component's Instability is: "undefined" is one of the legitimate
+ * answers, and a record that carried only the counts would leave the
+ * regenerated report to decide how to say so a second time. */
+static void write_conformance(FILE *out, const char *kind,
+                              const ConformanceRow *row)
+{
+	fputs("    <conformance", out);
+	write_attribute(out, "kind", kind);
+	write_attribute(out, "index", row->index ? row->index : "undefined");
+	write_attribute(out, "conforming",
+	                row->conforming ? row->conforming : "undefined");
+	fprintf(out, " violations=\"%" PRIu64 "\" edges=\"%" PRIu64 "\"/>\n",
+	        row->violations, row->edges);
+}
+
 /* The component-level measurements. Carried for the reason every other
  * analysis result is: regeneration has no graph and no source tree to rebuild
  * one from, so a value not written here is one the regenerated report cannot
@@ -388,7 +407,47 @@ static void write_architecture(const Report *report, FILE *out)
 		fprintf(out, " layers=\"%" PRIu32 "\" kind=\"%d\"/>\n",
 		        r->layers_crossed, (int)r->kind);
 	}
+	/* The two conformance indices, rendered rather than as their inputs.
+	 * "undefined" is one of the legitimate values and the record carries
+	 * the same answer the live run printed, exactly as it carries a
+	 * component's Instability (HLR-162, HLR-163). The counts travel beside
+	 * them because a proportion is not interpretable without the number it
+	 * is over. */
+	write_conformance(out, "back-call", &report->back_call);
+	write_conformance(out, "skip-call", &report->skip_call);
 	fputs("  </architecture>\n", out);
+}
+
+/* The dependency matrix (HLR-165, HLR-166).
+ *
+ * Carried because a record has no call graph to rebuild it from, which is the
+ * rule every other analysis result in this document obeys (HLR-054).
+ *
+ * **Only the non-zero cells are written.** A matrix over a real project is
+ * mostly zeroes — that is what makes it readable — and a cell absent from the
+ * document reads back as the zero it was. The subjects precede the cells, so
+ * the reader knows the order of the grid before an index into it arrives.
+ */
+static void write_dsm(const Report *report, FILE *out)
+{
+	const Dsm *m = &report->dsm;
+
+	fprintf(out, "  <dsm from-strata=\"%d\">\n", m->from_strata ? 1 : 0);
+	for (size_t i = 0; i < m->count; i++) {
+		fputs("    <dsm-subject", out);
+		write_attribute(out, "name", m->subjects[i]);
+		fputs("/>\n", out);
+	}
+	for (size_t row = 0; row < m->count; row++)
+		for (size_t col = 0; col < m->count; col++) {
+			size_t calls = m->cells[row * m->count + col];
+
+			if (calls == 0)
+				continue;
+			fprintf(out, "    <dsm-cell row=\"%zu\" col=\"%zu\""
+			        " calls=\"%zu\"/>\n", row, col, calls);
+		}
+	fputs("  </dsm>\n", out);
 }
 
 /* The findings. Carried because regeneration has no measurements to re-band
@@ -463,6 +522,7 @@ int xml_write_report(const Report *report, FILE *out)
 		write_configuration,
 		write_image,
 		write_architecture,
+		write_dsm,
 		write_findings,
 		write_discovery,
 		write_skipped
@@ -524,6 +584,9 @@ typedef struct {
 	StrataState         strata_state;
 	LayeringRow        *layering;
 	size_t              layering_count;
+	ConformanceRow      back_call;
+	ConformanceRow      skip_call;
+	Dsm                 dsm;
 	DeadRow            *dead;
 	size_t              dead_count;
 	RuleMatchRow       *rule_matches;
@@ -669,9 +732,14 @@ static void on_file(ReadState *state, const XML_Char **atts)
 		return;
 	}
 
-	file->path = strdup(path);
-	if (!file->path) {
-		free(file);
+	file->path      = strdup(path);
+	/* Derived rather than recorded in the document, because it is a
+	 * property of the path the record already carries. One derivation
+	 * serves the live run and the regenerated one, so a component's
+	 * directory cannot differ between them (HLR-160). */
+	file->directory = component_directory(path);
+	if (!file->path || !file->directory) {
+		filemetrics_free(file);
 		fail(state, "out of memory");
 		return;
 	}
@@ -1333,6 +1401,102 @@ static void on_dependency_cycle(ReadState *state, const XML_Char **atts)
 	return;
 }
 
+/* One conformance index, restored as the live run rendered it (HLR-162,
+ * HLR-163).
+ *
+ * The strings are taken from the record rather than recomputed from the
+ * counts beside them, so that a regenerated report cannot round a figure
+ * differently from the report it came from. */
+static void on_conformance(ReadState *state, const XML_Char **atts)
+{
+	const char *kind       = attribute(atts, "kind");
+	const char *index      = attribute(atts, "index");
+	const char *conforming = attribute(atts, "conforming");
+
+	if (!kind || !index || !conforming) {
+		fail(state, "a conformance element is incomplete");
+		return;
+	}
+
+	ConformanceRow *row = strcmp(kind, "skip-call") == 0
+	                              ? &state->skip_call
+	                              : &state->back_call;
+
+	free(row->index);
+	free(row->conforming);
+	row->index      = strdup(index);
+	row->conforming = strdup(conforming);
+	if (!row->index || !row->conforming) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->violations = uint_attribute(state, atts, "violations");
+	row->edges      = uint_attribute(state, atts, "edges");
+}
+
+static void on_dsm(ReadState *state, const XML_Char **atts)
+{
+	const char *from_strata = attribute(atts, "from-strata");
+
+	state->dsm.from_strata = from_strata && strtol(from_strata, NULL, 10);
+}
+
+static void on_dsm_subject(ReadState *state, const XML_Char **atts)
+{
+	const char *name = attribute(atts, "name");
+
+	if (!name) {
+		fail(state, "a dsm-subject element has no name");
+		return;
+	}
+
+	char **grown = realloc(state->dsm.subjects,
+	                       (state->dsm.count + 1) * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->dsm.subjects = grown;
+
+	state->dsm.subjects[state->dsm.count] = strdup(name);
+	if (!state->dsm.subjects[state->dsm.count]) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->dsm.count++;
+}
+
+/* One non-zero cell. The grid is allocated on the first of them, by which
+ * point every subject has been read: the subjects precede the cells in the
+ * document, so the order of the matrix is known before any index into it
+ * arrives. A record whose cells preceded its subjects would name indices into
+ * a grid of unknown size, and those cells are dropped rather than guessed at. */
+static void on_dsm_cell(ReadState *state, const XML_Char **atts)
+{
+	uint64_t row   = uint_attribute(state, atts, "row");
+	uint64_t col   = uint_attribute(state, atts, "col");
+	uint64_t calls = uint_attribute(state, atts, "calls");
+
+	if (state->dsm.count == 0)
+		return;
+
+	if (!state->dsm.cells) {
+		state->dsm.cells = calloc(state->dsm.count * state->dsm.count,
+		                          sizeof *state->dsm.cells);
+		if (!state->dsm.cells) {
+			fail(state, "out of memory");
+			return;
+		}
+	}
+
+	if (row >= state->dsm.count || col >= state->dsm.count) {
+		fail(state, "a dsm-cell element names a cell outside the grid");
+		return;
+	}
+	state->dsm.cells[row * state->dsm.count + col] = (size_t)calls;
+}
+
 static void on_layering(ReadState *state, const XML_Char **atts)
 {
 	const char *from_stratum = attribute(atts, "from-stratum");
@@ -1498,6 +1662,10 @@ static const struct {
 	{ "coupling",            on_coupling },
 	{ "dependency-cycle",    on_dependency_cycle },
 	{ "layering",            on_layering },
+	{ "conformance",         on_conformance },
+	{ "dsm",                 on_dsm },
+	{ "dsm-subject",         on_dsm_subject },
+	{ "dsm-cell",            on_dsm_cell },
 	{ "graph",               on_graph },
 	{ "route",               on_route },
 	{ "function",            on_function },
@@ -1628,6 +1796,11 @@ static void free_findings_state(ReadState *state)
 		free(state->layering[i].to_file);
 	}
 	free(state->layering);
+	free(state->back_call.index);
+	free(state->back_call.conforming);
+	free(state->skip_call.index);
+	free(state->skip_call.conforming);
+	dsm_free(&state->dsm);
 }
 
 static void free_source_state(ReadState *state)
@@ -1753,6 +1926,9 @@ static void move_to_report(ReadState *state, Report *out)
 	out->strata_state             = state->strata_state;
 	out->layering                 = state->layering;
 	out->layering_count           = state->layering_count;
+	out->back_call                = state->back_call;
+	out->skip_call                = state->skip_call;
+	out->dsm                      = state->dsm;
 	out->dead                     = state->dead;
 	out->dead_count               = state->dead_count;
 	out->rule_matches             = state->rule_matches;
@@ -1789,6 +1965,9 @@ static void move_to_report(ReadState *state, Report *out)
 	state->dep_cycle_count          = 0;
 	state->layering                 = NULL;
 	state->layering_count           = 0;
+	memset(&state->back_call, 0, sizeof state->back_call);
+	memset(&state->skip_call, 0, sizeof state->skip_call);
+	memset(&state->dsm, 0, sizeof state->dsm);
 	state->dead                     = NULL;
 	state->dead_count               = 0;
 	state->rule_matches             = NULL;

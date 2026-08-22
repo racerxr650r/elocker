@@ -1,6 +1,6 @@
 # High-Level Requirements
 
-**Version:** 3.7
+**Version:** 3.8
 **Date:** 2026-08-22
 **Author(s):** John Anderson
 
@@ -831,7 +831,7 @@ Section 11 already *detects* the two ways a call can breach a declared layering:
     `elc` shall produce a **Dependency Structure Matrix**: a square grid whose rows and columns are the same ordered sequence of subjects, and whose cell at row *i*, column *j* holds the number of call edges from subject *i* to subject *j*.
 
     The subjects shall be the declared layers where strata were declared, and the analysed directories (HLR-160) where they were not, so that the matrix is available to a reader who has declared no architecture and is the shape they expect where they have. The matrix reports call edges alone, for the reason the layering analysis does (LLR-LAY-05): a global object two subjects happen to share is a different fact with its own analyses.
-    *Trace:* [SDD Section 9](SDD.md), [SDD Section 13](SDD.md).
+    *Trace:* [SDD Section 9](SDD.md), [SDD Section 13](SDD.md), [SDD Section 22](SDD.md).
 
 *   <a id="HLR-166"></a>**HLR-166: Matrix Ordering, the Diagonal, and Its Renderings.**
     The matrix of HLR-165 shall order its subjects by ascending layer index where strata were declared, and by path where they were not, so that the position of a cell carries meaning rather than merely locating a number:
@@ -841,7 +841,17 @@ Section 11 already *detects* the two ways a call can breach a declared layering:
     *   Cells **below** the diagonal are back-calls (HLR-162) — the violations, gathered on one side of the grid where a reader can see them at a glance.
 
     This convention shall be stated wherever the matrix is rendered, since a matrix whose orientation the reader has to infer conveys the opposite of what it is for. `elc` shall render the matrix as CSV and as Markdown, both governed by the escaping and determinism rules every other rendering obeys (HLR-064, HLR-032, HLR-033).
-    *Trace:* [SDD Section 9](SDD.md), [SDD Section 21](SDD.md).
+
+    The matrix is a tier of the report and not a separate artefact, so the aligned table renders it too. HLR-031 does not permit a tier present in one human-facing format and absent from the other, and a rendering that existed only in Markdown would be exactly that. The Markdown rendering of this requirement is therefore the matrix as it appears in a Markdown report; the CSV rendering is the machine-readable copy written beside the report by HLR-180. The matrix is a detail tier by the partition rule of HLR-150, since it enumerates one row per subject, while the indices of HLR-162 and HLR-163 are project-level aggregates and are summary tiers.
+    *Trace:* [SDD Section 9](SDD.md), [SDD Section 22](SDD.md).
+
+*   <a id="HLR-180"></a>**HLR-180: The Matrix Written Beside the Report on Request.**
+    `elc` shall write, on request, the Dependency Structure Matrix of HLR-165 as a CSV file beside the report, named from the report's own output path by the extension substitution of HLR-119, and shall write nothing where the report has no path to derive a name from (HLR-104). This is the CSV rendering HLR-166 requires; the matrix itself is part of the report at either verbosity's detail tier whatever format is rendered, and this requirement governs the machine-readable copy of it alone.
+
+    The companion shall be off unless asked for, by the rule HLR-106 applies to the GraphML export rather than the rule HLR-103 applies to the call tree. A run that did not ask for it shall produce exactly the files it produced before the option existed.
+
+    Unlike the two graph companions, it shall be available in the regeneration mode of HLR-055. A saved record carries the matrix (HLR-054) where it carries no topology, so there is something to write from — and refusing a file the record is sufficient to produce would withhold it for a reason that does not apply.
+    *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md), [SDD Section 22](SDD.md).
 
 ## 22. Graph Purification and Architecture Recovery
 
@@ -896,7 +906,9 @@ Two boundaries govern the whole section, and both exist because this is the one 
     *Trace:* [SDD Section 20](SDD.md).
 
 *   <a id="HLR-173"></a>**HLR-173: A Recovered Layering Is a Proposal, Never a Baseline.**
-    A layering recovered under HLR-172 shall never be used as the declared architecture that the conformance analyses measure against. The strata of HLR-078 are the sole baseline for the layering findings of Section 11 and the indices and matrix of Section 21, and where no strata are declared those analyses shall remain omitted with their reason stated (HLR-115) however confidently a layering was recovered.
+    A layering recovered under HLR-172 shall never be used as the declared architecture that the conformance analyses measure against. The strata of HLR-078 are the sole baseline for the layering findings of Section 11 and the indices of HLR-162 and HLR-163, and where no strata are declared those analyses shall remain omitted with their reason stated (HLR-115) however confidently a layering was recovered.
+
+    The matrix of HLR-165 is the one part of Section 21 this does not silence, and the distinction is what the requirement is about rather than an exception to it. The matrix *measures nothing against a baseline*: it counts the call edges between subjects, and with no declaration its subjects are the analysed directories — a grouping the discovery stage established (HLR-160) rather than one `elc` proposed. A recovered layering shall not become those subjects either, for the reason it shall not become the baseline: a matrix whose rows were read off the graph it arranges would make every project look layered.
 
     `elc` measuring conformance against its own proposal would be a tool marking its own homework: every code base would conform, because the standard would have been read off the thing it was judging. HLR-078's rule that strata are never discovered automatically is unchanged by this section — what is added is a *proposal a user may read, adopt, and then declare*, and the declaring is theirs.
 

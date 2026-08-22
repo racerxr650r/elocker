@@ -860,3 +860,49 @@ Test(cli, the_usage_summary_documents_verbosity_and_the_extension_rule)
 	                                  "format"));
 	free(buffer);
 }
+
+/* `--dsm` records a request for the CSV companion and validates nothing
+ * against `--output` here (LLR-CLI-31).
+ *
+ * The absence of that validation is the requirement rather than an omission:
+ * asking for the matrix with the report on standard output is not a usage
+ * error, it simply writes no file — the rule `--graphml` already follows.
+ * Rejecting it would make `elc --dsm src/` fail where HLR-104 says it should
+ * quietly produce no companion.
+ */
+Test(cli, the_matrix_companion_is_off_unless_requested)
+{
+	char      *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_not(o.dsm, "a zeroed configuration means the default");
+	cli_options_free(&o);
+}
+
+Test(cli, the_matrix_companion_is_requested_without_an_output_path)
+{
+	char      *argv[] = { "elc", "--dsm", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(3, argv, &o), CLI_OK,
+	             "a request with no --output is not a usage error");
+	cr_assert(o.dsm);
+	cr_assert_null(o.output_path);
+	cli_options_free(&o);
+}
+
+Test(cli, the_matrix_companion_is_accepted_with_regeneration)
+{
+	char      *argv[] = { "elc", "--from-xml", "rec.xml", "--dsm",
+	                      "-o", "out.md", NULL };
+	ElcOptions o;
+
+	/* Unlike --graphml, which is rejected here: a saved record carries the
+	 * matrix where it carries no graph, so there is something to write
+	 * from (HLR-054, HLR-180). */
+	cr_assert_eq(cli_parse(6, argv, &o), CLI_OK);
+	cr_assert(o.dsm);
+	cr_assert_eq(o.mode, MODE_REGENERATE);
+	cli_options_free(&o);
+}

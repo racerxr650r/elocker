@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 20 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 21 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, and Python**,
 in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -76,6 +76,22 @@ layers with `--stratum` and it validates them: a call bypassing a layer is
 **skip-level**, a call running against the declared direction is
 **inverted**, and the two are independent — a call ascending two layers is
 reported as both, because each has its own remedy.
+
+Beside that list it now reports **how much of the code base conforms**: the
+**Back-Call** and **Skip-Call Violation Indices**, each the share of the run's
+*inter-layer call edges* that breaches the declaration in one of the two ways.
+Both are counted from the violations listed above them rather than re-derived,
+so the percentage and the table cannot contradict each other, and where there
+is no inter-layer call at all both read `undefined` — a project whose layers
+never call one another has demonstrated nothing either way, not perfect
+conformance. They are never summed: a call that both skips and inverts is
+counted once in each, and each names its own remedy.
+
+And it draws the **Dependency Structure Matrix** — rows callers, columns
+callees, in ascending layer order, so the back-calls gather below the diagonal
+where you can see them at a glance and their total is exactly the inverted
+calls the layering table lists. Declare nothing and you still get one, over the
+analysed directories; `--dsm` writes it beside the report as CSV.
 
 Every one of those measurements is then evaluated against the published
 catalogue of **MISRA C**, **Robert C. Martin** and **Henry–Kafura**, and
@@ -189,7 +205,7 @@ is an error rather than an empty filter, because reporting a project with no
 functions in it would be confidently wrong and indistinguishable from a correct
 result.
 
-**Progress: 20 of 24 phases complete.**
+**Progress: 21 of 24 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -217,7 +233,7 @@ result.
 | [18](doc/SDP.md#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
 | [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
 | [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
-| [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |
+| [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
 | [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
 

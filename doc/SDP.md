@@ -62,7 +62,7 @@ release readiness — is ready to start, and is the last.
 | [18](#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
 | [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
 | [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
-| [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |
+| [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
 
@@ -2079,8 +2079,9 @@ Watch for:
 * `igraph`'s error handler is already installed non-aborting (LLR-SDG-15);
   every new call into it needs its return checked in the same way.
 
-The seven HLRs this phase closes must bring the gap baseline to 149 or
-below, assuming Phases 18 to 21 closed theirs.
+The gap baseline is re-derived from the figure this phase inherits rather
+than projected forward from 149: read `test/gap-baseline.txt`, and the seven
+HLRs this phase closes must bring it seven lower. Phase 21 left it at 141.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

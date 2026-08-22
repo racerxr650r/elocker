@@ -69,6 +69,36 @@ layering_heading() {
 	printf '%s\n' "$output" | awk '/^Layering/ { print; exit }'
 }
 
+# One conformance row as "Violating Conforming Of".
+conformance_of() {
+	printf '%s\n' "$output" |
+		awk -v want="$1" '/^Architecture conformance/ { f = 1; next }
+		                  f && /^$/ { f = 0 }
+		                  f && $1 == want { print $2, $3, $4 }'
+}
+
+conformance_heading() {
+	printf '%s\n' "$output" |
+		awk '/^Architecture conformance/ { print; exit }'
+}
+
+# The matrix rows, with directory paths reduced to their last component so the
+# grid reads the same wherever the checkout lives. The corner cell and the
+# rule row are dropped; what is left is one line per subject.
+matrix() {
+	printf '%s\n' "$output" |
+		awk '/^Dependency structure matrix/ { f = 1; next }
+		     f && /^$/ { f = 0 }
+		     f && /^  [^ ]/ && !/^  Rows are callers/ &&
+		     !/^  caller/ && !/^  -/ { print }' |
+		sed 's#[^ ]*/##g; s/^ *//; s/  */ /g'
+}
+
+matrix_heading() {
+	printf '%s\n' "$output" |
+		awk '/^Dependency structure matrix/ { print; exit }'
+}
+
 # --------------------------------------------------------------- coupling --
 
 @test "HLR-080: Ca and Ce match the hand-computed table" {
@@ -336,6 +366,182 @@ inverted"
 	elc --stratum "hal:*/hal/*" "$TREE"
 	assert_success
 	assert_equal "$(layering)" ""
+}
+
+# ------------------------------------------------- conformance indices --
+
+@test "HLR-162: the back-call index matches the hand-computed value" {
+	# One inverted call over six inter-layer call edges. The denominator
+	# and both figures are worked out in arch/README.md.
+	elc "${STRATA[@]}" "$TREE"
+	assert_success
+	assert_equal "$(conformance_of Back-call)" "16.67% 83.33% 6"
+}
+
+@test "HLR-163: the skip-call index matches the hand-computed value" {
+	elc "${STRATA[@]}" "$TREE"
+	assert_success
+	assert_equal "$(conformance_of Skip-call)" "16.67% 83.33% 6"
+}
+
+@test "HLR-164: the indices agree with the violation table beside them" {
+	# The percentages and the rows are two views of one answer, which is
+	# the whole of HLR-164: one inverted row and one skip-level row, and
+	# each index reporting one violation over the same six edges.
+	elc --verbose "${STRATA[@]}" "$TREE"
+	assert_success
+
+	assert_equal "$(layering | grep -c inverted)" 1
+	assert_equal "$(layering | grep -c skip-level)" 1
+	assert_equal "$(conformance_of Back-call)" "16.67% 83.33% 6"
+	assert_equal "$(conformance_of Skip-call)" "16.67% 83.33% 6"
+}
+
+@test "HLR-163: the two indices are reported apart and never summed" {
+	# Two rows, no total. A combined score would count a call that both
+	# skips and inverts twice, and would name no remedy where each index
+	# separately names one.
+	elc "${STRATA[@]}" "$TREE"
+	assert_success
+
+	refute_output --partial "Conformance score"
+	refute_output --partial "33.33%"
+}
+
+@test "HLR-162: a project with no inter-layer call reports both undefined" {
+	# Both files in one layer. There are two call edges and neither has a
+	# direction to invert, so the denominator is zero and the answer is
+	# "nothing demonstrated" rather than "perfectly conformant".
+	elc --stratum "all:*/cycles/*" "$CYCLES"
+	assert_success
+
+	assert_equal "$(conformance_of Back-call)" "undefined undefined 0"
+	assert_equal "$(conformance_of Skip-call)" "undefined undefined 0"
+	refute_output --partial "100.00%"
+	refute_output --partial "0.00%"
+}
+
+@test "HLR-115: with no strata the conformance section states the omission" {
+	elc "$TREE"
+	assert_success
+	assert_equal "$(conformance_heading)" \
+		"Architecture conformance (omitted: no architectural strata declared, see --stratum)"
+}
+
+# ------------------------------------------------------------- the matrix --
+
+@test "HLR-165: the matrix over declared layers matches the hand-drawn grid" {
+	elc --verbose "${STRATA[@]}" "$TREE"
+	assert_success
+
+	assert_equal "$(matrix)" "app 0 2 1
+hal 1 0 2
+drv 0 0 0"
+}
+
+@test "HLR-166: the below-diagonal cells account for exactly the back-calls" {
+	# The grid and the list are two views of one fact. Below the diagonal
+	# is the single hal -> app cell, and the layering table lists exactly
+	# one inverted call.
+	elc --verbose "${STRATA[@]}" "$TREE"
+	assert_success
+
+	local below
+	below=$(printf '%s\n' "$(matrix)" |
+		awk '{ for (c = 2; c < NR + 1; c++) total += $c } END { print total + 0 }')
+
+	assert_equal "$below" 1
+	assert_equal "$(layering | grep -c inverted)" 1
+}
+
+@test "HLR-166: subjects run in ascending layer order, not declaration order" {
+	# drv is declared last and ordered first, so the call from hal up into
+	# app must move above the diagonal rather than staying below it.
+	elc --verbose "${STRATA[@]}" --stratum-order "drv>hal>app" "$TREE"
+	assert_success
+
+	assert_equal "$(matrix)" "drv 0 0 0
+hal 2 0 1
+app 1 2 0"
+}
+
+@test "HLR-165: with no strata declared the matrix is over directories" {
+	elc --verbose "$TREE"
+	assert_success
+
+	assert_equal "$(matrix)" "app 0 1 2
+drv 0 0 0
+hal 1 2 0"
+	assert_equal "$(matrix_heading)" \
+		"Dependency structure matrix (directories: no strata declared, see --stratum)"
+}
+
+@test "HLR-161: a component outside every stratum reaches no matrix cell" {
+	# Only the middle layer is declared. Every call touches a file it does
+	# not name, so the grid is one subject wide and holds nothing.
+	elc --verbose --stratum "hal:*/hal/*" "$TREE"
+	assert_success
+	assert_equal "$(matrix)" "hal 0"
+}
+
+@test "HLR-166: the convention is printed with every rendering" {
+	local convention="Rows are callers, columns callees, in ascending order."
+
+	elc --verbose "${STRATA[@]}" "$TREE"
+	assert_success
+	assert_output --partial "$convention"
+
+	elc --verbose -f md "${STRATA[@]}" "$TREE"
+	assert_success
+	assert_output --partial "$convention"
+
+	elc --dsm -o "$BATS_TEST_TMPDIR/r.md" "${STRATA[@]}" "$TREE"
+	assert_success
+	run cat "$BATS_TEST_TMPDIR/r.dsm.csv"
+	assert_output --partial "$convention"
+}
+
+@test "HLR-166: the CSV companion carries the grid the report shows" {
+	elc --dsm -o "$BATS_TEST_TMPDIR/r.md" "${STRATA[@]}" "$TREE"
+	assert_success
+
+	run sed -e 's/\r$//' "$BATS_TEST_TMPDIR/r.dsm.csv"
+	assert_line "caller \\ callee,app,hal,drv"
+	assert_line "app,0,2,1"
+	assert_line "hal,1,0,2"
+	assert_line "drv,0,0,0"
+}
+
+@test "HLR-064: a directory carrying a comma is quoted in the CSV matrix" {
+	# Built here rather than committed, because a directory with a comma in
+	# its name is awkward to carry in a repository and the escaping rule is
+	# what is under test, not the tree.
+	local tree="$BATS_TEST_TMPDIR/comma"
+
+	mkdir -p "$tree/one,two" "$tree/zed"
+	printf 'void z_fn(void);\n\nvoid c_fn(void)\n{\n\tz_fn();\n}\n' \
+		> "$tree/one,two/c.c"
+	printf 'void z_fn(void)\n{\n\treturn;\n}\n' > "$tree/zed/z.c"
+
+	elc --dsm -o "$BATS_TEST_TMPDIR/c.md" "$tree"
+	assert_success
+
+	run cat "$BATS_TEST_TMPDIR/c.dsm.csv"
+	assert_output --partial "\"$tree/one,two\""
+}
+
+@test "HLR-104: the matrix companion needs a name to derive" {
+	# Asking for it with the report on standard output produces no file,
+	# and is not an error — the same rule the GraphML export follows. The
+	# report itself still carries the matrix; only the companion needs a
+	# path to be named from.
+	cd "$BATS_TEST_TMPDIR"
+	elc --dsm --verbose "${STRATA[@]}" "$TREE"
+	assert_success
+	assert_output --partial "Dependency structure matrix"
+
+	run bash -c 'ls "$1"/*.dsm.csv 2>/dev/null | wc -l' _ "$BATS_TEST_TMPDIR"
+	assert_output "0"
 }
 
 # ------------------------------------------------------------ determinism --

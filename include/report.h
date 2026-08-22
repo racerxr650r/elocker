@@ -171,6 +171,47 @@ typedef struct {
 	LayerViolationKind kind;
 } LayeringRow;
 
+/* One conformance index as the report presents it (HLR-162, HLR-163).
+ *
+ * Both figures travel rendered, for the reason a CouplingRow carries its
+ * Instability as text: "undefined" is one of the index's legitimate values,
+ * and a renderer choosing between a number and a word is a decision that
+ * would then be made four times and could differ between them.
+ *
+ * The numerator and the denominator travel beside them because the index is
+ * not interpretable without the count it is over — 50% of two edges and 50%
+ * of two hundred are different claims about a code base.
+ */
+typedef struct {
+	uint64_t violations;  /* the findings counted, never re-derived   */
+	uint64_t edges;       /* inter-layer call edges; the denominator  */
+	char    *index;       /* owned; "16.67%", or "undefined"          */
+	char    *conforming;  /* owned; the complement, or "undefined"    */
+} ConformanceRow;
+
+/* The Dependency Structure Matrix (HLR-165, HLR-166).
+ *
+ * A square grid over the declared layers, or over the analysed directories
+ * where no layer was declared. **Rows are callers and columns are callees**,
+ * both in the same ascending order, so a cell's position carries its meaning:
+ * above the diagonal are dependencies running the declared way, on it are
+ * dependencies within one subject, and below it are the back-calls.
+ *
+ * Part of the report model rather than a renderer's scratch space, because
+ * the record of a run must be able to regenerate it: a saved record carries
+ * no call graph to rebuild the grid from (HLR-054).
+ */
+typedef struct {
+	char  **subjects;    /* the row and column labels, in order; owned */
+	size_t  count;       /* the order of the square matrix             */
+	size_t *cells;       /* row-major, count * count; owned            */
+	/* True where the subjects are declared layers, false where they are
+	 * directories. The two are read differently — only a declared order
+	 * makes a below-diagonal cell a violation — so the reader is told
+	 * which they are looking at rather than left to infer it. */
+	bool    from_strata;
+} Dsm;
+
 /* One finding as the report presents it: a measurement that fell outside its
  * accepted range, with the severity and the citation that say so.
  *
@@ -327,6 +368,17 @@ typedef struct {
 	StrataState         strata_state;
 	LayeringRow        *layering;     /* sorted; owned (HLR-079, HLR-118) */
 	size_t              layering_count;
+	/* The two conformance indices over the layering findings above, and
+	 * the matrix of the dependencies between subjects (Section 21).
+	 *
+	 * The indices are meaningful only where strata were declared, and
+	 * `strata_state` above says whether they were. The matrix is produced
+	 * either way: with no declaration its subjects are the analysed
+	 * directories, which is what makes it useful to the reader who has
+	 * declared nothing (HLR-165). */
+	ConformanceRow      back_call;    /* HLR-162                          */
+	ConformanceRow      skip_call;    /* HLR-163                          */
+	Dsm                 dsm;          /* HLR-165, HLR-166                 */
 
 	/* Every measurement that crossed a published line, with its severity
 	 * and citation. Ranked most severe first: the list exists to be acted
@@ -397,6 +449,17 @@ typedef struct {
 
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;
+
+/* The directory containing `path`, as a fresh allocation the caller owns, or
+ * NULL on allocation failure (HLR-160).
+ *
+ * Exposed because a FileMetrics is constructed in two places — the analysis of
+ * a source file and the reader that rebuilds a model from a saved record — and
+ * a component's directory must be the same string whichever way the model
+ * arrived. Every *consumer* reads `FileMetrics.directory` rather than calling
+ * this, which is the whole of what HLR-160 asks for.
+ */
+char *component_directory(const char *path);
 
 /* Record a file skipped for want of a language module, copying its path.
  * Returns 0 on success (LLR-RPT-07). */

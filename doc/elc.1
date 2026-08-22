@@ -253,6 +253,39 @@ file matching no declaration lies outside the partition, and a call touching it
 is neither. Only calls are considered \(em a global two layers share is a
 different fact with its own analyses.
 .PP
+.B Architecture conformance
+aggregates those findings into two proportions of the run's
+.I inter-layer call edges
+\(em the call edges joining two components that lie in different declared
+layers. The
+.B Back-call Violation Index
+is the share of them running against the declared direction; the
+.B Skip-call Violation Index
+is the share bypassing an intervening layer. Each is reported beside its
+complementary conforming share, so a reader is given both the figure the index
+names and the figure they will quote.
+.PP
+Three things are outside that denominator, and each for its own reason. A call
+.I within
+one layer has no direction to invert. A call touching a file no declaration
+names lies outside the partition. And a global object two layers share is not a
+call. Where the denominator is zero, both indices are reported
+.B undefined
+rather than as 0 or 100% \(em by the rule Instability already follows: a
+project whose layers never call one another has not achieved perfect
+conformance, it has demonstrated nothing either way.
+.PP
+The two indices are
+.I never summed.
+A call ascending two layers is a back-call and a skip-level call at once and is
+counted once in each, so a combined score would count twice exactly the call
+most worth acting on \(em and would name no remedy, where each index
+separately names one.
+.PP
+Both are counted from the layering findings already listed, never re-derived
+from the graph, so the percentage and the table printed beside it are two views
+of one answer rather than two opinions that can drift apart.
+.PP
 .B Unreachable functions
 are found by traversing the call graph forward from a root set, and reporting
 everything the traversal never visits. The root set is the declared entry
@@ -466,9 +499,10 @@ their own extension on the same path, so an
 of
 .B report.md
 still yields
-.B report.dot
+.BR report.dot ,
+.BR report.graphml ,
 and
-.BR report.graphml .
+.BR report.dsm.csv .
 .TP
 .B table
 An aligned table for reading. The default.
@@ -728,6 +762,25 @@ on standard output no file is written at all \(em there is no path to derive a
 name from. A companion that cannot be written is a diagnostic and a failed
 exit status, never a reason to withhold the report itself.
 .TP
+.B \-\-dsm
+Also write the dependency structure matrix as CSV. The file is named from the
+report's own output path by extension substitution, so an
+.B \-\-output
+of
+.I report.md
+yields
+.IR report.dsm.csv ;
+the option takes no path of its own. Off unless requested, and with the report
+on standard output no file is written at all \(em there is no path to derive a
+name from. The matrix itself is part of the report whether or not this option
+is given; the option asks for a machine-readable copy of it beside the report.
+Unlike
+.BR \-\-graphml ,
+this companion is available in regeneration mode, because a saved record
+carries the matrix where it carries no graph. See
+.B THE DEPENDENCY STRUCTURE MATRIX
+below.
+.TP
 .B \-\-no\-dot
 Do not write the annotated Graphviz call tree. Unlike
 .BR \-\-graphml ,
@@ -932,6 +985,9 @@ carrying the notice is a detail tier, but the notice itself is not: an
 analysis nobody declared for is something you must be told at either
 verbosity.
 .IP \(bu 2
+Architecture conformance \(em the two violation indices, which are
+project\-level aggregates rather than one row per anything.
+.IP \(bu 2
 Findings \(em every measurement that crossed a published line, ranked by
 severity. The summary keeps these deliberately: a summary that dropped the
 one section you act on would be shorter and useless.
@@ -956,6 +1012,8 @@ Fan\-out, recursion, the deepest call chain, component coupling, component
 dependency cycles, and layering \(em the measurements taken over the
 dependence graph, one row per entity. Every one of these that crossed a
 published line is a finding, and the findings are in the summary.
+.IP \(bu 2
+The dependency structure matrix \(em one row per layer or per directory.
 .IP \(bu 2
 Global state, and the globals reachable from nothing.
 .IP \(bu 2
@@ -1336,6 +1394,70 @@ location is a malformed component and is handled like any other \(em
 diagnosed, excluded, and the run continues. A rule naming a language for which
 no module is available is reported and skipped from either place, since what is
 missing is the module rather than the rule.
+.SH THE DEPENDENCY STRUCTURE MATRIX
+The report carries a square grid whose rows and columns are the same ordered
+sequence of subjects, and whose cell at row
+.I i
+column
+.I j
+holds the number of call edges from subject
+.I i
+to subject
+.IR j .
+The subjects are the declared layers where strata were declared, and the
+analysed directories where they were not \(em so the matrix is available to a
+reader who has declared no architecture, and is the shape they expect where
+they have.
+.PP
+.B Rows are callers and columns are callees,
+both in ascending order: by layer index where strata were declared, and by path
+where they were not. The position of a cell therefore carries meaning rather
+than merely locating a number:
+.RS 4
+.IP \(bu 2
+.B Above
+the diagonal are dependencies running in the declared direction, from a layer
+to one below it.
+.IP \(bu 2
+.B On
+the diagonal are dependencies within one subject, which no declared order
+constrains.
+.IP \(bu 2
+.B Below
+the diagonal are the back-calls \(em the violations, gathered on one side of
+the grid where a reader can see them at a glance. Their total is exactly the
+count of inverted calls the
+.B Layering
+section lists.
+.RE
+.PP
+That convention is printed with the matrix wherever it renders, since a grid
+whose orientation the reader has to infer conveys the opposite of what it is
+for half the time.
+.PP
+Where the subjects are directories rather than declared layers, the order is
+alphabetical rather than architectural and
+.I no
+cell below the diagonal is a violation. The heading says which of the two the
+grid is over, for that reason.
+.PP
+The matrix reports call edges alone. A global object two subjects happen to
+share is a different fact with its own analyses, and a repeated call to one
+callee is one edge \(em the same figure the conformance indices are computed
+over.
+.PP
+The matrix is a detail tier, so it appears in a
+.B \-\-verbose
+report. A machine-readable copy is written beside the report on request:
+.PP
+.EX
+elc --dsm -o report.md src/     # writes report.md and report.dsm.csv
+.EE
+.PP
+The CSV carries the convention as its first record, then the grid: a corner
+cell naming the orientation, the subject names as column headings, and one row
+per subject. Every field passes through the same RFC 4180 quoting the CSV
+report uses, so a directory containing a comma cannot corrupt a row.
 .SH THE CALL TREE
 Alongside a report written to a named file,
 .B elc

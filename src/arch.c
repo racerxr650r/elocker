@@ -280,7 +280,7 @@ cleanup:
  * would report violations against a design nobody drew. The same call
  * `check_scopes` makes for an undeclared component.
  */
-static size_t *stratum_of_components(const Sdg *g, const ElcOptions *opts)
+size_t *stratum_of_components(const Sdg *g, const ElcOptions *opts)
 {
 	size_t *map = calloc(g->component_count ? g->component_count : 1,
 	                     sizeof *map);
@@ -384,6 +384,15 @@ int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out)
 		if (from_ord == to_ord)
 			continue;   /* within a layer; nothing is declared about it */
 
+		/* **The denominator, counted where the numerators are.** Every
+		 * exclusion it needs has just been made: a global edge is not a
+		 * call, an end outside the partition is not a candidate, and an
+		 * edge within one layer has no direction to invert. Counting
+		 * here rather than in a pass of its own is what stops a second
+		 * code path forming a second opinion about which edges the
+		 * indices are over (HLR-162, HLR-163, HLR-164). */
+		out->inter_layer_edges++;
+
 		size_t distance = from_ord > to_ord ? from_ord - to_ord
 		                                    : to_ord - from_ord;
 
@@ -411,6 +420,46 @@ int check_strata(const Sdg *g, const ElcOptions *opts, ArchResults *out)
 cleanup:
 	free(stratum);
 	return status;
+}
+
+/* -------------------------------------------------------- conformance -- */
+
+int conformance_indices(const ArchResults *a, ConformanceIndices *out)
+{
+	memset(out, 0, sizeof *out);
+
+	/* **Counted, not re-derived** (HLR-164). Every back-call in the report
+	 * is a LAYER_INVERTED row in this list and every skip-level call a
+	 * LAYER_SKIP_LEVEL row, so tallying the list is by construction the
+	 * same answer as the table printed beside it. A call that both skips
+	 * and inverts contributed one row of each kind and is therefore
+	 * counted once in each index, which is what LLR-LAY-04 asks for and
+	 * what makes summing the two indices wrong. */
+	for (size_t i = 0; i < a->violation_count; i++)
+		switch (a->violations[i].kind) {
+		case LAYER_INVERTED:   out->back_calls++; break;
+		case LAYER_SKIP_LEVEL: out->skip_calls++; break;
+		default: break;
+		}
+
+	out->inter_layer_edges = a->inter_layer_edges;
+
+	/* **Zero is undefined, not zero.** No division is performed, and the
+	 * guard comes first for the reason `instability` puts its own first: a
+	 * project whose layers never call one another has demonstrated nothing
+	 * either way, and reporting it as 100% conforming would be the
+	 * confidently wrong answer HLR-082 avoids for Instability (HLR-162). */
+	if (a->inter_layer_edges == 0) {
+		out->defined = false;
+		return 0;
+	}
+
+	out->defined         = true;
+	out->back_call_index = (double)out->back_calls /
+	                       (double)a->inter_layer_edges;
+	out->skip_call_index = (double)out->skip_calls /
+	                       (double)a->inter_layer_edges;
+	return 0;
 }
 
 /* ---------------------------------------------------------- the analysis -- */

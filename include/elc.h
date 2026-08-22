@@ -207,6 +207,16 @@ typedef struct {
 	bool          graphml;      /* export the SDG (HLR-106); off unless
 	                             * asked for, and silently nothing when
 	                             * the report goes to stdout             */
+	/* Write the Dependency Structure Matrix as a CSV companion beside the
+	 * report (HLR-180). Off unless asked for, and silently nothing when
+	 * the report goes to standard output, exactly as the GraphML export
+	 * is: the companion's name is derived from the report's, and there is
+	 * then no name to derive.
+	 *
+	 * Unlike the GraphML export, this one is available in regeneration
+	 * mode. A saved record carries the matrix, so there is something to
+	 * write from (HLR-054). */
+	bool          dsm;
 	/* The `.dot` call tree runs the other way round: it is written unless
 	 * refused (HLR-103), so the flag records the refusal rather than the
 	 * request. Stored negated so that a zeroed ElcOptions means the
@@ -257,6 +267,19 @@ typedef struct {
 /* Per-file totals and the functions the file defines. */
 typedef struct {
 	char           *path;           /* canonical absolute path; owned   */
+	/* The directory containing this file, derived once from the path
+	 * discovery already canonicalised (HLR-160).
+	 *
+	 * A component *is* a file, so this is the directory a component
+	 * belongs to, and it is recorded rather than recomputed because more
+	 * than one analysis groups by it — the dependency matrix over
+	 * directories most of all. Two consumers each slicing the path for
+	 * themselves is how two of them come to disagree about which
+	 * directory a file is in.
+	 *
+	 * No trailing slash, and "/" for a file at the root, so that the
+	 * directory of `/a/b.c` and of `/a/c.c` compare equal by strcmp. */
+	char           *directory;      /* owned                            */
 	char           *language;       /* owned; a copy of the language
 	                                 * module's name, so that a model
 	                                 * rebuilt from a saved record — where

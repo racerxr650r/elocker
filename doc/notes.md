@@ -378,6 +378,29 @@ None is a defect; each is a judgement that could go the other way.
     theme — which would need HLR-041 revisited.
 *   **HLR-042 is permanently retired** — the old performance-target
     requirement. Do not reuse the number.
+*   **The matrix's subjects are declared layers or *directories*, and
+    nothing between** (HLR-165). A file's directory is a convention,
+    not an architecture, so with no `--stratum` the grid is ordered
+    alphabetically and no cell below its diagonal is a violation — the
+    heading says so, and that is the whole of what stops the fallback
+    reading as a conformance judgement. If directory grouping proves
+    too coarse to be useful on real trees, the alternative is a
+    *prefix* grouping to a declared depth rather than a recovered
+    layering, which HLR-173 forbids as a matrix subject for the same
+    reason it forbids one as a baseline.
+*   **Three conventions for a missing number now sit in one report,
+    and the differences are load-bearing.** Instability and the two
+    conformance indices print `undefined` where their denominator
+    vanishes (HLR-082, HLR-162); Henry–Kafura prints `0` where its
+    product term vanishes, because it is *defined* and equal to zero
+    there (HLR-159); and an analysis nobody declared for prints an
+    omission notice naming the option that would fill it (HLR-115).
+    A reader meeting all three in one report can be forgiven for
+    reading them as one thing, and the next person to add a
+    measurement will have to pick among them deliberately. The test
+    for which you want: does the value not exist (undefined), does it
+    exist and equal zero (`0`), or was the question never asked
+    (omitted)?
 *   **CI runs twice on a phase branch with an open PR.** The workflow
     triggers on pushes to `phase/**` and on pull requests targeting
     `develop`, and a phase branch under review satisfies both, so all
