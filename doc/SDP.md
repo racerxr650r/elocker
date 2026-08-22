@@ -1993,7 +1993,7 @@ Watch for:
 
 The gap baseline is re-derived from the figure this phase inherits rather
 than projected forward from 175: read `test/gap-baseline.txt`, and the seven
-HLRs this phase closes must bring it seven lower. Phase 19 left it at 151.
+HLRs this phase closes must bring it seven lower. Phase 20 left it at 148.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
