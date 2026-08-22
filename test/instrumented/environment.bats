@@ -63,6 +63,19 @@ setup() {
 	# arrives with libgit2: elfutils supports compressed sections, so
 	# opening any ELF at all links its decompressor.
 	#
+	# libdw reads the debug line information an image carries, so that
+	# pruning reaches line granularity (HLR-153). Same elfutils tree as
+	# libelf and taken on the same terms; it brings libbz2 and liblzma
+	# with it, elfutils having a decompressor per compression scheme.
+	#
+	# What this list cannot see is the distinction that matters most about
+	# it: elc uses libdw's low-level dwarf_* interface and never the Dwfl
+	# layer, which would resolve separate debug information by
+	# .gnu_debuglink and build-id and so open a file under /usr/lib/debug
+	# the user never named (HLR-141). Both live in the same library, so
+	# ldd is identical either way. The open-counting test below is what
+	# holds it.
+	#
 	# libstdc++ was on this list from Phase 8 as something igraph brought
 	# in. From Phase 16 elc references a symbol in it deliberately —
 	# __cxa_demangle, which decodes the Itanium ABI and with it C++ and
@@ -93,7 +106,7 @@ setup() {
 	# instrumentation rather than a product dependency: it is absent from
 	# the binary `make all` produces and `make install` ships. Excluding
 	# them here would make the sanitized pass fail on its own scaffolding.
-	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libzstd|libelf|libigraph|libasan|libubsan|ld-linux|/lib64/ld-linux)'
+	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libzstd|libbz2|liblzma|libelf|libdw|libigraph|libasan|libubsan|ld-linux|/lib64/ld-linux)'
 	while read -r line; do
 		[ -n "$line" ] || continue
 		local lib
@@ -293,6 +306,35 @@ setup() {
 
 	run bash -c 'grep -c "libkept.so\"" "$0" || true' "$log"
 	assert_output "1"
+}
+
+@test "HLR-141: an image carrying debug information is still opened once" {
+	# The same claim against the case that can break it. Reading debug line
+	# information is what a DWARF library offers to do *elsewhere*: given
+	# the chance it resolves a .gnu_debuglink or a build-id and opens a
+	# file under /usr/lib/debug that the user never named. elc uses the
+	# low-level dwarf_* interface, which reads the descriptor it is handed
+	# and nothing else — a distinction one API call deep, invisible in ldd,
+	# and observable only here (HLR-141, HLR-153).
+	require_tool strace "HLR-141 no toolchain"
+	require_tool cc "HLR-141 no toolchain"
+	local log="$BATS_TEST_TMPDIR/opendbg.log"
+	local tree="$REPO_ROOT/test/fixtures/elf/tree"
+	local image="$BATS_TEST_TMPDIR/libkept-g.so"
+
+	cc -g -O0 -fPIC -shared -o "$image" "$tree/kept.c" 2>/dev/null || \
+		skip "cc cannot link with -g here: HLR-141 unverified"
+
+	strace_elc "$log" "openat,open" --elf "$image" "$tree"
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+
+	run bash -c 'grep -c "libkept-g.so\"" "$0" || true' "$log"
+	assert_output "1"
+
+	# And nothing from a separate-debug directory, whatever it was called.
+	run bash -c 'grep -cE "/usr/lib/debug|\.debug\"|debuglink" "$0" || true' \
+		"$log"
+	assert_output "0"
 }
 
 @test "HLR-041: elc references no thread-creation symbol" {
