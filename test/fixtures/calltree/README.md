@@ -1,4 +1,4 @@
-# `calltree/` — fan-out, recursion, and call depth
+# `calltree/` — fan-out, fan-in, information flow, recursion, and call depth
 
 The fixture header for this group. Its expected values are worked out by hand
 here and asserted by [`../calltree.bats`](../calltree.bats); they are never
@@ -14,6 +14,7 @@ exists partly to give that phase something already-verified to band.
 ```text
 tree/
 ├── fanout.c      one function per fan-out boundary value
+├── flow.c        fan-in, and the Henry-Kafura value formed from it
 ├── depth.c       a straight chain, with a shallower branch beside it
 └── recursion.c   direct and mutual recursion, smallest form of each
 ```
@@ -50,6 +51,54 @@ The values are exactly the band boundaries of PVD Appendix A.2: 2 and 3 either
 side of the healthy floor, 7 and 8 either side of its ceiling, 10 and 11 either
 side of the warning threshold, 15 and 16 either side of critical. Phase 12
 bands them; if a boundary is off by one, it will be off here first.
+
+## `flow.c` — fan-in, and the Henry-Kafura value
+
+```text
+flow_entry ──► caller_one   ──► hub ──► leaf_a
+           ├─► caller_two   ──► hub      leaf_b
+           └─► caller_three ──► hub
+                            └─► leaf_c
+```
+
+`hub` calls `leaf_a` and `leaf_b` **twice each**, and is itself called by all
+three callers. Everything below is counted from that source and from nothing
+else:
+
+| Function | ELOC | Fan-in | Fan-out | HK = ELOC × (Fan-in × Fan-out)² |
+| -------- | ---- | ------ | ------- | ------------------------------- |
+| `leaf_a` | 0 | 1 | 0 | 0 × (1 × 0)² = **0** |
+| `leaf_b` | 0 | 1 | 0 | 0 × (1 × 0)² = **0** |
+| `leaf_c` | 0 | 1 | 0 | 0 × (1 × 0)² = **0** |
+| `hub` | 4 | 3 | 2 | 4 × (3 × 2)² = 4 × 36 = **144** |
+| `caller_one` | 1 | 1 | 1 | 1 × (1 × 1)² = **1** |
+| `caller_two` | 1 | 1 | 1 | 1 × (1 × 1)² = **1** |
+| `caller_three` | 2 | 1 | 2 | 2 × (1 × 2)² = 2 × 4 = **8** |
+| `flow_entry` | 3 | 0 | 3 | 3 × (0 × 3)² = **0** |
+
+**Project total: 144 + 1 + 1 + 8 = 154**, the sum of the per-function values
+and never the formula applied to project aggregates — the metric is defined
+over one procedure's traffic, and a project has no fan-in (HLR-158).
+
+Three properties this file is shaped to assert:
+
+**`leaf_a`'s fan-in is 1 although `hub` calls it twice.** Fan-in counts
+distinct callers exactly as fan-out counts distinct callees; the repeated call
+is the same test read backwards (HLR-156). `hub`'s ELOC is still 4, because
+ELOC counts statements — the two figures are counted differently and this
+line is where they part.
+
+**Both zeros are values.** `flow_entry` is the longest function here and the
+widest, and scores 0 because nothing calls it. `leaf_a` is called and scores 0
+because it calls nothing. Neither is an absence of code, neither is
+`undefined`, and both must print `0` — the Instability column of the coupling
+table prints `undefined` for its own vanishing inputs (HLR-082), and this
+value does not vanish, it equals zero (HLR-159).
+
+**`hub` is the only function with both a caller and a callee**, so it is the
+only one that can score anything at all. That 144 sits four orders of
+magnitude from nothing much is the ordinal reading the metric asks for: the
+figures rank functions within this file and mean nothing carried out of it.
 
 ## `depth.c` — the deepest chain
 
@@ -115,6 +164,15 @@ A chain continuing through a call `elc` could not resolve is not followed, so
 the true worst case may be deeper. The unresolved count therefore travels in
 the heading beside the depth: 4 layers with 0 unresolved is a measurement,
 and 4 layers with 300 unresolved is a number not to rely on (HLR-087).
+
+## Why no Henry-Kafura value carries a severity
+
+No published source divides the metric into accepted and unaccepted ranges, so
+the threshold catalogue holds no row for it and none of the figures above is a
+finding (HLR-159). That is the same treatment any measurement without a
+catalogue entry gets (LLR-THR-08); it is only worth stating here because the
+metric's name reads as a citation, and a band invented for it would look
+borrowed rather than made up.
 
 ## What is not here
 

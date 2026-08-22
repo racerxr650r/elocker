@@ -10,6 +10,7 @@
   <key id="n_eloc" for="node" attr.name="eloc" attr.type="int"/>
   <key id="n_complexity" for="node" attr.name="complexity" attr.type="int"/>
   <key id="n_fanout" for="node" attr.name="fan-out" attr.type="int"/>
+  <key id="n_fanin" for="node" attr.name="fan-in" attr.type="int"/>
   <key id="n_address" for="node" attr.name="address-taken" attr.type="boolean"/>
   <key id="e_kind" for="edge" attr.name="kind" attr.type="string"/>
   <key id="e_global" for="edge" attr.name="global" attr.type="string"/>
@@ -26,6 +27,7 @@
       <data key="n_eloc">1</data>
       <data key="n_complexity">1</data>
       <data key="n_fanout">0</data>
+      <data key="n_fanin">1</data>
       <data key="n_address">false</data>
     </node>
     <node id="n1">
@@ -37,6 +39,7 @@
       <data key="n_eloc">3</data>
       <data key="n_complexity">1</data>
       <data key="n_fanout">1</data>
+      <data key="n_fanin">0</data>
       <data key="n_address">false</data>
     </node>
     <node id="n2">
@@ -48,6 +51,7 @@
       <data key="n_eloc">1</data>
       <data key="n_complexity">1</data>
       <data key="n_fanout">0</data>
+      <data key="n_fanin">0</data>
       <data key="n_address">true</data>
     </node>
     <node id="n3">
@@ -59,6 +63,7 @@
       <data key="n_eloc">1</data>
       <data key="n_complexity">1</data>
       <data key="n_fanout">0</data>
+      <data key="n_fanin">0</data>
       <data key="n_address">false</data>
     </node>
     <edge source="n1" target="n0">

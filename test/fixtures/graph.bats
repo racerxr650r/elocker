@@ -89,6 +89,32 @@ normalised() {
 	assert_output --partial "tick"
 }
 
+@test "HLR-156: fan-in is the in-degree over call edges" {
+	run_elc
+	assert_success
+
+	# bump is called by tick and by nothing else, from two call sites. One
+	# caller, so fan-in 1 — the converse of the rule that makes tick's
+	# fan-out 1 rather than 2.
+	run bash -c 'grep -A9 "n_name\">bump<" "$0" | grep "n_fanin"' \
+		"$GRAPHML"
+	assert_output --partial ">1<"
+}
+
+@test "HLR-156: a global edge contributes no fan-in" {
+	# The assertion the whole metric rests on. tick writes shared_counter
+	# and report reads it, so an edge runs n1 -> n2; in-degree over the
+	# whole SDG would make report's fan-in 1. Being read by someone is not
+	# being called by them (LLR-CTR-07), and the Henry-Kafura value squares
+	# the product of the degrees, so the error would arrive there magnified.
+	run_elc
+	assert_success
+
+	run bash -c 'grep -A9 "n_name\">report<" "$0" | grep "n_fanin"' \
+		"$GRAPHML"
+	assert_output --partial ">0<"
+}
+
 @test "HLR-074: a global links its writer to its reader across files" {
 	run_elc
 	assert_success
