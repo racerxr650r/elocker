@@ -482,6 +482,18 @@ int elfsyms_open(const char *path, SymbolSet *out)
 	}
 
 	sort_and_dedupe(out);
+
+	/* Read from the descriptor already open, which is what keeps the image
+	 * opened once and nothing beside it (HLR-141). An image carrying no
+	 * debug information yields an empty set and is not a failure: HLR-141
+	 * forbids requiring it, so its absence costs the line granularity and
+	 * nothing else (HLR-153). */
+	if (dwarfline_read(elf, &out->lines) != 0) {
+		fputs("elc: out of memory reading the image's line "
+		      "information\n", stderr);
+		goto cleanup;
+	}
+
 	status = 0;
 
 cleanup:
@@ -529,5 +541,6 @@ void elfsyms_free(SymbolSet *set)
 		free(set->names[i]);
 	free(set->names);
 	free(set->path);
+	dwarfline_free(&set->lines);
 	memset(set, 0, sizeof *set);
 }

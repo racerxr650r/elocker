@@ -101,12 +101,33 @@ IGRAPH_LIBS   ?= $(shell $(PKG_CONFIG) --libs igraph 2>/dev/null || echo -ligrap
 # though it was always loaded (doc/notes.md §1.1).
 ELF_CFLAGS   ?= $(shell $(PKG_CONFIG) --cflags libelf 2>/dev/null)
 ELF_LIBS     ?= $(shell $(PKG_CONFIG) --libs libelf 2>/dev/null || echo -lelf)
+
+# libdw reads the debug line information the image carries, where it carries
+# any, so that pruning can reach line granularity (HLR-153). It is the same
+# upstream project as libelf and is taken from the distribution for the same
+# reason, which is why it extends that exception rather than opening a new one
+# (doc/notes.md §1.1).
+#
+# The reason the library is taken at all is HLR-113's: the DWARF line-number
+# programme is a state machine whose file and directory tables changed shape
+# at version 5 and reach into .debug_line_str, and every compiler this project
+# is aimed at now emits version 5 by default. Hand-rolling it would put a
+# format parser into elc's defect surface, which is exactly the argument that
+# took libelf for the container.
+#
+# **libdw, never libdwfl.** The low-level dwarf_* interface reads the ELF
+# descriptor elfsyms.c already holds. The Dwfl layer above it resolves
+# separate debug information by .gnu_debuglink and build-id, which means
+# opening a file under /usr/lib/debug that the user never named — forbidden by
+# HLR-141 and observed by test/instrumented/environment.bats.
+DW_CFLAGS    ?= $(shell $(PKG_CONFIG) --cflags libdw 2>/dev/null)
+DW_LIBS      ?= $(shell $(PKG_CONFIG) --libs libdw 2>/dev/null || echo -ldw)
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
 # set before any include; they live here rather than in the .c files.
-CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS)
+CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS) $(DW_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
-LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) $(ELF_LIBS) -lstdc++ -ldl
+LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) $(ELF_LIBS) $(DW_LIBS) -lstdc++ -ldl
 
 # Flags the build requires whatever the caller chose, appended in the recipes
 # rather than folded into CFLAGS.
@@ -186,6 +207,12 @@ help:
 # packages than taking libelf from the distribution does, which inverts the
 # reason the rule exists. It is listed in PKGS_BUILD below and tracked in
 # doc/notes.md §1.1.
+#
+# libdw is the same exception and not a third one. It is the same elfutils
+# tree, built by the same configure run, shipped by the same distribution
+# package family, and taken for the same reason — Phase 20 added it to read
+# debug line information (HLR-153), and it arrives with the libelf that was
+# already here.
 
 TREE_SITTER_VER ?= 0.26.2
 LIBGIT2_VER     ?= 1.9.0
@@ -208,7 +235,8 @@ SRC_PREFIX      ?= /usr/local
 SRC_WORK        ?= $(BUILD)/prereq-src
 
 # Toolchain, test framework, and the headers the source builds need.
-PKGS_BUILD  ?= build-essential pkg-config python3 cmake curl zlib1g-dev libelf-dev
+PKGS_BUILD  ?= build-essential pkg-config python3 cmake curl zlib1g-dev \
+               libelf-dev libdw-dev
 PKGS_TEST   ?= libcriterion-dev
 
 # Test and inspection tools. These are executables the suites invoke, never
@@ -369,7 +397,7 @@ check-prereqs:
 	@echo "== libraries =="
 	@command -v $(PKG_CONFIG) >/dev/null 2>&1 || { \
 		echo "  pkg-config missing; cannot report library versions" >&2; exit 0; }
-	@for l in criterion tree-sitter expat libgit2 igraph libelf jansson; do \
+	@for l in criterion tree-sitter expat libgit2 igraph libelf libdw jansson; do \
 		v=$$($(PKG_CONFIG) --modversion $$l 2>/dev/null); \
 		if [ -n "$$v" ]; then printf '  %-12s %s\n' "$$l" "$$v"; \
 		else printf '  %-12s MISSING\n' "$$l"; fi; \
@@ -381,6 +409,7 @@ check-prereqs:
 	@$(MAKE) --no-print-directory _check-min LIB=igraph      MIN=1.0  PHASE=8
 	@$(MAKE) --no-print-directory _check-min LIB=criterion   MIN=2.4  PHASE=0
 	@$(MAKE) --no-print-directory _check-min LIB=libelf      MIN=0.18 PHASE=16
+	@$(MAKE) --no-print-directory _check-min LIB=libdw       MIN=0.18 PHASE=20
 	@$(MAKE) --no-print-directory _check-min LIB=jansson     MIN=2.14 PHASE=23
 	@echo "== grammars =="
 	@$(MAKE) --no-print-directory _check-grammar LANG=c \

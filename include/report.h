@@ -381,6 +381,19 @@ typedef struct {
 	/* Effective lines belonging to no function, summed over every file.
 	 * The part of the total the filter did not narrow (HLR-145). */
 	uint64_t       file_scope_eloc;
+	/* The third direction, and the finer of the two granularities an image
+	 * answers at: source lines this build compiled no instruction for,
+	 * excluded from every figure above, and analysed files whose debug
+	 * coverage could not be established (HLR-155).
+	 *
+	 * The pair is read as the unresolved-call count and the
+	 * undecided-region count are read: the first states what the filter
+	 * removed, the second states where it could not look. A large second
+	 * figure beside a small first one says the report describes the source
+	 * more nearly than the image, whatever the image was named — which a
+	 * reader cannot infer from the metrics themselves. */
+	uint64_t       pruned_lines;
+	uint64_t       uncovered_files;
 
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;

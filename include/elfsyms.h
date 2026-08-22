@@ -16,6 +16,8 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+#include "dwarfline.h"
+
 /* The function set one image defines, resolved to source names.
  *
  * Sorted and de-duplicated on the resolved name, so membership is a binary
@@ -32,6 +34,16 @@ typedef struct {
 	 * (HLR-143, LLR-ELF-08). */
 	size_t  unresolved;
 	char   *path;       /* the image, as the user named it; owned    */
+	/* The finer granularity, read from the same open as the symbols and
+	 * empty where the build wrote no debug information (HLR-153).
+	 *
+	 * Here rather than in a structure of its own because it comes from the
+	 * same file and must come from the same *open*: the image is read once
+	 * and nothing beside it, which is a property HLR-141 states and an
+	 * instrumented test observes. A second module opening the image again
+	 * would break it while every unit test still passed.
+	 */
+	LineCoverage lines;
 } SymbolSet;
 
 /* Read the named image and populate its function set.

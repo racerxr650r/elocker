@@ -325,9 +325,15 @@ static void write_image(const Report *report, FILE *out)
 
 	fputs("  <image", out);
 	write_attribute(out, "path", report->image);
-	fprintf(out, " unresolved=\"%" PRIu64 "\" file-scope-eloc=\"%"
-	        PRIu64 "\">\n", report->image_unresolved,
-	        report->file_scope_eloc);
+	/* The line-granularity counts travel with the image element rather
+	 * than with the per-file metrics, for the reason file-scope ELOC does:
+	 * they are properties of what the filter did to the run, and
+	 * `report_assemble` on the regeneration path has no image to re-derive
+	 * them from (HLR-155, LLR-XWR-14). */
+	fprintf(out, " unresolved=\"%" PRIu64 "\" file-scope-eloc=\"%" PRIu64
+	        "\" pruned-lines=\"%" PRIu64 "\" uncovered-files=\"%" PRIu64
+	        "\">\n", report->image_unresolved, report->file_scope_eloc,
+	        report->pruned_lines, report->uncovered_files);
 	for (size_t i = 0; i < report->absent_count; i++) {
 		const AbsentRow *r = &report->absent[i];
 
@@ -528,6 +534,8 @@ typedef struct {
 	char               *image;
 	uint64_t            image_unresolved;
 	uint64_t            file_scope_eloc;
+	uint64_t            pruned_lines;
+	uint64_t            uncovered_files;
 	AbsentRow          *absent;
 	size_t              absent_count;
 	PathList            dead_unanalysed;
@@ -1084,6 +1092,13 @@ static void on_image(ReadState *state, const XML_Char **atts)
 	                                         "unresolved");
 	state->file_scope_eloc  = uint_attribute(state, atts,
 	                                         "file-scope-eloc");
+	/* Absent from a record written before debug-line pruning existed, and
+	 * absent from one written by a run whose image carried no line
+	 * information. `uint_attribute` answers zero for a missing attribute,
+	 * which is the right figure in both cases. */
+	state->pruned_lines     = uint_attribute(state, atts, "pruned-lines");
+	state->uncovered_files  = uint_attribute(state, atts,
+	                                         "uncovered-files");
 	return;
 }
 
@@ -1753,6 +1768,8 @@ static void move_to_report(ReadState *state, Report *out)
 	out->image                      = state->image;
 	out->image_unresolved           = state->image_unresolved;
 	out->file_scope_eloc            = state->file_scope_eloc;
+	out->pruned_lines               = state->pruned_lines;
+	out->uncovered_files            = state->uncovered_files;
 	out->absent                     = state->absent;
 	out->absent_count               = state->absent_count;
 	out->dead_unanalysed            = state->dead_unanalysed;
