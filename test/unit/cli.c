@@ -467,6 +467,89 @@ Test(cli, the_bottleneck_threshold_is_configurable)
 	cli_options_free(&o);
 }
 
+Test(cli, the_purification_thresholds_default_to_elcs_own)
+{
+	char      *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+
+	/* A zeroed structure would classify every function as everything,
+	 * since every rank is at or above zero — so the defaults are what makes
+	 * purification mean anything at all, and they are `elc`'s own
+	 * heuristics rather than published standards (HLR-171). */
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_eq(o.purify.sink_authority, ELC_DEFAULT_SINK_AUTHORITY);
+	cr_assert_eq(o.purify.sink_hub, ELC_DEFAULT_SINK_HUB);
+	cr_assert_eq(o.purify.god_betweenness, ELC_DEFAULT_GOD_BETWEENNESS);
+	cr_assert_eq(o.purify.god_hub, ELC_DEFAULT_GOD_HUB);
+	cr_assert_eq(o.purify.core_depth, ELC_DEFAULT_CORE_DEPTH);
+	cli_options_free(&o);
+}
+
+Test(cli, every_purification_threshold_is_configurable)
+{
+	char      *argv[] = { "elc", "--sink-authority", "80",
+	                      "--sink-hub", "5", "--god-betweenness", "70",
+	                      "--god-hub", "75", "--core-depth", "3",
+	                      "a.c", NULL };
+	ElcOptions o;
+
+	/* Each of the five, because a heuristic that cannot be adjusted is one
+	 * whose disagreements have nowhere to go (HLR-171). */
+	cr_assert_eq(cli_parse(12, argv, &o), CLI_OK);
+	cr_assert_eq(o.purify.sink_authority, 80);
+	cr_assert_eq(o.purify.sink_hub, 5);
+	cr_assert_eq(o.purify.god_betweenness, 70);
+	cr_assert_eq(o.purify.god_hub, 75);
+	cr_assert_eq(o.purify.core_depth, 3);
+	cli_options_free(&o);
+}
+
+Test(cli, a_rank_threshold_above_one_hundred_is_a_usage_error)
+{
+	static const char *const options[] = { "--sink-authority", "--sink-hub",
+	                                       "--god-betweenness",
+	                                       "--god-hub" };
+
+	/* The four centrality thresholds are positions in an ordered
+	 * distribution, so 100 is the ceiling and a figure above it names a
+	 * position no function can occupy. Rejected rather than silently
+	 * classifying nothing (HLR-063). */
+	for (size_t i = 0; i < sizeof options / sizeof *options; i++) {
+		char      *argv[] = { "elc", (char *)options[i], "101", "a.c",
+		                      NULL };
+		ElcOptions o;
+
+		cr_assert_eq(cli_parse(4, argv, &o), CLI_ERROR,
+		             "%s accepts no rank above 100", options[i]);
+	}
+}
+
+Test(cli, a_rank_threshold_of_one_hundred_is_accepted)
+{
+	char      *argv[] = { "elc", "--sink-authority", "100", "a.c", NULL };
+	ElcOptions o;
+
+	/* The boundary itself is legitimate: a function outranking every other
+	 * is exactly what a strict reading of "high authority" asks for. */
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_eq(o.purify.sink_authority, 100);
+	cli_options_free(&o);
+}
+
+Test(cli, a_malformed_purification_threshold_is_a_usage_error)
+{
+	const char *bad[] = { "abc", "7x", "-1", " 7", "", "0x10" };
+
+	for (size_t i = 0; i < sizeof bad / sizeof *bad; i++) {
+		char      *argv[] = { "elc", "--core-depth", (char *)bad[i],
+		                      "a.c", NULL };
+		ElcOptions o;
+
+		cr_assert_eq(cli_parse(4, argv, &o), CLI_ERROR,
+		             "'%s' is not a core depth", bad[i]);
+	}
+}
+
 Test(cli, a_malformed_bottleneck_threshold_is_a_usage_error)
 {
 	const char *bad[] = { "abc", "7x", "-1", " 7", "", "0x10" };

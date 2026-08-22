@@ -30,6 +30,7 @@
 #include "format_dsm.h"
 #include "format_text.h"
 #include "format_xml.h"
+#include "purify.h"
 #include "registry.h"
 #include "report.h"
 #include "state.h"
@@ -79,6 +80,7 @@ typedef struct {
 	TreeResults        tree;
 	StateResults       state;
 	ArchResults        arch;
+	PurifyResults      purify;
 	FindingList        findings;
 	RouteList          routes;
 	MetricsAccumulator acc;
@@ -99,6 +101,7 @@ static void run_free(Run *run)
 	if (run->out && run->out != stdout)
 		fclose(run->out);
 	findinglist_free(&run->findings);
+	purify_results_free(&run->purify);
 	arch_results_free(&run->arch);
 	state_results_free(&run->state);
 	tree_results_free(&run->tree);
@@ -292,6 +295,21 @@ static int analyse_graph(Run *run)
 	if (dsm_build(&run->sdg, &run->report, &run->opts,
 	              &run->report.dsm) != 0) {
 		fputs("elc: out of memory building the dependency matrix\n",
+		      stderr);
+		return -1;
+	}
+
+	/* Purification runs **last among the analyses**, and reads the graph
+	 * every one of them read. It is the only stage that forms a view of
+	 * `elc`'s own, so it is the only one placed where nothing downstream
+	 * could take its output for a measurement: it produces a second graph
+	 * and hands it to nobody but the report (HLR-167). Running it here
+	 * rather than earlier changes no number — that is the point of the
+	 * copy — and puts the ordering beyond argument as well. */
+	if (purify_analyse(&run->sdg, &run->opts, &run->purify) != 0 ||
+	    report_set_purify(&run->report, &run->purify, &run->sdg,
+	                      &run->opts) != 0) {
+		fputs("elc: out of memory purifying the recovery view\n",
 		      stderr);
 		return -1;
 	}

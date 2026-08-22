@@ -212,6 +212,31 @@ typedef struct {
 	bool    from_strata;
 } Dsm;
 
+/* One classification purification made, as the report presents it (HLR-174).
+ *
+ * **Not a finding, and the difference is the requirement rather than a
+ * presentational choice.** There is no severity here and nothing to attach one
+ * to: "god object" states where a function sits in a graph, not that a
+ * measurement fell outside a published range, and banding it would put `elc`'s
+ * own opinion among the citations (HLR-171, HLR-101).
+ *
+ * The metric and its value travel rendered, for the reason a component's
+ * Instability does: the value is read differently for each metric — a HITS
+ * score to four places, a path count to two, a coreness as the integer it is —
+ * and four renderers each choosing a format is a decision that could differ
+ * between them. A classification a reader cannot trace back to the number that
+ * produced it is an assertion, which is what HLR-174 exists to prevent.
+ */
+typedef struct {
+	char     *function;    /* owned */
+	char     *file;        /* owned */
+	uint32_t  line;
+	char     *class_name;  /* "utility sink", "god object", "peripheral" */
+	char     *metric;      /* the measurement that triggered it; owned   */
+	char     *value;       /* its value and rank, rendered; owned        */
+	char     *action;      /* what masking it did to the view; owned     */
+} PurificationRow;
+
 /* One finding as the report presents it: a measurement that fell outside its
  * accepted range, with the severity and the citation that say so.
  *
@@ -379,6 +404,25 @@ typedef struct {
 	ConformanceRow      back_call;    /* HLR-162                          */
 	ConformanceRow      skip_call;    /* HLR-163                          */
 	Dsm                 dsm;          /* HLR-165, HLR-166                 */
+
+	/* Every classification purification made, and the thresholds it made
+	 * them against (HLR-174, HLR-171).
+	 *
+	 * Reported *before* anything is relied on, because automated masking a
+	 * reader cannot inspect is a black box whose output they have no
+	 * grounds to trust. Ordinary functions are absent: the requirement asks
+	 * for the classifications that were made, and "elc concluded nothing
+	 * about this function" is not one of them.
+	 *
+	 * The two figures beside the rows describe the view the masking
+	 * produced, which is the whole of what a reader is being asked to trust
+	 * — a table of classifications says what was decided, and these say
+	 * what it left behind. */
+	PurificationRow    *purification; /* sorted; owned                    */
+	size_t              purification_count;
+	PurifyThresholds    purify_thresholds; /* the values in force         */
+	size_t              purified_nodes;    /* retained in the view        */
+	size_t              purified_edges;    /* call edges the masking cut  */
 
 	/* Every measurement that crossed a published line, with its severity
 	 * and citation. Ranked most severe first: the list exists to be acted

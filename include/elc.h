@@ -44,6 +44,37 @@ enum {
  * status (HLR-023, HLR-100). */
 #define ELC_DEFAULT_BOTTLENECK_THRESHOLD 5u
 
+/* The purification thresholds of HLR-168 through HLR-170, and the defaults
+ * they take.
+ *
+ * **Every one of these is `elc`'s own heuristic**, not a published standard,
+ * and is marked as such wherever a classification made against it is reported
+ * (HLR-171, HLR-099). They rest on nothing but this project's judgement, which
+ * is why each is user-configurable: a heuristic that cannot be adjusted is one
+ * whose disagreements have nowhere to go.
+ *
+ * The four centrality thresholds are **rank positions**, expressed as a
+ * percentage of the other functions in the graph, never raw scores. A
+ * betweenness value means nothing on its own — it scales with the size of the
+ * graph, so a fixed cut-off would classify every function in a large project
+ * and none in a small one. The core depth is the one absolute figure, because
+ * a coreness is a small integer and the depth is what HLR-170 asks a user to
+ * state.
+ */
+#define ELC_DEFAULT_SINK_AUTHORITY   90u /* a sink outranks this many       */
+#define ELC_DEFAULT_SINK_HUB         10u /* and calls less than this many   */
+#define ELC_DEFAULT_GOD_BETWEENNESS  90u /* a god object outranks this many */
+#define ELC_DEFAULT_GOD_HUB          90u /* on both counts                  */
+#define ELC_DEFAULT_CORE_DEPTH        2u /* below this core, peripheral     */
+
+typedef struct {
+	uint32_t sink_authority;  /* percent (HLR-168) */
+	uint32_t sink_hub;        /* percent (HLR-168) */
+	uint32_t god_betweenness; /* percent (HLR-169) */
+	uint32_t god_hub;         /* percent (HLR-169) */
+	uint32_t core_depth;      /* a coreness (HLR-170) */
+} PurifyThresholds;
+
 /* The fan-out bands of PVD Appendix A.2, after Henry–Kafura.
  *
  * **Exhaustive by construction**: every value from 0 upward falls in exactly
@@ -204,6 +235,15 @@ typedef struct {
 	/* Ca and Ce floor at which a component is a bottleneck (HLR-081).
 	 * `elc`'s own heuristic, and marked as such wherever reported. */
 	uint32_t      bottleneck_threshold;
+	/* The thresholds the recovery view is purified against (HLR-168 –
+	 * HLR-171). `elc`'s own heuristics, every one of them, and marked as
+	 * such wherever a classification made against them is reported.
+	 *
+	 * They govern a *view* and nothing else: no measurement, finding, or
+	 * artefact reported outside architecture recovery is computed over a
+	 * purified graph, so changing one of these cannot move a number
+	 * (HLR-167). */
+	PurifyThresholds purify;
 	bool          graphml;      /* export the SDG (HLR-106); off unless
 	                             * asked for, and silently nothing when
 	                             * the report goes to stdout             */

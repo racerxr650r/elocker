@@ -793,6 +793,23 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out)
 	 * file from its use is a global waiting to be unset. */
 	igraph_set_error_handler(igraph_error_handler_ignore);
 
+	/* **And its warnings are discarded, which is a different judgement from
+	 * the line above.** An igraph warning is written to standard error
+	 * naming one of the library's own source files and lines — "Warning at
+	 * src/centrality/hub_authority.c:77" — and that is not a diagnostic a
+	 * user of `elc` can act on. HLR-038 reserves standard error for `elc`'s
+	 * own, and every diagnostic elsewhere in this program names a path the
+	 * user supplied.
+	 *
+	 * Nothing is lost. A warning is by definition a result the library still
+	 * produced; a *failure* returns an error code, and every call site in
+	 * `elc` checks one. The warnings that actually arise are properties of
+	 * a call graph rather than faults: the hub-and-authority decomposition
+	 * warns whenever a third of the scores are zero, which is true of every
+	 * program whose functions include some leaves. Reporting it would put a
+	 * line of library chatter on the terminal of every run. */
+	igraph_set_warning_handler(igraph_warning_handler_ignore);
+
 	if (build_nodes(report, out) != 0)
 		goto cleanup;
 

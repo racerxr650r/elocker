@@ -911,6 +911,60 @@ static int dsm_section(const Report *report, Style style, FILE *out)
 	               : format_dsm_table(&report->dsm, out);
 }
 
+/* What purification concluded, and what it did about it (HLR-174).
+ *
+ * **A report section, written to the results destination like every other
+ * result.** Never to standard output directly: HLR-038 reserves that stream,
+ * and a run redirecting its report to a file must not have a second report
+ * appear on the terminal. There is no `printf` in this module for that reason —
+ * every section writes to the stream it is handed.
+ *
+ * A detail tier by the partition rule of HLR-150: it enumerates one row per
+ * classified function. The heading carries what a reader needs before the rows
+ * mean anything — that the thresholds are `elc`'s own rather than published
+ * (HLR-171), the five values in force, and what the masking left behind.
+ *
+ * **No severity column, and nothing to put in one.** A classification is an
+ * observation about the shape of a graph, not a measurement banded against an
+ * accepted range, and a column here would present `elc`'s own view as a finding
+ * (HLR-171, HLR-101).
+ */
+static int purification_section(const Report *report, Style style, FILE *out)
+{
+	Grid grid;
+
+	static const char *const names[] = { "File", "Function", "Class",
+	                                     "Metric", "Value", "Action" };
+	char                     heading[512];
+
+	snprintf(heading, sizeof heading,
+	         "Graph purification (recovery view only, no measurement above "
+	         "is taken over it; %s: sink at authority >= %" PRIu32
+	         "%% and hub <= %" PRIu32 "%%, god object at betweenness >= %"
+	         PRIu32 "%% and hub >= %" PRIu32 "%%, peripheral below core "
+	         "depth %" PRIu32 "; %zu functions retained, %zu call edges "
+	         "masked)",
+	         ELC_OWN_HEURISTIC,
+	         report->purify_thresholds.sink_authority,
+	         report->purify_thresholds.sink_hub,
+	         report->purify_thresholds.god_betweenness,
+	         report->purify_thresholds.god_hub,
+	         report->purify_thresholds.core_depth,
+	         report->purified_nodes, report->purified_edges);
+
+	grid_begin(&grid, heading, 6, names, NULL);
+	for (size_t i = 0; i < report->purification_count; i++) {
+		const PurificationRow *r = &report->purification[i];
+
+		grid_row(&grid, r->file, r->function, r->class_name,
+		         r->metric, r->value, r->action);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
 static int global_state_section(const Report *report, Style style, FILE *out)
 {
 	Grid grid;
@@ -1436,6 +1490,7 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		{ layering_section,              TIER_DETAIL,  strata_omitted  },
 		{ conformance_section,           TIER_SUMMARY, NULL            },
 		{ dsm_section,                   TIER_DETAIL,  NULL            },
+		{ purification_section,          TIER_DETAIL,  NULL            },
 		{ global_state_section,          TIER_DETAIL,  NULL            },
 		{ unreachable_functions_section, TIER_DETAIL,  reach_omitted   },
 		{ unreachable_globals_section,   TIER_DETAIL,  NULL            },
