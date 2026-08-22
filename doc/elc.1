@@ -362,6 +362,56 @@ fewer targets than were given. Each discovered file is reduced to its
 canonical absolute path and analysed exactly once, however many targets reach
 it.
 .SH FORMATS
+A format is named in one of two ways, and which is available depends on where
+the report is going. Where an
+.B \-\-output
+file is named, the extension of that filename determines the format and no
+option is required to repeat what the filename has already said. Standard
+output has no filename and therefore no extension, so a report written there
+takes its format from
+.B \-\-format
+alone, defaulting to
+.BR table .
+.PP
+.RS
+.TP
+.B \&.txt
+the aligned table, as
+.BR "\-f table" .
+.TP
+.B \&.md
+GitHub\-Flavored Markdown, as
+.BR "\-f md" .
+.TP
+.B \&.csv
+RFC 4180 CSV, as
+.BR "\-f csv" .
+.TP
+.B \&.xml
+the complete record, as
+.BR "\-f xml" .
+.RE
+.PP
+An output filename carrying any other extension, or none at all, is a usage
+error naming the extension found and listing those that are recognized.
+Guessing would write one format under a name promising another, and
+defaulting silently to the table would produce a
+.B report.json
+holding no JSON. Where both an output filename and
+.B \-\-format
+are given they are two statements of one fact: agreement is accepted, and
+disagreement is a usage error naming both rather than a silent preference for
+either.
+.PP
+The extension governs the format alone. The companion artefacts substitute
+their own extension on the same path, so an
+.B \-\-output
+of
+.B report.md
+still yields
+.B report.dot
+and
+.BR report.graphml .
 .TP
 .B table
 An aligned table for reading. The default.
@@ -436,14 +486,17 @@ One of
 .BR csv ,
 .BR xml ,
 or
-.BR md .
-The default is
-.BR table ,
-except with
-.BR \-\-from\-xml ,
-where it is
+.BR md ,
+for a report written to standard output. The default is
+.BR table .
+With
+.B \-\-output
+the filename's extension names the format instead, and this option is
+accepted only where it agrees with it. With
+.B \-\-from\-xml
+the default is
 .B md
-and no other format is accepted.
+and no other format is accepted, by either spelling.
 .TP
 .BI \-\-from\-xml " FILE"
 Rebuild a report from a record previously written with
@@ -463,6 +516,32 @@ Write the report to
 .I FILE
 instead of to standard output. Diagnostics continue to go to standard error,
 so the file holds results and nothing else. The default is standard output.
+.IP
+The extension of
+.I FILE
+names the format:
+.B .txt
+for the aligned table,
+.B .md
+for Markdown,
+.B .csv
+for CSV, and
+.B .xml
+for the complete record. Any other extension, or none, is a usage error
+rather than a guess. See
+.B FORMATS
+above.
+.TP
+.BR \-v ", " \-\-verbose
+Present the verbose report rather than the summary. See
+.B REPORT VERBOSITY
+below. Presentation only: no measurement, no finding, no severity, and not
+the exit status changes with it. The
+.B csv
+and
+.B xml
+formats are complete whatever the verbosity, so the option is accepted with
+either and has no effect on the file produced.
 .TP
 .BI \-\-entry " SYMBOL"
 Declare
@@ -678,17 +757,14 @@ diagnostics are written to standard error. Nothing else is written to the
 results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
-The default format is an aligned table in tiers: the project summary, the
-project-wide callouts, the discovery route applied to each directory target,
-the totals broken down by language, one row per analysed file, one row per
-function, and the functions at or over the complexity threshold; then the
-tiers derived from the dependence graph \(em fan-out, recursion, the deepest
-call chain, component coupling, dependency cycles, layering, global state,
-dead code, and cross-scope access \(em followed by the findings, the
-configuration in force, any custom-rule matches, any partly parsed files, and
-the files that were skipped. Every section is emitted whether or not it has
-rows. The example below is abridged. Column widths are taken from the longest
-value in each column so the figures line up:
+The default format is an aligned table in tiers, and by default it presents
+the summary tiers alone \(em see
+.B REPORT VERBOSITY
+below for which those are. Every section a given verbosity reaches is emitted
+whether or not it has rows. The example below is of a
+.B \-\-verbose
+run and is abridged. Column widths are taken from the longest value in each
+column so the figures line up:
 .PP
 .EX
 Project summary
@@ -760,6 +836,109 @@ indistinguishable from a failure.
 The shape of the report does not vary with the type of the target: a single
 file, a plain directory, and a repository all produce the same headings and
 the same columns.
+.SH REPORT VERBOSITY
+A report is presented at one of two verbosities. The default is the
+.IR summary ,
+which is what
+.B elc
+prints when
+.B \-\-verbose
+is not given;
+.B \-\-verbose
+selects the
+.IR verbose
+report, which is every tier the summary presents together with the detail
+tiers it omits.
+.PP
+The partition is by tier and is fixed, so that it is a property of the report
+rather than of how a renderer happened to be written. A tier presenting a
+project\-level aggregate, a file's own totals, or a finding you are expected
+to act on is a summary tier. A tier enumerating one row per analysed entity
+\(em per function, per global object, per unreachable statement, per graph
+edge, per custom\-rule match \(em is a detail tier.
+.PP
+The summary tiers, in the order they are presented:
+.RS
+.IP \(bu 2
+Project summary, and the project\-wide callouts.
+.IP \(bu 2
+Discovery \(em the route applied to each directory target.
+.IP \(bu 2
+Languages \(em the totals broken down by language.
+.IP \(bu 2
+Files \(em each file's own totals.
+.IP \(bu 2
+At or over the complexity threshold \(em the per\-file threshold listing.
+.IP \(bu 2
+Any analysis omitted for want of a declaration, with its reason. The section
+carrying the notice is a detail tier, but the notice itself is not: an
+analysis nobody declared for is something you must be told at either
+verbosity.
+.IP \(bu 2
+Findings \(em every measurement that crossed a published line, ranked by
+severity. The summary keeps these deliberately: a summary that dropped the
+one section you act on would be shorter and useless.
+.IP \(bu 2
+Conditional\-compilation definitions \(em the configuration in force.
+.IP \(bu 2
+Linked\-image filter \(em the image the run was filtered by, where one was
+named.
+.IP \(bu 2
+Partially parsed files.
+.IP \(bu 2
+Skipped files.
+.RE
+.PP
+The detail tiers, presented only with
+.BR \-\-verbose :
+.RS
+.IP \(bu 2
+Functions \(em one row per analysed function.
+.IP \(bu 2
+Fan\-out, recursion, the deepest call chain, component coupling, component
+dependency cycles, and layering \(em the measurements taken over the
+dependence graph, one row per entity. Every one of these that crossed a
+published line is a finding, and the findings are in the summary.
+.IP \(bu 2
+Global state, and the globals reachable from nothing.
+.IP \(bu 2
+Unreachable functions, and dead code within functions.
+.IP \(bu 2
+Cross\-scope access.
+.IP \(bu 2
+The functions a linked image does not define.
+.IP \(bu 2
+Custom rule matches.
+.RE
+.PP
+The verbose report is exactly what
+.B elc
+presented before the summary became the default: the option is a restoration
+rather than a new format to learn.
+.PP
+Verbosity governs presentation and nothing else. It changes no measurement,
+no finding, no severity, and not the exit status; a value absent from a
+summary is absent because it was not printed rather than because it was not
+computed. The
+.B csv
+and
+.B xml
+formats are defined as complete \(em one record per function, and every
+element of a run \(em so there is no presentation for a verbosity to select
+between. Both are byte\-identical at either verbosity, and asking for
+.B \-\-verbose
+with either is accepted rather than rejected: nothing about the request is
+contradictory, and it simply has no effect.
+.PP
+Because the record is complete whatever the verbosity, one saved record
+answers a summary question and a verbose one alike, and answers each
+identically to a direct run:
+.PP
+.EX
+elc \-f xml \-o build/metrics.xml src/
+elc \-\-from\-xml build/metrics.xml            # summary Markdown
+elc \-\-from\-xml build/metrics.xml \-\-verbose  # verbose Markdown
+.EE
 .SH CONDITIONAL COMPILATION
 Source that is conditionally compiled describes several programs, and measuring
 it without saying which one produces the union of them all \(em a figure that
@@ -1186,7 +1365,18 @@ Analyse named files.
 Analyse a file and a directory that contains it. The file is reported once.
 .TP
 .B elc \-o report.txt src/
-Write the report to a file, leaving standard output empty.
+Write the report to a file, leaving standard output empty. The
+.B .txt
+names the aligned table; no
+.B \-f
+is needed.
+.TP
+.B elc \-o report.csv src/
+Write CSV, with no format option given: the filename has already said so.
+.TP
+.B elc \-\-verbose src/
+Present every tier, including the per\-function and per\-entity tables the
+summary omits.
 .TP
 .B elc src/ lib/ tools/
 Analyse a target holding several languages at once.
@@ -1203,6 +1393,10 @@ Take the function names and their complexities into another tool.
 .TP
 .B elc \-f xml \-o run.xml src/ && elc \-\-from\-xml run.xml \-c 8
 Keep a record of a run, then ask it a question the original run did not.
+.TP
+.B elc \-\-from\-xml run.xml \-\-verbose
+Regenerate the same record in full. Verbosity is a property of the report
+rather than of the record, so one record answers both.
 .TP
 .B ELC_RUNTIME_DIR=/opt/elc/runtime elc src/
 Analyse with language support taken from a runtime directory elsewhere.

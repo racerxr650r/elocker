@@ -41,7 +41,7 @@ dead_heading() {
 # --------------------------------------------------- the sibling walk --
 
 @test "HLR-137: statements after a return are reported" {
-	elc "$TREE/terminator.c"
+	elc --verbose "$TREE/terminator.c"
 	assert_success
 	assert_equal "$(dead_lines after_return)" "9-9
 10-10"
@@ -63,13 +63,13 @@ dead_heading() {
 }
 
 @test "HLR-137: statements after a break are reported" {
-	elc "$TREE/terminator.c"
+	elc --verbose "$TREE/terminator.c"
 	assert_success
 	assert_equal "$(dead_lines after_break)" "19-19"
 }
 
 @test "HLR-137: statements after a continue are reported" {
-	elc "$TREE/terminator.c"
+	elc --verbose "$TREE/terminator.c"
 	assert_success
 	assert_equal "$(dead_lines after_continue)" "28-28"
 }
@@ -94,7 +94,7 @@ dead_heading() {
 
 @test "LLR-DED-01: a statement following two terminators is reported once" {
 	# Line 48 follows both returns, so the walk reaches it twice.
-	elc "$TREE/terminator.c"
+	elc --verbose "$TREE/terminator.c"
 	assert_success
 	assert_equal "$(dead_lines two_terminators)" "47-47
 48-48
@@ -104,14 +104,14 @@ dead_heading() {
 # ----------------------------------------------------- literal branches --
 
 @test "HLR-137: the consequence of if (0) and the else of if (1) are reported" {
-	elc "$TREE/literal.c"
+	elc --verbose "$TREE/literal.c"
 	assert_success
 	assert_equal "$(dead_lines excluded)" "8-10
 13-15"
 }
 
 @test "HLR-137: the body of a literally false loop is reported" {
-	elc "$TREE/literal.c"
+	elc --verbose "$TREE/literal.c"
 	assert_success
 	assert_equal "$(dead_lines loops)" "20-22"
 }
@@ -146,7 +146,7 @@ dead_heading() {
 	}
 	EOF
 
-	elc "$BATS_TEST_TMPDIR/zeroes.c"
+	elc --verbose "$BATS_TEST_TMPDIR/zeroes.c"
 	assert_success
 	assert_equal "$(dead_lines f)" "3-3"
 }
@@ -154,7 +154,7 @@ dead_heading() {
 @test "HLR-137: the two causes are distinguished" {
 	# The reader's next action differs, so merging them would lose the
 	# information the row exists to carry.
-	elc "$TREE/literal.c" "$TREE/terminator.c"
+	elc --verbose "$TREE/literal.c" "$TREE/terminator.c"
 	assert_success
 	assert_equal "$(dead_causes excluded)" "literal condition
 literal condition"
@@ -166,7 +166,7 @@ after a terminator"
 	# A comment is a *named* sibling, so the walk sees the trailing note on
 	# the terminator's own line. Without the comment exclusion every
 	# annotated return reports itself.
-	elc "$TREE/terminator.c"
+	elc --verbose "$TREE/terminator.c"
 	assert_success
 
 	local rows
@@ -179,7 +179,7 @@ after a terminator"
 # ------------------------------------------ per-language support (HLR-139) --
 
 @test "HLR-139: a language supplying a dead-code query reports every language analysed" {
-	elc "$TREE/literal.c"
+	elc --verbose "$TREE/literal.c"
 	assert_success
 	assert_equal "$(dead_heading)" \
 		"Dead code within functions (every language analysed)"
@@ -196,7 +196,7 @@ after a terminator"
 	rm -f "$runtime/queries/c/deadcode.scm"
 	printf 'int p(void)\n{\n\treturn 0;\n}\n' > "$BATS_TEST_TMPDIR/p.c"
 
-	ELC_RUNTIME_DIR="$runtime" elc "$BATS_TEST_TMPDIR/p.c"
+	ELC_RUNTIME_DIR="$runtime" elc --verbose "$BATS_TEST_TMPDIR/p.c"
 	assert_success
 	assert_equal "$(dead_heading)" \
 		"Dead code within functions (not analysed for: c)"
@@ -211,7 +211,7 @@ after a terminator"
 	cp -r "$ELC_RUNTIME_DIR" "$rt"
 	rm "$rt/queries/c/deadcode.scm"
 
-	ELC_RUNTIME_DIR="$rt" run "$ELC" "$TREE/literal.c"
+	ELC_RUNTIME_DIR="$rt" run "$ELC" --verbose "$TREE/literal.c"
 	assert_success
 	assert_equal "$(dead_heading)" \
 		"Dead code within functions (not analysed for: c)"
@@ -228,7 +228,7 @@ after a terminator"
 	cp -r "$ELC_RUNTIME_DIR" "$rt"
 	rm "$rt/queries/c/deadcode.scm"
 
-	ELC_RUNTIME_DIR="$rt" run "$ELC" "$TREE/literal.c"
+	ELC_RUNTIME_DIR="$rt" run "$ELC" --verbose "$TREE/literal.c"
 	assert_success
 	assert_output --partial "excluded"
 	refute_output --partial "no usable language module"
@@ -243,7 +243,7 @@ after a terminator"
 	cp -r "$ELC_RUNTIME_DIR" "$rt"
 	printf '(no_such_node) @dead.terminator\n' > "$rt/queries/c/deadcode.scm"
 
-	ELC_RUNTIME_DIR="$rt" run "$ELC" "$TREE/literal.c"
+	ELC_RUNTIME_DIR="$rt" run "$ELC" --verbose "$TREE/literal.c"
 	assert_success
 	assert_output --partial "deadcode.scm"
 }
@@ -267,7 +267,7 @@ after a terminator"
 	}
 	EOF
 
-	elc --entry reachable_entry "$BATS_TEST_TMPDIR/both.c"
+	elc --verbose --entry reachable_entry "$BATS_TEST_TMPDIR/both.c"
 	assert_success
 
 	# Unreachable by traversal...
@@ -290,15 +290,15 @@ after a terminator"
 	printf 'int f() {\n\treturn 0;\n\tint n = 1;\n}\n' \
 		> "$BATS_TEST_TMPDIR/a.cpp"
 
-	elc "$BATS_TEST_TMPDIR/a.py"
+	elc --verbose "$BATS_TEST_TMPDIR/a.py"
 	assert_success
 	assert_equal "$(dead_lines f)" "3-3"
 
-	elc "$BATS_TEST_TMPDIR/a.rs"
+	elc --verbose "$BATS_TEST_TMPDIR/a.rs"
 	assert_success
 	assert_equal "$(dead_lines f)" "3-3"
 
-	elc "$BATS_TEST_TMPDIR/a.cpp"
+	elc --verbose "$BATS_TEST_TMPDIR/a.cpp"
 	assert_success
 	assert_equal "$(dead_lines f)" "3-3"
 }

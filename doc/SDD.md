@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.10
-**Date:** 2026-08-21
+**Version:** 2.11
+**Date:** 2026-08-22
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -188,7 +188,7 @@ The runtime data flow of an analysis run is:
         7.  Call `graph_build()` over the fact list.
         8.  Call `arch_analyse()`, `calltree_analyse()`, `state_analyse()`, then `thresholds_apply()`, then `report_assemble()`.
         9.  Open the output destination — the file named by the options, or standard output when none was named — and on a failure to open it emit a diagnostic and return 2 without writing a partial report (HLR-030).
-        10.  Dispatch to the selected renderer, then to `graph_write_dot()` when the companion artefact is warranted.
+        10.  Dispatch to the selected renderer, passing the verbosity to the two human-facing renderers and to neither complete-record writer, then to `graph_write_dot()` when the companion artefact is warranted (HLR-152, LLR-MAIN-21).
         11.  Tear down in reverse order and return the computed status.
     *   Notes: `main()` contains no analysis logic; its cyclomatic complexity is bounded by the number of stages and their failure branches, keeping it well inside the self-quality target of PVD §8.
 
@@ -224,8 +224,9 @@ The set of accepted options appears in three places: this module's `getopt_long`
 
 | Option | Argument | Default | Requirement |
 | ------ | -------- | ------- | ----------- |
-| `-f`, `--format` | `table\|csv\|xml\|md` | `table` | HLR-027 – HLR-029 |
-| `-o`, `--output` | path | `stdout` | HLR-030 |
+| `-f`, `--format` | `table\|csv\|xml\|md` | `table` | HLR-027 – HLR-029, HLR-149 |
+| `-o`, `--output` | path | `stdout` | HLR-030, HLR-148 |
+| `-v`, `--verbose` | — | summary | HLR-150, HLR-151 |
 | `-c`, `--complexity-threshold` | integer | `15` | HLR-022 |
 | `-b`, `--bottleneck-threshold` | integer | `5` | HLR-081 |
 | `--no-dot` | — | `.dot` enabled | HLR-103 |
@@ -241,6 +242,22 @@ The set of accepted options appears in three places: this module's `getopt_long`
 | `-h`, `--help` | — | — | HLR-117 |
 
 
+#### 4.2.3 Two Ways to Name One Format
+
+The format can be stated twice, and the two statements are settled against each other rather than by precedence.
+
+Where an `--output` file is named, its extension determines the format (HLR-148) — `.txt`, `.md`, `.csv`, `.xml` — and `--format` is not needed. Standard output has no filename and so no extension, so a report written there takes the option alone, defaulting to the table (HLR-149). Where both are supplied, agreement is accepted and disagreement is a usage error naming both: honouring either would leave the command line disagreeing with the file it produced.
+
+Resolution therefore happens **after** the option loop, in `resolve_format()`, not inside it. Inside the loop the two options would be compared in whichever order they arrived, so `-f csv -o r.md` and `-o r.md -f csv` would need separate handling; after it, one comparison settles both (LLR-CLI-27). It also happens *before* the regeneration checks, because those ask which format was chosen and the filename is one of the two ways of choosing it (LLR-CLI-28).
+
+The extension table is the single statement of the mapping. The diagnostic for an unrecognised extension is generated from it, so a format added there is named in the error message without a second list to keep in step.
+
+#### 4.2.4 Verbosity Is Not a Format
+
+`--verbose` selects how much of the report is presented (HLR-151); `--format` selects how it is decorated. The two are orthogonal, and the parser keeps them so.
+
+It follows that `--verbose` with `-f xml` or `-f csv` is **accepted**, which is worth stating because it is the one option pairing this module decides that is not a usage error (HLR-152, LLR-CLI-30). Every other combination the parser rejects is rejected because the two options make contradictory claims about one run; asking a complete format for more detail claims nothing contradictory. It has no effect, and having no effect is not the same as being wrong.
+
 
 ### 4.3 Internal Structure
 #### 4.3.1 Key Data Structures
@@ -252,6 +269,8 @@ The set of accepted options appears in three places: this module's `getopt_long`
 
 *   **`int cli_parse(int argc, char *argv[], ElcOptions *out)`** — Parse and validate argv into out; returns 0, CLI_HELP, or CLI_ERROR.
 *   **`void cli_usage(FILE *stream)`** — Print the option summary and defaults to stream.
+*   **`static int resolve_format(CliParse *p)`** — Settle the format the option and the output filename can each state, after the option loop so the two may be given in either order.
+*   **`static const char *path_extension(const char *path)`** — The extension of a path, or NULL where its basename carries none.
 *   **`int parse_stratum(const char *arg, ElcOptions *out)`** — Parse one name:glob-list stratum declaration.
 *   **`int parse_scope(const char *arg, ElcOptions *out)`** — Parse one name:glob-list execution-scope declaration.
 *   **`void cli_options_free(ElcOptions *opts)`** — Release every heap allocation owned by the options structure.
@@ -264,6 +283,8 @@ The set of accepted options appears in three places: this module's `getopt_long`
 *   **Unknown option or missing argument** Print the usage summary to `stderr` and return `CLI_ERROR`; `main()` exits 2 without analysing anything (HLR-063).
 *   **Help requested** Print the usage summary to `stdout` and return `CLI_HELP`; `main()` exits 0, since a help request is not an error (HLR-117).
 *   **Malformed declaration** A stratum, scope, or entry-point argument that cannot be parsed is a usage error, handled as above.
+*   **Unrecognised output extension** An `--output` path whose extension names no format `elc` has, or whose basename carries none, is a usage error naming the extension found and listing those that are recognised (HLR-148). Nothing is written: guessing would put one format under a name promising another, and defaulting to the table would produce a `report.json` holding no JSON.
+*   **Format option contradicting the filename** `--format` and an `--output` extension that name different formats is a usage error naming both, rather than a silent preference for either (HLR-149). Where they name the same format the invocation is accepted, since nothing is ambiguous about saying a thing twice.
 *   **Malformed numeric argument** A threshold must be a plain decimal number and nothing else. `strtoul` alone is not that test: it accepts a leading sign, leading whitespace, a hexadecimal prefix, and a trailing tail, each of which would silently become a threshold the user did not write. The argument is rejected unless it begins with a digit, converts without overflow, and is consumed entirely.
 
 ## 5. Detailed Design for [src/discover.c](../src/discover.c)
@@ -920,18 +941,26 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   Render every tier in the fixed order, so that the report has the same shape whatever the type of the target was (HLR-006).
 *   Render Markdown with functions grouped under a per-file heading.
 *   Present every tier the uniform-composition rule requires, in both formats.
+*   Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).
 
 
 ### 14.3 Internal Structure
 #### 14.3.1 Key Functions
 
-*   **`int format_table(const Report *r, FILE *out)`** — Render the aligned ASCII table. Returns non-zero when the stream reported a write failure, checked once after the last write rather than at every call.
-*   **`int format_markdown(const Report *r, FILE *out)`** — Render GitHub-Flavored Markdown.
+*   **`int format_table(const Report *r, Verbosity verbosity, FILE *out)`** — Render the aligned ASCII table at the given verbosity. Returns non-zero when the stream reported a write failure, checked once after the last write rather than at every call.
+*   **`int format_markdown(const Report *r, Verbosity verbosity, FILE *out)`** — Render GitHub-Flavored Markdown at the given verbosity.
+*   **`int render_report(const Report *r, Style style, Verbosity verbosity, FILE *out)`** — The one traversal both formats and both verbosities go through: walks the ordered section list once, emitting the tiers the verbosity selects in the decoration the style selects.
 *   **`void render_summary(const Report *r, FILE *out, Style style)`** — Shared project-summary rendering for both formats.
 
 #### 14.3.2 Parsing Strategy / Algorithm
 
 **The two renderers are one traversal.** `render_report()` walks the model once and emits every tier in a fixed order; the `Style` decides only how each tier is decorated. A tier added to the traversal appears in both formats, and cannot be added to one and forgotten in the other, because there is nowhere to forget it — which is what makes HLR-031's uniform composition structural rather than maintained (LLR-SUM-02).
+
+**Verbosity is a second parameter of that same traversal, not a second traversal.** The ordered section list carries, beside each section's render function, the tier it belongs to; the walk emits a section when the verbosity is verbose, when its tier is `TIER_SUMMARY`, or when its analysis was omitted for want of a declaration. That last case is what carries HLR-115's omission notices into the summary: the section is a detail tier, but an omitted analysis produced no rows, so it renders as its heading and the reason in it — which is the notice, and needs no section of its own. A section is therefore written down once and classified once, and the guarantee that a tier cannot exist at one verbosity and not the other holds by the same construction as the guarantee across formats (LLR-SUM-09).
+
+The partition rule is HLR-150's: a tier presenting a project-level aggregate, a file's own totals, or a finding a reader is expected to act on is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Coupling, the cycles, the layering violations, and the recursive chains fall on the detail side even though each row names a component, because they enumerate the graph one entity at a time — a *file-level aggregate* in the rule's sense is a file's own totals, which is what the Files tier presents. Nothing is lost from the summary by it: each of those measurements that crossed a published line is a finding, and the findings tier is a summary tier.
+
+The image-filter tier is split along the same boundary. `image_filter_section` presents the image and its two counts, which are the provenance of a filtered run and a summary tier; `absent_functions_section` presents the functions the image does not define, which is one row per function and a detail tier. The two are adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split (LLR-SUM-06).
 
 Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
 
@@ -1383,8 +1412,9 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `mode` | `RunMode` | Analysis or XML regeneration; regeneration requires format md and suppresses both companion artefacts (HLR-055) |
-| `format` | `OutputFormat` | table, csv, xml, or md |
-| `output_path` | `const char *` | NULL when writing to stdout |
+| `format` | `OutputFormat` | table, csv, xml, or md. Settled once, after the option loop, from `--format` and the extension of `output_path` together, so the two can be compared rather than one preferred (HLR-148, HLR-149) |
+| `output_path` | `const char *` | NULL when writing to stdout. Where it is not NULL its extension names the format, so the field carries a second meaning beyond the destination (HLR-148) |
+| `verbose` | `bool` | The *request* for the verbose report, not the selection between two compositions: the summary is the default (HLR-150), so a zeroed ElcOptions must mean the summary, which it does only if the flag records the positive. A property of the rendering alone — it changes no measurement, no finding, and not the exit status, and the complete-record formats ignore it (HLR-151, HLR-152) |
 | `complexity_threshold` | `uint32_t` | Default 15 (HLR-022) |
 | `bottleneck_threshold` | `uint32_t` | Default 5 (HLR-081) |
 | `no_dot` | `bool` | The *refusal* of the `.dot` companion, not the request for it: generation is enabled by default (HLR-103), so a zeroed ElcOptions must mean enabled, which it does only if the flag records the negative |

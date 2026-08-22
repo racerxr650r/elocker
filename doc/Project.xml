@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.10" date="2026-08-21" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.6" date="2026-08-20" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.5" date="2026-08-17" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.11" date="2026-08-21" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.12" date="2026-08-21" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.11" date="2026-08-22" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.7" date="2026-08-22" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.6" date="2026-08-22" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.12" date="2026-08-22" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.13" date="2026-08-22" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="178"/>
-      <count name="llrs"       value="417"/>
-      <count name="tests"      value="802"/>
-      <count name="test_files" value="43"/>
+      <count name="llrs"       value="425"/>
+      <count name="tests"      value="846"/>
+      <count name="test_files" value="44"/>
     </counts>
   </metadata>
 
@@ -171,7 +171,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
               <step><![CDATA[Call `graph_build()` over the fact list.]]></step>
               <step><![CDATA[Call `arch_analyse()`, `calltree_analyse()`, `state_analyse()`, then `thresholds_apply()`, then `report_assemble()`.]]></step>
               <step><![CDATA[Open the output destination — the file named by the options, or standard output when none was named — and on a failure to open it emit a diagnostic and return 2 without writing a partial report (HLR-030).]]></step>
-              <step><![CDATA[Dispatch to the selected renderer, then to `graph_write_dot()` when the companion artefact is warranted.]]></step>
+              <step><![CDATA[Dispatch to the selected renderer, passing the verbosity to the two human-facing renderers and to neither complete-record writer, then to `graph_write_dot()` when the companion artefact is warranted (HLR-152, LLR-MAIN-21).]]></step>
               <step><![CDATA[Tear down in reverse order and return the computed status.]]></step>
             </logic>
             <notes><![CDATA[`main()` contains no analysis logic; its cyclomatic complexity is bounded by the number of stages and their failure branches, keeping it well inside the self-quality target of PVD §8.]]></notes>
@@ -199,8 +199,9 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
           <interface title="Command-Line Options"><![CDATA[
 | Option | Argument | Default | Requirement |
 | ------ | -------- | ------- | ----------- |
-| `-f`, `--format` | `table\|csv\|xml\|md` | `table` | HLR-027 – HLR-029 |
-| `-o`, `--output` | path | `stdout` | HLR-030 |
+| `-f`, `--format` | `table\|csv\|xml\|md` | `table` | HLR-027 – HLR-029, HLR-149 |
+| `-o`, `--output` | path | `stdout` | HLR-030, HLR-148 |
+| `-v`, `--verbose` | — | summary | HLR-150, HLR-151 |
 | `-c`, `--complexity-threshold` | integer | `15` | HLR-022 |
 | `-b`, `--bottleneck-threshold` | integer | `5` | HLR-081 |
 | `--no-dot` | — | `.dot` enabled | HLR-103 |
@@ -215,11 +216,23 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
 | `-D`, `--define` | `name[=value]` | none | HLR-131 |
 | `-h`, `--help` | — | — | HLR-117 |
 ]]></interface>
+          <interface title="Two Ways to Name One Format"><![CDATA[The format can be stated twice, and the two statements are settled against each other rather than by precedence.
+
+Where an `--output` file is named, its extension determines the format (HLR-148) — `.txt`, `.md`, `.csv`, `.xml` — and `--format` is not needed. Standard output has no filename and so no extension, so a report written there takes the option alone, defaulting to the table (HLR-149). Where both are supplied, agreement is accepted and disagreement is a usage error naming both: honouring either would leave the command line disagreeing with the file it produced.
+
+Resolution therefore happens **after** the option loop, in `resolve_format()`, not inside it. Inside the loop the two options would be compared in whichever order they arrived, so `-f csv -o r.md` and `-o r.md -f csv` would need separate handling; after it, one comparison settles both (LLR-CLI-27). It also happens *before* the regeneration checks, because those ask which format was chosen and the filename is one of the two ways of choosing it (LLR-CLI-28).
+
+The extension table is the single statement of the mapping. The diagnostic for an unrecognised extension is generated from it, so a format added there is named in the error message without a second list to keep in step.]]></interface>
+          <interface title="Verbosity Is Not a Format"><![CDATA[`--verbose` selects how much of the report is presented (HLR-151); `--format` selects how it is decorated. The two are orthogonal, and the parser keeps them so.
+
+It follows that `--verbose` with `-f xml` or `-f csv` is **accepted**, which is worth stating because it is the one option pairing this module decides that is not a usage error (HLR-152, LLR-CLI-30). Every other combination the parser rejects is rejected because the two options make contradictory claims about one run; asking a complete format for more detail claims nothing contradictory. It has no effect, and having no effect is not the same as being wrong.]]></interface>
         </interfaces>
         <data_structures><![CDATA[`ElcOptions` (see the Data Dictionary) is populated here and thereafter treated as read-only by every other module.]]></data_structures>
         <functions>
           <function signature="int cli_parse(int argc, char *argv[], ElcOptions *out)" summary="Parse and validate argv into out; returns 0, CLI_HELP, or CLI_ERROR."/>
           <function signature="void cli_usage(FILE *stream)" summary="Print the option summary and defaults to stream."/>
+          <function signature="static int resolve_format(CliParse *p)" summary="Settle the format the option and the output filename can each state, after the option loop so the two may be given in either order."/>
+          <function signature="static const char *path_extension(const char *path)" summary="The extension of a path, or NULL where its basename carries none."/>
           <function signature="int parse_stratum(const char *arg, ElcOptions *out)" summary="Parse one name:glob-list stratum declaration."/>
           <function signature="int parse_scope(const char *arg, ElcOptions *out)" summary="Parse one name:glob-list execution-scope declaration."/>
           <function signature="void cli_options_free(ElcOptions *opts)" summary="Release every heap allocation owned by the options structure."/>
@@ -231,6 +244,8 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
           <case name="Unknown option or missing argument"><![CDATA[Print the usage summary to `stderr` and return `CLI_ERROR`; `main()` exits 2 without analysing anything (HLR-063).]]></case>
           <case name="Help requested"><![CDATA[Print the usage summary to `stdout` and return `CLI_HELP`; `main()` exits 0, since a help request is not an error (HLR-117).]]></case>
           <case name="Malformed declaration"><![CDATA[A stratum, scope, or entry-point argument that cannot be parsed is a usage error, handled as above.]]></case>
+          <case name="Unrecognised output extension"><![CDATA[An `--output` path whose extension names no format `elc` has, or whose basename carries none, is a usage error naming the extension found and listing those that are recognised (HLR-148). Nothing is written: guessing would put one format under a name promising another, and defaulting to the table would produce a `report.json` holding no JSON.]]></case>
+          <case name="Format option contradicting the filename"><![CDATA[`--format` and an `--output` extension that name different formats is a usage error naming both, rather than a silent preference for either (HLR-149). Where they name the same format the invocation is accepted, since nothing is ambiguous about saying a thing twice.]]></case>
           <case name="Malformed numeric argument"><![CDATA[A threshold must be a plain decimal number and nothing else. `strtoul` alone is not that test: it accepts a leading sign, leading whitespace, a hexadecimal prefix, and a trailing tail, each of which would silently become a threshold the user did not write. The argument is rejected unless it begins with a digit, converts without overflow, and is consumed entirely.]]></case>
         </error_handling>
       </module>
@@ -773,12 +788,20 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
         <responsibility><![CDATA[Render every tier in the fixed order, so that the report has the same shape whatever the type of the target was (HLR-006).]]></responsibility>
         <responsibility><![CDATA[Render Markdown with functions grouped under a per-file heading.]]></responsibility>
         <responsibility><![CDATA[Present every tier the uniform-composition rule requires, in both formats.]]></responsibility>
+        <responsibility><![CDATA[Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).]]></responsibility>
         <functions>
-          <function signature="int format_table(const Report *r, FILE *out)" summary="Render the aligned ASCII table. Returns non-zero when the stream reported a write failure, checked once after the last write rather than at every call."/>
-          <function signature="int format_markdown(const Report *r, FILE *out)" summary="Render GitHub-Flavored Markdown."/>
+          <function signature="int format_table(const Report *r, Verbosity verbosity, FILE *out)" summary="Render the aligned ASCII table at the given verbosity. Returns non-zero when the stream reported a write failure, checked once after the last write rather than at every call."/>
+          <function signature="int format_markdown(const Report *r, Verbosity verbosity, FILE *out)" summary="Render GitHub-Flavored Markdown at the given verbosity."/>
+          <function signature="int render_report(const Report *r, Style style, Verbosity verbosity, FILE *out)" summary="The one traversal both formats and both verbosities go through: walks the ordered section list once, emitting the tiers the verbosity selects in the decoration the style selects."/>
           <function signature="void render_summary(const Report *r, FILE *out, Style style)" summary="Shared project-summary rendering for both formats."/>
         </functions>
         <algorithm><![CDATA[**The two renderers are one traversal.** `render_report()` walks the model once and emits every tier in a fixed order; the `Style` decides only how each tier is decorated. A tier added to the traversal appears in both formats, and cannot be added to one and forgotten in the other, because there is nowhere to forget it — which is what makes HLR-031's uniform composition structural rather than maintained (LLR-SUM-02).
+
+**Verbosity is a second parameter of that same traversal, not a second traversal.** The ordered section list carries, beside each section's render function, the tier it belongs to; the walk emits a section when the verbosity is verbose, when its tier is `TIER_SUMMARY`, or when its analysis was omitted for want of a declaration. That last case is what carries HLR-115's omission notices into the summary: the section is a detail tier, but an omitted analysis produced no rows, so it renders as its heading and the reason in it — which is the notice, and needs no section of its own. A section is therefore written down once and classified once, and the guarantee that a tier cannot exist at one verbosity and not the other holds by the same construction as the guarantee across formats (LLR-SUM-09).
+
+The partition rule is HLR-150's: a tier presenting a project-level aggregate, a file's own totals, or a finding a reader is expected to act on is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Coupling, the cycles, the layering violations, and the recursive chains fall on the detail side even though each row names a component, because they enumerate the graph one entity at a time — a *file-level aggregate* in the rule's sense is a file's own totals, which is what the Files tier presents. Nothing is lost from the summary by it: each of those measurements that crossed a published line is a finding, and the findings tier is a summary tier.
+
+The image-filter tier is split along the same boundary. `image_filter_section` presents the image and its two counts, which are the provenance of a filtered run and a summary tier; `absent_functions_section` presents the functions the image does not define, which is one row per function and a detail tier. The two are adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split (LLR-SUM-06).
 
 Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
 
@@ -1133,8 +1156,9 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
     <data_dictionary>
       <type name="ElcOptions" header="include/elc.h" summary="The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.">
         <field name="mode" type="RunMode" desc="Analysis or XML regeneration; regeneration requires format md and suppresses both companion artefacts (HLR-055)"/>
-        <field name="format" type="OutputFormat" desc="table, csv, xml, or md"/>
-        <field name="output_path" type="const char *" desc="NULL when writing to stdout"/>
+        <field name="format" type="OutputFormat" desc="table, csv, xml, or md. Settled once, after the option loop, from `--format` and the extension of `output_path` together, so the two can be compared rather than one preferred (HLR-148, HLR-149)"/>
+        <field name="output_path" type="const char *" desc="NULL when writing to stdout. Where it is not NULL its extension names the format, so the field carries a second meaning beyond the destination (HLR-148)"/>
+        <field name="verbose" type="bool" desc="The *request* for the verbose report, not the selection between two compositions: the summary is the default (HLR-150), so a zeroed ElcOptions must mean the summary, which it does only if the flag records the positive. A property of the rendering alone — it changes no measurement, no finding, and not the exit status, and the complete-record formats ignore it (HLR-151, HLR-152)"/>
         <field name="complexity_threshold" type="uint32_t" desc="Default 15 (HLR-022)"/>
         <field name="bottleneck_threshold" type="uint32_t" desc="Default 5 (HLR-081)"/>
         <field name="no_dot" type="bool" desc="The *refusal* of the `.dot` companion, not the request for it: generation is enabled by default (HLR-103), so a zeroed ElcOptions must mean enabled, which it does only if the flag records the negative"/>
@@ -2399,7 +2423,9 @@ Where a syntax tree contains error nodes, `elc` shall measure the file from the 
       <intro><![CDATA[Requirements governing `elc`'s ability to regenerate a Markdown report from a previously generated XML output file (HLR-054), without re-analyzing the original source (PVD §5 item 8, §7.1).]]></intro>
 
       <hlr id="HLR-055" name="XML-to-Markdown Conversion Mode">
-        <text><![CDATA[`elc` shall support an operating mode whose input is a previously generated XML output file (HLR-054) rather than a source-code target, and whose output is a Markdown report (HLR-029), without parsing or re-analyzing any original source file.]]></text>
+        <text><![CDATA[`elc` shall support an operating mode whose input is a previously generated XML output file (HLR-054) rather than a source-code target, and whose output is a Markdown report (HLR-029), without parsing or re-analyzing any original source file.
+
+Markdown is the mode's output and its default, so no format option is needed to reach it; a format explicitly selected and other than Markdown is a usage error (HLR-063). **The extension of an output filename is such a selection.** HLR-148 makes an extension a statement of the format and HLR-149 makes it the same statement the format option makes, so `--from-xml rec.xml -o out.txt` asks for a table exactly as `-f table` does, and is rejected on the same terms. Reading it as anything less would have the mode write Markdown into a file named `out.txt` — one format under a name promising another, which is the result HLR-148 exists to forbid. An output filename naming Markdown is accepted, since it agrees with what the mode produces.]]></text>
       <traces>
         <trace target="SDD" ref="3"/>
         <trace target="SDD" ref="4"/>
@@ -3479,6 +3505,14 @@ The centrality scores of HLR-168 and HLR-169 are floating-point values produced 
           <trace target="HLR" ref="HLR-146" name="An Unusable Image Is Fatal"/>
         </traces>
       </llr>
+
+      <llr id="LLR-MAIN-21">
+        <text><![CDATA[`main` shall pass the selected verbosity to the two human-facing renderers and to no other, so that the CSV and XML writers produce the same bytes whatever was asked for. The dispatch is where that stops: the complete-record formats have no presentation for a verbosity to select between, and giving them the parameter would create a place for one to be honoured by mistake.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-152" name="Complete-Record Formats Unaffected by Verbosity"/>
+          <trace target="HLR" ref="HLR-151" name="Verbose Report on Request"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="2" title="`cli_parse` ([src/cli.c](../src/cli.c))" name="cli_parse" source="src/cli.c">
@@ -3561,7 +3595,7 @@ The centrality scores of HLR-168 and HLR-169 are floating-point values produced 
       </llr>
 
       <llr id="LLR-CLI-10">
-        <text><![CDATA[`cli_parse` shall accept a regeneration-mode input path. In regeneration mode the report format shall default to Markdown rather than to the table format, and only a format *explicitly* selected and other than Markdown shall be rejected.]]></text>
+        <text><![CDATA[`cli_parse` shall accept a regeneration-mode input path. In regeneration mode the report format shall default to Markdown rather than to the table format, and only a format *explicitly* selected and other than Markdown shall be rejected. A format is explicitly selected either by `--format` or by the extension of an `--output` path (LLR-CLI-28), the two being two spellings of one statement (HLR-148, HLR-149); the diagnostic shall name whichever the user wrote.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-055" name="XML-to-Markdown Conversion Mode"/>
           <trace target="HLR" ref="HLR-122" name="No Companion Artefacts From a Saved Record"/>
@@ -3664,6 +3698,48 @@ The centrality scores of HLR-168 and HLR-169 are floating-point values produced 
           <trace target="HLR" ref="HLR-131" name="Conditional-Compilation Configuration"/>
         </traces>
       </llr>
+
+      <llr id="LLR-CLI-26">
+        <text><![CDATA[`cli_parse` shall derive the report format from the extension of an `--output` path, recognising `.txt` as the aligned table, `.md` as Markdown, `.csv` as CSV, and `.xml` as the complete record, so that no format option is required to repeat what the filename has already said.
+
+The extension is the last dot of the *basename*: a directory component carrying one lends nothing to a file that has none, a leading dot names a hidden file rather than an extension, and a trailing dot names nothing. An extension `elc` does not recognise, and a path with none, shall each be rejected as a usage error naming the extension found and listing those that are recognised, the list being generated from the same table that resolves so it cannot come to name a set of formats `elc` no longer has.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-148" name="Output Format Determined by Filename Extension"/>
+          <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-CLI-27">
+        <text><![CDATA[`cli_parse` shall resolve the format after the option loop rather than within it, so that `--format` and `--output` may be given in either order and still be compared against one another. Where both name a format and they agree, the invocation shall be accepted; where they disagree it shall be rejected as a usage error naming both, neither being silently preferred. Where no output path is given the option alone decides, and its default stands.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-149" name="Format Selection Without a Named Output File"/>
+          <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-CLI-28">
+        <text><![CDATA[`cli_parse` shall record whether the format was selected by the extension of an output path separately from whether `--format` named it, and shall treat the former as an explicit selection in regeneration mode. An output filename naming any format other than Markdown shall therefore be rejected there on the terms LLR-CLI-10 applies to `--format`, and one naming Markdown accepted, so that the mode can never write Markdown into a file whose name promises something else.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-055" name="XML-to-Markdown Conversion Mode"/>
+          <trace target="HLR" ref="HLR-148" name="Output Format Determined by Filename Extension"/>
+          <trace target="HLR" ref="HLR-063" name="Invalid Command-Line Rejection"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-CLI-29">
+        <text><![CDATA[`cli_parse` shall accept a verbosity option in a short and a long spelling, recording the request in the options structure. The summary shall be the default, stored as the absence of the request, so that a zeroed options structure means the composition a run presents when nothing was asked for.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-151" name="Verbose Report on Request"/>
+          <trace target="HLR" ref="HLR-150" name="Summary Report by Default"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-CLI-30">
+        <text><![CDATA[`cli_parse` shall accept the verbosity option together with a complete-record format rather than rejecting the pairing. It is the one option combination this parser decides that is not a usage error: there is no presentation for a verbosity to vary in a format defined as complete, so the request is honoured by changing nothing.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-152" name="Complete-Record Formats Unaffected by Verbosity"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="3" title="`cli_usage` ([src/cli.c](../src/cli.c))" name="cli_usage" source="src/cli.c">
@@ -3691,6 +3767,15 @@ The centrality scores of HLR-168 and HLR-169 are floating-point values produced 
       <llr id="LLR-USG-08">
         <text><![CDATA[`cli_usage` shall emit the summary as more than one string literal, no single literal exceeding the 4095 characters ISO C11 requires a translation unit to support. The build treats a warning as a defect, so a summary that outgrew the guaranteed minimum would stop the build rather than degrade — and it outgrew it as soon as the option list reached this size.]]></text>
         <traces>
+          <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+        </traces>
+      </llr>
+      <llr id="LLR-USG-09">
+        <text><![CDATA[`cli_usage` shall document the verbosity option, and shall state under `--output` that the extension of the named file selects the report format and that an unrecognised extension is a usage error rather than a guess. It shall also describe both compositions in its output summary, so that the reference the delivered documentation is checked against (LLR-DOC-04) states what a default run prints as well as which options exist.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-151" name="Verbose Report on Request"/>
+          <trace target="HLR" ref="HLR-148" name="Output Format Determined by Filename Extension"/>
+          <trace target="HLR" ref="HLR-130" name="Documentation Currency"/>
           <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
         </traces>
       </llr>
@@ -5667,7 +5752,7 @@ Note on the division of labour, which determines where a failure lives: the requ
 
     <function number="38" title="`render_summary` ([src/format_text.c](../src/format_text.c))" name="render_summary" source="src/format_text.c">
       <llr id="LLR-SUM-01">
-        <text><![CDATA[`render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion.]]></text>
+        <text><![CDATA[`render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion. That enumeration is the composition of the **verbose** report; which of those tiers a given run reaches is settled by LLR-SUM-09, and the uniformity this requirement states holds at whichever verbosity is in force.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
           <trace target="HLR" ref="HLR-127" name="Discovery Route Reported"/>
@@ -5702,7 +5787,9 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
       <llr id="LLR-SUM-06">
-        <text><![CDATA[`render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, the effective lines belonging to no function, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion. These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.]]></text>
+        <text><![CDATA[`render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, the effective lines belonging to no function, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion. These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.
+
+The two are separate sections, because the tier boundary of LLR-SUM-09 runs between them: the image and its two counts are the provenance of a filtered run and are a summary tier, while the functions the image does not define are one row per function and are a detail tier. They remain adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-143" name="Both Directions of Mismatch Counted and Reported"/>
           <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
@@ -5721,6 +5808,20 @@ Note on the division of labour, which determines where a failure lives: the requ
         <traces>
           <trace target="HLR" ref="HLR-136" name="Configuration Recorded and Reported"/>
           <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-SUM-09">
+        <text><![CDATA[`render_summary` shall classify each tier of the traversal as a **summary** or a **detail** tier, and shall emit, at the summary verbosity, the summary tiers alone; at the verbose verbosity it shall emit every tier. The classification shall be a property of the one shared traversal — a filter over the ordered section list both human-facing formats walk — rather than a second traversal beside it, so that a tier cannot be present at one verbosity and forgotten at the other, by the same construction that stops it being present in one format and forgotten in the other (LLR-SUM-02).
+
+The summary tiers are the project summary and callouts, the discovery route, the per-language breakdown, each file's own totals, the threshold listing, the findings, the definitions in force, the linked-image provenance, the partly parsed files, and the skipped files. Every remaining tier is a detail tier: it enumerates one row per analysed entity — per function, per global object, per unreachable statement, per graph edge, per custom-rule match. The measurements taken over the dependence graph — fan-out, recursion, the deepest chain, coupling, dependency cycles, layering — are detail tiers on that rule, each row naming one entity of the graph rather than a file's own totals; nothing is thereby lost from the summary, because every one of them that crossed a published line is a finding and the findings are a summary tier.
+
+A detail section whose analysis was **omitted for want of a declaration** shall be emitted at the summary verbosity as well, since HLR-150 counts the omission notices among the summary tiers. No separate notice is needed: an omitted analysis produced no rows, so the section renders as its heading and the reason in it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-150" name="Summary Report by Default"/>
+          <trace target="HLR" ref="HLR-151" name="Verbose Report on Request"/>
+          <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
+          <trace target="HLR" ref="HLR-115" name="Analyses Requiring User Declarations"/>
         </traces>
       </llr>
     </function>
@@ -6433,7 +6534,7 @@ Note on the division of labour, which determines where a failure lives: the requ
       </traces>
     </test>
   </file>
-  <file path="test/unit/cli.c" role="unit" count="51">
+  <file path="test/unit/cli.c" role="unit" count="64">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -6753,6 +6854,89 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[The summary names the option and states that no image means no filtering. The documentation test checks the manual and man page against this text, so this is where the claim itself is made.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-USG-07"/>
+      </traces>
+    </test>
+    <test name="an_output_extension_selects_the_format">
+      <purpose><![CDATA[Each recognised extension resolves to its own format with no format option given, driven as a table so a format added to the mapping without a case here is visible.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-26"/>
+      </traces>
+    </test>
+    <test name="an_unrecognised_output_extension_is_a_usage_error">
+      <purpose><![CDATA[`-o report.json` is rejected rather than defaulted to the table, which would write a file whose name promises JSON and whose contents are not.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-26"/>
+      </traces>
+    </test>
+    <test name="an_output_path_with_no_extension_is_a_usage_error">
+      <purpose><![CDATA[The four spellings of "no extension": a bare name, a dotfile, a trailing dot, and a name whose only dot is in a directory component. Each names no format and is rejected.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-26"/>
+      </traces>
+    </test>
+    <test name="a_format_option_contradicting_the_filename_is_a_usage_error">
+      <purpose><![CDATA[Driven in both argument orders, because the comparison happens after the option loop rather than as the options arrive; an implementation comparing them in place would pass one order and fail the other.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-27"/>
+      </traces>
+    </test>
+    <test name="a_format_option_agreeing_with_the_filename_is_accepted">
+      <purpose><![CDATA[Nothing is ambiguous about saying a thing twice, so the agreeing pair parses and yields the format both named.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-27"/>
+      </traces>
+    </test>
+    <test name="the_format_defaults_to_the_table">
+      <purpose><![CDATA[The default has to survive a resolution step that now runs whether or not anything selected a format, so it is asserted directly rather than left implied by the tests that do select one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-02"/>
+        <trace target="LLR" ref="LLR-CLI-27"/>
+      </traces>
+    </test>
+    <test name="standard_output_takes_its_format_from_the_option_alone">
+      <purpose><![CDATA[With no output path there is no extension to resolve, so the option decides and the destination stays standard output.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-27"/>
+        <trace target="LLR" ref="LLR-CLI-02"/>
+      </traces>
+    </test>
+    <test name="regenerating_into_a_filename_naming_a_table_is_a_usage_error">
+      <purpose><![CDATA[An output extension is an explicit format selection, so regeneration rejects one naming anything but Markdown exactly as it rejects `-f table`.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-28"/>
+        <trace target="LLR" ref="LLR-CLI-10"/>
+      </traces>
+    </test>
+    <test name="regenerating_into_a_filename_naming_markdown_is_accepted">
+      <purpose><![CDATA[The complement, and what stops the rule above from rejecting every `--output` in regeneration mode.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-28"/>
+        <trace target="LLR" ref="LLR-CLI-10"/>
+      </traces>
+    </test>
+    <test name="the_summary_is_the_default_verbosity">
+      <purpose><![CDATA[A parsed command line with no verbosity option leaves the flag clear, so a zeroed options structure means the composition a run presents when nothing was asked for.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-29"/>
+      </traces>
+    </test>
+    <test name="verbose_is_recorded_in_either_spelling">
+      <purpose><![CDATA[Both the short and the long spelling reach the options structure.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-29"/>
+      </traces>
+    </test>
+    <test name="verbose_with_a_complete_record_format_is_accepted">
+      <purpose><![CDATA[The pairing that is not a usage error. Both the request and the format survive the parse for XML and for CSV alike, so the acceptance is a property of the rule rather than of one format.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-30"/>
+      </traces>
+    </test>
+    <test name="the_usage_summary_documents_verbosity_and_the_extension_rule">
+      <purpose><![CDATA[The summary names the verbosity option and states that an output filename's extension selects the format. The documentation test checks both delivered documents against this text, so this is where the claim itself is made. Reading the text back out of a caller-supplied stream is also what establishes that the summary is written to the stream it was handed rather than to a fixed one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-USG-09"/>
+        <trace target="LLR" ref="LLR-USG-02"/>
       </traces>
     </test>
   </file>
@@ -8080,7 +8264,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/unit/format_text.c" role="unit" count="4">
+  <file path="test/unit/format_text.c" role="unit" count="8">
     <test name="the_table_carries_the_summary_and_every_file">
       <purpose><![CDATA[The rendered table contains the project summary tier and one row for each file in the model.]]></purpose>
       <traces>
@@ -8103,6 +8287,31 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[A stream that cannot absorb the report yields a non-zero return, so a truncated report is never reported as success.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-TBL-03"/>
+      </traces>
+    </test>
+    <test name="the_summary_omits_the_per_function_tier">
+      <purpose><![CDATA[The tier boundary at its sharpest: a file's own totals stay in the summary and the per-function table goes, and the verbose render of the same model has it back.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-09"/>
+      </traces>
+    </test>
+    <test name="the_summary_keeps_the_findings">
+      <purpose><![CDATA[The findings tier is emitted at the summary verbosity whether or not it has rows. A summary that dropped the one section a reader acts on would be shorter and useless.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-09"/>
+      </traces>
+    </test>
+    <test name="the_verbose_report_is_a_superset_of_the_summary">
+      <purpose><![CDATA[The verbose render of one model is strictly longer than its summary, so the verbosity selects something rather than being accepted and ignored.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-09"/>
+      </traces>
+    </test>
+    <test name="both_styles_reach_the_same_tiers_at_each_verbosity">
+      <purpose><![CDATA[The structural property behind the partition: one traversal under two decorations and two filters, so whichever tier a verbosity reaches it reaches in both styles. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-09"/>
+        <trace target="LLR" ref="LLR-SUM-02"/>
       </traces>
     </test>
   </file>
@@ -8917,7 +9126,7 @@ Note on the division of labour, which determines where a failure lives: the requ
     </test>
   </file>
 
-  <file path="test/integration/formats.bats" role="integration" count="16">
+  <file path="test/integration/formats.bats" role="integration" count="27">
     <test name="HLR-027: table is the format when none is selected">
       <purpose><![CDATA[The aligned table is what a run with no format option produces.]]></purpose>
       <traces>
@@ -9001,9 +9210,10 @@ Note on the division of labour, which determines where a failure lives: the requ
       </traces>
     </test>
     <test name="HLR-030: every format honours --output">
-      <purpose><![CDATA[Redirection applies to every format, not only the default one.]]></purpose>
+      <purpose><![CDATA[Redirection applies to every format, not only the default one, and the results reach the named file with the skipped-file notice on standard error and standard output left empty.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-030"/>
+        <trace target="LLR" ref="LLR-MAIN-12"/>
       </traces>
     </test>
     <test name="HLR-032: every format is byte-identical across runs">
@@ -9016,6 +9226,185 @@ Note on the division of labour, which determines where a failure lives: the requ
       <purpose><![CDATA[A run that analysed nothing still produces output in every format.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-066"/>
+      </traces>
+    </test>
+    <test name="HLR-148: each recognised extension selects its format with no option">
+      <purpose><![CDATA[Each of `.txt`, `.md`, `.csv`, and `.xml` produces the format it names with no format option given, identified by a marker only that format emits. The filename has already said what the format is, and nothing should have to say it twice.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-148"/>
+      </traces>
+    </test>
+    <test name="HLR-148: an unrecognised extension is a usage error naming both">
+      <purpose><![CDATA[An output named `report.json` is rejected with exit status 2, the diagnostic names the extension found and every extension that would have worked, and no file is written. Guessing would produce a `report.json` holding no JSON.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-148"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="HLR-148: a filename with no extension is a usage error too">
+      <purpose><![CDATA[A path carrying no extension names no format, and is rejected rather than defaulted to the table.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-148"/>
+      </traces>
+    </test>
+    <test name="HLR-148: a dotfile has no extension, and a trailing dot names nothing">
+      <purpose><![CDATA[The two boundary spellings. A leading dot names a hidden file rather than an extension, and a trailing dot names nothing at all; both are rejected as having none.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-148"/>
+      </traces>
+    </test>
+    <test name="HLR-148: a directory carrying a dot does not lend its extension">
+      <purpose><![CDATA[The extension is the last dot of the *basename*. A `build.d/report` has none of its own, and reading one out of the directory component would pick up `.d`.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-148"/>
+      </traces>
+    </test>
+    <test name="HLR-149: a format option contradicting the filename is a usage error">
+      <purpose><![CDATA[`-f csv -o report.md` is rejected with both named in the diagnostic and nothing written. Honouring either would leave the user's own command line disagreeing with the file it produced.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-149"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+    <test name="HLR-149: a format option agreeing with the filename is accepted">
+      <purpose><![CDATA[Nothing is ambiguous about saying a thing twice, so the agreeing pair is accepted and produces the format both named. This is what stops the rejection above from being a rejection of `-f` with `-o` altogether.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-149"/>
+      </traces>
+    </test>
+    <test name="HLR-149: with no output file the option still selects the format">
+      <purpose><![CDATA[Standard output has no filename and so no extension, which is what keeps a machine-readable format available to a caller that pipes rather than redirects.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-149"/>
+      </traces>
+    </test>
+    <test name="HLR-148: the companion artefacts keep their own extensions">
+      <purpose><![CDATA[The extension governs the format alone: an `--output` of `report.md` still yields `report.dot` and `report.graphml`, because the companion naming substitutes its own extension on the same path.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-148"/>
+        <trace target="HLR" ref="HLR-119"/>
+      </traces>
+    </test>
+    <test name="LLR-CLI-10: a record cannot be regenerated into a filename naming a table">
+      <purpose><![CDATA[An output path's extension is a format selection, differently spelt, so regeneration rejects `-o out.txt` on the terms it rejects `-f table`. Reading it as anything less would write Markdown into a file called `out.txt`.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-055"/>
+        <trace target="HLR" ref="HLR-148"/>
+      </traces>
+    </test>
+    <test name="LLR-CLI-10: a filename naming Markdown regenerates as it always did">
+      <purpose><![CDATA[The other side of the rule above, and what stops it from rejecting every `-o` in regeneration mode: a filename agreeing with what the mode produces is accepted.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-055"/>
+        <trace target="HLR" ref="HLR-148"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/integration/verbosity.bats" role="integration" count="16">
+    <test name="HLR-150: the summary tiers are present by default">
+      <purpose><![CDATA[Every tier HLR-150 enumerates is present in a default run, checked heading by heading rather than by counting lines — a line count would pass against a renderer that dropped the wrong section.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-150"/>
+      </traces>
+    </test>
+    <test name="HLR-150: the detail tiers are absent by default">
+      <purpose><![CDATA[The converse, and the half that makes the default a summary rather than a rename: every tier enumerating one row per analysed entity is absent from a default run.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-150"/>
+      </traces>
+    </test>
+    <test name="HLR-150: the summary keeps the findings a reader acts on">
+      <purpose><![CDATA[The section whose loss would make the summary shorter and useless. Provoked with a threshold low enough that there is a finding to keep, so the claim is not made against an empty section.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-150"/>
+        <trace target="HLR" ref="HLR-098"/>
+      </traces>
+    </test>
+    <test name="HLR-115: an omitted analysis states its reason in the summary too">
+      <purpose><![CDATA[The omission notices are summary tiers even though the sections carrying them are detail tiers. An analysis nobody declared for is something the reader must be told at either verbosity, rather than an absence they might read as a clean bill of health.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-115"/>
+        <trace target="HLR" ref="HLR-150"/>
+      </traces>
+    </test>
+    <test name="HLR-150: an analysis that was measured is not in the summary">
+      <purpose><![CDATA[The converse of the notice above, and what stops that test passing against a renderer that simply always emits the section: with entry points declared, the reachability sections are detail tiers again and are omitted.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-150"/>
+      </traces>
+    </test>
+    <test name="HLR-151: --verbose presents the detail tiers as well">
+      <purpose><![CDATA[Every tier the default omits is present with the option given.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-151"/>
+      </traces>
+    </test>
+    <test name="HLR-151: the verbose report is the summary plus the detail tiers">
+      <purpose><![CDATA[Stated as a superset over the headings actually emitted rather than as a list, so that a tier added to the traversal in a later phase cannot satisfy one composition and be forgotten in the other. The strict-inequality half keeps it from passing where the option selects nothing.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-151"/>
+        <trace target="HLR" ref="HLR-150"/>
+      </traces>
+    </test>
+    <test name="HLR-151: -v is the short form of --verbose">
+      <purpose><![CDATA[Both spellings produce identical bytes.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-151"/>
+      </traces>
+    </test>
+    <test name="HLR-151: verbosity changes no measurement and no exit status">
+      <purpose><![CDATA[A value absent from a summary is absent because it was not printed, never because it was not computed — so the record, which carries every measurement either composition can present, is byte-identical, and so is the exit status.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-151"/>
+        <trace target="LLR" ref="LLR-MAIN-21"/>
+      </traces>
+    </test>
+    <test name="HLR-031: both human formats present the same tiers at each verbosity">
+      <purpose><![CDATA[Uniformity across formats holds at a fixed verbosity and is asserted at both, which is what the amended HLR-031 requires. The two are compared heading by heading with Markdown's decoration stripped.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-031"/>
+        <trace target="HLR" ref="HLR-150"/>
+      </traces>
+    </test>
+    <test name="HLR-152: --verbose with an xml output is accepted, not rejected">
+      <purpose><![CDATA[The one option pairing this project defines that is not a usage error. There is nothing contradictory about asking a complete format for detail, so the invocation succeeds.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-152"/>
+      </traces>
+    </test>
+    <test name="HLR-152: --verbose with a csv output is accepted, not rejected">
+      <purpose><![CDATA[The same rule for the other complete format, stated separately because HLR-152 reaches it for the same reason rather than a different one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-152"/>
+      </traces>
+    </test>
+    <test name="HLR-152: csv is byte-identical at either verbosity">
+      <purpose><![CDATA[Acceptance is not enough: the file produced must be the same one. A summarised CSV would be a record set with no rows in it. This is also where the dispatch is checked: the verbosity reaches the two human-facing renderers and neither complete-record writer, so a CSV that changed with it would mean the parameter had been threaded somewhere it does not belong.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-152"/>
+        <trace target="HLR" ref="HLR-028"/>
+        <trace target="LLR" ref="LLR-MAIN-21"/>
+      </traces>
+    </test>
+    <test name="HLR-056: a record regenerated summarily matches a direct summary run">
+      <purpose><![CDATA[Verbosity joins the threshold as a property of the rendering: one record answers a summary question identically to a direct run.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="HLR-056: a record regenerated verbosely matches a direct verbose run">
+      <purpose><![CDATA[The same equivalence at the other verbosity, which is what makes the record complete rather than merely sufficient for the default.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-056"/>
+        <trace target="HLR" ref="HLR-152"/>
+      </traces>
+    </test>
+    <test name="HLR-056: the two verbosities regenerate differently from one record">
+      <purpose><![CDATA[What keeps the pair above from passing against an implementation that ignored the option in regeneration mode and produced one report both times.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-056"/>
+        <trace target="HLR" ref="HLR-151"/>
       </traces>
     </test>
   </file>

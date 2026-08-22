@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.6
-**Date:** 2026-08-20
+**Version:** 3.7
+**Date:** 2026-08-22
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -388,6 +388,8 @@ Requirements governing `elc`'s ability to regenerate a Markdown report from a pr
 
 *   <a id="HLR-055"></a>**HLR-055: XML-to-Markdown Conversion Mode.**
     `elc` shall support an operating mode whose input is a previously generated XML output file (HLR-054) rather than a source-code target, and whose output is a Markdown report (HLR-029), without parsing or re-analyzing any original source file.
+
+    Markdown is the mode's output and its default, so no format option is needed to reach it; a format explicitly selected and other than Markdown is a usage error (HLR-063). **The extension of an output filename is such a selection.** HLR-148 makes an extension a statement of the format and HLR-149 makes it the same statement the format option makes, so `--from-xml rec.xml -o out.txt` asks for a table exactly as `-f table` does, and is rejected on the same terms. Reading it as anything less would have the mode write Markdown into a file named `out.txt` — one format under a name promising another, which is the result HLR-148 exists to forbid. An output filename naming Markdown is accepted, since it agrees with what the mode produces.
     *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md), [SDD Section 16](SDD.md).
 
 *   <a id="HLR-056"></a>**HLR-056: Regenerated Report Equivalence.**

@@ -9,6 +9,11 @@ setup() {
 	TREE="$BATS_TEST_DIRNAME/graph/tree"
 	TREE_REAL="$(cd "$TREE" && pwd -P)"
 	EXPECTED="$BATS_TEST_DIRNAME/graph/expected.graphml"
+	# `.md` now names Markdown rather than falling back to the table
+	# (HLR-148), and that is the right choice here: this suite is about
+	# the GraphML export, and an --output of report.md still yielding a
+	# companion beside it is exactly the substitution HLR-148 preserves.
+	# Nothing below reads a tier whose decoration differs between the two.
 	OUT="$BATS_TEST_TMPDIR/report.md"
 	GRAPHML="$BATS_TEST_TMPDIR/report.graphml"
 }

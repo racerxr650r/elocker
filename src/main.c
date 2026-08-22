@@ -36,15 +36,25 @@
 
 /* Dispatch to the renderer the options selected. Every one is a pure
  * consumer of the same assembled model, which is what makes the formats
- * views of one run rather than four separate reports. */
-static int render(const Report *report, OutputFormat format, FILE *out)
+ * views of one run rather than four separate reports.
+ *
+ * The verbosity reaches the two human-facing renderers and stops there. CSV
+ * and XML are defined as complete — one record per function, and every element
+ * of the run — so there is no presentation for a verbosity to select between,
+ * and a verbose request against either is honoured by changing nothing rather
+ * than rejected (HLR-152, LLR-MAIN-21).
+ */
+static int render(const Report *report, const ElcOptions *opts, FILE *out)
 {
-	switch (format) {
+	Verbosity verbosity = opts->verbose ? VERBOSITY_VERBOSE
+	                                    : VERBOSITY_SUMMARY;
+
+	switch (opts->format) {
 	case FORMAT_CSV:      return format_csv(report, out);
 	case FORMAT_XML:      return xml_write_report(report, out);
-	case FORMAT_MARKDOWN: return format_markdown(report, out);
+	case FORMAT_MARKDOWN: return format_markdown(report, verbosity, out);
 	case FORMAT_TABLE:
-	default:              return format_table(report, out);
+	default:              return format_table(report, verbosity, out);
 	}
 }
 
@@ -335,7 +345,7 @@ static int emit(Run *run)
 
 	/* Results go to the selected destination and nothing else does; every
 	 * diagnostic above and below went to stderr (HLR-038, LLR-MAIN-12). */
-	if (render(&run->report, run->opts.format, run->out) != 0) {
+	if (render(&run->report, &run->opts, run->out) != 0) {
 		fprintf(stderr, "elc: %s: %s\n",
 		        run->opts.output_path ? run->opts.output_path
 		                              : "standard output",

@@ -10,26 +10,30 @@ setup() {
 }
 
 # "<eloc> <complexity>" for one function of one fixture.
+#
+# Every extractor here reads the per-function tier, which is a detail tier and
+# so needs the verbose composition. These tests are about what was measured,
+# not about what a default report presents.
 metrics() {
-	elc "$1"
+	elc --verbose "$1"
 	awk -v want="$2" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
 	                  f && $2 == want { print $4, $5 }' <<<"$output"
 }
 
 reported() {
-	elc "$1"
+	elc --verbose "$1"
 	awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
 	     f && /^  \// { print $2 }' <<<"$output" | sort | tr '\n' ' '
 }
 
 function_eloc() {
-	elc "$SUBJECT"
+	elc --verbose "$SUBJECT"
 	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
 	                  f && $2 == want { print $4 }' <<<"$output"
 }
 
 function_complexity() {
-	elc "$SUBJECT"
+	elc --verbose "$SUBJECT"
 	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
 	                  f && $2 == want { print $5 }' <<<"$output"
 }
@@ -66,7 +70,7 @@ function_complexity() {
 }
 
 @test "HLR-067: all three functions are reported in their own right" {
-	elc "$SUBJECT"
+	elc --verbose "$SUBJECT"
 	assert_success
 	assert_output --partial "outer"
 	assert_output --partial "middle"
@@ -126,7 +130,7 @@ function_complexity() {
 	# The distinction the two requirements draw, in one language: Rust's
 	# `fn inner` is reported and its closure is not, though both sit in the
 	# same body.
-	elc "$GROUP/nested.rs"
+	elc --verbose "$GROUP/nested.rs"
 	assert_success
 	assert_output --partial "inner"
 	assert_output --regexp "Functions +2"

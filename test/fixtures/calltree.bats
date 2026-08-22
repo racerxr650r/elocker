@@ -36,7 +36,7 @@ chain() {
 @test "HLR-085: fan-out is exact at every band boundary" {
 	# The eight values Phase 12 will band. Asserted individually rather
 	# than as a total, so a failure names the boundary that moved.
-	elc --entry entry_main "$TREE/fanout.c"
+	elc --verbose --entry entry_main "$TREE/fanout.c"
 	assert_success
 
 	assert_equal "$(fan_out_of fan02)" "2"
@@ -53,13 +53,13 @@ chain() {
 	# Every caller in the fixture invokes h01 twice. If fan-out counted
 	# call sites instead of callees, every figure above would be one
 	# higher — so this is what the whole table rests on.
-	elc --entry entry_main "$TREE/fanout.c"
+	elc --verbose --entry entry_main "$TREE/fanout.c"
 	assert_success
 	assert_equal "$(fan_out_of fan02)" "2"
 }
 
 @test "HLR-085: a function that calls nothing has fan-out zero" {
-	elc --entry entry_main "$TREE/fanout.c"
+	elc --verbose --entry entry_main "$TREE/fanout.c"
 	assert_success
 	assert_equal "$(fan_out_of h01)" "0"
 	assert_equal "$(fan_out_of h16)" "0"
@@ -68,7 +68,7 @@ chain() {
 @test "HLR-085: every function appears, not only the interesting ones" {
 	# 16 helpers plus 8 callers. A table listing only what exceeds some
 	# threshold would be a finding list, which is Phase 12's job.
-	elc --entry entry_main "$TREE/fanout.c"
+	elc --verbose --entry entry_main "$TREE/fanout.c"
 	assert_success
 
 	local rows
@@ -81,13 +81,13 @@ chain() {
 # ----------------------------------------------------------------- depth --
 
 @test "HLR-087: the hand-counted depth matches" {
-	elc --entry entry_main "$TREE/depth.c"
+	elc --verbose --entry entry_main "$TREE/depth.c"
 	assert_success
 	assert_output --partial "Deepest call chain (4 layers"
 }
 
 @test "HLR-088: the deepest chain is reported in full, in order" {
-	elc --entry entry_main "$TREE/depth.c"
+	elc --verbose --entry entry_main "$TREE/depth.c"
 	assert_success
 	assert_equal "$(chain)" "entry_main
 level2
@@ -106,7 +106,7 @@ level4"
 }
 
 @test "HLR-087: the depth is presented with the unresolved count" {
-	elc --entry entry_main "$TREE/depth.c"
+	elc --verbose --entry entry_main "$TREE/depth.c"
 	assert_success
 	assert_output --partial "a lower bound, 0 calls unresolved"
 }
@@ -114,7 +114,7 @@ level4"
 # ------------------------------------------------------------- recursion --
 
 @test "HLR-089: direct and mutual recursion are both reported" {
-	elc --entry recursive_entry "$TREE/recursion.c"
+	elc --verbose --entry recursive_entry "$TREE/recursion.c"
 	assert_success
 
 	local kinds
@@ -137,7 +137,7 @@ mutual"
 	# longest-path search over a cyclic graph does not terminate, which is
 	# why acyclicity is established before the traversal rather than
 	# discovered during it.
-	elc --entry recursive_entry "$TREE/recursion.c"
+	elc --verbose --entry recursive_entry "$TREE/recursion.c"
 	assert_success
 	assert_equal "$(depth_heading)" \
 		"Deepest call chain (unbounded: the call graph is recursive)"
@@ -162,7 +162,7 @@ mutual"
 @test "HLR-115: an omitted depth does not omit the other measurements" {
 	# Fan-out and recursion need no declaration, so they are still there.
 	# Omitting one analysis must not silently omit its neighbours.
-	elc "$TREE/fanout.c"
+	elc --verbose "$TREE/fanout.c"
 	assert_success
 	assert_equal "$(fan_out_of fan16)" "16"
 }
@@ -211,16 +211,18 @@ mutual"
 	# and no source to build one from — so every figure must be carried.
 	local record="$BATS_TEST_TMPDIR/record.xml"
 
-	run bash -c '"$0" --entry entry_main -f md "$1" 2>/dev/null' \
+	run bash -c '"$0" --verbose --entry entry_main -f md "$1" 2>/dev/null' \
 		"$ELC" "$TREE/depth.c"
 	assert_success
 	local direct="$output"
 
+	# No --verbose on the record: it carries every measurement whatever the
+	# verbosity, which is what lets one record answer both questions.
 	run bash -c '"$0" --entry entry_main -f xml "$1" > "$2" 2>/dev/null' \
 		"$ELC" "$TREE/depth.c" "$record"
 	assert_success
 
-	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" "$record"
+	run bash -c '"$0" --verbose --from-xml "$1" 2>/dev/null' "$ELC" "$record"
 	assert_success
 	assert_equal "$output" "$direct"
 	assert_output --partial "4 layers"

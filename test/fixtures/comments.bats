@@ -10,8 +10,9 @@ setup() {
 	SUBJECT="$BATS_TEST_DIRNAME/comments/adversarial.c"
 }
 
+# Verbose: the per-function tier this reads is omitted by default.
 function_eloc() {
-	elc "$SUBJECT"
+	elc --verbose "$SUBJECT"
 	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
 	                  f && $2 == want { print $4 }' <<<"$output"
 }

@@ -29,12 +29,17 @@ summary_of() {
 }
 
 # Run elc over a target, capturing the report for the extractors above.
+#
+# Verbose, and written to a `.txt`: the extractors read the aligned table,
+# and both of those are now stated rather than defaulted. The extension names
+# the format (HLR-148), and the per-function tiers these tests measure are
+# omitted from the default composition (HLR-150).
 report() {
 	local target="$1"
 	shift
-	run bash -c '"$0" -o "$1" "${@:3}" "$2" 2>/dev/null' \
-		"$ELC" "$BATS_TEST_TMPDIR/report.md" "$target" "$@"
-	OUT="$BATS_TEST_TMPDIR/report.md"
+	run bash -c '"$0" --verbose -o "$1" "${@:3}" "$2" 2>/dev/null' \
+		"$ELC" "$BATS_TEST_TMPDIR/report.txt" "$target" "$@"
+	OUT="$BATS_TEST_TMPDIR/report.txt"
 }
 
 # ------------------------------------------------------- the hand counts --
