@@ -212,6 +212,16 @@ typedef struct {
 	 * request. Stored negated so that a zeroed ElcOptions means the
 	 * default, which is what every unit test constructs (LLR-WAR-01). */
 	bool          no_dot;
+	/* Present the verbose report — every tier of HLR-031 — rather than the
+	 * summary tiers alone (HLR-150, HLR-151). A property of the rendering
+	 * and of nothing else: it selects how much of the model is printed,
+	 * never what is measured, and never the exit status.
+	 *
+	 * Stored as the request rather than as the default, so that a zeroed
+	 * ElcOptions means the summary, which is what every unit test
+	 * constructs. The complete-record formats ignore it outright
+	 * (HLR-152). */
+	bool          verbose;
 	const char  **targets;      /* borrowed from argv; not owned          */
 	size_t        target_count;
 } ElcOptions;

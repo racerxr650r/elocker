@@ -1129,11 +1129,8 @@ static int image_filter_section(const Report *report, Style style, FILE *out)
 	Grid grid;
 	char a[32];
 	char b[32];
-	char c[32];
 
-if (report->image) {
-	/* The linked image these figures describe, and both directions
-	 * of mismatch against it.
+	/* The linked image these figures describe.
 	 *
 	 * **Emitted only for a filtered run**, which is the one place
 	 * the uniform-composition rule gives way and does so by
@@ -1144,10 +1141,13 @@ if (report->image) {
 	 * The two counts are different claims and are labelled as
 	 * such. The unresolved count states how complete the filter
 	 * is, as the unresolved-call count states how complete the
-	 * graph is; the list below states what the build did not keep
-	 * (HLR-143, LLR-SUM-06). */
+	 * graph is; the list beneath it states what the build did not
+	 * keep (HLR-143, LLR-SUM-06). */
 	static const char *const names[]   = { "Property", "Value" };
 	static const bool        numeric[] = { false, false };
+
+	if (!report->image)
+		return 0;
 
 	grid_begin(&grid, "Linked-image filter", 2, names, numeric);
 	grid_row(&grid, "Image", report->image);
@@ -1161,60 +1161,154 @@ if (report->image) {
 	if (grid_render(&grid, style, out) != 0)
 		return -1;
 
-	static const char *const absent_names[] = { "Function", "File",
-	                                            "Line" };
+	return 0;
+}
+
+/* The functions the image does not define.
+ *
+ * Split from the filter provenance above rather than sharing its section, and
+ * the split is the tier boundary: the three properties above are the image a
+ * run was filtered by, which HLR-150 keeps in the summary, and this is one row
+ * per function the build dropped, which is a detail tier by the same rule that
+ * makes every other per-function table one. Adjacent in the traversal, so a
+ * verbose report presents the two exactly as one section presented them before
+ * the split (HLR-147, HLR-150, LLR-SUM-06).
+ */
+static int absent_functions_section(const Report *report, Style style,
+                                    FILE *out)
+{
+	Grid grid;
+	char a[32];
+
+	if (!report->image)
+		return 0;
+
+	static const char *const names[] = { "Function", "File", "Line" };
 	char                     heading[96];
 
 	snprintf(heading, sizeof heading,
 	         "Functions the image does not define (%zu)",
 	         report->absent_count);
-	grid_begin(&grid, heading, 3, absent_names, NULL);
+	grid_begin(&grid, heading, 3, names, NULL);
 	for (size_t i = 0; i < report->absent_count; i++) {
 		const AbsentRow *r = &report->absent[i];
 
-		snprintf(c, sizeof c, "%" PRIu32, r->line);
-		grid_row(&grid, r->function, r->file, c);
+		snprintf(a, sizeof a, "%" PRIu32, r->line);
+		grid_row(&grid, r->function, r->file, a);
 	}
 	if (grid_render(&grid, style, out) != 0)
 		return -1;
-}
 
 	return 0;
 }
 
-int render_report(const Report *report, Style style, FILE *out)
+/* Which of the two tiers a section belongs to (HLR-150).
+ *
+ * The partition rule: a tier presenting a project-level aggregate, a file's
+ * own totals, or a finding a reader is expected to act on is a summary tier;
+ * a tier enumerating one row per analysed entity — per function, per global
+ * object, per unreachable statement, per graph edge, per custom-rule match —
+ * is a detail tier.
+ *
+ * Coupling, the cycles, the layering violations, and the recursive chains sit
+ * on the detail side of that line despite each row naming a component rather
+ * than a function. They enumerate the graph one entity at a time, which is the
+ * property the rule turns on; a *file-level aggregate* in the rule's sense is
+ * a file's own totals, which is what the Files tier presents. Nothing is lost
+ * from the summary by it: every one of those measurements that crossed a
+ * published line is a finding, and the findings tier is a summary tier.
+ */
+typedef enum {
+	TIER_SUMMARY = 0,
+	TIER_DETAIL
+} Tier;
+
+/* Whether an analysis was omitted for want of a declaration (HLR-115).
+ *
+ * A detail section carrying such a notice is emitted in the summary too,
+ * because HLR-150 lists the omission notices among the summary tiers. Nothing
+ * special is needed to make it read as a notice rather than a table: an
+ * omitted analysis produced no rows, so the section renders as its heading
+ * and the reason in it — which is exactly the notice.
+ */
+static bool depth_omitted(const Report *report)
 {
-	static int (*const SECTIONS[])(const Report *, Style, FILE *) = {
-		callouts_section,
-		discovery_section,
-		languages_section,
-		files_section,
-		functions_section,
-		threshold_listing_section,
-		fanout_section,
-		recursion_section,
-		deepest_chain_section,
-		coupling_section,
-		dependency_cycles_section,
-		layering_section,
-		global_state_section,
-		unreachable_functions_section,
-		unreachable_globals_section,
-		dead_code_section,
-		cross_scope_section,
-		findings_section,
-		definitions_section,
-		image_filter_section,
-		rule_matches_section,
-		partially_parsed_section,
-		skipped_files_section,
+	return report->depth_state == DEPTH_OMITTED_NO_ENTRY_POINTS
+	    || report->depth_state == DEPTH_OMITTED_ENTRY_UNRESOLVED;
+}
+
+static bool strata_omitted(const Report *report)
+{
+	return report->strata_state != STRATA_MEASURED;
+}
+
+static bool reach_omitted(const Report *report)
+{
+	return report->reach_state != REACH_MEASURED;
+}
+
+static bool scopes_omitted(const Report *report)
+{
+	return report->scope_state != SCOPES_MEASURED;
+}
+
+int render_report(const Report *report, Style style, Verbosity verbosity,
+                  FILE *out)
+{
+	/* One traversal, in one order, for both formats and both verbosities.
+	 *
+	 * The verbosity is a *filter over this table*, never a second table and
+	 * never a second walk. That is what keeps a tier from being present at
+	 * one verbosity and forgotten at the other, by the same construction
+	 * that keeps it from being present in one format and forgotten in the
+	 * other — there is nowhere to forget it, because a section is written
+	 * down once and classified once (LLR-SUM-02, LLR-SUM-09). */
+	static const struct {
+		int  (*render)(const Report *, Style, FILE *);
+		Tier   tier;
+		bool (*omitted)(const Report *);
+	} SECTIONS[] = {
+		{ callouts_section,              TIER_SUMMARY, NULL            },
+		{ discovery_section,             TIER_SUMMARY, NULL            },
+		{ languages_section,             TIER_SUMMARY, NULL            },
+		{ files_section,                 TIER_SUMMARY, NULL            },
+		{ functions_section,             TIER_DETAIL,  NULL            },
+		{ threshold_listing_section,     TIER_SUMMARY, NULL            },
+		{ fanout_section,                TIER_DETAIL,  NULL            },
+		{ recursion_section,             TIER_DETAIL,  NULL            },
+		{ deepest_chain_section,         TIER_DETAIL,  depth_omitted   },
+		{ coupling_section,              TIER_DETAIL,  NULL            },
+		{ dependency_cycles_section,     TIER_DETAIL,  NULL            },
+		{ layering_section,              TIER_DETAIL,  strata_omitted  },
+		{ global_state_section,          TIER_DETAIL,  NULL            },
+		{ unreachable_functions_section, TIER_DETAIL,  reach_omitted   },
+		{ unreachable_globals_section,   TIER_DETAIL,  NULL            },
+		{ dead_code_section,             TIER_DETAIL,  NULL            },
+		{ cross_scope_section,           TIER_DETAIL,  scopes_omitted  },
+		{ findings_section,              TIER_SUMMARY, NULL            },
+		{ definitions_section,           TIER_SUMMARY, NULL            },
+		{ image_filter_section,          TIER_SUMMARY, NULL            },
+		{ absent_functions_section,      TIER_DETAIL,  NULL            },
+		{ rule_matches_section,          TIER_DETAIL,  NULL            },
+		{ partially_parsed_section,      TIER_SUMMARY, NULL            },
+		{ skipped_files_section,         TIER_SUMMARY, NULL            },
 	};
 
+	/* The project summary heads every report at either verbosity: it is the
+	 * one tier a reader of a summary is certain to want. */
 	summary_section(report, style, out);
 
-	for (size_t i = 0; i < sizeof SECTIONS / sizeof *SECTIONS; i++)
-		if (SECTIONS[i](report, style, out) != 0)
+	for (size_t i = 0; i < sizeof SECTIONS / sizeof *SECTIONS; i++) {
+		bool wanted = verbosity == VERBOSITY_VERBOSE
+		           || SECTIONS[i].tier == TIER_SUMMARY
+		           || (SECTIONS[i].omitted
+		               && SECTIONS[i].omitted(report));
+
+		if (!wanted)
+			continue;
+		if (SECTIONS[i].render(report, style, out) != 0)
 			return -1;
+	}
 
 	/* The stream is checked once, after the last write rather than at every
 	 * one (SDD §14.3.1). A section returns non-zero only where its own
@@ -1227,12 +1321,12 @@ int render_report(const Report *report, Style style, FILE *out)
 	return 0;
 }
 
-int format_table(const Report *report, FILE *out)
+int format_table(const Report *report, Verbosity verbosity, FILE *out)
 {
-	return render_report(report, STYLE_TABLE, out);
+	return render_report(report, STYLE_TABLE, verbosity, out);
 }
 
-int format_markdown(const Report *report, FILE *out)
+int format_markdown(const Report *report, Verbosity verbosity, FILE *out)
 {
-	return render_report(report, STYLE_MARKDOWN, out);
+	return render_report(report, STYLE_MARKDOWN, verbosity, out);
 }
