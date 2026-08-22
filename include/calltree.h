@@ -8,7 +8,10 @@
  * Every analysis reads the call-edge view of the graph, not the whole SDG. A
  * global-state edge joins a function that writes an object to one that reads
  * it; that is coupling, not a call, and neither recursion nor a call chain
- * may travel along one.
+ * may travel along one. Fan-in obeys the rule as strictly as fan-out does,
+ * and has more riding on it: the Henry-Kafura value squares the product of
+ * the two, so an in-degree taken over the whole SDG would inflate that figure
+ * by the square of the error (HLR-156, HLR-157).
  */
 #ifndef ELC_CALLTREE_H
 #define ELC_CALLTREE_H
@@ -35,6 +38,25 @@ typedef struct {
 
 typedef struct {
 	uint32_t       *fan_out;      /* per node id; owned (HLR-085)      */
+	/* The converse measurement, counted the same way and over the same
+	 * view: the number of *distinct* functions that invoke this one. A
+	 * global-state edge joins a function that writes an object to one
+	 * that reads it, and writing a variable another function reads is not
+	 * calling it, so none of them is counted here (HLR-156, LLR-CTR-07).
+	 */
+	uint32_t       *fan_in;       /* per node id; owned (HLR-156)      */
+	/* Length weighed by the traffic through the function:
+	 *
+	 *     HK = ELOC * (Fan-In * Fan-Out)^2
+	 *
+	 * Sixty-four bits because the squared term grows far faster than any
+	 * other figure elc reports, and a total that silently wrapped would
+	 * be a wrong number wearing the authority of a right one (HLR-157,
+	 * HLR-158). Zero where either degree is zero, which is a value and
+	 * not an absence: an entry point and a leaf both score nothing
+	 * whatever their length (HLR-159).
+	 */
+	uint64_t       *henry_kafura; /* per node id; owned (HLR-157)      */
 	size_t          node_count;
 
 	RecursiveCycle *cycles;       /* owned (HLR-089)                   */
@@ -77,7 +99,8 @@ int longest_path_dag(const Sdg *g, const uint32_t *entries, size_t count,
  */
 int report_set_calltree(Report *report, const TreeResults *tree, const Sdg *g);
 
-/* Release the fan-out table, the recursive-cycle list, and the chain. */
+/* Release the per-node measurement tables, the recursive-cycle list, and the
+ * chain. */
 void tree_results_free(TreeResults *r);
 
 #endif /* ELC_CALLTREE_H */

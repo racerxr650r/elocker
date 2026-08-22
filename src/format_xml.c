@@ -159,12 +159,26 @@ static void write_calltree(const Report *report, FILE *out)
 {
 	fprintf(out, "  <calltree depth-state=\"%d\" depth=\"%" PRIu32 "\">\n",
 	        (int)report->depth_state, report->depth);
+	/* The element keeps the name it was given when fan-out was the only
+	 * figure it carried. Renaming it would be a *removal* from the record
+	 * format, which is what the format version marks; adding attributes is
+	 * an addition an older reader ignores, which is what the format was
+	 * designed to allow.
+	 *
+	 * All four values are written because none can be recomputed later.
+	 * Fan-in needs the graph, and the Henry-Kafura value needs fan-in —
+	 * regeneration has neither, nor any source to build one from
+	 * (LLR-XWR-08, HLR-156, HLR-157). */
 	for (size_t i = 0; i < report->fan_out_count; i++) {
 		fputs("    <fanout", out);
 		write_attribute(out, "function", report->fan_out[i].function);
 		write_attribute(out, "file", report->fan_out[i].file);
-		fprintf(out, " line=\"%" PRIu32 "\" value=\"%" PRIu32 "\"/>\n",
-		        report->fan_out[i].line, report->fan_out[i].fan_out);
+		fprintf(out, " line=\"%" PRIu32 "\" value=\"%" PRIu32 "\""
+		        " fan-in=\"%" PRIu32 "\" eloc=\"%" PRIu32 "\""
+		        " hk=\"%" PRIu64 "\"/>\n",
+		        report->fan_out[i].line, report->fan_out[i].fan_out,
+		        report->fan_out[i].fan_in, report->fan_out[i].eloc,
+		        report->fan_out[i].henry_kafura);
 	}
 	for (size_t i = 0; i < report->cycle_count; i++) {
 		fputs("    <cycle>\n", out);
@@ -699,6 +713,14 @@ static void on_fanout(ReadState *state, const XML_Char **atts)
 	const char *file = attribute(atts, "file");
 	const char *line = attribute(atts, "line");
 	const char *val  = attribute(atts, "value");
+	/* Optional, because a record written by a build that predates the
+	 * information-flow measurements carries the same format version and
+	 * must still read. Absent means zero, which is the value a function
+	 * with no callers has anyway — and the alternative, rejecting the
+	 * record, would break the compatibility the version number promises. */
+	const char *in   = attribute(atts, "fan-in");
+	const char *eloc = attribute(atts, "eloc");
+	const char *hk   = attribute(atts, "hk");
 
 	if (!fn || !file || !line || !val) {
 		fail(state, "a fanout element is incomplete");
@@ -724,8 +746,11 @@ static void on_fanout(ReadState *state, const XML_Char **atts)
 		fail(state, "out of memory");
 		return;
 	}
-	row->line    = (uint32_t)strtoul(line, NULL, 10);
-	row->fan_out = (uint32_t)strtoul(val, NULL, 10);
+	row->line         = (uint32_t)strtoul(line, NULL, 10);
+	row->fan_out      = (uint32_t)strtoul(val, NULL, 10);
+	row->fan_in       = in ? (uint32_t)strtoul(in, NULL, 10) : 0;
+	row->eloc         = eloc ? (uint32_t)strtoul(eloc, NULL, 10) : 0;
+	row->henry_kafura = hk ? strtoull(hk, NULL, 10) : 0;
 	state->fan_out_count++;
 	return;
 }
@@ -1802,6 +1827,11 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	report_set_unresolved(out, state.unresolved);
 
 	move_to_report(&state, out);
+	/* After the rows are restored, and by the same function the live path
+	 * calls: the total is the sum of the per-function values, and
+	 * `report_assemble` cannot derive it — the per-file metrics it works
+	 * over hold no fan-in (HLR-158). */
+	report_total_henry_kafura(out);
 
 	status = 0;
 

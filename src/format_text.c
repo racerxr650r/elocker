@@ -314,6 +314,11 @@ static void summary_section(const Report *report, Style style, FILE *out)
 		value = width_of(sum->eloc);
 	if (width_of(sum->function_count) > value)
 		value = width_of(sum->function_count);
+	/* The widest figure in the table by a distance, and the one that made
+	 * the column measurement worth extending: the squared term separates
+	 * values by orders of magnitude (HLR-158). */
+	if (width_of(sum->henry_kafura) > value)
+		value = width_of(sum->henry_kafura);
 	if (width_of((uint64_t)sum->file_count) > value)
 		value = width_of((uint64_t)sum->file_count);
 
@@ -336,6 +341,13 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	summary_pair(out, style, label, value, "ELOC", sum->eloc);
 	summary_pair(out, style, label, value, "Functions",
 	             sum->function_count);
+	/* Among the project totals rather than beside the per-function table,
+	 * because it is one: the sum of every function's Henry-Kafura value
+	 * (HLR-024, HLR-158). It carries no severity and never will — no
+	 * published source bands it — so it sits with the counts rather than
+	 * with the findings (HLR-159). */
+	summary_pair(out, style, label, value, "Henry-Kafura",
+	             sum->henry_kafura);
 	summary_pair(out, style, label, value, "Skipped",
 	             (uint64_t)report->skipped_files.count);
 	/* Beside the totals it qualifies, not buried below them. Every figure
@@ -560,6 +572,61 @@ static int fanout_section(const Report *report, Style style, FILE *out)
 
 		snprintf(a, sizeof a, "%" PRIu32, r->fan_out);
 		grid_row(&grid, r->file, r->function, a);
+	}
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+/* Fan-in, fan-out, and the Henry-Kafura value the two form with the
+ * function's length. A detail tier: one row per function, whatever the value
+ * (HLR-156, HLR-157, LLR-SUM-09).
+ *
+ * The heading carries the formula, the attribution, and the two properties
+ * HLR-159 requires be stated. Both are properties of the published metric
+ * rather than of this implementation, and a reader who does not know them
+ * misreads the figures rather than merely failing to act on them: a zero here
+ * means the function sits at one end of the call graph, not that it holds no
+ * code, and a value is meaningful only against the other values in this same
+ * table.
+ *
+ * ELOC and fan-out are repeated from the tables above so that the arithmetic
+ * is checkable on the line that reports it. No column carries a severity, and
+ * none ever will: the catalogue holds no row for this metric, and inventing a
+ * band for one whose name reads as a citation is the particular thing HLR-159
+ * forbids.
+ */
+static int information_flow_section(const Report *report, Style style,
+                                    FILE *out)
+{
+	Grid grid;
+	char a[32], b[32], c[32], d[32];
+
+	static const char *const names[]   = { "File", "Function", "ELOC",
+	                                       "Fan-in", "Fan-out",
+	                                       "Henry-Kafura" };
+	static const bool        numeric[] = { false, false, true, true, true,
+	                                       true };
+
+	grid_begin(&grid,
+	           "Information flow (HK = ELOC x (Fan-in x Fan-out)^2, "
+	           "Henry-Kafura; zero at either end of the call graph; "
+	           "ordinal, not absolute)",
+	           6, names, numeric);
+	for (size_t i = 0; i < report->fan_out_count; i++) {
+		const FanOutRow *r = &report->fan_out[i];
+
+		snprintf(a, sizeof a, "%" PRIu32, r->eloc);
+		snprintf(b, sizeof b, "%" PRIu32, r->fan_in);
+		snprintf(c, sizeof c, "%" PRIu32, r->fan_out);
+		/* Printed as a number in every case, including zero. The
+		 * Instability column two tables down prints `undefined` where
+		 * its inputs vanish (HLR-082); this value does not vanish
+		 * where a degree is zero, it *equals* zero, and borrowing that
+		 * spelling would report a measurement as a missing one. */
+		snprintf(d, sizeof d, "%" PRIu64, r->henry_kafura);
+		grid_row(&grid, r->file, r->function, a, b, c, d);
 	}
 	if (grid_render(&grid, style, out) != 0)
 		return -1;
@@ -1275,6 +1342,7 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		{ functions_section,             TIER_DETAIL,  NULL            },
 		{ threshold_listing_section,     TIER_SUMMARY, NULL            },
 		{ fanout_section,                TIER_DETAIL,  NULL            },
+		{ information_flow_section,      TIER_DETAIL,  NULL            },
 		{ recursion_section,             TIER_DETAIL,  NULL            },
 		{ deepest_chain_section,         TIER_DETAIL,  depth_omitted   },
 		{ coupling_section,              TIER_DETAIL,  NULL            },

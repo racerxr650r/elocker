@@ -63,6 +63,47 @@ Test(report, totals_sum_across_every_file)
 	metrics_free(&acc);
 }
 
+Test(report, the_henry_kafura_total_is_the_sum_of_the_per_function_values)
+{
+	Report report = { 0 };
+
+	/* Built directly rather than through an analysis, because the property
+	 * under test is the summation and not the measurement: the total is
+	 * the sum of the rows, never the formula applied to project aggregates
+	 * — a project has no fan-in (HLR-158). */
+	report.fan_out = calloc(3, sizeof *report.fan_out);
+	cr_assert_not_null(report.fan_out);
+	report.fan_out_count = 3;
+	report.fan_out[0].henry_kafura = 144;
+	report.fan_out[1].henry_kafura = 0;      /* an end of the graph */
+	report.fan_out[2].henry_kafura = UINT64_C(56700000000);
+
+	report_total_henry_kafura(&report);
+	cr_assert_eq(report.summary.henry_kafura, UINT64_C(56700000144),
+	             "the total accumulates in the same width the values do");
+
+	/* Idempotent, because both the live path and the regeneration path
+	 * call it and a run reading a record does both. */
+	report_total_henry_kafura(&report);
+	cr_assert_eq(report.summary.henry_kafura, UINT64_C(56700000144));
+
+	report_free(&report);
+}
+
+Test(report, a_project_with_no_functions_totals_zero_rather_than_nothing)
+{
+	MetricsAccumulator acc    = { 0 };
+	Report             report = { 0 };
+	ElcOptions         opts   = { 0 };
+
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
+	report_total_henry_kafura(&report);
+	cr_assert_eq(report.summary.henry_kafura, 0);
+
+	report_free(&report);
+	metrics_free(&acc);
+}
+
 Test(report, files_are_presented_in_ascending_path_order)
 {
 	MetricsAccumulator acc    = { 0 };

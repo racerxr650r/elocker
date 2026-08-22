@@ -1,7 +1,7 @@
 /* calltree.c — the function-level call-tree analyses.
  *
- * Fan-out, recursion, maximum call depth, and the deepest call stack
- * (doc/SDD.md §10).
+ * Fan-out and fan-in, the Henry-Kafura value formed from them, recursion,
+ * maximum call depth, and the deepest call stack (doc/SDD.md §10).
  *
  * The order of the steps is the design, and it is not arbitrary. Acyclicity
  * is established *before* depth is measured, because on a cyclic graph the
@@ -47,26 +47,68 @@ static int calltree_by_node_id(const void *a, const void *b)
 	return x < y ? -1 : x > y;
 }
 
-/* ------------------------------------------------------------- fan-out --
+/* ------------------------------------------------------ information flow --
  *
- * The number of *distinct* subroutines a function invokes. The graph is
- * simple and its call edges already collapsed, so this is the out-degree over
- * call edges — the counting was done when the graph was built, and doing it
- * again here from call sites would be a second answer to one question
- * (HLR-085, LLR-CTR-01).
+ * Fan-out is the number of *distinct* subroutines a function invokes, and
+ * fan-in the number of distinct functions that invoke it. The graph is simple
+ * and its call edges already collapsed, so the two are the out-degree and the
+ * in-degree over call edges — the counting was done when the graph was built,
+ * and doing it again here from call sites would be a second answer to one
+ * question (HLR-085, HLR-156, LLR-CTR-01, LLR-CTR-10).
+ *
+ * `kind == EDGE_CALL` is the whole of the rule, and it governs both
+ * directions. A global-state edge runs from a function that writes an object
+ * to one that reads it; counting it would make a writer's fan-out include a
+ * function it never calls, and a reader's fan-in include a function that
+ * never called it (LLR-CTR-07).
+ *
+ * The Henry-Kafura value below is arithmetic over those two degrees and the
+ * function's length, so it is formed here rather than by a consumer: one
+ * answer then exists for the report, the record, and every renderer.
  */
-static int compute_fan_out(const Sdg *g, TreeResults *out)
+
+/* `HK = ELOC * (Fan-In * Fan-Out)^2` (HLR-157). */
+static uint64_t henry_kafura(uint32_t eloc, uint32_t fan_in, uint32_t fan_out)
 {
-	out->fan_out = calloc(g->node_count ? g->node_count : 1,
-	                      sizeof *out->fan_out);
-	if (!out->fan_out)
+	/* **Widened before the multiplication, not at the assignment.** The
+	 * product of two degrees fits in 32 bits comfortably; its square does
+	 * not, and a 32-bit square assigned to a 64-bit variable has already
+	 * wrapped by the time the assignment widens it. Sixty-four bits then
+	 * hold the result with room to spare: overflowing it would take a
+	 * single function with some thirteen million caller-callee pairs
+	 * (HLR-158).
+	 */
+	uint64_t product = (uint64_t)fan_in * (uint64_t)fan_out;
+
+	return (uint64_t)eloc * product * product;
+}
+
+static int compute_flow(const Sdg *g, TreeResults *out)
+{
+	size_t n = g->node_count ? g->node_count : 1;
+
+	out->fan_out      = calloc(n, sizeof *out->fan_out);
+	out->fan_in       = calloc(n, sizeof *out->fan_in);
+	out->henry_kafura = calloc(n, sizeof *out->henry_kafura);
+	if (!out->fan_out || !out->fan_in || !out->henry_kafura)
 		return -1;
 	out->node_count = g->node_count;
 
-	for (size_t i = 0; i < g->edge_count; i++)
-		if (g->edges[i].kind == EDGE_CALL &&
-		    g->edges[i].from < g->node_count)
-			out->fan_out[g->edges[i].from]++;
+	for (size_t i = 0; i < g->edge_count; i++) {
+		const SdgEdge *edge = &g->edges[i];
+
+		if (edge->kind != EDGE_CALL)
+			continue;
+		if (edge->from < g->node_count)
+			out->fan_out[edge->from]++;
+		if (edge->to < g->node_count)
+			out->fan_in[edge->to]++;
+	}
+
+	for (size_t i = 0; i < g->node_count; i++)
+		out->henry_kafura[i] = henry_kafura(g->nodes[i].eloc,
+		                                    out->fan_in[i],
+		                                    out->fan_out[i]);
 
 	return 0;
 }
@@ -349,7 +391,7 @@ int calltree_analyse(const Sdg *g, const ElcOptions *opts, TreeResults *out)
 	memset(out, 0, sizeof *out);
 	out->unresolved_calls = graph_unresolved_count(g);
 
-	if (compute_fan_out(g, out) != 0)
+	if (compute_flow(g, out) != 0)
 		goto cleanup;
 
 	if (detect_recursion(g, out) != 0)
@@ -407,5 +449,7 @@ void tree_results_free(TreeResults *r)
 	free(r->cycles);
 	free(r->deepest.nodes);
 	free(r->fan_out);
+	free(r->fan_in);
+	free(r->henry_kafura);
 	memset(r, 0, sizeof *r);
 }

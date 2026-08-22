@@ -91,6 +91,29 @@ static const Threshold CATALOGUE[] = {
 	  "elc heuristic — not a published standard", true }
 };
 
+/* ------------------------------------------------- sources without bands --
+ *
+ * A citation and a threshold are separate claims, and Henry-Kafura is the
+ * measurement that separates them. The formula is Henry and Kafura's and must
+ * be attributed wherever it is reported (HLR-157, HLR-099); no published
+ * source divides it into accepted and unaccepted ranges, so it gets no band
+ * (HLR-159).
+ *
+ * A row in CATALOGUE with empty bounds would not express that. `occurrence`
+ * is false and both bounds are zero for such a row, which is a *silent*
+ * band — every value passes — and `thresholds_lookup` would answer "there is
+ * a threshold for this" to a caller asking precisely because there is not.
+ * Keeping the citation in its own table is what leaves LLR-THR-08's path the
+ * one that runs, and what leaves the catalogue holding only rows a reader can
+ * check against a published table.
+ */
+static const struct {
+	MeasurementKind kind;
+	const char     *attribution;
+} UNBANDED[] = {
+	{ MEASURE_HENRY_KAFURA, "Henry-Kafura" }
+};
+
 const Threshold *thresholds_lookup(MeasurementKind kind)
 {
 	for (size_t i = 0; i < sizeof CATALOGUE / sizeof *CATALOGUE; i++)
@@ -103,7 +126,14 @@ const char *threshold_attribution(MeasurementKind kind)
 {
 	const Threshold *t = thresholds_lookup(kind);
 
-	return t ? t->attribution : NULL;
+	if (t)
+		return t->attribution;
+
+	for (size_t i = 0; i < sizeof UNBANDED / sizeof *UNBANDED; i++)
+		if (UNBANDED[i].kind == kind)
+			return UNBANDED[i].attribution;
+
+	return NULL;
 }
 
 bool threshold_is_elc_own(MeasurementKind kind)
@@ -495,6 +525,11 @@ int thresholds_apply(const ArchResults *arch, const TreeResults *tree,
 	if (!g)
 		return 0;
 
+	/* Henry-Kafura is measured and never banded, so nothing appears here
+	 * for it. That is LLR-THR-08's path taken by omission rather than by a
+	 * branch: a kind the catalogue holds no row for produces no finding,
+	 * and the value reaches the reader through the report model as a bare
+	 * measurement (HLR-159). */
 	if ((tree && apply_fan_out(tree, g, out) != 0) ||
 	    (tree && apply_depth(tree, out) != 0) ||
 	    (tree && apply_recursion(tree, g, out) != 0) ||

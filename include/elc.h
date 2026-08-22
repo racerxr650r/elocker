@@ -345,10 +345,13 @@ typedef enum {
 
 /* Which measurement a finding is about.
  *
- * One entry per row of the threshold catalogue (SDD §12.2.1). A measurement
- * whose kind has no catalogue entry is reported as a bare value with no
- * severity rather than being dropped or given an invented band (HLR-098,
- * LLR-THR-08).
+ * Mostly one entry per row of the threshold catalogue (SDD §12.2.1), and
+ * deliberately not exactly one. A measurement whose kind has no catalogue
+ * entry is reported as a bare value with no severity rather than being
+ * dropped or given an invented band (HLR-098, LLR-THR-08), and
+ * MEASURE_HENRY_KAFURA is the kind that exercises that path: no published
+ * source divides the metric into accepted and unaccepted ranges, so it has a
+ * kind, an attribution, and no row (HLR-159).
  */
 typedef enum {
 	MEASURE_FAN_OUT = 0,       /* per function   (HLR-086)  */
@@ -359,6 +362,9 @@ typedef enum {
 	MEASURE_HIDDEN_CHANNEL,    /* per global     (HLR-093)  */
 	MEASURE_INSTABILITY,       /* per component  (HLR-082)  */
 	MEASURE_BOTTLENECK,        /* per component  (HLR-081)  */
+	/* Banded by nobody, and that is the requirement rather than a gap.
+	 * The catalogue holds no row for it (HLR-159). */
+	MEASURE_HENRY_KAFURA,      /* per function   (HLR-157)  */
 	MEASURE_KIND_COUNT
 } MeasurementKind;
 
