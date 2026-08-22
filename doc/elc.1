@@ -133,6 +133,63 @@ that turn it into a finding are the published thresholds tabulated under
 .B "Findings, severity, and attribution"
 below, and the measurement is reported whether or not it crosses one.
 .PP
+Its
+.B fan-in
+is the converse figure \(em the number of
+.I distinct
+functions that invoke it. A caller invoking it at forty call sites contributes
+one, and coupling through a global object contributes nothing: writing a
+variable another function reads is not calling it. A function that no analysed
+function calls has a fan-in of
+.BR 0 ,
+which is a measurement rather than a finding \(em an entry point, an exported
+API boundary and an interrupt handler reached from a vector table all
+legitimately have none.
+.PP
+.B Henry\-Kafura structural complexity
+weighs a function's size by the traffic passing through it rather than by
+either alone:
+.PP
+.RS 4
+.I "HK = ELOC \(mu (Fan\-In \(mu Fan\-Out)\(ha2"
+.RE
+.PP
+It is reported per function and summed across the project, the total appearing
+among the project totals in the summary. ELOC is the length used so that the
+figure is comparable with every other length in the report.
+.PP
+The metric carries
+.B no threshold
+and no severity. No published source divides it into accepted and unaccepted
+ranges, and
+.B elc
+does not invent one \(em the more firmly for a metric whose name reads as a
+citation. Two properties of the formula must be known to read the figure:
+.RS 4
+.IP \(bu 2
+.B A function at either end of the call graph scores zero.
+The product term vanishes when fan-in or fan-out is zero, so an entry point
+that calls widely and a leaf that is widely called both score nothing whatever
+their length. That
+.B 0
+is a value, not an absence of code, and not the
+.B undefined
+that Instability reports below for its own vanishing inputs.
+.IP \(bu 2
+.B The figure is ordinal, not absolute.
+The squared term separates values by orders of magnitude, so it ranks
+functions against one another within one project and means nothing compared
+across projects.
+.RE
+.PP
+Both are properties of the published metric rather than of this
+implementation, and neither is a defect to be corrected. Note also that
+because calls resolve by name, a
+.B static
+helper defined in several files gives the winning definition every caller's
+fan-in and the losers none \(em and the squared term magnifies that error
+rather than passing it through.
+.PP
 .B Recursion
 is detected statically, direct and mutual alike, in accordance with MISRA C
 Rule 17.2 \(em under which recursion is forbidden because it makes worst-case

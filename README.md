@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 18 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 19 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, and Python**,
 in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -37,9 +37,16 @@ It also builds the **System Dependence Graph** — every call resolved across
 file boundaries, every global linked from its writers to its readers, all
 from the same single parse that produced the metrics. `--graphml` exports it.
 
-Reading that graph, `elc` reports each function's **fan-out**, detects
-**recursion** both direct and mutual, and prints the **deepest call chain in
-full** from entry points you declare with `--entry`. It never guesses at an
+Reading that graph, `elc` reports each function's **fan-out** and
+**fan-in** — callees and callers, both counted distinctly and over calls
+alone, so coupling through a shared global counts towards neither — weighs the
+two against the function's length as the **Henry–Kafura** information-flow
+value, `ELOC × (Fan-In × Fan-Out)²`, and totals that across the project. It
+attaches no severity to the figure and no threshold: no published source bands
+it, and inventing one for a metric whose name reads as a citation is the last
+place to start. It detects **recursion** both direct and mutual, and prints
+the **deepest call chain in full** from entry points you declare with
+`--entry`. It never guesses at an
 entry point, and never invents a number it cannot stand behind: where the
 call graph is recursive the depth is unbounded and the cycle is reported
 instead, and where a declaration is missing the analysis is omitted with the
@@ -167,7 +174,7 @@ is an error rather than an empty filter, because reporting a project with no
 functions in it would be confidently wrong and indistinguishable from a correct
 result.
 
-**Progress: 18 of 24 phases complete.**
+**Progress: 19 of 24 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -193,7 +200,7 @@ result.
 | [16](doc/SDP.md#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
 | [17](doc/SDP.md#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 | [18](doc/SDP.md#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
-| [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | 🔲 Not started |
+| [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
 | [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | 🔲 Not started |
 | [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |
 | [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |

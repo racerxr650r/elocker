@@ -11,15 +11,15 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.11" date="2026-08-22" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.12" date="2026-08-22" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.7" date="2026-08-22" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.6" date="2026-08-22" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.12" date="2026-08-22" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.13" date="2026-08-22" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.7" date="2026-08-22" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.13" date="2026-08-22" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.14" date="2026-08-22" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="178"/>
-      <count name="llrs"       value="425"/>
-      <count name="tests"      value="846"/>
+      <count name="llrs"       value="431"/>
+      <count name="tests"      value="871"/>
       <count name="test_files" value="44"/>
     </counts>
   </metadata>
@@ -38,7 +38,7 @@
       <file path="src/analyze.c"><![CDATA[Per-file parsing and the single-parse extraction of ELOC, cyclomatic complexity, function identity, and the raw call and global-access facts the graph is later built from.]]></file>
       <file path="src/graph.c"><![CDATA[System Dependence Graph construction: cross-file symbol resolution and population of the graph structure.]]></file>
       <file path="src/arch.c"><![CDATA[Component-level analyses — coupling, instability, bottlenecks, dependency cycles, and architectural layering.]]></file>
-      <file path="src/calltree.c"><![CDATA[Function-level call-tree analyses — fan-out, depth, the deepest call stack, and recursion detection.]]></file>
+      <file path="src/calltree.c"><![CDATA[Function-level call-tree analyses — fan-out, fan-in, the Henry-Kafura information-flow value, depth, the deepest call stack, and recursion detection.]]></file>
       <file path="src/state.c"><![CDATA[Global-state coupling, execution-scope isolation, and reachability-based dead-code detection.]]></file>
       <file path="src/thresholds.c"><![CDATA[Evaluation of every measurement against its published threshold, and assignment of severity and attribution.]]></file>
       <file path="src/report.c"><![CDATA[The format-independent report model: assembly of every finding into one structure, in a stable, defined order.]]></file>
@@ -593,7 +593,9 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
         </dependencies>
         <error_handling>
           <case name="Unresolvable call site"><![CDATA[Not an error. Counted and reported so the reader can judge the graph's completeness (HLR-077).]]></case>
-          <case name="Duplicate symbol definition"><![CDATA[Recorded once with a diagnostic; the first definition in sorted file order wins, keeping resolution deterministic.]]></case>
+          <case name="Duplicate symbol definition"><![CDATA[Recorded once with a diagnostic; the first definition in sorted file order wins, keeping resolution deterministic.
+
+**The artefact reaches the information-flow metric raised to a power.** Where several files define a `static` helper of the same name, every call to that name resolves into the winning definition: it collects every caller's fan-in and the losing definitions collect none. Fan-in and fan-out are each wrong by that amount, and the Henry-Kafura value of HLR-157 multiplies the two and squares the product — so a fan-in overstated by a factor of three overstates the winner's Henry-Kafura value by a factor of nine, and understates each loser's to zero. A four-order-of-magnitude figure can therefore rest entirely on this, and the project total with it. The same imprecision is already recorded for reachability (§11) and for coupling (§9); it is worth stating a third time here because the squared term is what turns a modest resolution error into a dramatic-looking number, and because the metric is ordinal — a reader ranks functions by it, and this artefact moves one to the top of the ranking. Correcting it needs the type resolution the project does not perform; the diagnostic on standard error is what the report is read beside.]]></case>
         </error_handling>
       </module>
 
@@ -631,8 +633,10 @@ Only call edges are considered. A global object two layers share is a different 
       </module>
 
       <module path="src/calltree.c">
-        <purpose><![CDATA[implements the function-level call-tree analyses: fan-out and its threshold classification, maximum call depth, the deepest call stack in full, and recursion detection.]]></purpose>
+        <purpose><![CDATA[implements the function-level call-tree analyses: fan-out and its threshold classification, fan-in, the Henry-Kafura information-flow value formed from the two, maximum call depth, the deepest call stack in full, and recursion detection.]]></purpose>
         <responsibility><![CDATA[Compute per-function fan-out and classify it against the published width thresholds.]]></responsibility>
+        <responsibility><![CDATA[Compute per-function fan-in — the number of distinct functions that invoke it — over the call view alone (HLR-156).]]></responsibility>
+        <responsibility><![CDATA[Compute each function's Henry-Kafura structural complexity from its ELOC and the two degrees, in an integer width no run overflows (HLR-157, HLR-158).]]></responsibility>
         <responsibility><![CDATA[Detect direct and mutual recursion among functions.]]></responsibility>
         <responsibility><![CDATA[Compute the maximum call depth from the declared entry points, and capture the ordered chain that achieves it.]]></responsibility>
         <functions>
@@ -641,7 +645,8 @@ Only call edges are considered. A global object two layers share is a different 
             <post><![CDATA[Either a depth and a deepest chain are present, or the recursion list is non-empty and the depth is marked unbounded.]]></post>
             <returns><![CDATA[0 on success.]]></returns>
             <logic>
-              <step><![CDATA[Compute out-degree over the *call* edges per function node. The classification of that number against the healthy, warning, and critical bands is `thresholds.c`'s (HLR-086 traces to Section 12); this module measures and does not judge, so that one catalogue of thresholds exists rather than one per analysis.]]></step>
+              <step><![CDATA[Compute out-degree and in-degree over the *call* edges per function node, in one pass: fan-out is the number of distinct subroutines a function invokes, fan-in the number of distinct functions that invoke it (HLR-085, HLR-156). One pass rather than two because they are the same traversal read from either end of each edge, and because a second traversal is a second place the `kind == EDGE_CALL` test could be forgotten. The classification of fan-out against the healthy, warning, and critical bands is `thresholds.c`'s (HLR-086 traces to Section 12); this module measures and does not judge, so that one catalogue of thresholds exists rather than one per analysis. Fan-in is never classified at all: no published source bands it.]]></step>
+              <step><![CDATA[Form each function's Henry-Kafura value: `HK = ELOC × (Fan-In × Fan-Out)²`, taking ELOC from the node the graph already carries (HLR-157). **The widening happens before the multiplication, not at the assignment.** The product of two degrees fits in 32 bits comfortably and its square does not, so a 32-bit square assigned to a 64-bit variable has already wrapped by the time the assignment widens it — and a wrapped total renders as a perfectly ordinary number (HLR-158). Computed here rather than by a consumer so that one answer exists for the report, the record, and every renderer.]]></step>
               <step><![CDATA[Decompose the *call view* of the function graph into strongly connected components; every non-trivial one, and every self-loop, is a recursive cycle (HLR-089). The call view and not the whole SDG: a global-state edge joins a function that writes an object to one that reads it, and two functions sharing a variable in both directions form a cycle in the SDG that is not recursion. Reporting it as such would be a critical finding against MISRA C Rule 17.2 on ordinary code.]]></step>
               <step><![CDATA[If no entry points were declared, mark depth omitted and stop (HLR-115). If entry points were declared but none names an analysed function, mark depth omitted with a *different* reason and stop: "you declared nothing" and "what you declared is not in what you analysed" call for different actions from the reader, and a single omission message would send them to the wrong one. A symbol matching nothing is diagnosed and skipped rather than failing the run, since analysing one directory of a project whose entry point lives in another is ordinary.]]></step>
               <step><![CDATA[If any recursion was found, mark the depth unbounded, attach the recursive cycles, and stop — no finite deepest chain exists (HLR-090).]]></step>
@@ -651,7 +656,7 @@ Only call edges are considered. A global object two layers share is a different 
             <notes><![CDATA[Establishing acyclicity before measuring depth is what makes the longest-path computation terminate; on a cyclic graph the question has no finite answer, which is precisely why MISRA C Rule 17.2 exists. The measured depth is a lower bound on true worst-case depth: a chain that continues through an unresolved indirect call is not followed. The report therefore presents the depth alongside the unresolved-call count of HLR-077, so the reader can judge how completely the graph covers the program.]]></notes>
           </function>
           <function signature="int longest_path_dag(const Sdg *g, const NodeSet *entries, Chain *out)" summary="Memoised longest-path search with predecessor retention."/>
-          <function signature="void tree_results_free(TreeResults *r)" summary="Release the fan-out table, the recursive-cycle list, and the retained deepest chain."/>
+          <function signature="void tree_results_free(TreeResults *r)" summary="Release the per-node measurement tables, the recursive-cycle list, and the retained deepest chain."/>
         </functions>
         <dependencies>
           <dep><![CDATA[The graph library, for topological ordering and strongly connected components.]]></dep>
@@ -699,6 +704,7 @@ Only call edges are considered. A global object two layers share is a different 
         <responsibility><![CDATA[Hold the threshold catalogue as a static table of measurement kind, band boundaries, severity, and citation.]]></responsibility>
         <responsibility><![CDATA[Classify each measurement into its band and emit a `Finding` when it falls outside the accepted range.]]></responsibility>
         <responsibility><![CDATA[Attribute every threshold to its external source, and mark `elc`'s own heuristics as such.]]></responsibility>
+        <responsibility><![CDATA[Name the published source of a measurement the catalogue does not band, so that a citation and a threshold stay separate claims (HLR-157, HLR-159).]]></responsibility>
         <responsibility><![CDATA[Be the only module that bands a measurement or names a source, so that the claim to carry no opinion is checkable by reading one table (HLR-099, HLR-111).]]></responsibility>
         <responsibility><![CDATA[Assign a severity as a *label*: it never reaches the exit status, and no finding carries remediation (HLR-100, HLR-101).]]></responsibility>
         <interfaces>
@@ -721,6 +727,8 @@ The fan-out bands are **exhaustive**: every value from 0 upward classifies exact
 The rows whose finding is their mere occurrence — recursion, a dependency cycle, a single-function global, a hidden channel — carry a fixed severity instead of bounds. There is no acceptable count of them.
 
 **One row is not a published standard**, and it says so in the text a reader sees. That label is the whole of what separates shipping MISRA and Martin values from having invented them, and it is asserted by a test that also checks no other row carries it (HLR-099).
+
+**Some measurements are cited and not banded, and they are held apart from this table.** The Henry-Kafura value of Section 20 is the case: the formula is Henry and Kafura's and must be attributed wherever it is reported (HLR-157), and no published source divides it into accepted and unaccepted ranges (HLR-159). A row here with empty bounds would not express that — `occurrence` false with both bounds zero is a *silent band*, every value passing, and `thresholds_lookup` would then answer "there is a threshold for this" to a caller asking precisely because there is not. The citation therefore lives in a second, smaller table that `threshold_attribution` consults after the catalogue, which leaves the catalogue holding only rows a reviewer can check against a published table, and leaves the unbanded measurement on the path Section 12.5 already provides for one.
 ]]></interface>
         </interfaces>
         <functions>
@@ -732,7 +740,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
           <dep><![CDATA[No third-party dependency. Pure evaluation over the analysis results.]]></dep>
         </dependencies>
         <error_handling>
-          <case name="Measurement with no catalogue entry"><![CDATA[Reported as a bare value with no severity, rather than being silently dropped or assigned an invented band.]]></case>
+          <case name="Measurement with no catalogue entry"><![CDATA[Reported as a bare value with no severity, rather than being silently dropped or assigned an invented band. The Henry-Kafura value is the first measurement to take this path deliberately and permanently: it will never have an entry, because no published source bands it (HLR-159).]]></case>
           <case name="Measurement that was not made"><![CDATA[Not banded at all. A depth omitted for want of an entry point is not a depth of zero, and a value that does not exist cannot fall outside a range (HLR-115).]]></case>
           <case name="A critical finding"><![CDATA[Not an error. The severity is a label within the report and leaves the exit status untouched, which stays reserved for the failure conditions of HLR-120 (HLR-100).]]></case>
         </error_handling>
@@ -752,6 +760,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
         <responsibility><![CDATA[Record the linked image a run was filtered by, the linkage names it could not resolve, the source functions it does not define, and the effective lines belonging to no function, so that a filtered figure is reported alongside the image that produced it (HLR-143, HLR-145, HLR-147).]]></responsibility>
         <responsibility><![CDATA[Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).]]></responsibility>
         <responsibility><![CDATA[Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).]]></responsibility>
+        <responsibility><![CDATA[Sum the per-function Henry-Kafura values into the project total, in one function that both the live path and the record path call, so that the total *is* the sum of the rows rather than two implementations agreeing (HLR-158).]]></responsibility>
         <functions>
           <function signature="int report_assemble(const MetricsAccumulator *acc, const ArchResults *a, const TreeResults *t, const StateResults *s, const FindingList *f, const ElcOptions *opts, Report *out)">
             <purpose><![CDATA[Produce the ordered, format-independent report model.]]></purpose>
@@ -769,6 +778,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 
 `discover.c` also sorts, and the two are not redundant. Its sort exists so that de-duplication can collapse equal canonical paths, and so that the *analysis* order is not the filesystem's; this one exists so that *presentation* order is a property of the model. A later phase that changes how files are discovered therefore cannot silently change how they are presented.]]></notes>
           </function>
+          <function signature="void report_total_henry_kafura(Report *r)" summary="Sum the per-function Henry-Kafura values into the project total. One function rather than a line in each of the two paths that need it: a live run calls it once the flow rows are filled, and a run regenerating from a record calls it once they are restored, since the total cannot be derived from the per-file metrics `report_assemble` works over (HLR-158)."/>
           <function signature="int report_set_image(Report *r, const SymbolSet *image)" summary="Record the image the run was filtered by and the number of its linkage names left unresolved. After assembly rather than within it, for the reason the unresolved-call count is: the image belongs to the run and is read before any file is measured, while the *effects* of the filter — which functions were omitted, and how much file-scope code remained — are properties of the measurement and are assembled with it (HLR-147)."/>
           <function signature="int metrics_add(MetricsAccumulator *acc, FileMetrics *m)" summary="Append one file's metrics, taking ownership of them. Grows by doubling through a checked reallocation; on failure the accumulator is left intact and the caller still owns the metrics, so nothing is leaked and nothing is freed twice."/>
           <function signature="void metrics_free(MetricsAccumulator *acc)" summary="Release the accumulator and every FileMetrics it still owns."/>
@@ -934,12 +944,15 @@ The totals *are* written, for a consumer reading the record with something other
 | node | `component` | The source file that owns it (HLR-114) |
 | node | `eloc`, `complexity` | The per-function metrics |
 | node | `fan-out` | Distinct callees (HLR-085) |
+| node | `fan-in` | Distinct callers, over call edges alone (HLR-156) |
 | node | `address-taken` | Whether the function is a reachability root (HLR-096) |
 | edge | `kind` | `call` or `global` — the two edge kinds are distinguishable, never merged |
 | edge | `global` | For a `global` edge, the object's name |
 | edge | `call-sites` | The collapsed call-site count (HLR-085's simple-graph rule) |
 
-Nodes are emitted in ascending stable node-id order and each node's edges in ascending target-id order (LLR-DOT-04); every value is escaped per HLR-065.]]></interface>
+Nodes are emitted in ascending stable node-id order and each node's edges in ascending target-id order (LLR-DOT-04); every value is escaped per HLR-065.
+
+The Henry-Kafura value is deliberately **not** a key here. `eloc`, `fan-in` and `fan-out` are all three of its inputs, so an ingesting tool can form it exactly; exporting the value as well would put a second computation of it beside the one in `calltree.c`, and two places computing a figure are two places it can be computed differently (HLR-157, LLR-GML-05).]]></interface>
           <interface title="Companion Artefact Naming"><![CDATA[Both companion files derive their names from the report's output path by extension substitution: an output of `report.md` yields `report.dot` and `report.graphml`. Neither takes a path of its own. This is precisely why neither is produced when the report goes to standard output — there is no output path to derive a name from, which is the rationale HLR-104 and HLR-106 give (HLR-103, HLR-104, HLR-106).]]></interface>
           <interface title="DOT Annotation Encoding"><![CDATA[The `.dot` file is the **call tree**, so only call edges are drawn. Coupling through a shared global object is not an edge here — it is not a call — and reaches the drawing as a property of the functions that take part in it, which is what HLR-105 asks for: the participants of a hidden channel, not the channel.
 
@@ -1339,6 +1352,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
         <field name="function_count" type="uint64_t" desc="Functions reported across the run"/>
         <field name="largest_file, largest_file_eloc" type="const char *, uint32_t" desc="The file with the highest file-level ELOC, borrowed from the model it was chosen from. NULL where the run analysed nothing (HLR-026, HLR-066)"/>
         <field name="most_complex, most_complex_file, most_complex_value" type="const char *, const char *, uint32_t" desc="The function with the highest cyclomatic complexity and the file defining it, both borrowed. Ties are broken by the stable presentation order, so the callout is a property of the report rather than of discovery order (HLR-026, HLR-032)"/>
+        <field name="henry_kafura" type="uint64_t" desc="The project's combined Henry-Kafura complexity: the sum of the per-function values, never the formula applied to these totals — the metric is defined over one procedure's traffic and a project has no fan-in. Sixty-four bits because the squared term makes it grow far faster than any other figure here (HLR-158)"/>
       </type>
       <type name="PathList" header="include/report.h" summary="A sorted, owned list of paths. Used for the files discovered but not analysed, so the report accounts for every discovered file (HLR-012).">
         <field name="paths" type="char **" desc="Dynamic array, grown by doubling"/>
@@ -1352,7 +1366,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
         <field name="routes" type="RouteList" desc="Per directory target, whether it was enumerated from a repository or traversed from the filesystem (HLR-127)"/>
         <field name="unresolved_calls" type="size_t" desc="Call sites with no resolvable target, reported so graph completeness is visible (HLR-077)"/>
         <field name="over_threshold" type="ThresholdList" desc="The per-file listing of functions at or above the complexity threshold, built here rather than filtered by a renderer so every format lists the same functions (HLR-021)"/>
-        <field name="fan_out, cycles, depth_state, depth, deepest" type="FanOutRow *, CycleRow *, DepthState, uint32_t, ChainRow *" desc="The call-tree measurements: per-function fan-out reported whether or not a threshold was crossed, the recursive cycles, and the deepest chain in full with the state saying why a depth figure is absent (HLR-085, HLR-087 – HLR-090)"/>
+        <field name="fan_out, cycles, depth_state, depth, deepest" type="FanOutRow *, CycleRow *, DepthState, uint32_t, ChainRow *" desc="The call-tree measurements: one FanOutRow per function carrying its fan-out, fan-in, ELOC and Henry-Kafura value — each reported whether or not a threshold was crossed, and three of the four never banded at all — the recursive cycles, and the deepest chain in full with the state saying why a depth figure is absent (HLR-085, HLR-087 – HLR-090, HLR-156, HLR-157)"/>
         <field name="coupling, dep_cycles, strata_state, layering" type="CouplingRow *, CycleDependencyRow *, StrataState, LayeringRow *" desc="The component-level measurements: Ca, Ce and Instability per component, each dependency cycle with a concrete loop through it, and the layering findings with the state of that analysis (HLR-080 – HLR-083, HLR-118)"/>
         <field name="global_state, reach_state, unreachable, unreachable_globals, scope_state, cross_scope" type="GlobalStateRow *, ReachState, UnreachableRow *, char **, ScopeState, CrossScopeRow *" desc="The global-state and reachability measurements, each carrying the state that distinguishes a measurement from an analysis omitted for want of a declaration (HLR-091 – HLR-096, HLR-115)"/>
         <field name="findings" type="FindingRow *" desc="Every measurement that crossed a published line, ranked most severe first, each naming its source (HLR-098, HLR-123)"/>
@@ -1633,14 +1647,14 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-013, HLR-096, HLR-121, HLR-137, HLR-138, HLR-139"/>
       </fixture>
       <fixture name="`calltree/`" source="[test/fixtures/calltree/](../test/fixtures/calltree/)">
-        <artefact key="inputs" label="Inputs" path="One function per fan-out band boundary — 2, 3, 7, 8, 10, 11, 15, 16 — each also calling one helper twice; a four-deep call chain with a shallower branch listed first; direct and mutual recursion in their smallest forms"/>
-        <artefact key="expected" label="Expected" path="The exact fan-out at every boundary, the deepest chain as an ordered sequence, both recursive cycles by kind and members, and the stated reason wherever a depth figure is absent. Phase 12 adds `expected-findings.tsv`, the band each boundary value falls in — which is why the values are pinned here first"/>
-        <artefact key="verifies" label="Verifies" path="HLR-032, HLR-033, HLR-038, HLR-056, HLR-077, HLR-085, HLR-087 – HLR-090, HLR-095, HLR-115"/>
+        <artefact key="inputs" label="Inputs" path="One function per fan-out band boundary — 2, 3, 7, 8, 10, 11, 15, 16 — each also calling one helper twice; a hub with three callers and two callees, each callee invoked twice, sitting between an entry point that nothing calls and leaves that call nothing; a four-deep call chain with a shallower branch listed first; direct and mutual recursion in their smallest forms"/>
+        <artefact key="expected" label="Expected" path="The exact fan-out at every boundary; the fan-in and Henry-Kafura value of every function in the flow tree, each worked out in `README.md` from the source, together with the project total as their sum; the deepest chain as an ordered sequence, both recursive cycles by kind and members, and the stated reason wherever a depth figure is absent. Phase 12 adds `expected-findings.tsv`, the band each boundary value falls in — which is why the values are pinned here first"/>
+        <artefact key="verifies" label="Verifies" path="HLR-032, HLR-033, HLR-038, HLR-056, HLR-077, HLR-085, HLR-087 – HLR-090, HLR-095, HLR-115, HLR-156 – HLR-159"/>
       </fixture>
       <fixture name="`graph/`" source="[test/fixtures/graph/](../test/fixtures/graph/)">
         <artefact key="inputs" label="Inputs" path="**Phase 8**: a repeated call between one pair of functions; a global written in one file and read in another; a function assigned without being called; and a call into a library. **Phases 9–11 add**: mutual recursion within one file and across two; a clique of unused functions calling one another; a component dependency cycle; a global read and written by a single function; a global read by unreachable functions only"/>
-        <artefact key="expected" label="Expected" path="`expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. An unresolvable call is pinned as counted rather than invented, so that a *false* edge would be visible in the fixture rather than in a user's report"/>
-        <artefact key="verifies" label="Verifies" path="Phase 8: HLR-010, HLR-032, HLR-033, HLR-073 – HLR-077, HLR-085, HLR-096, HLR-104, HLR-106, HLR-114. Later phases add HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-097"/>
+        <artefact key="expected" label="Expected" path="`expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. An unresolvable call is pinned as counted rather than invented, so that a *false* edge would be visible in the fixture rather than in a user's report. Each node's fan-in is pinned there too, and the reader of the global object is pinned at **zero**: an in-degree taken over the whole graph would make it one, and the Henry-Kafura value squares the product of the degrees, so this group is where that error is caught before it is magnified"/>
+        <artefact key="verifies" label="Verifies" path="Phase 8: HLR-010, HLR-032, HLR-033, HLR-073 – HLR-077, HLR-085, HLR-096, HLR-104, HLR-106, HLR-114. Later phases add HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-097, HLR-156"/>
       </fixture>
       <fixture name="`dot/`" source="[test/fixtures/dot/](../test/fixtures/dot/)">
         <artefact key="inputs" label="Inputs" path="Two trees, and two because recursion makes the call depth unbounded so one tree cannot hold both a recursive cycle and a measured deepest chain. `tree/`: a six-function call chain; a function whose fan-out is 11, the first value that warns; two files that depend on each other while no function calls itself even indirectly; a global shared across two disconnected regions of the call graph; seven functions no path reaches from the declared entry point. `recursive/`: two mutually recursive functions and a forward declaration"/>
@@ -5164,10 +5178,13 @@ Note on the division of labour, which determines where a failure lives: the requ
         </traces>
       </llr>
       <llr id="LLR-CTR-07">
-        <text><![CDATA[`calltree_analyse` shall measure fan-out, recursion, and call depth over the graph's call-edge view alone, never over the whole System Dependence Graph. A global-state edge records that one function writes an object another reads; it is coupling and not invocation. Counting one as a callee would inflate fan-out, following one would extend a call chain through a call that never happens, and a pair of functions sharing two objects in opposite directions forms a cycle in the SDG that is not recursion — which would be reported as a critical MISRA C Rule 17.2 violation against ordinary code.]]></text>
+        <text><![CDATA[`calltree_analyse` shall measure fan-out, fan-in, recursion, and call depth over the graph's call-edge view alone, never over the whole System Dependence Graph. A global-state edge records that one function writes an object another reads; it is coupling and not invocation. Counting one as a callee would inflate fan-out, counting one as a caller would inflate fan-in, following one would extend a call chain through a call that never happens, and a pair of functions sharing two objects in opposite directions forms a cycle in the SDG that is not recursion — which would be reported as a critical MISRA C Rule 17.2 violation against ordinary code.
+
+The rule governs fan-in most strictly of the four, because the error does not stay where it is made: the Henry-Kafura value of HLR-157 squares the product of the two degrees, so an in-degree taken over the whole graph inflates that figure by the square of its own error.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-085"/>
           <trace target="HLR" ref="HLR-089"/>
+          <trace target="HLR" ref="HLR-156" name="Function Fan-In Measurement"/>
           <trace target="HLR" ref="HLR-074" name="Global State Edges"/>
         </traces>
       </llr>
@@ -5199,6 +5216,26 @@ Note on the division of labour, which determines where a failure lives: the requ
         <traces>
           <trace target="HLR" ref="HLR-087" name="Maximum Call-Chain Depth"/>
           <trace target="HLR" ref="HLR-077" name="Unresolvable Call Handling"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-CTR-10">
+        <text><![CDATA[`calltree_analyse` shall compute, for every function, the number of *distinct* functions that invoke it directly, counted as the in-degree over the call-edge view. The graph is simple, so a caller invoking a function at forty call sites contributes one; it is the converse of LLR-CTR-01 and is counted by the same traversal, reading each call edge from its other end rather than walking the edge table a second time.
+
+A function that no analysed function calls has a fan-in of zero, and that zero is recorded as a measurement rather than as a finding: an entry point, an exported API boundary, and an interrupt handler reached from a vector table all legitimately have none.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-156" name="Function Fan-In Measurement"/>
+          <trace target="HLR" ref="HLR-085" name="Function Fan-Out Measurement"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-CTR-11">
+        <text><![CDATA[`calltree_analyse` shall compute, for every function, its Henry-Kafura structural complexity as `ELOC × (Fan-In × Fan-Out)²`, taking the length from the node the graph already carries, and shall widen each degree to the accumulating width **before** the multiplication rather than at the assignment. The product of two degrees fits in 32 bits and its square does not: a 32-bit square assigned to a 64-bit variable has already wrapped by the time the assignment widens it, and a wrapped value renders as a perfectly ordinary number.
+
+The value shall be zero wherever either degree is zero, which is what the formula gives and is a value rather than an absence.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-157" name="Henry–Kafura Structural Complexity per Function"/>
+          <trace target="HLR" ref="HLR-158" name="Project-Level Henry–Kafura Total"/>
         </traces>
       </llr>
     </function>
@@ -5456,6 +5493,17 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-032"/>
         </traces>
       </llr>
+      <llr id="LLR-THR-15">
+        <text><![CDATA[`threshold_attribution` shall name the published source of a measurement the catalogue holds no band for, from a table held apart from the catalogue, while `thresholds_lookup` continues to report that no threshold exists for it. A citation and a threshold are separate claims: the Henry-Kafura formula is Henry and Kafura's and must be attributed wherever it is reported, and no published source divides it into accepted and unaccepted ranges.
+
+A catalogue row with empty bounds shall not be used to carry such a citation. `occurrence` false with both bounds zero is a silent band that every value passes, and `thresholds_lookup` would then answer "there is a threshold for this" to the one caller asking precisely because there is not — which would take the measurement off the path LLR-THR-08 provides and put it on the banded path with a band that judges nothing.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-159" name="Henry–Kafura Reported Without an Invented Band"/>
+          <trace target="HLR" ref="HLR-157" name="Henry–Kafura Structural Complexity per Function"/>
+          <trace target="HLR" ref="HLR-099" name="Threshold Source Attribution"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-THR-14">
         <text><![CDATA[The record shall carry each finding with its severity, subject, detail and source. Regeneration has no measurements to band and no catalogue call to make against them, so a finding not written is one the regenerated report cannot have.]]></text>
         <traces>
@@ -5718,6 +5766,17 @@ Note on the division of labour, which determines where a failure lives: the requ
           <trace target="HLR" ref="HLR-143" name="Both Directions of Mismatch Counted and Reported"/>
         </traces>
       </llr>
+
+      <llr id="LLR-RPT-35">
+        <text><![CDATA[`report_total_henry_kafura` shall set the project-level Henry-Kafura total to the sum of the per-function values held on the report model, and shall be the only place that total is formed. A live run calls it once the flow rows are filled; a run regenerating from a record calls it once they are restored, because `report_assemble` works over the per-file metrics and those carry no fan-in from which the total could be derived.
+
+One function rather than a line in each of the two paths, so that "the total is the sum of the per-function values" is a property of the code rather than of two implementations agreeing. It shall not apply the formula to project-level aggregates: the metric is defined over one procedure's traffic, and doing so would multiply a length by a connectivity no procedure has.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-158" name="Project-Level Henry–Kafura Total"/>
+          <trace target="HLR" ref="HLR-024" name="Project-Level Totals"/>
+          <trace target="HLR" ref="HLR-056" name="Regeneration Fidelity"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="36" title="`format_table` ([src/format_text.c](../src/format_text.c))" name="format_table" source="src/format_text.c">
@@ -5814,7 +5873,7 @@ The two are separate sections, because the tier boundary of LLR-SUM-09 runs betw
       <llr id="LLR-SUM-09">
         <text><![CDATA[`render_summary` shall classify each tier of the traversal as a **summary** or a **detail** tier, and shall emit, at the summary verbosity, the summary tiers alone; at the verbose verbosity it shall emit every tier. The classification shall be a property of the one shared traversal — a filter over the ordered section list both human-facing formats walk — rather than a second traversal beside it, so that a tier cannot be present at one verbosity and forgotten at the other, by the same construction that stops it being present in one format and forgotten in the other (LLR-SUM-02).
 
-The summary tiers are the project summary and callouts, the discovery route, the per-language breakdown, each file's own totals, the threshold listing, the findings, the definitions in force, the linked-image provenance, the partly parsed files, and the skipped files. Every remaining tier is a detail tier: it enumerates one row per analysed entity — per function, per global object, per unreachable statement, per graph edge, per custom-rule match. The measurements taken over the dependence graph — fan-out, recursion, the deepest chain, coupling, dependency cycles, layering — are detail tiers on that rule, each row naming one entity of the graph rather than a file's own totals; nothing is thereby lost from the summary, because every one of them that crossed a published line is a finding and the findings are a summary tier.
+The summary tiers are the project summary and callouts, the discovery route, the per-language breakdown, each file's own totals, the threshold listing, the findings, the definitions in force, the linked-image provenance, the partly parsed files, and the skipped files. Every remaining tier is a detail tier: it enumerates one row per analysed entity — per function, per global object, per unreachable statement, per graph edge, per custom-rule match. The measurements taken over the dependence graph — fan-out, information flow, recursion, the deepest chain, coupling, dependency cycles, layering — are detail tiers on that rule, each row naming one entity of the graph rather than a file's own totals; nothing is thereby lost from the summary, because every one of them that crossed a published line is a finding and the findings are a summary tier, and because a per-function measurement with a project-level total puts that total in the project summary.
 
 A detail section whose analysis was **omitted for want of a declaration** shall be emitted at the summary verbosity as well, since HLR-150 counts the omission notices among the summary tiers. No separate notice is needed: an omitted analysis produced no rows, so the section renders as its heading and the reason in it.]]></text>
         <traces>
@@ -5822,6 +5881,22 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
           <trace target="HLR" ref="HLR-151" name="Verbose Report on Request"/>
           <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
           <trace target="HLR" ref="HLR-115" name="Analyses Requiring User Declarations"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-SUM-10">
+        <text><![CDATA[`render_summary` shall present each function's fan-in, fan-out, effective lines and Henry-Kafura value as a detail tier, and the project-level Henry-Kafura total among the project summary's figures; and shall print a Henry-Kafura value of zero as `0`.
+
+The heading of the detail tier shall carry the formula, the attribution to Henry and Kafura, and the two properties HLR-159 requires be stated — that a function at either end of the call graph scores zero, and that the figure is ordinal rather than absolute. A reader who does not know them misreads the number rather than merely failing to act on it. Its inputs are repeated in the table beside the result, so the arithmetic is checkable on the line that reports it.
+
+**The zero is printed as a number and never as `undefined`.** The Instability column of the coupling tier prints `undefined` where its own inputs vanish (HLR-082); this value does not vanish where a degree is zero, it equals zero, and borrowing that spelling would report a measurement as a missing one. The two appearing in nearby tables is what makes the substitution an easy mistake rather than an unlikely one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-157" name="Henry–Kafura Structural Complexity per Function"/>
+          <trace target="HLR" ref="HLR-158" name="Project-Level Henry–Kafura Total"/>
+          <trace target="HLR" ref="HLR-159" name="Henry–Kafura Reported Without an Invented Band"/>
+          <trace target="HLR" ref="HLR-156" name="Function Fan-In Measurement"/>
+          <trace target="HLR" ref="HLR-024" name="Project-Level Totals"/>
+          <trace target="HLR" ref="HLR-150" name="Summary Report by Default"/>
         </traces>
       </llr>
     </function>
@@ -5911,7 +5986,9 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
       </llr>
 
       <llr id="LLR-XWR-08">
-        <text><![CDATA[`xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one.]]></text>
+        <text><![CDATA[`xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, fan-in, effective lines and Henry-Kafura value, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one. A record carrying fan-out alone would regenerate every Henry-Kafura value as zero, which renders as an ordinary number and reads as a project where nothing is connected.
+
+The project-level Henry-Kafura total is **re-summed from the restored rows** rather than written, by the same function the live path calls, so that HLR-158's "the sum of the per-function values" cannot become two figures that disagree. The per-function attributes are optional on read: they were added to an element that already existed under an unchanged format version, and a record predating them means zero rather than a rejection.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-054" name="Complete Analysis Record"/>
           <trace target="HLR" ref="HLR-056" name="Regeneration Fidelity"/>
@@ -6189,6 +6266,14 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
         <text><![CDATA[`graph_write_graphml` shall emit well-formed XML with every structurally significant character escaped.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-065" name="XML Well-Formedness and Escaping"/>
+          <trace target="HLR" ref="HLR-106" name="Standard Graph Serialisation Export"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-GML-05">
+        <text><![CDATA[`graph_write_graphml` shall carry each node's fan-in beside its fan-out, both computed over call edges alone. The export then holds every input the Henry-Kafura value is formed from — the two degrees and the node's ELOC — and shall not carry the value itself: it is arithmetic over three attributes already present, and a second place computing it is a second place it could be computed differently.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-156" name="Function Fan-In Measurement"/>
           <trace target="HLR" ref="HLR-106" name="Standard Graph Serialisation Export"/>
         </traces>
       </llr>
@@ -7391,7 +7476,7 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
     </test>
 </file>
 
-  <file path="test/unit/calltree.c" role="unit" count="16">
+  <file path="test/unit/calltree.c" role="unit" count="20">
     <test name="fan_out_counts_distinct_callees">
       <purpose><![CDATA[Four call sites to two functions give a fan-out of two, so the measure is of subroutines invoked and not of invocations.]]></purpose>
       <traces>
@@ -7402,6 +7487,41 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
       <purpose><![CDATA[A function that writes a global another reads has a fan-out of zero: coupling through shared state is not invocation.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CTR-07"/>
+      </traces>
+    </test>
+    <test name="fan_in_counts_distinct_callers">
+      <purpose><![CDATA[Three call sites from two functions give a fan-in of two, so the measure is of callers and not of invocations; a function nothing calls reports zero.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-10"/>
+        <trace target="HLR" ref="HLR-156"/>
+      </traces>
+    </test>
+    <test name="fan_in_ignores_global_edges">
+      <purpose><![CDATA[A function that reads a global another writes has a fan-in of zero. The converse of the fan-out case and the one with more riding on it: the global edge runs towards the reader, so an in-degree over the whole SDG would inflate exactly the figure the Henry-Kafura value then squares.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-07"/>
+        <trace target="HLR" ref="HLR-156"/>
+      </traces>
+    </test>
+    <test name="henry_kafura_is_length_times_the_squared_product">
+      <purpose><![CDATA[A function of five effective lines with one caller and one callee scores five, which is the formula and nothing else.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-11"/>
+        <trace target="HLR" ref="HLR-157"/>
+      </traces>
+    </test>
+    <test name="a_function_at_either_end_of_the_graph_scores_zero">
+      <purpose><![CDATA[An entry point and a leaf of a thousand effective lines apiece both score zero: the product term vanishes when either degree does, whatever the length.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-11"/>
+        <trace target="HLR" ref="HLR-159"/>
+      </traces>
+    </test>
+    <test name="the_squared_product_is_widened_before_it_is_multiplied">
+      <purpose><![CDATA[A hub with three hundred callers and three hundred callees scores 56,700,000,000. The failure this catches is invisible at any size a fixture tree can reach: the product fits in 32 bits and its square does not, so an implementation squaring in 32 bits and widening at the assignment reports an ordinary-looking 3,805,032,704 instead.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-11"/>
+        <trace target="HLR" ref="HLR-158"/>
       </traces>
     </test>
     <test name="direct_recursion_is_detected">
@@ -7933,7 +8053,7 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
     </test>
   </file>
 
-  <file path="test/unit/thresholds.c" role="unit" count="15">
+  <file path="test/unit/thresholds.c" role="unit" count="17">
     <test name="the_fan_out_bands_match_the_published_table">
       <purpose><![CDATA[Each of the eight boundary values from PVD Appendix A.2 bands as the table says. The same eight are pinned as measurements by calltree/fanout.c, so a disagreement here is a banding error rather than a counting one.]]></purpose>
       <traces>
@@ -7955,11 +8075,27 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
         <trace target="HLR" ref="HLR-086"/>
       </traces>
     </test>
-    <test name="every_catalogued_measurement_names_a_source">
-      <purpose><![CDATA[Every row of the catalogue carries a non-empty attribution. A row without one would be an opinion elc held and did not admit to.]]></purpose>
+    <test name="every_measurement_names_a_source">
+      <purpose><![CDATA[Every measurement kind names a non-empty source, whether or not the catalogue bands it. Asserted over the kinds rather than over the catalogue because a kind need not be banded to be reported — Henry-Kafura has a citation and no row — and what must never happen is a kind reaching a reader with neither.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-THR-02"/>
         <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="every_banded_measurement_names_its_source_in_its_row">
+      <purpose><![CDATA[The citation a banded measurement carries comes from its catalogue row, so the table a reviewer reads is the table elc reports from.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-099"/>
+        <trace target="LLR" ref="LLR-THR-15"/>
+      </traces>
+    </test>
+    <test name="henry_kafura_is_attributed_and_never_banded">
+      <purpose><![CDATA[The measurement that separates a citation from a threshold: the formula is named wherever it is reported, the catalogue holds no row for it, and it is not marked as elc's own — LLR-THR-08's path, taken for the first time by a measurement that will never have an entry.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-159"/>
+        <trace target="HLR" ref="HLR-157"/>
+        <trace target="LLR" ref="LLR-THR-15"/>
+        <trace target="LLR" ref="LLR-THR-08"/>
       </traces>
     </test>
     <test name="exactly_one_threshold_is_elcs_own_and_says_so">
@@ -8224,7 +8360,7 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
     </test>
   </file>
 
-  <file path="test/unit/report.c" role="unit" count="6">
+  <file path="test/unit/report.c" role="unit" count="8">
     <test name="totals_sum_across_every_file">
       <purpose><![CDATA[The project totals are the sum of the per-file physical line counts across every analysed file.]]></purpose>
       <traces>
@@ -8242,6 +8378,20 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
       <purpose><![CDATA[A run in which no file was analysed still produces a complete model with zero totals, which renders normally.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-RPT-12"/>
+      </traces>
+    </test>
+    <test name="the_henry_kafura_total_is_the_sum_of_the_per_function_values">
+      <purpose><![CDATA[The total accumulates in the same width the values do, and is idempotent — both the live path and the regeneration path call it, and a run reading a record does both.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-35"/>
+        <trace target="HLR" ref="HLR-158"/>
+      </traces>
+    </test>
+    <test name="a_project_with_no_functions_totals_zero_rather_than_nothing">
+      <purpose><![CDATA[A run that analysed nothing totals zero and renders normally, as every other project total does.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-35"/>
+        <trace target="HLR" ref="HLR-066"/>
       </traces>
     </test>
     <test name="assembly_leaves_the_accumulator_empty">
@@ -9016,7 +9166,7 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
     </test>
   </file>
 
-  <file path="test/unit/format_xml.c" role="unit" count="17">
+  <file path="test/unit/format_xml.c" role="unit" count="19">
     <test name="an_ampersand_is_escaped">
       <purpose><![CDATA[An unescaped ampersand begins an entity reference and makes the document unparseable.]]></purpose>
       <traces>
@@ -9109,6 +9259,21 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
       <traces>
         <trace target="LLR" ref="LLR-XRD-01"/>
         <trace target="LLR" ref="LLR-XRD-09"/>
+      </traces>
+    </test>
+    <test name="the_flow_figures_are_carried_by_the_record">
+      <purpose><![CDATA[Fan-in, ELOC and the Henry-Kafura value are written into the record and restored from it, and the project total is re-summed from the restored rows. None can be recomputed: regeneration has no graph and no source to build one from, so a record carrying fan-out alone would regenerate every Henry-Kafura value as zero — an ordinary-looking number reading as a project where nothing is connected.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-08"/>
+        <trace target="LLR" ref="LLR-RPT-35"/>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="a_record_without_the_flow_attributes_still_reads">
+      <purpose><![CDATA[A record written before the information-flow figures existed carries the same format version and still reads, its missing attributes meaning zero. Additions to the format are what the version number does not mark, and rejecting such a record would break the compatibility it promises.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-08"/>
+        <trace target="HLR" ref="HLR-054"/>
       </traces>
     </test>
     <test name="a_truncated_record_is_rejected">
@@ -10774,7 +10939,7 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
     </test>
   </file>
 
-  <file path="test/fixtures/calltree.bats" role="fixture" count="20">
+  <file path="test/fixtures/calltree.bats" role="fixture" count="32">
     <test name="HLR-085: fan-out is exact at every band boundary">
       <purpose><![CDATA[Fan-out is correct for 2, 3, 7, 8, 10, 11, 15 and 16 distinct callees — the values Phase 12 will band, asserted individually so a failure names the boundary that moved.]]></purpose>
       <traces>
@@ -10797,6 +10962,85 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
       <purpose><![CDATA[All twenty-four functions are listed: this is a measurement table, not a finding list.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-085"/>
+      </traces>
+    </test>
+    <test name="HLR-156: fan-in counts the distinct functions that call one">
+      <purpose><![CDATA[The hub reports three callers and each leaf one, from a source where those are the counts.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-156"/>
+        <trace target="LLR" ref="LLR-CTR-10"/>
+      </traces>
+    </test>
+    <test name="HLR-156: a repeated call does not raise fan-in">
+      <purpose><![CDATA[The hub calls each leaf twice and each leaf's fan-in stays one: fan-in counts callers, not call sites — the distinctness rule fan-out is built on, read backwards.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-156"/>
+        <trace target="LLR" ref="LLR-CTR-10"/>
+      </traces>
+    </test>
+    <test name="HLR-156: a function nothing calls has fan-in zero">
+      <purpose><![CDATA[An entry point reports zero rather than being omitted. Drawing a conclusion from an absence of callers is the reachability analysis's job, not this measurement's.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-156"/>
+        <trace target="LLR" ref="LLR-CTR-10"/>
+      </traces>
+    </test>
+    <test name="HLR-156: every function reports a fan-in, not only the connected ones">
+      <purpose><![CDATA[All eight functions are listed: this is a measurement table, not a finding list.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-156"/>
+        <trace target="LLR" ref="LLR-SUM-10"/>
+      </traces>
+    </test>
+    <test name="HLR-157: the hand-computed Henry-Kafura value matches, function by function">
+      <purpose><![CDATA[Every figure is worked out in README.md from the source: 144 for the hub, 1 for each single-call caller, 8 for the caller with two callees.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-157"/>
+        <trace target="LLR" ref="LLR-CTR-11"/>
+      </traces>
+    </test>
+    <test name="HLR-159: an entry point and a leaf each report a zero, not a blank">
+      <purpose><![CDATA[The longest and widest function in the file scores zero because nothing calls it, and a leaf scores zero because it calls nothing. Neither is an absence of code, and neither borrows the `undefined` spelling Instability uses for its own vanishing inputs.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-159"/>
+        <trace target="LLR" ref="LLR-SUM-10"/>
+      </traces>
+    </test>
+    <test name="HLR-159: the report states why a zero is a zero">
+      <purpose><![CDATA[The tier heading says that a function at either end of the call graph scores zero, so the value is read as the measurement it is.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-159"/>
+        <trace target="LLR" ref="LLR-SUM-10"/>
+      </traces>
+    </test>
+    <test name="HLR-159: the formula and its attribution travel with the figures">
+      <purpose><![CDATA[The heading carries the formula, the name Henry-Kafura, and the ordinal reading — the squared term is theirs rather than elc's, and a metric whose name reads as a citation must carry it where it is read.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-159"/>
+        <trace target="HLR" ref="HLR-099"/>
+        <trace target="LLR" ref="LLR-SUM-10"/>
+      </traces>
+    </test>
+    <test name="HLR-159: no Henry-Kafura figure is reported as a finding">
+      <purpose><![CDATA[No published source bands the metric, so the catalogue holds no row and no figure acquires a severity.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-159"/>
+        <trace target="LLR" ref="LLR-THR-15"/>
+      </traces>
+    </test>
+    <test name="HLR-158: the project total is the sum of the per-function values">
+      <purpose><![CDATA[144 + 1 + 1 + 8, and zero from the four functions at the ends of the graph.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-158"/>
+        <trace target="LLR" ref="LLR-RPT-35"/>
+      </traces>
+    </test>
+    <test name="HLR-158: the project total is a summary figure, not a detail one">
+      <purpose><![CDATA[A summary report carries the total without the per-function table, which is the tier placement HLR-024 and HLR-150 require.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-158"/>
+        <trace target="HLR" ref="HLR-024"/>
+        <trace target="LLR" ref="LLR-SUM-10"/>
       </traces>
     </test>
     <test name="HLR-087: the hand-counted depth matches">
@@ -10889,6 +11133,16 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
       <purpose><![CDATA[The report does not depend on the order the targets were named in.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="HLR-156, HLR-157: the flow figures survive a record round trip">
+      <purpose><![CDATA[Fan-in and the Henry-Kafura value are carried by the record and restored from it, and the project total is re-summed from the restored rows. Neither can be recomputed: regeneration has no graph and no source to build one from, so a record carrying fan-out alone would regenerate every Henry-Kafura value as zero.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XWR-08"/>
+        <trace target="LLR" ref="LLR-RPT-35"/>
+        <trace target="HLR" ref="HLR-156"/>
+        <trace target="HLR" ref="HLR-157"/>
+        <trace target="HLR" ref="HLR-056"/>
       </traces>
     </test>
     <test name="HLR-056: the measurements survive a record round trip">
@@ -11549,7 +11803,7 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
     </test>
   </file>
 
-  <file path="test/fixtures/graph.bats" role="fixture" count="16">
+  <file path="test/fixtures/graph.bats" role="fixture" count="18">
     <test name="HLR-106: the exported graph matches the expected topology exactly">
       <purpose><![CDATA[The emitted GraphML is compared node for node and edge for edge against a file written from the source, so a change in what elc believes about the code appears as a diff rather than as a number nobody questions.]]></purpose>
       <traces>
@@ -11580,6 +11834,22 @@ A detail section whose analysis was **omitted for want of a declaration** shall 
       <purpose><![CDATA[Two calls from one function to one helper produce a single edge with a count of two, so fan-out is distinct callees.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-085"/>
+      </traces>
+    </test>
+    <test name="HLR-156: fan-in is the in-degree over call edges">
+      <purpose><![CDATA[The function called from two call sites by one caller reports a fan-in of one — the converse of the rule that makes that caller's fan-out one rather than two.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-156"/>
+        <trace target="LLR" ref="LLR-GML-05"/>
+      </traces>
+    </test>
+    <test name="HLR-156: a global edge contributes no fan-in">
+      <purpose><![CDATA[The reader of the shared object reports zero although an edge runs to it from the writer: being read by someone is not being called by them. In-degree over the whole SDG would make it one, and the Henry-Kafura value squares the product of the degrees, so the error would arrive there magnified.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-156"/>
+        <trace target="HLR" ref="HLR-074"/>
+        <trace target="LLR" ref="LLR-CTR-07"/>
+        <trace target="LLR" ref="LLR-GML-05"/>
       </traces>
     </test>
     <test name="HLR-074: a global links its writer to its reader across files">

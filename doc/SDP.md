@@ -60,7 +60,7 @@ release readiness — is ready to start, and is the last.
 | [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
 | [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
 | [18](#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
-| [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | 🔲 Not started |
+| [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
 | [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | 🔲 Not started |
 | [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
@@ -1794,7 +1794,7 @@ Watch for:
   from.
 
 Phase 18 left the gap baseline at 156; the four HLRs this phase closes must
-bring it to 152 or below.
+bring it to 152 or below. *(It closed at 151.)*
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
@@ -1901,8 +1901,8 @@ it is a design decision under HLR-112. If `libdw` is chosen — beside the
 `make check-prereqs` both need it, and step 6 records the choice in the SDD's
 dependency table.
 
-The four HLRs Phase 19 closed should have left the gap baseline at 152 or
-below; the three this phase closes must bring it to 149 or below.
+Phase 19 left the gap baseline at 151; the three HLRs this phase closes must
+bring it to 148 or below.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
@@ -1982,9 +1982,9 @@ Watch for:
   makes it useful to the reader who has declared nothing, which is most
   readers on a first run.
 
-The gap baseline stands at 175, raised when these requirements were
-specified ahead of design. The seven HLRs this phase closes must bring it to
-156 or below, assuming Phases 18 to 20 closed theirs.
+The gap baseline is re-derived from the figure this phase inherits rather
+than projected forward from 175: read `test/gap-baseline.txt`, and the seven
+HLRs this phase closes must bring it seven lower. Phase 19 left it at 151.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
