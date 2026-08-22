@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.10
-**Date:** 2026-08-21
+**Version:** 2.12
+**Date:** 2026-08-22
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -21,7 +21,7 @@ This document describes the design of the source modules that implement the high
 *   [src/analyze.c](../src/analyze.c): Per-file parsing and the single-parse extraction of ELOC, cyclomatic complexity, function identity, and the raw call and global-access facts the graph is later built from.
 *   [src/graph.c](../src/graph.c): System Dependence Graph construction: cross-file symbol resolution and population of the graph structure.
 *   [src/arch.c](../src/arch.c): Component-level analyses — coupling, instability, bottlenecks, dependency cycles, and architectural layering.
-*   [src/calltree.c](../src/calltree.c): Function-level call-tree analyses — fan-out, depth, the deepest call stack, and recursion detection.
+*   [src/calltree.c](../src/calltree.c): Function-level call-tree analyses — fan-out, fan-in, the Henry-Kafura information-flow value, depth, the deepest call stack, and recursion detection.
 *   [src/state.c](../src/state.c): Global-state coupling, execution-scope isolation, and reachability-based dead-code detection.
 *   [src/thresholds.c](../src/thresholds.c): Evaluation of every measurement against its published threshold, and assignment of severity and attribution.
 *   [src/report.c](../src/report.c): The format-independent report model: assembly of every finding into one structure, in a stable, defined order.
@@ -188,7 +188,7 @@ The runtime data flow of an analysis run is:
         7.  Call `graph_build()` over the fact list.
         8.  Call `arch_analyse()`, `calltree_analyse()`, `state_analyse()`, then `thresholds_apply()`, then `report_assemble()`.
         9.  Open the output destination — the file named by the options, or standard output when none was named — and on a failure to open it emit a diagnostic and return 2 without writing a partial report (HLR-030).
-        10.  Dispatch to the selected renderer, then to `graph_write_dot()` when the companion artefact is warranted.
+        10.  Dispatch to the selected renderer, passing the verbosity to the two human-facing renderers and to neither complete-record writer, then to `graph_write_dot()` when the companion artefact is warranted (HLR-152, LLR-MAIN-21).
         11.  Tear down in reverse order and return the computed status.
     *   Notes: `main()` contains no analysis logic; its cyclomatic complexity is bounded by the number of stages and their failure branches, keeping it well inside the self-quality target of PVD §8.
 
@@ -224,8 +224,9 @@ The set of accepted options appears in three places: this module's `getopt_long`
 
 | Option | Argument | Default | Requirement |
 | ------ | -------- | ------- | ----------- |
-| `-f`, `--format` | `table\|csv\|xml\|md` | `table` | HLR-027 – HLR-029 |
-| `-o`, `--output` | path | `stdout` | HLR-030 |
+| `-f`, `--format` | `table\|csv\|xml\|md` | `table` | HLR-027 – HLR-029, HLR-149 |
+| `-o`, `--output` | path | `stdout` | HLR-030, HLR-148 |
+| `-v`, `--verbose` | — | summary | HLR-150, HLR-151 |
 | `-c`, `--complexity-threshold` | integer | `15` | HLR-022 |
 | `-b`, `--bottleneck-threshold` | integer | `5` | HLR-081 |
 | `--no-dot` | — | `.dot` enabled | HLR-103 |
@@ -241,6 +242,22 @@ The set of accepted options appears in three places: this module's `getopt_long`
 | `-h`, `--help` | — | — | HLR-117 |
 
 
+#### 4.2.3 Two Ways to Name One Format
+
+The format can be stated twice, and the two statements are settled against each other rather than by precedence.
+
+Where an `--output` file is named, its extension determines the format (HLR-148) — `.txt`, `.md`, `.csv`, `.xml` — and `--format` is not needed. Standard output has no filename and so no extension, so a report written there takes the option alone, defaulting to the table (HLR-149). Where both are supplied, agreement is accepted and disagreement is a usage error naming both: honouring either would leave the command line disagreeing with the file it produced.
+
+Resolution therefore happens **after** the option loop, in `resolve_format()`, not inside it. Inside the loop the two options would be compared in whichever order they arrived, so `-f csv -o r.md` and `-o r.md -f csv` would need separate handling; after it, one comparison settles both (LLR-CLI-27). It also happens *before* the regeneration checks, because those ask which format was chosen and the filename is one of the two ways of choosing it (LLR-CLI-28).
+
+The extension table is the single statement of the mapping. The diagnostic for an unrecognised extension is generated from it, so a format added there is named in the error message without a second list to keep in step.
+
+#### 4.2.4 Verbosity Is Not a Format
+
+`--verbose` selects how much of the report is presented (HLR-151); `--format` selects how it is decorated. The two are orthogonal, and the parser keeps them so.
+
+It follows that `--verbose` with `-f xml` or `-f csv` is **accepted**, which is worth stating because it is the one option pairing this module decides that is not a usage error (HLR-152, LLR-CLI-30). Every other combination the parser rejects is rejected because the two options make contradictory claims about one run; asking a complete format for more detail claims nothing contradictory. It has no effect, and having no effect is not the same as being wrong.
+
 
 ### 4.3 Internal Structure
 #### 4.3.1 Key Data Structures
@@ -252,6 +269,8 @@ The set of accepted options appears in three places: this module's `getopt_long`
 
 *   **`int cli_parse(int argc, char *argv[], ElcOptions *out)`** — Parse and validate argv into out; returns 0, CLI_HELP, or CLI_ERROR.
 *   **`void cli_usage(FILE *stream)`** — Print the option summary and defaults to stream.
+*   **`static int resolve_format(CliParse *p)`** — Settle the format the option and the output filename can each state, after the option loop so the two may be given in either order.
+*   **`static const char *path_extension(const char *path)`** — The extension of a path, or NULL where its basename carries none.
 *   **`int parse_stratum(const char *arg, ElcOptions *out)`** — Parse one name:glob-list stratum declaration.
 *   **`int parse_scope(const char *arg, ElcOptions *out)`** — Parse one name:glob-list execution-scope declaration.
 *   **`void cli_options_free(ElcOptions *opts)`** — Release every heap allocation owned by the options structure.
@@ -264,6 +283,8 @@ The set of accepted options appears in three places: this module's `getopt_long`
 *   **Unknown option or missing argument** Print the usage summary to `stderr` and return `CLI_ERROR`; `main()` exits 2 without analysing anything (HLR-063).
 *   **Help requested** Print the usage summary to `stdout` and return `CLI_HELP`; `main()` exits 0, since a help request is not an error (HLR-117).
 *   **Malformed declaration** A stratum, scope, or entry-point argument that cannot be parsed is a usage error, handled as above.
+*   **Unrecognised output extension** An `--output` path whose extension names no format `elc` has, or whose basename carries none, is a usage error naming the extension found and listing those that are recognised (HLR-148). Nothing is written: guessing would put one format under a name promising another, and defaulting to the table would produce a `report.json` holding no JSON.
+*   **Format option contradicting the filename** `--format` and an `--output` extension that name different formats is a usage error naming both, rather than a silent preference for either (HLR-149). Where they name the same format the invocation is accepted, since nothing is ambiguous about saying a thing twice.
 *   **Malformed numeric argument** A threshold must be a plain decimal number and nothing else. `strtoul` alone is not that test: it accepts a leading sign, leading whitespace, a hexadecimal prefix, and a trailing tail, each of which would silently become a threshold the user did not write. The argument is rejected unless it begins with a digit, converts without overflow, and is consumed entirely.
 
 ## 5. Detailed Design for [src/discover.c](../src/discover.c)
@@ -688,6 +709,8 @@ The SDG is a **simple** directed graph: repeated calls from one function to the 
 *   **Unresolvable call site** Not an error. Counted and reported so the reader can judge the graph's completeness (HLR-077).
 *   **Duplicate symbol definition** Recorded once with a diagnostic; the first definition in sorted file order wins, keeping resolution deterministic.
 
+    **The artefact reaches the information-flow metric raised to a power.** Where several files define a `static` helper of the same name, every call to that name resolves into the winning definition: it collects every caller's fan-in and the losing definitions collect none. Fan-in and fan-out are each wrong by that amount, and the Henry-Kafura value of HLR-157 multiplies the two and squares the product — so a fan-in overstated by a factor of three overstates the winner's Henry-Kafura value by a factor of nine, and understates each loser's to zero. A four-order-of-magnitude figure can therefore rest entirely on this, and the project total with it. The same imprecision is already recorded for reachability (§11) and for coupling (§9); it is worth stating a third time here because the squared term is what turns a modest resolution error into a dramatic-looking number, and because the metric is ordinal — a reader ranks functions by it, and this artefact moves one to the top of the ranking. Correcting it needs the type resolution the project does not perform; the diagnostic on standard error is what the report is read beside.
+
 ## 9. Detailed Design for [src/arch.c](../src/arch.c)
 
 ### 9.1 Purpose and Responsibilities
@@ -734,9 +757,11 @@ Only call edges are considered. A global object two layers share is a different 
 ## 10. Detailed Design for [src/calltree.c](../src/calltree.c)
 
 ### 10.1 Purpose and Responsibilities
-[src/calltree.c](../src/calltree.c) implements the function-level call-tree analyses: fan-out and its threshold classification, maximum call depth, the deepest call stack in full, and recursion detection.
+[src/calltree.c](../src/calltree.c) implements the function-level call-tree analyses: fan-out and its threshold classification, fan-in, the Henry-Kafura information-flow value formed from the two, maximum call depth, the deepest call stack in full, and recursion detection.
 
 *   Compute per-function fan-out and classify it against the published width thresholds.
+*   Compute per-function fan-in — the number of distinct functions that invoke it — over the call view alone (HLR-156).
+*   Compute each function's Henry-Kafura structural complexity from its ELOC and the two degrees, in an integer width no run overflows (HLR-157, HLR-158).
 *   Detect direct and mutual recursion among functions.
 *   Compute the maximum call depth from the declared entry points, and capture the ordered chain that achieves it.
 
@@ -749,16 +774,17 @@ Only call edges are considered. A global object two layers share is a different 
     *   Post-condition: Either a depth and a deepest chain are present, or the recursion list is non-empty and the depth is marked unbounded.
     *   Return Value: 0 on success.
     *   Logic:
-        1.  Compute out-degree over the *call* edges per function node. The classification of that number against the healthy, warning, and critical bands is `thresholds.c`'s (HLR-086 traces to Section 12); this module measures and does not judge, so that one catalogue of thresholds exists rather than one per analysis.
-        2.  Decompose the *call view* of the function graph into strongly connected components; every non-trivial one, and every self-loop, is a recursive cycle (HLR-089). The call view and not the whole SDG: a global-state edge joins a function that writes an object to one that reads it, and two functions sharing a variable in both directions form a cycle in the SDG that is not recursion. Reporting it as such would be a critical finding against MISRA C Rule 17.2 on ordinary code.
-        3.  If no entry points were declared, mark depth omitted and stop (HLR-115). If entry points were declared but none names an analysed function, mark depth omitted with a *different* reason and stop: "you declared nothing" and "what you declared is not in what you analysed" call for different actions from the reader, and a single omission message would send them to the wrong one. A symbol matching nothing is diagnosed and skipped rather than failing the run, since analysing one directory of a project whose entry point lives in another is ordinary.
-        4.  If any recursion was found, mark the depth unbounded, attach the recursive cycles, and stop — no finite deepest chain exists (HLR-090).
-        5.  Otherwise the graph is a DAG: compute the longest path from each entry point by memoised traversal in reverse topological order, retaining the predecessor of each node.
-        6.  Walk the retained successors out from the deepest entry point to reconstruct the ordered chain, and record it in full (HLR-088). A tie between two chains of equal length resolves to the lower node identifier, which is sorted-file order, so equal candidates always yield the same report (HLR-032).
+        1.  Compute out-degree and in-degree over the *call* edges per function node, in one pass: fan-out is the number of distinct subroutines a function invokes, fan-in the number of distinct functions that invoke it (HLR-085, HLR-156). One pass rather than two because they are the same traversal read from either end of each edge, and because a second traversal is a second place the `kind == EDGE_CALL` test could be forgotten. The classification of fan-out against the healthy, warning, and critical bands is `thresholds.c`'s (HLR-086 traces to Section 12); this module measures and does not judge, so that one catalogue of thresholds exists rather than one per analysis. Fan-in is never classified at all: no published source bands it.
+        2.  Form each function's Henry-Kafura value: `HK = ELOC × (Fan-In × Fan-Out)²`, taking ELOC from the node the graph already carries (HLR-157). **The widening happens before the multiplication, not at the assignment.** The product of two degrees fits in 32 bits comfortably and its square does not, so a 32-bit square assigned to a 64-bit variable has already wrapped by the time the assignment widens it — and a wrapped total renders as a perfectly ordinary number (HLR-158). Computed here rather than by a consumer so that one answer exists for the report, the record, and every renderer.
+        3.  Decompose the *call view* of the function graph into strongly connected components; every non-trivial one, and every self-loop, is a recursive cycle (HLR-089). The call view and not the whole SDG: a global-state edge joins a function that writes an object to one that reads it, and two functions sharing a variable in both directions form a cycle in the SDG that is not recursion. Reporting it as such would be a critical finding against MISRA C Rule 17.2 on ordinary code.
+        4.  If no entry points were declared, mark depth omitted and stop (HLR-115). If entry points were declared but none names an analysed function, mark depth omitted with a *different* reason and stop: "you declared nothing" and "what you declared is not in what you analysed" call for different actions from the reader, and a single omission message would send them to the wrong one. A symbol matching nothing is diagnosed and skipped rather than failing the run, since analysing one directory of a project whose entry point lives in another is ordinary.
+        5.  If any recursion was found, mark the depth unbounded, attach the recursive cycles, and stop — no finite deepest chain exists (HLR-090).
+        6.  Otherwise the graph is a DAG: compute the longest path from each entry point by memoised traversal in reverse topological order, retaining the predecessor of each node.
+        7.  Walk the retained successors out from the deepest entry point to reconstruct the ordered chain, and record it in full (HLR-088). A tie between two chains of equal length resolves to the lower node identifier, which is sorted-file order, so equal candidates always yield the same report (HLR-032).
     *   Notes: Establishing acyclicity before measuring depth is what makes the longest-path computation terminate; on a cyclic graph the question has no finite answer, which is precisely why MISRA C Rule 17.2 exists. The measured depth is a lower bound on true worst-case depth: a chain that continues through an unresolved indirect call is not followed. The report therefore presents the depth alongside the unresolved-call count of HLR-077, so the reader can judge how completely the graph covers the program.
 
 *   **`int longest_path_dag(const Sdg *g, const NodeSet *entries, Chain *out)`** — Memoised longest-path search with predecessor retention.
-*   **`void tree_results_free(TreeResults *r)`** — Release the fan-out table, the recursive-cycle list, and the retained deepest chain.
+*   **`void tree_results_free(TreeResults *r)`** — Release the per-node measurement tables, the recursive-cycle list, and the retained deepest chain.
 ### 10.4 Dependencies
 
 *   The graph library, for topological ordering and strongly connected components.
@@ -818,6 +844,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 *   Hold the threshold catalogue as a static table of measurement kind, band boundaries, severity, and citation.
 *   Classify each measurement into its band and emit a `Finding` when it falls outside the accepted range.
 *   Attribute every threshold to its external source, and mark `elc`'s own heuristics as such.
+*   Name the published source of a measurement the catalogue does not band, so that a citation and a threshold stay separate claims (HLR-157, HLR-159).
 *   Be the only module that bands a measurement or names a source, so that the claim to carry no opinion is checkable by reading one table (HLR-099, HLR-111).
 *   Assign a severity as a *label*: it never reaches the exit status, and no finding carries remediation (HLR-100, HLR-101).
 
@@ -844,6 +871,8 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 
 **One row is not a published standard**, and it says so in the text a reader sees. That label is the whole of what separates shipping MISRA and Martin values from having invented them, and it is asserted by a test that also checks no other row carries it (HLR-099).
 
+**Some measurements are cited and not banded, and they are held apart from this table.** The Henry-Kafura value of Section 20 is the case: the formula is Henry and Kafura's and must be attributed wherever it is reported (HLR-157), and no published source divides it into accepted and unaccepted ranges (HLR-159). A row here with empty bounds would not express that — `occurrence` false with both bounds zero is a *silent band*, every value passing, and `thresholds_lookup` would then answer "there is a threshold for this" to a caller asking precisely because there is not. The citation therefore lives in a second, smaller table that `threshold_attribution` consults after the catalogue, which leaves the catalogue holding only rows a reviewer can check against a published table, and leaves the unbanded measurement on the path Section 12.5 already provides for one.
+
 
 
 ### 12.3 Internal Structure
@@ -858,7 +887,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 
 ### 12.5 Error Handling and Logging
 
-*   **Measurement with no catalogue entry** Reported as a bare value with no severity, rather than being silently dropped or assigned an invented band.
+*   **Measurement with no catalogue entry** Reported as a bare value with no severity, rather than being silently dropped or assigned an invented band. The Henry-Kafura value is the first measurement to take this path deliberately and permanently: it will never have an entry, because no published source bands it (HLR-159).
 *   **Measurement that was not made** Not banded at all. A depth omitted for want of an entry point is not a depth of zero, and a value that does not exist cannot fall outside a range (HLR-115).
 *   **A critical finding** Not an error. The severity is a label within the report and leaves the exit status untouched, which stays reserved for the failure conditions of HLR-120 (HLR-100).
 
@@ -879,6 +908,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   Record the linked image a run was filtered by, the linkage names it could not resolve, the source functions it does not define, and the effective lines belonging to no function, so that a filtered figure is reported alongside the image that produced it (HLR-143, HLR-145, HLR-147).
 *   Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).
 *   Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).
+*   Sum the per-function Henry-Kafura values into the project total, in one function that both the live path and the record path call, so that the total *is* the sum of the rows rather than two implementations agreeing (HLR-158).
 
 
 ### 13.3 Internal Structure
@@ -899,6 +929,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 
         `discover.c` also sorts, and the two are not redundant. Its sort exists so that de-duplication can collapse equal canonical paths, and so that the *analysis* order is not the filesystem's; this one exists so that *presentation* order is a property of the model. A later phase that changes how files are discovered therefore cannot silently change how they are presented.
 
+*   **`void report_total_henry_kafura(Report *r)`** — Sum the per-function Henry-Kafura values into the project total. One function rather than a line in each of the two paths that need it: a live run calls it once the flow rows are filled, and a run regenerating from a record calls it once they are restored, since the total cannot be derived from the per-file metrics `report_assemble` works over (HLR-158).
 *   **`int report_set_image(Report *r, const SymbolSet *image)`** — Record the image the run was filtered by and the number of its linkage names left unresolved. After assembly rather than within it, for the reason the unresolved-call count is: the image belongs to the run and is read before any file is measured, while the *effects* of the filter — which functions were omitted, and how much file-scope code remained — are properties of the measurement and are assembled with it (HLR-147).
 *   **`int metrics_add(MetricsAccumulator *acc, FileMetrics *m)`** — Append one file's metrics, taking ownership of them. Grows by doubling through a checked reallocation; on failure the accumulator is left intact and the caller still owns the metrics, so nothing is leaked and nothing is freed twice.
 *   **`void metrics_free(MetricsAccumulator *acc)`** — Release the accumulator and every FileMetrics it still owns.
@@ -920,18 +951,26 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   Render every tier in the fixed order, so that the report has the same shape whatever the type of the target was (HLR-006).
 *   Render Markdown with functions grouped under a per-file heading.
 *   Present every tier the uniform-composition rule requires, in both formats.
+*   Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).
 
 
 ### 14.3 Internal Structure
 #### 14.3.1 Key Functions
 
-*   **`int format_table(const Report *r, FILE *out)`** — Render the aligned ASCII table. Returns non-zero when the stream reported a write failure, checked once after the last write rather than at every call.
-*   **`int format_markdown(const Report *r, FILE *out)`** — Render GitHub-Flavored Markdown.
+*   **`int format_table(const Report *r, Verbosity verbosity, FILE *out)`** — Render the aligned ASCII table at the given verbosity. Returns non-zero when the stream reported a write failure, checked once after the last write rather than at every call.
+*   **`int format_markdown(const Report *r, Verbosity verbosity, FILE *out)`** — Render GitHub-Flavored Markdown at the given verbosity.
+*   **`int render_report(const Report *r, Style style, Verbosity verbosity, FILE *out)`** — The one traversal both formats and both verbosities go through: walks the ordered section list once, emitting the tiers the verbosity selects in the decoration the style selects.
 *   **`void render_summary(const Report *r, FILE *out, Style style)`** — Shared project-summary rendering for both formats.
 
 #### 14.3.2 Parsing Strategy / Algorithm
 
 **The two renderers are one traversal.** `render_report()` walks the model once and emits every tier in a fixed order; the `Style` decides only how each tier is decorated. A tier added to the traversal appears in both formats, and cannot be added to one and forgotten in the other, because there is nowhere to forget it — which is what makes HLR-031's uniform composition structural rather than maintained (LLR-SUM-02).
+
+**Verbosity is a second parameter of that same traversal, not a second traversal.** The ordered section list carries, beside each section's render function, the tier it belongs to; the walk emits a section when the verbosity is verbose, when its tier is `TIER_SUMMARY`, or when its analysis was omitted for want of a declaration. That last case is what carries HLR-115's omission notices into the summary: the section is a detail tier, but an omitted analysis produced no rows, so it renders as its heading and the reason in it — which is the notice, and needs no section of its own. A section is therefore written down once and classified once, and the guarantee that a tier cannot exist at one verbosity and not the other holds by the same construction as the guarantee across formats (LLR-SUM-09).
+
+The partition rule is HLR-150's: a tier presenting a project-level aggregate, a file's own totals, or a finding a reader is expected to act on is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Coupling, the cycles, the layering violations, and the recursive chains fall on the detail side even though each row names a component, because they enumerate the graph one entity at a time — a *file-level aggregate* in the rule's sense is a file's own totals, which is what the Files tier presents. Nothing is lost from the summary by it: each of those measurements that crossed a published line is a finding, and the findings tier is a summary tier.
+
+The image-filter tier is split along the same boundary. `image_filter_section` presents the image and its two counts, which are the provenance of a filtered run and a summary tier; `absent_functions_section` presents the functions the image does not define, which is one row per function and a detail tier. The two are adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split (LLR-SUM-06).
 
 Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
 
@@ -1095,12 +1134,15 @@ GraphML is the only channel exposing the graph's *topology* — the rendered fin
 | node | `component` | The source file that owns it (HLR-114) |
 | node | `eloc`, `complexity` | The per-function metrics |
 | node | `fan-out` | Distinct callees (HLR-085) |
+| node | `fan-in` | Distinct callers, over call edges alone (HLR-156) |
 | node | `address-taken` | Whether the function is a reachability root (HLR-096) |
 | edge | `kind` | `call` or `global` — the two edge kinds are distinguishable, never merged |
 | edge | `global` | For a `global` edge, the object's name |
 | edge | `call-sites` | The collapsed call-site count (HLR-085's simple-graph rule) |
 
 Nodes are emitted in ascending stable node-id order and each node's edges in ascending target-id order (LLR-DOT-04); every value is escaped per HLR-065.
+
+The Henry-Kafura value is deliberately **not** a key here. `eloc`, `fan-in` and `fan-out` are all three of its inputs, so an ingesting tool can form it exactly; exporting the value as well would put a second computation of it beside the one in `calltree.c`, and two places computing a figure are two places it can be computed differently (HLR-157, LLR-GML-05).
 
 #### 17.2.2 Companion Artefact Naming
 
@@ -1383,8 +1425,9 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
     | Field | Type | Description |
     | ----- | ---- | ----------- |
 | `mode` | `RunMode` | Analysis or XML regeneration; regeneration requires format md and suppresses both companion artefacts (HLR-055) |
-| `format` | `OutputFormat` | table, csv, xml, or md |
-| `output_path` | `const char *` | NULL when writing to stdout |
+| `format` | `OutputFormat` | table, csv, xml, or md. Settled once, after the option loop, from `--format` and the extension of `output_path` together, so the two can be compared rather than one preferred (HLR-148, HLR-149) |
+| `output_path` | `const char *` | NULL when writing to stdout. Where it is not NULL its extension names the format, so the field carries a second meaning beyond the destination (HLR-148) |
+| `verbose` | `bool` | The *request* for the verbose report, not the selection between two compositions: the summary is the default (HLR-150), so a zeroed ElcOptions must mean the summary, which it does only if the flag records the positive. A property of the rendering alone — it changes no measurement, no finding, and not the exit status, and the complete-record formats ignore it (HLR-151, HLR-152) |
 | `complexity_threshold` | `uint32_t` | Default 15 (HLR-022) |
 | `bottleneck_threshold` | `uint32_t` | Default 5 (HLR-081) |
 | `no_dot` | `bool` | The *refusal* of the `.dot` companion, not the request for it: generation is enabled by default (HLR-103), so a zeroed ElcOptions must mean enabled, which it does only if the flag records the negative |
@@ -1614,6 +1657,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 | `function_count` | `uint64_t` | Functions reported across the run |
 | `largest_file, largest_file_eloc` | `const char *, uint32_t` | The file with the highest file-level ELOC, borrowed from the model it was chosen from. NULL where the run analysed nothing (HLR-026, HLR-066) |
 | `most_complex, most_complex_file, most_complex_value` | `const char *, const char *, uint32_t` | The function with the highest cyclomatic complexity and the file defining it, both borrowed. Ties are broken by the stable presentation order, so the callout is a property of the report rather than of discovery order (HLR-026, HLR-032) |
+| `henry_kafura` | `uint64_t` | The project's combined Henry-Kafura complexity: the sum of the per-function values, never the formula applied to these totals — the metric is defined over one procedure's traffic and a project has no fan-in. Sixty-four bits because the squared term makes it grow far faster than any other figure here (HLR-158) |
 *   **`PathList`** (defined in [include/report.h](../include/report.h)) — A sorted, owned list of paths. Used for the files discovered but not analysed, so the report accounts for every discovered file (HLR-012).
 
     | Field | Type | Description |
@@ -1631,7 +1675,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 | `routes` | `RouteList` | Per directory target, whether it was enumerated from a repository or traversed from the filesystem (HLR-127) |
 | `unresolved_calls` | `size_t` | Call sites with no resolvable target, reported so graph completeness is visible (HLR-077) |
 | `over_threshold` | `ThresholdList` | The per-file listing of functions at or above the complexity threshold, built here rather than filtered by a renderer so every format lists the same functions (HLR-021) |
-| `fan_out, cycles, depth_state, depth, deepest` | `FanOutRow *, CycleRow *, DepthState, uint32_t, ChainRow *` | The call-tree measurements: per-function fan-out reported whether or not a threshold was crossed, the recursive cycles, and the deepest chain in full with the state saying why a depth figure is absent (HLR-085, HLR-087 – HLR-090) |
+| `fan_out, cycles, depth_state, depth, deepest` | `FanOutRow *, CycleRow *, DepthState, uint32_t, ChainRow *` | The call-tree measurements: one FanOutRow per function carrying its fan-out, fan-in, ELOC and Henry-Kafura value — each reported whether or not a threshold was crossed, and three of the four never banded at all — the recursive cycles, and the deepest chain in full with the state saying why a depth figure is absent (HLR-085, HLR-087 – HLR-090, HLR-156, HLR-157) |
 | `coupling, dep_cycles, strata_state, layering` | `CouplingRow *, CycleDependencyRow *, StrataState, LayeringRow *` | The component-level measurements: Ca, Ce and Instability per component, each dependency cycle with a concrete loop through it, and the layering findings with the state of that analysis (HLR-080 – HLR-083, HLR-118) |
 | `global_state, reach_state, unreachable, unreachable_globals, scope_state, cross_scope` | `GlobalStateRow *, ReachState, UnreachableRow *, char **, ScopeState, CrossScopeRow *` | The global-state and reachability measurements, each carrying the state that distinguishes a measurement from an analysis omitted for want of a declaration (HLR-091 – HLR-096, HLR-115) |
 | `findings` | `FindingRow *` | Every measurement that crossed a published line, ranked most severe first, each naming its source (HLR-098, HLR-123) |

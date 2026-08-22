@@ -1,0 +1,230 @@
+#!/usr/bin/env bats
+# test/integration/verbosity.bats — the summary and verbose compositions, and
+# the formats verbosity does not reach (STP §3).
+#
+# The partition itself is asserted section by section here, because HLR-150
+# requires it to be a published property of the report rather than whatever a
+# renderer happened to do. A test that only counted lines would pass against a
+# renderer that dropped the findings — which is the one section a reader acts
+# on, and the one the summary must keep.
+
+setup() {
+	load "../helpers/common"
+
+	TREE="$BATS_TEST_TMPDIR/tree"
+	mkdir -p "$TREE"
+	printf 'int helper(int n)\n{\n\tif (n)\n\t\treturn 1;\n\treturn 0;\n}\n\nint main(void)\n{\n\treturn helper(1);\n}\n' \
+		> "$TREE/a.c"
+}
+
+# The headings of a report, in order: a section's heading is its presence.
+headings() {
+	printf '%s\n' "$output" | awk '/^[A-Z]/ { print }'
+}
+
+has_heading() {
+	printf '%s\n' "$output" | grep -qE "^$1"
+}
+
+# --- the summary tiers (HLR-150) -------------------------------------------
+
+@test "HLR-150: the summary tiers are present by default" {
+	elc "$TREE"
+	assert_success
+
+	# Every tier HLR-150 enumerates, in the order the traversal emits them.
+	for heading in "Project summary" "Callouts" "Discovery" "Languages" \
+	               "Files" "At or over the complexity threshold" \
+	               "Findings" "Conditional-compilation definitions" \
+	               "Partially parsed files" "Skipped files"; do
+		has_heading "$heading" || {
+			echo "the summary omitted '$heading'" >&2
+			false
+		}
+	done
+}
+
+@test "HLR-150: the detail tiers are absent by default" {
+	elc "$TREE"
+	assert_success
+
+	# One row per function, per global object, per graph edge, per
+	# unreachable statement, per custom-rule match: none of them by
+	# default.
+	for heading in "Functions" "Fan-out" "Recursion" "Component coupling" \
+	               "Component dependency" "Global state" \
+	               "Unreachable globals" "Dead code within functions" \
+	               "Custom rule matches"; do
+		if has_heading "$heading"; then
+			echo "the summary presented the detail tier '$heading'" >&2
+			false
+		fi
+	done
+}
+
+@test "HLR-150: the summary keeps the findings a reader acts on" {
+	# The section whose loss would make the summary shorter and useless.
+	# Provoked rather than assumed: a threshold of 1 puts `helper` over it,
+	# so there is a finding to keep.
+	elc -c 1 "$TREE"
+	assert_success
+	has_heading "Findings"
+	assert_output --partial "helper"
+}
+
+@test "HLR-115: an omitted analysis states its reason in the summary too" {
+	# The omission notices are summary tiers even though the sections
+	# carrying them are detail tiers: an analysis nobody declared for is a
+	# thing the reader must be told, at either verbosity.
+	elc "$TREE"
+	assert_success
+	assert_output --partial "Unreachable functions (omitted: no entry points declared"
+	assert_output --partial "Deepest call chain (omitted: no entry points declared"
+	assert_output --partial "Layering (omitted: no architectural strata declared"
+	assert_output --partial "Cross-scope access (omitted: no execution scopes declared"
+}
+
+@test "HLR-150: an analysis that was measured is not in the summary" {
+	# The converse of the notice above, and what keeps that test from
+	# passing against a renderer that simply always emits the section.
+	elc --entry main "$TREE"
+	assert_success
+	refute_output --partial "Unreachable functions"
+	refute_output --partial "Deepest call chain"
+}
+
+# --- the verbose report (HLR-151) ------------------------------------------
+
+@test "HLR-151: --verbose presents the detail tiers as well" {
+	elc --verbose "$TREE"
+	assert_success
+
+	for heading in "Functions" "Fan-out" "Recursion" "Component coupling" \
+	               "Component dependency" "Global state" \
+	               "Unreachable globals" "Dead code within functions" \
+	               "Custom rule matches"; do
+		has_heading "$heading" || {
+			echo "the verbose report omitted '$heading'" >&2
+			false
+		}
+	done
+}
+
+@test "HLR-151: the verbose report is the summary plus the detail tiers" {
+	# Stated as a superset rather than as a list, so that a tier added to
+	# the traversal in a later phase cannot satisfy one composition and be
+	# forgotten in the other (LLR-SUM-07).
+	elc "$TREE"
+	local summary_headings
+	summary_headings="$(headings)"
+
+	elc --verbose "$TREE"
+	local verbose_headings
+	verbose_headings="$(headings)"
+
+	# Every heading the summary printed, the verbose report prints too.
+	local missing
+	missing="$(comm -23 <(sort <<<"$summary_headings") \
+	                    <(sort <<<"$verbose_headings"))"
+	assert_equal "$missing" ""
+
+	# And it prints strictly more, or the option would select nothing.
+	[ "$(wc -l <<<"$verbose_headings")" -gt \
+	  "$(wc -l <<<"$summary_headings")" ]
+}
+
+@test "HLR-151: -v is the short form of --verbose" {
+	elc --verbose "$TREE"
+	local long="$output"
+	elc -v "$TREE"
+	assert_equal "$output" "$long"
+}
+
+@test "HLR-151: verbosity changes no measurement and no exit status" {
+	# A value absent from a summary is absent because it was not printed,
+	# never because it was not computed — so the record, which carries
+	# every measurement either composition can present, is identical.
+	elc -f xml "$TREE"
+	local plain="$output"
+	local plain_status="$status"
+
+	elc --verbose -f xml "$TREE"
+	assert_equal "$output" "$plain"
+	assert_equal "$status" "$plain_status"
+}
+
+@test "HLR-031: both human formats present the same tiers at each verbosity" {
+	# Uniformity across formats at a fixed verbosity — never across
+	# verbosities. Markdown decorates its headings with `## `, so the two
+	# are compared with that stripped.
+	for flag in "" "--verbose"; do
+		elc $flag "$TREE"
+		local table
+		table="$(headings)"
+
+		elc $flag -f md "$TREE"
+		local markdown
+		markdown="$(printf '%s\n' "$output" |
+			awk '/^## / { sub(/^## /, ""); print }')"
+
+		assert_equal "$markdown" "$table"
+	done
+}
+
+# --- the complete-record formats (HLR-152) ---------------------------------
+
+@test "HLR-152: --verbose with an xml output is accepted, not rejected" {
+	# The one option pairing this project defines that is *not* a usage
+	# error. There is nothing contradictory in asking a complete format for
+	# detail; the request simply has no effect.
+	elc --verbose -f xml "$TREE"
+	assert_success
+}
+
+@test "HLR-152: --verbose with a csv output is accepted, not rejected" {
+	elc --verbose -f csv "$TREE"
+	assert_success
+}
+
+@test "HLR-152: csv is byte-identical at either verbosity" {
+	elc -f csv "$TREE"
+	local plain="$output"
+	elc --verbose -f csv "$TREE"
+	assert_equal "$output" "$plain"
+}
+
+# --- regeneration at either verbosity (HLR-056) ----------------------------
+
+@test "HLR-056: a record regenerated summarily matches a direct summary run" {
+	elc -f xml -o "$BATS_TEST_TMPDIR/rec.xml" "$TREE"
+	assert_success
+
+	elc --from-xml "$BATS_TEST_TMPDIR/rec.xml"
+	local regenerated="$output"
+
+	elc -f md "$TREE"
+	assert_equal "$output" "$regenerated"
+}
+
+@test "HLR-056: a record regenerated verbosely matches a direct verbose run" {
+	elc -f xml -o "$BATS_TEST_TMPDIR/rec.xml" "$TREE"
+	assert_success
+
+	elc --verbose --from-xml "$BATS_TEST_TMPDIR/rec.xml"
+	local regenerated="$output"
+
+	elc --verbose -f md "$TREE"
+	assert_equal "$output" "$regenerated"
+}
+
+@test "HLR-056: the two verbosities regenerate differently from one record" {
+	# What keeps the pair above from passing against an implementation that
+	# ignored the option in regeneration mode.
+	elc -f xml -o "$BATS_TEST_TMPDIR/rec.xml" "$TREE"
+	assert_success
+
+	elc --from-xml "$BATS_TEST_TMPDIR/rec.xml"
+	local summary="$output"
+	elc --verbose --from-xml "$BATS_TEST_TMPDIR/rec.xml"
+	refute_output "$summary"
+}

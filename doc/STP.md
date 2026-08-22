@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.11
-**Date:** 2026-08-21
+**Version:** 0.13
+**Date:** 2026-08-22
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -132,8 +132,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **802 test(s)** across
-**43 file(s)**.
+Snapshot: **871 test(s)** across
+**44 file(s)**.
 
 ### 3.1. [test/unit/elfsyms.c](../test/unit/elfsyms.c)
 
@@ -155,7 +155,7 @@ Role: **unit**. **11 test(s).**
 
 ### 3.2. [test/unit/cli.c](../test/unit/cli.c)
 
-Role: **unit**. **51 test(s).**
+Role: **unit**. **64 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -210,6 +210,19 @@ Role: **unit**. **51 test(s).**
 | 49 | <a id="an_empty_image_path_is_a_usage_error"></a>`an_empty_image_path_is_a_usage_error` | `LLR-CLI-22` | An empty argument names no file, so there is nothing for the reader of the image to diagnose and the parser rejects it itself. |
 | 50 | <a id="an_image_with_regeneration_is_a_usage_error"></a>`an_image_with_regeneration_is_a_usage_error` | `LLR-CLI-23` | The filter is applied when a file is measured, so a saved record already describes one filtered run and cannot be re-cut against another image. Rejected rather than silently ignored. |
 | 51 | <a id="the_usage_summary_documents_the_image_option"></a>`the_usage_summary_documents_the_image_option` | `LLR-USG-07` | The summary names the option and states that no image means no filtering. The documentation test checks the manual and man page against this text, so this is where the claim itself is made. |
+| 52 | <a id="an_output_extension_selects_the_format"></a>`an_output_extension_selects_the_format` | `LLR-CLI-26` | Each recognised extension resolves to its own format with no format option given, driven as a table so a format added to the mapping without a case here is visible. |
+| 53 | <a id="an_unrecognised_output_extension_is_a_usage_error"></a>`an_unrecognised_output_extension_is_a_usage_error` | `LLR-CLI-26` | `-o report.json` is rejected rather than defaulted to the table, which would write a file whose name promises JSON and whose contents are not. |
+| 54 | <a id="an_output_path_with_no_extension_is_a_usage_error"></a>`an_output_path_with_no_extension_is_a_usage_error` | `LLR-CLI-26` | The four spellings of "no extension": a bare name, a dotfile, a trailing dot, and a name whose only dot is in a directory component. Each names no format and is rejected. |
+| 55 | <a id="a_format_option_contradicting_the_filename_is_a_usage_error"></a>`a_format_option_contradicting_the_filename_is_a_usage_error` | `LLR-CLI-27` | Driven in both argument orders, because the comparison happens after the option loop rather than as the options arrive; an implementation comparing them in place would pass one order and fail the other. |
+| 56 | <a id="a_format_option_agreeing_with_the_filename_is_accepted"></a>`a_format_option_agreeing_with_the_filename_is_accepted` | `LLR-CLI-27` | Nothing is ambiguous about saying a thing twice, so the agreeing pair parses and yields the format both named. |
+| 57 | <a id="the_format_defaults_to_the_table"></a>`the_format_defaults_to_the_table` | `LLR-CLI-02`, `LLR-CLI-27` | The default has to survive a resolution step that now runs whether or not anything selected a format, so it is asserted directly rather than left implied by the tests that do select one. |
+| 58 | <a id="standard_output_takes_its_format_from_the_option_alone"></a>`standard_output_takes_its_format_from_the_option_alone` | `LLR-CLI-27`, `LLR-CLI-02` | With no output path there is no extension to resolve, so the option decides and the destination stays standard output. |
+| 59 | <a id="regenerating_into_a_filename_naming_a_table_is_a_usage_error"></a>`regenerating_into_a_filename_naming_a_table_is_a_usage_error` | `LLR-CLI-28`, `LLR-CLI-10` | An output extension is an explicit format selection, so regeneration rejects one naming anything but Markdown exactly as it rejects `-f table`. |
+| 60 | <a id="regenerating_into_a_filename_naming_markdown_is_accepted"></a>`regenerating_into_a_filename_naming_markdown_is_accepted` | `LLR-CLI-28`, `LLR-CLI-10` | The complement, and what stops the rule above from rejecting every `--output` in regeneration mode. |
+| 61 | <a id="the_summary_is_the_default_verbosity"></a>`the_summary_is_the_default_verbosity` | `LLR-CLI-29` | A parsed command line with no verbosity option leaves the flag clear, so a zeroed options structure means the composition a run presents when nothing was asked for. |
+| 62 | <a id="verbose_is_recorded_in_either_spelling"></a>`verbose_is_recorded_in_either_spelling` | `LLR-CLI-29` | Both the short and the long spelling reach the options structure. |
+| 63 | <a id="verbose_with_a_complete_record_format_is_accepted"></a>`verbose_with_a_complete_record_format_is_accepted` | `LLR-CLI-30` | The pairing that is not a usage error. Both the request and the format survive the parse for XML and for CSV alike, so the acceptance is a property of the rule rather than of one format. |
+| 64 | <a id="the_usage_summary_documents_verbosity_and_the_extension_rule"></a>`the_usage_summary_documents_verbosity_and_the_extension_rule` | `LLR-USG-09`, `LLR-USG-02` | The summary names the verbosity option and states that an output filename's extension selects the format. The documentation test checks both delivered documents against this text, so this is where the claim itself is made. Reading the text back out of a caller-supplied stream is also what establishes that the summary is written to the stream it was handed rather than to a fixed one. |
 
 ### 3.3. [test/unit/registry.c](../test/unit/registry.c)
 
@@ -296,26 +309,31 @@ Role: **unit**. **46 test(s).**
 
 ### 3.5. [test/unit/calltree.c](../test/unit/calltree.c)
 
-Role: **unit**. **16 test(s).**
+Role: **unit**. **20 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
 | 1 | <a id="fan_out_counts_distinct_callees"></a>`fan_out_counts_distinct_callees` | `LLR-CTR-01` | Four call sites to two functions give a fan-out of two, so the measure is of subroutines invoked and not of invocations. |
 | 2 | <a id="fan_out_ignores_global_edges"></a>`fan_out_ignores_global_edges` | `LLR-CTR-07` | A function that writes a global another reads has a fan-out of zero: coupling through shared state is not invocation. |
-| 3 | <a id="direct_recursion_is_detected"></a>`direct_recursion_is_detected` | `LLR-CTR-02` | A function calling itself is reported as a one-member cycle. |
-| 4 | <a id="mutual_recursion_is_detected"></a>`mutual_recursion_is_detected` | `LLR-CTR-02` | A mutually recursive pair is one cycle of two members rather than two cycles of one. |
-| 5 | <a id="a_straight_line_program_has_no_cycles"></a>`a_straight_line_program_has_no_cycles` | `LLR-CTR-02` | An acyclic call graph reports no recursion, so the trivial single-node components every decomposition produces are not mistaken for self-calls. |
-| 6 | <a id="a_global_cycle_is_not_recursion"></a>`a_global_cycle_is_not_recursion` | `LLR-CTR-07` | Two functions each writing a global the other reads form a cycle in the SDG and no recursion at all, which is the case that would otherwise produce a false critical MISRA C Rule 17.2 finding on ordinary code. |
-| 7 | <a id="depth_is_the_length_of_the_deepest_chain"></a>`depth_is_the_length_of_the_deepest_chain` | `LLR-CTR-05`, `LLR-LPD-04` | A three-function chain from a declared entry point measures three, the entry point counting as the first layer. |
-| 8 | <a id="the_deepest_chain_is_an_ordered_sequence"></a>`the_deepest_chain_is_an_ordered_sequence` | `LLR-LPD-01`, `LLR-LPD-03` | With a shallow branch listed first and a deep one second, the reported chain is the deep one in order — a search taking the first edge would give the wrong path and the wrong length. |
-| 9 | <a id="depth_measures_from_the_deepest_entry_point"></a>`depth_measures_from_the_deepest_entry_point` | `LLR-CTR-05` | Given two entry points of different depths, the reported figure and chain are the worst case across them. |
-| 10 | <a id="recursion_yields_no_depth_and_terminates"></a>`recursion_yields_no_depth_and_terminates` | `LLR-CTR-04` | A recursive call graph reports its cycle, no depth figure, and no chain — and the run terminates, which a longest-path search over a cyclic graph would not. |
-| 11 | <a id="no_entry_points_omits_depth_with_a_reason"></a>`no_entry_points_omits_depth_with_a_reason` | `LLR-CTR-03`, `LLR-CTR-09` | With no declaration the depth analysis is omitted rather than failed, `main` is not inferred despite being present, and the measurements needing no declaration are still produced. |
-| 12 | <a id="an_entry_point_matching_nothing_is_a_distinct_omission"></a>`an_entry_point_matching_nothing_is_a_distinct_omission` | `LLR-CTR-08` | A declared entry point naming no analysed function yields a different omission from declaring none, because the two call for different actions. |
-| 13 | <a id="depth_carries_the_unresolved_count"></a>`depth_carries_the_unresolved_count` | `LLR-CTR-06` | The unresolved-call count travels with the depth, since a chain through an unresolved call is not followed and the figure is a lower bound. |
-| 14 | <a id="a_chain_does_not_travel_along_a_global_edge"></a>`a_chain_does_not_travel_along_a_global_edge` | `LLR-CTR-07` | A chain stops at the last function actually called, rather than continuing to one that merely reads a global the callee wrote. |
-| 15 | <a id="an_empty_project_measures_nothing_without_failing"></a>`an_empty_project_measures_nothing_without_failing` | `LLR-CTR-01` | A run that analysed nothing produces an empty but valid set of measurements. |
-| 16 | <a id="tree_results_free_is_safe_on_null_and_twice"></a>`tree_results_free_is_safe_on_null_and_twice` | `LLR-CTR-01` | Releasing a null or already-released result set does not fault, so teardown is unconditional on every path. |
+| 3 | <a id="fan_in_counts_distinct_callers"></a>`fan_in_counts_distinct_callers` | `LLR-CTR-10` | Three call sites from two functions give a fan-in of two, so the measure is of callers and not of invocations; a function nothing calls reports zero. |
+| 4 | <a id="fan_in_ignores_global_edges"></a>`fan_in_ignores_global_edges` | `LLR-CTR-07` | A function that reads a global another writes has a fan-in of zero. The converse of the fan-out case and the one with more riding on it: the global edge runs towards the reader, so an in-degree over the whole SDG would inflate exactly the figure the Henry-Kafura value then squares. |
+| 5 | <a id="henry_kafura_is_length_times_the_squared_product"></a>`henry_kafura_is_length_times_the_squared_product` | `LLR-CTR-11` | A function of five effective lines with one caller and one callee scores five, which is the formula and nothing else. |
+| 6 | <a id="a_function_at_either_end_of_the_graph_scores_zero"></a>`a_function_at_either_end_of_the_graph_scores_zero` | `LLR-CTR-11` | An entry point and a leaf of a thousand effective lines apiece both score zero: the product term vanishes when either degree does, whatever the length. |
+| 7 | <a id="the_squared_product_is_widened_before_it_is_multiplied"></a>`the_squared_product_is_widened_before_it_is_multiplied` | `LLR-CTR-11` | A hub with three hundred callers and three hundred callees scores 56,700,000,000. The failure this catches is invisible at any size a fixture tree can reach: the product fits in 32 bits and its square does not, so an implementation squaring in 32 bits and widening at the assignment reports an ordinary-looking 3,805,032,704 instead. |
+| 8 | <a id="direct_recursion_is_detected"></a>`direct_recursion_is_detected` | `LLR-CTR-02` | A function calling itself is reported as a one-member cycle. |
+| 9 | <a id="mutual_recursion_is_detected"></a>`mutual_recursion_is_detected` | `LLR-CTR-02` | A mutually recursive pair is one cycle of two members rather than two cycles of one. |
+| 10 | <a id="a_straight_line_program_has_no_cycles"></a>`a_straight_line_program_has_no_cycles` | `LLR-CTR-02` | An acyclic call graph reports no recursion, so the trivial single-node components every decomposition produces are not mistaken for self-calls. |
+| 11 | <a id="a_global_cycle_is_not_recursion"></a>`a_global_cycle_is_not_recursion` | `LLR-CTR-07` | Two functions each writing a global the other reads form a cycle in the SDG and no recursion at all, which is the case that would otherwise produce a false critical MISRA C Rule 17.2 finding on ordinary code. |
+| 12 | <a id="depth_is_the_length_of_the_deepest_chain"></a>`depth_is_the_length_of_the_deepest_chain` | `LLR-CTR-05`, `LLR-LPD-04` | A three-function chain from a declared entry point measures three, the entry point counting as the first layer. |
+| 13 | <a id="the_deepest_chain_is_an_ordered_sequence"></a>`the_deepest_chain_is_an_ordered_sequence` | `LLR-LPD-01`, `LLR-LPD-03` | With a shallow branch listed first and a deep one second, the reported chain is the deep one in order — a search taking the first edge would give the wrong path and the wrong length. |
+| 14 | <a id="depth_measures_from_the_deepest_entry_point"></a>`depth_measures_from_the_deepest_entry_point` | `LLR-CTR-05` | Given two entry points of different depths, the reported figure and chain are the worst case across them. |
+| 15 | <a id="recursion_yields_no_depth_and_terminates"></a>`recursion_yields_no_depth_and_terminates` | `LLR-CTR-04` | A recursive call graph reports its cycle, no depth figure, and no chain — and the run terminates, which a longest-path search over a cyclic graph would not. |
+| 16 | <a id="no_entry_points_omits_depth_with_a_reason"></a>`no_entry_points_omits_depth_with_a_reason` | `LLR-CTR-03`, `LLR-CTR-09` | With no declaration the depth analysis is omitted rather than failed, `main` is not inferred despite being present, and the measurements needing no declaration are still produced. |
+| 17 | <a id="an_entry_point_matching_nothing_is_a_distinct_omission"></a>`an_entry_point_matching_nothing_is_a_distinct_omission` | `LLR-CTR-08` | A declared entry point naming no analysed function yields a different omission from declaring none, because the two call for different actions. |
+| 18 | <a id="depth_carries_the_unresolved_count"></a>`depth_carries_the_unresolved_count` | `LLR-CTR-06` | The unresolved-call count travels with the depth, since a chain through an unresolved call is not followed and the figure is a lower bound. |
+| 19 | <a id="a_chain_does_not_travel_along_a_global_edge"></a>`a_chain_does_not_travel_along_a_global_edge` | `LLR-CTR-07` | A chain stops at the last function actually called, rather than continuing to one that merely reads a global the callee wrote. |
+| 20 | <a id="an_empty_project_measures_nothing_without_failing"></a>`an_empty_project_measures_nothing_without_failing` | `LLR-CTR-01` | A run that analysed nothing produces an empty but valid set of measurements. |
+| 21 | <a id="tree_results_free_is_safe_on_null_and_twice"></a>`tree_results_free_is_safe_on_null_and_twice` | `LLR-CTR-01` | Releasing a null or already-released result set does not fault, so teardown is unconditional on every path. |
 
 ### 3.6. [test/unit/discover.c](../test/unit/discover.c)
 
@@ -405,25 +423,27 @@ Role: **unit**. **19 test(s).**
 
 ### 3.9. [test/unit/thresholds.c](../test/unit/thresholds.c)
 
-Role: **unit**. **15 test(s).**
+Role: **unit**. **17 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
 | 1 | <a id="the_fan_out_bands_match_the_published_table"></a>`the_fan_out_bands_match_the_published_table` | `LLR-THR-05` | Each of the eight boundary values from PVD Appendix A.2 bands as the table says. The same eight are pinned as measurements by calltree/fanout.c, so a disagreement here is a banding error rather than a counting one. |
 | 2 | <a id="the_acceptable_band_produces_no_finding"></a>`the_acceptable_band_produces_no_finding` | `LLR-THR-05` | A fan-out of 9 is acceptable and silent. This band was a gap in an earlier reading of the thresholds, which is why exhaustiveness is stated rather than inferred. |
 | 3 | <a id="every_fan_out_value_classifies_exactly_once"></a>`every_fan_out_value_classifies_exactly_once` | `LLR-THR-05` | Exhaustiveness as a property rather than as cases: every value from 0 to 40 lands in exactly one band, with none skipped and none claimed twice. |
-| 4 | <a id="every_catalogued_measurement_names_a_source"></a>`every_catalogued_measurement_names_a_source` | `LLR-THR-02` | Every row of the catalogue carries a non-empty attribution. A row without one would be an opinion elc held and did not admit to. |
-| 5 | <a id="exactly_one_threshold_is_elcs_own_and_says_so"></a>`exactly_one_threshold_is_elcs_own_and_says_so` | `LLR-THR-02` | Exactly one threshold is not a published standard, it is the bottleneck, and its text says so where a reader sees it. Asserting the count means a second could only appear by decision rather than by drift. |
-| 6 | <a id="the_published_thresholds_are_not_marked_as_elcs_own"></a>`the_published_thresholds_are_not_marked_as_elcs_own` | `LLR-THR-02` | The published rows cite MISRA and Martin and carry no elc marker, so the label distinguishes rather than decorating everything. |
-| 7 | <a id="a_kind_outside_the_catalogue_yields_no_entry"></a>`a_kind_outside_the_catalogue_yields_no_entry` | `LLR-THR-08` | A measurement kind the catalogue does not hold returns no entry, so the caller reports a bare value rather than discarding it or inventing a band. |
-| 8 | <a id="the_severity_set_is_closed_and_ordered"></a>`the_severity_set_is_closed_and_ordered` | `LLR-THR-03` | The three names are exactly the closed set, and their ranks order info below warning below critical — the ordering that 'the highest applicable band wins' is defined against. |
-| 9 | <a id="an_unrecognised_severity_ranks_lowest_rather_than_faulting"></a>`an_unrecognised_severity_ranks_lowest_rather_than_faulting` | `LLR-THR-03` | A name outside the set, and a null one, rank lowest instead of faulting the ordering. |
-| 10 | <a id="the_highest_applicable_band_is_the_one_reported"></a>`the_highest_applicable_band_is_the_one_reported` | `LLR-THR-04` | A value above both bounds produces one finding at the higher severity, not two findings or the lower one. |
-| 11 | <a id="every_finding_carries_exactly_one_severity"></a>`every_finding_carries_exactly_one_severity` | `LLR-THR-03` | No finding is emitted without a severity, and none carries a value outside the closed set. |
-| 12 | <a id="call_depth_bands_at_eight_and_twelve"></a>`call_depth_bands_at_eight_and_twelve` | `LLR-THR-06` | Depth bands against the embedded guidance: 8 is within it, 9 warns, 12 warns, 13 is critical. |
-| 13 | <a id="an_omitted_depth_is_not_banded_as_zero"></a>`an_omitted_depth_is_not_banded_as_zero` | `LLR-THR-12` | A depth omitted for want of an entry point is not banded at all. Banding it would judge a number that does not exist. |
-| 14 | <a id="a_clean_project_yields_no_findings"></a>`a_clean_project_yields_no_findings` | `LLR-THR-01` | Finding nothing is an ordinary result. Paired with every band test so that an implementation emitting findings unconditionally cannot pass them. |
-| 15 | <a id="findinglist_free_is_safe_on_null_and_twice"></a>`findinglist_free_is_safe_on_null_and_twice` | `LLR-THR-01` | Releasing an empty or already-released finding list does not fault. |
+| 4 | <a id="every_measurement_names_a_source"></a>`every_measurement_names_a_source` | `LLR-THR-02` | Every measurement kind names a non-empty source, whether or not the catalogue bands it. Asserted over the kinds rather than over the catalogue because a kind need not be banded to be reported — Henry-Kafura has a citation and no row — and what must never happen is a kind reaching a reader with neither. |
+| 5 | <a id="every_banded_measurement_names_its_source_in_its_row"></a>`every_banded_measurement_names_its_source_in_its_row` | `LLR-THR-15` | The citation a banded measurement carries comes from its catalogue row, so the table a reviewer reads is the table elc reports from. |
+| 6 | <a id="henry_kafura_is_attributed_and_never_banded"></a>`henry_kafura_is_attributed_and_never_banded` | `LLR-THR-15`, `LLR-THR-08` | The measurement that separates a citation from a threshold: the formula is named wherever it is reported, the catalogue holds no row for it, and it is not marked as elc's own — LLR-THR-08's path, taken for the first time by a measurement that will never have an entry. |
+| 7 | <a id="exactly_one_threshold_is_elcs_own_and_says_so"></a>`exactly_one_threshold_is_elcs_own_and_says_so` | `LLR-THR-02` | Exactly one threshold is not a published standard, it is the bottleneck, and its text says so where a reader sees it. Asserting the count means a second could only appear by decision rather than by drift. |
+| 8 | <a id="the_published_thresholds_are_not_marked_as_elcs_own"></a>`the_published_thresholds_are_not_marked_as_elcs_own` | `LLR-THR-02` | The published rows cite MISRA and Martin and carry no elc marker, so the label distinguishes rather than decorating everything. |
+| 9 | <a id="a_kind_outside_the_catalogue_yields_no_entry"></a>`a_kind_outside_the_catalogue_yields_no_entry` | `LLR-THR-08` | A measurement kind the catalogue does not hold returns no entry, so the caller reports a bare value rather than discarding it or inventing a band. |
+| 10 | <a id="the_severity_set_is_closed_and_ordered"></a>`the_severity_set_is_closed_and_ordered` | `LLR-THR-03` | The three names are exactly the closed set, and their ranks order info below warning below critical — the ordering that 'the highest applicable band wins' is defined against. |
+| 11 | <a id="an_unrecognised_severity_ranks_lowest_rather_than_faulting"></a>`an_unrecognised_severity_ranks_lowest_rather_than_faulting` | `LLR-THR-03` | A name outside the set, and a null one, rank lowest instead of faulting the ordering. |
+| 12 | <a id="the_highest_applicable_band_is_the_one_reported"></a>`the_highest_applicable_band_is_the_one_reported` | `LLR-THR-04` | A value above both bounds produces one finding at the higher severity, not two findings or the lower one. |
+| 13 | <a id="every_finding_carries_exactly_one_severity"></a>`every_finding_carries_exactly_one_severity` | `LLR-THR-03` | No finding is emitted without a severity, and none carries a value outside the closed set. |
+| 14 | <a id="call_depth_bands_at_eight_and_twelve"></a>`call_depth_bands_at_eight_and_twelve` | `LLR-THR-06` | Depth bands against the embedded guidance: 8 is within it, 9 warns, 12 warns, 13 is critical. |
+| 15 | <a id="an_omitted_depth_is_not_banded_as_zero"></a>`an_omitted_depth_is_not_banded_as_zero` | `LLR-THR-12` | A depth omitted for want of an entry point is not banded at all. Banding it would judge a number that does not exist. |
+| 16 | <a id="a_clean_project_yields_no_findings"></a>`a_clean_project_yields_no_findings` | `LLR-THR-01` | Finding nothing is an ordinary result. Paired with every band test so that an implementation emitting findings unconditionally cannot pass them. |
+| 17 | <a id="findinglist_free_is_safe_on_null_and_twice"></a>`findinglist_free_is_safe_on_null_and_twice` | `LLR-THR-01` | Releasing an empty or already-released finding list does not fault. |
 
 ### 3.10. [test/unit/graph.c](../test/unit/graph.c)
 
@@ -470,20 +490,22 @@ Role: **unit**. **13 test(s).**
 
 ### 3.12. [test/unit/report.c](../test/unit/report.c)
 
-Role: **unit**. **6 test(s).**
+Role: **unit**. **8 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
 | 1 | <a id="totals_sum_across_every_file"></a>`totals_sum_across_every_file` | `LLR-RPT-01` | The project totals are the sum of the per-file physical line counts across every analysed file. |
 | 2 | <a id="files_are_presented_in_ascending_path_order"></a>`files_are_presented_in_ascending_path_order` | `LLR-RPT-10`, `LLR-RPT-11` | Files are ordered by path in the model, so presentation order is a property of the report rather than of the order the files were discovered. |
 | 3 | <a id="an_empty_run_yields_a_complete_model_with_zero_totals"></a>`an_empty_run_yields_a_complete_model_with_zero_totals` | `LLR-RPT-12` | A run in which no file was analysed still produces a complete model with zero totals, which renders normally. |
-| 4 | <a id="assembly_leaves_the_accumulator_empty"></a>`assembly_leaves_the_accumulator_empty` | `LLR-RPT-18` | Ownership of the per-file metrics moves into the report, so releasing both the accumulator and the report cannot free the same metrics twice. |
-| 5 | <a id="a_failed_growth_leaves_the_accumulator_intact"></a>`a_failed_growth_leaves_the_accumulator_intact` | `LLR-RPT-16` | A reallocation failure, provoked through a link-time wrapper, is reported and leaves the original allocation intact rather than overwriting it with a null pointer. |
-| 6 | <a id="free_is_safe_on_null"></a>`free_is_safe_on_null` | `LLR-RPT-16` | Releasing a null report or accumulator does not fault, so teardown is safe on every path. |
+| 4 | <a id="the_henry_kafura_total_is_the_sum_of_the_per_function_values"></a>`the_henry_kafura_total_is_the_sum_of_the_per_function_values` | `LLR-RPT-35` | The total accumulates in the same width the values do, and is idempotent — both the live path and the regeneration path call it, and a run reading a record does both. |
+| 5 | <a id="a_project_with_no_functions_totals_zero_rather_than_nothing"></a>`a_project_with_no_functions_totals_zero_rather_than_nothing` | `LLR-RPT-35` | A run that analysed nothing totals zero and renders normally, as every other project total does. |
+| 6 | <a id="assembly_leaves_the_accumulator_empty"></a>`assembly_leaves_the_accumulator_empty` | `LLR-RPT-18` | Ownership of the per-file metrics moves into the report, so releasing both the accumulator and the report cannot free the same metrics twice. |
+| 7 | <a id="a_failed_growth_leaves_the_accumulator_intact"></a>`a_failed_growth_leaves_the_accumulator_intact` | `LLR-RPT-16` | A reallocation failure, provoked through a link-time wrapper, is reported and leaves the original allocation intact rather than overwriting it with a null pointer. |
+| 8 | <a id="free_is_safe_on_null"></a>`free_is_safe_on_null` | `LLR-RPT-16` | Releasing a null report or accumulator does not fault, so teardown is safe on every path. |
 
 ### 3.13. [test/unit/format_text.c](../test/unit/format_text.c)
 
-Role: **unit**. **4 test(s).**
+Role: **unit**. **8 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -491,6 +513,10 @@ Role: **unit**. **4 test(s).**
 | 2 | <a id="columns_are_aligned_on_the_longest_path"></a>`columns_are_aligned_on_the_longest_path` | `LLR-TBL-01` | Every file row is rendered to the same width, the path column having been sized from the longest path in the model. |
 | 3 | <a id="an_empty_report_still_renders_a_table"></a>`an_empty_report_still_renders_a_table` | `LLR-TBL-01` | A model with no files still renders its headings and column rule, so an empty run is distinguishable from a crash. |
 | 4 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-TBL-03` | A stream that cannot absorb the report yields a non-zero return, so a truncated report is never reported as success. |
+| 5 | <a id="the_summary_omits_the_per_function_tier"></a>`the_summary_omits_the_per_function_tier` | `LLR-SUM-09` | The tier boundary at its sharpest: a file's own totals stay in the summary and the per-function table goes, and the verbose render of the same model has it back. |
+| 6 | <a id="the_summary_keeps_the_findings"></a>`the_summary_keeps_the_findings` | `LLR-SUM-09` | The findings tier is emitted at the summary verbosity whether or not it has rows. A summary that dropped the one section a reader acts on would be shorter and useless. |
+| 7 | <a id="the_verbose_report_is_a_superset_of_the_summary"></a>`the_verbose_report_is_a_superset_of_the_summary` | `LLR-SUM-09` | The verbose render of one model is strictly longer than its summary, so the verbosity selects something rather than being accepted and ignored. |
+| 8 | <a id="both_styles_reach_the_same_tiers_at_each_verbosity"></a>`both_styles_reach_the_same_tiers_at_each_verbosity` | `LLR-SUM-09`, `LLR-SUM-02` | The structural property behind the partition: one traversal under two decorations and two filters, so whichever tier a verbosity reaches it reaches in both styles. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it. |
 
 ### 3.14. [test/integration/cli.bats](../test/integration/cli.bats)
 
@@ -641,7 +667,7 @@ Role: **unit**. **11 test(s).**
 
 ### 3.20. [test/unit/format_xml.c](../test/unit/format_xml.c)
 
-Role: **unit**. **17 test(s).**
+Role: **unit**. **19 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -660,12 +686,14 @@ Role: **unit**. **17 test(s).**
 | 13 | <a id="a_record_without_a_version_is_rejected"></a>`a_record_without_a_version_is_rejected` | `LLR-XRD-04` | A record with no version identifier is rejected: the identifier is what makes the structure knowable. |
 | 14 | <a id="the_threshold_supplied_now_is_the_one_applied"></a>`the_threshold_supplied_now_is_the_one_applied` | `LLR-XRD-07` | One record read at two thresholds yields two different listings, so the threshold is the one supplied at conversion time and the record carries none. |
 | 15 | <a id="the_model_is_reconstructed_from_the_record"></a>`the_model_is_reconstructed_from_the_record` | `LLR-XRD-01`, `LLR-XRD-09` | The model is rebuilt from the record alone, ordered by the same code that orders a live one, with the totals recomputed rather than read. |
-| 16 | <a id="a_truncated_record_is_rejected"></a>`a_truncated_record_is_rejected` | `LLR-XRD-03`, `LLR-XRD-06` | A record whose root never closes is not well-formed and is rejected rather than read as far as it goes. |
-| 17 | <a id="an_absent_record_is_rejected"></a>`an_absent_record_is_rejected` | `LLR-XRD-03` | A record that cannot be opened is a rejection rather than a crash. |
+| 16 | <a id="the_flow_figures_are_carried_by_the_record"></a>`the_flow_figures_are_carried_by_the_record` | `LLR-XWR-08`, `LLR-RPT-35` | Fan-in, ELOC and the Henry-Kafura value are written into the record and restored from it, and the project total is re-summed from the restored rows. None can be recomputed: regeneration has no graph and no source to build one from, so a record carrying fan-out alone would regenerate every Henry-Kafura value as zero — an ordinary-looking number reading as a project where nothing is connected. |
+| 17 | <a id="a_record_without_the_flow_attributes_still_reads"></a>`a_record_without_the_flow_attributes_still_reads` | `LLR-XWR-08` | A record written before the information-flow figures existed carries the same format version and still reads, its missing attributes meaning zero. Additions to the format are what the version number does not mark, and rejecting such a record would break the compatibility it promises. |
+| 18 | <a id="a_truncated_record_is_rejected"></a>`a_truncated_record_is_rejected` | `LLR-XRD-03`, `LLR-XRD-06` | A record whose root never closes is not well-formed and is rejected rather than read as far as it goes. |
+| 19 | <a id="an_absent_record_is_rejected"></a>`an_absent_record_is_rejected` | `LLR-XRD-03` | A record that cannot be opened is a rejection rather than a crash. |
 
 ### 3.21. [test/integration/formats.bats](../test/integration/formats.bats)
 
-Role: **integration**. **16 test(s).**
+Role: **integration**. **27 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -682,11 +710,45 @@ Role: **integration**. **16 test(s).**
 | 11 | <a id="HLR-028: csv is unfiltered by the threshold"></a>`HLR-028: csv is unfiltered by the threshold` | — | Two very different thresholds produce identical CSV: the threshold governs a listing tier CSV does not have. |
 | 12 | <a id="HLR-054: xml is unfiltered by the threshold"></a>`HLR-054: xml is unfiltered by the threshold` | — | The record stores what was measured, so the threshold does not change it. |
 | 13 | <a id="HLR-038: every format writes results to stdout alone"></a>`HLR-038: every format writes results to stdout alone` | — | Each format leaves the diagnostic stream carrying only diagnostics. |
-| 14 | <a id="HLR-030: every format honours --output"></a>`HLR-030: every format honours --output` | — | Redirection applies to every format, not only the default one. |
+| 14 | <a id="HLR-030: every format honours --output"></a>`HLR-030: every format honours --output` | `LLR-MAIN-12` | Redirection applies to every format, not only the default one, and the results reach the named file with the skipped-file notice on standard error and standard output left empty. |
 | 15 | <a id="HLR-032: every format is byte-identical across runs"></a>`HLR-032: every format is byte-identical across runs` | — | Repeating a run in any format produces identical bytes. |
 | 16 | <a id="HLR-066: every format renders an empty run"></a>`HLR-066: every format renders an empty run` | — | A run that analysed nothing still produces output in every format. |
+| 17 | <a id="HLR-148: each recognised extension selects its format with no option"></a>`HLR-148: each recognised extension selects its format with no option` | — | Each of `.txt`, `.md`, `.csv`, and `.xml` produces the format it names with no format option given, identified by a marker only that format emits. The filename has already said what the format is, and nothing should have to say it twice. |
+| 18 | <a id="HLR-148: an unrecognised extension is a usage error naming both"></a>`HLR-148: an unrecognised extension is a usage error naming both` | — | An output named `report.json` is rejected with exit status 2, the diagnostic names the extension found and every extension that would have worked, and no file is written. Guessing would produce a `report.json` holding no JSON. |
+| 19 | <a id="HLR-148: a filename with no extension is a usage error too"></a>`HLR-148: a filename with no extension is a usage error too` | — | A path carrying no extension names no format, and is rejected rather than defaulted to the table. |
+| 20 | <a id="HLR-148: a dotfile has no extension, and a trailing dot names nothing"></a>`HLR-148: a dotfile has no extension, and a trailing dot names nothing` | — | The two boundary spellings. A leading dot names a hidden file rather than an extension, and a trailing dot names nothing at all; both are rejected as having none. |
+| 21 | <a id="HLR-148: a directory carrying a dot does not lend its extension"></a>`HLR-148: a directory carrying a dot does not lend its extension` | — | The extension is the last dot of the *basename*. A `build.d/report` has none of its own, and reading one out of the directory component would pick up `.d`. |
+| 22 | <a id="HLR-149: a format option contradicting the filename is a usage error"></a>`HLR-149: a format option contradicting the filename is a usage error` | — | `-f csv -o report.md` is rejected with both named in the diagnostic and nothing written. Honouring either would leave the user's own command line disagreeing with the file it produced. |
+| 23 | <a id="HLR-149: a format option agreeing with the filename is accepted"></a>`HLR-149: a format option agreeing with the filename is accepted` | — | Nothing is ambiguous about saying a thing twice, so the agreeing pair is accepted and produces the format both named. This is what stops the rejection above from being a rejection of `-f` with `-o` altogether. |
+| 24 | <a id="HLR-149: with no output file the option still selects the format"></a>`HLR-149: with no output file the option still selects the format` | — | Standard output has no filename and so no extension, which is what keeps a machine-readable format available to a caller that pipes rather than redirects. |
+| 25 | <a id="HLR-148: the companion artefacts keep their own extensions"></a>`HLR-148: the companion artefacts keep their own extensions` | — | The extension governs the format alone: an `--output` of `report.md` still yields `report.dot` and `report.graphml`, because the companion naming substitutes its own extension on the same path. |
+| 26 | <a id="LLR-CLI-10: a record cannot be regenerated into a filename naming a table"></a>`LLR-CLI-10: a record cannot be regenerated into a filename naming a table` | — | An output path's extension is a format selection, differently spelt, so regeneration rejects `-o out.txt` on the terms it rejects `-f table`. Reading it as anything less would write Markdown into a file called `out.txt`. |
+| 27 | <a id="LLR-CLI-10: a filename naming Markdown regenerates as it always did"></a>`LLR-CLI-10: a filename naming Markdown regenerates as it always did` | — | The other side of the rule above, and what stops it from rejecting every `-o` in regeneration mode: a filename agreeing with what the mode produces is accepted. |
 
-### 3.22. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
+### 3.22. [test/integration/verbosity.bats](../test/integration/verbosity.bats)
+
+Role: **integration**. **16 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-150: the summary tiers are present by default"></a>`HLR-150: the summary tiers are present by default` | — | Every tier HLR-150 enumerates is present in a default run, checked heading by heading rather than by counting lines — a line count would pass against a renderer that dropped the wrong section. |
+| 2 | <a id="HLR-150: the detail tiers are absent by default"></a>`HLR-150: the detail tiers are absent by default` | — | The converse, and the half that makes the default a summary rather than a rename: every tier enumerating one row per analysed entity is absent from a default run. |
+| 3 | <a id="HLR-150: the summary keeps the findings a reader acts on"></a>`HLR-150: the summary keeps the findings a reader acts on` | — | The section whose loss would make the summary shorter and useless. Provoked with a threshold low enough that there is a finding to keep, so the claim is not made against an empty section. |
+| 4 | <a id="HLR-115: an omitted analysis states its reason in the summary too"></a>`HLR-115: an omitted analysis states its reason in the summary too` | — | The omission notices are summary tiers even though the sections carrying them are detail tiers. An analysis nobody declared for is something the reader must be told at either verbosity, rather than an absence they might read as a clean bill of health. |
+| 5 | <a id="HLR-150: an analysis that was measured is not in the summary"></a>`HLR-150: an analysis that was measured is not in the summary` | — | The converse of the notice above, and what stops that test passing against a renderer that simply always emits the section: with entry points declared, the reachability sections are detail tiers again and are omitted. |
+| 6 | <a id="HLR-151: --verbose presents the detail tiers as well"></a>`HLR-151: --verbose presents the detail tiers as well` | — | Every tier the default omits is present with the option given. |
+| 7 | <a id="HLR-151: the verbose report is the summary plus the detail tiers"></a>`HLR-151: the verbose report is the summary plus the detail tiers` | — | Stated as a superset over the headings actually emitted rather than as a list, so that a tier added to the traversal in a later phase cannot satisfy one composition and be forgotten in the other. The strict-inequality half keeps it from passing where the option selects nothing. |
+| 8 | <a id="HLR-151: -v is the short form of --verbose"></a>`HLR-151: -v is the short form of --verbose` | — | Both spellings produce identical bytes. |
+| 9 | <a id="HLR-151: verbosity changes no measurement and no exit status"></a>`HLR-151: verbosity changes no measurement and no exit status` | `LLR-MAIN-21` | A value absent from a summary is absent because it was not printed, never because it was not computed — so the record, which carries every measurement either composition can present, is byte-identical, and so is the exit status. |
+| 10 | <a id="HLR-031: both human formats present the same tiers at each verbosity"></a>`HLR-031: both human formats present the same tiers at each verbosity` | — | Uniformity across formats holds at a fixed verbosity and is asserted at both, which is what the amended HLR-031 requires. The two are compared heading by heading with Markdown's decoration stripped. |
+| 11 | <a id="HLR-152: --verbose with an xml output is accepted, not rejected"></a>`HLR-152: --verbose with an xml output is accepted, not rejected` | — | The one option pairing this project defines that is not a usage error. There is nothing contradictory about asking a complete format for detail, so the invocation succeeds. |
+| 12 | <a id="HLR-152: --verbose with a csv output is accepted, not rejected"></a>`HLR-152: --verbose with a csv output is accepted, not rejected` | — | The same rule for the other complete format, stated separately because HLR-152 reaches it for the same reason rather than a different one. |
+| 13 | <a id="HLR-152: csv is byte-identical at either verbosity"></a>`HLR-152: csv is byte-identical at either verbosity` | `LLR-MAIN-21` | Acceptance is not enough: the file produced must be the same one. A summarised CSV would be a record set with no rows in it. This is also where the dispatch is checked: the verbosity reaches the two human-facing renderers and neither complete-record writer, so a CSV that changed with it would mean the parameter had been threaded somewhere it does not belong. |
+| 14 | <a id="HLR-056: a record regenerated summarily matches a direct summary run"></a>`HLR-056: a record regenerated summarily matches a direct summary run` | — | Verbosity joins the threshold as a property of the rendering: one record answers a summary question identically to a direct run. |
+| 15 | <a id="HLR-056: a record regenerated verbosely matches a direct verbose run"></a>`HLR-056: a record regenerated verbosely matches a direct verbose run` | — | The same equivalence at the other verbosity, which is what makes the record complete rather than merely sufficient for the default. |
+| 16 | <a id="HLR-056: the two verbosities regenerate differently from one record"></a>`HLR-056: the two verbosities regenerate differently from one record` | — | What keeps the pair above from passing against an implementation that ignored the option in regeneration mode and produced one report both times. |
+
+### 3.23. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -712,7 +774,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-048: a catch clause is a decision point"></a>`HLR-048: a catch clause is a decision point` | — | A handler is a path out of the guarded block and raises complexity; `try` and `throw` choose nothing and do not. |
 | 19 | <a id="HLR-011: a language with no exception construct still reports"></a>`HLR-011: a language with no exception construct still reports` | — | C has no exception handling and analysing it is not thereby an error — no language is required to have every category. |
 
-### 3.23. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
+### 3.24. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -726,7 +788,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-016: inline syntax inside a block comment excludes no line twice"></a>`HLR-016: inline syntax inside a block comment excludes no line twice` | — | Comment-like openers inside a block comment do not cause any line to be excluded more than once. |
 | 7 | <a id="HLR-020: a file of only comments reports zero ELOC"></a>`HLR-020: a file of only comments reports zero ELOC` | — | A file with nothing but comments reports zero, without error. |
 
-### 3.24. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
+### 3.25. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
 
 Role: **fixture**. **15 test(s).**
 
@@ -748,7 +810,7 @@ Role: **fixture**. **15 test(s).**
 | 14 | <a id="HLR-018: a C++ lambda's conditional lands on the enclosing function"></a>`HLR-018: a C++ lambda's conditional lands on the enclosing function` | — | The conditional expression inside a lambda raises the enclosing function's complexity. |
 | 15 | <a id="HLR-067: a nested named function is reported where a lambda is not"></a>`HLR-067: a nested named function is reported where a lambda is not` | — | The distinction the two requirements draw, in one language and one function body: Rust's nested `fn` is reported and the closure beside it is not. |
 
-### 3.25. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
+### 3.26. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
 
 Role: **fixture**. **13 test(s).**
 
@@ -768,7 +830,7 @@ Role: **fixture**. **13 test(s).**
 | 12 | <a id="HLR-065: XML carrying such an identifier is well-formed"></a>`HLR-065: XML carrying such an identifier is well-formed` | — | An independent parser accepts the document, so the escaping is correct rather than merely present. |
 | 13 | <a id="HLR-056: such an identifier survives a record round trip"></a>`HLR-056: such an identifier survives a record round trip` | — | Regeneration matches a direct run, so escaping on the way out and reading on the way in agree about the identifier. |
 
-### 3.26. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
+### 3.27. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -794,7 +856,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="LLR-CLI-15: an explicit companion request with --from-xml is rejected"></a>`LLR-CLI-15: an explicit companion request with --from-xml is rejected` | `LLR-CLI-15` | An explicit request is a usage error rather than a silently ignored one, so a user who asked for a file and got none is told why instead of discovering the absence. |
 | 19 | <a id="LLR-CLI-15: declining a companion alongside --from-xml is not an error"></a>`LLR-CLI-15: declining a companion alongside --from-xml is not an error` | `LLR-CLI-15` | The boundary of the rule above: --no-dot is a refusal rather than a request, and refusing something that was never going to be produced conflicts with nothing. |
 
-### 3.27. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
+### 3.28. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -820,7 +882,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-059: the environment variable still wins over the installed layout"></a>`HLR-059: the environment variable still wins over the installed layout` | `LLR-ROP-02` | The variable takes precedence over a runtime the installed layout would otherwise have found, as it does over the adjacent one. |
 | 19 | <a id="HLR-036: a binary with no runtime anywhere names every path it tried"></a>`HLR-036: a binary with no runtime anywhere names every path it tried` | `LLR-ROP-10` | The diagnostic lists each candidate and the variable that overrides them. The message it replaced quoted one path no layout uses, sending the reader to look for a runtime directory inside a directory of executables. |
 
-### 3.28. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
+### 3.29. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
 
 Role: **fixture**. **11 test(s).**
 
@@ -838,7 +900,7 @@ Role: **fixture**. **11 test(s).**
 | 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
 | 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
 
-### 3.29. [test/fixtures/deadcode.bats](../test/fixtures/deadcode.bats)
+### 3.30. [test/fixtures/deadcode.bats](../test/fixtures/deadcode.bats)
 
 Role: **fixture**. **22 test(s).**
 
@@ -867,7 +929,7 @@ Role: **fixture**. **22 test(s).**
 | 21 | <a id="HLR-139: dead code is found in every language supplying a query"></a>`HLR-139: dead code is found in every language supplying a query` | `LLR-DED-01` | Python, Rust and C++ each find the statement after a terminator, so the mechanism is not C's alone. |
 | 22 | <a id="HLR-138: no language claims a branch guarded by a variable"></a>`HLR-138: no language claims a branch guarded by a variable` | `LLR-DED-03` | The restraint holds in Python and Rust as it does in C: no language module is permitted to infer a value. |
 
-### 3.30. [test/fixtures/reachability.bats](../test/fixtures/reachability.bats)
+### 3.31. [test/fixtures/reachability.bats](../test/fixtures/reachability.bats)
 
 Role: **fixture**. **24 test(s).**
 
@@ -898,7 +960,7 @@ Role: **fixture**. **24 test(s).**
 | 23 | <a id="HLR-032: the state sections survive a record round trip byte-identically"></a>`HLR-032: the state sections survive a record round trip byte-identically` | `LLR-XWR-11` | A report regenerated from the saved record is byte-identical to the live one, with the reachability and global-state sections included. |
 | 24 | <a id="HLR-032: a global-state finding survives the round trip"></a>`HLR-032: a global-state finding survives the round trip` | `LLR-XWR-12` | The verdict and its participants are carried in the record, and the citation is derived from the verdict on both paths rather than stored. |
 
-### 3.31. [test/fixtures/arch.bats](../test/fixtures/arch.bats)
+### 3.32. [test/fixtures/arch.bats](../test/fixtures/arch.bats)
 
 Role: **fixture**. **30 test(s).**
 
@@ -935,7 +997,7 @@ Role: **fixture**. **30 test(s).**
 | 29 | <a id="HLR-032: the architecture sections survive a record round trip"></a>`HLR-032: the architecture sections survive a record round trip` | `LLR-XWR-13` | A report regenerated from the saved record is byte-identical to the live one, with the coupling, cycle and layering sections included. |
 | 30 | <a id="HLR-032: a cycle and its loop survive the round trip"></a>`HLR-032: a cycle and its loop survive the round trip` | `LLR-XWR-13` | The ordered loop and the coupling figures come back from the record, neither being recomputable without a graph. |
 
-### 3.32. [test/fixtures/thresholds.bats](../test/fixtures/thresholds.bats)
+### 3.33. [test/fixtures/thresholds.bats](../test/fixtures/thresholds.bats)
 
 Role: **fixture**. **20 test(s).**
 
@@ -962,9 +1024,9 @@ Role: **fixture**. **20 test(s).**
 | 19 | <a id="HLR-032: findings survive a record round trip byte-identically"></a>`HLR-032: findings survive a record round trip byte-identically` | `LLR-THR-14` | A regenerated report is byte-identical to the live one with the findings section included. |
 | 20 | <a id="HLR-056: a regenerated report keeps each finding's attribution"></a>`HLR-056: a regenerated report keeps each finding's attribution` | `LLR-THR-14` | The citation cannot be re-derived on regeneration, which has no measurements to band, so the record carries it. |
 
-### 3.33. [test/fixtures/calltree.bats](../test/fixtures/calltree.bats)
+### 3.34. [test/fixtures/calltree.bats](../test/fixtures/calltree.bats)
 
-Role: **fixture**. **20 test(s).**
+Role: **fixture**. **32 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -972,24 +1034,36 @@ Role: **fixture**. **20 test(s).**
 | 2 | <a id="HLR-085: a repeated call does not raise fan-out"></a>`HLR-085: a repeated call does not raise fan-out` | — | Every caller in the fixture invokes one helper twice; the figures are unchanged, which is what the whole boundary table rests on. |
 | 3 | <a id="HLR-085: a function that calls nothing has fan-out zero"></a>`HLR-085: a function that calls nothing has fan-out zero` | — | A leaf reports zero rather than being omitted. |
 | 4 | <a id="HLR-085: every function appears, not only the interesting ones"></a>`HLR-085: every function appears, not only the interesting ones` | — | All twenty-four functions are listed: this is a measurement table, not a finding list. |
-| 5 | <a id="HLR-087: the hand-counted depth matches"></a>`HLR-087: the hand-counted depth matches` | — | The four-layer chain measures four. |
-| 6 | <a id="HLR-088: the deepest chain is reported in full, in order"></a>`HLR-088: the deepest chain is reported in full, in order` | — | The ordered sequence from entry point to deepest leaf is reported, not merely its length. |
-| 7 | <a id="HLR-088: the deepest branch is taken, not the first"></a>`HLR-088: the deepest branch is taken, not the first` | — | The entry point calls the shallow branch first; the reported chain is the deep one, so the traversal is a longest-path search and not a first-path one. |
-| 8 | <a id="HLR-087: the depth is presented with the unresolved count"></a>`HLR-087: the depth is presented with the unresolved count` | — | The depth heading states the unresolved count, so the figure is read as the lower bound it is. |
-| 9 | <a id="HLR-089: direct and mutual recursion are both reported"></a>`HLR-089: direct and mutual recursion are both reported` | — | One decomposition finds both kinds, and labels which is which. |
-| 10 | <a id="HLR-089: the recursive functions are named"></a>`HLR-089: the recursive functions are named` | — | The members of each cycle are named, since MISRA C Rule 17.2 is about which functions are involved. |
-| 11 | <a id="HLR-090: recursion yields no depth figure, and the run terminates"></a>`HLR-090: recursion yields no depth figure, and the run terminates` | — | A recursive graph reports unbounded depth with no chain, and the run completes — a longest-path search over it would not. |
-| 12 | <a id="HLR-090: no finite depth is invented for a recursive graph"></a>`HLR-090: no finite depth is invented for a recursive graph` | — | No layer count appears anywhere in the report for a recursive graph. |
-| 13 | <a id="HLR-115: with no entry points, depth is omitted with its reason"></a>`HLR-115: with no entry points, depth is omitted with its reason` | — | The run succeeds and the report states that no entry points were declared, rather than reporting an empty or zero result. |
-| 14 | <a id="HLR-115: an omitted depth does not omit the other measurements"></a>`HLR-115: an omitted depth does not omit the other measurements` | — | Fan-out is still reported when the depth analysis is omitted; omitting one analysis does not silence its neighbours. |
-| 15 | <a id="HLR-095: main is not inferred, however obvious it looks"></a>`HLR-095: main is not inferred, however obvious it looks` | — | A file containing an obvious entry point still omits the analysis, because entry points are declared and never guessed at. |
-| 16 | <a id="HLR-115: an entry point matching nothing is a distinct omission"></a>`HLR-115: an entry point matching nothing is a distinct omission` | — | A declared symbol matching no analysed function produces its own omission message, distinct from having declared none. |
-| 17 | <a id="an unmatched entry point is diagnosed on stderr"></a>`an unmatched entry point is diagnosed on stderr` | — | The unmatched symbol is named on standard error, and the run still succeeds. |
-| 18 | <a id="HLR-032: two runs over the same tree agree"></a>`HLR-032: two runs over the same tree agree` | — | Two runs produce identical reports. |
-| 19 | <a id="HLR-033: the targets may be given in either order"></a>`HLR-033: the targets may be given in either order` | — | The report does not depend on the order the targets were named in. |
-| 20 | <a id="HLR-056: the measurements survive a record round trip"></a>`HLR-056: the measurements survive a record round trip` | — | A report regenerated from a record is byte-identical and still carries the depth, since none of the call-tree measurements can be recomputed without the source. |
+| 5 | <a id="HLR-156: fan-in counts the distinct functions that call one"></a>`HLR-156: fan-in counts the distinct functions that call one` | `LLR-CTR-10` | The hub reports three callers and each leaf one, from a source where those are the counts. |
+| 6 | <a id="HLR-156: a repeated call does not raise fan-in"></a>`HLR-156: a repeated call does not raise fan-in` | `LLR-CTR-10` | The hub calls each leaf twice and each leaf's fan-in stays one: fan-in counts callers, not call sites — the distinctness rule fan-out is built on, read backwards. |
+| 7 | <a id="HLR-156: a function nothing calls has fan-in zero"></a>`HLR-156: a function nothing calls has fan-in zero` | `LLR-CTR-10` | An entry point reports zero rather than being omitted. Drawing a conclusion from an absence of callers is the reachability analysis's job, not this measurement's. |
+| 8 | <a id="HLR-156: every function reports a fan-in, not only the connected ones"></a>`HLR-156: every function reports a fan-in, not only the connected ones` | `LLR-SUM-10` | All eight functions are listed: this is a measurement table, not a finding list. |
+| 9 | <a id="HLR-157: the hand-computed Henry-Kafura value matches, function by function"></a>`HLR-157: the hand-computed Henry-Kafura value matches, function by function` | `LLR-CTR-11` | Every figure is worked out in README.md from the source: 144 for the hub, 1 for each single-call caller, 8 for the caller with two callees. |
+| 10 | <a id="HLR-159: an entry point and a leaf each report a zero, not a blank"></a>`HLR-159: an entry point and a leaf each report a zero, not a blank` | `LLR-SUM-10` | The longest and widest function in the file scores zero because nothing calls it, and a leaf scores zero because it calls nothing. Neither is an absence of code, and neither borrows the `undefined` spelling Instability uses for its own vanishing inputs. |
+| 11 | <a id="HLR-159: the report states why a zero is a zero"></a>`HLR-159: the report states why a zero is a zero` | `LLR-SUM-10` | The tier heading says that a function at either end of the call graph scores zero, so the value is read as the measurement it is. |
+| 12 | <a id="HLR-159: the formula and its attribution travel with the figures"></a>`HLR-159: the formula and its attribution travel with the figures` | `LLR-SUM-10` | The heading carries the formula, the name Henry-Kafura, and the ordinal reading — the squared term is theirs rather than elc's, and a metric whose name reads as a citation must carry it where it is read. |
+| 13 | <a id="HLR-159: no Henry-Kafura figure is reported as a finding"></a>`HLR-159: no Henry-Kafura figure is reported as a finding` | `LLR-THR-15` | No published source bands the metric, so the catalogue holds no row and no figure acquires a severity. |
+| 14 | <a id="HLR-158: the project total is the sum of the per-function values"></a>`HLR-158: the project total is the sum of the per-function values` | `LLR-RPT-35` | 144 + 1 + 1 + 8, and zero from the four functions at the ends of the graph. |
+| 15 | <a id="HLR-158: the project total is a summary figure, not a detail one"></a>`HLR-158: the project total is a summary figure, not a detail one` | `LLR-SUM-10` | A summary report carries the total without the per-function table, which is the tier placement HLR-024 and HLR-150 require. |
+| 16 | <a id="HLR-087: the hand-counted depth matches"></a>`HLR-087: the hand-counted depth matches` | — | The four-layer chain measures four. |
+| 17 | <a id="HLR-088: the deepest chain is reported in full, in order"></a>`HLR-088: the deepest chain is reported in full, in order` | — | The ordered sequence from entry point to deepest leaf is reported, not merely its length. |
+| 18 | <a id="HLR-088: the deepest branch is taken, not the first"></a>`HLR-088: the deepest branch is taken, not the first` | — | The entry point calls the shallow branch first; the reported chain is the deep one, so the traversal is a longest-path search and not a first-path one. |
+| 19 | <a id="HLR-087: the depth is presented with the unresolved count"></a>`HLR-087: the depth is presented with the unresolved count` | — | The depth heading states the unresolved count, so the figure is read as the lower bound it is. |
+| 20 | <a id="HLR-089: direct and mutual recursion are both reported"></a>`HLR-089: direct and mutual recursion are both reported` | — | One decomposition finds both kinds, and labels which is which. |
+| 21 | <a id="HLR-089: the recursive functions are named"></a>`HLR-089: the recursive functions are named` | — | The members of each cycle are named, since MISRA C Rule 17.2 is about which functions are involved. |
+| 22 | <a id="HLR-090: recursion yields no depth figure, and the run terminates"></a>`HLR-090: recursion yields no depth figure, and the run terminates` | — | A recursive graph reports unbounded depth with no chain, and the run completes — a longest-path search over it would not. |
+| 23 | <a id="HLR-090: no finite depth is invented for a recursive graph"></a>`HLR-090: no finite depth is invented for a recursive graph` | — | No layer count appears anywhere in the report for a recursive graph. |
+| 24 | <a id="HLR-115: with no entry points, depth is omitted with its reason"></a>`HLR-115: with no entry points, depth is omitted with its reason` | — | The run succeeds and the report states that no entry points were declared, rather than reporting an empty or zero result. |
+| 25 | <a id="HLR-115: an omitted depth does not omit the other measurements"></a>`HLR-115: an omitted depth does not omit the other measurements` | — | Fan-out is still reported when the depth analysis is omitted; omitting one analysis does not silence its neighbours. |
+| 26 | <a id="HLR-095: main is not inferred, however obvious it looks"></a>`HLR-095: main is not inferred, however obvious it looks` | — | A file containing an obvious entry point still omits the analysis, because entry points are declared and never guessed at. |
+| 27 | <a id="HLR-115: an entry point matching nothing is a distinct omission"></a>`HLR-115: an entry point matching nothing is a distinct omission` | — | A declared symbol matching no analysed function produces its own omission message, distinct from having declared none. |
+| 28 | <a id="an unmatched entry point is diagnosed on stderr"></a>`an unmatched entry point is diagnosed on stderr` | — | The unmatched symbol is named on standard error, and the run still succeeds. |
+| 29 | <a id="HLR-032: two runs over the same tree agree"></a>`HLR-032: two runs over the same tree agree` | — | Two runs produce identical reports. |
+| 30 | <a id="HLR-033: the targets may be given in either order"></a>`HLR-033: the targets may be given in either order` | — | The report does not depend on the order the targets were named in. |
+| 31 | <a id="HLR-156, HLR-157: the flow figures survive a record round trip"></a>`HLR-156, HLR-157: the flow figures survive a record round trip` | `LLR-XWR-08`, `LLR-RPT-35` | Fan-in and the Henry-Kafura value are carried by the record and restored from it, and the project total is re-summed from the restored rows. Neither can be recomputed: regeneration has no graph and no source to build one from, so a record carrying fan-out alone would regenerate every Henry-Kafura value as zero. |
+| 32 | <a id="HLR-056: the measurements survive a record round trip"></a>`HLR-056: the measurements survive a record round trip` | — | A report regenerated from a record is byte-identical and still carries the depth, since none of the call-tree measurements can be recomputed without the source. |
 
-### 3.34. [test/fixtures/dot.bats](../test/fixtures/dot.bats)
+### 3.35. [test/fixtures/dot.bats](../test/fixtures/dot.bats)
 
 Role: **fixture**. **24 test(s).**
 
@@ -1020,7 +1094,7 @@ Role: **fixture**. **24 test(s).**
 | 23 | <a id="HLR-100: a critical annotation does not become an exit status"></a>`HLR-100: a critical annotation does not become an exit status` | — | A run full of critical findings in which every file was read still exits 0. Severity is a label, and drawing it on a graph does not change that. |
 | 24 | <a id="a forward declaration is not a node"></a>`a forward declaration is not a node` | — | Three nodes and not four, which also pins that the C module's function query captures definitions rather than declarations. |
 
-### 3.35. [test/fixtures/elf.bats](../test/fixtures/elf.bats)
+### 3.36. [test/fixtures/elf.bats](../test/fixtures/elf.bats)
 
 Role: **fixture**. **26 test(s).**
 
@@ -1053,7 +1127,7 @@ Role: **fixture**. **26 test(s).**
 | 25 | <a id="HLR-032: two filtered runs over the same tree are byte-identical"></a>`HLR-032: two filtered runs over the same tree are byte-identical` | `LLR-ELF-05`, `LLR-ANL-59` | Nothing about symbol-table order or query-match order reaches the output, which is what the sorted symbol set and the sorted absent list are for. |
 | 26 | <a id="LLR-ANL-58: a function no configuration builds is not one the image lacks"></a>`LLR-ANL-58: a function no configuration builds is not one the image lacks` | `LLR-ANL-58` | The ordering the three exclusions are gathered in. A function inside a constant condition is gone before the image is consulted, so it is not reported as one the linker discarded; a function the image genuinely lacks is reported in the same run, so the case cannot pass by reporting nothing at all. |
 
-### 3.36. [test/fixtures/conditional.bats](../test/fixtures/conditional.bats)
+### 3.37. [test/fixtures/conditional.bats](../test/fixtures/conditional.bats)
 
 Role: **fixture**. **26 test(s).**
 
@@ -1086,7 +1160,7 @@ Role: **fixture**. **26 test(s).**
 | 25 | <a id="LLR-CND-08: a language supplying no conditional query has none"></a>`LLR-CND-08: a language supplying no conditional query has none` | `LLR-CND-08` | Python ships no `conditionals.scm`, which the contract permits by omission: the file is measured normally and nothing is excluded or counted undecided. |
 | 26 | <a id="LLR-CND-08: a definition changes nothing for such a language"></a>`LLR-CND-08: a definition changes nothing for such a language` | `LLR-CND-08` | A definition supplied against a language with no conditional compilation moves nothing but the section that names it. |
 
-### 3.37. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
+### 3.38. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
 
 Role: **fixture**. **17 test(s).**
 
@@ -1110,9 +1184,9 @@ Role: **fixture**. **17 test(s).**
 | 16 | <a id="HLR-054: the record carries each match with its identity"></a>`HLR-054: the record carries each match with its identity` | `LLR-XWR-15` | The identity is what the report presents and all a reader of a regenerated report can act on, so it is what the record holds. |
 | 17 | <a id="HLR-032: two runs with the same rule produce identical output"></a>`HLR-032: two runs with the same rule produce identical output` | `LLR-RLR-11` | Rule loading walks a directory, and a directory yields whatever order the filesystem holds. |
 
-### 3.38. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
+### 3.39. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
-Role: **fixture**. **16 test(s).**
+Role: **fixture**. **18 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1121,19 +1195,21 @@ Role: **fixture**. **16 test(s).**
 | 3 | <a id="HLR-106: no companion is written when the report goes to stdout"></a>`HLR-106: no companion is written when the report goes to stdout` | — | Requesting the export while the report goes to standard output writes no file, since there is no output path from which to derive its name. |
 | 4 | <a id="LLR-GML-03: the companion is named from the report by substitution"></a>`LLR-GML-03: the companion is named from the report by substitution` | — | An output of analysis.md yields analysis.graphml and not analysis.md.graphml. |
 | 5 | <a id="HLR-085: repeated calls are one edge carrying a call-site count"></a>`HLR-085: repeated calls are one edge carrying a call-site count` | — | Two calls from one function to one helper produce a single edge with a count of two, so fan-out is distinct callees. |
-| 6 | <a id="HLR-074: a global links its writer to its reader across files"></a>`HLR-074: a global links its writer to its reader across files` | — | A writer in one file and a reader in another are joined by an edge naming the object, though neither names the other. |
-| 7 | <a id="HLR-074: call edges and global edges are distinguishable"></a>`HLR-074: call edges and global edges are distinguishable` | — | The export carries the two kinds separately and never merged, so an analysis can tell coupling through state from coupling through calls. |
-| 8 | <a id="HLR-096: a function whose address is taken is marked"></a>`HLR-096: a function whose address is taken is marked` | — | A function assigned to a pointer without being called is marked a reachability root, and the function that installs it is not. |
-| 9 | <a id="HLR-077: an unresolvable call is counted, not fatal"></a>`HLR-077: an unresolvable call is counted, not fatal` | — | A library call is counted as unresolved and the run still succeeds. |
-| 10 | <a id="HLR-077: the unresolved count reaches the report"></a>`HLR-077: the unresolved count reaches the report` | — | The project summary states the count, so a reader can judge the graph's completeness without reading the export. |
-| 11 | <a id="HLR-077: no destination is invented for an unresolved call"></a>`HLR-077: no destination is invented for an unresolved call` | — | The edge count is exactly what the fixture header accounts for; a tool guessing at an unresolved target would have more. |
-| 12 | <a id="HLR-033: node identifiers follow sorted file order"></a>`HLR-033: node identifiers follow sorted file order` | — | The exported node order is the sorted-path order of the files, which is not the order a directory walk yields them in. |
-| 13 | <a id="HLR-032: two runs over the same tree produce identical GraphML"></a>`HLR-032: two runs over the same tree produce identical GraphML` | — | The export is byte-identical across runs, so no container's internal enumeration reaches the output. |
-| 14 | <a id="HLR-075: the graph spans every target argument, not each one alone"></a>`HLR-075: the graph spans every target argument, not each one alone` | `LLR-SDG-05` | Naming the two sources as separate arguments builds the same graph as naming the directory holding them, byte for byte. Identity is the right assertion rather than an over-strong one, since node identifiers run in sorted file order rather than in argument order: a resolver scoping resolution to one target would drop the cross-file edges and count them unresolved instead. |
-| 15 | <a id="HLR-075: a cross-target call resolves rather than counting unresolved"></a>`HLR-075: a cross-target call resolves rather than counting unresolved` | `LLR-SDG-05` | The half the identity above cannot see alone: two runs that both resolved nothing across the boundary would still match each other. A global written in one target and read in the other must produce an edge joining nodes the two separate arguments contributed. |
-| 16 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | — | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
+| 6 | <a id="HLR-156: fan-in is the in-degree over call edges"></a>`HLR-156: fan-in is the in-degree over call edges` | `LLR-GML-05` | The function called from two call sites by one caller reports a fan-in of one — the converse of the rule that makes that caller's fan-out one rather than two. |
+| 7 | <a id="HLR-156: a global edge contributes no fan-in"></a>`HLR-156: a global edge contributes no fan-in` | `LLR-CTR-07`, `LLR-GML-05` | The reader of the shared object reports zero although an edge runs to it from the writer: being read by someone is not being called by them. In-degree over the whole SDG would make it one, and the Henry-Kafura value squares the product of the degrees, so the error would arrive there magnified. |
+| 8 | <a id="HLR-074: a global links its writer to its reader across files"></a>`HLR-074: a global links its writer to its reader across files` | — | A writer in one file and a reader in another are joined by an edge naming the object, though neither names the other. |
+| 9 | <a id="HLR-074: call edges and global edges are distinguishable"></a>`HLR-074: call edges and global edges are distinguishable` | — | The export carries the two kinds separately and never merged, so an analysis can tell coupling through state from coupling through calls. |
+| 10 | <a id="HLR-096: a function whose address is taken is marked"></a>`HLR-096: a function whose address is taken is marked` | — | A function assigned to a pointer without being called is marked a reachability root, and the function that installs it is not. |
+| 11 | <a id="HLR-077: an unresolvable call is counted, not fatal"></a>`HLR-077: an unresolvable call is counted, not fatal` | — | A library call is counted as unresolved and the run still succeeds. |
+| 12 | <a id="HLR-077: the unresolved count reaches the report"></a>`HLR-077: the unresolved count reaches the report` | — | The project summary states the count, so a reader can judge the graph's completeness without reading the export. |
+| 13 | <a id="HLR-077: no destination is invented for an unresolved call"></a>`HLR-077: no destination is invented for an unresolved call` | — | The edge count is exactly what the fixture header accounts for; a tool guessing at an unresolved target would have more. |
+| 14 | <a id="HLR-033: node identifiers follow sorted file order"></a>`HLR-033: node identifiers follow sorted file order` | — | The exported node order is the sorted-path order of the files, which is not the order a directory walk yields them in. |
+| 15 | <a id="HLR-032: two runs over the same tree produce identical GraphML"></a>`HLR-032: two runs over the same tree produce identical GraphML` | — | The export is byte-identical across runs, so no container's internal enumeration reaches the output. |
+| 16 | <a id="HLR-075: the graph spans every target argument, not each one alone"></a>`HLR-075: the graph spans every target argument, not each one alone` | `LLR-SDG-05` | Naming the two sources as separate arguments builds the same graph as naming the directory holding them, byte for byte. Identity is the right assertion rather than an over-strong one, since node identifiers run in sorted file order rather than in argument order: a resolver scoping resolution to one target would drop the cross-file edges and count them unresolved instead. |
+| 17 | <a id="HLR-075: a cross-target call resolves rather than counting unresolved"></a>`HLR-075: a cross-target call resolves rather than counting unresolved` | `LLR-SDG-05` | The half the identity above cannot see alone: two runs that both resolved nothing across the boundary would still match each other. A global written in one target and read in the other must produce an edge joining nodes the two separate arguments contributed. |
+| 18 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | — | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
-### 3.39. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+### 3.40. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1159,7 +1235,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | — | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
 | 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | — | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
 
-### 3.40. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.41. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -1173,7 +1249,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | — | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.41. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.42. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **29 test(s).**
 
@@ -1209,7 +1285,7 @@ Role: **instrumented**. **29 test(s).**
 | 28 | <a id="HLR-141: the image is opened once and nothing beside it"></a>`HLR-141: the image is opened once and nothing beside it` | `LLR-ELF-03`, `LLR-ELF-04` | The image is read for its symbol table alone: opened once, with no second image searched for and no debugging information fetched from elsewhere. An implementation shelling out to a toolchain would show that tool's own reads. |
 | 29 | <a id="the link line names the runtime the demangler lives in"></a>`the link line names the runtime the demangler lives in` | `LLR-BLD-19` | libstdc++ was already loaded as a transitive dependency, which is not enough to reference a symbol in it: a current ld will not resolve an undefined symbol from an indirect DT_NEEDED. Nothing else in the suite would catch the flag's removal, since ldd would still show the library. |
 
-### 3.42. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.43. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -1218,7 +1294,7 @@ Role: **fixture**. **2 test(s).**
 | 1 | <a id="the fixture level is wired and elc is runnable"></a>`the fixture level is wired and elc is runnable` | — | The fixture-conformance level is wired and green before the first real fixture is written. |
 | 2 | <a id="every expected-value file has a fixture header beside it"></a>`every expected-value file has a fixture header beside it` | — | Guards the convention that expected values are hand-counted, never generated from elc's own output. |
 
-### 3.43. [test/instrumented/sanitized.bats](../test/instrumented/sanitized.bats)
+### 3.44. [test/instrumented/sanitized.bats](../test/instrumented/sanitized.bats)
 
 Role: **instrumented**. **13 test(s).**
 
@@ -1258,7 +1334,7 @@ verified by code review — see
 | `LLR-MAIN-09` | `main` | `HLR-037`, `HLR-120` | `HLR-120: a parse failure degrades the run to 1` |
 | `LLR-MAIN-10` | `main` | `HLR-120`, `HLR-062`, `HLR-036`, `HLR-058` | `an unrecognised long option exits 2`, `no target exits 2` |
 | `LLR-MAIN-11` | `main` | `HLR-100`, `HLR-023` | **(no direct test)** |
-| `LLR-MAIN-12` | `main` | `HLR-038`, `HLR-030` | **(no direct test)** |
+| `LLR-MAIN-12` | `main` | `HLR-038`, `HLR-030` | `HLR-030: every format honours --output` |
 | `LLR-MAIN-13` | `main` | `HLR-036` | `HLR-125: a fatal runtime-location failure exits leak-clean` |
 | `LLR-MAIN-14` | `main` | `HLR-041` | **(no direct test)** |
 | `LLR-MAIN-15` | `main` | `HLR-103`, `HLR-104` | **(no direct test)** |
@@ -1267,8 +1343,9 @@ verified by code review — see
 | `LLR-MAIN-16` | `main` | `HLR-125`, `HLR-036` | `HLR-125: a usage error frees the declarations parsed before it`, `HLR-125: an invalid target exits leak-clean`, `HLR-125: a target that is neither file nor directory exits leak-clean`, `HLR-125: a rejected saved record exits leak-clean`, `HLR-125: an unusable image exits leak-clean`, `HLR-125: a fatal runtime-location failure exits leak-clean` |
 | `LLR-MAIN-19` | `main` | `HLR-125`, `HLR-063` | `HLR-125: a usage error frees the declarations parsed before it`, `HLR-125: a usage error after two declarations is leak-clean`, `HLR-125: a usage error after a scope declaration is leak-clean` |
 | `LLR-MAIN-20` | `main` | `HLR-146` | `HLR-146: an unusable image ends the run before anything is measured`, `HLR-125: an unusable image exits leak-clean` |
+| `LLR-MAIN-21` | `main` | `HLR-152`, `HLR-151` | `HLR-151: verbosity changes no measurement and no exit status`, `HLR-152: csv is byte-identical at either verbosity` |
 | `LLR-CLI-01` | `cli_parse` | `HLR-071`, `HLR-063` | `missing_target_is_a_usage_error`, `single_target_is_collected`, `several_targets_are_collected_in_order` |
-| `LLR-CLI-02` | `cli_parse` | `HLR-027`, `HLR-028`, `HLR-054`, `HLR-029` | **(no direct test)** |
+| `LLR-CLI-02` | `cli_parse` | `HLR-027`, `HLR-028`, `HLR-054`, `HLR-029` | `the_format_defaults_to_the_table`, `standard_output_takes_its_format_from_the_option_alone` |
 | `LLR-CLI-18` | `cli_parse` | `HLR-095`, `HLR-039` | **(no direct test)** |
 | `LLR-CLI-03` | `cli_parse` | `HLR-030` | `the_output_destination_defaults_to_standard_output`, `an_output_path_is_collected`, `the_short_output_option_behaves_as_the_long_one` |
 | `LLR-CLI-04` | `cli_parse` | `HLR-022` | `the_complexity_threshold_defaults_to_fifteen`, `a_complexity_threshold_is_collected`, `the_short_threshold_option_behaves_as_the_long_one`, `a_threshold_of_zero_is_accepted` |
@@ -1277,7 +1354,7 @@ verified by code review — see
 | `LLR-CLI-07` | `cli_parse` | `HLR-106`, `HLR-119` | **(no direct test)** |
 | `LLR-CLI-08` | `cli_parse` | `HLR-095` | **(no direct test)** |
 | `LLR-CLI-09` | `cli_parse` | `HLR-107`, `HLR-063` | **(no direct test)** |
-| `LLR-CLI-10` | `cli_parse` | `HLR-055`, `HLR-122` | **(no direct test)** |
+| `LLR-CLI-10` | `cli_parse` | `HLR-055`, `HLR-122` | `regenerating_into_a_filename_naming_a_table_is_a_usage_error`, `regenerating_into_a_filename_naming_markdown_is_accepted` |
 | `LLR-CLI-11` | `cli_parse` | `HLR-057` | **(no direct test)** |
 | `LLR-CLI-12` | `cli_parse` | `HLR-063` | `unrecognised_option_is_a_usage_error`, `missing_target_is_a_usage_error`, `an_output_option_without_its_argument_is_a_usage_error`, `a_malformed_threshold_is_a_usage_error` |
 | `LLR-CLI-13` | `cli_parse` | `HLR-117` | `help_short_option_reports_help`, `help_long_option_reports_help`, `help_takes_precedence_over_a_target` |
@@ -1292,10 +1369,16 @@ verified by code review — see
 | `LLR-CLI-23` | `cli_parse` | `HLR-147`, `HLR-063` | `an_image_with_regeneration_is_a_usage_error`, `HLR-147: --elf with --from-xml is a usage error` |
 | `LLR-CLI-24` | `cli_parse` | `HLR-136`, `HLR-063` | `a_definition_with_regeneration_is_a_usage_error`, `regeneration_without_a_definition_is_accepted`, `HLR-063: -D with --from-xml is a usage error` |
 | `LLR-CLI-25` | `cli_parse` | `HLR-131` | `a_definition_is_recorded_as_given` |
+| `LLR-CLI-26` | `cli_parse` | `HLR-148`, `HLR-063` | `an_output_extension_selects_the_format`, `an_unrecognised_output_extension_is_a_usage_error`, `an_output_path_with_no_extension_is_a_usage_error` |
+| `LLR-CLI-27` | `cli_parse` | `HLR-149`, `HLR-063` | `a_format_option_contradicting_the_filename_is_a_usage_error`, `a_format_option_agreeing_with_the_filename_is_accepted`, `the_format_defaults_to_the_table`, `standard_output_takes_its_format_from_the_option_alone` |
+| `LLR-CLI-28` | `cli_parse` | `HLR-055`, `HLR-148`, `HLR-063` | `regenerating_into_a_filename_naming_a_table_is_a_usage_error`, `regenerating_into_a_filename_naming_markdown_is_accepted` |
+| `LLR-CLI-29` | `cli_parse` | `HLR-151`, `HLR-150` | `the_summary_is_the_default_verbosity`, `verbose_is_recorded_in_either_spelling` |
+| `LLR-CLI-30` | `cli_parse` | `HLR-152` | `verbose_with_a_complete_record_format_is_accepted` |
 | `LLR-USG-01` | `cli_usage` | `HLR-117` | **(no direct test)** |
-| `LLR-USG-02` | `cli_usage` | `HLR-117`, `HLR-063`, `HLR-038` | **(no direct test)** |
+| `LLR-USG-02` | `cli_usage` | `HLR-117`, `HLR-063`, `HLR-038` | `the_usage_summary_documents_verbosity_and_the_extension_rule` |
 | `LLR-USG-07` | `cli_usage` | `HLR-140`, `HLR-117` | `the_usage_summary_documents_the_image_option` |
 | `LLR-USG-08` | `cli_usage` | `HLR-117` | **(no direct test)** |
+| `LLR-USG-09` | `cli_usage` | `HLR-151`, `HLR-148`, `HLR-130`, `HLR-117` | `the_usage_summary_documents_verbosity_and_the_extension_rule` |
 | `LLR-STR-01` | `parse_stratum` | `HLR-078` | `a_stratum_declaration_is_parsed_into_a_name_and_patterns` |
 | `LLR-STR-02` | `parse_stratum` | `HLR-078`, `HLR-118` | `the_declared_order_fixes_the_ordinals`, `HLR-078: the declared order determines the direction` |
 | `LLR-STR-03` | `parse_stratum` | `HLR-063`, `HLR-078` | `a_malformed_stratum_declaration_is_rejected`, `HLR-063: a malformed stratum declaration is a usage error` |
@@ -1490,11 +1573,13 @@ verified by code review — see
 | `LLR-CTR-02` | `calltree_analyse` | `HLR-089` | `direct_recursion_is_detected`, `mutual_recursion_is_detected`, `a_straight_line_program_has_no_cycles`, `LLR-CYC-03: that same file still reports the recursion` |
 | `LLR-CTR-03` | `calltree_analyse` | `HLR-115`, `HLR-087` | `no_entry_points_omits_depth_with_a_reason` |
 | `LLR-CTR-04` | `calltree_analyse` | `HLR-090` | `recursion_yields_no_depth_and_terminates` |
-| `LLR-CTR-07` | `calltree_analyse` | `HLR-085`, `HLR-089`, `HLR-074` | `fan_out_ignores_global_edges`, `a_global_cycle_is_not_recursion`, `a_chain_does_not_travel_along_a_global_edge` |
+| `LLR-CTR-07` | `calltree_analyse` | `HLR-085`, `HLR-089`, `HLR-156`, `HLR-074` | `fan_out_ignores_global_edges`, `fan_in_ignores_global_edges`, `a_global_cycle_is_not_recursion`, `a_chain_does_not_travel_along_a_global_edge`, `HLR-156: a global edge contributes no fan-in` |
 | `LLR-CTR-08` | `calltree_analyse` | `HLR-115`, `HLR-095` | `an_entry_point_matching_nothing_is_a_distinct_omission` |
 | `LLR-CTR-09` | `calltree_analyse` | `HLR-115`, `HLR-089` | `no_entry_points_omits_depth_with_a_reason` |
 | `LLR-CTR-05` | `calltree_analyse` | `HLR-087` | `depth_is_the_length_of_the_deepest_chain`, `depth_measures_from_the_deepest_entry_point` |
 | `LLR-CTR-06` | `calltree_analyse` | `HLR-087`, `HLR-077` | `depth_carries_the_unresolved_count` |
+| `LLR-CTR-10` | `calltree_analyse` | `HLR-156`, `HLR-085` | `fan_in_counts_distinct_callers`, `HLR-156: fan-in counts the distinct functions that call one`, `HLR-156: a repeated call does not raise fan-in`, `HLR-156: a function nothing calls has fan-in zero` |
+| `LLR-CTR-11` | `calltree_analyse` | `HLR-157`, `HLR-158` | `henry_kafura_is_length_times_the_squared_product`, `a_function_at_either_end_of_the_graph_scores_zero`, `the_squared_product_is_widened_before_it_is_multiplied`, `HLR-157: the hand-computed Henry-Kafura value matches, function by function` |
 | `LLR-LPD-01` | `longest_path_dag` | `HLR-087` | `the_deepest_chain_is_an_ordered_sequence` |
 | `LLR-LPD-04` | `longest_path_dag` | `HLR-087`, `HLR-032` | `depth_is_the_length_of_the_deepest_chain` |
 | `LLR-LPD-02` | `longest_path_dag` | `HLR-088` | **(no direct test)** |
@@ -1518,18 +1603,19 @@ verified by code review — see
 | `LLR-ISO-01` | `check_scopes` | `HLR-094` | `an_edge_crossing_a_declared_boundary_is_reported`, `a_shared_global_crossing_a_boundary_is_reported`, `HLR-094: a call crossing a declared scope boundary is reported`, `HLR-094: a shared global crossing a boundary is reported too`, `HLR-094: exactly the two crossings are reported`, `HLR-094: an edge within one scope is not a crossing` |
 | `LLR-ISO-02` | `check_scopes` | `HLR-094`, `HLR-115` | `a_component_matching_no_declaration_is_outside_the_partition`, `HLR-094: a file matching no declaration is outside the partition` |
 | `LLR-THR-01` | `thresholds_apply` | `HLR-098` | `a_clean_project_yields_no_findings`, `findinglist_free_is_safe_on_null_and_twice`, `HLR-098: a project inside every band reports no findings` |
-| `LLR-THR-02` | `thresholds_apply` | `HLR-099` | `every_catalogued_measurement_names_a_source`, `exactly_one_threshold_is_elcs_own_and_says_so`, `the_published_thresholds_are_not_marked_as_elcs_own`, `HLR-099: every finding names its source`, `HLR-099: a single-function global is attributed to MISRA C Rule 8.9`, `HLR-099: the bottleneck threshold is marked as elc's own`, `HLR-099: no published threshold is labelled as elc's own` |
+| `LLR-THR-02` | `thresholds_apply` | `HLR-099` | `every_measurement_names_a_source`, `exactly_one_threshold_is_elcs_own_and_says_so`, `the_published_thresholds_are_not_marked_as_elcs_own`, `HLR-099: every finding names its source`, `HLR-099: a single-function global is attributed to MISRA C Rule 8.9`, `HLR-099: the bottleneck threshold is marked as elc's own`, `HLR-099: no published threshold is labelled as elc's own` |
 | `LLR-THR-03` | `thresholds_apply` | `HLR-123` | `the_severity_set_is_closed_and_ordered`, `an_unrecognised_severity_ranks_lowest_rather_than_faulting`, `every_finding_carries_exactly_one_severity`, `HLR-123: every finding carries a severity from the closed set`, `HLR-100: severity does not move the exit status` |
 | `LLR-THR-04` | `thresholds_apply` | `HLR-123` | `the_highest_applicable_band_is_the_one_reported` |
 | `LLR-THR-05` | `thresholds_apply` | `HLR-086` | `the_fan_out_bands_match_the_published_table`, `the_acceptable_band_produces_no_finding`, `every_fan_out_value_classifies_exactly_once`, `HLR-086: each boundary value classifies into exactly one band`, `HLR-086: the bands below the warning threshold produce nothing`, `HLR-086: the acceptable band is silent, not a gap`, `HLR-086: exactly three findings come out of the boundary file` |
 | `LLR-THR-06` | `thresholds_apply` | `HLR-087` | `call_depth_bands_at_eight_and_twelve` |
 | `LLR-THR-07` | `thresholds_apply` | `HLR-089`, `HLR-099` | `HLR-099: recursion is attributed to MISRA C Rule 17.2` |
-| `LLR-THR-08` | `thresholds_apply` | `HLR-098` | `a_kind_outside_the_catalogue_yields_no_entry` |
+| `LLR-THR-08` | `thresholds_apply` | `HLR-098` | `henry_kafura_is_attributed_and_never_banded`, `a_kind_outside_the_catalogue_yields_no_entry` |
 | `LLR-THR-09` | `thresholds_apply` | `HLR-101` | `HLR-101: no finding proposes a fix` |
 | `LLR-THR-10` | `thresholds_apply` | `HLR-111` | **(no direct test)** |
 | `LLR-THR-11` | `thresholds_apply` | `HLR-098`, `HLR-099`, `HLR-111` | **(no direct test)** |
 | `LLR-THR-12` | `thresholds_apply` | `HLR-115`, `HLR-098` | `an_omitted_depth_is_not_banded_as_zero` |
 | `LLR-THR-13` | `thresholds_apply` | `HLR-031`, `HLR-123`, `HLR-032` | `HLR-031: a measurement inside its band is still reported`, `HLR-123: findings are ranked most severe first`, `HLR-100: the summary counts findings without gating on them`, `HLR-031: the empty Findings section is still emitted` |
+| `LLR-THR-15` | `thresholds_apply` | `HLR-159`, `HLR-157`, `HLR-099` | `every_banded_measurement_names_its_source_in_its_row`, `henry_kafura_is_attributed_and_never_banded`, `HLR-159: no Henry-Kafura figure is reported as a finding` |
 | `LLR-THR-14` | `thresholds_apply` | `HLR-054`, `HLR-056`, `HLR-099` | `HLR-032: findings survive a record round trip byte-identically`, `HLR-056: a regenerated report keeps each finding's attribution` |
 | `LLR-RPT-01` | `report_assemble` | `HLR-024` | `totals_sum_across_every_file` |
 | `LLR-RPT-02` | `report_assemble` | `HLR-025` | **(no direct test)** |
@@ -1564,6 +1650,7 @@ verified by code review — see
 | `LLR-RPT-32` | `report_assemble` | `HLR-109`, `HLR-032` | **(no direct test)** |
 | `LLR-RPT-33` | `report_assemble` | `HLR-136`, `HLR-133` | `HLR-136: the definitions are reported in a stable order` |
 | `LLR-RPT-34` | `report_assemble` | `HLR-147`, `HLR-143` | `HLR-147: the report names the image it was filtered by` |
+| `LLR-RPT-35` | `report_assemble` | `HLR-158`, `HLR-024`, `HLR-056` | `the_henry_kafura_total_is_the_sum_of_the_per_function_values`, `a_project_with_no_functions_totals_zero_rather_than_nothing`, `the_flow_figures_are_carried_by_the_record`, `HLR-158: the project total is the sum of the per-function values`, `HLR-156, HLR-157: the flow figures survive a record round trip` |
 | `LLR-TBL-01` | `format_table` | `HLR-027` | `the_table_carries_the_summary_and_every_file`, `columns_are_aligned_on_the_longest_path`, `an_empty_report_still_renders_a_table` |
 | `LLR-TBL-02` | `format_table` | `HLR-027` | **(no direct test)** |
 | `LLR-TBL-03` | `format_table` | `HLR-038` | `a_write_failure_is_reported` |
@@ -1572,10 +1659,12 @@ verified by code review — see
 | `LLR-SUM-03` | `render_summary` | `HLR-031` | **(no direct test)** |
 | `LLR-SUM-04` | `render_summary` | `HLR-027`, `HLR-032` | **(no direct test)** |
 | `LLR-SUM-05` | `render_summary` | `HLR-136`, `HLR-031` | **(no direct test)** |
-| `LLR-SUM-02` | `render_summary` | `HLR-031` | **(no direct test)** |
+| `LLR-SUM-02` | `render_summary` | `HLR-031` | `both_styles_reach_the_same_tiers_at_each_verbosity` |
 | `LLR-SUM-06` | `render_summary` | `HLR-143`, `HLR-031` | `HLR-140: with no image nothing is filtered and no section is added`, `HLR-147: the report names the image it was filtered by` |
 | `LLR-SUM-07` | `render_summary` | `HLR-109`, `HLR-111`, `HLR-031` | `HLR-031: the section is emitted even with no rule supplied` |
 | `LLR-SUM-08` | `render_summary` | `HLR-136`, `HLR-031` | `HLR-136: the definitions in force are reported` |
+| `LLR-SUM-09` | `render_summary` | `HLR-150`, `HLR-151`, `HLR-031`, `HLR-115` | `the_summary_omits_the_per_function_tier`, `the_summary_keeps_the_findings`, `the_verbose_report_is_a_superset_of_the_summary`, `both_styles_reach_the_same_tiers_at_each_verbosity` |
+| `LLR-SUM-10` | `render_summary` | `HLR-157`, `HLR-158`, `HLR-159`, `HLR-156`, `HLR-024`, `HLR-150` | `HLR-156: every function reports a fan-in, not only the connected ones`, `HLR-159: an entry point and a leaf each report a zero, not a blank`, `HLR-159: the report states why a zero is a zero`, `HLR-159: the formula and its attribution travel with the figures`, `HLR-158: the project total is a summary figure, not a detail one` |
 | `LLR-CSV-01` | `format_csv` | `HLR-028` | `the_header_row_is_written`, `an_empty_report_is_a_header_alone`, `a_write_failure_is_reported` |
 | `LLR-CSV-02` | `format_csv` | `HLR-028`, `HLR-031` | **(no direct test)** |
 | `LLR-FLD-01` | `write_field` | `HLR-064` | `an_ordinary_field_is_not_quoted`, `a_field_containing_a_comma_is_quoted`, `a_quote_is_doubled_not_backslashed`, `a_field_containing_a_newline_is_quoted`, `a_field_containing_a_carriage_return_is_quoted`, `a_field_needing_every_escape_survives`, `an_empty_field_is_emitted_empty`, `a_null_field_is_emitted_empty` |
@@ -1587,7 +1676,7 @@ verified by code review — see
 | `LLR-XWR-06` | `xml_write_report` | `HLR-054`, `HLR-056`, `HLR-127` | **(no direct test)** |
 | `LLR-XWR-07` | `xml_write_report` | `HLR-054`, `HLR-056`, `HLR-077` | **(no direct test)** |
 | `LLR-XWR-09` | `xml_write_report` | `HLR-054`, `HLR-056`, `HLR-137` | **(no direct test)** |
-| `LLR-XWR-08` | `xml_write_report` | `HLR-054`, `HLR-056` | **(no direct test)** |
+| `LLR-XWR-08` | `xml_write_report` | `HLR-054`, `HLR-056` | `the_flow_figures_are_carried_by_the_record`, `a_record_without_the_flow_attributes_still_reads`, `HLR-156, HLR-157: the flow figures survive a record round trip` |
 | `LLR-XWR-10` | `xml_write_report` | `HLR-136`, `HLR-054` | **(no direct test)** |
 | `LLR-XWR-11` | `xml_write_report` | `HLR-054`, `HLR-056`, `HLR-096`, `HLR-137` | `HLR-032: the state sections survive a record round trip byte-identically` |
 | `LLR-XWR-12` | `xml_write_report` | `HLR-139`, `HLR-056`, `HLR-099` | `HLR-032: a global-state finding survives the round trip` |
@@ -1627,6 +1716,7 @@ verified by code review — see
 | `LLR-GML-02` | `graph_write_graphml` | `HLR-106` | `graphml_is_off_unless_asked_for`, `graphml_is_written_when_asked_for_and_named` |
 | `LLR-GML-03` | `graph_write_graphml` | `HLR-106`, `HLR-119` | `graphml_needs_an_output_path`, `the_companion_replaces_the_extension`, `a_path_without_an_extension_gains_one`, `a_dot_in_a_directory_is_not_an_extension`, `a_directory_dot_with_an_extension_still_substitutes` |
 | `LLR-GML-04` | `graph_write_graphml` | `HLR-065`, `HLR-106` | **(no direct test)** |
+| `LLR-GML-05` | `graph_write_graphml` | `HLR-156`, `HLR-106` | `HLR-156: fan-in is the in-degree over call edges`, `HLR-156: a global edge contributes no fan-in` |
 | `LLR-ELF-01` | `elfsyms_open` | `HLR-140` | `HLR-140: a static function reaches .symtab and is retained` |
 | `LLR-ELF-02` | `elfsyms_open` | `HLR-140` | `LLR-ELF-02: a function the image only imports is not one it defines` |
 | `LLR-ELF-03` | `elfsyms_open` | `HLR-141` | `HLR-141: filtering by an image spawns no toolchain utility`, `HLR-141: the image is opened once and nothing beside it` |
@@ -1677,8 +1767,8 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
 | `comments/` | [test/fixtures/comments/](../test/fixtures/comments/) | Nested block comments; comment syntax inside string literals; string delimiters inside comments; a block comment containing inline comment syntax | `expected.tsv`, with the merge arithmetic shown in each file header | HLR-016, HLR-034 — and, through them, HLR-013, which has no direct observable |
 | `nesting/` | [test/fixtures/nesting/](../test/fixtures/nesting/) | Nested named functions; lambdas and closures; methods and constructors; a nested function inside a lambda | `expected.tsv` — per-function attribution showing no statement counted twice | HLR-014, HLR-018, HLR-067, HLR-068 |
 | `deadcode/` | [test/fixtures/deadcode/](../test/fixtures/deadcode/) | Statements after a `return`, a `break`, and a `continue`; a `goto` label following a `return`, which is reachable and must not be reported; a switch whose arms each end in `return`; `if (0)`, `if (1) … else`, and a loop with a literally false condition; a variable holding a constant used as a condition, which must **not** be reported; dead statements inside an unreachable function; a file in a language whose module supplies no dead-code query | The exact set of unreachable statements with their line ranges and causes — and, as importantly, the exact set of constructs that are *not* reported. The false-positive cases carry the weight: a missed statement costs a cleanup, a false claim invites deleting code that runs | HLR-013, HLR-096, HLR-121, HLR-137, HLR-138, HLR-139 |
-| `calltree/` | [test/fixtures/calltree/](../test/fixtures/calltree/) | One function per fan-out band boundary — 2, 3, 7, 8, 10, 11, 15, 16 — each also calling one helper twice; a four-deep call chain with a shallower branch listed first; direct and mutual recursion in their smallest forms | The exact fan-out at every boundary, the deepest chain as an ordered sequence, both recursive cycles by kind and members, and the stated reason wherever a depth figure is absent. Phase 12 adds `expected-findings.tsv`, the band each boundary value falls in — which is why the values are pinned here first | HLR-032, HLR-033, HLR-038, HLR-056, HLR-077, HLR-085, HLR-087 – HLR-090, HLR-095, HLR-115 |
-| `graph/` | [test/fixtures/graph/](../test/fixtures/graph/) | **Phase 8**: a repeated call between one pair of functions; a global written in one file and read in another; a function assigned without being called; and a call into a library. **Phases 9–11 add**: mutual recursion within one file and across two; a clique of unused functions calling one another; a component dependency cycle; a global read and written by a single function; a global read by unreachable functions only | `expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. An unresolvable call is pinned as counted rather than invented, so that a *false* edge would be visible in the fixture rather than in a user's report | Phase 8: HLR-010, HLR-032, HLR-033, HLR-073 – HLR-077, HLR-085, HLR-096, HLR-104, HLR-106, HLR-114. Later phases add HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-097 |
+| `calltree/` | [test/fixtures/calltree/](../test/fixtures/calltree/) | One function per fan-out band boundary — 2, 3, 7, 8, 10, 11, 15, 16 — each also calling one helper twice; a hub with three callers and two callees, each callee invoked twice, sitting between an entry point that nothing calls and leaves that call nothing; a four-deep call chain with a shallower branch listed first; direct and mutual recursion in their smallest forms | The exact fan-out at every boundary; the fan-in and Henry-Kafura value of every function in the flow tree, each worked out in `README.md` from the source, together with the project total as their sum; the deepest chain as an ordered sequence, both recursive cycles by kind and members, and the stated reason wherever a depth figure is absent. Phase 12 adds `expected-findings.tsv`, the band each boundary value falls in — which is why the values are pinned here first | HLR-032, HLR-033, HLR-038, HLR-056, HLR-077, HLR-085, HLR-087 – HLR-090, HLR-095, HLR-115, HLR-156 – HLR-159 |
+| `graph/` | [test/fixtures/graph/](../test/fixtures/graph/) | **Phase 8**: a repeated call between one pair of functions; a global written in one file and read in another; a function assigned without being called; and a call into a library. **Phases 9–11 add**: mutual recursion within one file and across two; a clique of unused functions calling one another; a component dependency cycle; a global read and written by a single function; a global read by unreachable functions only | `expected.graphml`, compared node for node and edge for edge; `expected-findings.tsv` joins it when there are findings to compare. An unresolvable call is pinned as counted rather than invented, so that a *false* edge would be visible in the fixture rather than in a user's report. Each node's fan-in is pinned there too, and the reader of the global object is pinned at **zero**: an in-degree taken over the whole graph would make it one, and the Henry-Kafura value squares the product of the degrees, so this group is where that error is caught before it is magnified | Phase 8: HLR-010, HLR-032, HLR-033, HLR-073 – HLR-077, HLR-085, HLR-096, HLR-104, HLR-106, HLR-114. Later phases add HLR-083, HLR-084, HLR-089, HLR-091 – HLR-093, HLR-097, HLR-156 |
 | `dot/` | [test/fixtures/dot/](../test/fixtures/dot/) | Two trees, and two because recursion makes the call depth unbounded so one tree cannot hold both a recursive cycle and a measured deepest chain. `tree/`: a six-function call chain; a function whose fan-out is 11, the first value that warns; two files that depend on each other while no function calls itself even indirectly; a global shared across two disconnected regions of the call graph; seven functions no path reaches from the declared entry point. `recursive/`: two mutually recursive functions and a forward declaration | That the emitted file is valid DOT is settled by rendering it under `dot`, never by matching text that looks like DOT. That the annotations say what the analyses found is asserted against the hand-worked node and component tables in `README.md`. And, uniquely to this artefact, that **stripping every annotation leaves the same tree** — performed by deleting every attribute from the file and requiring the remainder to render with the same nodes and the same edges | HLR-032, HLR-100, HLR-102 – HLR-105, HLR-119 |
 | `arch/` | [test/fixtures/arch/](../test/fixtures/arch/) | A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all | `expected-findings.tsv`, with the hand-computed `Ca`, `Ce`, and instability table, and the omission notice for the undeclared run | HLR-078 – HLR-082, HLR-094, HLR-114, HLR-115, HLR-118 |
 | `rules/` | [test/fixtures/rules/](../test/fixtures/rules/) | One rule file holding **two** named captures, supplied from the runtime location and from the command line so that the same query is exercised by both bindings; one predicate-bearing capture, so that a rule whose filter is dropped would over-match visibly; **one** broken rule file used from *both* provenances, since two different broken files could not distinguish a provenance rule from a file-contents rule; a rule naming a language with no module; an argument with no language; decoy `.scm` files planted in the working directory, in a dotfile directory, and in the analysis target | Three matches under two identities, each `basename.capture` with its file and line range; `free` not matched, which is what proves the predicate was evaluated rather than discarded; identical matches from either binding; exit 0 with a diagnostic and a report for the broken rule found in the runtime location, and exit 2 with no report for the same bytes named on the command line; exit 0 and a skip for the unavailable language; no match from any decoy; a section emitted with a count of zero when no rule was supplied; byte-identical regeneration from the record | HLR-032, HLR-054, HLR-056, HLR-063, HLR-107 – HLR-111, HLR-116 |

@@ -59,8 +59,8 @@ release readiness — is ready to start, and is the last.
 | [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
 | [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
 | [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
-| [18](#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | 🔲 Not started |
-| [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | 🔲 Not started |
+| [18](#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
+| [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
 | [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | 🔲 Not started |
 | [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | 🔲 Not started |
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
@@ -1549,11 +1549,21 @@ tree.
 **On the gap baseline.** It stands at 175 rather than the figure a release
 would otherwise want, because 32 requirements are specified and not yet
 built. This phase lowers it by whatever it closes and no more; the run of
-phases after it brings it back to 143, which is where it stood before any of
-this was specified. A baseline that has *risen* is normally the signal that a
-phase shipped requirements without tests (§5.4 step 8) — here it is the
-recorded consequence of specifying ahead of building, and it is the one case
-where that is deliberate.
+phases after it brings it back to where it stood before any of this was
+specified. A baseline that has *risen* is normally the signal that a phase
+shipped requirements without tests (§5.4 step 8) — here it is the recorded
+consequence of specifying ahead of building, and it is the one case where
+that is deliberate.
+
+The per-phase figures quoted in the prompts of §8 were projected from 175 on
+the assumption that each phase closes exactly its own requirements and no
+others. Phase 17 closed nine that were already open, and Phase 18 closed five
+of its own plus five that had gone uncovered since earlier phases, so each
+phase from here **re-derives its target from the baseline it actually
+inherits** rather than from the projection. The projections stay in the text
+as the lower bound each phase must beat, not as the figure it must hit: the
+rule step 8 enforces is that the count fell by at least what the phase
+closed.
 
 **AI prompt.** Run after issue #<N> exists; `<N>` is its number.
 
@@ -1692,9 +1702,10 @@ Watch for:
 * The verbosity option belongs in `cli_usage`, which is the reference the
   documentation test checks both documents against (LLR-DOC-04).
 
-The gap baseline was raised to 155 when these requirements were specified
-ahead of any design. The five HLRs this phase closes must bring it to 150 or
-below; step 8 is not satisfied by a baseline that merely holds.
+The gap baseline was raised to 175 when these requirements were specified
+ahead of any design, and Phase 17 brought it to 166. The five HLRs this phase
+closes must bring it below that; step 8 is not satisfied by a baseline that
+merely holds.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
@@ -1782,8 +1793,8 @@ Watch for:
   cannot (LLR-XWR-08): regeneration has no graph, and no source to build one
   from.
 
-The five HLRs Phase 18 closed should have left the gap baseline at 150 or
-below; the four this phase closes must bring it to 146 or below.
+Phase 18 left the gap baseline at 156; the four HLRs this phase closes must
+bring it to 152 or below. *(It closed at 151.)*
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
@@ -1890,9 +1901,8 @@ it is a design decision under HLR-112. If `libdw` is chosen — beside the
 `make check-prereqs` both need it, and step 6 records the choice in the SDD's
 dependency table.
 
-The four HLRs Phase 19 closed should have left the gap baseline at 146 or
-below; the three this phase closes must bring it to 143 or below, which is
-where it stood before these requirements were specified.
+Phase 19 left the gap baseline at 151; the three HLRs this phase closes must
+bring it to 148 or below.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
@@ -1972,9 +1982,9 @@ Watch for:
   makes it useful to the reader who has declared nothing, which is most
   readers on a first run.
 
-The gap baseline stands at 175, raised when these requirements were
-specified ahead of design. The seven HLRs this phase closes must bring it to
-156 or below, assuming Phases 18 to 20 closed theirs.
+The gap baseline is re-derived from the figure this phase inherits rather
+than projected forward from 175: read `test/gap-baseline.txt`, and the seven
+HLRs this phase closes must bring it seven lower. Phase 19 left it at 151.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

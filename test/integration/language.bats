@@ -34,7 +34,7 @@ setup() {
 }
 
 @test "HLR-008: files sharing a language are analysed in one invocation" {
-	elc "$TREE"
+	elc --verbose "$TREE"
 	assert_success
 	assert_output --partial "first"
 	assert_output --partial "second"
@@ -45,7 +45,7 @@ setup() {
 # --- function identity (HLR-014) -------------------------------------------
 
 @test "HLR-014: each function is reported with its name and line range" {
-	elc "$TREE/pair.c"
+	elc --verbose "$TREE/pair.c"
 	assert_success
 	# first() spans lines 1-4, second() lines 6-9.
 	assert_output --regexp "first +1-4"
@@ -54,7 +54,7 @@ setup() {
 
 @test "HLR-014: the line range starts at the signature, not the brace" {
 	printf 'int sig(void)\n{\n\treturn 0;\n}\n' > "$TREE/sig.c"
-	elc "$TREE/sig.c"
+	elc --verbose "$TREE/sig.c"
 	assert_success
 	assert_output --regexp "sig +1-4"
 }
@@ -62,7 +62,7 @@ setup() {
 @test "HLR-033: functions are presented in start-line order" {
 	printf 'int zeta(void) { return 0; }\nint alpha(void) { return 0; }\n' \
 		> "$TREE/order.c"
-	elc "$TREE/order.c"
+	elc --verbose "$TREE/order.c"
 	assert_success
 
 	local names
@@ -109,7 +109,7 @@ alpha"
 
 @test "HLR-035: a file that fails to parse does not abort the run" {
 	printf 'this is not C at all (((\n' > "$TREE/broken.c"
-	elc "$TREE"
+	elc --verbose "$TREE"
 	assert_output --partial "first" \
 		"the report must still cover the files that parsed"
 }
@@ -205,7 +205,7 @@ alpha"
 
 @test "HLR-015: each function reports its own ELOC" {
 	printf 'int f(void)\n{\n\tint n = 1;\n\treturn n;\n}\n' > "$TREE/one.c"
-	elc "$TREE/one.c"
+	elc --verbose "$TREE/one.c"
 	assert_success
 	assert_output --regexp "f +1-5 +2"
 }
@@ -280,7 +280,7 @@ alpha"
 	printf 'fn rust_fn() -> i32 { 0 }\n'      > "$tree/c.rs"
 	printf 'def py_fn():\n    return 0\n'     > "$tree/d.py"
 
-	elc "$tree"
+	elc --verbose "$tree"
 	assert_success
 	assert_output --partial "c_fn"
 	assert_output --partial "cpp_fn"

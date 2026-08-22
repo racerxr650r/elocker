@@ -25,12 +25,24 @@ Node identifiers run in **sorted file order**, and within a file by start
 line (LLR-SDG-09). Sorting is by path, so `core.c` precedes `reader.c` — which
 is *not* the order a directory walk yields them in, and is the point.
 
-| id | Function | File | address-taken | fan-out |
-| -- | -------- | ---- | ------------- | ------- |
-| n0 | `bump` | `core.c` | no | 0 |
-| n1 | `tick` | `core.c` | no | 1 |
-| n2 | `report` | `reader.c` | **yes** | 0 |
-| n3 | `install` | `reader.c` | no | 0 |
+| id | Function | File | address-taken | fan-out | fan-in |
+| -- | -------- | ---- | ------------- | ------- | ------ |
+| n0 | `bump` | `core.c` | no | 0 | **1** |
+| n1 | `tick` | `core.c` | no | 1 | 0 |
+| n2 | `report` | `reader.c` | **yes** | 0 | **0** |
+| n3 | `install` | `reader.c` | no | 0 | 0 |
+
+**`report`'s fan-in is 0 and that is the column this group exists to pin.**
+`tick` writes `shared_counter` and `report` reads it, so the SDG holds an edge
+from n1 to n2 — and in-degree taken over the whole graph would make `report`'s
+fan-in 1. Fan-in counts *callers*, over the call view alone, exactly as fan-out
+counts callees (HLR-156, LLR-CTR-07). Nothing calls `report`; being read by
+someone is not being called by them. The error would not stay a fan-in error
+either: the Henry-Kafura value squares the product of the two degrees, so a
+fan-in inflated by one is a Henry-Kafura value inflated by more (HLR-157).
+
+`bump`'s fan-in is 1 for the converse reason `tick`'s fan-out is 1: two call
+sites, one caller.
 
 `report` is address-taken because `install` assigns it to `hook` without
 calling it. That is the callback pattern Phase 10's reachability analysis
@@ -65,6 +77,16 @@ between them and none should.
 It is counted and it is not fatal (HLR-077). **No destination is invented for
 it**: an edge that does not exist would make Phase 10's dead-code proof
 unsound, and a wrong edge is worse than a missing one there.
+
+## Henry-Kafura: **0** for every node, and the project total is **0**
+
+Every function here sits at one end of the call graph or the other — `bump`,
+`report` and `install` call nothing, `tick` is called by nothing — so the
+product term vanishes for all four and each scores zero whatever its length
+(HLR-159). The non-zero values live in the [`calltree/`](../calltree/README.md)
+group, beside the fan-in figures that produce them. What this group asserts is
+the input: that a global edge contributed nothing to the degrees the formula
+multiplies.
 
 ## What is not here
 

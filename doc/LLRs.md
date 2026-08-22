@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.5
-**Date:** 2026-08-17
+**Version:** 2.7
+**Date:** 2026-08-22
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -68,6 +68,9 @@ Orchestration and exit status. `main` performs no analysis; every requirement be
 *   <a id="LLR-MAIN-20"></a>**LLR-MAIN-20** — `main` shall read the linked image before discovery begins, so that an image that cannot be read ends the run before any source file is measured rather than after a full walk whose results are then discarded.
     *Trace:* HLR-146 (An Unusable Image Is Fatal).
 
+*   <a id="LLR-MAIN-21"></a>**LLR-MAIN-21** — `main` shall pass the selected verbosity to the two human-facing renderers and to no other, so that the CSV and XML writers produce the same bytes whatever was asked for. The dispatch is where that stops: the complete-record formats have no presentation for a verbosity to select between, and giving them the parameter would create a place for one to be honoured by mistake.
+    *Trace:* HLR-152 (Complete-Record Formats Unaffected by Verbosity), HLR-151 (Verbose Report on Request).
+
 ## 2. `cli_parse` ([src/cli.c](../src/cli.c))
 
 Command-line parsing and validation. `cli_parse` is the sole reader of `argv` and the sole source of user-supplied configuration.
@@ -102,7 +105,7 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-CLI-09"></a>**LLR-CLI-09** — `cli_parse` shall accept custom rule declarations that name both a language and a path, and shall reject a declaration naming only a path.
     *Trace:* HLR-107 (User-Supplied Rule Queries), HLR-063 (Invalid Command-Line Rejection).
 
-*   <a id="LLR-CLI-10"></a>**LLR-CLI-10** — `cli_parse` shall accept a regeneration-mode input path. In regeneration mode the report format shall default to Markdown rather than to the table format, and only a format *explicitly* selected and other than Markdown shall be rejected.
+*   <a id="LLR-CLI-10"></a>**LLR-CLI-10** — `cli_parse` shall accept a regeneration-mode input path. In regeneration mode the report format shall default to Markdown rather than to the table format, and only a format *explicitly* selected and other than Markdown shall be rejected. A format is explicitly selected either by `--format` or by the extension of an `--output` path (LLR-CLI-28), the two being two spellings of one statement (HLR-148, HLR-149); the diagnostic shall name whichever the user wrote.
     *Trace:* HLR-055 (XML-to-Markdown Conversion Mode), HLR-122 (No Companion Artefacts From a Saved Record).
 
 *   <a id="LLR-CLI-11"></a>**LLR-CLI-11** — `cli_parse` shall accept a complexity threshold in regeneration mode independently of any threshold recorded in the input file, defaulting to 15.
@@ -147,6 +150,23 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 *   <a id="LLR-CLI-25"></a>**LLR-CLI-25** — `cli_parse` shall accept zero or more conditional-compilation definitions and record each as given, `NAME` and `NAME=VALUE` alike, leaving what a definition means to the evaluation that alone knows what a language's conditions can test.
     *Trace:* HLR-131 (Conditional-Compilation Configuration).
 
+*   <a id="LLR-CLI-26"></a>**LLR-CLI-26** — `cli_parse` shall derive the report format from the extension of an `--output` path, recognising `.txt` as the aligned table, `.md` as Markdown, `.csv` as CSV, and `.xml` as the complete record, so that no format option is required to repeat what the filename has already said.
+
+    The extension is the last dot of the *basename*: a directory component carrying one lends nothing to a file that has none, a leading dot names a hidden file rather than an extension, and a trailing dot names nothing. An extension `elc` does not recognise, and a path with none, shall each be rejected as a usage error naming the extension found and listing those that are recognised, the list being generated from the same table that resolves so it cannot come to name a set of formats `elc` no longer has.
+    *Trace:* HLR-148 (Output Format Determined by Filename Extension), HLR-063 (Invalid Command-Line Rejection).
+
+*   <a id="LLR-CLI-27"></a>**LLR-CLI-27** — `cli_parse` shall resolve the format after the option loop rather than within it, so that `--format` and `--output` may be given in either order and still be compared against one another. Where both name a format and they agree, the invocation shall be accepted; where they disagree it shall be rejected as a usage error naming both, neither being silently preferred. Where no output path is given the option alone decides, and its default stands.
+    *Trace:* HLR-149 (Format Selection Without a Named Output File), HLR-063 (Invalid Command-Line Rejection).
+
+*   <a id="LLR-CLI-28"></a>**LLR-CLI-28** — `cli_parse` shall record whether the format was selected by the extension of an output path separately from whether `--format` named it, and shall treat the former as an explicit selection in regeneration mode. An output filename naming any format other than Markdown shall therefore be rejected there on the terms LLR-CLI-10 applies to `--format`, and one naming Markdown accepted, so that the mode can never write Markdown into a file whose name promises something else.
+    *Trace:* HLR-055 (XML-to-Markdown Conversion Mode), HLR-148 (Output Format Determined by Filename Extension), HLR-063 (Invalid Command-Line Rejection).
+
+*   <a id="LLR-CLI-29"></a>**LLR-CLI-29** — `cli_parse` shall accept a verbosity option in a short and a long spelling, recording the request in the options structure. The summary shall be the default, stored as the absence of the request, so that a zeroed options structure means the composition a run presents when nothing was asked for.
+    *Trace:* HLR-151 (Verbose Report on Request), HLR-150 (Summary Report by Default).
+
+*   <a id="LLR-CLI-30"></a>**LLR-CLI-30** — `cli_parse` shall accept the verbosity option together with a complete-record format rather than rejecting the pairing. It is the one option combination this parser decides that is not a usage error: there is no presentation for a verbosity to vary in a format defined as complete, so the request is honoured by changing nothing.
+    *Trace:* HLR-152 (Complete-Record Formats Unaffected by Verbosity).
+
 ## 3. `cli_usage` ([src/cli.c](../src/cli.c))
 
 *   <a id="LLR-USG-01"></a>**LLR-USG-01** — `cli_usage` shall write a summary naming every accepted option, its argument if any, and its default value.
@@ -160,6 +180,9 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-USG-08"></a>**LLR-USG-08** — `cli_usage` shall emit the summary as more than one string literal, no single literal exceeding the 4095 characters ISO C11 requires a translation unit to support. The build treats a warning as a defect, so a summary that outgrew the guaranteed minimum would stop the build rather than degrade — and it outgrew it as soon as the option list reached this size.
     *Trace:* HLR-117 (Help Request Is Not an Error).
+
+*   <a id="LLR-USG-09"></a>**LLR-USG-09** — `cli_usage` shall document the verbosity option, and shall state under `--output` that the extension of the named file selects the report format and that an unrecognised extension is a usage error rather than a guess. It shall also describe both compositions in its output summary, so that the reference the delivered documentation is checked against (LLR-DOC-04) states what a default run prints as well as which options exist.
+    *Trace:* HLR-151 (Verbose Report on Request), HLR-148 (Output Format Determined by Filename Extension), HLR-130 (Documentation Currency), HLR-117 (Help Request Is Not an Error).
 
 ## 4. `parse_stratum` ([src/cli.c](../src/cli.c))
 
@@ -805,8 +828,10 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
 *   <a id="LLR-CTR-04"></a>**LLR-CTR-04** — `calltree_analyse` shall report the recursive cycles in place of a depth figure, rather than a finite number or a non-terminating computation, when recursion is present.
     *Trace:* HLR-090 (Depth Reporting Under Recursion).
 
-*   <a id="LLR-CTR-07"></a>**LLR-CTR-07** — `calltree_analyse` shall measure fan-out, recursion, and call depth over the graph's call-edge view alone, never over the whole System Dependence Graph. A global-state edge records that one function writes an object another reads; it is coupling and not invocation. Counting one as a callee would inflate fan-out, following one would extend a call chain through a call that never happens, and a pair of functions sharing two objects in opposite directions forms a cycle in the SDG that is not recursion — which would be reported as a critical MISRA C Rule 17.2 violation against ordinary code.
-    *Trace:* HLR-085, HLR-089, HLR-074 (Global State Edges).
+*   <a id="LLR-CTR-07"></a>**LLR-CTR-07** — `calltree_analyse` shall measure fan-out, fan-in, recursion, and call depth over the graph's call-edge view alone, never over the whole System Dependence Graph. A global-state edge records that one function writes an object another reads; it is coupling and not invocation. Counting one as a callee would inflate fan-out, counting one as a caller would inflate fan-in, following one would extend a call chain through a call that never happens, and a pair of functions sharing two objects in opposite directions forms a cycle in the SDG that is not recursion — which would be reported as a critical MISRA C Rule 17.2 violation against ordinary code.
+
+    The rule governs fan-in most strictly of the four, because the error does not stay where it is made: the Henry-Kafura value of HLR-157 squares the product of the two degrees, so an in-degree taken over the whole graph inflates that figure by the square of its own error.
+    *Trace:* HLR-085, HLR-089, HLR-156 (Function Fan-In Measurement), HLR-074 (Global State Edges).
 
 *   <a id="LLR-CTR-08"></a>**LLR-CTR-08** — `calltree_analyse` shall distinguish, in the omission it records, between no entry points having been declared and declared entry points naming no analysed function, since the two call for different actions from the reader. A declared symbol that matches no analysed function shall be diagnosed and skipped rather than ending the run: analysing one directory of a project whose entry point is defined in another is ordinary use, and rejecting it would make the option unusable there.
     *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-095 (User-Declared Entry Points).
@@ -819,6 +844,16 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
 
 *   <a id="LLR-CTR-06"></a>**LLR-CTR-06** — `calltree_analyse` shall report the maximum depth together with the count of unresolved calls, since a chain continuing through an unresolved call is not followed and the depth is therefore a lower bound.
     *Trace:* HLR-087 (Maximum Call-Chain Depth), HLR-077 (Unresolvable Call Handling).
+
+*   <a id="LLR-CTR-10"></a>**LLR-CTR-10** — `calltree_analyse` shall compute, for every function, the number of *distinct* functions that invoke it directly, counted as the in-degree over the call-edge view. The graph is simple, so a caller invoking a function at forty call sites contributes one; it is the converse of LLR-CTR-01 and is counted by the same traversal, reading each call edge from its other end rather than walking the edge table a second time.
+
+    A function that no analysed function calls has a fan-in of zero, and that zero is recorded as a measurement rather than as a finding: an entry point, an exported API boundary, and an interrupt handler reached from a vector table all legitimately have none.
+    *Trace:* HLR-156 (Function Fan-In Measurement), HLR-085 (Function Fan-Out Measurement).
+
+*   <a id="LLR-CTR-11"></a>**LLR-CTR-11** — `calltree_analyse` shall compute, for every function, its Henry-Kafura structural complexity as `ELOC × (Fan-In × Fan-Out)²`, taking the length from the node the graph already carries, and shall widen each degree to the accumulating width **before** the multiplication rather than at the assignment. The product of two degrees fits in 32 bits and its square does not: a 32-bit square assigned to a 64-bit variable has already wrapped by the time the assignment widens it, and a wrapped value renders as a perfectly ordinary number.
+
+    The value shall be zero wherever either degree is zero, which is what the formula gives and is a value rather than an absence.
+    *Trace:* HLR-157 (Henry–Kafura Structural Complexity per Function), HLR-158 (Project-Level Henry–Kafura Total).
 
 ## 27. `longest_path_dag` ([src/calltree.c](../src/calltree.c))
 
@@ -945,6 +980,11 @@ Evaluation of every measurement against the published threshold catalogue, and a
 *   <a id="LLR-THR-13"></a>**LLR-THR-13** — The report shall carry the findings ranked by descending severity, then by measurement and subject, and shall present them beside the measurements rather than in place of them. A value inside its accepted band stays in the table that measured it; the findings list is the subset a reader acts on, and its emptiness is a result rather than a missing section.
     *Trace:* HLR-031 (Uniform Report Composition), HLR-123, HLR-032.
 
+*   <a id="LLR-THR-15"></a>**LLR-THR-15** — `threshold_attribution` shall name the published source of a measurement the catalogue holds no band for, from a table held apart from the catalogue, while `thresholds_lookup` continues to report that no threshold exists for it. A citation and a threshold are separate claims: the Henry-Kafura formula is Henry and Kafura's and must be attributed wherever it is reported, and no published source divides it into accepted and unaccepted ranges.
+
+    A catalogue row with empty bounds shall not be used to carry such a citation. `occurrence` false with both bounds zero is a silent band that every value passes, and `thresholds_lookup` would then answer "there is a threshold for this" to the one caller asking precisely because there is not — which would take the measurement off the path LLR-THR-08 provides and put it on the banded path with a band that judges nothing.
+    *Trace:* HLR-159 (Henry–Kafura Reported Without an Invented Band), HLR-157 (Henry–Kafura Structural Complexity per Function), HLR-099 (Threshold Source Attribution).
+
 *   <a id="LLR-THR-14"></a>**LLR-THR-14** — The record shall carry each finding with its severity, subject, detail and source. Regeneration has no measurements to band and no catalogue call to make against them, so a finding not written is one the regenerated report cannot have.
     *Trace:* HLR-054 (Complete Run Record), HLR-056, HLR-099.
 
@@ -1051,6 +1091,11 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-34"></a>**LLR-RPT-34** — `report_set_image` shall record on the assembled report the image the run was filtered by and the number of its linkage names left unresolved, so that a report states which image it describes and how completely that image could be read. It is set after assembly rather than passed into it for the reason the unresolved-call count is: the image is read before any file is measured and belongs to the run, while the effects of the filter belong to the measurement.
     *Trace:* HLR-147 (Filter Recorded and Reported), HLR-143 (Both Directions of Mismatch Counted and Reported).
 
+*   <a id="LLR-RPT-35"></a>**LLR-RPT-35** — `report_total_henry_kafura` shall set the project-level Henry-Kafura total to the sum of the per-function values held on the report model, and shall be the only place that total is formed. A live run calls it once the flow rows are filled; a run regenerating from a record calls it once they are restored, because `report_assemble` works over the per-file metrics and those carry no fan-in from which the total could be derived.
+
+    One function rather than a line in each of the two paths, so that "the total is the sum of the per-function values" is a property of the code rather than of two implementations agreeing. It shall not apply the formula to project-level aggregates: the metric is defined over one procedure's traffic, and doing so would multiply a length by a connectivity no procedure has.
+    *Trace:* HLR-158 (Project-Level Henry–Kafura Total), HLR-024 (Project-Level Totals), HLR-056 (Regeneration Fidelity).
+
 ## 36. `format_table` ([src/format_text.c](../src/format_text.c))
 
 *   <a id="LLR-TBL-01"></a>**LLR-TBL-01** — `format_table` shall render the report as an aligned, human-readable table, computing column widths from the longest path and function name.
@@ -1069,7 +1114,7 @@ The single place every reported collection is ordered. The audit point for deter
 
 ## 38. `render_summary` ([src/format_text.c](../src/format_text.c))
 
-*   <a id="LLR-SUM-01"></a>**LLR-SUM-01** — `render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion.
+*   <a id="LLR-SUM-01"></a>**LLR-SUM-01** — `render_summary` shall present the project summary, the discovery route of each directory target, each file's totals and threshold list, the full per-function detail, the architectural measurements and findings — including measurements falling within their accepted bands — any custom-rule matches, the skipped-file list, and any omitted analysis with its reason, in every report format other than CSV, XML, and the `.dot` companion. That enumeration is the composition of the **verbose** report; which of those tiers a given run reaches is settled by LLR-SUM-09, and the uniformity this requirement states holds at whichever verbosity is in force.
     *Trace:* HLR-031 (Uniform Report Composition Across Formats), HLR-127 (Discovery Route Reported), HLR-012 (Unsupported-Language File Handling), HLR-115 (Analyses Requiring User Declarations).
 
 *   <a id="LLR-SUM-03"></a>**LLR-SUM-03** — `render_summary` shall emit every tier from one traversal shared by both human-facing formats, so that a tier cannot be present in one format and absent from the other.
@@ -1085,6 +1130,8 @@ The single place every reported collection is ordered. The audit point for deter
     *Trace:* HLR-031 (Uniform Report Composition Across Formats).
 
 *   <a id="LLR-SUM-06"></a>**LLR-SUM-06** — `render_summary` shall present the image a run was filtered by, the unresolved-linkage-name count, the effective lines belonging to no function, and the source functions the image does not define, in every report format other than CSV, XML, and the `.dot` companion. These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.
+
+    The two are separate sections, because the tier boundary of LLR-SUM-09 runs between them: the image and its two counts are the provenance of a filtered run and are a summary tier, while the functions the image does not define are one row per function and are a detail tier. They remain adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split.
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported), HLR-031 (Uniform Report Composition Across Formats).
 
 *   <a id="LLR-SUM-07"></a>**LLR-SUM-07** — `render_summary` shall present the custom-rule matches in a section of their own, with no severity column and no source column, and shall emit that section whether or not any rule was supplied.
@@ -1092,6 +1139,20 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-SUM-08"></a>**LLR-SUM-08** — `render_summary` shall present the definitions in force and the undecided-region count, and shall emit the definitions section whether or not any definition was supplied.
     *Trace:* HLR-136 (Configuration Recorded and Reported), HLR-031 (Uniform Report Composition Across Formats).
+
+*   <a id="LLR-SUM-09"></a>**LLR-SUM-09** — `render_summary` shall classify each tier of the traversal as a **summary** or a **detail** tier, and shall emit, at the summary verbosity, the summary tiers alone; at the verbose verbosity it shall emit every tier. The classification shall be a property of the one shared traversal — a filter over the ordered section list both human-facing formats walk — rather than a second traversal beside it, so that a tier cannot be present at one verbosity and forgotten at the other, by the same construction that stops it being present in one format and forgotten in the other (LLR-SUM-02).
+
+    The summary tiers are the project summary and callouts, the discovery route, the per-language breakdown, each file's own totals, the threshold listing, the findings, the definitions in force, the linked-image provenance, the partly parsed files, and the skipped files. Every remaining tier is a detail tier: it enumerates one row per analysed entity — per function, per global object, per unreachable statement, per graph edge, per custom-rule match. The measurements taken over the dependence graph — fan-out, information flow, recursion, the deepest chain, coupling, dependency cycles, layering — are detail tiers on that rule, each row naming one entity of the graph rather than a file's own totals; nothing is thereby lost from the summary, because every one of them that crossed a published line is a finding and the findings are a summary tier, and because a per-function measurement with a project-level total puts that total in the project summary.
+
+    A detail section whose analysis was **omitted for want of a declaration** shall be emitted at the summary verbosity as well, since HLR-150 counts the omission notices among the summary tiers. No separate notice is needed: an omitted analysis produced no rows, so the section renders as its heading and the reason in it.
+    *Trace:* HLR-150 (Summary Report by Default), HLR-151 (Verbose Report on Request), HLR-031 (Uniform Report Composition Across Formats), HLR-115 (Analyses Requiring User Declarations).
+
+*   <a id="LLR-SUM-10"></a>**LLR-SUM-10** — `render_summary` shall present each function's fan-in, fan-out, effective lines and Henry-Kafura value as a detail tier, and the project-level Henry-Kafura total among the project summary's figures; and shall print a Henry-Kafura value of zero as `0`.
+
+    The heading of the detail tier shall carry the formula, the attribution to Henry and Kafura, and the two properties HLR-159 requires be stated — that a function at either end of the call graph scores zero, and that the figure is ordinal rather than absolute. A reader who does not know them misreads the number rather than merely failing to act on it. Its inputs are repeated in the table beside the result, so the arithmetic is checkable on the line that reports it.
+
+    **The zero is printed as a number and never as `undefined`.** The Instability column of the coupling tier prints `undefined` where its own inputs vanish (HLR-082); this value does not vanish where a degree is zero, it equals zero, and borrowing that spelling would report a measurement as a missing one. The two appearing in nearby tables is what makes the substitution an easy mistake rather than an unlikely one.
+    *Trace:* HLR-157 (Henry–Kafura Structural Complexity per Function), HLR-158 (Project-Level Henry–Kafura Total), HLR-159 (Henry–Kafura Reported Without an Invented Band), HLR-156 (Function Fan-In Measurement), HLR-024 (Project-Level Totals), HLR-150 (Summary Report by Default).
 
 ## 39. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 
@@ -1132,7 +1193,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-09"></a>**LLR-XWR-09** — `xml_write_report` shall write every unreachable statement to the record with its file, function, line range, and cause, together with the set of languages for which the analysis was not performed, and `xml_read_report` shall restore them. Regeneration has no syntax tree and cannot find them again.
     *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity), HLR-137 (Intra-Procedural Dead Code Detection).
 
-*   <a id="LLR-XWR-08"></a>**LLR-XWR-08** — `xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one.
+*   <a id="LLR-XWR-08"></a>**LLR-XWR-08** — `xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, fan-in, effective lines and Henry-Kafura value, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one. A record carrying fan-out alone would regenerate every Henry-Kafura value as zero, which renders as an ordinary number and reads as a project where nothing is connected.
+
+    The project-level Henry-Kafura total is **re-summed from the restored rows** rather than written, by the same function the live path calls, so that HLR-158's "the sum of the per-function values" cannot become two figures that disagree. The per-function attributes are optional on read: they were added to an element that already existed under an unchanged format version, and a record predating them means zero rather than a rejection.
     *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity).
 
 *   <a id="LLR-XWR-10"></a>**LLR-XWR-10** — `xml_write_report` shall emit the definitions in force and the count of undecided regions, so that a record states the configuration it was taken under.
@@ -1263,6 +1326,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-GML-04"></a>**LLR-GML-04** — `graph_write_graphml` shall emit well-formed XML with every structurally significant character escaped.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping), HLR-106 (Standard Graph Serialisation Export).
+
+*   <a id="LLR-GML-05"></a>**LLR-GML-05** — `graph_write_graphml` shall carry each node's fan-in beside its fan-out, both computed over call edges alone. The export then holds every input the Henry-Kafura value is formed from — the two degrees and the node's ELOC — and shall not carry the value itself: it is arithmetic over three attributes already present, and a second place computing it is a second place it could be computed differently.
+    *Trace:* HLR-156 (Function Fan-In Measurement), HLR-106 (Standard Graph Serialisation Export).
 
 ## 48. `elfsyms_open` ([src/elfsyms.c](../src/elfsyms.c))
 

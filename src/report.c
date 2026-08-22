@@ -482,7 +482,7 @@ int report_set_calltree(Report *report, const TreeResults *tree, const Sdg *g)
 	report->depth_state = tree->depth_state;
 	report->depth       = tree->depth;
 
-	/* --- fan-out, one row per function -------------------------------- */
+	/* --- the flow figures, one row per function ----------------------- */
 
 	report->fan_out = calloc(g->node_count ? g->node_count : 1,
 	                         sizeof *report->fan_out);
@@ -496,10 +496,15 @@ int report_set_calltree(Report *report, const TreeResults *tree, const Sdg *g)
 		row->file     = strdup(g->nodes[i].file);
 		if (!row->function || !row->file)
 			return -1;
-		row->line    = g->nodes[i].line_start;
-		row->fan_out = tree->fan_out[i];
+		row->line         = g->nodes[i].line_start;
+		row->fan_out      = tree->fan_out[i];
+		row->fan_in       = tree->fan_in ? tree->fan_in[i] : 0;
+		row->eloc         = g->nodes[i].eloc;
+		row->henry_kafura = tree->henry_kafura ? tree->henry_kafura[i] : 0;
 		report->fan_out_count++;
 	}
+
+	report_total_henry_kafura(report);
 
 	/* --- recursive cycles --------------------------------------------- */
 
@@ -559,6 +564,25 @@ int report_set_calltree(Report *report, const TreeResults *tree, const Sdg *g)
 void report_set_unresolved(Report *report, size_t unresolved)
 {
 	report->unresolved_calls = unresolved;
+}
+
+/* The project total, summed from the rows rather than recomputed from the
+ * formula. Applying the formula to project-level aggregates would multiply a
+ * length by a connectivity no procedure has, which is a different number
+ * bearing the same name (HLR-158).
+ *
+ * The accumulator is 64 bits and so is each term; a project of a hundred
+ * thousand functions each at the eighty-million figure HLR-158 uses as its
+ * illustration still sums to under 2^43.
+ */
+void report_total_henry_kafura(Report *report)
+{
+	if (!report)
+		return;
+
+	report->summary.henry_kafura = 0;
+	for (size_t i = 0; i < report->fan_out_count; i++)
+		report->summary.henry_kafura += report->fan_out[i].henry_kafura;
 }
 
 /* ------------------------------------------------------- the report model --

@@ -155,19 +155,57 @@ Test(thresholds, every_fan_out_value_classifies_exactly_once)
 
 /* --------------------------------------------------------- the catalogue -- */
 
-Test(thresholds, every_catalogued_measurement_names_a_source)
+Test(thresholds, every_measurement_names_a_source)
 {
-	/* The property the whole "no built-in opinion" claim rests on. A row
-	 * without a citation would be an opinion `elc` had and did not admit
-	 * to (HLR-099). */
+	/* The property the whole "no built-in opinion" claim rests on. A
+	 * measurement reported without a citation would be an opinion `elc`
+	 * had and did not admit to (HLR-099).
+	 *
+	 * Asserted over every *kind* rather than over the catalogue, because a
+	 * kind need not be banded to be reported: Henry-Kafura has a citation
+	 * and no row, and the requirement to attribute it is the same one
+	 * (HLR-157, HLR-159). What must never happen is a kind reaching a
+	 * reader with neither.
+	 */
+	for (int k = 0; k < MEASURE_KIND_COUNT; k++) {
+		const char *source = threshold_attribution((MeasurementKind)k);
+
+		cr_assert_not_null(source, "kind %d names no source", k);
+		cr_assert_neq(source[0], '\0', "kind %d names no source", k);
+	}
+}
+
+Test(thresholds, every_banded_measurement_names_its_source_in_its_row)
+{
+	/* And the citation a banded measurement carries comes from the row
+	 * itself, so that the table a reviewer reads is the table `elc`
+	 * reports from. */
 	for (int k = 0; k < MEASURE_KIND_COUNT; k++) {
 		const Threshold *t = thresholds_lookup((MeasurementKind)k);
 
-		cr_assert_not_null(t, "kind %d has no catalogue entry", k);
+		if (!t)
+			continue;
 		cr_assert_not_null(t->attribution);
-		cr_assert_neq(t->attribution[0], '\0',
-		              "kind %d names no source", k);
+		cr_assert_str_eq(t->attribution,
+		                 threshold_attribution((MeasurementKind)k));
 	}
+}
+
+Test(thresholds, henry_kafura_is_attributed_and_never_banded)
+{
+	/* The measurement that separates a citation from a threshold. The
+	 * formula is Henry and Kafura's and is named wherever it is reported;
+	 * no published source divides it into accepted and unaccepted ranges,
+	 * so the catalogue holds no row and `thresholds_apply` produces no
+	 * finding for it — LLR-THR-08's path, taken for the first time by a
+	 * measurement that will never have an entry (HLR-159). */
+	cr_assert_null(thresholds_lookup(MEASURE_HENRY_KAFURA),
+	               "no published source bands the metric");
+	cr_assert_str_eq(threshold_attribution(MEASURE_HENRY_KAFURA),
+	                 "Henry-Kafura");
+	cr_assert_not(threshold_is_elc_own(MEASURE_HENRY_KAFURA),
+	              "the formula is not elc's, and neither is the absence "
+	              "of a band");
 }
 
 Test(thresholds, exactly_one_threshold_is_elcs_own_and_says_so)
@@ -185,7 +223,11 @@ Test(thresholds, exactly_one_threshold_is_elcs_own_and_says_so)
 
 	/* One, and it is the bottleneck. If a second ever appears it must be
 	 * a deliberate decision rather than a drift, which is what makes the
-	 * exact count worth asserting. */
+	 * exact count worth asserting.
+	 *
+	 * A metric arriving without a published band is not a second: the
+	 * honest treatment is to report it with no severity, not to invent
+	 * one and mark it as elc's (HLR-159). */
 	cr_assert_eq(own, 1);
 	cr_assert(threshold_is_elc_own(MEASURE_BOTTLENECK));
 }

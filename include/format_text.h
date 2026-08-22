@@ -24,19 +24,37 @@ typedef enum {
 	STYLE_MARKDOWN
 } Style;
 
-/* Walk the report model once, emitting every tier in the fixed order, in the
- * requested style (LLR-SUM-01, LLR-SUM-02).
+/* How much of the report is presented (HLR-150, HLR-151).
+ *
+ * The other axis, and deliberately not the same one as Style. Style decides
+ * how a tier is decorated; Verbosity decides whether a tier is reached at
+ * all. Both are parameters of the *one* traversal rather than selectors
+ * between traversals — a second walk for the summary is the thing that would
+ * let a tier be present at one verbosity and forgotten at the other, exactly
+ * as a second renderer would let one be present in one format and forgotten
+ * in the other (LLR-SUM-02, LLR-SUM-09).
+ *
+ * The summary is zero, so that a zeroed configuration means the default.
+ */
+typedef enum {
+	VERBOSITY_SUMMARY = 0, /* the summary tiers alone (HLR-150)      */
+	VERBOSITY_VERBOSE      /* every tier of HLR-031 (HLR-151)        */
+} Verbosity;
+
+/* Walk the report model once, emitting the tiers the verbosity selects in the
+ * fixed order, in the requested style (LLR-SUM-01, LLR-SUM-02, LLR-SUM-09).
  *
  * Returns 0 on success, non-zero if the stream reported a write failure — a
  * truncated report is never reported as success.
  */
-int render_report(const Report *report, Style style, FILE *out);
+int render_report(const Report *report, Style style, Verbosity verbosity,
+                  FILE *out);
 
 /* Render the aligned table (LLR-TBL-01). */
-int format_table(const Report *report, FILE *out);
+int format_table(const Report *report, Verbosity verbosity, FILE *out);
 
 /* Render GitHub-Flavored Markdown, with functions grouped under the file
  * that defines them (LLR-MKD-01). */
-int format_markdown(const Report *report, FILE *out);
+int format_markdown(const Report *report, Verbosity verbosity, FILE *out);
 
 #endif /* ELC_FORMAT_TEXT_H */

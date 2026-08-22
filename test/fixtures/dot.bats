@@ -13,6 +13,11 @@ setup() {
 	load "../helpers/common"
 	TREE="$BATS_TEST_DIRNAME/dot/tree"
 	RECURSIVE="$BATS_TEST_DIRNAME/dot/recursive"
+	# `.md` now names Markdown rather than falling back to the table
+	# (HLR-148), and that is the right choice here: this suite is about
+	# the `.dot` call tree, and an --output of report.md still yielding a
+	# companion beside it is exactly the substitution HLR-148 preserves.
+	# Nothing below reads a tier whose decoration differs between the two.
 	OUT="$BATS_TEST_TMPDIR/report.md"
 	DOT="$BATS_TEST_TMPDIR/report.dot"
 }

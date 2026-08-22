@@ -775,6 +775,26 @@ static uint32_t fan_out(const Sdg *g, uint32_t node)
 	return n;
 }
 
+/* Distinct callers, and the same rule read the other way: the in-degree over
+ * call edges alone (HLR-156). `kind == EDGE_CALL` is doing the work — a
+ * global edge runs from a function that writes an object to one that reads
+ * it, and being read by someone is not being called by them.
+ *
+ * The export carries the two degrees and each node's ELOC, which is every
+ * input the Henry-Kafura value is formed from. The value itself is not
+ * exported: it is arithmetic over three attributes already here, and a second
+ * place computing it is a second place it could be computed differently
+ * (HLR-157). */
+static uint32_t fan_in(const Sdg *g, uint32_t node)
+{
+	uint32_t n = 0;
+
+	for (size_t i = 0; i < g->edge_count; i++)
+		if (g->edges[i].to == node && g->edges[i].kind == EDGE_CALL)
+			n++;
+	return n;
+}
+
 static void write_key(FILE *out, const char *id, const char *domain,
                       const char *name, const char *type)
 {
@@ -831,6 +851,7 @@ int graph_write_graphml(const Sdg *g, const char *path)
 	write_key(out, "n_eloc",      "node",  "eloc",             "int");
 	write_key(out, "n_complexity","node",  "complexity",       "int");
 	write_key(out, "n_fanout",    "node",  "fan-out",          "int");
+	write_key(out, "n_fanin",     "node",  "fan-in",           "int");
 	write_key(out, "n_address",   "node",  "address-taken",    "boolean");
 	write_key(out, "e_kind",      "edge",  "kind",             "string");
 	write_key(out, "e_global",    "edge",  "global",           "string");
@@ -856,6 +877,8 @@ int graph_write_graphml(const Sdg *g, const char *path)
 		write_data_num(out, "      ", "n_complexity", n->complexity);
 		write_data_num(out, "      ", "n_fanout",
 		               fan_out(g, (uint32_t)i));
+		write_data_num(out, "      ", "n_fanin",
+		               fan_in(g, (uint32_t)i));
 		write_data(out, "      ", "n_address",
 		           n->address_taken ? "true" : "false");
 		fputs("    </node>\n", out);

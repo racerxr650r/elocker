@@ -24,7 +24,7 @@ It parses source files and reports two scopes of measurements:
 
 - **Per-function metrics** — effective lines of code and cyclomatic
   complexity. It provides project totals, a per-language breakdown, and lists the most complex functions.
-- **Whole-project architecture** — fan-out, call depth, recursion, unreachable functions, dead code, file dependencies, and layering violations. These are extracted from a call graph built during the initial parse. Each measurement is checked against a threshold.
+- **Whole-project architecture** — fan-out, fan-in, Henry–Kafura information flow, call depth, recursion, unreachable functions, dead code, file dependencies, and layering violations. These are extracted from a call graph built during the initial parse. Each measurement is checked against a threshold.
 
 `elc` writes the report as a table, Markdown, CSV, or XML. It can rebuild a report
 later from a saved XML file. It can also
@@ -212,6 +212,11 @@ preprocessor, so a disabled block is ordinary source to it.
 
 ### The report
 
+The report below is what `elc --verbose src/` prints. Without `--verbose` it
+presents the *summary* tiers alone — the `Functions` table below is one of
+the tiers the default omits. Which tiers belong to which is set out in
+[Summary and verbose reports](#summary-and-verbose-reports).
+
 ```
 Project summary
   Files               2
@@ -264,7 +269,7 @@ this manual — the project totals, the callouts, the discovery route applied
 to each directory target, those totals broken down by language, one row per
 file, one row per function, the functions at or over the complexity
 threshold, and whatever was skipped. A real run also prints the sections
-covered later in this manual, all derived from the call graph: fan-out,
+covered later in this manual, all derived from the call graph: fan-out, fan-in,
 recursion, the deepest call chain, coupling, dependency cycles, layering,
 global state, dead code, cross-scope access, the findings, the configuration
 in force, and any custom-rule matches. Paths are canonical and absolute
@@ -437,19 +442,62 @@ shows real change rather than a coin toss.
 
 ## Output formats
 
+There are two ways to name a format, and which one you use depends on where
+the report is going.
+
+**Writing to a file, the extension names it.** Nothing else is needed:
+
+```sh
+elc -o report.txt src/   # an aligned table
+elc -o report.md src/    # GitHub-Flavored Markdown
+elc -o report.csv src/   # one record per function, RFC 4180
+elc -o report.xml src/   # the complete record of the run
+```
+
+**Writing to standard output, `-f` names it.** Standard output has no
+filename and so no extension, which is what keeps a machine-readable format
+available to a caller that pipes rather than redirects:
+
 ```sh
 elc src/                 # an aligned table, the default
 elc -f md src/           # GitHub-Flavored Markdown
-elc -f csv src/          # one record per function, RFC 4180
+elc -f csv src/ | ...    # one record per function, RFC 4180
 elc -f xml src/          # the complete record of the run
 ```
 
-| Format | For | Notes |
-| ------ | --- | ----- |
-| `table` | reading | The default |
-| `md` | a pull request, a wiki | Same sections as the table, in the same order |
-| `csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it |
-| `xml` | keeping | Complete record; what `--from-xml` reads back |
+| Format | Extension | For | Notes |
+| ------ | --------- | --- | ----- |
+| `table` | `.txt` | reading | The default on standard output |
+| `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order |
+| `csv` | `.csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it |
+| `xml` | `.xml` | keeping | Complete record; what `--from-xml` reads back |
+
+**An extension `elc` does not recognise is an error, not a guess.**
+
+```sh
+$ elc -o report.json src/
+elc: '.json' is not a report format extension; expected .txt, .md, .csv, or .xml
+```
+
+Guessing would write one format under a name promising another, and quietly
+defaulting to the table would leave you with a `report.json` holding no JSON.
+A filename with no extension at all is rejected for the same reason.
+
+**Naming the format twice is fine; naming it two different ways is not.**
+`-f md -o report.md` is accepted, because nothing is ambiguous about saying a
+thing twice. `-f csv -o report.md` is a usage error naming both — honouring
+either one would leave your own command line disagreeing with the file it
+produced:
+
+```sh
+$ elc -f csv -o report.md src/
+elc: --format csv and an output file named 'report.md' disagree; the extension
+already names the format, so name it once or name it the same twice
+```
+
+The extension picks the format and nothing else. The companion artefacts put
+their own extension on the same path, so `-o report.md` still gives you
+`report.dot` and `report.graphml`.
 
 **`table` and `md` are the same report,** built by walking the same
 underlying data once. A section cannot appear in one and be missing from the
@@ -470,6 +518,101 @@ is for.
 
 Every field containing a comma, a quotation mark, or a line break is quoted,
 so a name like `foo<int, long>` stays one field.
+
+## Summary and verbose reports
+
+A report comes at one of two verbosities. The default is the **summary**;
+`-v` / `--verbose` gives you the **verbose** report, which is everything the
+summary has plus the detail tiers it leaves out.
+
+```sh
+elc src/                 # the summary — what fits in a terminal
+elc --verbose src/       # every tier, as elc printed before the summary existed
+```
+
+The default changed deliberately. The full report outgrew the length at which
+it can be read in a terminal, and a default nobody reads is a default that
+serves nobody. Nothing is lost: `--verbose` restores it exactly, and the two
+complete formats are untouched.
+
+### Which tiers are which
+
+The rule is by *tier*, so the partition is a property of the report rather
+than of how it happened to be printed. A tier presenting a project-level
+aggregate, a file's own totals, or a finding you are expected to act on is a
+summary tier. A tier enumerating one row per analysed entity — per function,
+per global object, per unreachable statement, per graph edge, per custom-rule
+match — is a detail tier.
+
+| Tier | Summary | Verbose |
+| ---- | ------- | ------- |
+| Project summary, Callouts | ✅ | ✅ |
+| Discovery | ✅ | ✅ |
+| Languages | ✅ | ✅ |
+| Files | ✅ | ✅ |
+| At or over the complexity threshold | ✅ | ✅ |
+| An analysis omitted for want of a declaration, with its reason | ✅ | ✅ |
+| Findings | ✅ | ✅ |
+| Conditional-compilation definitions | ✅ | ✅ |
+| Linked-image filter | ✅ | ✅ |
+| Partially parsed files | ✅ | ✅ |
+| Skipped files | ✅ | ✅ |
+| Functions | — | ✅ |
+| Fan-out, Information flow, Recursion, Deepest call chain | — | ✅ |
+| Component coupling, Component dependency cycles, Layering | — | ✅ |
+| Global state, Unreachable globals | — | ✅ |
+| Unreachable functions, Dead code within functions | — | ✅ |
+| Cross-scope access | — | ✅ |
+| Functions the image does not define | — | ✅ |
+| Custom rule matches | — | ✅ |
+
+**The summary keeps the findings.** That is the point of it. Every
+architectural measurement that crossed a published line becomes a finding,
+and the findings are in the summary — so the summary tells you what to act
+on, and `--verbose` tells you every number behind it. A summary that dropped
+the one section you act on would be shorter and useless.
+
+**An omitted analysis still says so.** The sections carrying those notices
+are detail tiers, but the notice itself is not: if you did not declare an
+entry point, the summary still tells you that reachability was not measured,
+rather than leaving an absence you might read as a clean bill of health.
+
+```
+Unreachable functions (omitted: no entry points declared, see --entry)
+  File  Function  Line
+  ----  --------  ----
+```
+
+### Verbosity changes presentation and nothing else
+
+No measurement, no finding, no severity, and not the exit status. A value
+absent from a summary is absent because it was not printed, never because it
+was not computed.
+
+`csv` and `xml` are defined as *complete* — one record per function, and
+every element of a run — so there is no presentation for a verbosity to
+select between. Both are byte-identical whichever way you ask:
+
+```sh
+elc -f xml src/ > a.xml
+elc --verbose -f xml src/ > b.xml
+diff a.xml b.xml            # no output
+```
+
+Asking for `--verbose` alongside `-f xml` or `-f csv` is **accepted**, not
+rejected. Every other conflicting pair of options `elc` defines is a usage
+error, so this one is worth stating: there is nothing contradictory about
+asking a format that is already complete for more detail, and the request
+simply has no effect.
+
+Because the record is complete whatever the verbosity, one saved record
+answers both questions, and answers each one identically to a direct run:
+
+```sh
+elc -f xml -o build/metrics.xml src/
+elc --from-xml build/metrics.xml              # summary Markdown
+elc --from-xml build/metrics.xml --verbose    # verbose Markdown
+```
 
 ## Keeping a record
 
@@ -605,6 +748,96 @@ enough to flag. What counts as too many is covered in
 10 or fewer draws no comment, 11 to 15 is a warning, and above 15 is
 critical. A function's rating, where it has one, appears in the **Findings**
 section rather than here — this table only measures; that section judges.
+
+### Fan-in and information flow
+
+Fan-out asks what a function calls. **Fan-in** asks the converse — how many
+*distinct* functions call it — and the two together say how much traffic
+passes through it:
+
+```text
+Information flow (HK = ELOC x (Fan-in x Fan-out)^2, Henry-Kafura; zero at either end of the call graph; ordinal, not absolute)
+  File                  Function  ELOC  Fan-in  Fan-out  Henry-Kafura
+  --------------------  --------  ----  ------  -------  ------------
+  /home/u/proj/src/a.c  main        12       0        4             0
+  /home/u/proj/src/a.c  parse       31       3        7         13671
+  /home/u/proj/src/a.c  chomp        4       6        0             0
+```
+
+Fan-in is counted the same way fan-out is. A caller that invokes `parse` at
+forty call sites contributes **one**, and a function that merely *reads* a
+global `parse` writes contributes **nothing** — that is coupling, and coupling
+is not a call. A function nothing calls has a fan-in of 0, which is a
+measurement and not a complaint: an entry point, an exported API function and
+an interrupt handler reached from a vector table all legitimately have none.
+Whether an absence of callers means the function is *dead* is a different
+question, answered in [Dead code between functions](#dead-code-between-functions).
+
+#### The Henry–Kafura value
+
+The last column combines the three figures beside it:
+
+> `HK = ELOC × (Fan-In × Fan-Out)²`
+
+`parse` above scores `31 × (3 × 7)² = 31 × 21² = 31 × 441 = 13671`. The
+inputs are shown beside the result precisely so that you can check it on the
+line that reports it.
+
+Length alone says how much code a function holds. Fan-out alone says how
+widely it delegates. Neither distinguishes a function that is long *and*
+central from one that is merely long, and that is the function this metric is
+looking for. `elc` also reports the **project total** — the sum of every
+function's value — among the figures in the project summary:
+
+```text
+Project summary
+  Files            12
+  Physical lines  4103
+  ELOC            2288
+  Functions        141
+  Henry-Kafura  882014
+```
+
+The total is the sum of the per-function values, not the formula applied to
+the project's totals: the metric is defined over one procedure's traffic, and
+a project does not have a fan-in.
+
+#### Two things you must know to read the number
+
+**A function at either end of the call graph scores zero.** The product term
+vanishes when either degree is zero, so `main` above scores 0 despite calling
+four things across twelve lines, and `chomp` scores 0 despite being called
+from six places. Both zeros are *values*. They do not mean the function holds
+no code, and they are not the `undefined` that
+[Instability](#component-coupling) prints when *its* inputs vanish —
+that one really is undefined; this one is defined and equals zero.
+
+**The figure is ordinal, not absolute.** The squared term separates values by
+orders of magnitude, so a project of a few hundred functions will show
+figures from 0 into the millions. Use it to rank functions *within one
+project* — the top of that ranking is where a change costs most — and never to
+compare one project against another. There is no number here that is "too
+high".
+
+Both are properties of the metric Henry and Kafura published, not of this
+implementation, and neither is a defect. Which is also why the metric carries
+**no severity and no threshold**: no published source divides it into
+accepted and unaccepted ranges, and `elc` does not invent one. You will not
+find a Henry–Kafura row in the
+[Findings](#findings-where-a-measurement-falls-and-on-whose-authority) table,
+and the reason is in
+[the band table](#the-bands): every
+line `elc` draws comes from somebody's published work, and inventing one for a
+metric whose name reads as a citation would be the worst place to start.
+
+One caveat specific to this figure. Calls resolve by name, so where several
+files define a `static` helper of the same name, every call resolves into one
+of them: that definition collects every caller's fan-in and the others collect
+none. Fan-in and fan-out are each wrong by that amount and the formula
+multiplies them and squares the product, so the error arrives here magnified
+rather than passed through. `elc` diagnoses duplicate definitions on standard
+error; read the two together before acting on a figure at the top of the
+ranking.
 
 ### Recursion
 
@@ -999,9 +1232,15 @@ extension; it takes no path of its own. With the report going to standard
 output there is no filename to derive one from, so no file is written.
 
 The node attributes are `name`, `file`, `line-start`, `line-end`,
-`component`, `eloc`, `complexity`, `fan-out` and `address-taken`; edges carry
-`kind` (`call` or `global`), the object's name on a global edge, and
-`call-sites` on a call edge.
+`component`, `eloc`, `complexity`, `fan-out`, `fan-in` and `address-taken`;
+edges carry `kind` (`call` or `global`), the object's name on a global edge,
+and `call-sites` on a call edge.
+
+The Henry–Kafura value is *not* among them, and does not need to be: `eloc`,
+`fan-in` and `fan-out` are all three of its inputs, so an ingesting tool can
+form it exactly. Exporting the value as well would put a second computation of
+it beside the one in the report, and two places computing a figure are two
+places it can be computed differently.
 
 ### Where the graph is imprecise, and in which direction
 
@@ -1859,10 +2098,20 @@ it is labelled as such so you know that's all it is.
 | Hidden channel | **warning** | MISRA C Rule 8.9 |
 | Instability vs. declared layer | **warning** on mismatch | Martin |
 | Bottleneck | **warning** | `elc` heuristic |
+| **Henry–Kafura structural complexity** | **none — reported as a bare value** | Henry–Kafura |
 
 The fan-out bands are **exhaustive**: every value classifies exactly once, and
 three of the five bands produce nothing at all. A fan-out of 9 is acceptable
 and silent — that is a result, not an oversight.
+
+**The last row has no bands, and that is deliberate.** No published source
+divides Henry–Kafura complexity into accepted and unaccepted ranges. Every
+other line in this table is drawn on somebody else's published authority;
+drawing one here would put an opinion of `elc`'s own beside them under a name
+that reads as a citation. So the value is reported, no severity is attached
+to it, and it never appears in the **Findings** section. See
+[Fan-in and information flow](#fan-in-and-information-flow) for how to read
+it instead.
 
 ### Why the lines sit where they do
 

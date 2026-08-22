@@ -275,7 +275,10 @@ void cli_usage(FILE *stream)
 "\n"
 "Options:\n"
 "  -f, --format FORMAT\n"
-"                     table, csv, xml, or md (default table). In\n"
+"                     table, csv, xml, or md, for a report written to\n"
+"                     standard output (default table). With --output the\n"
+"                     filename extension names the format instead, and this\n"
+"                     option is accepted only where it agrees with it. In\n"
 "                     regeneration mode the default is md, and no other\n"
 "                     format is accepted\n"
 "      --from-xml FILE\n"
@@ -286,7 +289,17 @@ void cli_usage(FILE *stream)
 "                     list a file's functions whose cyclomatic complexity\n"
 "                     is N or greater (default 15). Listing only: no\n"
 "                     threshold affects the exit status\n"
-"  -o, --output FILE  write the report to FILE instead of standard output\n"
+"  -o, --output FILE  write the report to FILE instead of standard output.\n"
+"                     The extension of FILE names the format: .txt for the\n"
+"                     aligned table, .md for Markdown, .csv for CSV, and\n"
+"                     .xml for the complete record. Any other extension, or\n"
+"                     none, is a usage error rather than a guess\n"
+"  -v, --verbose      present the verbose report: every per-function,\n"
+"                     per-object, per-edge, and per-match table, in addition\n"
+"                     to the summary tiers a report presents by default.\n"
+"                     Presentation only — no measurement, finding, or exit\n"
+"                     status changes. The csv and xml formats are complete\n"
+"                     whatever the verbosity, so this has no effect on them\n"
 "      --entry SYMBOL declare SYMBOL an entry point, from which call depth\n"
 "                     and reachability are measured. Repeatable. Entry\n"
 "                     points are never guessed at, so with none declared the\n"
@@ -364,11 +377,19 @@ void cli_usage(FILE *stream)
 	fputs(
 "\n"
 "Output:\n"
-"  The project totals, the route each directory target was discovered by,\n"
-"  the totals broken down by language, and per-file and per-function\n"
-"  metrics; then what the dependence graph says — fan-out, recursion, call\n"
-"  depth, coupling, dependency cycles, layering, global state, dead code —\n"
-"  each measurement beside the published threshold it was judged against.\n"
+"  By default the summary tiers: the project totals and callouts, the route\n"
+"  each directory target was discovered by, the totals broken down by\n"
+"  language, each file's own totals, the functions at or over the complexity\n"
+"  threshold, any analysis omitted for want of a declaration, the findings\n"
+"  ranked by severity, the configuration in force, any image filtered by,\n"
+"  any partly parsed files, and the files skipped.\n"
+"\n"
+"  With --verbose, those and the detail tiers as well: one row per function,\n"
+"  and what the dependence graph says — fan-out, recursion, call depth,\n"
+"  coupling, dependency cycles, layering, global state, dead code,\n"
+"  cross-scope access — each measurement beside the published threshold it\n"
+"  was judged against, with any custom-rule matches.\n"
+"\n"
 "  Files are listed by canonical absolute path, in ascending byte order,\n"
 "  each exactly once however many targets reach it.\n"
 "\n"
@@ -393,15 +414,43 @@ enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
        OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF };
 
 /* What reading one option needs: the options being built, and the record of
- * whether a format was named. Both outlive the option that touches them —
- * `--format` is remembered until the end of the parse, because whether the
- * user chose Markdown or merely got it is a question only regeneration asks
- * (LLR-CLI-10) — so neither belongs to any single handler.
+ * how the format came to be what it is. All three outlive the option that
+ * touched them — `--format` is remembered until the end of the parse, because
+ * whether the user chose Markdown or merely got it is a question only
+ * regeneration asks (LLR-CLI-10) — so none belongs to any single handler.
+ *
+ * The two selection flags are kept apart because they answer different
+ * questions. `format_given` says the *option* named a format, which is what
+ * HLR-149's disagreement check compares against the filename. `format_from_
+ * extension` says the *filename* named one, which is a selection just as
+ * explicit — differently spelled — and is what stops regeneration silently
+ * writing Markdown into a file called `report.txt` (LLR-CLI-10, LLR-CLI-28).
  */
 typedef struct {
 	ElcOptions *out;
 	bool        format_given;
+	bool        format_from_extension;
 } CliParse;
+
+/* The output-filename extensions elc recognises, and the format each names
+ * (HLR-148).
+ *
+ * The single statement of the mapping: `format_extensions()` builds the
+ * diagnostic from this table, so a format added here is named in the error
+ * message a wrong extension produces without a second list to keep in step.
+ */
+static const struct { const char *extension; OutputFormat format; }
+EXTENSIONS[] = {
+	{ "txt", FORMAT_TABLE    },
+	{ "md",  FORMAT_MARKDOWN },
+	{ "csv", FORMAT_CSV      },
+	{ "xml", FORMAT_XML      }
+};
+
+/* How the `--format` option spells each format, for a diagnostic that names
+ * what the user would have had to write. Ordered by the enumerator so the
+ * lookup is an index rather than a search. */
+static const char *const FORMAT_NAMES[] = { "table", "csv", "xml", "md" };
 
 /* Read a threshold: digits and nothing else.
  *
@@ -574,6 +623,18 @@ static int opt_no_dot(const char *arg, CliParse *p)
 	return CLI_OK;
 }
 
+static int opt_verbose(const char *arg, CliParse *p)
+{
+	/* Recorded and validated against nothing. Asking a complete-record
+	 * format for more detail is not a contradiction — there is no
+	 * presentation to vary and the request simply has no effect — so it is
+	 * accepted rather than rejected, unlike every other pairing this parser
+	 * decides (HLR-152, LLR-CLI-30). */
+	(void)arg;
+	p->out->verbose = true;
+	return CLI_OK;
+}
+
 static int opt_rules(const char *arg, CliParse *p)
 {
 	/* Recorded unsplit and unvalidated. Whether the named language exists
@@ -636,6 +697,7 @@ static const struct { int code; OptionFn handle; } OPTION_HANDLERS[] = {
 	{ OPT_SCOPE,         opt_scope         },
 	{ OPT_GRAPHML,       opt_graphml       },
 	{ OPT_NO_DOT,        opt_no_dot        },
+	{ 'v',               opt_verbose       },
 	{ OPT_RULES,         opt_rules         },
 	{ 'D',               opt_define        },
 	{ OPT_ELF,           opt_elf           }
@@ -665,6 +727,116 @@ static int report_bad_option(int code, char *argv[])
 	else
 		fprintf(stderr, "elc: unrecognised option '%s'\n",
 		        argv[optind - 1]);
+	return CLI_ERROR;
+}
+
+/* The extension of a path, or NULL where it has none.
+ *
+ * The last dot of the *basename*, so a directory component carrying one —
+ * `build.d/report` — does not lend its extension to a file that has none. A
+ * leading dot names a hidden file rather than an extension, and a trailing one
+ * names nothing at all; both are "no extension" and are reported as such
+ * (LLR-CLI-26).
+ */
+static const char *path_extension(const char *path)
+{
+	const char *base = strrchr(path, '/');
+	const char *dot;
+
+	base = base ? base + 1 : path;
+	dot  = strrchr(base, '.');
+
+	if (!dot || dot == base || dot[1] == '\0')
+		return NULL;
+	return dot + 1;
+}
+
+/* Write the recognised extensions into `buffer` as `.txt, .md, .csv, or .xml`.
+ *
+ * Built from EXTENSIONS rather than written out, so that the diagnostic cannot
+ * come to list a set of formats elc no longer has (HLR-148).
+ */
+static const char *format_extensions(char *buffer, size_t size)
+{
+	size_t count = sizeof EXTENSIONS / sizeof *EXTENSIONS;
+	size_t at    = 0;
+
+	buffer[0] = '\0';
+	for (size_t i = 0; i < count; i++) {
+		int n = snprintf(buffer + at, size - at, "%s%s.%s",
+		                 i ? ", " : "",
+		                 i + 1 == count ? "or " : "",
+		                 EXTENSIONS[i].extension);
+
+		if (n < 0 || (size_t)n >= size - at)
+			break;
+		at += (size_t)n;
+	}
+	return buffer;
+}
+
+/* Settle the report format, which two options can each state (HLR-148,
+ * HLR-149).
+ *
+ * Standard output has no filename and so no extension: there the option alone
+ * decides, and its default stands. Where a file is named, its extension states
+ * the format and no option is needed to repeat it — but an option that repeats
+ * it is accepted, since nothing is ambiguous about saying a thing twice, and
+ * one that contradicts it is a usage error naming both rather than a silent
+ * preference for either.
+ *
+ * Run after the option loop rather than inside it, so that `-f` and `-o` may
+ * be given in either order (LLR-CLI-26, LLR-CLI-27).
+ *
+ * Returns CLI_OK, or CLI_ERROR after a diagnostic.
+ */
+static int resolve_format(CliParse *p)
+{
+	const char *path = p->out->output_path;
+	const char *extension;
+	char        recognised[64];
+
+	if (!path)
+		return CLI_OK;
+
+	extension = path_extension(path);
+	if (!extension) {
+		fprintf(stderr,
+		        "elc: output file '%s' has no extension to name a "
+		        "report format; expected %s\n",
+		        path, format_extensions(recognised, sizeof recognised));
+		return CLI_ERROR;
+	}
+
+	for (size_t i = 0; i < sizeof EXTENSIONS / sizeof *EXTENSIONS; i++) {
+		if (strcmp(extension, EXTENSIONS[i].extension) != 0)
+			continue;
+
+		/* Two statements of one fact. Where they agree the invocation
+		 * stands; where they disagree neither is preferred, because
+		 * honouring one would leave the user's own command line
+		 * disagreeing with the file it produced (HLR-149). */
+		if (p->format_given && p->out->format != EXTENSIONS[i].format) {
+			fprintf(stderr,
+			        "elc: --format %s and an output file named "
+			        "'%s' disagree; the extension already names "
+			        "the format, so name it once or name it the "
+			        "same twice\n",
+			        FORMAT_NAMES[p->out->format], path);
+			return CLI_ERROR;
+		}
+
+		p->out->format            = EXTENSIONS[i].format;
+		p->format_from_extension  = true;
+		return CLI_OK;
+	}
+
+	/* Guessing here would write one format under a name promising another,
+	 * and defaulting to the table would produce a `report.json` holding no
+	 * JSON (HLR-148). */
+	fprintf(stderr,
+	        "elc: '.%s' is not a report format extension; expected %s\n",
+	        extension, format_extensions(recognised, sizeof recognised));
 	return CLI_ERROR;
 }
 
@@ -723,12 +895,31 @@ static int check_regenerate(int argc, char *argv[], CliParse *p)
 	 * rather than a format the user must remember. Only an *explicit*
 	 * choice of something else is an error — defaulting to table and then
 	 * rejecting it would make the mode unusable without a redundant option
-	 * (LLR-CLI-10). */
-	if (!p->format_given)
+	 * (LLR-CLI-10).
+	 *
+	 * **An output filename's extension is such a choice.** HLR-148 makes
+	 * the extension a statement of the format and HLR-149 makes it the same
+	 * statement `--format` makes, so `--from-xml rec.xml -o out.txt` is the
+	 * user asking for a table exactly as `-f table` is. Reading it as
+	 * anything less would leave the mode writing Markdown into a file named
+	 * `out.txt` — one format under a name promising another, which is the
+	 * result HLR-148 exists to forbid. The two spellings are told apart in
+	 * the diagnostic alone, so that the message names the thing the user
+	 * actually wrote (LLR-CLI-10, LLR-CLI-28). */
+	if (!p->format_given && !p->format_from_extension)
 		p->out->format = FORMAT_MARKDOWN;
 	else if (p->out->format != FORMAT_MARKDOWN) {
-		fputs("elc: --from-xml produces Markdown; no other format can "
-		      "be regenerated from a saved record\n", stderr);
+		if (p->format_from_extension)
+			fprintf(stderr,
+			        "elc: --from-xml produces Markdown, but the "
+			        "output file '%s' names %s; a saved record can "
+			        "be regenerated as Markdown alone\n",
+			        p->out->output_path,
+			        FORMAT_NAMES[p->out->format]);
+		else
+			fputs("elc: --from-xml produces Markdown; no other "
+			      "format can be regenerated from a saved "
+			      "record\n", stderr);
 		return CLI_ERROR;
 	}
 
@@ -744,6 +935,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "output",               required_argument, NULL, 'o' },
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
 		{ "no-dot",               no_argument,       NULL, OPT_NO_DOT },
+		{ "verbose",              no_argument,       NULL, 'v' },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },
 		{ "rules",                required_argument, NULL, OPT_RULES },
 		{ "elf",                  required_argument, NULL, OPT_ELF },
@@ -756,7 +948,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ NULL,                   0,                 NULL, 0   }
 	};
 
-	CliParse p = { out, false };
+	CliParse p = { out, false, false };
 	int      c;
 
 	memset(out, 0, sizeof(*out));
@@ -770,7 +962,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	opterr = 0;
 	optind = 1;
 
-	while ((c = getopt_long(argc, argv, ":ho:c:f:b:D:", longopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, ":hvo:c:f:b:D:", longopts, NULL)) != -1) {
 		OptionFn handle;
 		int      status;
 
@@ -791,6 +983,13 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	}
 
 	if (apply_stratum_order(out) != 0)
+		return CLI_ERROR;
+
+	/* After the loop, so that `-f` and `-o` may be given in either order
+	 * and still be compared against one another (HLR-148, HLR-149). Before
+	 * the regeneration checks, because those ask which format was chosen
+	 * and the filename is one of the two ways of choosing it. */
+	if (resolve_format(&p) != CLI_OK)
 		return CLI_ERROR;
 
 	if (out->mode == MODE_REGENERATE)

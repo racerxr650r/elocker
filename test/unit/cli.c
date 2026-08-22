@@ -656,3 +656,207 @@ Test(cli, the_usage_summary_documents_the_image_option)
 	cr_assert_not_null(strstr(buffer, "With no --elf nothing is filtered"));
 	free(buffer);
 }
+
+/* ---------------------------------------- the format a filename names ------
+ *
+ * Verifies LLR-CLI-26 and LLR-CLI-27. The extension is resolved after the
+ * option loop, so `-f` and `-o` may be given in either order and still be
+ * compared against one another; both orders are driven here for that reason.
+ */
+
+Test(cli, an_output_extension_selects_the_format)
+{
+	static const struct { const char *path; OutputFormat format; } cases[] = {
+		{ "report.txt", FORMAT_TABLE    },
+		{ "report.md",  FORMAT_MARKDOWN },
+		{ "report.csv", FORMAT_CSV      },
+		{ "report.xml", FORMAT_XML      }
+	};
+
+	for (size_t i = 0; i < sizeof cases / sizeof *cases; i++) {
+		char      *argv[] = { "elc", "-o", (char *)cases[i].path, "src",
+		                      NULL };
+		ElcOptions o;
+
+		cr_assert_eq(cli_parse(4, argv, &o), CLI_OK,
+		             "%s names a format elc recognises",
+		             cases[i].path);
+		cr_assert_eq(o.format, cases[i].format,
+		             "%s must select its own format with no option",
+		             cases[i].path);
+		cli_options_free(&o);
+	}
+}
+
+Test(cli, an_unrecognised_output_extension_is_a_usage_error)
+{
+	char      *argv[] = { "elc", "-o", "report.json", "src", NULL };
+	ElcOptions o;
+
+	/* Defaulting to the table here would write a report.json holding no
+	 * JSON, which is the confidently wrong result HLR-148 forbids. */
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_ERROR);
+	cli_options_free(&o);
+}
+
+Test(cli, an_output_path_with_no_extension_is_a_usage_error)
+{
+	static const char *const paths[] = { "report", ".report", "report.",
+	                                     "build.d/report" };
+
+	for (size_t i = 0; i < sizeof paths / sizeof *paths; i++) {
+		char      *argv[] = { "elc", "-o", (char *)paths[i], "src",
+		                      NULL };
+		ElcOptions o;
+
+		cr_assert_eq(cli_parse(4, argv, &o), CLI_ERROR,
+		             "'%s' names no format", paths[i]);
+		cli_options_free(&o);
+	}
+}
+
+Test(cli, a_format_option_contradicting_the_filename_is_a_usage_error)
+{
+	char      *before[] = { "elc", "-f", "csv", "-o", "report.md", "src",
+	                        NULL };
+	char      *after[]  = { "elc", "-o", "report.md", "-f", "csv", "src",
+	                        NULL };
+	ElcOptions o;
+
+	/* Either order, because the two are compared after the loop rather
+	 * than as they arrive (LLR-CLI-27). */
+	cr_assert_eq(cli_parse(6, before, &o), CLI_ERROR);
+	cli_options_free(&o);
+	cr_assert_eq(cli_parse(6, after, &o), CLI_ERROR);
+	cli_options_free(&o);
+}
+
+Test(cli, a_format_option_agreeing_with_the_filename_is_accepted)
+{
+	char      *argv[] = { "elc", "-f", "md", "-o", "report.md", "src",
+	                      NULL };
+	ElcOptions o;
+
+	/* Nothing is ambiguous about saying a thing twice (HLR-149). */
+	cr_assert_eq(cli_parse(6, argv, &o), CLI_OK);
+	cr_assert_eq(o.format, FORMAT_MARKDOWN);
+	cli_options_free(&o);
+}
+
+/* Verifies LLR-CLI-02. Worth its own case now that the format is settled after
+ * the option loop rather than as `-f` arrives: the default has to survive a
+ * resolution step that runs whether or not anything selected a format. */
+Test(cli, the_format_defaults_to_the_table)
+{
+	char      *argv[] = { "elc", "src", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_eq(o.format, FORMAT_TABLE);
+	cli_options_free(&o);
+}
+
+Test(cli, standard_output_takes_its_format_from_the_option_alone)
+{
+	char      *argv[] = { "elc", "-f", "csv", "src", NULL };
+	ElcOptions o;
+
+	/* Standard output has no filename and so no extension (HLR-149). */
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_eq(o.format, FORMAT_CSV);
+	cr_assert_null(o.output_path);
+	cli_options_free(&o);
+}
+
+/* Verifies LLR-CLI-28: an output path's extension is a format selection just
+ * as explicit as `-f`, differently spelt, so regeneration rejects it for the
+ * same reason and accepts the one that names Markdown. */
+Test(cli, regenerating_into_a_filename_naming_a_table_is_a_usage_error)
+{
+	char      *argv[] = { "elc", "--from-xml", "r.xml", "-o", "out.txt",
+	                      NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(5, argv, &o), CLI_ERROR);
+	cli_options_free(&o);
+}
+
+Test(cli, regenerating_into_a_filename_naming_markdown_is_accepted)
+{
+	char      *argv[] = { "elc", "--from-xml", "r.xml", "-o", "out.md",
+	                      NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(5, argv, &o), CLI_OK);
+	cr_assert_eq(o.format, FORMAT_MARKDOWN);
+	cli_options_free(&o);
+}
+
+/* ------------------------------------------------------------ verbosity ----
+ *
+ * Verifies LLR-CLI-29 and LLR-CLI-30.
+ */
+
+Test(cli, the_summary_is_the_default_verbosity)
+{
+	char      *argv[] = { "elc", "src", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert(!o.verbose,
+	          "a zeroed configuration means the summary (HLR-150)");
+	cli_options_free(&o);
+}
+
+Test(cli, verbose_is_recorded_in_either_spelling)
+{
+	char      *shortform[] = { "elc", "-v", "src", NULL };
+	char      *longform[]  = { "elc", "--verbose", "src", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(3, shortform, &o), CLI_OK);
+	cr_assert(o.verbose);
+	cli_options_free(&o);
+	cr_assert_eq(cli_parse(3, longform, &o), CLI_OK);
+	cr_assert(o.verbose);
+	cli_options_free(&o);
+}
+
+/* Verifies LLR-CLI-30. Every other option pairing this parser decides is a
+ * usage error, so the analogy pulls the wrong way here: there is nothing
+ * contradictory about asking a complete format for detail, and the request
+ * simply has no effect (HLR-152). */
+Test(cli, verbose_with_a_complete_record_format_is_accepted)
+{
+	char      *xml[] = { "elc", "--verbose", "-f", "xml", "src", NULL };
+	char      *csv[] = { "elc", "--verbose", "-f", "csv", "src", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(5, xml, &o), CLI_OK);
+	cr_assert(o.verbose);
+	cr_assert_eq(o.format, FORMAT_XML);
+	cli_options_free(&o);
+	cr_assert_eq(cli_parse(5, csv, &o), CLI_OK);
+	cr_assert(o.verbose);
+	cr_assert_eq(o.format, FORMAT_CSV);
+	cli_options_free(&o);
+}
+
+/* Verifies LLR-USG-09: the summary is the reference the documentation test
+ * checks both delivered documents against, so the verbosity option and the
+ * extension rule are claimed here. */
+Test(cli, the_usage_summary_documents_verbosity_and_the_extension_rule)
+{
+	char  *buffer = NULL;
+	size_t size   = 0;
+	FILE  *out    = open_memstream(&buffer, &size);
+
+	cr_assert_not_null(out);
+	cli_usage(out);
+	fclose(out);
+
+	cr_assert_not_null(strstr(buffer, "--verbose"));
+	cr_assert_not_null(strstr(buffer, "The extension of FILE names the "
+	                                  "format"));
+	free(buffer);
+}

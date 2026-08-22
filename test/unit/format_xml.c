@@ -323,6 +323,85 @@ Test(format_xml, the_model_is_reconstructed_from_the_record)
 	report_free(&report);
 }
 
+/* Verifies LLR-XWR-08 for the information-flow figures: fan-in and the
+ * Henry-Kafura value are carried in the record and restored from it, and the
+ * project total is re-summed from the restored rows.
+ *
+ * Neither figure can be recomputed here. Regeneration has no graph and no
+ * source from which to build one, so a record that carried fan-out alone
+ * would regenerate every Henry-Kafura value as zero — which renders as an
+ * ordinary number and reads as a project where nothing is connected.
+ */
+Test(format_xml, the_flow_figures_are_carried_by_the_record)
+{
+	ElcOptions opts   = { 0 };
+	Report     report = { 0 };
+	char       path[] = "/tmp/elc-xml-XXXXXX";
+	int        fd     = mkstemp(path);
+	const char body[] =
+		"<?xml version=\"1.0\"?>\n"
+		"<elc-report format-version=\"1\">\n"
+		"  <calltree depth-state=\"0\" depth=\"0\">\n"
+		"    <fanout function=\"hub\" file=\"/a.c\" line=\"1\""
+		" value=\"2\" fan-in=\"3\" eloc=\"4\" hk=\"144\"/>\n"
+		"    <fanout function=\"leaf\" file=\"/a.c\" line=\"9\""
+		" value=\"0\" fan-in=\"1\" eloc=\"6\" hk=\"0\"/>\n"
+		"  </calltree>\n"
+		"</elc-report>\n";
+
+	cr_assert_neq(fd, -1);
+	cr_assert_gt(write(fd, body, sizeof body - 1), 0);
+	close(fd);
+
+	cr_assert_eq(xml_read_report(path, &opts, &report), 0);
+
+	cr_assert_eq(report.fan_out_count, 2);
+	cr_assert_eq(report.fan_out[0].fan_in, 3);
+	cr_assert_eq(report.fan_out[0].eloc, 4);
+	cr_assert_eq(report.fan_out[0].henry_kafura, 144);
+	cr_assert_eq(report.fan_out[1].henry_kafura, 0,
+	             "a leaf's zero is carried as a zero, not as an absence");
+	cr_assert_eq(report.summary.henry_kafura, 144,
+	             "the total is re-summed from the rows, since "
+	             "report_assemble has no fan-in to derive it from");
+
+	unlink(path);
+	report_free(&report);
+}
+
+/* A record written before the information-flow figures existed carries the
+ * same format version and must still read: additions to the format are what
+ * the version number does *not* mark, so an older record's missing attributes
+ * mean zero rather than a rejection. */
+Test(format_xml, a_record_without_the_flow_attributes_still_reads)
+{
+	ElcOptions opts   = { 0 };
+	Report     report = { 0 };
+	char       path[] = "/tmp/elc-xml-XXXXXX";
+	int        fd     = mkstemp(path);
+	const char body[] =
+		"<?xml version=\"1.0\"?>\n"
+		"<elc-report format-version=\"1\">\n"
+		"  <calltree depth-state=\"0\" depth=\"0\">\n"
+		"    <fanout function=\"hub\" file=\"/a.c\" line=\"1\""
+		" value=\"2\"/>\n"
+		"  </calltree>\n"
+		"</elc-report>\n";
+
+	cr_assert_neq(fd, -1);
+	cr_assert_gt(write(fd, body, sizeof body - 1), 0);
+	close(fd);
+
+	cr_assert_eq(xml_read_report(path, &opts, &report), 0);
+	cr_assert_eq(report.fan_out_count, 1);
+	cr_assert_eq(report.fan_out[0].fan_out, 2);
+	cr_assert_eq(report.fan_out[0].fan_in, 0);
+	cr_assert_eq(report.summary.henry_kafura, 0);
+
+	unlink(path);
+	report_free(&report);
+}
+
 /* Verifies LLR-XRD-03: a truncated record — one whose root never closes — is
  * not well-formed, and is rejected rather than read as far as it goes. */
 Test(format_xml, a_truncated_record_is_rejected)
