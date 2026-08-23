@@ -256,8 +256,35 @@ PKGS_TOOLS  ?= valgrind strace graphviz libxml2-utils binutils
 
 PKGS        := $(PKGS_BUILD) $(PKGS_TEST) $(PKGS_TOOLS)
 
+# Refuse to run any prereq target as root, and say why.
+#
+# The recipes below sudo exactly where they need to — `apt-get`, `make install`,
+# `cmake --install` — and nowhere else. Run the whole target under sudo and the
+# *unpacking* runs as root too, and that is the part that does lasting damage:
+# an unprivileged `tar x` ignores the uid and gid recorded in an archive and
+# gives everything to the invoking user, while a root `tar x` honours them.
+# igraph's release tarball carries 501:staff — the account of whoever packaged
+# it — so a sudo-run leaves directories here owned by root and by a stranger's
+# uid, and the developer who ran the build cannot remove their own build tree.
+# `prereqs-clean`, the target named for removing it, then fails.
+#
+# Caught here rather than diagnosed afterwards, because afterwards costs a
+# password and a refetch.
+.PHONY: _not-root
+_not-root:
+	@[ "$$(id -u)" -ne 0 ] || { \
+		echo "prereqs: do not run this under sudo." >&2; \
+		echo "  The recipes escalate where they need to and nowhere" >&2; \
+		echo "  else. Running the whole target as root leaves" >&2; \
+		echo "  $(SRC_WORK) owned by root and by whatever uid each" >&2; \
+		echo "  upstream tarball happens to carry, which you will then" >&2; \
+		echo "  need a password to delete." >&2; \
+		echo "  Run it as yourself; you will be prompted where sudo" >&2; \
+		echo "  is actually required." >&2; \
+		exit 1; }
+
 .PHONY: prereqs
-prereqs:
+prereqs: _not-root
 	@command -v apt-get >/dev/null 2>&1 || { \
 		echo "prereqs: only apt is automated. Install the equivalents of:" >&2; \
 		echo "  $(PKGS)" >&2; \
@@ -269,7 +296,7 @@ prereqs:
 	@$(MAKE) --no-print-directory check-prereqs
 
 .PHONY: prereqs-src
-prereqs-src: prereqs-tree-sitter prereqs-libgit2 prereqs-igraph prereqs-expat \
+prereqs-src: _not-root prereqs-tree-sitter prereqs-libgit2 prereqs-igraph prereqs-expat \
              prereqs-jansson
 	@sudo ldconfig
 	@echo "prereqs-src: every linked library built and installed under $(SRC_PREFIX)"
@@ -284,7 +311,7 @@ define fetch
 endef
 
 .PHONY: prereqs-tree-sitter
-prereqs-tree-sitter:
+prereqs-tree-sitter: _not-root
 	@echo "tree-sitter $(TREE_SITTER_VER)"
 	$(call fetch,https://github.com/tree-sitter/tree-sitter/archive/refs/tags/v$(TREE_SITTER_VER).tar.gz,tree-sitter-$(TREE_SITTER_VER))
 	@$(MAKE) -C $(SRC_WORK)/tree-sitter-$(TREE_SITTER_VER) PREFIX=$(SRC_PREFIX)
@@ -295,7 +322,7 @@ prereqs-tree-sitter:
 # support is attack surface with no corresponding capability — and dropping
 # it removes the OpenSSL and libssh2 dependencies along with it.
 .PHONY: prereqs-libgit2
-prereqs-libgit2:
+prereqs-libgit2: _not-root
 	@echo "libgit2 $(LIBGIT2_VER) (transports disabled)"
 	$(call fetch,https://github.com/libgit2/libgit2/archive/refs/tags/v$(LIBGIT2_VER).tar.gz,libgit2-$(LIBGIT2_VER))
 	@cmake -S $(SRC_WORK)/libgit2-$(LIBGIT2_VER) -B $(SRC_WORK)/libgit2-build \
@@ -333,7 +360,7 @@ prereqs-libgit2:
 # library. igraph uses GMP only in bliss, for the automorphism-group counts of
 # graph isomorphism, which no elc analysis performs.
 .PHONY: prereqs-igraph
-prereqs-igraph:
+prereqs-igraph: _not-root
 	@echo "igraph $(IGRAPH_VER) (GraphML off, OpenMP off, internal GMP)"
 	$(call fetch,https://github.com/igraph/igraph/releases/download/$(IGRAPH_VER)/igraph-$(IGRAPH_VER).tar.gz,igraph-$(IGRAPH_VER))
 	@cmake -S $(SRC_WORK)/igraph-$(IGRAPH_VER) -B $(SRC_WORK)/igraph-build \
@@ -347,7 +374,7 @@ prereqs-igraph:
 	@sudo cmake --install $(SRC_WORK)/igraph-build
 
 .PHONY: prereqs-expat
-prereqs-expat:
+prereqs-expat: _not-root
 	@echo "expat $(EXPAT_VER)"
 	$(call fetch,https://github.com/libexpat/libexpat/releases/download/R_$(subst .,_,$(EXPAT_VER))/expat-$(EXPAT_VER).tar.gz,expat-$(EXPAT_VER))
 	@cmake -S $(SRC_WORK)/expat-$(EXPAT_VER) -B $(SRC_WORK)/expat-build \
@@ -373,7 +400,7 @@ prereqs-expat:
 #     pinned for the same reason as the rest: nothing about what gets built
 #     should depend on what the build machine happens to have.
 .PHONY: prereqs-jansson
-prereqs-jansson:
+prereqs-jansson: _not-root
 	@echo "jansson $(JANSSON_VER) (shared, docs off, tests off)"
 	$(call fetch,https://github.com/akheron/jansson/archive/refs/tags/v$(JANSSON_VER).tar.gz,jansson-$(JANSSON_VER))
 	@cmake -S $(SRC_WORK)/jansson-$(JANSSON_VER) -B $(SRC_WORK)/jansson-build \
@@ -390,7 +417,16 @@ prereqs-jansson:
 
 .PHONY: prereqs-clean
 prereqs-clean:
-	@rm -rf $(SRC_WORK)
+	@rm -rf $(SRC_WORK) 2>/dev/null || { \
+		echo "prereqs-clean: $(SRC_WORK) holds files this user cannot" >&2; \
+		echo "  remove, which means a prereq target was once run under" >&2; \
+		echo "  sudo. Nothing installed is affected — this tree is only" >&2; \
+		echo "  the unpacked sources. To take it back:" >&2; \
+		echo "" >&2; \
+		echo "    sudo chown -R $$(id -u):$$(id -g) $(SRC_WORK)" >&2; \
+		echo "" >&2; \
+		echo "  then run make prereqs-clean again." >&2; \
+		exit 1; }
 
 .PHONY: check-prereqs
 check-prereqs:
@@ -740,13 +776,18 @@ install: all
 # Everything under $(BUILD) *except* the unpacked dependency sources, which
 # `prereqs-clean` removes and this target must not.
 #
-# Not fastidiousness about the division of labour: the prereq builds install
-# with sudo, and cmake writes its install manifest into the build directory as
-# root. `rm -rf $(BUILD)` therefore fails as the ordinary user who ran
-# `make prereqs`, and it fails *part way through* — which took `make asan` and
-# `make valgrind` with it, since both begin by cleaning. A target that cannot
-# run is worse than a slow one, and refetching a pinned tarball costs minutes
-# that this target has no business spending anyway.
+# The division of labour is the whole reason: the help block promises that
+# `clean` removes build artifacts and that `prereqs-clean` removes the
+# dependency sources, and a `clean` that took both made one of those two
+# targets a lie. Refetching a pinned upstream tarball also costs minutes that
+# this target has no business spending — the sanitized pass cleans twice.
+#
+# It is load-bearing as well as tidy. A prereq target run under sudo leaves
+# this tree unremovable by the developer who built it (see `_not-root`), and
+# `clean` runs at the head of both `asan` and `valgrind` — so a tree in that
+# state used to take both sanitizer gates down with it. Those gates now run
+# whatever state the dependency sources are in, which is where they should
+# have been all along.
 .PHONY: clean
 clean:
 	@rm -rf $(filter-out $(SRC_WORK),$(wildcard $(BUILD)/*))
