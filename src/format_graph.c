@@ -691,6 +691,57 @@ static void write_edges(FILE *out, const SdgEdge *sorted, size_t calls,
 	}
 }
 
+/* Everything the writer needs that is derived rather than written: the node
+ * and component annotations, the note block naming the conventions in use, and
+ * the deepest chain as node identifiers.
+ *
+ * Returns 0 with all four published, or -1 having diagnosed. On failure the
+ * caller's teardown releases whatever was allocated, so each output is
+ * assigned as soon as it exists.
+ */
+static int prepare_annotations(const Sdg *g, const Report *r,
+                               Annotation **nodes, Annotation **comps,
+                               char **notes, uint32_t **chain)
+{
+	*nodes = calloc(g->node_count ? g->node_count : 1, sizeof **nodes);
+	*comps = calloc(g->component_count ? g->component_count : 1,
+	                sizeof **comps);
+	*chain = calloc(r->deepest_count ? r->deepest_count : 1,
+	                sizeof **chain);
+
+	if (!*nodes || !*comps || !*chain ||
+	    collect(g, r, *nodes, *comps, notes) != 0) {
+		fputs("elc: out of memory writing the call tree\n", stderr);
+		return -1;
+	}
+
+	for (size_t i = 0; i < r->deepest_count; i++)
+		(*chain)[i] = node_at(g, r->deepest[i].file,
+		                      r->deepest[i].line);
+
+	return 0;
+}
+
+/* The graph, its defaults, its nodes and its edges. */
+static void write_dot_document(FILE *out, const Sdg *g,
+                               const Annotation *nodes,
+                               const Annotation *comps, const char *notes,
+                               const SdgEdge *sorted, size_t calls,
+                               const uint32_t *chain, size_t chain_count)
+{
+	write_preamble(out, notes);
+	fputs("digraph elc {\n", out);
+	fputs("\tgraph [rankdir=LR, compound=true];\n", out);
+	fputs("\tnode [shape=box, style=filled, fillcolor=\"#ffffff\", "
+	      "fontname=\"Helvetica\", fontsize=10];\n", out);
+	fputs("\tedge [color=\"#666666\"];\n", out);
+
+	write_nodes(out, g, nodes, comps);
+	write_edges(out, sorted, calls, chain, chain_count);
+
+	fputs("}\n", out);
+}
+
 int graph_write_dot(const Sdg *g, const Report *r, const char *path)
 {
 	FILE       *out    = NULL;
@@ -702,22 +753,8 @@ int graph_write_dot(const Sdg *g, const Report *r, const char *path)
 	size_t      calls  = 0;
 	int         status = -1;
 
-	nodes = calloc(g->node_count ? g->node_count : 1, sizeof *nodes);
-	comps = calloc(g->component_count ? g->component_count : 1,
-	               sizeof *comps);
-	chain = calloc(r->deepest_count ? r->deepest_count : 1, sizeof *chain);
-	if (!nodes || !comps || !chain) {
-		fputs("elc: out of memory writing the call tree\n", stderr);
+	if (prepare_annotations(g, r, &nodes, &comps, &notes, &chain) != 0)
 		goto done;
-	}
-
-	if (collect(g, r, nodes, comps, &notes) != 0) {
-		fputs("elc: out of memory writing the call tree\n", stderr);
-		goto done;
-	}
-
-	for (size_t i = 0; i < r->deepest_count; i++)
-		chain[i] = node_at(g, r->deepest[i].file, r->deepest[i].line);
 
 	if (sort_call_edges(g, &sorted, &calls) != 0)
 		goto done;
@@ -728,17 +765,8 @@ int graph_write_dot(const Sdg *g, const Report *r, const char *path)
 		goto done;
 	}
 
-	write_preamble(out, notes);
-	fputs("digraph elc {\n", out);
-	fputs("\tgraph [rankdir=LR, compound=true];\n", out);
-	fputs("\tnode [shape=box, style=filled, fillcolor=\"#ffffff\", "
-	      "fontname=\"Helvetica\", fontsize=10];\n", out);
-	fputs("\tedge [color=\"#666666\"];\n", out);
-
-	write_nodes(out, g, nodes, comps);
-	write_edges(out, sorted, calls, chain, r->deepest_count);
-
-	fputs("}\n", out);
+	write_dot_document(out, g, nodes, comps, notes, sorted, calls, chain,
+	                   r->deepest_count);
 
 	/* Checked after the writing rather than per call, for the reason the
 	 * GraphML writer gives: a full disk shows up on the flush. */

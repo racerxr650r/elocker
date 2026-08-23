@@ -1624,48 +1624,81 @@ static void on_purification(ReadState *state, const XML_Char **atts)
 		(size_t)uint_attribute(state, atts, "masked-edges");
 }
 
+/* Whether every one of `n` required attributes was present on the element.
+ *
+ * A record missing one is refused rather than half-read: a reader that filled
+ * the gap with an empty string would produce a report that differs from the
+ * one the record was written from, which is the whole of what HLR-056 forbids.
+ */
+static bool all_present(const char *const *values, size_t n)
+{
+	for (size_t i = 0; i < n; i++)
+		if (!values[i])
+			return false;
+	return true;
+}
+
+/* Copy `n` attribute values, releasing what it took where it cannot take them
+ * all. Returns true only having copied every one, so a row is either whole or
+ * absent and never a partly-filled entry the teardown does not know about
+ * (HLR-125).
+ */
+static bool dup_all(char **dest, const char *const *src, size_t n)
+{
+	for (size_t i = 0; i < n; i++) {
+		dest[i] = strdup(src[i]);
+		if (!dest[i]) {
+			while (i-- > 0) {
+				free(dest[i]);
+				dest[i] = NULL;
+			}
+			return false;
+		}
+	}
+	return true;
+}
+
 static void on_classification(ReadState *state, const XML_Char **atts)
 {
-	const char *function = attribute(atts, "function");
-	const char *file     = attribute(atts, "file");
-	const char *class    = attribute(atts, "class");
-	const char *metric   = attribute(atts, "metric");
-	const char *value    = attribute(atts, "value");
-	const char *action   = attribute(atts, "action");
-	const char *source   = attribute(atts, "source");
+	const char *values[] = {
+		attribute(atts, "function"), attribute(atts, "file"),
+		attribute(atts, "class"),    attribute(atts, "metric"),
+		attribute(atts, "value"),    attribute(atts, "action"),
+		attribute(atts, "source")
+	};
+	const size_t     n = sizeof values / sizeof *values;
+	char            *owned[7] = { 0 };
+	PurificationRow *grown;
+	PurificationRow *row;
 
-	if (!function || !file || !class || !metric || !value || !action ||
-	    !source) {
+	if (!all_present(values, n)) {
 		fail(state, "a classification element is incomplete");
 		return;
 	}
 
-	PurificationRow *grown = realloc(state->purification,
-	                                 (state->purification_count + 1) *
-	                                         sizeof *grown);
-
+	grown = realloc(state->purification,
+	                (state->purification_count + 1) * sizeof *grown);
 	if (!grown) {
 		fail(state, "out of memory");
 		return;
 	}
 	state->purification = grown;
 
-	PurificationRow *row = &state->purification[state->purification_count];
-
-	memset(row, 0, sizeof *row);
-	row->function   = strdup(function);
-	row->file       = strdup(file);
-	row->class_name = strdup(class);
-	row->metric     = strdup(metric);
-	row->value      = strdup(value);
-	row->action     = strdup(action);
-	row->source     = strdup(source);
-	if (!row->function || !row->file || !row->class_name || !row->metric ||
-	    !row->value || !row->action || !row->source) {
+	if (!dup_all(owned, values, n)) {
 		fail(state, "out of memory");
 		return;
 	}
-	row->line = (uint32_t)uint_attribute(state, atts, "line");
+
+	row = &state->purification[state->purification_count];
+	memset(row, 0, sizeof *row);
+	row->function   = owned[0];
+	row->file       = owned[1];
+	row->class_name = owned[2];
+	row->metric     = owned[3];
+	row->value      = owned[4];
+	row->action     = owned[5];
+	row->source     = owned[6];
+	row->line       = (uint32_t)uint_attribute(state, atts, "line");
 	state->purification_count++;
 }
 
@@ -1768,49 +1801,46 @@ static void on_proposal(ReadState *state, const XML_Char **atts)
 
 static void on_layering(ReadState *state, const XML_Char **atts)
 {
-	const char *from_stratum = attribute(atts, "from-stratum");
-	const char *from         = attribute(atts, "from");
-	const char *from_file    = attribute(atts, "from-file");
-	const char *to_stratum   = attribute(atts, "to-stratum");
-	const char *to           = attribute(atts, "to");
-	const char *to_file      = attribute(atts, "to-file");
-	const char *kind         = attribute(atts, "kind");
+	const char *kind     = attribute(atts, "kind");
+	const char *values[] = {
+		attribute(atts, "from-stratum"), attribute(atts, "from"),
+		attribute(atts, "from-file"),    attribute(atts, "to-stratum"),
+		attribute(atts, "to"),           attribute(atts, "to-file")
+	};
+	const size_t n = sizeof values / sizeof *values;
+	char        *owned[6] = { 0 };
+	LayeringRow *grown;
+	LayeringRow *row;
 
-	if (!from_stratum || !from || !from_file || !to_stratum ||
-	    !to || !to_file || !kind) {
+	if (!kind || !all_present(values, n)) {
 		fail(state, "a layering element is incomplete");
 		return;
 	}
 
-	LayeringRow *grown = realloc(state->layering,
-	                             (state->layering_count + 1) *
-	                                     sizeof *grown);
-
+	grown = realloc(state->layering,
+	                (state->layering_count + 1) * sizeof *grown);
 	if (!grown) {
 		fail(state, "out of memory");
 		return;
 	}
 	state->layering = grown;
 
-	LayeringRow *row = &state->layering[state->layering_count];
-
-	memset(row, 0, sizeof *row);
-	row->from_stratum  = strdup(from_stratum);
-	row->from_function = strdup(from);
-	row->from_file     = strdup(from_file);
-	row->to_stratum    = strdup(to_stratum);
-	row->to_function   = strdup(to);
-	row->to_file       = strdup(to_file);
-	if (!row->from_stratum || !row->from_function ||
-	    !row->from_file || !row->to_stratum || !row->to_function ||
-	    !row->to_file) {
+	if (!dup_all(owned, values, n)) {
 		fail(state, "out of memory");
 		return;
 	}
+
+	row = &state->layering[state->layering_count];
+	memset(row, 0, sizeof *row);
+	row->from_stratum   = owned[0];
+	row->from_function  = owned[1];
+	row->from_file      = owned[2];
+	row->to_stratum     = owned[3];
+	row->to_function    = owned[4];
+	row->to_file        = owned[5];
 	row->layers_crossed = uint_attribute(state, atts, "layers");
 	row->kind           = (LayerViolationKind)strtol(kind, NULL, 10);
 	state->layering_count++;
-	return;
 }
 
 static void on_graph(ReadState *state, const XML_Char **atts)
