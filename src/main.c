@@ -47,7 +47,7 @@
  * and a verbose request against either is honoured by changing nothing rather
  * than rejected (HLR-152, LLR-MAIN-21).
  */
-static int render(const Report *report, const ElcOptions *opts, FILE *out)
+static int render_to(const Report *report, const ElcOptions *opts, FILE *out)
 {
 	Verbosity verbosity = opts->verbose ? VERBOSITY_VERBOSE
 	                                    : VERBOSITY_SUMMARY;
@@ -525,7 +525,7 @@ static int emit(Run *run)
 
 	/* Results go to the selected destination and nothing else does; every
 	 * diagnostic above and below went to stderr (HLR-038, LLR-MAIN-12). */
-	if (render(&run->report, &run->opts, run->out) != 0) {
+	if (render_to(&run->report, &run->opts, run->out) != 0) {
 		fprintf(stderr, "elc: %s: %s\n",
 		        run->opts.output_path ? run->opts.output_path
 		                              : "standard output",

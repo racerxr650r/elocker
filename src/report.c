@@ -101,7 +101,7 @@ void metrics_free(MetricsAccumulator *acc)
 	pathlist_free(&acc->skipped);
 }
 
-static int by_path(const void *a, const void *b)
+static int by_report_path(const void *a, const void *b)
 {
 	const FileMetrics *x = *(FileMetrics *const *)a;
 	const FileMetrics *y = *(FileMetrics *const *)b;
@@ -324,7 +324,7 @@ static int total_files(Report *out)
 static void order_collections(Report *out)
 {
 	if (out->file_count > 1)
-		qsort(out->files, out->file_count, sizeof *out->files, by_path);
+		qsort(out->files, out->file_count, sizeof *out->files, by_report_path);
 
 	for (size_t i = 0; i < out->file_count; i++)
 		if (out->files[i]->function_count > 1)

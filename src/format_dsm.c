@@ -61,7 +61,7 @@ const char DSM_CORNER[] = "caller \\ callee";
  * property of this artefact rather than of a collection the model already
  * holds, so there is nothing in report.c to sort.
  */
-static int by_path(const void *a, const void *b)
+static int by_dsm_path(const void *a, const void *b)
 {
 	return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
@@ -97,7 +97,7 @@ static int subjects_from_directories(const Report *r, size_t components,
 	}
 
 	if (count > 1)
-		qsort(labels, count, sizeof *labels, by_path);
+		qsort(labels, count, sizeof *labels, by_dsm_path);
 
 	out->subjects = labels;
 	out->count    = count;

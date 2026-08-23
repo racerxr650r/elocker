@@ -159,7 +159,7 @@ static void grid_free(Grid *grid)
 	grid->capacity  = 0;
 }
 
-static void rule(FILE *out, int width, char fill)
+static void grid_rule(FILE *out, int width, char fill)
 {
 	for (int i = 0; i < width; i++)
 		fputc(fill, out);
@@ -173,7 +173,7 @@ static void rule(FILE *out, int width, char fill)
  * and would make the report's shape vary with its content.
  */
 /* One Markdown cell, right-aligned where the column holds numbers. */
-static void markdown_cell(const Grid *grid, size_t c, const char *text,
+static void grid_markdown_cell(const Grid *grid, size_t c, const char *text,
                           FILE *out)
 {
 	fprintf(out, " %*s |",
@@ -194,7 +194,7 @@ static void grid_render_markdown(const Grid *grid, FILE *out)
 		/* GFM marks a right-aligned column with a trailing colon, so a
 		 * renderer downstream aligns numbers the way this one does. */
 		fputc(' ', out);
-		rule(out, grid->width[c] - (grid->numeric[c] ? 1 : 0), '-');
+		grid_rule(out, grid->width[c] - (grid->numeric[c] ? 1 : 0), '-');
 		fputs(grid->numeric[c] ? ": |" : " |", out);
 	}
 	fputc('\n', out);
@@ -202,7 +202,7 @@ static void grid_render_markdown(const Grid *grid, FILE *out)
 	for (size_t r = 0; r < grid->row_count; r++) {
 		fputc('|', out);
 		for (size_t c = 0; c < grid->column_count; c++)
-			markdown_cell(grid, c,
+			grid_markdown_cell(grid, c,
 			              grid->cells[r * grid->column_count + c],
 			              out);
 		fputc('\n', out);
@@ -242,7 +242,7 @@ static void grid_render_table(const Grid *grid, FILE *out)
 	for (size_t c = 0; c < grid->column_count; c++) {
 		if (c)
 			fputs("  ", out);
-		rule(out, grid->width[c], '-');
+		grid_rule(out, grid->width[c], '-');
 	}
 	fputc('\n', out);
 
@@ -339,9 +339,9 @@ static void summary_section(const Report *report, Style style, FILE *out)
 		fputs("\n## Project summary\n\n", out);
 		fprintf(out, "| %-*s | %*s |\n", label, "Metric", value, "Value");
 		fputc('|', out);
-		rule(out, label + 2, '-');
+		grid_rule(out, label + 2, '-');
 		fputc('|', out);
-		rule(out, value + 1, '-');
+		grid_rule(out, value + 1, '-');
 		fputs(": |\n", out);
 	} else {
 		fputs("Project summary\n", out);
