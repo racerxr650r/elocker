@@ -257,6 +257,33 @@ typedef struct {
 	 * mode. A saved record carries the matrix, so there is something to
 	 * write from (HLR-054). */
 	bool          dsm;
+	/* The purification manifest to read, or NULL for none (HLR-176).
+	 *
+	 * Borrowed from argv, like the image path and for the same reason: the
+	 * file is read by `purify.c`, which owns the failure, so the parser
+	 * stays the module that reads argv rather than becoming one that reads
+	 * files (LLR-CLI-22).
+	 *
+	 * **Only ever this.** No manifest is discovered from the working
+	 * directory, the target, an ancestor of either, or a dotfile: a
+	 * manifest is read because the user named it, exactly as a custom rule
+	 * file is, and the zero-configuration guarantee is unchanged by the
+	 * option existing (HLR-039, HLR-176).
+	 */
+	const char   *manifest_path;
+	/* Write the purification manifest beside the report (HLR-175). Off
+	 * unless asked for, and silently nothing when the report goes to
+	 * standard output: the manifest is a companion artefact and takes its
+	 * name from the report's path by the rule every companion follows
+	 * (HLR-104, HLR-119). */
+	bool          write_manifest;
+	/* Write the raw and purified drawings beside the report (HLR-178). One
+	 * flag for the pair, because a single drawing of the recovery view
+	 * cannot show what purification acted on — the two exist to be
+	 * compared, and producing one without the other would answer half the
+	 * question. Off unless asked for, and governed by the same companion
+	 * rule as the rest. */
+	bool          purify_dot;
 	/* The `.dot` call tree runs the other way round: it is written unless
 	 * refused (HLR-103), so the flag records the refusal rather than the
 	 * request. Stored negated so that a zeroed ElcOptions means the

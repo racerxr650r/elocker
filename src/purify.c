@@ -27,10 +27,13 @@
  * is what makes one default serviceable for both.
  */
 
+#include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include <igraph.h>
+#include <jansson.h>
 
 #include "elc.h"
 #include "graph.h"
@@ -79,8 +82,16 @@ const char *purify_metric_name(PurifyMetric metric)
  * node is excluded outright and given no layer at all — a function `elc` did
  * not consider is not a function `elc` placed at the bottom (HLR-170).
  */
-const char *purify_action_name(PurifyClass klass)
+const char *purify_action_name(PurifyClass klass, bool masked)
 {
+	/* **A class without its action.** A manifest may agree that a function
+	 * is a dispatcher and disagree that it should be set aside, and that
+	 * disagreement is the reason HLR-175 exists. The classification stays
+	 * reportable — a reader still learns where the function sits in the
+	 * graph — and the view keeps its edges (HLR-177). */
+	if (!masked)
+		return klass == PURIFY_ORDINARY ? "" : "kept in the view";
+
 	switch (klass) {
 	case PURIFY_UTILITY_SINK: return "incoming edges masked";
 	case PURIFY_GOD_OBJECT:   return "all edges masked";
@@ -88,6 +99,33 @@ const char *purify_action_name(PurifyClass klass)
 	case PURIFY_ORDINARY:
 	default:                  return "";
 	}
+}
+
+bool purify_class_from_name(const char *name, PurifyClass *out)
+{
+	static const struct {
+		const char *name;
+		PurifyClass klass;
+	} NAMES[] = {
+		{ "ordinary",     PURIFY_ORDINARY     },
+		{ "utility sink", PURIFY_UTILITY_SINK },
+		{ "god object",   PURIFY_GOD_OBJECT   },
+		{ "peripheral",   PURIFY_PERIPHERAL   }
+	};
+
+	if (!name)
+		return false;
+
+	for (size_t i = 0; i < sizeof NAMES / sizeof *NAMES; i++)
+		if (strcmp(NAMES[i].name, name) == 0) {
+			*out = NAMES[i].klass;
+			return true;
+		}
+
+	/* Not a class this build knows. The statement is not guessed at and
+	 * not dropped: the file is rejected, because well-formed JSON that is
+	 * not a manifest is what HLR-176 asks be refused. */
+	return false;
 }
 
 /* ------------------------------------------------------------ the ranks -- */
@@ -328,9 +366,71 @@ static void triggered_by(Classification *c, PurifyClass klass,
 	c->metric = metric;
 	c->value  = value;
 	c->rank   = rank;
+	/* The action travels with the class, so an ordinary function is
+	 * unmasked by construction and a classified one is masked unless a
+	 * manifest says otherwise. */
+	c->masked = klass != PURIFY_ORDINARY;
 }
 
-int classify_nodes(const Sdg *g, const PurifyThresholds *t, Classification *out)
+/* Whether one manifest statement names this node.
+ *
+ * The file is compared where the manifest gave one and ignored where it did
+ * not. Naming it is the precise form and is what `elc` writes; omitting it is
+ * the convenience a person hand-editing the file reaches for, and a project
+ * with two static functions of one name is the case that makes the difference
+ * matter.
+ */
+static bool names_node(const ManifestEntry *e, const SdgNode *n)
+{
+	if (!n->name || strcmp(e->function, n->name) != 0)
+		return false;
+	if (!e->file)
+		return true;
+	return n->file && strcmp(e->file, n->file) == 0;
+}
+
+/* Let the manifest overrule what the centralities concluded (HLR-177).
+ *
+ * **The statement governs and is not recomputed.** A user who has read the
+ * transparency report and disagreed with it has said something `elc` has no
+ * grounds to overrule: the classifications are heuristics (HLR-171), and only
+ * the user knows whether the function at the centre of their graph is a
+ * monolith or a state machine's dispatcher doing exactly its job.
+ *
+ * A statement matching nothing is *recorded as unmatched* rather than acted
+ * on, and the caller reports it. Ending the run there would make a manifest
+ * unusable exactly where a large code base most needs one — analysing a single
+ * directory of a project the manifest covers whole.
+ */
+static void apply_manifest(const Sdg *g, Manifest *m, Classification *out)
+{
+	if (!m)
+		return;
+
+	for (size_t e = 0; e < m->count; e++)
+		for (size_t i = 0; i < g->node_count; i++) {
+			if (!names_node(&m->entries[e], &g->nodes[i]))
+				continue;
+
+			out[i].klass          = m->entries[e].klass;
+			out[i].masked         = m->entries[e].mask &&
+			                        m->entries[e].klass !=
+			                                PURIFY_ORDINARY;
+			out[i].from_manifest  = true;
+			/* No metric triggered this one, and saying otherwise
+			 * would present a measurement as the reason for a
+			 * decision the user made. The value column is empty
+			 * and the source column says where the class came
+			 * from (HLR-174, HLR-177). */
+			out[i].metric         = PURIFY_METRIC_NONE;
+			out[i].value          = 0.0;
+			out[i].rank           = 0;
+			m->entries[e].matched = true;
+		}
+}
+
+int classify_nodes(const Sdg *g, const PurifyThresholds *t, Manifest *manifest,
+                   Classification *out)
 {
 	size_t  n      = g->node_count;
 	double *scores = NULL;
@@ -400,6 +500,12 @@ int classify_nodes(const Sdg *g, const PurifyThresholds *t, Classification *out)
 			             PURIFY_METRIC_CORENESS,
 			             (double)c->coreness, 0);
 	}
+
+	/* **Last, so that it overrules rather than competes** (HLR-177). Every
+	 * computed class is in place before a manifest statement is applied,
+	 * which is what makes "the statement governs" a property of the order
+	 * rather than of a condition scattered through the three tests above. */
+	apply_manifest(g, manifest, out);
 	status = 0;
 
 cleanup:
@@ -417,22 +523,33 @@ cleanup:
  * The three rules, in one place, so that the asymmetry between them is read
  * rather than reconstructed from three call sites (HLR-168 – HLR-170).
  */
-static bool edge_survives(const Classification *c, uint32_t from, uint32_t to)
+static bool masked_as(const Classification *c, PurifyClass klass)
+{
+	/* The class and the action are two facts, and a manifest may state the
+	 * first and withhold the second (HLR-175, HLR-177). Every rule below
+	 * asks about the action, so a classification the user kept in the view
+	 * changes what is reported and not what is masked. */
+	return c->klass == klass && c->masked;
+}
+
+bool purify_edge_retained(const Classification *c, uint32_t from, uint32_t to)
 {
 	/* An excluded node holds no edge: it is not in the view, so nothing
 	 * reaches it and nothing leaves it. */
-	if (c[from].klass == PURIFY_PERIPHERAL || c[to].klass == PURIFY_PERIPHERAL)
+	if (masked_as(&c[from], PURIFY_PERIPHERAL) ||
+	    masked_as(&c[to], PURIFY_PERIPHERAL))
 		return false;
 
 	/* A god object short-circuits in both directions, so it loses both. */
-	if (c[from].klass == PURIFY_GOD_OBJECT || c[to].klass == PURIFY_GOD_OBJECT)
+	if (masked_as(&c[from], PURIFY_GOD_OBJECT) ||
+	    masked_as(&c[to], PURIFY_GOD_OBJECT))
 		return false;
 
 	/* A utility sink loses its **incoming** edges only. Its outgoing edges
 	 * harm nothing: the fusion is between its callers, and masking the node
 	 * rather than the edges into it would remove its own position from view
 	 * along with the fusion. */
-	return c[to].klass != PURIFY_UTILITY_SINK;
+	return !masked_as(&c[to], PURIFY_UTILITY_SINK);
 }
 
 int build_recovery_view(const Sdg *g, const Classification *c,
@@ -452,7 +569,7 @@ int build_recovery_view(const Sdg *g, const Classification *c,
 		return -1;
 
 	for (size_t i = 0; i < g->node_count; i++) {
-		out->included[i] = c[i].klass != PURIFY_PERIPHERAL;
+		out->included[i] = !masked_as(&c[i], PURIFY_PERIPHERAL);
 		if (out->included[i])
 			out->included_count++;
 	}
@@ -461,7 +578,7 @@ int build_recovery_view(const Sdg *g, const Classification *c,
 		if (g->edges[i].kind != EDGE_CALL)
 			continue;
 		calls++;
-		if (edge_survives(c, g->edges[i].from, g->edges[i].to))
+		if (purify_edge_retained(c, g->edges[i].from, g->edges[i].to))
 			out->edge_count++;
 	}
 	out->masked_edges = calls - out->edge_count;
@@ -473,7 +590,8 @@ int build_recovery_view(const Sdg *g, const Classification *c,
 
 	for (size_t i = 0; i < g->edge_count; i++) {
 		if (g->edges[i].kind != EDGE_CALL ||
-		    !edge_survives(c, g->edges[i].from, g->edges[i].to))
+		    !purify_edge_retained(c, g->edges[i].from,
+		                          g->edges[i].to))
 			continue;
 		VECTOR(edges)[at++] = g->edges[i].from;
 		VECTOR(edges)[at++] = g->edges[i].to;
@@ -501,9 +619,366 @@ int build_recovery_view(const Sdg *g, const Classification *c,
 	return 0;
 }
 
+/* ------------------------------------------------------------ the manifest --
+ *
+ * The one artefact `elc` both writes and reads back, and the only place a
+ * third-party library *emits* a format rather than merely parsing one. The two
+ * facts are the same fact: a hand-rolled writer paired with a library reader
+ * would be two implementations of one format with `elc` on both ends of the
+ * disagreement, and the round trip is what makes that disagreement reachable
+ * (SDD §20.2.3).
+ *
+ * What the module owes Jansson is bounded. Jansson decides whether the file is
+ * JSON; whether it is a *manifest* — every class name one this build knows, the
+ * version one it reads — is decided here, and both failures are refused the
+ * same way (HLR-176).
+ */
+
+/* One node's place in the written order.
+ *
+ * Sorted by file, then by line, then by name — the order the report presents
+ * the same rows in, so a person reading the report and editing the manifest
+ * finds them in the same place, and two runs over one tree produce identical
+ * files (HLR-032).
+ */
+typedef struct {
+	const SdgNode *node;
+	uint32_t       index;
+} WriteOrder;
+
+static int by_file_then_line(const void *a, const void *b)
+{
+	const WriteOrder *x = a;
+	const WriteOrder *y = b;
+	const char       *xf = x->node->file ? x->node->file : "";
+	const char       *yf = y->node->file ? y->node->file : "";
+	int               c  = strcmp(xf, yf);
+
+	if (c != 0)
+		return c;
+	if (x->node->line_start != y->node->line_start)
+		return x->node->line_start < y->node->line_start ? -1 : 1;
+	return strcmp(x->node->name ? x->node->name : "",
+	              y->node->name ? y->node->name : "");
+}
+
+int manifest_write(const PurifyResults *r, const Sdg *g, const char *path)
+{
+	json_t     *root     = NULL;
+	json_t     *rows     = NULL;
+	FILE       *file     = NULL;
+	WriteOrder *order    = NULL;
+	size_t      count    = 0;
+	bool        reported = false;
+	int         status   = -1;
+
+	if (!r || !g || !path)
+		return -1;
+
+	order = calloc(g->node_count ? g->node_count : 1, sizeof *order);
+	if (!order) {
+		fputs("elc: out of memory writing the purification manifest\n",
+		      stderr);
+		return -1;
+	}
+
+	for (size_t i = 0; i < r->node_count && i < g->node_count; i++) {
+		/* Every classification the run made, and no ordinary function
+		 * `elc` said nothing about — the same set the transparency
+		 * report carries, for the same reason (HLR-174, HLR-175). A
+		 * manifest statement counts even where it says "ordinary",
+		 * since it is the user's own and round-tripping it is the
+		 * point. */
+		if (r->classes[i].klass == PURIFY_ORDINARY &&
+		    !r->classes[i].from_manifest)
+			continue;
+		order[count].node  = &g->nodes[i];
+		order[count].index = (uint32_t)i;
+		count++;
+	}
+	if (count > 1)
+		qsort(order, count, sizeof *order, by_file_then_line);
+
+	root = json_object();
+	rows = json_array();
+	if (!root || !rows)
+		goto cleanup;
+
+	/* Versioned in the manner of the XML record (HLR-061), so a manifest
+	 * written by a later build is rejected by an earlier one rather than
+	 * half-understood. */
+	if (json_object_set_new(root, "manifest-version",
+	                        json_integer(ELC_MANIFEST_VERSION)) != 0)
+		goto cleanup;
+	if (json_object_set_new(root, "classifications", rows) != 0)
+		goto cleanup;
+	rows = NULL;   /* the object owns it now */
+
+	for (size_t i = 0; i < count; i++) {
+		const Classification *c   = &r->classes[order[i].index];
+		json_t               *row = json_object();
+
+		if (!row)
+			goto cleanup;
+		if (json_object_set_new(row, "function",
+		                        json_string(order[i].node->name)) != 0 ||
+		    json_object_set_new(row, "file",
+		                        json_string(order[i].node->file
+		                                            ? order[i].node->file
+		                                            : "")) != 0 ||
+		    json_object_set_new(row, "class",
+		                        json_string(purify_class_name(
+		                                            c->klass))) != 0 ||
+		    json_object_set_new(row, "mask",
+		                        json_boolean(c->masked)) != 0 ||
+		    json_array_append_new(json_object_get(root,
+		                                          "classifications"),
+		                          row) != 0) {
+			json_decref(row);
+			goto cleanup;
+		}
+	}
+
+	/* Written through a stream of our own rather than `json_dump_file`, for
+	 * one byte: a text file this project writes ends with a newline, and
+	 * Jansson's file writer does not add one. A manifest is meant to be
+	 * hand-edited and put under version control, and a file without a final
+	 * newline is one every such tool complains about. */
+	file = fopen(path, "w");
+	if (!file) {
+		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		reported = true;
+		goto cleanup;
+	}
+	if (json_dumpf(root, file, JSON_INDENT(2)) != 0 ||
+	    fputc('\n', file) == EOF) {
+		fprintf(stderr, "elc: %s: the purification manifest could not "
+		        "be written\n", path);
+		reported = true;
+		goto cleanup;
+	}
+	if (fclose(file) != 0) {
+		file = NULL;
+		fprintf(stderr, "elc: %s: the purification manifest could not "
+		        "be written\n", path);
+		reported = true;
+		goto cleanup;
+	}
+	file   = NULL;
+	status = 0;
+
+cleanup:
+	if (status != 0 && !reported)
+		fputs("elc: out of memory writing the purification manifest\n",
+		      stderr);
+	if (file)
+		fclose(file);
+	json_decref(rows);
+	json_decref(root);
+	free(order);
+	return status;
+}
+
+/* Refuse the file, naming what is wrong with it.
+ *
+ * One exit for every rejection, so that a syntax fault and a semantic one are
+ * refused in the same words and with the same status: the difference between
+ * them is Jansson's business, and to a user who hand-edited the file both are
+ * "this is not a manifest I can read" (HLR-176).
+ */
+static int manifest_reject(const char *path, const char *why)
+{
+	fprintf(stderr, "elc: %s: %s\n", path, why);
+	return -1;
+}
+
+/* Read one statement out of a JSON object.
+ *
+ * Returns 0 on success, -1 with the diagnostic already written. `function` is
+ * required and `class` is required; `file` may be absent, in which case the
+ * statement matches by name alone; `mask` may be absent and defaults to true,
+ * which is what a user adding a classification by hand means by writing one.
+ */
+static int read_entry(const char *path, json_t *item, ManifestEntry *out)
+{
+	json_t     *function, *file, *klass, *mask;
+	PurifyClass parsed;
+
+	if (!json_is_object(item))
+		return manifest_reject(path, "a classification is not an object");
+
+	function = json_object_get(item, "function");
+	file     = json_object_get(item, "file");
+	klass    = json_object_get(item, "class");
+	mask     = json_object_get(item, "mask");
+
+	if (!json_is_string(function) ||
+	    json_string_value(function)[0] == '\0')
+		return manifest_reject(path,
+		                       "a classification names no function");
+	if (!json_is_string(klass))
+		return manifest_reject(path,
+		                       "a classification names no class");
+	if (!purify_class_from_name(json_string_value(klass), &parsed))
+		return manifest_reject(path,
+		                       "a classification names a class this "
+		                       "build does not know");
+	if (file && !json_is_string(file))
+		return manifest_reject(path, "a classification's file is not "
+		                       "a string");
+	if (mask && !json_is_boolean(mask))
+		return manifest_reject(path, "a classification's mask is not "
+		                       "true or false");
+
+	/* Built complete and published in one step, so a statement that runs
+	 * out of memory halfway leaves nothing behind for the caller's teardown
+	 * to miss. */
+	ManifestEntry entry = { 0 };
+
+	entry.function = strdup(json_string_value(function));
+	if (!entry.function)
+		return manifest_reject(path, "out of memory");
+
+	/* An empty file is the same statement as an absent one: `elc` writes
+	 * the field for every row, and a user who clears it means "wherever
+	 * this function is defined". */
+	if (file && json_string_value(file)[0] != '\0') {
+		entry.file = strdup(json_string_value(file));
+		if (!entry.file) {
+			free(entry.function);
+			return manifest_reject(path, "out of memory");
+		}
+	}
+
+	entry.klass = parsed;
+	entry.mask  = mask ? json_boolean_value(mask)
+	                   : parsed != PURIFY_ORDINARY;
+	*out = entry;
+	return 0;
+}
+
+int manifest_read(const char *path, Manifest *out)
+{
+	json_error_t error;
+	json_t      *root = NULL;
+	json_t      *rows;
+	json_t      *version;
+	int          status = -1;
+
+	memset(out, 0, sizeof *out);
+
+	/* **The path, and nowhere else** (HLR-176). Nothing here searches the
+	 * working directory, the analysis target, an ancestor of either, or a
+	 * dotfile: the manifest is read because the user named it, exactly as a
+	 * custom rule file is, and two people running the same command on the
+	 * same tree still obtain the same result (HLR-039). */
+	root = json_load_file(path, 0, &error);
+	if (!root) {
+		/* Jansson carries the line and column of a syntax fault, and
+		 * the diagnostic quotes them: a person who hand-edited the file
+		 * needs to be told *where* they broke it, not merely that they
+		 * did. */
+		fprintf(stderr, "elc: %s:%d:%d: %s\n", path, error.line,
+		        error.column, error.text);
+		return -1;
+	}
+
+	if (!json_is_object(root)) {
+		manifest_reject(path, "not a purification manifest");
+		goto cleanup;
+	}
+
+	version = json_object_get(root, "manifest-version");
+	if (!json_is_integer(version)) {
+		manifest_reject(path, "not a purification manifest: it states "
+		                "no manifest-version");
+		goto cleanup;
+	}
+	if (json_integer_value(version) != ELC_MANIFEST_VERSION) {
+		fprintf(stderr, "elc: %s: manifest version %lld is not one this "
+		        "build reads (expected %d)\n", path,
+		        (long long)json_integer_value(version),
+		        ELC_MANIFEST_VERSION);
+		goto cleanup;
+	}
+
+	rows = json_object_get(root, "classifications");
+	if (!json_is_array(rows)) {
+		manifest_reject(path, "not a purification manifest: it holds "
+		                "no classifications array");
+		goto cleanup;
+	}
+
+	out->entries = calloc(json_array_size(rows) ? json_array_size(rows) : 1,
+	                      sizeof *out->entries);
+	if (!out->entries) {
+		manifest_reject(path, "out of memory");
+		goto cleanup;
+	}
+
+	for (size_t i = 0; i < json_array_size(rows); i++) {
+		if (read_entry(path, json_array_get(rows, i),
+		               &out->entries[out->count]) != 0)
+			goto cleanup;
+		out->count++;
+	}
+	status = 0;
+
+cleanup:
+	/* **Rejected rather than partly applied.** A run governed by half of
+	 * what its author wrote is worse than one that stops: the half that
+	 * took effect is invisible, and the user has no way to tell which. */
+	if (status != 0)
+		manifest_free(out);
+	json_decref(root);
+	return status;
+}
+
+void manifest_free(Manifest *m)
+{
+	if (!m)
+		return;
+
+	for (size_t i = 0; i < m->count; i++) {
+		free(m->entries[i].function);
+		free(m->entries[i].file);
+	}
+	free(m->entries);
+	memset(m, 0, sizeof *m);
+}
+
 /* ------------------------------------------------------------- the pass -- */
 
-int purify_analyse(const Sdg *g, const ElcOptions *opts, PurifyResults *out)
+/* Report every manifest statement that named no analysed function (HLR-177).
+ *
+ * A diagnostic and nothing more. Analysing one directory of a project whose
+ * manifest covers all of it is ordinary use, and rejecting the file there would
+ * make a manifest unusable exactly where a large code base most needs one —
+ * the rule a declared entry point matching nothing already follows
+ * (LLR-CTR-08). It is *reported* rather than passed over in silence because a
+ * statement that matched nothing is far more often a typo than a deliberate
+ * partial run, and a user who never hears about it goes on believing their
+ * correction took effect.
+ */
+static void warn_unmatched(const Manifest *m)
+{
+	if (!m)
+		return;
+
+	for (size_t e = 0; e < m->count; e++) {
+		if (m->entries[e].matched)
+			continue;
+		fprintf(stderr,
+		        "elc: the manifest names '%s'%s%s, which no analysed "
+		        "file defines; the statement is ignored\n",
+		        m->entries[e].function,
+		        m->entries[e].file ? " in " : "",
+		        m->entries[e].file ? m->entries[e].file : "");
+	}
+}
+
+int purify_analyse(const Sdg *g, const ElcOptions *opts, Manifest *manifest,
+                   PurifyResults *out)
 {
 	memset(out, 0, sizeof *out);
 
@@ -518,11 +993,17 @@ int purify_analyse(const Sdg *g, const ElcOptions *opts, PurifyResults *out)
 	if (!out->classes)
 		return -1;
 
-	if (classify_nodes(g, &out->thresholds, out->classes) != 0)
+	if (classify_nodes(g, &out->thresholds, manifest, out->classes) != 0)
 		return -1;
 
+	warn_unmatched(manifest);
+
+	/* A manifest statement counts as a classification even where it says
+	 * "ordinary", so that a reader of the report can see that the tool was
+	 * overruled here rather than that it concluded nothing (HLR-177). */
 	for (size_t i = 0; i < g->node_count; i++)
-		if (out->classes[i].klass != PURIFY_ORDINARY)
+		if (out->classes[i].klass != PURIFY_ORDINARY ||
+		    out->classes[i].from_manifest)
 			out->classified++;
 
 	return build_recovery_view(g, out->classes, &out->view);

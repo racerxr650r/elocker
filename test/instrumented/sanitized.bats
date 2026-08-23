@@ -200,6 +200,75 @@ sanitized_run() {
 	grep -q "^Graph purification" "$BATS_TEST_TMPDIR/purified.txt"
 }
 
+@test "HLR-125: a rejected manifest exits leak-clean" {
+	# The one fatal path this phase adds, and the one most likely to leak:
+	# a manifest is refused *part way through* reading it, with statements
+	# already allocated and a JSON document still held. A run ending in a
+	# file the user must correct has to exit as leak-clean as one that
+	# succeeds (HLR-125, HLR-176).
+	local m="$BATS_TEST_TMPDIR/half.json"
+
+	cat > "$m" <<-'JSON'
+	{
+	  "manifest-version": 1,
+	  "classifications": [
+	    { "function": "sink", "file": "/nowhere/a.c", "class": "god object" },
+	    { "function": "a", "class": "demigod" }
+	  ]
+	}
+	JSON
+
+	sanitized_run "a run rejecting a manifest" --manifest "$m" "$TREE"
+	assert_equal "$status" 2
+}
+
+@test "HLR-125: a run writing every companion releases them all" {
+	# The manifest and the two drawings are written after the report and
+	# each allocates: a JSON document and its statements, a sorted edge
+	# list, and a classification table read twice. A run producing all of
+	# them at once is the shortest path through every one of those.
+	local tree="$BATS_TEST_TMPDIR/companions"
+
+	mkdir -p "$tree/app" "$tree/util"
+	printf 'void log_it(void);
+void a(void){log_it();}
+void b(void){log_it();}
+' \
+		> "$tree/app/a.c"
+	printf 'void log_it(void){}
+' > "$tree/util/l.c"
+
+	sanitized_run "a run writing every companion" --verbose --purify-dot \
+		--write-manifest --graphml --dsm \
+		-o "$BATS_TEST_TMPDIR/all.md" "$tree"
+	assert_equal "$status" 0
+
+	# And the manifest it wrote is read back in a second run, which is the
+	# read path over a file `elc` produced rather than one a test wrote.
+	sanitized_run "a run reading the manifest it wrote" --verbose \
+		--manifest "$BATS_TEST_TMPDIR/all.manifest.json" "$tree"
+	assert_equal "$status" 0
+}
+
+@test "HLR-125: a cyclic recovery view releases the components it collected" {
+	# The branch a layered tree never reaches. Where no ordering exists the
+	# pass allocates three graph-library vectors and a rendered string per
+	# component, on a path with its own early returns.
+	local tree="$BATS_TEST_TMPDIR/cyclic"
+
+	mkdir -p "$tree/up" "$tree/down"
+	printf 'void down_a(void);
+void up_a(void){down_a();}
+' > "$tree/up/u.c"
+	printf 'void up_a(void);
+void down_a(void){up_a();}
+' > "$tree/down/d.c"
+
+	sanitized_run "a run over a cyclic recovery view" --verbose \
+		-o "$BATS_TEST_TMPDIR/cyclic.txt" "$tree"
+	assert_equal "$status" 0
+}
+
 # --- the gate itself -------------------------------------------------------
 
 @test "LLR-BLD-09: the build provides a sanitized configuration" {

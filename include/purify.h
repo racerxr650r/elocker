@@ -87,6 +87,23 @@ typedef struct {
 	PurifyMetric metric;            /* the one that triggered the class */
 	double       value;             /* its value                        */
 	uint32_t     rank;              /* its rank; unused for coreness    */
+	/* Whether the recovery view applies this class's masking action.
+	 *
+	 * Computed classifications set it with the class, so the two travel
+	 * together and an ordinary function is unmasked by construction. A
+	 * manifest statement may set it false while keeping the class, which is
+	 * the case HLR-175 exists for: a user who agrees that a function is a
+	 * dispatcher and disagrees that it should be set aside says so here,
+	 * and the classification stays reportable while the masking stops. */
+	bool         masked;
+	/* True where the class above was stated by a manifest rather than
+	 * computed (HLR-177).
+	 *
+	 * Carried so the report can say which of the assumptions in front of a
+	 * reader are `elc`'s and which are their own team's. Without it the two
+	 * are indistinguishable in the one section whose purpose is to be
+	 * inspected. */
+	bool         from_manifest;
 } Classification;
 
 /* The masked copy of the call view.
@@ -121,6 +138,45 @@ typedef struct {
 	PurifyThresholds thresholds;  /* the values that were in force  */
 } PurifyResults;
 
+/* The manifest format this build reads and writes (HLR-061's rule, applied to
+ * a second artefact).
+ *
+ * Versioned so that a manifest written by a later build is rejected by an
+ * earlier one rather than half-understood — the failure a reader would never
+ * see, because a file that parses as JSON and means something else looks like
+ * a working manifest right up to the point where it silently classifies
+ * nothing.
+ */
+#define ELC_MANIFEST_VERSION 1
+
+/* One statement a manifest makes about one function (HLR-175, HLR-177).
+ *
+ * `file` is optional and NULL where the manifest omitted it, in which case the
+ * statement matches by function name alone. Naming the file is the precise
+ * form and is what `elc` writes; omitting it is the convenience a person
+ * hand-editing the file will reach for, and a project with two static
+ * functions of one name is the case that makes the distinction matter.
+ */
+typedef struct {
+	char        *function;   /* owned                                   */
+	char        *file;       /* owned; NULL matches any file            */
+	PurifyClass  klass;
+	bool         mask;       /* whether the view applies the action     */
+	/* Whether this statement named a function the run analysed.
+	 *
+	 * Tracked rather than assumed, because a statement that matched
+	 * nothing is reported and ignored rather than ending the run:
+	 * analysing one directory of a project whose manifest covers all of it
+	 * is ordinary use, exactly as a declared entry point matching nothing
+	 * is (HLR-177, LLR-CTR-08). */
+	bool         matched;
+} ManifestEntry;
+
+typedef struct {
+	ManifestEntry *entries;   /* owned */
+	size_t         count;
+} Manifest;
+
 /* Classify every function and build the masked recovery view.
  *
  * `g` is read and never written: the recovery view is a copy, and this
@@ -132,7 +188,8 @@ typedef struct {
  * the graph library. A graph too small to rank is not a failure — it classifies
  * nothing and yields an empty view (HLR-115).
  */
-int purify_analyse(const Sdg *g, const ElcOptions *opts, PurifyResults *out);
+int purify_analyse(const Sdg *g, const ElcOptions *opts, Manifest *manifest,
+                   PurifyResults *out);
 
 /* Assign each node its class against the thresholds in force.
  *
@@ -140,7 +197,8 @@ int purify_analyse(const Sdg *g, const ElcOptions *opts, PurifyResults *out);
  * classifications and the precedence between them are the whole of what this
  * module decides, and are worth pinning without a report in the way.
  */
-int classify_nodes(const Sdg *g, const PurifyThresholds *t, Classification *out);
+int classify_nodes(const Sdg *g, const PurifyThresholds *t, Manifest *manifest,
+                   Classification *out);
 
 /* Copy the call view, omitting the masked edges and the peripheral nodes.
  *
@@ -148,6 +206,15 @@ int classify_nodes(const Sdg *g, const PurifyThresholds *t, Classification *out)
  */
 int build_recovery_view(const Sdg *g, const Classification *c,
                         RecoveryView *out);
+
+/* Whether the recovery view keeps one call edge.
+ *
+ * Exposed so that the purified drawing of HLR-178 asks the same question the
+ * view was built from rather than reimplementing the three masking rules. Two
+ * answers to one question is how a drawing comes to show a graph the analysis
+ * did not read — which would defeat the whole purpose of drawing it.
+ */
+bool purify_edge_retained(const Classification *c, uint32_t from, uint32_t to);
 
 /* Compare two scores to the tolerance HLR-179 requires be stated.
  *
@@ -164,7 +231,16 @@ int purify_score_cmp(double a, double b);
  * masking one did. */
 const char *purify_class_name(PurifyClass klass);
 const char *purify_metric_name(PurifyMetric metric);
-const char *purify_action_name(PurifyClass klass);
+const char *purify_action_name(PurifyClass klass, bool masked);
+
+/* The inverse of `purify_class_name`, for the manifest read path.
+ *
+ * Returns true and sets `*out` where the name is one this build knows. A name
+ * it does not know is not a class it can guess at: the manifest is rejected
+ * rather than the statement silently dropped, because well-formed JSON that is
+ * not a manifest is exactly what HLR-176 asks be refused.
+ */
+bool purify_class_from_name(const char *name, PurifyClass *out);
 
 /* Copy the classifications onto an assembled report.
  *
@@ -178,6 +254,38 @@ const char *purify_action_name(PurifyClass klass);
  */
 int report_set_purify(Report *report, const PurifyResults *purify,
                       const Sdg *g, const ElcOptions *opts);
+
+/* Parse the manifest at `path`, which the user named on the command line.
+ *
+ * **Read only when named** (HLR-176). Nothing here searches: not the working
+ * directory, not the analysis target, not an ancestor of either, and no
+ * dotfile. The path arrives from `argv` and is the whole of where a manifest
+ * can come from, which is what leaves the zero-configuration guarantee of
+ * HLR-039 exactly as it was.
+ *
+ * Returns 0 on success, -1 with a diagnostic already on stderr otherwise. A
+ * file that is not JSON and a file that is JSON but not a *manifest* fail the
+ * same way and for the same reason: the user named the file, so the failure is
+ * theirs to correct, and a partly applied manifest would be a run governed by
+ * half of what its author wrote.
+ */
+int manifest_read(const char *path, Manifest *out);
+
+/* Write the classifications to `path` in the documented format, ready to be
+ * edited and handed back (HLR-175).
+ *
+ * The `Sdg` is needed and the `PurifyResults` alone is not: a classification
+ * is held against a node identifier, and an identifier is not something a
+ * person can edit. The rows are written in the report's own order — by file,
+ * then by line — so that two runs over one tree produce byte-identical
+ * manifests (HLR-032).
+ *
+ * Returns 0 on success; -1 with a diagnostic naming the file otherwise.
+ */
+int manifest_write(const PurifyResults *r, const Sdg *g, const char *path);
+
+/* Release a manifest's statements. Safe on NULL and on a zeroed record. */
+void manifest_free(Manifest *m);
 
 /* Release the classifications and the recovery view. Safe on NULL. */
 void purify_results_free(PurifyResults *r);

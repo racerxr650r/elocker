@@ -20,8 +20,10 @@
  */
 
 #include <criterion/criterion.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <igraph.h>
 
@@ -190,7 +192,7 @@ Test(purify, the_sink_and_the_dispatcher_are_classified)
 	fixture_build(&f);
 	c = calloc(f.sdg.node_count, sizeof *c);
 	cr_assert_not_null(c);
-	cr_assert_eq(classify_nodes(&f.sdg, &t, c), 0);
+	cr_assert_eq(classify_nodes(&f.sdg, &t, NULL, c), 0);
 
 	/* `log` is called by five functions and calls nothing, so its hub score
 	 * is exactly zero and its authority the highest (HLR-168). */
@@ -215,7 +217,7 @@ Test(purify, an_ordinary_function_is_classified_as_nothing)
 	fixture_build(&f);
 	c = calloc(f.sdg.node_count, sizeof *c);
 	cr_assert_not_null(c);
-	cr_assert_eq(classify_nodes(&f.sdg, &t, c), 0);
+	cr_assert_eq(classify_nodes(&f.sdg, &t, NULL, c), 0);
 
 	/* The half of the fixture that would pass against an implementation
 	 * classifying everything. `main` and `boot` are the sharpest of these:
@@ -240,7 +242,7 @@ Test(purify, a_classification_names_the_metric_and_the_value)
 	fixture_build(&f);
 	c = calloc(f.sdg.node_count, sizeof *c);
 	cr_assert_not_null(c);
-	cr_assert_eq(classify_nodes(&f.sdg, &t, c), 0);
+	cr_assert_eq(classify_nodes(&f.sdg, &t, NULL, c), 0);
 
 	/* HLR-174: the metric and the value beside the class, or the reader has
 	 * no grounds to trust the masking that follows from it. */
@@ -267,7 +269,7 @@ Test(purify, a_rank_is_a_position_not_a_score)
 	fixture_build(&f);
 	c = calloc(f.sdg.node_count, sizeof *c);
 	cr_assert_not_null(c);
-	cr_assert_eq(classify_nodes(&f.sdg, &t, c), 0);
+	cr_assert_eq(classify_nodes(&f.sdg, &t, NULL, c), 0);
 
 	/* The top of any distribution is 100 whatever the size of the graph,
 	 * because the rank is over the *other* nodes. That is what lets one
@@ -299,7 +301,7 @@ Test(purify, a_god_object_outranks_a_utility_sink)
 	 * claim, and masking its edges subsumes masking its incoming ones. */
 	t.sink_authority  = 0;
 	t.sink_hub        = 100;
-	cr_assert_eq(classify_nodes(&f.sdg, &t, c), 0);
+	cr_assert_eq(classify_nodes(&f.sdg, &t, NULL, c), 0);
 	cr_assert_eq(c[node_of(&f.sdg, "dispatch")].klass, PURIFY_GOD_OBJECT);
 
 	free(c);
@@ -321,7 +323,7 @@ Test(purify, a_centrality_class_outranks_a_peripheral_one)
 	 * their classes: a function those tests spoke about is part of the
 	 * connected centre by construction. */
 	t.core_depth = 99;
-	cr_assert_eq(classify_nodes(&f.sdg, &t, c), 0);
+	cr_assert_eq(classify_nodes(&f.sdg, &t, NULL, c), 0);
 	cr_assert_eq(c[node_of(&f.sdg, "dispatch")].klass, PURIFY_GOD_OBJECT);
 	cr_assert_eq(c[node_of(&f.sdg, "log")].klass, PURIFY_UTILITY_SINK);
 	cr_assert_eq(c[node_of(&f.sdg, "main")].klass, PURIFY_PERIPHERAL);
@@ -337,7 +339,7 @@ Test(purify, a_graph_with_no_nodes_classifies_nothing)
 
 	/* Not an error, as an analysis short of its inputs never is (HLR-115).
 	 * There is no distribution to rank against and nothing to rank. */
-	cr_assert_eq(classify_nodes(&empty, &t, NULL), 0);
+	cr_assert_eq(classify_nodes(&empty, &t, NULL, NULL), 0);
 }
 
 Test(purify, an_edgeless_graph_scores_zero_and_classifies_no_centrality)
@@ -358,7 +360,7 @@ Test(purify, an_edgeless_graph_scores_zero_and_classifies_no_centrality)
 
 	c = calloc(sdg.node_count, sizeof *c);
 	cr_assert_not_null(c);
-	cr_assert_eq(classify_nodes(&sdg, &t, c), 0);
+	cr_assert_eq(classify_nodes(&sdg, &t, NULL, c), 0);
 
 	/* The hub-and-authority decomposition is not defined on a graph with no
 	 * edges, and the library reports the fact on standard error naming one
@@ -415,7 +417,7 @@ Test(purify, functions_with_equal_scores_hold_one_position)
 	fixture_build(&f);
 	c = calloc(f.sdg.node_count, sizeof *c);
 	cr_assert_not_null(c);
-	cr_assert_eq(classify_nodes(&f.sdg, &t, c), 0);
+	cr_assert_eq(classify_nodes(&f.sdg, &t, NULL, c), 0);
 
 	/* `feat_a` and `feat_c` are the same shape: each is called only by the
 	 * dispatcher, each calls the sink and one thing besides. Their scores
@@ -460,7 +462,7 @@ Test(purify, the_call_view_is_not_modified)
 	before_v = igraph_vcount((const igraph_t *)f.sdg.call_graph);
 	before_e = igraph_ecount((const igraph_t *)f.sdg.call_graph);
 
-	cr_assert_eq(purify_analyse(&f.sdg, &opts, &r), 0);
+	cr_assert_eq(purify_analyse(&f.sdg, &opts, NULL, &r), 0);
 
 	after_v = igraph_vcount((const igraph_t *)f.sdg.call_graph);
 	after_e = igraph_ecount((const igraph_t *)f.sdg.call_graph);
@@ -496,7 +498,11 @@ Test(purify, a_sink_keeps_its_outgoing_edges)
 	 * a sink here, and it calls `log` (HLR-168). */
 	store = node_of(&f.sdg, "store");
 	log   = node_of(&f.sdg, "log");
-	c[store].klass = PURIFY_UTILITY_SINK;
+	c[store].klass  = PURIFY_UTILITY_SINK;
+	/* The class and the masking action are two facts, and the view acts on
+	 * the second: a manifest may state a class and withhold the action
+	 * (HLR-177), so a hand-built classification says both. */
+	c[store].masked = true;
 
 	cr_assert_eq(build_recovery_view(&f.sdg, c, &v), 0);
 
@@ -534,7 +540,8 @@ Test(purify, a_god_object_loses_both_directions)
 	cr_assert_not_null(c);
 
 	dispatch = node_of(&f.sdg, "dispatch");
-	c[dispatch].klass = PURIFY_GOD_OBJECT;
+	c[dispatch].klass  = PURIFY_GOD_OBJECT;
+	c[dispatch].masked = true;
 
 	cr_assert_eq(build_recovery_view(&f.sdg, c, &v), 0);
 
@@ -571,7 +578,8 @@ Test(purify, a_peripheral_node_is_excluded_rather_than_placed)
 	cr_assert_not_null(c);
 
 	helper = node_of(&f.sdg, "helper");
-	c[helper].klass = PURIFY_PERIPHERAL;
+	c[helper].klass  = PURIFY_PERIPHERAL;
+	c[helper].masked = true;
 
 	cr_assert_eq(build_recovery_view(&f.sdg, c, &v), 0);
 
@@ -605,7 +613,8 @@ Test(purify, the_view_keeps_the_graphs_own_node_identifiers)
 	fixture_build(&f);
 	c = calloc(f.sdg.node_count, sizeof *c);
 	cr_assert_not_null(c);
-	c[node_of(&f.sdg, "helper")].klass = PURIFY_PERIPHERAL;
+	c[node_of(&f.sdg, "helper")].klass  = PURIFY_PERIPHERAL;
+	c[node_of(&f.sdg, "helper")].masked = true;
 
 	cr_assert_eq(build_recovery_view(&f.sdg, c, &v), 0);
 
@@ -634,7 +643,7 @@ Test(purify, the_view_counts_what_the_masking_removed)
 
 	fixture_build(&f);
 	opts.purify = default_thresholds();
-	cr_assert_eq(purify_analyse(&f.sdg, &opts, &r), 0);
+	cr_assert_eq(purify_analyse(&f.sdg, &opts, NULL, &r), 0);
 
 	/* Thirteen call edges in, and the retained count plus the masked count
 	 * must be all of them: a view that dropped an edge without counting it
@@ -660,11 +669,11 @@ Test(purify, every_class_names_itself_and_the_action_it_took)
 	cr_assert_str_eq(purify_class_name(PURIFY_GOD_OBJECT), "god object");
 	cr_assert_str_eq(purify_class_name(PURIFY_PERIPHERAL), "peripheral");
 
-	cr_assert_str_eq(purify_action_name(PURIFY_UTILITY_SINK),
+	cr_assert_str_eq(purify_action_name(PURIFY_UTILITY_SINK, true),
 	                 "incoming edges masked");
-	cr_assert_str_eq(purify_action_name(PURIFY_GOD_OBJECT),
+	cr_assert_str_eq(purify_action_name(PURIFY_GOD_OBJECT, true),
 	                 "all edges masked");
-	cr_assert_str_eq(purify_action_name(PURIFY_PERIPHERAL),
+	cr_assert_str_eq(purify_action_name(PURIFY_PERIPHERAL, true),
 	                 "excluded from the view");
 
 	cr_assert_str_eq(purify_metric_name(PURIFY_METRIC_AUTHORITY),
@@ -685,7 +694,7 @@ Test(purify, the_report_carries_one_row_per_classification)
 
 	fixture_build(&f);
 	opts.purify = default_thresholds();
-	cr_assert_eq(purify_analyse(&f.sdg, &opts, &r), 0);
+	cr_assert_eq(purify_analyse(&f.sdg, &opts, NULL, &r), 0);
 	cr_assert_eq(report_set_purify(&f.report, &r, &f.sdg, &opts), 0);
 
 	/* Three classifications and three rows. The ordinary functions are
@@ -722,7 +731,7 @@ Test(purify, the_report_rows_are_ordered_by_file_and_line)
 
 	fixture_build(&f);
 	opts.purify = default_thresholds();
-	cr_assert_eq(purify_analyse(&f.sdg, &opts, &r), 0);
+	cr_assert_eq(purify_analyse(&f.sdg, &opts, NULL, &r), 0);
 	cr_assert_eq(report_set_purify(&f.report, &r, &f.sdg, &opts), 0);
 
 	/* Every collection is ordered by an explicit key before a renderer sees
@@ -738,4 +747,279 @@ Test(purify, the_report_rows_are_ordered_by_file_and_line)
 
 	purify_results_free(&r);
 	fixture_free(&f);
+}
+
+/* ---------------------------------------------------------- the manifest --
+ *
+ * The one artefact `elc` both writes and reads back. The tests below are in
+ * two halves and each half exists because of a distinct failure:
+ *
+ *   * **Well-formed is not valid.** Jansson decides whether the file is JSON;
+ *     whether it is a *manifest* is this module's judgement, and a file that
+ *     parses and means nothing is rejected exactly as one that does not parse
+ *     (HLR-176).
+ *   * **A statement governs, and a statement matching nothing does not end the
+ *     run.** The first is what makes a heuristic correctable; the second is
+ *     what makes a manifest usable on one directory of a project it covers
+ *     whole (HLR-177).
+ */
+
+/* Write `body` to a scratch file and hand back its path, which the caller
+ * unlinks.
+ *
+ * The template is reset on every call: `mkstemp` rewrites it in place, so a
+ * buffer kept between calls has no `XXXXXX` left the second time and the
+ * failure looks like a permissions problem rather than a spent template.
+ */
+static char *manifest_at(const char *body)
+{
+	static char path[64];
+	int         fd;
+	FILE       *file;
+
+	snprintf(path, sizeof path, "/tmp/elc-manifest-XXXXXX");
+	fd = mkstemp(path);
+
+	cr_assert_neq(fd, -1);
+	file = fdopen(fd, "w");
+	cr_assert_not_null(file);
+	cr_assert_gt(fputs(body, file), -1);
+	cr_assert_eq(fclose(file), 0);
+	return path;
+}
+
+Test(purify, a_manifest_statement_overrules_a_computed_class)
+{
+	Fixture       f    = { 0 };
+	ElcOptions    opts = { 0 };
+	PurifyResults r    = { 0 };
+	Manifest      m    = { 0 };
+	char         *path = manifest_at(
+		"{\"manifest-version\": 1, \"classifications\": ["
+		"{\"function\": \"dispatch\", \"class\": \"ordinary\"}]}\n");
+
+	fixture_build(&f);
+	opts.purify = default_thresholds();
+	cr_assert_eq(manifest_read(path, &m), 0);
+	cr_assert_eq(purify_analyse(&f.sdg, &opts, &m, &r), 0);
+
+	/* **The statement governs and is not recomputed** (HLR-177). The
+	 * centralities still say `dispatch` is the graph's dispatcher; the
+	 * user has said it is a state machine doing its job, and only the user
+	 * knows which. */
+	cr_assert_eq(r.classes[node_of(&f.sdg, "dispatch")].klass,
+	             PURIFY_ORDINARY);
+	cr_assert(r.classes[node_of(&f.sdg, "dispatch")].from_manifest);
+	cr_assert_not(r.classes[node_of(&f.sdg, "dispatch")].masked);
+	/* And nothing it did not name changed. */
+	cr_assert_eq(r.classes[node_of(&f.sdg, "log")].klass,
+	             PURIFY_UTILITY_SINK);
+	cr_assert_not(r.classes[node_of(&f.sdg, "log")].from_manifest);
+
+	manifest_free(&m);
+	purify_results_free(&r);
+	fixture_free(&f);
+	unlink(path);
+}
+
+Test(purify, a_manifest_may_keep_a_classified_function_in_the_view)
+{
+	Fixture       f    = { 0 };
+	ElcOptions    opts = { 0 };
+	PurifyResults r    = { 0 };
+	Manifest      m    = { 0 };
+	char         *path = manifest_at(
+		"{\"manifest-version\": 1, \"classifications\": ["
+		"{\"function\": \"dispatch\", \"file\": \"/p/app.c\","
+		" \"class\": \"god object\", \"mask\": false}]}\n");
+
+	fixture_build(&f);
+	opts.purify = default_thresholds();
+	cr_assert_eq(manifest_read(path, &m), 0);
+	cr_assert_eq(purify_analyse(&f.sdg, &opts, &m, &r), 0);
+
+	/* **The class and the action are two facts.** A user may agree that a
+	 * function is the graph's dispatcher and disagree that it should be set
+	 * aside; the classification stays reportable and the view keeps its
+	 * edges (HLR-175, HLR-177). */
+	cr_assert_eq(r.classes[node_of(&f.sdg, "dispatch")].klass,
+	             PURIFY_GOD_OBJECT);
+	cr_assert_not(r.classes[node_of(&f.sdg, "dispatch")].masked);
+	cr_assert_str_eq(purify_action_name(PURIFY_GOD_OBJECT, false),
+	                 "kept in the view");
+	cr_assert(purify_edge_retained(r.classes, node_of(&f.sdg, "main"),
+	                               node_of(&f.sdg, "dispatch")));
+
+	manifest_free(&m);
+	purify_results_free(&r);
+	fixture_free(&f);
+	unlink(path);
+}
+
+Test(purify, a_manifest_statement_naming_nothing_is_recorded_unmatched)
+{
+	Fixture       f    = { 0 };
+	ElcOptions    opts = { 0 };
+	PurifyResults r    = { 0 };
+	Manifest      m    = { 0 };
+	char         *path = manifest_at(
+		"{\"manifest-version\": 1, \"classifications\": ["
+		"{\"function\": \"nowhere\", \"class\": \"god object\"},"
+		"{\"function\": \"dispatch\", \"class\": \"peripheral\"}]}\n");
+
+	fixture_build(&f);
+	opts.purify = default_thresholds();
+	cr_assert_eq(manifest_read(path, &m), 0);
+
+	/* **Reported and ignored, never fatal** (HLR-177). Analysing one
+	 * directory of a project whose manifest covers all of it is ordinary
+	 * use, and rejecting the file there would make a manifest unusable
+	 * exactly where a large code base most needs one — the rule a declared
+	 * entry point matching nothing already follows (LLR-CTR-08). */
+	cr_assert_eq(purify_analyse(&f.sdg, &opts, &m, &r), 0);
+	cr_assert_not(m.entries[0].matched);
+	cr_assert(m.entries[1].matched);
+	cr_assert_eq(r.classes[node_of(&f.sdg, "dispatch")].klass,
+	             PURIFY_PERIPHERAL);
+
+	manifest_free(&m);
+	purify_results_free(&r);
+	fixture_free(&f);
+	unlink(path);
+}
+
+Test(purify, a_statement_naming_a_file_matches_only_that_file)
+{
+	Fixture       f    = { 0 };
+	ElcOptions    opts = { 0 };
+	PurifyResults r    = { 0 };
+	Manifest      m    = { 0 };
+	char         *path = manifest_at(
+		"{\"manifest-version\": 1, \"classifications\": ["
+		"{\"function\": \"dispatch\", \"file\": \"/p/other.c\","
+		" \"class\": \"ordinary\"}]}\n");
+
+	fixture_build(&f);
+	opts.purify = default_thresholds();
+	cr_assert_eq(manifest_read(path, &m), 0);
+	cr_assert_eq(purify_analyse(&f.sdg, &opts, &m, &r), 0);
+
+	/* Naming the file is the precise form, and it is precise in both
+	 * directions: a statement about a `dispatch` in another file leaves
+	 * this one alone. A project with two static functions of one name is
+	 * the case that makes the difference matter. */
+	cr_assert_eq(r.classes[node_of(&f.sdg, "dispatch")].klass,
+	             PURIFY_GOD_OBJECT);
+	cr_assert_not(m.entries[0].matched);
+
+	manifest_free(&m);
+	purify_results_free(&r);
+	fixture_free(&f);
+	unlink(path);
+}
+
+Test(purify, a_malformed_manifest_is_rejected_rather_than_partly_applied)
+{
+	Manifest m = { 0 };
+	char    *path = manifest_at(
+		"{\"manifest-version\": 1, \"classifications\": [");
+
+	/* The user named the file, so the failure is theirs to correct — the
+	 * provenance rule HLR-116 draws for a custom rule named on the command
+	 * line, and HLR-146 for an unusable image (HLR-176). */
+	cr_assert_eq(manifest_read(path, &m), -1);
+	cr_assert_eq(m.count, 0);
+	cr_assert_null(m.entries);
+	manifest_free(&m);
+	unlink(path);
+}
+
+Test(purify, well_formed_json_that_is_not_a_manifest_is_rejected)
+{
+	Manifest m = { 0 };
+	char    *no_version = manifest_at("{\"classifications\": []}\n");
+
+	/* **Well-formed is not valid.** Jansson says the file is JSON; whether
+	 * it is a manifest is this module's judgement, and both failures are
+	 * refused the same way (HLR-176). */
+	cr_assert_eq(manifest_read(no_version, &m), -1);
+	unlink(no_version);
+
+	char *no_array = manifest_at("{\"manifest-version\": 1}\n");
+
+	cr_assert_eq(manifest_read(no_array, &m), -1);
+	unlink(no_array);
+
+	char *unknown = manifest_at(
+		"{\"manifest-version\": 1, \"classifications\": ["
+		"{\"function\": \"f\", \"class\": \"demigod\"}]}\n");
+
+	cr_assert_eq(manifest_read(unknown, &m), -1);
+	unlink(unknown);
+	manifest_free(&m);
+}
+
+Test(purify, a_manifest_from_a_later_build_is_rejected)
+{
+	Manifest m = { 0 };
+	char    *path = manifest_at(
+		"{\"manifest-version\": 99, \"classifications\": []}\n");
+
+	/* Versioned in the manner of the XML record (HLR-061): a manifest
+	 * written by a later build is rejected rather than half-understood,
+	 * which is the failure a reader would never see. */
+	cr_assert_eq(manifest_read(path, &m), -1);
+	manifest_free(&m);
+	unlink(path);
+}
+
+Test(purify, a_written_manifest_reads_back)
+{
+	Fixture       f    = { 0 };
+	ElcOptions    opts = { 0 };
+	PurifyResults r    = { 0 };
+	Manifest      m    = { 0 };
+	char          path[] = "/tmp/elc-manifest-out-XXXXXX";
+	int           fd     = mkstemp(path);
+
+	cr_assert_neq(fd, -1);
+	close(fd);
+
+	fixture_build(&f);
+	opts.purify = default_thresholds();
+	cr_assert_eq(purify_analyse(&f.sdg, &opts, NULL, &r), 0);
+
+	/* **The round trip is the reason the format is a library's** (SDD
+	 * §20.2.3). A hand-rolled writer paired with a library reader would be
+	 * two implementations of one format with `elc` on both ends of the
+	 * disagreement, and this is the test that would find it. */
+	cr_assert_eq(manifest_write(&r, &f.sdg, path), 0);
+	cr_assert_eq(manifest_read(path, &m), 0);
+	cr_assert_eq(m.count, r.classified);
+	for (size_t i = 0; i < m.count; i++) {
+		cr_assert_not_null(m.entries[i].function);
+		cr_assert_not_null(m.entries[i].file);
+		cr_assert(m.entries[i].mask);
+	}
+	/* Written in the report's own order, so a person reading the report
+	 * and editing the manifest finds the rows in the same place and two
+	 * runs over one tree produce identical files (HLR-032). */
+	for (size_t i = 1; i < m.count; i++)
+		cr_assert_leq(strcmp(m.entries[i - 1].file, m.entries[i].file),
+		              0);
+
+	manifest_free(&m);
+	purify_results_free(&r);
+	fixture_free(&f);
+	unlink(path);
+}
+
+Test(purify, manifest_free_is_safe_on_null_and_twice)
+{
+	Manifest m = { 0 };
+
+	manifest_free(NULL);
+	manifest_free(&m);
+	manifest_free(&m);
+	cr_assert_eq(m.count, 0);
 }

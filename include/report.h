@@ -235,7 +235,46 @@ typedef struct {
 	char     *metric;      /* the measurement that triggered it; owned   */
 	char     *value;       /* its value and rank, rendered; owned        */
 	char     *action;      /* what masking it did to the view; owned     */
+	/* Where the class came from: `elc`'s own centralities, or a statement
+	 * in a manifest the user named (HLR-177).
+	 *
+	 * Carried on the row rather than inferred, because a reader of this
+	 * section is being asked to judge whether the masking was right, and
+	 * they cannot do that without knowing which of the assumptions in front
+	 * of them are the tool's and which are their own team's. */
+	char     *source;      /* "computed" or "manifest"; owned            */
 } PurificationRow;
+
+/* One directory the recovered layering places at a layer (HLR-172).
+ *
+ * **A proposal, and never the baseline it would be measured against**
+ * (HLR-173). Nothing in `arch.c` can reach these rows: the conformance
+ * analyses take their layer index from the declared strata of HLR-078 and from
+ * nothing else, and where none are declared they stay omitted however
+ * confidently a layering was recovered. What is added here is a description a
+ * user may read, agree with, and then declare — and the declaring is theirs.
+ *
+ * The subject is a *directory* because an architecture orders directories; the
+ * topological order underneath orders functions, and is folded before it
+ * reaches this table.
+ */
+typedef struct {
+	char   *directory;   /* owned                                     */
+	size_t  layer;       /* 0-based, topmost first                    */
+	size_t  functions;   /* the ones the recovery view retained there */
+} RecoveredRow;
+
+/* Whether a layering was recovered, and where it went if not.
+ *
+ * The zero is the omission, so a model carrying no recovery at all — a record
+ * written before recovery existed, or a report a test built by hand — reads as
+ * "nothing was proposed" rather than as an empty proposal.
+ */
+typedef enum {
+	RECOVERY_OMITTED_EMPTY = 0, /* nothing survived purification    */
+	RECOVERY_CYCLIC,            /* no ordering exists (HLR-172)     */
+	RECOVERY_PROPOSED
+} RecoveryState;
 
 /* One finding as the report presents it: a measurement that fell outside its
  * accepted range, with the severity and the citation that say so.
@@ -423,6 +462,28 @@ typedef struct {
 	PurifyThresholds    purify_thresholds; /* the values in force         */
 	size_t              purified_nodes;    /* retained in the view        */
 	size_t              purified_edges;    /* call edges the masking cut  */
+
+	/* The layering read off the purified view, for a user who declared
+	 * none (HLR-172, HLR-173).
+	 *
+	 * **Never a baseline.** These rows reach the renderers and the record
+	 * and nothing else; no conformance measurement is taken against them,
+	 * and with no strata declared the analyses of Section 21 stay omitted
+	 * with their reason stated (HLR-115). A tool measuring conformance
+	 * against its own proposal would find every code base conformant,
+	 * because the standard would have been read off the thing it judged.
+	 *
+	 * `proposal` is that boundary made visible: an argument list in the
+	 * form `--stratum` and `--stratum-order` accept, which takes effect
+	 * only when the user passes it back. */
+	RecoveryState       recovery_state;
+	RecoveredRow       *recovery;      /* sorted by layer, then path      */
+	size_t              recovery_count;
+	size_t              recovery_strata;  /* distinct layers proposed     */
+	PathList            recovery_cycles;  /* rendered; where cyclic       */
+	size_t              recovery_masked;  /* functions whose edges went   */
+	size_t              recovery_excluded;/* peripheral, left out         */
+	char               *recovery_proposal; /* the argument list; owned    */
 
 	/* Every measurement that crossed a published line, with its severity
 	 * and citation. Ranked most severe first: the list exists to be acted

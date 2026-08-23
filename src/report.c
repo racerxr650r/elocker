@@ -1278,7 +1278,11 @@ int report_set_purify(Report *report, const PurifyResults *purify,
 		PurificationRow      *row;
 		char                  value[192];
 
-		if (c->klass == PURIFY_ORDINARY)
+		/* A manifest statement is a classification even where it says
+		 * "ordinary": the tool was overruled here, and a reader who
+		 * cannot see that learns less from the section than a reader
+		 * of the manifest would (HLR-177). */
+		if (c->klass == PURIFY_ORDINARY && !c->from_manifest)
 			continue;
 
 		row = &report->purification[report->purification_count];
@@ -1290,9 +1294,17 @@ int report_set_purify(Report *report, const PurifyResults *purify,
 		row->class_name = strdup(purify_class_name(c->klass));
 		row->metric     = strdup(purify_metric_name(c->metric));
 		row->value      = strdup(value);
-		row->action     = strdup(purify_action_name(c->klass));
+		row->action     = strdup(purify_action_name(c->klass,
+		                                            c->masked));
+		/* **Whose assumption this is** (HLR-177). A reader of this
+		 * section is being asked to judge whether the masking was
+		 * right, and cannot do that without knowing which rows are
+		 * `elc`'s own reading of the graph and which are their team's
+		 * correction of it. */
+		row->source     = strdup(c->from_manifest ? "manifest"
+		                                          : "computed");
 		if (!row->function || !row->file || !row->class_name ||
-		    !row->metric || !row->value || !row->action)
+		    !row->metric || !row->value || !row->action || !row->source)
 			return -1;
 		row->line = g->nodes[i].line_start;
 		report->purification_count++;
@@ -1734,10 +1746,20 @@ void report_free(Report *report)
 		free(report->purification[i].metric);
 		free(report->purification[i].value);
 		free(report->purification[i].action);
+		free(report->purification[i].source);
 	}
 	free(report->purification);
 	report->purification       = NULL;
 	report->purification_count = 0;
+
+	for (size_t i = 0; i < report->recovery_count; i++)
+		free(report->recovery[i].directory);
+	free(report->recovery);
+	report->recovery       = NULL;
+	report->recovery_count = 0;
+	pathlist_free(&report->recovery_cycles);
+	free(report->recovery_proposal);
+	report->recovery_proposal = NULL;
 	for (size_t i = 0; i < report->coupling_count; i++) {
 		free(report->coupling[i].component);
 		free(report->coupling[i].instability);

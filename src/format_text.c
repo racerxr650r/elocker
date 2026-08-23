@@ -934,7 +934,8 @@ static int purification_section(const Report *report, Style style, FILE *out)
 	Grid grid;
 
 	static const char *const names[] = { "File", "Function", "Class",
-	                                     "Metric", "Value", "Action" };
+	                                     "Metric", "Value", "Action",
+	                                     "Source" };
 	char                     heading[512];
 
 	snprintf(heading, sizeof heading,
@@ -952,14 +953,100 @@ static int purification_section(const Report *report, Style style, FILE *out)
 	         report->purify_thresholds.core_depth,
 	         report->purified_nodes, report->purified_edges);
 
-	grid_begin(&grid, heading, 6, names, NULL);
+	grid_begin(&grid, heading, 7, names, NULL);
 	for (size_t i = 0; i < report->purification_count; i++) {
 		const PurificationRow *r = &report->purification[i];
 
 		grid_row(&grid, r->file, r->function, r->class_name,
-		         r->metric, r->value, r->action);
+		         r->metric, r->value, r->action, r->source);
 	}
 	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	return 0;
+}
+
+/* The layering read off the purified view, and how to adopt it (HLR-172,
+ * HLR-173).
+ *
+ * **A proposal, and never a baseline.** Nothing above this section was
+ * measured against these rows: the conformance analyses take their layer index
+ * from the declared strata of HLR-078 and from nothing else, and where none
+ * were declared they stay omitted with their reason stated whatever was
+ * recovered here (HLR-115). The heading says so, because a table of layers
+ * printed under an architecture report is otherwise easy to read as a verdict.
+ *
+ * **Nothing here is ranked or scored.** The section states the order the graph
+ * already has; it does not say the design is wrong, name a directory as
+ * belonging elsewhere, or compare what was found against what was declared —
+ * each of which would cross from describing a structure into prescribing one
+ * (HLR-101).
+ *
+ * The `Layer` column holds an ordinal where a layering was proposed and the
+ * word `cycle` where one could not be, since a cycle is what is reported in
+ * place of an ordering rather than beside it (HLR-172).
+ */
+static int recovery_section(const Report *report, Style style, FILE *out)
+{
+	Grid                     grid;
+	Grid                     adopt;
+	static const char *const names[] = { "Layer", "Directory or cycle",
+	                                     "Functions" };
+	static const bool        numeric[] = { false, false, true };
+	static const char *const adopt_names[] = { "Adopt with" };
+	char                     heading[384];
+	char                     count[24];
+
+	switch (report->recovery_state) {
+	case RECOVERY_PROPOSED:
+		snprintf(heading, sizeof heading,
+		         "Architecture recovery (a proposal, never the baseline "
+		         "conformance is measured against; %zu layers over %zu "
+		         "directories, %zu functions masked and %zu excluded)",
+		         report->recovery_strata, report->recovery_count,
+		         report->recovery_masked, report->recovery_excluded);
+		break;
+	case RECOVERY_CYCLIC:
+		snprintf(heading, sizeof heading,
+		         "Architecture recovery (omitted: the recovery view is "
+		         "cyclic, so no ordering exists; the mutually reachable "
+		         "groups below are reported in its place)");
+		break;
+	case RECOVERY_OMITTED_EMPTY:
+	default:
+		snprintf(heading, sizeof heading,
+		         "Architecture recovery (omitted: no function survived "
+		         "purification, so there is nothing to order)");
+		break;
+	}
+
+	grid_begin(&grid, heading, 3, names, numeric);
+	for (size_t i = 0; i < report->recovery_count; i++) {
+		char layer[24];
+
+		snprintf(layer, sizeof layer, "%zu",
+		         report->recovery[i].layer);
+		snprintf(count, sizeof count, "%zu",
+		         report->recovery[i].functions);
+		grid_row(&grid, layer, report->recovery[i].directory, count);
+	}
+	for (size_t i = 0; i < report->recovery_cycles.count; i++)
+		grid_row(&grid, "cycle", report->recovery_cycles.paths[i], "");
+	if (grid_render(&grid, style, out) != 0)
+		return -1;
+
+	/* **The proposal as arguments, not as prose** (HLR-173). Rendering it
+	 * in the form `--stratum` and `--stratum-order` accept is what makes
+	 * adoption a copy rather than a transcription — and it is the boundary
+	 * the requirement draws made visible: `elc` produces an argument list,
+	 * and it takes effect only when the user passes it back. */
+	grid_begin(&adopt,
+	           "Architecture recovery — the proposal as arguments (elc "
+	           "never applies it; passing it back is what declares it)",
+	           1, adopt_names, NULL);
+	if (report->recovery_proposal)
+		grid_row(&adopt, report->recovery_proposal);
+	if (grid_render(&adopt, style, out) != 0)
 		return -1;
 
 	return 0;
@@ -1491,6 +1578,7 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		{ conformance_section,           TIER_SUMMARY, NULL            },
 		{ dsm_section,                   TIER_DETAIL,  NULL            },
 		{ purification_section,          TIER_DETAIL,  NULL            },
+		{ recovery_section,              TIER_DETAIL,  NULL            },
 		{ global_state_section,          TIER_DETAIL,  NULL            },
 		{ unreachable_functions_section, TIER_DETAIL,  reach_omitted   },
 		{ unreachable_globals_section,   TIER_DETAIL,  NULL            },

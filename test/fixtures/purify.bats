@@ -147,27 +147,35 @@ flow_of() {
 @test "HLR-167: changing a threshold moves no reported measurement" {
 	# The strongest statement of the containment available from outside:
 	# purify the tree three different ways and the report is byte-identical
-	# but for its own section. An implementation masking the Sdg in place
+	# but for its own sections. An implementation masking the Sdg in place
 	# would differ in the fan-out, the coupling, and the matrix.
+	#
+	# The architecture-recovery sections are excluded alongside the
+	# purification one, and that is not a weakening of the case. HLR-167
+	# says purification moves no *measurement*; the recovered layering is
+	# not a measurement but the thing purification exists to make possible,
+	# and a proposal that did not change when the masking changed would mean
+	# the masking had not reached it (HLR-172). Every measured figure in the
+	# report is still inside the comparison.
 	local without with_shallow with_deep
 
 	elc --verbose "$TREE"
 	assert_success
 	without="$(printf '%s\n' "$output" |
-		awk '/^Graph purification/ { f = 1 } f && /^$/ { f = 0; next }
-		     !f { print }')"
+		awk '/^Graph purification|^Architecture recovery/ { f = 1 }
+		     f && /^$/ { f = 0; next } !f { print }')"
 
 	elc --verbose --core-depth 1 "$TREE"
 	assert_success
 	with_shallow="$(printf '%s\n' "$output" |
-		awk '/^Graph purification/ { f = 1 } f && /^$/ { f = 0; next }
-		     !f { print }')"
+		awk '/^Graph purification|^Architecture recovery/ { f = 1 }
+		     f && /^$/ { f = 0; next } !f { print }')"
 
 	elc --verbose --core-depth 3 "$TREE"
 	assert_success
 	with_deep="$(printf '%s\n' "$output" |
-		awk '/^Graph purification/ { f = 1 } f && /^$/ { f = 0; next }
-		     !f { print }')"
+		awk '/^Graph purification|^Architecture recovery/ { f = 1 }
+		     f && /^$/ { f = 0; next } !f { print }')"
 
 	assert_equal "$with_shallow" "$without"
 	assert_equal "$with_deep" "$without"

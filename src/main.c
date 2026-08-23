@@ -31,6 +31,7 @@
 #include "format_text.h"
 #include "format_xml.h"
 #include "purify.h"
+#include "recover.h"
 #include "registry.h"
 #include "report.h"
 #include "state.h"
@@ -80,7 +81,9 @@ typedef struct {
 	TreeResults        tree;
 	StateResults       state;
 	ArchResults        arch;
+	Manifest           manifest;
 	PurifyResults      purify;
+	RecoveryResults    recovery;
 	FindingList        findings;
 	RouteList          routes;
 	MetricsAccumulator acc;
@@ -101,7 +104,9 @@ static void run_free(Run *run)
 	if (run->out && run->out != stdout)
 		fclose(run->out);
 	findinglist_free(&run->findings);
+	recovery_results_free(&run->recovery);
 	purify_results_free(&run->purify);
+	manifest_free(&run->manifest);
 	arch_results_free(&run->arch);
 	state_results_free(&run->state);
 	tree_results_free(&run->tree);
@@ -306,11 +311,35 @@ static int analyse_graph(Run *run)
 	 * and hands it to nobody but the report (HLR-167). Running it here
 	 * rather than earlier changes no number — that is the point of the
 	 * copy — and puts the ordering beyond argument as well. */
-	if (purify_analyse(&run->sdg, &run->opts, &run->purify) != 0 ||
+	/* **The manifest, and only where the user named one** (HLR-176). Read
+	 * before the classifications it overrules, and fatal where it cannot be
+	 * read or is not a manifest: the user named the file, so the failure is
+	 * theirs to correct, and a run governed by half of what they wrote is
+	 * worse than one that stops. The diagnostic is already on stderr. */
+	if (run->opts.manifest_path &&
+	    manifest_read(run->opts.manifest_path, &run->manifest) != 0)
+		return -1;
+
+	if (purify_analyse(&run->sdg, &run->opts, &run->manifest,
+	                   &run->purify) != 0 ||
 	    report_set_purify(&run->report, &run->purify, &run->sdg,
 	                      &run->opts) != 0) {
 		fputs("elc: out of memory purifying the recovery view\n",
 		      stderr);
+		return -1;
+	}
+
+	/* Recovery runs after purification and before nothing at all. It reads
+	 * the masked copy and hands its result to the report; no analysis takes
+	 * an input from it, and `arch.c` cannot reach it — which is how a
+	 * proposal is kept from becoming the baseline it would be measured
+	 * against (HLR-173). Its absence of a declaration is not a reason to
+	 * omit it: recovery is what a user with no strata is *given*, and it is
+	 * the conformance analyses that stay omitted (HLR-115). */
+	if (recover_layers(&run->purify, &run->sdg, &run->report,
+	                   &run->recovery) != 0 ||
+	    report_set_recovery(&run->report, &run->recovery) != 0) {
+		fputs("elc: out of memory recovering a layering\n", stderr);
 		return -1;
 	}
 
@@ -332,6 +361,28 @@ static int companion_dot(Run *run, const char *path)
 static int companion_graphml(Run *run, const char *path)
 {
 	return graph_write_graphml(&run->sdg, path);
+}
+
+static int companion_raw_dot(Run *run, const char *path)
+{
+	return graph_write_purify_dot(&run->sdg, &run->purify, false, path);
+}
+
+static int companion_purified_dot(Run *run, const char *path)
+{
+	return graph_write_purify_dot(&run->sdg, &run->purify, true, path);
+}
+
+/* The manifest, written from the classifications rather than from the report.
+ *
+ * The report drops the masking flag once a row is rendered, and the manifest
+ * exists to be handed back — so it is written from what purification decided,
+ * which is the only place both the class and the action it carried still are
+ * (HLR-175).
+ */
+static int companion_manifest(Run *run, const char *path)
+{
+	return manifest_write(&run->purify, &run->sdg, path);
 }
 
 /* The matrix as CSV, beside the report (HLR-180).
@@ -427,6 +478,24 @@ static int emit(Run *run)
 	if (dsm_warranted(&run->opts))
 		write_companion(run, "dsm.csv", "dependency matrix",
 		                companion_dsm);
+
+	/* The pair of drawings, and the manifest. Each follows the one
+	 * companion rule: a name derived from the report's own output path, no
+	 * path of its own, and nothing written when the report goes to standard
+	 * output (HLR-119, HLR-175, HLR-178). The two drawings are written
+	 * together because they exist to be compared — one of them alone
+	 * answers half the question. */
+	if (run->graph_built && graph_purify_dot_warranted(&run->opts)) {
+		write_companion(run, "raw.dot", "raw call graph",
+		                companion_raw_dot);
+		write_companion(run, "purified.dot", "purified recovery view",
+		                companion_purified_dot);
+	}
+
+	if (run->graph_built && run->opts.write_manifest &&
+	    run->opts.output_path)
+		write_companion(run, "manifest.json", "purification manifest",
+		                companion_manifest);
 
 	return 0;
 }

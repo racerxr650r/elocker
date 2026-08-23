@@ -308,6 +308,68 @@ Test(format_text, both_styles_reach_the_same_tiers_at_each_verbosity)
 	report_free(&report);
 }
 
+/* The recovered layering, and the boundary the section is built to keep.
+ *
+ * **A proposal is never a baseline** (HLR-173). The rows are a description of
+ * the order the graph already has; nothing above them was measured against
+ * them, and the heading says so, because a table of layers printed under an
+ * architecture report is otherwise easy to read as a verdict.
+ */
+Test(format_text, recovery_is_a_detail_tier_and_says_it_is_a_proposal)
+{
+	FileMetrics *files[] = { metrics_for("/tree/a.c", 3) };
+	Report       report  = report_of(files, 1);
+
+	report.recovery_state    = RECOVERY_PROPOSED;
+	report.recovery_strata   = 2;
+	report.recovery          = calloc(2, sizeof *report.recovery);
+	cr_assert_not_null(report.recovery);
+	report.recovery[0].directory = strdup("/tree/app");
+	report.recovery[1].directory = strdup("/tree/hal");
+	cr_assert_not_null(report.recovery[0].directory);
+	cr_assert_not_null(report.recovery[1].directory);
+	report.recovery[0].layer     = 0;
+	report.recovery[1].layer     = 1;
+	report.recovery[0].functions = 2;
+	report.recovery[1].functions = 1;
+	report.recovery_count        = 2;
+	report.recovery_proposal =
+		strdup("--stratum app:'/tree/app/*' "
+		       "--stratum hal:'/tree/hal/*' "
+		       "--stratum-order 'app>hal'");
+	cr_assert_not_null(report.recovery_proposal);
+
+	for (int s = 0; s < 2; s++) {
+		Style style   = s ? STYLE_MARKDOWN : STYLE_TABLE;
+		char *summary = render_as(&report, style, VERBOSITY_SUMMARY);
+		char *verbose = render_as(&report, style, VERBOSITY_VERBOSE);
+
+		/* One row per directory, so the partition rule of HLR-150 puts
+		 * it with the other per-entity tables. */
+		cr_assert_null(strstr(summary, "Architecture recovery"),
+		               "style %d presented a detail tier in the "
+		               "summary", s);
+		cr_assert_not_null(strstr(verbose, "Architecture recovery"),
+		                   "style %d", s);
+		cr_assert_not_null(strstr(verbose, "never the baseline"),
+		                   "style %d dropped the boundary the section "
+		                   "exists to keep", s);
+		cr_assert_not_null(strstr(verbose, "/tree/hal"), "style %d", s);
+
+		/* **The proposal as arguments, not as prose** (HLR-173).
+		 * Adoption is a copy rather than a transcription, and what
+		 * `elc` produces is a command line that takes effect only when
+		 * the user passes it back. */
+		cr_assert_not_null(strstr(verbose, "--stratum-order 'app>hal'"),
+		                   "style %d dropped the argument list", s);
+
+		free(summary);
+		free(verbose);
+	}
+
+	report_free(&report);
+}
+
 /* The two conformance indices are a project-level aggregate and the matrix is
  * one row per subject, so the first is a summary tier and the second a detail
  * tier — the partition rule applied to the two tiers this phase added
