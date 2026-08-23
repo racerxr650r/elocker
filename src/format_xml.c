@@ -450,6 +450,46 @@ static void write_dsm(const Report *report, FILE *out)
 	fputs("  </dsm>\n", out);
 }
 
+/* What purification concluded (HLR-174).
+ *
+ * Carried for the reason every other analysis result is: regeneration has no
+ * graph to recompute a centrality over, so a classification absent from this
+ * element is one a regenerated report cannot present — and a record that
+ * dropped the transparency report would leave a reader of it with the masking
+ * and without the account of it.
+ *
+ * The thresholds are written beside the rows because they are what the rows
+ * were decided against, and because a record read a year later has no command
+ * line to consult. **No severity is written**, here or anywhere: a
+ * classification does not have one (HLR-171).
+ */
+static void write_purification(const Report *report, FILE *out)
+{
+	fprintf(out, "  <purification sink-authority=\"%" PRIu32
+	        "\" sink-hub=\"%" PRIu32 "\" god-betweenness=\"%" PRIu32
+	        "\" god-hub=\"%" PRIu32 "\" core-depth=\"%" PRIu32
+	        "\" retained=\"%zu\" masked-edges=\"%zu\">\n",
+	        report->purify_thresholds.sink_authority,
+	        report->purify_thresholds.sink_hub,
+	        report->purify_thresholds.god_betweenness,
+	        report->purify_thresholds.god_hub,
+	        report->purify_thresholds.core_depth,
+	        report->purified_nodes, report->purified_edges);
+	for (size_t i = 0; i < report->purification_count; i++) {
+		const PurificationRow *r = &report->purification[i];
+
+		fputs("    <classification", out);
+		write_attribute(out, "function", r->function);
+		write_attribute(out, "file", r->file);
+		write_attribute(out, "class", r->class_name);
+		write_attribute(out, "metric", r->metric);
+		write_attribute(out, "value", r->value);
+		write_attribute(out, "action", r->action);
+		fprintf(out, " line=\"%" PRIu32 "\"/>\n", r->line);
+	}
+	fputs("  </purification>\n", out);
+}
+
 /* The findings. Carried because regeneration has no measurements to re-band
  * and no catalogue call to make against them, exactly as the measurements
  * themselves are (HLR-054, HLR-056).
@@ -523,6 +563,7 @@ int xml_write_report(const Report *report, FILE *out)
 		write_image,
 		write_architecture,
 		write_dsm,
+		write_purification,
 		write_findings,
 		write_discovery,
 		write_skipped
@@ -587,6 +628,11 @@ typedef struct {
 	ConformanceRow      back_call;
 	ConformanceRow      skip_call;
 	Dsm                 dsm;
+	PurificationRow    *purification;
+	size_t              purification_count;
+	PurifyThresholds    purify_thresholds;
+	size_t              purified_nodes;
+	size_t              purified_edges;
 	DeadRow            *dead;
 	size_t              dead_count;
 	RuleMatchRow       *rule_matches;
@@ -1497,6 +1543,72 @@ static void on_dsm_cell(ReadState *state, const XML_Char **atts)
 	state->dsm.cells[row * state->dsm.count + col] = (size_t)calls;
 }
 
+/* The thresholds purification was made against, and what it left behind.
+ *
+ * Restored as text and counts rather than recomputed, exactly as the
+ * conformance indices are: a record carries no graph, and a regenerated report
+ * must say what the run it describes said rather than what this build would
+ * conclude today (HLR-174, LLR-XRD-18).
+ */
+static void on_purification(ReadState *state, const XML_Char **atts)
+{
+	state->purify_thresholds.sink_authority =
+		(uint32_t)uint_attribute(state, atts, "sink-authority");
+	state->purify_thresholds.sink_hub =
+		(uint32_t)uint_attribute(state, atts, "sink-hub");
+	state->purify_thresholds.god_betweenness =
+		(uint32_t)uint_attribute(state, atts, "god-betweenness");
+	state->purify_thresholds.god_hub =
+		(uint32_t)uint_attribute(state, atts, "god-hub");
+	state->purify_thresholds.core_depth =
+		(uint32_t)uint_attribute(state, atts, "core-depth");
+	state->purified_nodes = (size_t)uint_attribute(state, atts, "retained");
+	state->purified_edges =
+		(size_t)uint_attribute(state, atts, "masked-edges");
+}
+
+static void on_classification(ReadState *state, const XML_Char **atts)
+{
+	const char *function = attribute(atts, "function");
+	const char *file     = attribute(atts, "file");
+	const char *class    = attribute(atts, "class");
+	const char *metric   = attribute(atts, "metric");
+	const char *value    = attribute(atts, "value");
+	const char *action   = attribute(atts, "action");
+
+	if (!function || !file || !class || !metric || !value || !action) {
+		fail(state, "a classification element is incomplete");
+		return;
+	}
+
+	PurificationRow *grown = realloc(state->purification,
+	                                 (state->purification_count + 1) *
+	                                         sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->purification = grown;
+
+	PurificationRow *row = &state->purification[state->purification_count];
+
+	memset(row, 0, sizeof *row);
+	row->function   = strdup(function);
+	row->file       = strdup(file);
+	row->class_name = strdup(class);
+	row->metric     = strdup(metric);
+	row->value      = strdup(value);
+	row->action     = strdup(action);
+	if (!row->function || !row->file || !row->class_name || !row->metric ||
+	    !row->value || !row->action) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->line = (uint32_t)uint_attribute(state, atts, "line");
+	state->purification_count++;
+}
+
 static void on_layering(ReadState *state, const XML_Char **atts)
 {
 	const char *from_stratum = attribute(atts, "from-stratum");
@@ -1666,6 +1778,8 @@ static const struct {
 	{ "dsm",                 on_dsm },
 	{ "dsm-subject",         on_dsm_subject },
 	{ "dsm-cell",            on_dsm_cell },
+	{ "purification",        on_purification },
+	{ "classification",      on_classification },
 	{ "graph",               on_graph },
 	{ "route",               on_route },
 	{ "function",            on_function },
@@ -1801,6 +1915,15 @@ static void free_findings_state(ReadState *state)
 	free(state->skip_call.index);
 	free(state->skip_call.conforming);
 	dsm_free(&state->dsm);
+	for (size_t i = 0; i < state->purification_count; i++) {
+		free(state->purification[i].function);
+		free(state->purification[i].file);
+		free(state->purification[i].class_name);
+		free(state->purification[i].metric);
+		free(state->purification[i].value);
+		free(state->purification[i].action);
+	}
+	free(state->purification);
 }
 
 static void free_source_state(ReadState *state)
@@ -1929,6 +2052,11 @@ static void move_to_report(ReadState *state, Report *out)
 	out->back_call                = state->back_call;
 	out->skip_call                = state->skip_call;
 	out->dsm                      = state->dsm;
+	out->purification             = state->purification;
+	out->purification_count       = state->purification_count;
+	out->purify_thresholds        = state->purify_thresholds;
+	out->purified_nodes           = state->purified_nodes;
+	out->purified_edges           = state->purified_edges;
 	out->dead                     = state->dead;
 	out->dead_count               = state->dead_count;
 	out->rule_matches             = state->rule_matches;
@@ -1968,6 +2096,8 @@ static void move_to_report(ReadState *state, Report *out)
 	memset(&state->back_call, 0, sizeof state->back_call);
 	memset(&state->skip_call, 0, sizeof state->skip_call);
 	memset(&state->dsm, 0, sizeof state->dsm);
+	state->purification             = NULL;
+	state->purification_count       = 0;
 	state->dead                     = NULL;
 	state->dead_count               = 0;
 	state->rule_matches             = NULL;

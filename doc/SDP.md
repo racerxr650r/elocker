@@ -63,7 +63,7 @@ release readiness — is ready to start, and is the last.
 | [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
 | [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
 | [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
-| [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | 🔲 Not started |
+| [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
 
 ## 0. Required Tools for Development
@@ -2182,9 +2182,9 @@ Watch for:
   or greyed*, never deleted — a drawing that removed them could not show
   what purification did, which is the entire reason there are two.
 
-The six HLRs this phase closes must bring the gap baseline to 143 or below —
-which is where it stood before any of these requirements were specified, and
-is the figure to check the whole run of phases against.
+The gap baseline is re-derived from the figure this phase inherits rather
+than projected forward: read `test/gap-baseline.txt`, and the six HLRs this
+phase closes must bring it six lower. Phase 22 left it at 134.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

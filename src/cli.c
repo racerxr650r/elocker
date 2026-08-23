@@ -313,7 +313,7 @@ void cli_usage(FILE *stream)
 "",
 	      stream);
 
-	/* The second of three, for the reason given below: the summary has
+	/* The second of four, for the reason given below: the summary has
 	 * outgrown the guaranteed literal length twice now, and each option
 	 * added moves it closer again. The breaks fall between groups of
 	 * options rather than mid-entry. */
@@ -329,6 +329,29 @@ void cli_usage(FILE *stream)
 "                     declared layers, leftmost topmost. Every declared\n"
 "                     stratum must appear, since a partial order determines no\n"
 "                     direction\n"
+"",
+	      stream);
+
+	/* The third of four. Same reason as the break above: the summary has
+	 * outgrown the guaranteed literal length again, and the break falls
+	 * between groups rather than mid-entry (LLR-USG-08). */
+	fputs(
+"      --sink-authority PCT\n"
+"      --sink-hub PCT\n"
+"      --god-betweenness PCT\n"
+"      --god-hub PCT\n"
+"      --core-depth N\n"
+"                     adjust the purification of the architecture-recovery\n"
+"                     view. A function is a utility sink where its authority\n"
+"                     outranks PCT per cent of the others and its hub score\n"
+"                     outranks no more than PCT of them (defaults 90 and 10),\n"
+"                     and a god object where its betweenness and its hub score\n"
+"                     each outrank PCT per cent (default 90 for both); a\n"
+"                     function below core depth N is peripheral and is left\n"
+"                     out of the view entirely (default 2). These five are\n"
+"                     elc's own heuristics, not published standards, and are\n"
+"                     reported as such. They govern the recovery view alone:\n"
+"                     no measurement or finding elsewhere is taken over it\n"
 "      --scope NAME:GLOB[,GLOB...]\n"
 "                     declare an execution scope named NAME containing the\n"
 "                     files matching GLOB. Repeatable. With two or more\n"
@@ -420,7 +443,8 @@ void cli_usage(FILE *stream)
  * collide with a short one. */
 enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
        OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF,
-       OPT_DSM };
+       OPT_DSM, OPT_SINK_AUTHORITY, OPT_SINK_HUB, OPT_GOD_BETWEENNESS,
+       OPT_GOD_HUB, OPT_CORE_DEPTH };
 
 /* What reading one option needs: the options being built, and the record of
  * how the format came to be what it is. All three outlive the option that
@@ -564,6 +588,59 @@ static int opt_bottleneck(const char *arg, CliParse *p)
 {
 	if (parse_threshold(arg, "bottleneck",
 	                    &p->out->bottleneck_threshold) != 0)
+		return CLI_ERROR;
+	return CLI_OK;
+}
+
+/* The five purification thresholds (HLR-171).
+ *
+ * Every one of them is `elc`'s own heuristic rather than a published standard,
+ * and each is adjustable for that reason: these are the values a user is most
+ * likely to disagree with, because unlike a published threshold they rest on
+ * nothing but this project's judgement.
+ *
+ * The four centrality thresholds are **rank positions** and are therefore
+ * bounded at 100: a percentage above that names a position no node can occupy,
+ * which is a usage error rather than a threshold that silently classifies
+ * nothing. The core depth is a coreness and has no such ceiling.
+ */
+static int opt_percentile(const char *arg, const char *what, uint32_t *out)
+{
+	if (parse_threshold(arg, what, out) != 0)
+		return CLI_ERROR;
+	if (*out > 100) {
+		fprintf(stderr, "elc: the %s threshold is a percentage of the "
+		        "other functions; %s is above 100\n", what, arg);
+		return CLI_ERROR;
+	}
+	return CLI_OK;
+}
+
+static int opt_sink_authority(const char *arg, CliParse *p)
+{
+	return opt_percentile(arg, "sink authority",
+	                      &p->out->purify.sink_authority);
+}
+
+static int opt_sink_hub(const char *arg, CliParse *p)
+{
+	return opt_percentile(arg, "sink hub", &p->out->purify.sink_hub);
+}
+
+static int opt_god_betweenness(const char *arg, CliParse *p)
+{
+	return opt_percentile(arg, "god-object betweenness",
+	                      &p->out->purify.god_betweenness);
+}
+
+static int opt_god_hub(const char *arg, CliParse *p)
+{
+	return opt_percentile(arg, "god-object hub", &p->out->purify.god_hub);
+}
+
+static int opt_core_depth(const char *arg, CliParse *p)
+{
+	if (parse_threshold(arg, "core depth", &p->out->purify.core_depth) != 0)
 		return CLI_ERROR;
 	return CLI_OK;
 }
@@ -712,6 +789,11 @@ static const struct { int code; OptionFn handle; } OPTION_HANDLERS[] = {
 	{ 'o',               opt_output        },
 	{ OPT_ENTRY,         opt_entry         },
 	{ 'b',               opt_bottleneck    },
+	{ OPT_SINK_AUTHORITY,   opt_sink_authority   },
+	{ OPT_SINK_HUB,         opt_sink_hub         },
+	{ OPT_GOD_BETWEENNESS,  opt_god_betweenness  },
+	{ OPT_GOD_HUB,          opt_god_hub          },
+	{ OPT_CORE_DEPTH,       opt_core_depth       },
 	{ OPT_STRATUM,       opt_stratum       },
 	{ OPT_STRATUM_ORDER, opt_stratum_order },
 	{ OPT_SCOPE,         opt_scope         },
@@ -964,6 +1046,11 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "define",               required_argument, NULL, 'D' },
 		{ "scope",                required_argument, NULL, OPT_SCOPE },
 		{ "bottleneck-threshold", required_argument, NULL, 'b' },
+		{ "sink-authority",       required_argument, NULL, OPT_SINK_AUTHORITY },
+		{ "sink-hub",             required_argument, NULL, OPT_SINK_HUB },
+		{ "god-betweenness",      required_argument, NULL, OPT_GOD_BETWEENNESS },
+		{ "god-hub",              required_argument, NULL, OPT_GOD_HUB },
+		{ "core-depth",           required_argument, NULL, OPT_CORE_DEPTH },
 		{ "stratum",              required_argument, NULL, OPT_STRATUM },
 		{ "stratum-order",        required_argument, NULL, OPT_STRATUM_ORDER },
 		{ "help",                 no_argument,       NULL, 'h' },
@@ -978,6 +1065,14 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 	out->format               = FORMAT_TABLE;
 	out->complexity_threshold = ELC_DEFAULT_COMPLEXITY_THRESHOLD;
 	out->bottleneck_threshold = ELC_DEFAULT_BOTTLENECK_THRESHOLD;
+	/* The purification thresholds in force where the user states none. All
+	 * five are `elc`'s own and are reported as such wherever a
+	 * classification made against them is presented (HLR-171). */
+	out->purify.sink_authority  = ELC_DEFAULT_SINK_AUTHORITY;
+	out->purify.sink_hub        = ELC_DEFAULT_SINK_HUB;
+	out->purify.god_betweenness = ELC_DEFAULT_GOD_BETWEENNESS;
+	out->purify.god_hub         = ELC_DEFAULT_GOD_HUB;
+	out->purify.core_depth      = ELC_DEFAULT_CORE_DEPTH;
 
 	/* Report errors ourselves so every diagnostic reaches stderr in one
 	 * voice (HLR-038); getopt's own messages would bypass cli_usage(). */

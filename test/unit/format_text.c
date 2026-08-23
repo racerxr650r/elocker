@@ -15,6 +15,7 @@
 #include "elc.h"
 #include "format_text.h"
 #include "report.h"
+#include "thresholds.h"
 
 static FileMetrics *metrics_for(const char *path, uint32_t lines)
 {
@@ -316,6 +317,53 @@ Test(format_text, both_styles_reach_the_same_tiers_at_each_verbosity)
  * the other would break the uniform composition the shared traversal exists
  * to guarantee (HLR-031).
  */
+Test(format_text, purification_is_a_detail_tier_and_names_elcs_own_thresholds)
+{
+	FileMetrics *files[] = { metrics_for("/tree/a.c", 3) };
+	Report       report  = report_of(files, 1);
+
+	report.purify_thresholds.sink_authority  = 90;
+	report.purify_thresholds.sink_hub        = 10;
+	report.purify_thresholds.god_betweenness = 90;
+	report.purify_thresholds.god_hub         = 90;
+	report.purify_thresholds.core_depth      = 2;
+
+	for (int s = 0; s < 2; s++) {
+		Style style   = s ? STYLE_MARKDOWN : STYLE_TABLE;
+		char *summary = render_as(&report, style, VERBOSITY_SUMMARY);
+		char *verbose = render_as(&report, style, VERBOSITY_VERBOSE);
+
+		/* One row per classified function, so the partition rule of
+		 * HLR-150 puts it with the other per-entity tables. */
+		cr_assert_null(strstr(summary, "Graph purification"),
+		               "style %d presented a detail tier in the "
+		               "summary", s);
+		cr_assert_not_null(strstr(verbose, "Graph purification"),
+		                   "style %d", s);
+
+		/* **The label is load-bearing** (HLR-171, HLR-099). None of the
+		 * five thresholds is a published standard, and presenting a
+		 * classification made against one without saying so would lend
+		 * it an authority it has not got. */
+		cr_assert_not_null(strstr(verbose, ELC_OWN_HEURISTIC),
+		                   "style %d dropped the attribution", s);
+		cr_assert_not_null(strstr(verbose, "peripheral below core "
+		                          "depth 2"),
+		                   "style %d dropped the thresholds in force",
+		                   s);
+		/* And no severity, because a classification does not have one:
+		 * the columns are what was measured and what was done, never
+		 * how bad it is (HLR-101). */
+		cr_assert_null(strstr(verbose, "Severity  Class"), "style %d",
+		               s);
+
+		free(summary);
+		free(verbose);
+	}
+
+	report_free(&report);
+}
+
 Test(format_text, conformance_is_a_summary_tier_and_the_matrix_a_detail_tier)
 {
 	FileMetrics *files[] = { metrics_for("/tree/a.c", 3) };

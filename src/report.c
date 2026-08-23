@@ -13,6 +13,7 @@
  * cannot silently change how they are presented.
  */
 
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +23,7 @@
 #include "discover.h"
 #include "arch.h"
 #include "format_dsm.h"
+#include "purify.h"
 #include "state.h"
 #include "thresholds.h"
 #include "elc.h"
@@ -1192,6 +1194,117 @@ int report_set_arch(Report *report, const ArchResults *arch, const Sdg *g,
 	return 0;
 }
 
+/* --------------------------------------------------------- purification --
+ *
+ * The transparency report of HLR-174: what purification concluded, about which
+ * function, from which measurement, and what it did about it.
+ *
+ * **Nothing is banded and nothing is ranked by severity here.** A
+ * classification is an observation about the shape of a graph, so the rows are
+ * ordered the way the per-function tables are — by file, then by the line the
+ * function starts on — and a reader looks a row up rather than working down it
+ * (HLR-171, HLR-101).
+ */
+static int by_purification(const void *a, const void *b)
+{
+	const PurificationRow *x = a;
+	const PurificationRow *y = b;
+	int                    c = strcmp(x->file, y->file);
+
+	if (c != 0)
+		return c;
+	if (x->line != y->line)
+		return x->line < y->line ? -1 : 1;
+	return strcmp(x->function, y->function);
+}
+
+/* One classification's triggering value, rendered.
+ *
+ * Rendered once, here, for the reason a component's Instability is: each metric
+ * is read on its own scale — a HITS score is a fraction, a betweenness is a
+ * count of shortest paths, a coreness is a small integer — and four renderers
+ * each choosing a precision is a decision that could differ between them.
+ *
+ * The rank travels with the score because the rank is what the threshold was
+ * compared against (LLR-CLS-01). A report naming only the score could not be
+ * checked against the threshold that acted on it.
+ */
+static void render_purify_value(const Classification *c,
+                                const PurifyThresholds *t,
+                                char *out, size_t size)
+{
+	switch (c->metric) {
+	case PURIFY_METRIC_AUTHORITY:
+		snprintf(out, size, "%.4f, above %" PRIu32 "%% of functions "
+		         "(hub above %" PRIu32 "%%)", c->value, c->rank,
+		         c->hub_rank);
+		break;
+	case PURIFY_METRIC_BETWEENNESS:
+		snprintf(out, size, "%.2f, above %" PRIu32 "%% of functions "
+		         "(hub above %" PRIu32 "%%)", c->value, c->rank,
+		         c->hub_rank);
+		break;
+	case PURIFY_METRIC_CORENESS:
+		snprintf(out, size, "%" PRIu32 ", below the core depth of %"
+		         PRIu32, c->coreness, t->core_depth);
+		break;
+	case PURIFY_METRIC_NONE:
+	default:
+		snprintf(out, size, "%s", "");
+		break;
+	}
+}
+
+int report_set_purify(Report *report, const PurifyResults *purify,
+                      const Sdg *g, const ElcOptions *opts)
+{
+	if (!purify || !g || !opts)
+		return 0;
+
+	report->purify_thresholds = opts->purify;
+	report->purified_nodes    = purify->view.included_count;
+	report->purified_edges    = purify->view.masked_edges;
+
+	if (purify->classified == 0)
+		return 0;
+
+	report->purification = calloc(purify->classified,
+	                              sizeof *report->purification);
+	if (!report->purification)
+		return -1;
+
+	for (size_t i = 0; i < purify->node_count && i < g->node_count; i++) {
+		const Classification *c   = &purify->classes[i];
+		PurificationRow      *row;
+		char                  value[192];
+
+		if (c->klass == PURIFY_ORDINARY)
+			continue;
+
+		row = &report->purification[report->purification_count];
+		render_purify_value(c, &report->purify_thresholds, value,
+		                    sizeof value);
+
+		row->function   = strdup(g->nodes[i].name);
+		row->file       = strdup(g->nodes[i].file);
+		row->class_name = strdup(purify_class_name(c->klass));
+		row->metric     = strdup(purify_metric_name(c->metric));
+		row->value      = strdup(value);
+		row->action     = strdup(purify_action_name(c->klass));
+		if (!row->function || !row->file || !row->class_name ||
+		    !row->metric || !row->value || !row->action)
+			return -1;
+		row->line = g->nodes[i].line_start;
+		report->purification_count++;
+	}
+
+	if (report->purification_count > 1)
+		qsort(report->purification, report->purification_count,
+		      sizeof *report->purification, by_purification);
+
+	return 0;
+}
+
 /* ------------------------------------------------------------- findings --
  *
  * Ranked most severe first, because the list exists to be worked from the top.
@@ -1614,6 +1727,17 @@ void report_free(Report *report)
 	report->absent_count = 0;
 	free(report->image);
 	report->image = NULL;
+	for (size_t i = 0; i < report->purification_count; i++) {
+		free(report->purification[i].function);
+		free(report->purification[i].file);
+		free(report->purification[i].class_name);
+		free(report->purification[i].metric);
+		free(report->purification[i].value);
+		free(report->purification[i].action);
+	}
+	free(report->purification);
+	report->purification       = NULL;
+	report->purification_count = 0;
 	for (size_t i = 0; i < report->coupling_count; i++) {
 		free(report->coupling[i].component);
 		free(report->coupling[i].instability);

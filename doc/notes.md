@@ -368,6 +368,53 @@ None is a defect; each is a judgement that could go the other way.
     fan-in/fan-out bottleneck threshold. It is labelled as such per
     HLR-099 and is user-configurable. If a citable source turns up,
     prefer it.
+*   **The five purification thresholds** (HLR-171) are `elc`'s own
+    heuristics for the same reason the bottleneck threshold is: nobody
+    publishes a centrality rank at which a function becomes a utility
+    sink. Each is labelled as such, each is user-configurable, and none
+    of them moves any reported number — they govern the recovery view
+    and nothing else (HLR-167). Two of the choices behind them are
+    worth restating as choices rather than findings.
+
+    The first is the *default core depth of 2*. Over `elc`'s own source
+    that excludes roughly two functions in five: this is a code base of
+    small `static` helpers, most called from exactly one place, and
+    every one of those is a leaf by the definition HLR-170 gives. That
+    is the requirement working as written rather than a mistake, but a
+    reader meeting the section for the first time will find the number
+    startling, and a depth of 1 — excluding only the wholly isolated —
+    is the conservative alternative if it proves more useful than
+    informative in practice.
+
+    The second is that the four *centrality* thresholds are rank
+    positions and the core depth is not. A coreness is a small integer
+    with a meaning of its own, and HLR-170 asks the user to state a
+    depth; ranking it would make "below the second core" unsayable. The
+    asymmetry is deliberate and is the one place the "compare against a
+    rank, never a raw score" rule does not apply.
+*   **Purification precedence is fixed, and only one ordering was
+    considered seriously.** A god object outranks a utility sink because
+    HLR-169 says so outright; a centrality class outranking a peripheral
+    one is `elc`'s reading rather than the requirement's. The argument
+    is that both centrality tests speak about a function's part in
+    *fusing* domains, so a function they named is part of the connected
+    centre by construction — but a graph in which a high-authority sink
+    also has coreness 1 is possible, and there the two readings differ:
+    ours masks its incoming edges and leaves it in the view, the other
+    excludes it. The `purify/` fixture does not contain such a function,
+    because the shape is contrived; if one turns up in a real project
+    the precedence is where to look.
+*   **igraph's warnings are discarded outright** (`graph.c`). Its errors
+    are checked at every call site, which is the half that matters, but a
+    *warning* is written straight to standard error naming one of the
+    library's own source files — and standard error belongs to `elc`
+    (HLR-038). The warnings that actually arise are properties of a call
+    graph rather than faults: the hub-and-authority decomposition warns
+    whenever a third of the scores are zero, which is true of every
+    program that has leaves. The cost is that a warning worth reading
+    would be discarded with them, and there is no mechanism to tell the
+    two apart; if one is ever wanted, the handler is the single place to
+    change.
 *   **Depth is a lower bound** (HLR-087). Chains through unresolved
     indirect calls are not followed. Reported with the unresolved-call
     count so completeness is visible, but an embedded engineer sizing

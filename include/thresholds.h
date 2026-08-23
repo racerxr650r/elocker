@@ -35,6 +35,17 @@
 #include "report.h"
 #include "state.h"
 
+/* The label every threshold `elc` invented carries wherever it is reported
+ * (HLR-099, HLR-171).
+ *
+ * Written down once and quoted from both places that need it: the one
+ * catalogue row that is not a published standard, and the purification
+ * thresholds, which carry no catalogue row at all because they band nothing
+ * and produce no finding. Two spellings of this label would let a reader
+ * conclude that one of the two is a citation.
+ */
+#define ELC_OWN_HEURISTIC "elc heuristic — not a published standard"
+
 /* One row of the catalogue.
  *
  * `warning_above` and `critical_above` are exclusive bounds on a counted

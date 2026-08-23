@@ -176,6 +176,30 @@ sanitized_run() {
 	assert_equal "$status" 0
 }
 
+@test "HLR-125: the purification pass releases every vector it allocated" {
+	# Purification is the one stage that allocates inside the graph library
+	# rather than around it: four vectors per run, on a path with several
+	# early returns through a `goto` and one branch that skips the
+	# hub-and-authority decomposition altogether. Every one of those returns
+	# must free all four, and none of them is reached by a run over the
+	# fixture trees this file's baseline case uses.
+	#
+	# The tree below takes both branches in one run: the first directory has
+	# call edges and gets the decomposition, the second has none and does
+	# not.
+	local tree="$BATS_TEST_TMPDIR/purify"
+
+	mkdir -p "$tree/called" "$tree/alone"
+	printf 'void sink(void);\nvoid a(void){sink();}\nvoid b(void){sink();}\nvoid sink(void){}\n' \
+		> "$tree/called/a.c"
+	printf 'int lonely(void){return 0;}\n' > "$tree/alone/b.c"
+
+	sanitized_run "a run reaching graph purification" --verbose \
+		-o "$BATS_TEST_TMPDIR/purified.txt" "$tree"
+	assert_equal "$status" 0
+	grep -q "^Graph purification" "$BATS_TEST_TMPDIR/purified.txt"
+}
+
 # --- the gate itself -------------------------------------------------------
 
 @test "LLR-BLD-09: the build provides a sanitized configuration" {

@@ -88,7 +88,7 @@ static const Threshold CATALOGUE[] = {
 	 * "no built-in opinion" claim false (HLR-099, LLR-ARC-02). */
 	{ MEASURE_BOTTLENECK, "bottleneck", 0, 0,
 	  SEVERITY_WARNING, true,
-	  "elc heuristic — not a published standard", true }
+	  ELC_OWN_HEURISTIC, true }
 };
 
 /* ------------------------------------------------- sources without bands --

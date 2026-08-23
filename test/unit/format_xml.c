@@ -505,6 +505,86 @@ Test(format_xml, the_conformance_indices_and_the_matrix_survive_the_record)
 	report_free(&report);
 }
 
+Test(format_xml, the_classifications_survive_the_record)
+{
+	ElcOptions opts   = { 0 };
+	Report     report = { 0 };
+	char       path[] = "/tmp/elc-xml-XXXXXX";
+	int        fd     = mkstemp(path);
+	const char body[] =
+		"<?xml version=\"1.0\"?>\n"
+		"<elc-report format-version=\"1\">\n"
+		"  <files>\n"
+		"    <file path=\"/a.c\" language=\"c\" physical-lines=\"6\" eloc=\"3\"/>\n"
+		"  </files>\n"
+		"  <purification sink-authority=\"90\" sink-hub=\"10\""
+		" god-betweenness=\"90\" god-hub=\"90\" core-depth=\"2\""
+		" retained=\"9\" masked-edges=\"12\">\n"
+		"    <classification function=\"dispatch\" file=\"/a.c\""
+		" class=\"god object\" metric=\"betweenness\""
+		" value=\"14.00, above 100% of functions\""
+		" action=\"all edges masked\" line=\"17\"/>\n"
+		"    <classification function=\"util_log\" file=\"/a.c\""
+		" class=\"utility sink\" metric=\"authority\""
+		" value=\"1.0000, above 100% of functions\""
+		" action=\"incoming edges masked\" line=\"31\"/>\n"
+		"  </purification>\n"
+		"</elc-report>\n";
+
+	cr_assert_neq(fd, -1);
+	cr_assert_gt(write(fd, body, sizeof body - 1), 0);
+	close(fd);
+
+	/* A record carries no graph, so a classification absent from it is one
+	 * a regenerated report cannot present. The thresholds travel beside the
+	 * rows because they are what the rows were decided against, and a
+	 * record read a year later has no command line to consult (HLR-054,
+	 * HLR-174). */
+	cr_assert_eq(xml_read_report(path, &opts, &report), 0);
+	cr_assert_eq(report.purification_count, 2);
+	cr_assert_str_eq(report.purification[0].function, "dispatch");
+	cr_assert_str_eq(report.purification[0].class_name, "god object");
+	cr_assert_str_eq(report.purification[0].metric, "betweenness");
+	cr_assert_str_eq(report.purification[0].action, "all edges masked");
+	cr_assert_eq(report.purification[0].line, 17);
+	cr_assert_str_eq(report.purification[1].class_name, "utility sink");
+	cr_assert_eq(report.purify_thresholds.sink_authority, 90);
+	cr_assert_eq(report.purify_thresholds.core_depth, 2);
+	cr_assert_eq(report.purified_nodes, 9);
+	cr_assert_eq(report.purified_edges, 12);
+
+	unlink(path);
+	report_free(&report);
+}
+
+Test(format_xml, an_incomplete_classification_is_a_malformed_record)
+{
+	ElcOptions opts   = { 0 };
+	Report     report = { 0 };
+	char       path[] = "/tmp/elc-xml-XXXXXX";
+	int        fd     = mkstemp(path);
+	const char body[] =
+		"<?xml version=\"1.0\"?>\n"
+		"<elc-report format-version=\"1\">\n"
+		"  <purification core-depth=\"2\">\n"
+		"    <classification function=\"dispatch\" file=\"/a.c\""
+		" class=\"god object\"/>\n"
+		"  </purification>\n"
+		"</elc-report>\n";
+
+	cr_assert_neq(fd, -1);
+	cr_assert_gt(write(fd, body, sizeof body - 1), 0);
+	close(fd);
+
+	/* A classification without the metric and value that produced it is
+	 * exactly what HLR-174 forbids reporting, so a record carrying one is
+	 * rejected rather than half-read (HLR-058). */
+	cr_assert_neq(xml_read_report(path, &opts, &report), 0);
+
+	unlink(path);
+	report_free(&report);
+}
+
 /* A record written before these elements existed reads back without them, and
  * renders as an omitted conformance section and an empty grid rather than as
  * a failure. Adding an element is an addition an older reader ignores, which
@@ -530,6 +610,7 @@ Test(format_xml, a_record_without_the_matrix_still_reads)
 	cr_assert_eq(xml_read_report(path, &opts, &report), 0);
 	cr_assert_null(report.back_call.index);
 	cr_assert_eq(report.dsm.count, 0);
+	cr_assert_eq(report.purification_count, 0);
 
 	unlink(path);
 	report_free(&report);

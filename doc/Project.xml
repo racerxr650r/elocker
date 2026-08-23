@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.14" date="2026-08-22" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.15" date="2026-08-22" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.8" date="2026-08-22" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.9" date="2026-08-22" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.15" date="2026-08-22" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.16" date="2026-08-22" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.10" date="2026-08-22" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.16" date="2026-08-22" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.17" date="2026-08-22" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="179"/>
-      <count name="llrs"       value="456"/>
-      <count name="tests"      value="937"/>
-      <count name="test_files" value="46"/>
+      <count name="llrs"       value="478"/>
+      <count name="tests"      value="987"/>
+      <count name="test_files" value="48"/>
     </counts>
   </metadata>
 
@@ -154,6 +154,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
         <responsibility><![CDATA[Own the lifetime of the options, registry, accumulator, graph, and report objects, and release them in reverse order of acquisition.]]></responsibility>
         <responsibility><![CDATA[Branch between analysis mode and XML regeneration mode.]]></responsibility>
         <responsibility><![CDATA[Compute the exit status from the run's failure record, never from a finding severity.]]></responsibility>
+        <responsibility><![CDATA[Sequence graph purification after every analysis that measures, so that nothing downstream can take a view `elc` formed of its own for a measurement (HLR-167).]]></responsibility>
         <interfaces>
           <interface title="Command-Line Arguments"><![CDATA[`main()` receives `argc`/`argv` unmodified and passes them directly to `cli_parse()`. No option is interpreted here.]]></interface>
           <interface title="Process Exit Status"><![CDATA[`0` when every discovered file was processed without error; `1` when any per-file read or parse failure occurred; `2` for a fatal setup or usage error, including a rejected saved-XML record (HLR-058). Finding severities never contribute (HLR-100).]]></interface>
@@ -600,6 +601,7 @@ This is not resolvable in `src/`; it is a property of what the grammar can expre
         </dependencies>
         <error_handling>
           <case name="Unresolvable call site"><![CDATA[Not an error. Counted and reported so the reader can judge the graph's completeness (HLR-077).]]></case>
+          <case name="A diagnostic from inside the graph library"><![CDATA[Its *error* handler is installed non-aborting, so every failure returns a code the caller checks (LLR-SDG-15). Its **warning** handler is separately installed to discard, and that is a different judgement rather than the same one twice. A warning is by definition a result the library still produced, and it is written to standard error naming one of the library's own source files and lines — `Warning at src/centrality/hub_authority.c:77` — which is not a diagnostic a user of `elc` can act on and not `elc`'s own, the only thing HLR-038 admits to that stream. The warnings that actually arise are properties of a call graph rather than faults: the hub-and-authority decomposition warns whenever a third of the scores are zero, which is true of every program whose functions include leaves.]]></case>
           <case name="Duplicate symbol definition"><![CDATA[Recorded once with a diagnostic; the first definition in sorted file order wins, keeping resolution deterministic.
 
 **The artefact reaches the information-flow metric raised to a power.** Where several files define a `static` helper of the same name, every call to that name resolves into the winning definition: it collects every caller's fan-in and the losing definitions collect none. Fan-in and fan-out are each wrong by that amount, and the Henry-Kafura value of HLR-157 multiplies the two and squares the product — so a fan-in overstated by a factor of three overstates the winner's Henry-Kafura value by a factor of nine, and understates each loser's to zero. A four-order-of-magnitude figure can therefore rest entirely on this, and the project total with it. The same imprecision is already recorded for reachability (§11) and for coupling (§9); it is worth stating a third time here because the squared term is what turns a modest resolution error into a dramatic-looking number, and because the metric is ordinal — a reader ranks functions by it, and this artefact moves one to the top of the ranking. Correcting it needs the type resolution the project does not perform; the diagnostic on standard error is what the report is read beside.]]></case>
@@ -1158,18 +1160,28 @@ What the module owes the library is bounded. Jansson parses and validates; `puri
 The format is versioned in the manner of the XML record (HLR-061), so that a manifest written by a later build is rejected by an earlier one rather than half-understood. Jansson's `json_error_t` carries the line, column, and byte offset of a syntax fault, and the diagnostic quotes them: a person who hand-edited the file needs to be told where they broke it, not merely that they did.]]></interface>
         </interfaces>
         <functions>
-          <function signature="int purify_analyse(const Sdg *g, const ElcOptions *opts, const Manifest *manual, PurifyResults *out)" summary="Classify every function and build the masked recovery view."/>
-          <function signature="int classify_nodes(const Sdg *g, const PurifyThresholds *t, const Manifest *manual, Classification *out)" summary="Assign each node its class, a manifest statement overruling a computed one."/>
+          <function signature="int purify_analyse(const Sdg *g, const ElcOptions *opts, PurifyResults *out)" summary="Classify every function and build the masked recovery view. `g` is taken by const pointer, which is where HLR-167 is enforced rather than remembered; the manifest of HLR-175 – HLR-177 enters as a further argument with the module that reads it."/>
+          <function signature="int classify_nodes(const Sdg *g, const PurifyThresholds *t, Classification *out)" summary="Assign each node its class against the thresholds in force, a manifest statement overruling a computed one once the manifest exists."/>
           <function signature="int build_recovery_view(const Sdg *g, const Classification *c, RecoveryView *out)" summary="Copy the call view, omitting the masked edges and the peripheral nodes."/>
+          <function signature="int purify_score_cmp(double a, double b)" summary="Compare two scores to the tolerance HLR-179 requires be stated, returning -1, 0, or 1."/>
+          <function signature="int report_set_purify(Report *report, const PurifyResults *purify, const Sdg *g, const ElcOptions *opts)" summary="Copy the classifications onto an assembled report, resolving each node identifier to the name and location a reader can act on (HLR-174)."/>
           <function signature="int manifest_read(const char *path, Manifest *out)" summary="Parse a named manifest; reject a malformed one rather than partially applying it (HLR-176)."/>
           <function signature="int manifest_write(const PurifyResults *r, const char *path)" summary="Write the classifications in the documented format, ready to be edited and handed back."/>
           <function signature="void purify_results_free(PurifyResults *r)" summary="Release the classifications, the recovery view, and the manifest."/>
         </functions>
         <algorithm><![CDATA[**The thresholds are compared against a ranking, not against a raw score.** A betweenness value means nothing on its own — it scales with the size of the graph, so a fixed number would classify every function in a large project and none in a small one. Classification is therefore made against a node's position in the ordered distribution of the score, which is comparable across projects and is what makes one default threshold serviceable for both.
 
+A rank is expressed as the percentage of the **other** nodes scoring strictly below, so the top of any distribution is 100 whatever the size of the graph. Over *all* the nodes it would be 8 of 9 for the highest in a nine-function tree, and no threshold above 89 could ever be met there — one default would then be unusable on small projects and unusably loose on large ones, which is the failure ranking exists to avoid. The comparison itself is made in integers, `below × 100 ≥ percent × (n − 1)`, so the boundary is exact and the only floating-point comparison purification makes is the tolerance below.
+
 **Ties are broken by node identifier** (HLR-179). Two functions with equal scores must classify the same way on every run, and the graph library's enumeration order is not a property of the source tree.
 
 **Floating-point comparison is defined rather than left to the compiler.** HITS is iterative and its scores are approximations, so a comparison at the threshold boundary must be made to a stated tolerance; without one, the same source classifies differently on two machines and HLR-032 fails in a way no fixture would reliably catch.
+
+The two are applied in that order and not the other way about. The ordering is built on an **exact** comparison with the node identifier breaking equal scores, because a sort whose comparator is tolerant rests on a relation that is not transitive, and its result would then depend on the order the library's sort happened to visit the elements in — the very property HLR-179 exists to remove. The tolerance is applied afterwards, over the exact order, where it merges neighbours into one position; a run of equal scores is delimited by comparing each member against the run's *first* element rather than against its predecessor, so the grouping is a property of the sorted order rather than of how far a chain of near-equal neighbours happens to reach.
+
+**Precedence between the classes is fixed** (HLR-169, HLR-170). A god object is decided first, then a utility sink, then a peripheral node. The first two are statements about a function's part in *fusing* domains and each carries a masking action; the third is the residual statement that a function is not part of the mutually connected centre, and a function the centrality tests already named is by construction part of it.
+
+**Coreness is taken over the undirected neighbourhood.** A *k*-core is the mutually connected centre of a program, and a leaf hanging off it is peripheral whichever way its one edge points (HLR-170).
 
 **A cyclic recovery view has no layering, and that is reported rather than worked around** (HLR-172). Purification often breaks the cycles that a god object created, which is much of its purpose — but where cycles remain, the cycles are the finding.]]></algorithm>
         <dependencies>
@@ -1181,6 +1193,8 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
           <case name="Manifest cannot be read or parsed"><![CDATA[Diagnostic naming the path, and a fatal exit. The user named the file, so the failure is theirs to correct (HLR-176).]]></case>
           <case name="Manifest names an unknown function"><![CDATA[Diagnostic, the statement ignored, the run continues. Analysing one directory of a project whose manifest covers all of it is ordinary use (HLR-177).]]></case>
           <case name="No functions survive purification"><![CDATA[Not an error. The recovery of HLR-172 is omitted with its reason stated, as an analysis short of its inputs always is (HLR-115).]]></case>
+          <case name="A graph with fewer than two nodes"><![CDATA[Not an error, and nothing is classified by centrality. There is no distribution to hold a position in, and a rank over zero other nodes is met by every threshold at once — which would classify the single function as all three at the boundary. The coreness test still applies, since it is absolute.]]></case>
+          <case name="A call view with no edges"><![CDATA[The hub-and-authority decomposition is not asked for. It is undefined there — every score is zero — and the library reports the fact on standard error, which would put a diagnostic naming one of its own source files into the stream HLR-038 reserves for `elc`'s. A program whose functions call nothing has no hub-and-authority structure to find, and leaving the scores at their zero says exactly that.]]></case>
         </error_handling>
       </module>
 
@@ -1493,6 +1507,50 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
         <field name="cells" type="size_t *" desc="Row-major, count * count; owned. Cell (i, j) is the number of call edges from subject i to subject j"/>
         <field name="from_strata" type="bool" desc="True where the subjects are declared layers, false where they are directories. The two are read differently — only a declared order makes a below-diagonal cell a violation — so the reader is told which they are looking at rather than left to infer it"/>
       </type>
+      <type name="PurifyThresholds" header="include/elc.h" summary="The five thresholds the recovery view is purified against (HLR-168 – HLR-171). Every one is `elc`'s own heuristic rather than a published standard, and is marked as such wherever a classification made against it is reported. The four centrality figures are rank positions expressed as a percentage of the other functions, never raw scores; the core depth is the one absolute figure, because a coreness is a small integer.">
+        <field name="sink_authority" type="uint32_t" desc="Authority rank at or above which a function may be a utility sink; 90 by default"/>
+        <field name="sink_hub" type="uint32_t" desc="Hub rank at or below which a utility sink's own calls count as near zero; 10 by default"/>
+        <field name="god_betweenness" type="uint32_t" desc="Betweenness rank at or above which a function may be a god object; 90 by default"/>
+        <field name="god_hub" type="uint32_t" desc="Hub rank a god object must also reach; 90 by default"/>
+        <field name="core_depth" type="uint32_t" desc="Coreness below which a function is peripheral and excluded from the view; 2 by default"/>
+      </type>
+      <type name="Classification" header="include/purify.h" summary="One function's centralities, its position in each distribution, and what followed from them (HLR-168 – HLR-171, HLR-174). The ranks are carried beside the raw scores because the rank is what the thresholds are compared against and the score is what a reader recognises: a report naming only the rank could not be checked against the graph, and one naming only the score could not be checked against the threshold that acted on it.">
+        <field name="hub" type="double" desc="The HITS hub score over the call view"/>
+        <field name="authority" type="double" desc="The HITS authority score over the call view"/>
+        <field name="betweenness" type="double" desc="Shortest paths the function lies on, unnormalised"/>
+        <field name="coreness" type="uint32_t" desc="The k-core the function lies in, over the undirected neighbourhood"/>
+        <field name="hub_rank" type="uint32_t" desc="Percentage of the *other* nodes scoring strictly below on hub"/>
+        <field name="authority_rank" type="uint32_t" desc="The same, for authority"/>
+        <field name="betweenness_rank" type="uint32_t" desc="The same, for betweenness"/>
+        <field name="klass" type="PurifyClass" desc="Utility sink, god object, peripheral, or ordinary. Ordinary is the zero, so a zeroed table reads as `nothing was concluded`"/>
+        <field name="metric" type="PurifyMetric" desc="Which measurement triggered the class, for the report of HLR-174"/>
+        <field name="value" type="double" desc="Its value — the number the comparison was actually made against"/>
+        <field name="rank" type="uint32_t" desc="Its rank; unused where the metric is coreness, which is absolute"/>
+      </type>
+      <type name="RecoveryView" header="include/purify.h" summary="The masked copy of the call view (HLR-167 – HLR-170). Vertex identifiers are the `Sdg`'s own, so a result read off this graph indexes the node table directly and a tie broken by vertex identifier is a tie broken by the stable node identifier of HLR-033. A peripheral node is therefore excluded by its `included` flag and by holding no edge rather than by being renumbered out of existence — renumbering would put the determinism of HLR-179 on a mapping instead of on the identifier the rest of the run already agrees about.">
+        <field name="graph" type="void *" desc="igraph_t * over the retained call edges; owned. Opaque, so that no consumer links the graph library merely to read the flags beside it"/>
+        <field name="included" type="bool *" desc="node_count entries; false for a peripheral node, which is given no recovered layer at all"/>
+        <field name="node_count" type="size_t" desc="The Sdg's, unchanged"/>
+        <field name="included_count" type="size_t" desc="Functions retained in the view"/>
+        <field name="edge_count" type="size_t" desc="Call edges the view retained"/>
+        <field name="masked_edges" type="size_t" desc="Call edges the masking removed"/>
+      </type>
+      <type name="PurifyResults" header="include/purify.h" summary="Everything one purification pass produced: a classification per function, the view the masking left behind, and the thresholds that were in force.">
+        <field name="classes" type="Classification *" desc="One per node, indexed by stable node identifier; owned"/>
+        <field name="node_count" type="size_t" desc="The graph's node count"/>
+        <field name="classified" type="size_t" desc="The non-ordinary among them — the rows the transparency report carries"/>
+        <field name="view" type="RecoveryView" desc="The masked copy; owned"/>
+        <field name="thresholds" type="PurifyThresholds" desc="The values the classifications were made against"/>
+      </type>
+      <type name="PurificationRow" header="include/report.h" summary="One classification purification made, as the report presents it (HLR-174). **Not a finding**, and the difference is the requirement rather than a presentational choice: there is no severity here and nothing to attach one to, because a classification states where a function sits in a graph rather than that a measurement fell outside a published range (HLR-171, HLR-101). The metric and its value travel rendered, for the reason a component's Instability does — each metric is read on its own scale, and four renderers each choosing a precision is a decision that could differ between them.">
+        <field name="function" type="char *" desc="The classified function; owned"/>
+        <field name="file" type="char *" desc="The file defining it; owned"/>
+        <field name="line" type="uint32_t" desc="Where the definition starts"/>
+        <field name="class_name" type="char *" desc="`utility sink`, `god object`, or `peripheral`; owned"/>
+        <field name="metric" type="char *" desc="The measurement that triggered it; owned"/>
+        <field name="value" type="char *" desc="Its value and rank, rendered; owned"/>
+        <field name="action" type="char *" desc="What the masking did to the view; owned"/>
+      </type>
       <constants header="include/elc.h">
         <constant name="ELC_DEFAULT_COMPLEXITY_THRESHOLD" value="15" purpose="Per-file over-threshold listing (HLR-022, HLR-057)"/>
         <constant name="ELC_DEFAULT_BOTTLENECK_THRESHOLD" value="5" purpose="Ca and Ce floor for bottleneck flagging; elc's own heuristic (HLR-081)"/>
@@ -1779,6 +1837,12 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="expected" label="Expected" path="The hand-computed `Ca`, `Ce`, and instability table and the omission notice for the undeclared run, all worked out in `README.md` beside the fixture and never regenerated from `elc`'s output — and beside them the two conformance indices over their hand-counted six-edge denominator, the undefined pair where that denominator is zero, and the hand-drawn matrix in both of its arrangements: over the declared layers and over the analysed directories"/>
         <artefact key="verifies" label="Verifies" path="HLR-064, HLR-078 – HLR-082, HLR-094, HLR-104, HLR-114, HLR-115, HLR-118, HLR-161 – HLR-166, HLR-180"/>
         <artefact key="note" label="Note" path="The matrix and the layering list are asserted **together**, over one run: the cells below the diagonal must total exactly the inverted findings the table lists, and the indices must match the rows printed beside them. Each half asserted alone would pass against an implementation whose two answers had drifted apart, which is the failure HLR-164 exists to prevent."/>
+      </fixture>
+      <fixture name="`purify/`" source="[test/fixtures/purify/](../test/fixtures/purify/)">
+        <artefact key="inputs" label="Inputs" path="A ten-function tree built around a planted utility sink that six functions call and which calls nothing, a planted dispatcher every path into the feature layer runs through, a leaf hanging off one feature function, and seven functions that are none of those; run at the default thresholds and at a core depth set one shallower and one deeper"/>
+        <artefact key="expected" label="Expected" path="The hand-worked hub, authority, betweenness and coreness figures and the rank each yields, derived in `README.md` beside the fixture from the structure of the graph rather than regenerated from `elc`'s output — the sink's hub of exactly zero and its highest authority, the dispatcher's betweenness of 14 counted pair by pair, the leaf's coreness of 1 — together with the three classifications they produce, the twelve of fifteen call edges the masking removes, and the nine functions the view retains"/>
+        <artefact key="verifies" label="Verifies" path="HLR-031, HLR-054, HLR-063, HLR-150, HLR-167 – HLR-171, HLR-174, HLR-179"/>
+        <artefact key="note" label="Note" path="Two of this group's cases assert an **absence**, and each is what keeps the rest honest. Seven of the ten functions are classified as nothing at all — `main` and `boot` sharpest among them, since each passes the *hub* half of the utility-sink test and fails the authority half — so an implementation classifying everything fails here. And the whole report outside the one purification section is asserted byte-identical across three different threshold settings, which is HLR-167 checked from outside: an implementation masking the `Sdg` in place would pass every classification case in the group and fail that one."/>
       </fixture>
       <fixture name="`rules/`" source="[test/fixtures/rules/](../test/fixtures/rules/)">
         <artefact key="inputs" label="Inputs" path="One rule file holding **two** named captures, supplied from the runtime location and from the command line so that the same query is exercised by both bindings; one predicate-bearing capture, so that a rule whose filter is dropped would over-match visibly; **one** broken rule file used from *both* provenances, since two different broken files could not distinguish a provenance rule from a file-contents rule; a rule naming a language with no module; an argument with no language; decoy `.scm` files planted in the working directory, in a dotfile directory, and in the analysis target"/>
@@ -3894,7 +3958,15 @@ The extension is the last dot of the *basename*: a directory component carrying 
           <trace target="HLR" ref="HLR-152" name="Complete-Record Formats Unaffected by Verbosity"/>
         </traces>
       </llr>
-    </function>
+          <llr id="LLR-CLI-32">
+        <text><![CDATA[`cli_parse` shall accept the five purification thresholds of HLR-171 — the sink authority and hub ranks, the god-object betweenness and hub ranks, and the core depth — defaulting each to `elc`'s own value where none is given, and shall reject as a usage error a rank above 100. The four rank thresholds are positions in an ordered distribution, so 100 is the ceiling and a larger figure names a position no function can occupy; accepting it would leave a run silently classifying nothing rather than telling the user their setting is impossible.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-171" name="Purification Thresholds Are elc's Own"/>
+          <trace target="HLR" ref="HLR-063"/>
+          <trace target="HLR" ref="HLR-039"/>
+        </traces>
+      </llr>
+</function>
 
     <function number="3" title="`cli_usage` ([src/cli.c](../src/cli.c))" name="cli_usage" source="src/cli.c">
       <llr id="LLR-USG-01">
@@ -5944,7 +6016,15 @@ One function rather than a line in each of the two paths, so that "the total is 
           <trace target="HLR" ref="HLR-056" name="Regeneration Fidelity"/>
         </traces>
       </llr>
-    </function>
+          <llr id="LLR-RPT-36">
+        <text><![CDATA[`report_set_purify` shall copy onto the assembled report one row per function purification classified, resolving each node identifier to the function's name and location and carrying the metric that triggered the classification, the value it took, and the action taken; and shall order the rows by file, then by the line the function starts on. A function purification classified as ordinary shall carry no row, since HLR-174 asks for the classifications that were made and `elc` concluded nothing about that function. No row shall carry a severity, there being nothing for one to mean.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-174" name="Purification Reported Before It Is Relied On"/>
+          <trace target="HLR" ref="HLR-171"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
+</function>
 
     <function number="36" title="`format_table` ([src/format_text.c](../src/format_text.c))" name="format_table" source="src/format_text.c">
       <llr id="LLR-TBL-01">
@@ -6083,7 +6163,17 @@ The heading of the detail tier shall carry the formula, the attribution to Henry
           <trace target="HLR" ref="HLR-150" name="Summary Report by Default"/>
         </traces>
       </llr>
-    </function>
+          <llr id="LLR-SUM-12">
+        <text><![CDATA[`render_summary` shall present the classifications purification made as a **detail** tier in both human-facing formats, one row per classified function naming the class, the metric and value that triggered it, and the action taken; and shall state in the section's heading that the thresholds are `elc`'s own heuristic rather than a published standard, together with the five values in force and what the masking left behind. The section shall carry no severity column. It is written to the results destination like every other section: HLR-038 reserves standard output, and a run redirecting its report to a file must not have a second report appear on the terminal.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-174" name="Purification Reported Before It Is Relied On"/>
+          <trace target="HLR" ref="HLR-171"/>
+          <trace target="HLR" ref="HLR-150"/>
+          <trace target="HLR" ref="HLR-038"/>
+          <trace target="HLR" ref="HLR-031"/>
+        </traces>
+      </llr>
+</function>
 
     <function number="39" title="`format_csv` ([src/format_csv.c](../src/format_csv.c))" name="format_csv" source="src/format_csv.c">
       <llr id="LLR-CSV-01">
@@ -6248,7 +6338,15 @@ The line-granularity counts travel with the image element rather than with the p
           <trace target="HLR" ref="HLR-136" name="Configuration Recorded and Reported"/>
         </traces>
       </llr>
-    </function>
+          <llr id="LLR-XWR-18">
+        <text><![CDATA[`xml_write_report` shall record every classification purification made — the function, its file and line, the class assigned, the metric and value that triggered it, and the action taken — together with the five thresholds they were decided against and the counts the recovery view was left with. A record carries no graph, so a classification absent from it is one a regenerated report cannot present; and the thresholds travel beside the rows because a record read a year later has no command line to consult.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-174" name="Purification Reported Before It Is Relied On"/>
+          <trace target="HLR" ref="HLR-054"/>
+          <trace target="HLR" ref="HLR-171"/>
+        </traces>
+      </llr>
+</function>
 
     <function number="42" title="`write_escaped` ([src/format_xml.c](../src/format_xml.c))" name="write_escaped" source="src/format_xml.c">
       <llr id="LLR-ESC-01">
@@ -6372,7 +6470,15 @@ The line-granularity counts travel with the image element rather than with the p
           <trace target="HLR" ref="HLR-056" name="Regenerated Report Equivalence"/>
         </traces>
       </llr>
-    </function>
+          <llr id="LLR-XRD-18">
+        <text><![CDATA[`xml_read_report` shall restore the classifications and the thresholds a record carries as the run rendered them, recomputing no centrality, and shall reject as malformed a classification element lacking the class, the metric, the value, or the action. A regenerated report must say what the run it describes said rather than what this build would conclude today; and a classification without the number that produced it is precisely what HLR-174 forbids reporting, so it is rejected rather than half-read.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-174" name="Purification Reported Before It Is Relied On"/>
+          <trace target="HLR" ref="HLR-056"/>
+          <trace target="HLR" ref="HLR-058"/>
+        </traces>
+      </llr>
+</function>
 
     <function number="44" title="`graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))" name="graph_dot_warranted" source="src/format_graph.c">
       <llr id="LLR-WAR-01">
@@ -6917,10 +7023,269 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       </llr>
     </function>
 
+    <function number="56" title="`purify_analyse` ([src/purify.c](../src/purify.c))" name="purify_analyse" source="src/purify.c">
+      <intro><![CDATA[The purification pass: the centralities of the call view, the classifications read off them, and the masked copy a layering can later be read from. The one place `elc` forms a view of its own about a code base, and every requirement below is shaped around containing that.]]></intro>
+      <llr id="LLR-PUR-01">
+        <text><![CDATA[`purify_analyse` shall compute the hub-and-authority scores, the betweenness centrality, and the coreness of the **call view** alone, and of no other view of the graph. A global-state edge joins a writer to a reader; it is coupling and not invocation, and a layering read off a graph containing them would join every pair of functions sharing a variable.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-168" name="Utility-Sink Detection"/>
+          <trace target="HLR" ref="HLR-169" name="God-Object Detection"/>
+          <trace target="HLR" ref="HLR-170" name="Peripheral Stripping by K-Core Decomposition"/>
+        </traces>
+      </llr>
+      <llr id="LLR-PUR-02">
+        <text><![CDATA[`purify_analyse` shall take the `Sdg` by constant pointer and shall leave it unmodified, producing the masked graph as a separate object no other stage is given. Masking in place and unmasking afterwards would make every analysis order-dependent and leave the run one early return away from reporting a fan-out that omits real calls — a wrong number carrying the authority of a measured one. A stage that cannot reach a masked graph cannot accidentally measure one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-167" name="Purification Confined to Recovery"/>
+        </traces>
+      </llr>
+      <llr id="LLR-PUR-03">
+        <text><![CDATA[`purify_analyse` shall check the return of every call it makes into the graph library and shall release every vector it allocated on both the success and the failure paths, the library's error handler having been installed non-aborting when the graph was built.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-125" name="Memory Discipline"/>
+          <trace target="HLR" ref="HLR-113"/>
+        </traces>
+      </llr>
+      <llr id="LLR-PUR-04">
+        <text><![CDATA[`purify_analyse` shall not ask the graph library for a hub-and-authority decomposition of a call view holding no edges, and shall leave every score at zero there instead. The decomposition is undefined on such a graph and the library says so on standard error, naming one of its own source files — which is neither a diagnostic a user of `elc` can act on nor `elc`'s own, the only thing that stream admits. A program whose functions call nothing has no hub-and-authority structure to find.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-038" name="Diagnostics on stderr, Results on stdout"/>
+          <trace target="HLR" ref="HLR-115"/>
+        </traces>
+      </llr>
+      <llr id="LLR-PUR-05">
+        <text><![CDATA[`purify_analyse` shall treat a graph too small to hold a distribution as an ordinary outcome rather than a failure, classifying nothing by centrality where fewer than two functions exist. A rank over zero other nodes is met by every threshold at once, which would classify a lone function as all three classes simultaneously.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-115" name="Analyses Requiring User Declarations"/>
+          <trace target="HLR" ref="HLR-066"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="57" title="`classify_nodes` ([src/purify.c](../src/purify.c))" name="classify_nodes" source="src/purify.c">
+      <intro><![CDATA[The three classifications, the precedence between them, and the two properties of the mathematics that make determinism harder to satisfy here than anywhere else in the program.]]></intro>
+      <llr id="LLR-CLS-01">
+        <text><![CDATA[`classify_nodes` shall compare each threshold against a node's **position in the ordered distribution** of the score rather than against the score itself, expressed as the percentage of the *other* nodes scoring strictly below it, and shall make that comparison in integers. A betweenness value means nothing on its own — it scales with the size of the graph — so a fixed cut-off would classify every function in a large project and none in a small one; and a rank over *all* the nodes rather than the others would cap the top of a nine-function distribution at 88 per cent, leaving one default unusable on small projects and unusably loose on large ones.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-168" name="Utility-Sink Detection"/>
+          <trace target="HLR" ref="HLR-169" name="God-Object Detection"/>
+          <trace target="HLR" ref="HLR-171"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLS-02">
+        <text><![CDATA[`classify_nodes` shall decide whether two scores hold the same position in a distribution by a comparison made to a stated relative tolerance, floored at one so that the same figure serves a betweenness in the thousands and a HITS score in the thousandths. HITS is iterative and its scores are approximations; without a stated tolerance the same source classifies differently on two machines, and HLR-032 fails in a way no fixture would reliably catch.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-179" name="Deterministic Classification"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLS-03">
+        <text><![CDATA[`classify_nodes` shall order the nodes of each distribution by an **exact** score comparison with the stable node identifier of HLR-033 breaking equal scores, and shall apply the tolerance of LLR-CLS-02 afterwards over that order, delimiting a run of equal scores by comparing each member against the run's first element. A sort whose comparator is tolerant rests on a relation that is not transitive, and its result would then depend on the order the library's sort happened to visit the elements in — the very property this requirement exists to remove.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-179" name="Deterministic Classification"/>
+          <trace target="HLR" ref="HLR-033"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLS-04">
+        <text><![CDATA[`classify_nodes` shall classify as a **utility sink** every function whose authority rank is at or above the configured sink-authority threshold *and* whose hub rank is at or below the configured sink-hub threshold. Both halves are required: a function passing the hub half alone is any leaf or entry point, and reporting one would name half the functions in a program a utility sink.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-168" name="Utility-Sink Detection"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLS-05">
+        <text><![CDATA[`classify_nodes` shall classify as a **god object** every function whose betweenness rank and whose hub rank are each at or above their configured thresholds, and shall decide that class before the utility-sink test so that a function satisfying both is reported as a god object. Betweenness alone does not separate a monolithic dispatcher from a genuine intermediary a layering ought to keep; and masking a god object's edges subsumes masking its incoming ones, so the more specific claim is the more useful one to a reader.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-169" name="God-Object Detection"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLS-06">
+        <text><![CDATA[`classify_nodes` shall classify as **peripheral** every function whose coreness, taken over the undirected neighbourhood of the call view, is strictly below the configured core depth, and shall make that test only where neither centrality test spoke. A *k*-core is the mutually connected centre of a program and a leaf hanging off it is peripheral whichever way its one edge points; and a function the centrality tests named is by construction part of that centre.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-170" name="Peripheral Stripping by K-Core Decomposition"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLS-07">
+        <text><![CDATA[`classify_nodes` shall record, for each classification it makes, the measurement that triggered it and the value that measurement took, and shall attach no severity to any of them. A classification a reader cannot trace back to a number is an assertion; and a god object is an observation about the shape of a graph rather than a measurement banded against an accepted range, so there is nothing for a severity to mean and no published source to attribute one to.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-171" name="Purification Thresholds Are elc's Own"/>
+          <trace target="HLR" ref="HLR-174"/>
+          <trace target="HLR" ref="HLR-101"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="58" title="`build_recovery_view` ([src/purify.c](../src/purify.c))" name="build_recovery_view" source="src/purify.c">
+      <intro><![CDATA[The masked copy itself: which edges each class costs a function, and why the three answers differ.]]></intro>
+      <llr id="LLR-RCV-01">
+        <text><![CDATA[`build_recovery_view` shall construct a new graph over the same vertex set from the graph's own call-edge table, and shall leave the `Sdg`'s call view holding every edge it held before. The copy is what makes HLR-167 structural: every measurement reported outside architecture recovery is taken over the graph as built, and nothing in the program can reach a masked one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-167" name="Purification Confined to Recovery"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RCV-02">
+        <text><![CDATA[`build_recovery_view` shall omit every edge whose *target* is a utility sink and shall retain every edge whose source is one. The fusion a sink causes is between its callers, who are joined to one another through it; its own calls join nothing that was not joined already, and masking the node rather than the edges into it would remove the function's own position from view along with the fusion.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-168" name="Utility-Sink Detection"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RCV-03">
+        <text><![CDATA[`build_recovery_view` shall omit every edge touching a god object in either direction, and shall retain the node itself in the view. It short-circuits in both directions, so it loses both; and it is masked rather than excluded, since it is part of the connected centre the layering is being read from.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-169" name="God-Object Detection"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RCV-04">
+        <text><![CDATA[`build_recovery_view` shall mark every peripheral function as excluded from the view and shall omit every edge touching one, so that nothing downstream can assign it a recovered layer. A function `elc` did not consider is not a function `elc` placed at the edge of the architecture, and a view that did not distinguish the two would put every leaf in the bottom layer.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-170" name="Peripheral Stripping by K-Core Decomposition"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RCV-05">
+        <text><![CDATA[`build_recovery_view` shall number the vertices of the view with the graph's own stable node identifiers rather than renumbering the retained nodes, and shall account for every call edge as either retained or masked. Renumbering would put the determinism of HLR-179 on a mapping instead of on the identifier the rest of the run already agrees about; and a view that dropped an edge without counting it would report a masking a reader could not check.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-179" name="Deterministic Classification"/>
+          <trace target="HLR" ref="HLR-033"/>
+          <trace target="HLR" ref="HLR-174"/>
+        </traces>
+      </llr>
+    </function>
+
   </llrs>
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
   <tests>
+  <file path="test/unit/purify.c" role="unit" count="20">
+    <test name="the_sink_and_the_dispatcher_are_classified">
+      <purpose><![CDATA[A function many call and which calls nothing is a utility sink, a function lying on every shortest path and calling widest is a god object, and a function with one undirected neighbour is peripheral — the three classifications, over one hand-built graph.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-04"/>
+        <trace target="LLR" ref="LLR-CLS-05"/>
+        <trace target="LLR" ref="LLR-CLS-06"/>
+      </traces>
+    </test>
+    <test name="an_ordinary_function_is_classified_as_nothing">
+      <purpose><![CDATA[Six of the nine functions are classified as nothing at all, which keeps the case above from passing against an implementation that classifies everything. `main` and `boot` are the sharpest: each passes the hub half of the utility-sink test and fails the authority half.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-04"/>
+      </traces>
+    </test>
+    <test name="a_classification_names_the_metric_and_the_value">
+      <purpose><![CDATA[Each classification carries the measurement that triggered it and the value that measurement took, so a reader can trace it back to the graph rather than take it on trust.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-07"/>
+        <trace target="HLR" ref="HLR-174"/>
+      </traces>
+    </test>
+    <test name="a_rank_is_a_position_not_a_score">
+      <purpose><![CDATA[The top of a distribution ranks at 100 whatever the size of the graph, and the raw score it was reached from is nowhere near the threshold as a number — the property that lets one default serve graphs of any size.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-01"/>
+      </traces>
+    </test>
+    <test name="a_god_object_outranks_a_utility_sink">
+      <purpose><![CDATA[With thresholds loose enough that one function satisfies both centrality tests, it is classified as a god object: masking its edges subsumes masking its incoming ones, and the more specific claim is the more useful one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-05"/>
+        <trace target="HLR" ref="HLR-169"/>
+      </traces>
+    </test>
+    <test name="a_centrality_class_outranks_a_peripheral_one">
+      <purpose><![CDATA[With a core depth above every coreness in the graph, the two functions the centrality tests named keep their classes and everything else becomes peripheral — a function those tests spoke about is part of the connected centre by construction.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-06"/>
+      </traces>
+    </test>
+    <test name="a_graph_with_no_nodes_classifies_nothing">
+      <purpose><![CDATA[An empty graph classifies nothing and is not a failure, as an analysis short of its inputs never is.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PUR-05"/>
+      </traces>
+    </test>
+    <test name="scores_within_the_tolerance_hold_one_position">
+      <purpose><![CDATA[Two scores differing in the last bits hold one position in the distribution, so an iterative computation cannot classify the same source differently on two machines.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-02"/>
+      </traces>
+    </test>
+    <test name="scores_outside_the_tolerance_are_ordered">
+      <purpose><![CDATA[The tolerance is relative and floored at one, so a betweenness in the thousands and a HITS score in the millionths are each ordered correctly by the same comparison.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-02"/>
+      </traces>
+    </test>
+    <test name="the_call_view_is_not_modified">
+      <purpose><![CDATA[The requirement the phase is built on, asserted directly: the vertex and edge counts of the graph every other analysis reads are the same after purification as before, and the view is a different object.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PUR-02"/>
+        <trace target="LLR" ref="LLR-RCV-01"/>
+        <trace target="HLR" ref="HLR-167"/>
+      </traces>
+    </test>
+    <test name="a_sink_keeps_its_outgoing_edges">
+      <purpose><![CDATA[Over a hand-built classification, a utility sink loses the edges into it and keeps the edges out of it — the asymmetry the fixture tree cannot show, because its sink calls nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RCV-02"/>
+      </traces>
+    </test>
+    <test name="a_god_object_loses_both_directions">
+      <purpose><![CDATA[A god object loses its edges in both directions and stays in the view: it is masked rather than excluded, being part of the centre the layering is read from.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RCV-03"/>
+      </traces>
+    </test>
+    <test name="a_peripheral_node_is_excluded_rather_than_placed">
+      <purpose><![CDATA[A peripheral function is marked out of the view and holds no edge, so nothing downstream can give it a recovered layer.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RCV-04"/>
+      </traces>
+    </test>
+    <test name="the_view_keeps_the_graphs_own_node_identifiers">
+      <purpose><![CDATA[The view has the same vertex count as the graph, so an excluded node is marked rather than renumbered away and a vertex of the view indexes the node table directly.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RCV-05"/>
+      </traces>
+    </test>
+    <test name="the_view_counts_what_the_masking_removed">
+      <purpose><![CDATA[The retained edges plus the masked edges are all of the call edges, so a view cannot drop one without reporting it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RCV-05"/>
+        <trace target="LLR" ref="LLR-PUR-01"/>
+      </traces>
+    </test>
+    <test name="every_class_names_itself_and_the_action_it_took">
+      <purpose><![CDATA[One definition of each class name, metric name, and masking action, so four renderers and the saved record cannot disagree about what a classification is called or about what it did.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-07"/>
+      </traces>
+    </test>
+    <test name="the_report_carries_one_row_per_classification">
+      <purpose><![CDATA[The report carries one row per classified function and none for the ordinary ones, each naming the metric, the value, and the action, beside the thresholds in force and the counts the view was left with.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-36"/>
+        <trace target="HLR" ref="HLR-174"/>
+      </traces>
+    </test>
+    <test name="the_report_rows_are_ordered_by_file_and_line">
+      <purpose><![CDATA[The rows are ordered by an explicit key before a renderer sees them, so no library enumeration order reaches the output.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-36"/>
+        <trace target="LLR" ref="LLR-RPT-10"/>
+      </traces>
+    </test>
+      <test name="an_edgeless_graph_scores_zero_and_classifies_no_centrality">
+      <purpose><![CDATA[A call view with no edges leaves every hub and authority score at zero and yields no utility sink and no god object, the decomposition being undefined there and not asked for.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PUR-04"/>
+      </traces>
+    </test>
+    <test name="functions_with_equal_scores_hold_one_position">
+      <purpose><![CDATA[Two functions of the same shape hold one position in every distribution and classify alike, whichever order the library enumerated them in — the observable half of an ordering made exact with the node identifier breaking ties and the tolerance applied over it afterwards.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLS-03"/>
+        <trace target="LLR" ref="LLR-CLS-02"/>
+      </traces>
+    </test>
+</file>
   <file path="test/unit/dwarfline.c" role="unit" count="8">
     <test name="a_file_the_mapping_describes_is_covered">
       <purpose><![CDATA[A file the coverage set names is covered and one it does not name is not — the test that governs every other query in the module.]]></purpose>
@@ -7050,7 +7415,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       </traces>
     </test>
   </file>
-  <file path="test/unit/cli.c" role="unit" count="67">
+  <file path="test/unit/cli.c" role="unit" count="72">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -7477,7 +7842,40 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="LLR" ref="LLR-USG-02"/>
       </traces>
     </test>
-  </file>
+      <test name="the_purification_thresholds_default_to_elcs_own">
+      <purpose><![CDATA[With none supplied the five purification thresholds take the defaults that make purification mean anything at all — a zeroed set would classify every function as everything.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-32"/>
+      </traces>
+    </test>
+    <test name="every_purification_threshold_is_configurable">
+      <purpose><![CDATA[Each of the five is settable, because a heuristic that cannot be adjusted is one whose disagreements have nowhere to go.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-32"/>
+        <trace target="HLR" ref="HLR-171"/>
+      </traces>
+    </test>
+    <test name="a_rank_threshold_above_one_hundred_is_a_usage_error">
+      <purpose><![CDATA[A rank is a percentage of the other functions, so a figure above 100 names a position no function can occupy and is rejected rather than silently classifying nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-32"/>
+        <trace target="LLR" ref="LLR-CLI-12"/>
+      </traces>
+    </test>
+    <test name="a_rank_threshold_of_one_hundred_is_accepted">
+      <purpose><![CDATA[The boundary itself is legitimate: a function outranking every other is what a strict reading of "high authority" asks for.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-32"/>
+      </traces>
+    </test>
+    <test name="a_malformed_purification_threshold_is_a_usage_error">
+      <purpose><![CDATA[A core depth that is not a plain decimal number consumed in its entirety is a usage error, exactly as every other numeric option argument is.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-32"/>
+        <trace target="LLR" ref="LLR-CLI-16"/>
+      </traces>
+    </test>
+</file>
 
   <file path="test/unit/registry.c" role="unit" count="23">
     <test name="the_environment_variable_names_the_runtime_location">
@@ -9042,7 +9440,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/unit/format_text.c" role="unit" count="9">
+  <file path="test/unit/format_text.c" role="unit" count="10">
     <test name="the_table_carries_the_summary_and_every_file">
       <purpose><![CDATA[The rendered table contains the project summary tier and one row for each file in the model.]]></purpose>
       <traces>
@@ -9101,7 +9499,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="HLR" ref="HLR-031"/>
       </traces>
     </test>
-  </file>
+      <test name="purification_is_a_detail_tier_and_names_elcs_own_thresholds">
+      <purpose><![CDATA[The purification section is absent from the summary and present in both verbose renderings, and its heading carries the attribution marking the thresholds as elc's own together with the five values in force. No severity column appears.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-12"/>
+        <trace target="HLR" ref="HLR-171"/>
+      </traces>
+    </test>
+</file>
 
   <file path="test/integration/cli.bats" role="integration" count="18">
     <test name="--help exits 0">
@@ -9803,7 +10208,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/unit/format_xml.c" role="unit" count="21">
+  <file path="test/unit/format_xml.c" role="unit" count="23">
     <test name="an_ampersand_is_escaped">
       <purpose><![CDATA[An unescaped ampersand begins an entity reference and makes the document unparseable.]]></purpose>
       <traces>
@@ -9941,7 +10346,21 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="LLR" ref="LLR-XRD-03"/>
       </traces>
     </test>
-  </file>
+      <test name="the_classifications_survive_the_record">
+      <purpose><![CDATA[A record carries the classifications, the thresholds they were made against, and the counts the view was left with, and the reader restores them as text rather than recomputing them — regeneration has no graph to recompute a centrality over.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-18"/>
+        <trace target="LLR" ref="LLR-XWR-18"/>
+      </traces>
+    </test>
+    <test name="an_incomplete_classification_is_a_malformed_record">
+      <purpose><![CDATA[A classification without the metric and value that produced it is what HLR-174 forbids reporting, so a record carrying one is rejected rather than half-read.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-18"/>
+        <trace target="LLR" ref="LLR-XRD-04"/>
+      </traces>
+    </test>
+</file>
 
   <file path="test/integration/formats.bats" role="integration" count="27">
     <test name="HLR-027: table is the format when none is selected">
@@ -12765,6 +13184,148 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
+  <file path="test/fixtures/purify.bats" role="fixture" count="21">
+    <test name="HLR-168: the planted utility sink is classified as one">
+      <purpose><![CDATA[Six functions call the fixture's logger and it calls nothing, so its hub score is exactly zero and its authority the highest in the tree — the shape HLR-168 describes, worked out by hand in the fixture header.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-168"/>
+      </traces>
+    </test>
+    <test name="HLR-169: the planted dispatcher is classified as a god object">
+      <purpose><![CDATA[The highest betweenness and the highest hub score together. Betweenness alone would not separate a monolithic dispatcher from a legitimate waypoint, which is why the requirement asks for both.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-169"/>
+      </traces>
+    </test>
+    <test name="HLR-170: the leaf hanging off the tree is peripheral">
+      <purpose><![CDATA[A function with one undirected neighbour lies in the first core, outside the mutually connected centre a layering is read from.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-170"/>
+      </traces>
+    </test>
+    <test name="HLR-174: each row names the metric and value that triggered it">
+      <purpose><![CDATA[The betweenness of 14, the authority of 1.0000, and the coreness of 1 all appear beside the classifications they produced, each matching the figure derived by hand in the fixture header.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-174"/>
+      </traces>
+    </test>
+    <test name="HLR-174: each row names the action taken upon it">
+      <purpose><![CDATA[Masking a reader cannot inspect is a black box, so each row states what the masking did to the view.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-174"/>
+      </traces>
+    </test>
+    <test name="HLR-168: a utility sink loses its incoming edges and a god object both">
+      <purpose><![CDATA[Twelve of fifteen call edges, counted edge by edge in the fixture header. The count is the asymmetry made checkable.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-168"/>
+        <trace target="HLR" ref="HLR-169"/>
+        <trace target="HLR" ref="HLR-170"/>
+      </traces>
+    </test>
+    <test name="HLR-170: nothing else is classified">
+      <purpose><![CDATA[Seven of the ten functions are classified as nothing. `main` and `boot` are the sharpest of them: each passes the hub half of the utility-sink test and neither is a sink, so an implementation testing either half alone reports them.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-170"/>
+        <trace target="HLR" ref="HLR-168"/>
+      </traces>
+    </test>
+    <test name="HLR-167: the masked functions keep the degrees the report gives them">
+      <purpose><![CDATA[The masked sink still reports the fan-in every one of its six callers gives it, and the masked dispatcher still reports a fan-out of four — the measurements are taken over the graph as built.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-167"/>
+      </traces>
+    </test>
+    <test name="HLR-167: changing a threshold moves no reported measurement">
+      <purpose><![CDATA[The strongest statement of the containment available from outside: the report is byte-identical across three purification settings but for the purification section itself. An implementation masking the graph in place would differ in the fan-out, the coupling, and the matrix.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-167"/>
+      </traces>
+    </test>
+    <test name="HLR-171: no classification carries a severity or becomes a finding">
+      <purpose><![CDATA[The Findings section mentions none of the three classes. A classification is an observation about the shape of a graph, not a measurement banded against an accepted range.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-171"/>
+        <trace target="HLR" ref="HLR-101"/>
+      </traces>
+    </test>
+    <test name="HLR-171: the section names the thresholds as elc's own heuristic">
+      <purpose><![CDATA[The label is what separates shipping MISRA and Martin values from having invented them, and none of these five is published.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-171"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-171: the five thresholds in force appear in the heading">
+      <purpose><![CDATA[A classification is not checkable against a threshold the report does not state.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-171"/>
+      </traces>
+    </test>
+    <test name="HLR-170: the core depth is configurable in both directions">
+      <purpose><![CDATA[A shallower depth keeps the leaf in the view and a deeper one strips everything the centrality tests did not name; both classifications hold either way, because they are asked first.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-170"/>
+        <trace target="HLR" ref="HLR-171"/>
+      </traces>
+    </test>
+    <test name="HLR-171: the centrality thresholds are configurable">
+      <purpose><![CDATA[The sink and god-object thresholds are settable and the classifications hold at their strictest, since the planted functions outrank every other in the tree.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-171"/>
+      </traces>
+    </test>
+    <test name="HLR-063: a rank threshold above 100 is a usage error">
+      <purpose><![CDATA[A percentage of the other functions has a ceiling, and a threshold above it names a position no function can occupy.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-063"/>
+        <trace target="HLR" ref="HLR-171"/>
+      </traces>
+    </test>
+    <test name="HLR-174: the report goes to the results destination, not to stdout">
+      <purpose><![CDATA[A run redirecting its report to a file produces nothing on the terminal, the purification section included: HLR-038 reserves that stream.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-174"/>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="HLR-150: the section is a detail tier">
+      <purpose><![CDATA[One row per classified function, so the partition rule puts it with the other per-entity tables rather than in the summary.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-150"/>
+        <trace target="HLR" ref="HLR-174"/>
+      </traces>
+    </test>
+    <test name="HLR-031: both human formats present the section">
+      <purpose><![CDATA[The table and the Markdown report present the same tiers at the same verbosity.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-031"/>
+        <trace target="HLR" ref="HLR-174"/>
+      </traces>
+    </test>
+    <test name="HLR-054: the record carries the classifications and regenerates them">
+      <purpose><![CDATA[A record carries the classifications and the thresholds behind them, and a report regenerated from it presents both — regeneration has no graph to recompute a centrality over.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-054"/>
+        <trace target="HLR" ref="HLR-174"/>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="HLR-179: two runs over the same tree classify identically">
+      <purpose><![CDATA[HITS is iterative and its scores approximate, so the ordering read off them is the part that has to be pinned rather than assumed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-179"/>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="HLR-179: the classification does not depend on the order of the targets">
+      <purpose><![CDATA[The graph is the same graph whichever way its files were reached, so the ranking read off it is too — node identifiers run in the report's sorted file order.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-179"/>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+  </file>
   <file path="test/fixtures/repo.bats" role="fixture" count="19">
     <test name="HLR-002: the repository route yields exactly the tracked source files">
       <purpose><![CDATA[The analysed set of a repository target is exactly the tracked, non-binary, non-hidden source files, matching the set counted by hand in the fixture's header.]]></purpose>
@@ -13153,7 +13714,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[Guards the convention that expected values are hand-counted, never generated from elc's own output.]]></purpose>
     </test>
   </file>
-    <file path="test/instrumented/sanitized.bats" role="instrumented" count="13">
+    <file path="test/instrumented/sanitized.bats" role="instrumented" count="14">
     <test name="HLR-125: a usage error frees the declarations parsed before it">
       <purpose><![CDATA[The case LLR-MAIN-19 was written for. A --stratum is accepted and allocates a layer owning its name and patterns; the --stratum-order after it names a layer never declared, which is a usage error. Nothing else in the suite takes this path — every other usage-error test fails before allocating anything — so until this test the requirement rested on inspection.]]></purpose>
       <traces>
@@ -13261,6 +13822,13 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="LLR" ref="LLR-BLD-09"/>
       </traces>
     </test>
-  </file>
+      <test name="HLR-125: the purification pass releases every vector it allocated">
+      <purpose><![CDATA[A run reaching graph purification over a tree that takes both branches of the pass — one directory with call edges and one without — is free of memory errors and leaks under instrumentation. Four library vectors are allocated per run on a path with several early returns, and none of them is reached by the baseline case above.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PUR-03"/>
+        <trace target="HLR" ref="HLR-125"/>
+      </traces>
+    </test>
+</file>
 </tests>
 </project>
