@@ -1585,7 +1585,7 @@ The aggregate over the layering findings: how much of the code base conforms to 
 *   <a id="LLR-CNF-03"></a>**LLR-CNF-03** — `conformance_indices` shall count a call that both bypasses a layer and inverts the declared direction once in each index, and shall produce no combined score. The two are independent proportions of one denominator, so their sum may exceed the denominator itself; combining them would count twice exactly the call most worth acting on, and would name no remedy where each index separately names one.
     *Trace:* HLR-163 (Skip-Call Violation Index), HLR-118.
 
-## 53. `component_directory` ([src/report.c](../src/report.c))
+## 53. `component_directory` ([src/analyze.c](../src/analyze.c))
 
 Where a component's directory is derived, once, for every consumer that groups by one.
 
