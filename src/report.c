@@ -29,38 +29,6 @@
 #include "elc.h"
 #include "report.h"
 
-/* The directory containing `path`, as a fresh allocation (HLR-160).
- *
- * Written once and called from both places a FileMetrics is constructed —
- * the analysis of a source file, and the reader that rebuilds a model from a
- * saved record — so that a component's directory is the same string whichever
- * way the model arrived. Deriving it at each *use* is what HLR-160 forbids;
- * deriving it once per component, here, is what the field is for.
- *
- * The last separator is the split point, and the two edge cases are the ones
- * that make a naive rsplit wrong: a file directly under the root has an empty
- * prefix and its directory is "/", and a path carrying no separator at all has
- * no directory to name and yields "." — the working directory, which is what
- * the path is relative to. Discovery canonicalises every analysed path
- * (HLR-072), so the second case reaches this function only from a record
- * someone wrote by hand.
- */
-char *component_directory(const char *path)
-{
-	const char *slash;
-
-	if (!path)
-		return NULL;
-
-	slash = strrchr(path, '/');
-	if (!slash)
-		return strdup(".");
-	if (slash == path)
-		return strdup("/");
-
-	return strndup(path, (size_t)(slash - path));
-}
-
 int metrics_add(MetricsAccumulator *acc, FileMetrics *metrics)
 {
 	if (acc->count == acc->capacity) {

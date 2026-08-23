@@ -31,10 +31,6 @@
 #include "elc.h"
 #include "elfsyms.h"
 #include "registry.h"
-/* For `component_directory` alone: the model defines how a component's
- * directory is derived, and this module records it on the FileMetrics it
- * builds, so that one derivation serves every consumer (HLR-160). */
-#include "report.h"
 
 /* Capture names from runtime/queries/README.md. These are a contract with
  * every language module, not a property of any language. */
@@ -1930,6 +1926,38 @@ static void apply_eloc(FileMetrics *metrics, SiteList *sites)
 		}
 	}
 	metrics->eloc = total;
+}
+
+/* The directory containing `path`, as a fresh allocation (HLR-160).
+ *
+ * Written once and called from both places a FileMetrics is constructed —
+ * the analysis of a source file, and the reader that rebuilds a model from a
+ * saved record — so that a component's directory is the same string whichever
+ * way the model arrived. Deriving it at each *use* is what HLR-160 forbids;
+ * deriving it once per component, here, is what the field is for.
+ *
+ * The last separator is the split point, and the two edge cases are the ones
+ * that make a naive rsplit wrong: a file directly under the root has an empty
+ * prefix and its directory is "/", and a path carrying no separator at all has
+ * no directory to name and yields "." — the working directory, which is what
+ * the path is relative to. Discovery canonicalises every analysed path
+ * (HLR-072), so the second case reaches this function only from a record
+ * someone wrote by hand.
+ */
+char *component_directory(const char *path)
+{
+	const char *slash;
+
+	if (!path)
+		return NULL;
+
+	slash = strrchr(path, '/');
+	if (!slash)
+		return strdup(".");
+	if (slash == path)
+		return strdup("/");
+
+	return strndup(path, (size_t)(slash - path));
 }
 
 /* The two records a measured file produces, and the strings they own outright.
