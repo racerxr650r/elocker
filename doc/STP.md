@@ -132,7 +132,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1049 test(s)** across
+Snapshot: **1050 test(s)** across
 **50 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
@@ -1465,7 +1465,7 @@ Role: **fixture**. **7 test(s).**
 
 ### 3.48. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
-Role: **instrumented**. **31 test(s).**
+Role: **instrumented**. **32 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1500,6 +1500,7 @@ Role: **instrumented**. **31 test(s).**
 | 29 | <a id="HLR-141: the image is opened once and nothing beside it"></a>`HLR-141: the image is opened once and nothing beside it` | `LLR-ELF-03`, `LLR-ELF-04` | The image is read for its symbol table alone: opened once, with no second image searched for and no debugging information fetched from elsewhere. An implementation shelling out to a toolchain would show that tool's own reads. |
 | 30 | <a id="HLR-141: an image carrying debug information is still opened once"></a>`HLR-141: an image carrying debug information is still opened once` | `LLR-DWL-01`, `LLR-BLD-20` | The same claim against the case that can break it. Reading debug line information is what a DWARF library offers to do *elsewhere*: given the chance it resolves a `.gnu_debuglink` or a build-id and opens a file under a separate-debug directory the user never named. elc uses the low-level interface, which reads the descriptor it is handed and nothing else — a distinction one API call deep, invisible in `ldd`, and observable only here. |
 | 31 | <a id="the link line names the runtime the demangler lives in"></a>`the link line names the runtime the demangler lives in` | `LLR-BLD-19` | libstdc++ was already loaded as a transitive dependency, which is not enough to reference a symbol in it: a current ld will not resolve an undefined symbol from an indirect DT_NEEDED. Nothing else in the suite would catch the flag's removal, since ldd would still show the library. |
+| 32 | <a id="every library the Makefile builds from source is built by CI"></a>`every library the Makefile builds from source is built by CI` | `LLR-BLD-22` | The pipeline reaches the whole from-source list through one makefile target and names no individual library, which is the only form of the statement that cannot drift from the makefile. |
 
 ### 3.49. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
@@ -1992,6 +1993,7 @@ verified by code review — see
 | `LLR-BLD-19` | `build_configuration` | `HLR-142`, `HLR-112` | `the link line names the runtime the demangler lives in` |
 | `LLR-BLD-20` | `build_configuration` | `HLR-153`, `HLR-141`, `HLR-112` | `every linked library the Makefile takes from the distribution is installed by CI`, `HLR-141: an image carrying debug information is still opened once` |
 | `LLR-BLD-21` | `build_configuration` | `HLR-112`, `HLR-040`, `HLR-175` | `HLR-040: the binary links no interpreter or virtual machine` |
+| `LLR-BLD-22` | `build_configuration` | `HLR-112`, `HLR-124` | `every library the Makefile builds from source is built by CI` |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | `LLR-BLD-09: the build provides a sanitized configuration`, `LLR-BLD-09: the sanitized configuration rebuilds rather than reusing objects` |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | **(no direct test)** |
 | `LLR-DOC-02` | `user_documentation` | `HLR-128` | **(no direct test)** |

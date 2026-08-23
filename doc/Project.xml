@@ -18,8 +18,8 @@
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.18" date="2026-08-22" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="179"/>
-      <count name="llrs"       value="513"/>
-      <count name="tests"      value="1049"/>
+      <count name="llrs"       value="514"/>
+      <count name="tests"      value="1050"/>
       <count name="test_files" value="50"/>
     </counts>
   </metadata>
@@ -7055,6 +7055,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
           <trace target="HLR" ref="HLR-175"/>
         </traces>
       </llr>
+      <llr id="LLR-BLD-22">
+        <text><![CDATA[The pipeline shall build the from-source libraries by invoking the makefile target that names them, and shall not enumerate individual libraries itself. Which libraries are built from source is one fact, and a pipeline restating it drifts from the makefile the moment either gains an entry — twice now, each time failing every compiling job at once while the suite stayed green on a developer machine that had the library already. A test over two lists is not enough on its own: Expat sat in the makefile's list and absent from the pipeline for several phases without anything failing, because the runner image ships it, so the pipeline linked a distribution copy where the project's policy is a pinned release it can bump against an advisory. Calling the target leaves no second list to keep in step.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-112" name="Library Selection Deferred to Design"/>
+          <trace target="HLR" ref="HLR-124"/>
+        </traces>
+      </llr>
+
 
       <llr id="LLR-BLD-09">
         <text><![CDATA[The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.]]></text>
@@ -14301,7 +14309,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="31">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="32">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
@@ -14503,6 +14511,13 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-BLD-19"/>
         <trace target="HLR" ref="HLR-142"/>
+      </traces>
+    </test>
+    <test name="every library the Makefile builds from source is built by CI">
+      <purpose><![CDATA[The pipeline reaches the whole from-source list through one makefile target and names no individual library, which is the only form of the statement that cannot drift from the makefile.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-112"/>
+        <trace target="LLR" ref="LLR-BLD-22"/>
       </traces>
     </test>
 </file>
