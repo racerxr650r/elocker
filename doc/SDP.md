@@ -81,7 +81,7 @@ release readiness — is ready to start, and is the last.
 | Expat | ≥ 2.6 | Streaming XML read for regeneration mode (Phase 5) |
 | `libelf` | ≥ 0.18 | Reading the symbol table of the image `--elf` names (Phase 16). **From the distribution** — see below |
 | `libdw` | ≥ 0.18 | Reading the debug line information that image carries, where it carries any (Phase 20). **From the distribution**, with `libelf` and for the same reason — see below |
-| Jansson | ≥ 2.14 | Generating and parsing the purification manifest (Phase 23). **Built from source**; no dependencies of its own ([SDD](SDD.md) §22) |
+| Jansson | ≥ 2.14 | Generating and parsing the purification manifest (Phase 23). **Taken from the distribution** (`libjansson-dev`), unlike every other linked library: GNU `ld` links libjansson itself, so a copy installed under `/usr/local` shadows the system linker's and — the version nodes being named differently upstream and downstream — stops `ld` linking anything at all. The third exception to the build-from-source rule, and the only one where building is the hazard ([SDD](SDD.md) §23) |
 | Criterion | ≥ 2.4 | Unit test framework |
 | Bats | ≥ 1.10 | Integration, fixture, and instrumented levels |
 | `bats-support`, `bats-assert` | — | Assertion helpers; vendored under `test/helpers/` |

@@ -45,7 +45,6 @@
 #>  prereqs-libgit2      Build libgit2 from source, no network transports (needs sudo)
 #>  prereqs-igraph       Build igraph from source, GraphML off (needs sudo)
 #>  prereqs-expat        Build Expat from source (needs sudo)
-#>  prereqs-jansson      Build Jansson from source, shared, docs and tests off (needs sudo)
 #>  prereqs-clean   Remove the unpacked dependency sources
 #>  check-prereqs   Report which dependencies are present and flag version gaps
 #>
@@ -222,12 +221,23 @@ help:
 # package family, and taken for the same reason — Phase 20 added it to read
 # debug line information (HLR-153), and it arrives with the libelf that was
 # already here.
+#
+# Jansson is the third, and the only one taken from the distribution because
+# building it from source is actively *unsafe*. GNU ld links libjansson — for
+# its JSON map-file output — so installing another copy under $(SRC_PREFIX),
+# which ldconfig ranks ahead of the distribution's, replaces the system
+# linker's jansson for the whole machine. It is not even a version question:
+# Debian and Ubuntu patch the symbol version node to `libjansson.so.4` while
+# upstream's own build names it `JANSSON_4`, so `ld` looks for
+# `json_delete@libjansson.so.4`, does not find it, and exits 127 before
+# linking anything. A tool that cannot link is a worse outcome than an
+# unpinned dependency, and the dependency in question reads one optional file.
+# The distribution ships 2.14, which is the minimum `check-prereqs` asks for.
 
 TREE_SITTER_VER ?= 0.26.2
 LIBGIT2_VER     ?= 1.9.0
 IGRAPH_VER      ?= 1.0.1
 EXPAT_VER       ?= 2.8.3
-JANSSON_VER     ?= 2.15.1
 
 # Grammars are pinned like the libraries, and for the same reason. Each is a
 # separate upstream project on its own release cadence, and the ABI it
@@ -245,7 +255,7 @@ SRC_WORK        ?= $(BUILD)/prereq-src
 
 # Toolchain, test framework, and the headers the source builds need.
 PKGS_BUILD  ?= build-essential pkg-config python3 cmake curl zlib1g-dev \
-               libelf-dev libdw-dev
+               libelf-dev libdw-dev libjansson-dev
 PKGS_TEST   ?= libcriterion-dev
 
 # Test and inspection tools. These are executables the suites invoke, never
@@ -296,8 +306,8 @@ prereqs: _not-root
 	@$(MAKE) --no-print-directory check-prereqs
 
 .PHONY: prereqs-src
-prereqs-src: _not-root prereqs-tree-sitter prereqs-libgit2 prereqs-igraph prereqs-expat \
-             prereqs-jansson
+prereqs-src: _not-root prereqs-tree-sitter prereqs-libgit2 prereqs-igraph \
+             prereqs-expat
 	@sudo ldconfig
 	@echo "prereqs-src: every linked library built and installed under $(SRC_PREFIX)"
 
@@ -387,33 +397,6 @@ prereqs-expat: _not-root
 		-DEXPAT_BUILD_DOCS=OFF
 	@cmake --build $(SRC_WORK)/expat-build --parallel
 	@sudo cmake --install $(SRC_WORK)/expat-build
-
-# Jansson generates and parses the purification manifest (Phase 23, HLR-175 –
-# HLR-177; doc/SDD.md §22). Every option below would otherwise be decided by
-# the library's own defaults, which LLR-BLD-05 forbids for anything that can
-# alter elc's link line:
-#   JANSSON_BUILD_SHARED_LIBS defaults OFF — the default builds a static
-#     archive, so without this the link line changes shape entirely.
-#   JANSSON_BUILD_DOCS defaults ON and wants python-sphinx, which is a
-#     distribution package this project does not otherwise need.
-#   JANSSON_WITHOUT_TESTS and JANSSON_EXAMPLES only cost build time, and are
-#     pinned for the same reason as the rest: nothing about what gets built
-#     should depend on what the build machine happens to have.
-.PHONY: prereqs-jansson
-prereqs-jansson: _not-root
-	@echo "jansson $(JANSSON_VER) (shared, docs off, tests off)"
-	$(call fetch,https://github.com/akheron/jansson/archive/refs/tags/v$(JANSSON_VER).tar.gz,jansson-$(JANSSON_VER))
-	@cmake -S $(SRC_WORK)/jansson-$(JANSSON_VER) -B $(SRC_WORK)/jansson-build \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_INSTALL_PREFIX=$(SRC_PREFIX) \
-		-DJANSSON_BUILD_SHARED_LIBS=ON \
-		-DBUILD_SHARED_LIBS=ON \
-		-DJANSSON_BUILD_DOCS=OFF \
-		-DJANSSON_WITHOUT_TESTS=ON \
-		-DJANSSON_EXAMPLES=OFF \
-		-DJANSSON_INSTALL=ON
-	@cmake --build $(SRC_WORK)/jansson-build --parallel
-	@sudo cmake --install $(SRC_WORK)/jansson-build
 
 .PHONY: prereqs-clean
 prereqs-clean:
