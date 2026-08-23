@@ -465,45 +465,60 @@ static int build_symbol_table(const Sdg *out, Symbol **table, size_t *count)
  * an edge holding a freed fact's string renders as a plausible object name
  * rather than crashing, which is the worst way for it to be wrong (LLR-SDG-12).
  */
-static int intern_global_names(const FactList *facts, Sdg *out)
+/* Collect every declared global's name into `into`, or count them where
+ * `into` is NULL. The two passes must agree, so they are one function.
+ */
+static size_t declared_globals(const FactList *facts, const char **into)
 {
-	const char **declared       = NULL;
-	size_t       declared_count = 0;
-	int          status         = -1;
+	size_t count = 0;
 
 	for (size_t i = 0; i < facts->count; i++)
-		for (size_t j = 0; j < facts->items[i]->global_count; j++)
-			if (facts->items[i]->globals[j].kind == GLOBAL_DECLARATION)
-				declared_count++;
+		for (size_t j = 0; j < facts->items[i]->global_count; j++) {
+			const GlobalAccess *g = &facts->items[i]->globals[j];
 
-	declared = calloc(declared_count ? declared_count : 1, sizeof *declared);
-	if (!declared)
-		goto done;
+			if (g->kind != GLOBAL_DECLARATION)
+				continue;
+			if (into)
+				into[count] = g->name;
+			count++;
+		}
 
-	declared_count = 0;
-	for (size_t i = 0; i < facts->count; i++)
-		for (size_t j = 0; j < facts->items[i]->global_count; j++)
-			if (facts->items[i]->globals[j].kind == GLOBAL_DECLARATION)
-				declared[declared_count++] =
-					facts->items[i]->globals[j].name;
-	qsort(declared, declared_count, sizeof *declared, graph_by_string);
+	return count;
+}
 
-	out->global_names = calloc(declared_count ? declared_count : 1,
-	                           sizeof *out->global_names);
+/* One owned copy per distinct name, over an already-sorted list. */
+static int intern_distinct(const char *const *declared, size_t count, Sdg *out)
+{
+	out->global_names = calloc(count ? count : 1, sizeof *out->global_names);
 	if (!out->global_names)
-		goto done;
+		return -1;
 
-	for (size_t i = 0; i < declared_count; i++) {
+	for (size_t i = 0; i < count; i++) {
 		if (i > 0 && strcmp(declared[i], declared[i - 1]) == 0)
 			continue;
 		out->global_names[out->global_name_count] = strdup(declared[i]);
 		if (!out->global_names[out->global_name_count])
-			goto done;
+			return -1;
 		out->global_name_count++;
 	}
+	return 0;
+}
 
-	status = 0;
-done:
+static int intern_global_names(const FactList *facts, Sdg *out)
+{
+	const char **declared;
+	size_t       count = declared_globals(facts, NULL);
+	int          status;
+
+	declared = calloc(count ? count : 1, sizeof *declared);
+	if (!declared)
+		return -1;
+
+	(void)declared_globals(facts, declared);
+	qsort(declared, count, sizeof *declared, graph_by_string);
+
+	status = intern_distinct(declared, count, out);
+
 	free(declared);
 	return status;
 }
@@ -594,83 +609,93 @@ static int build_call_edges(const FactList *facts, const Report *report,
  * whole project — which is why this runs once every file's facts are in hand
  * rather than per file (HLR-074, LLR-SDG-03).
  */
+/* Join one writer to every function anywhere in the project that reads the
+ * same object.
+ *
+ * The whole project rather than the writer's file, which is why the caller
+ * runs this only once every file's facts are in hand (HLR-074, LLR-SDG-03).
+ */
+static int join_readers(const FactList *facts, const Report *report,
+                        const GlobalAccess *write, uint32_t from,
+                        const char *object, Sdg *out)
+{
+	size_t reader_base = 0;
+
+	for (size_t f = 0; f < report->file_count; f++) {
+		const FileMetrics *fm  = report->files[f];
+		const FileFacts   *ff  = facts_for(facts, fm->path);
+
+		if (!ff) {
+			reader_base += fm->function_count;
+			continue;
+		}
+
+		for (size_t r = 0; r < ff->global_count; r++) {
+			const GlobalAccess *read = &ff->globals[r];
+			uint32_t            to;
+
+			if (read->kind != GLOBAL_READ ||
+			    read->function == ELC_NO_FUNCTION ||
+			    strcmp(read->name, write->name) != 0)
+				continue;
+
+			to = (uint32_t)(reader_base + read->function);
+			if (to >= out->node_count || to == from)
+				continue;
+
+			if (edge_add(out, 0, from, to, EDGE_GLOBAL,
+			             object) != 0)
+				return -1;
+			if (component_edge_add(out, out->nodes[from].component,
+			                       out->nodes[to].component) != 0)
+				return -1;
+		}
+
+		reader_base += fm->function_count;
+	}
+
+	return 0;
+}
+
+/* Every global write one file makes, joined to its readers. */
+static int join_file_writers(const FactList *facts, const Report *report,
+                             const FileFacts *ff, size_t node_base, Sdg *out)
+{
+	for (size_t w = 0; w < ff->global_count; w++) {
+		const GlobalAccess *write  = &ff->globals[w];
+		const char         *object = NULL;
+		uint32_t            from;
+
+		if (write->kind == GLOBAL_WRITE &&
+		    write->function != ELC_NO_FUNCTION)
+			object = global_intern(
+				(const char *const *)out->global_names,
+				out->global_name_count, write->name);
+		if (!object)
+			continue;
+
+		from = (uint32_t)(node_base + write->function);
+		if (from >= out->node_count)
+			continue;
+
+		if (join_readers(facts, report, write, from, object, out) != 0)
+			return -1;
+	}
+	return 0;
+}
+
 static int build_global_edges(const FactList *facts, const Report *report,
                               Sdg *out)
 {
 	size_t node_base = 0;
 
-
-	node_base = 0;
 	for (size_t f = 0; f < report->file_count; f++) {
 		const FileMetrics *fm = report->files[f];
 		const FileFacts   *ff = facts_for(facts, fm->path);
 
-		if (!ff) {
-			node_base += fm->function_count;
-			continue;
-		}
-
-		for (size_t w = 0; w < ff->global_count; w++) {
-			const GlobalAccess *write = &ff->globals[w];
-
-			const char *object = NULL;
-
-			if (write->kind == GLOBAL_WRITE &&
-			    write->function != ELC_NO_FUNCTION)
-				object = global_intern(
-					(const char *const *)out->global_names,
-					out->global_name_count, write->name);
-			if (!object)
-				continue;
-
-			uint32_t from = (uint32_t)(node_base + write->function);
-
-			if (from >= out->node_count)
-				continue;
-
-			/* An edge from every writer to every reader of the
-			 * same object, across the whole project — which is
-			 * why this runs after every file's facts are in hand
-			 * rather than per file (HLR-074, LLR-SDG-03). */
-			size_t reader_base = 0;
-
-			for (size_t g2 = 0; g2 < report->file_count; g2++) {
-				const FileMetrics *rfm = report->files[g2];
-				const FileFacts   *rff = facts_for(facts,
-				                                   rfm->path);
-
-				if (!rff) {
-					reader_base += rfm->function_count;
-					continue;
-				}
-
-				for (size_t r = 0; r < rff->global_count; r++) {
-					const GlobalAccess *read =
-						&rff->globals[r];
-
-					if (read->kind != GLOBAL_READ ||
-					    read->function == ELC_NO_FUNCTION ||
-					    strcmp(read->name, write->name) != 0)
-						continue;
-
-					uint32_t to = (uint32_t)(reader_base +
-					                         read->function);
-
-					if (to >= out->node_count || to == from)
-						continue;
-
-					if (edge_add(out, 0, from, to,
-					             EDGE_GLOBAL, object) != 0)
-						return -1;
-					if (component_edge_add(out,
-					        out->nodes[from].component,
-					        out->nodes[to].component) != 0)
-						return -1;
-				}
-
-				reader_base += rfm->function_count;
-			}
-		}
+		if (ff && join_file_writers(facts, report, ff, node_base,
+		                            out) != 0)
+			return -1;
 
 		node_base += fm->function_count;
 	}
