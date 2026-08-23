@@ -52,14 +52,6 @@ static bool ident_char(char c)
 	       (c >= '0' && c <= '9') || c == '_';
 }
 
-/* Where the parameter list of a demangled name begins, or its length when it
- * has none.
- *
- * Two parentheses are part of a *name* rather than of a signature, and both
- * would otherwise truncate it to nothing: `operator()` and the
- * `(anonymous namespace)` an internal-linkage C++ definition is qualified by.
- * Each is stepped over rather than counted.
- */
 /* Whether the `(` at `i` opens the parameter list, and how far past it to step
  * where it does not.
  *
@@ -93,6 +85,14 @@ static bool paren_opens_signature(const char *s, size_t i, size_t *skip)
 	return true;
 }
 
+/* Where the parameter list of a demangled name begins, or its length when it
+ * has none.
+ *
+ * Two parentheses are part of a *name* rather than of a signature, and both
+ * would otherwise truncate it to nothing: `operator()` and the
+ * `(anonymous namespace)` an internal-linkage C++ definition is qualified by.
+ * Each is stepped over rather than counted.
+ */
 static size_t signature_start(const char *s)
 {
 	int    angle = 0;
@@ -116,12 +116,6 @@ static size_t signature_start(const char *s)
 	return i;
 }
 
-/* Where the last `::`-separated component of a qualified name begins.
- *
- * The scan steps over an `operator` token whole, because the punctuation that
- * follows one is part of the name: without that, `ns::S::operator>>` leaves an
- * unbalanced angle depth and the qualification is never stripped.
- */
 /* The offset past an `operator` token beginning at `i`, or `i` where none
  * begins there.
  *
@@ -144,6 +138,12 @@ static size_t skip_operator_token(const char *s, size_t len, size_t i)
 	return i;
 }
 
+/* Where the last `::`-separated component of a qualified name begins.
+ *
+ * The scan steps over an `operator` token whole, because the punctuation that
+ * follows one is part of the name: without that, `ns::S::operator>>` leaves an
+ * unbalanced angle depth and the qualification is never stripped.
+ */
 static size_t identifier_start(const char *s, size_t len)
 {
 	size_t start = 0;

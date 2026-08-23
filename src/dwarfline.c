@@ -60,27 +60,6 @@ static int by_dwarf_path(const void *a, const void *b)
 	return strcmp(x->path, y->path);
 }
 
-/* ------------------------------------------------------- path normalising --
- *
- * A compiler records a file name that may be relative to the unit's
- * compilation directory, and may carry `.` and `..` components from however
- * the build invoked it. `elc`'s own paths are canonical and absolute, so the
- * two have to be brought to one form before they can be compared.
- *
- * **The normalisation is lexical, and that is deliberate.** `realpath(3)`
- * would resolve symbolic links and give a better answer for the unusual
- * build, at the cost of stat-ing every path the image happens to name —
- * headers under `/usr/include` among them — which is filesystem work on files
- * the user did not name, for a module whose whole contract is that it reads
- * the image and nothing else (HLR-141). Lexical normalisation keeps the
- * answer a property of the image's bytes.
- *
- * The cost is a build that reaches its sources through a symbolic link: the
- * two spellings do not meet, the file reports as uncovered, and nothing is
- * pruned in it. That is the safe direction — the count of HLR-155 says the
- * coverage was not established, and no measured line is deleted on evidence
- * that did not describe it (LLR-DWL-02).
- */
 /* The length `out` would have with its last component removed, or `at`
  * unchanged where there is nothing to remove.
  *
@@ -126,6 +105,27 @@ static size_t append_component(char *out, size_t at, const char *seg,
 	return at + len;
 }
 
+/* ------------------------------------------------------- path normalising --
+ *
+ * A compiler records a file name that may be relative to the unit's
+ * compilation directory, and may carry `.` and `..` components from however
+ * the build invoked it. `elc`'s own paths are canonical and absolute, so the
+ * two have to be brought to one form before they can be compared.
+ *
+ * **The normalisation is lexical, and that is deliberate.** `realpath(3)`
+ * would resolve symbolic links and give a better answer for the unusual
+ * build, at the cost of stat-ing every path the image happens to name —
+ * headers under `/usr/include` among them — which is filesystem work on files
+ * the user did not name, for a module whose whole contract is that it reads
+ * the image and nothing else (HLR-141). Lexical normalisation keeps the
+ * answer a property of the image's bytes.
+ *
+ * The cost is a build that reaches its sources through a symbolic link: the
+ * two spellings do not meet, the file reports as uncovered, and nothing is
+ * pruned in it. That is the safe direction — the count of HLR-155 says the
+ * coverage was not established, and no measured line is deleted on evidence
+ * that did not describe it (LLR-DWL-02).
+ */
 static char *normalised(const char *path)
 {
 	size_t len = strlen(path);

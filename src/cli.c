@@ -21,18 +21,6 @@
 #include "cli.h"
 #include "elc.h"
 
-/* Parse one `name:glob[,glob…]` execution-scope declaration (LLR-SCP-01).
- *
- * Every string is copied. The declaration is split on two separators, so
- * neither the name nor any pattern exists as a NUL-terminated substring of
- * argv — the entry points can be borrowed because a symbol is the whole
- * argument, and a scope cannot.
- *
- * Returns 0, or -1 after a diagnostic for a declaration that cannot be parsed:
- * a scope with no name, or a name with no components, is a usage error rather
- * than a silently empty scope that would match nothing and report nothing
- * (HLR-063, LLR-SCP-02).
- */
 /* The colon separating a declaration's name from its pattern list, or NULL
  * having diagnosed against `arg`.
  *
@@ -92,6 +80,18 @@ static int append_patterns(const char *arg, const char *list, char ***patterns,
 	return 0;
 }
 
+/* Parse one `name:glob[,glob…]` execution-scope declaration (LLR-SCP-01).
+ *
+ * Every string is copied. The declaration is split on two separators, so
+ * neither the name nor any pattern exists as a NUL-terminated substring of
+ * argv — the entry points can be borrowed because a symbol is the whole
+ * argument, and a scope cannot.
+ *
+ * Returns 0, or -1 after a diagnostic for a declaration that cannot be parsed:
+ * a scope with no name, or a name with no components, is a usage error rather
+ * than a silently empty scope that would match nothing and report nothing
+ * (HLR-063, LLR-SCP-02).
+ */
 int parse_scope(const char *arg, ElcOptions *out)
 {
 	const char *colon = declaration_colon(arg, "an execution scope");
@@ -135,20 +135,6 @@ failed:
 	return -1;
 }
 
-/* Parse one `name:glob[,glob…]` architectural-stratum declaration
- * (LLR-STR-01, LLR-STR-02).
- *
- * Structurally identical to `parse_scope` and deliberately a separate
- * function: the two declarations mean different things, are validated against
- * different analyses, and a single parser taking a list to append to would
- * make a caller's mistake — a scope declared as a stratum — invisible.
- *
- * Repeating a name **adds patterns to the layer already declared** rather than
- * creating a second one, so naming `hal` twice with a pattern each time is one
- * layer of two patterns. A layer's ordinal is fixed when it is first named; the
- * declared order is the dependency direction unless `--stratum-order` states
- * it (LLR-STR-02).
- */
 /* The stratum called `name`, appending a new one where none is declared yet.
  *
  * Takes ownership of `name` only when it appends: two `--stratum` arguments
@@ -191,6 +177,20 @@ static StratumDecl *stratum_named(ElcOptions *out, char *name)
 	return layer;
 }
 
+/* Parse one `name:glob[,glob…]` architectural-stratum declaration
+ * (LLR-STR-01, LLR-STR-02).
+ *
+ * Structurally identical to `parse_scope` and deliberately a separate
+ * function: the two declarations mean different things, are validated against
+ * different analyses, and a single parser taking a list to append to would
+ * make a caller's mistake — a scope declared as a stratum — invisible.
+ *
+ * Repeating a name **adds patterns to the layer already declared** rather than
+ * creating a second one, so naming `hal` twice with a pattern each time is one
+ * layer of two patterns. A layer's ordinal is fixed when it is first named; the
+ * declared order is the dependency direction unless `--stratum-order` states
+ * it (LLR-STR-02).
+ */
 int parse_stratum(const char *arg, ElcOptions *out)
 {
 	const char  *colon = declaration_colon(arg, "a stratum");

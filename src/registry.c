@@ -122,13 +122,6 @@ static int executable_dir(char *buf, size_t len)
 	return (m < 0 || (size_t)m >= len) ? -1 : 0;
 }
 
-/* Resolve the runtime location, writing it to `buf`.
- *
- * Returns 0 with a location that exists, or non-zero. On failure `tried`
- * receives the candidates that were examined, so the diagnostic can name them:
- * a message quoting only the last one sends the reader to look in a directory
- * `elc` never expected the runtime to be in.
- */
 /* Append one candidate to the comma-separated record of what was tried, so a
  * failure can name every location searched rather than only the last.
  */
@@ -176,6 +169,13 @@ static int runtime_dir_search(char *buf, size_t len, char *tried,
 	return -1;
 }
 
+/* Resolve the runtime location, writing it to `buf`.
+ *
+ * Returns 0 with a location that exists, or non-zero. On failure `tried`
+ * receives the candidates that were examined, so the diagnostic can name them:
+ * a message quoting only the last one sends the reader to look in a directory
+ * `elc` never expected the runtime to be in.
+ */
 static int runtime_dir_resolve(char *buf, size_t len, char *tried,
                                size_t tried_len)
 {
@@ -407,13 +407,6 @@ static void module_release(LanguageModule *module)
 	module->usable        = false;
 }
 
-/* Load the grammar and compile the query files: the six required ones, and
- * whichever optional ones the module supplies.
- *
- * Returns 0 with `module` populated and usable, or non-zero after a
- * diagnostic — in which case `module` is left named but unusable, so the
- * failure is reported once and not retried (HLR-070, LLR-RFP-06).
- */
 /* Open the shared object and call its grammar entry point.
  *
  * ISO C forbids converting void * to a function pointer directly; the form
@@ -523,6 +516,13 @@ static int query_load(const Registry *reg, LanguageModule *module,
 	return 0;
 }
 
+/* Load the grammar and compile the query files: the six required ones, and
+ * whichever optional ones the module supplies.
+ *
+ * Returns 0 with `module` populated and usable, or non-zero after a
+ * diagnostic — in which case `module` is left named but unusable, so the
+ * failure is reported once and not retried (HLR-070, LLR-RFP-06).
+ */
 static int module_load(const Registry *reg, LanguageModule *module,
                        const char *language)
 {
@@ -725,14 +725,6 @@ static int by_name(const void *a, const void *b)
 	return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
 
-/* Every `.scm` under `runtime/queries/<language>/rules/`, bound to that
- * language by the directory holding it (LLR-RLR-02).
- *
- * Nothing outside the runtime location is looked at: no working directory, no
- * analysis target, no dotfile. Two users running the same command on the same
- * tree must obtain the same result, and a rule picked up from a checkout would
- * make that false (HLR-110, LLR-RLR-05).
- */
 /* Every `.scm` in `dirpath`, by name.
  *
  * readdir yields whatever order the filesystem holds, and rule matches are
@@ -812,6 +804,14 @@ static void rules_compile_all(Registry *reg, const char *language,
 	}
 }
 
+/* Every `.scm` under `runtime/queries/<language>/rules/`, bound to that
+ * language by the directory holding it (LLR-RLR-02).
+ *
+ * Nothing outside the runtime location is looked at: no working directory, no
+ * analysis target, no dotfile. Two users running the same command on the same
+ * tree must obtain the same result, and a rule picked up from a checkout would
+ * make that false (HLR-110, LLR-RLR-05).
+ */
 static int rules_load_located(Registry *reg, const char *language)
 {
 	char    dirpath[PATH_MAX];

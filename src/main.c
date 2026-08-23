@@ -242,14 +242,6 @@ static int assemble_report(Run *run)
 	return 0;
 }
 
-/* Build the graph and run the analyses that read it.
- *
- * They measure; what the numbers mean is the threshold pass's judgement
- * (SDD §10), which is why it comes last and why no severity it assigns
- * reaches the exit status (HLR-100).
- *
- * Returns 0, or -1 with the diagnostic already written.
- */
 /* Build the dependence graph and release what it was built from.
  *
  * The graph is built from the assembled report, not from the raw file list:
@@ -367,6 +359,14 @@ static int analyse_recovery(Run *run)
 	return 0;
 }
 
+/* Build the graph and run the analyses that read it.
+ *
+ * They measure; what the numbers mean is the threshold pass's judgement
+ * (SDD §10), which is why it comes last and why no severity it assigns
+ * reaches the exit status (HLR-100).
+ *
+ * Returns 0, or -1 with the diagnostic already written.
+ */
 static int analyse_graph(Run *run)
 {
 	if (build_dependence_graph(run) != 0 ||
@@ -465,12 +465,6 @@ static void write_companion(Run *run, const char *extension, const char *what,
 	free(companion);
 }
 
-/* Write the report to the selected destination, then the companions.
- *
- * Returns 0, or -1 with the diagnostic already written. A companion that fails
- * is counted in run->failures rather than returned, because the report itself
- * succeeded.
- */
 /* Every companion the options warrant, after the report and never instead of
  * it.
  *
@@ -511,6 +505,12 @@ static void write_companions(Run *run)
 		                companion_manifest);
 }
 
+/* Write the report to the selected destination, then the companions.
+ *
+ * Returns 0, or -1 with the diagnostic already written. A companion that fails
+ * is counted in run->failures rather than returned, because the report itself
+ * succeeded.
+ */
 static int emit(Run *run)
 {
 	run->out = stdout;

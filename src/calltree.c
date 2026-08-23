@@ -244,17 +244,6 @@ cleanup:
 	return status;
 }
 
-/* --------------------------------------------------------- longest path --
- *
- * Memoised traversal in reverse topological order. Each node's depth is one
- * plus the deepest of its callees, computed once; the predecessor achieving
- * that maximum is retained so the chain can be walked back out (LLR-LPD-01,
- * LLR-LPD-02).
- *
- * The caller has established acyclicity. That is not a politeness — this
- * function would not terminate otherwise, and the guarantee is what makes the
- * memoisation valid.
- */
 /* The longest chain reachable from each function, and the callee that starts
  * it.
  *
@@ -316,6 +305,17 @@ static uint32_t deepest_entry(const Sdg *g, const uint32_t *entries,
 	return best_node;
 }
 
+/* --------------------------------------------------------- longest path --
+ *
+ * Memoised traversal in reverse topological order. Each node's depth is one
+ * plus the deepest of its callees, computed once; the predecessor achieving
+ * that maximum is retained so the chain can be walked back out (LLR-LPD-01,
+ * LLR-LPD-02).
+ *
+ * The caller has established acyclicity. That is not a politeness — this
+ * function would not terminate otherwise, and the guarantee is what makes the
+ * memoisation valid.
+ */
 int longest_path_dag(const Sdg *g, const uint32_t *entries, size_t count,
                      Chain *out)
 {

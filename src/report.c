@@ -471,15 +471,6 @@ int report_set_image(Report *report, const SymbolSet *image)
 	return 0;
 }
 
-/* Copy the call-tree measurements into the model, resolving node identifiers
- * to the names and locations a reader can act on.
- *
- * The translation is the point. A node id is an index into a table that only
- * exists while the graph does; the report outlives it, is rendered in four
- * formats, and round-trips through a record. Carrying identifiers into it
- * would make every one of those a lookup against a structure that has been
- * freed.
- */
 /* One row per function: its fan-out, its fan-in, and the information-flow
  * figure derived from the two.
  */
@@ -565,6 +556,15 @@ static int set_deepest_chain(Report *report, const TreeResults *tree,
 	return 0;
 }
 
+/* Copy the call-tree measurements into the model, resolving node identifiers
+ * to the names and locations a reader can act on.
+ *
+ * The translation is the point. A node id is an index into a table that only
+ * exists while the graph does; the report outlives it, is rendered in four
+ * formats, and round-trips through a record. Carrying identifiers into it
+ * would make every one of those a lookup against a structure that has been
+ * freed.
+ */
 int report_set_calltree(Report *report, const TreeResults *tree, const Sdg *g)
 {
 	if (!tree || !g)

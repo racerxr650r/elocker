@@ -457,14 +457,6 @@ static int build_symbol_table(const Sdg *out, Symbol **table, size_t *count)
 	return 0;
 }
 
-/* The graph's own copy of every name some file declares at file scope.
- *
- * De-duplicated on the way in: one object declared in a header six files
- * include is one name, and every edge naming it points at the same string. The
- * copy is what lets main() release the facts the instant the build returns —
- * an edge holding a freed fact's string renders as a plausible object name
- * rather than crashing, which is the worst way for it to be wrong (LLR-SDG-12).
- */
 /* Collect every declared global's name into `into`, or count them where
  * `into` is NULL. The two passes must agree, so they are one function.
  */
@@ -504,6 +496,14 @@ static int intern_distinct(const char *const *declared, size_t count, Sdg *out)
 	return 0;
 }
 
+/* The graph's own copy of every name some file declares at file scope.
+ *
+ * De-duplicated on the way in: one object declared in a header six files
+ * include is one name, and every edge naming it points at the same string. The
+ * copy is what lets main() release the facts the instant the build returns —
+ * an edge holding a freed fact's string renders as a plausible object name
+ * rather than crashing, which is the worst way for it to be wrong (LLR-SDG-12).
+ */
 static int intern_global_names(const FactList *facts, Sdg *out)
 {
 	const char **declared;
@@ -605,10 +605,6 @@ static int build_call_edges(const FactList *facts, const Report *report,
 	return 0;
 }
 
-/* An edge from every writer of an object to every reader of it, across the
- * whole project — which is why this runs once every file's facts are in hand
- * rather than per file (HLR-074, LLR-SDG-03).
- */
 /* Join one writer to every function anywhere in the project that reads the
  * same object.
  *
@@ -684,6 +680,10 @@ static int join_file_writers(const FactList *facts, const Report *report,
 	return 0;
 }
 
+/* An edge from every writer of an object to every reader of it, across the
+ * whole project — which is why this runs once every file's facts are in hand
+ * rather than per file (HLR-074, LLR-SDG-03).
+ */
 static int build_global_edges(const FactList *facts, const Report *report,
                               Sdg *out)
 {

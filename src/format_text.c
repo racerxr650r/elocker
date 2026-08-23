@@ -165,13 +165,6 @@ static void grid_rule(FILE *out, int width, char fill)
 		fputc(fill, out);
 }
 
-/* Emit the grid in the requested style, then release it.
- *
- * Both styles emit the heading, the column names, a rule, and every row —
- * including no rows at all. A heading with an empty body says "nothing
- * here"; an absent heading is indistinguishable from a renderer that forgot,
- * and would make the report's shape vary with its content.
- */
 /* One Markdown cell, right-aligned where the column holds numbers. */
 static void grid_markdown_cell(const Grid *grid, size_t c, const char *text,
                           FILE *out)
@@ -267,6 +260,13 @@ static void grid_render_table(const Grid *grid, FILE *out)
 	}
 }
 
+/* Emit the grid in the requested style, then release it.
+ *
+ * Both styles emit the heading, the column names, a rule, and every row —
+ * including no rows at all. A heading with an empty body says "nothing
+ * here"; an absent heading is indistinguishable from a renderer that forgot,
+ * and would make the report's shape vary with its content.
+ */
 static int grid_render(Grid *grid, Style style, FILE *out)
 {
 	if (grid->failed) {

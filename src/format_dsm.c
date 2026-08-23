@@ -427,12 +427,6 @@ static void emit_number(FILE *out, DsmStyle style, size_t value, int width)
 	}
 }
 
-/* The one walk of the grid the three renderings share.
- *
- * Widths are measured before anything is written, because a column's width is
- * not known until its last cell is in — and measuring a value one way and
- * printing it another is how a column comes out a character short.
- */
 /* The width of every column: the corner and row-label column first, then one
  * per subject, each wide enough for its own name and for the widest count
  * beneath it. `longest` comes back as the longest label in characters, which
@@ -560,6 +554,12 @@ static void emit_rows(const Dsm *m, DsmStyle style, const int *width,
 	}
 }
 
+/* The one walk of the grid the three renderings share.
+ *
+ * Widths are measured before anything is written, because a column's width is
+ * not known until its last cell is in — and measuring a value one way and
+ * printing it another is how a column comes out a character short.
+ */
 static int render(const Dsm *m, DsmStyle style, FILE *out)
 {
 	int    *width   = calloc(m->count + 1, sizeof *width);

@@ -543,14 +543,6 @@ static int by_depth_then_path(const void *a, const void *b)
 	return strcmp(x->directory, y->directory);
 }
 
-/* Render the proposal as the arguments that would declare it (HLR-173).
- *
- * **As arguments, not as prose.** A user who agrees with the recovered
- * layering must be able to adopt it by copying rather than by transcribing,
- * and the argument list is also the boundary the requirement draws in the one
- * form a reader cannot mistake for a measurement: `elc` produces a command
- * line, and it takes effect only when the user passes it back.
- */
 /* A layer name not already taken, written into `out`.
  *
  * A repeat is suffixed, because `--stratum` merges two declarations sharing a
@@ -650,6 +642,14 @@ static int render_order(Buffer *b, char *const *names, size_t strata)
 	return buffer_add(b, "'");
 }
 
+/* Render the proposal as the arguments that would declare it (HLR-173).
+ *
+ * **As arguments, not as prose.** A user who agrees with the recovered
+ * layering must be able to adopt it by copying rather than by transcribing,
+ * and the argument list is also the boundary the requirement draws in the one
+ * form a reader cannot mistake for a measurement: `elc` produces a command
+ * line, and it takes effect only when the user passes it back.
+ */
 static int build_proposal(RecoveryResults *out)
 {
 	Buffer       b = { 0 };

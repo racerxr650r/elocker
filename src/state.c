@@ -117,13 +117,6 @@ int collect_roots(const Sdg *g, const ElcOptions *opts, uint32_t **out,
 	return 0;
 }
 
-/* ------------------------------------------------------------ traversal --
- *
- * Breadth-first over the *call* view. The complement of what is visited is the
- * answer, and it is arrived at by traversal alone: no name is inspected, no
- * heuristic is applied, and nothing about how a function looks contributes
- * (LLR-RCH-02).
- */
 /* Breadth-first search of the call graph from the marked roots, marking every
  * function it reaches. Returns 0 on success.
  */
@@ -169,6 +162,13 @@ cleanup:
 	return status;
 }
 
+/* ------------------------------------------------------------ traversal --
+ *
+ * Breadth-first over the *call* view. The complement of what is visited is the
+ * answer, and it is arrived at by traversal alone: no name is inspected, no
+ * heuristic is applied, and nothing about how a function looks contributes
+ * (LLR-RCH-02).
+ */
 int reachability(const Sdg *g, const uint32_t *roots, size_t root_count,
                  uint32_t **out, size_t *out_count)
 {
@@ -265,17 +265,6 @@ static int unreachable_globals(const Sdg *g, const uint32_t *dead,
 	return 0;
 }
 
-/* --------------------------------------------------------- global state --
- *
- * The writer and reader sets of every object, and the two verdicts MISRA C
- * Rule 8.9 is concerned with.
- *
- * The hidden-channel test asks whether the functions touching an object fall
- * into more than one weakly connected region of the *call* graph. One region
- * is ordinary shared state between functions that already know about each
- * other; two is temporal coupling, in which execution order silently governs
- * whether the system works, and nothing in either region says so (HLR-093).
- */
 /* Fold the access records for one object, from `i` up to but not including
  * `j`, onto one toucher per function.
  *
@@ -366,6 +355,17 @@ static int build_global_rows(const Sdg *g,
 	return 0;
 }
 
+/* --------------------------------------------------------- global state --
+ *
+ * The writer and reader sets of every object, and the two verdicts MISRA C
+ * Rule 8.9 is concerned with.
+ *
+ * The hidden-channel test asks whether the functions touching an object fall
+ * into more than one weakly connected region of the *call* graph. One region
+ * is ordinary shared state between functions that already know about each
+ * other; two is temporal coupling, in which execution order silently governs
+ * whether the system works, and nothing in either region says so (HLR-093).
+ */
 int classify_globals(const Sdg *g, StateResults *out)
 {
 	igraph_vector_int_t membership;
