@@ -124,38 +124,18 @@ int collect_roots(const Sdg *g, const ElcOptions *opts, uint32_t **out,
  * heuristic is applied, and nothing about how a function looks contributes
  * (LLR-RCH-02).
  */
-int reachability(const Sdg *g, const uint32_t *roots, size_t root_count,
-                 uint32_t **out, size_t *out_count)
+/* Breadth-first search of the call graph from the marked roots, marking every
+ * function it reaches. Returns 0 on success.
+ */
+static int walk_reachable(const Sdg *g, bool *seen, uint32_t *queue,
+                          size_t tail)
 {
 	igraph_vector_int_t neighbours;
-	bool               *seen   = NULL;
-	uint32_t           *queue  = NULL;
-	uint32_t           *dead   = NULL;
 	size_t              head   = 0;
-	size_t              tail   = 0;
-	size_t              count  = 0;
 	int                 status = -1;
-
-	*out       = NULL;
-	*out_count = 0;
-
-	if (g->node_count == 0)
-		return 0;
 
 	if (igraph_vector_int_init(&neighbours, 0) != IGRAPH_SUCCESS)
 		return -1;
-
-	seen  = calloc(g->node_count, sizeof *seen);
-	queue = calloc(g->node_count, sizeof *queue);
-	dead  = calloc(g->node_count, sizeof *dead);
-	if (!seen || !queue || !dead)
-		goto cleanup;
-
-	for (size_t i = 0; i < root_count; i++)
-		if (roots[i] < g->node_count && !seen[roots[i]]) {
-			seen[roots[i]] = true;
-			queue[tail++]  = roots[i];
-		}
 
 	while (head < tail) {
 		uint32_t node = queue[head++];
@@ -182,6 +162,43 @@ int reachability(const Sdg *g, const uint32_t *roots, size_t root_count,
 			queue[tail++] = (uint32_t)next;
 		}
 	}
+	status = 0;
+
+cleanup:
+	igraph_vector_int_destroy(&neighbours);
+	return status;
+}
+
+int reachability(const Sdg *g, const uint32_t *roots, size_t root_count,
+                 uint32_t **out, size_t *out_count)
+{
+	bool     *seen   = NULL;
+	uint32_t *queue  = NULL;
+	uint32_t *dead   = NULL;
+	size_t    tail   = 0;
+	size_t    count  = 0;
+	int       status = -1;
+
+	*out       = NULL;
+	*out_count = 0;
+
+	if (g->node_count == 0)
+		return 0;
+
+	seen  = calloc(g->node_count, sizeof *seen);
+	queue = calloc(g->node_count, sizeof *queue);
+	dead  = calloc(g->node_count, sizeof *dead);
+	if (!seen || !queue || !dead)
+		goto cleanup;
+
+	for (size_t i = 0; i < root_count; i++)
+		if (roots[i] < g->node_count && !seen[roots[i]]) {
+			seen[roots[i]] = true;
+			queue[tail++]  = roots[i];
+		}
+
+	if (walk_reachable(g, seen, queue, tail) != 0)
+		goto cleanup;
 
 	/* Ascending by construction, which is sorted-file order — so the list
 	 * is a property of the source tree rather than of the traversal
@@ -199,7 +216,6 @@ cleanup:
 	free(dead);
 	free(queue);
 	free(seen);
-	igraph_vector_int_destroy(&neighbours);
 	return status;
 }
 
@@ -260,6 +276,96 @@ static int unreachable_globals(const Sdg *g, const uint32_t *dead,
  * other; two is temporal coupling, in which execution order silently governs
  * whether the system works, and nothing in either region says so (HLR-093).
  */
+/* Fold the access records for one object, from `i` up to but not including
+ * `j`, onto one toucher per function.
+ *
+ * The records arrive sorted by object then node, so one function reading and
+ * writing the same object is two adjacent records and folds into one toucher.
+ */
+static void fold_touchers(const Sdg *g, size_t i, size_t j,
+                          const igraph_vector_int_t *membership,
+                          GlobalRow *row)
+{
+	for (size_t k = i; k < j; k++) {
+		GlobalToucher *touch;
+
+		if (row->toucher_count > 0 &&
+		    row->touchers[row->toucher_count - 1].node ==
+		            g->touches[k].node) {
+			touch = &row->touchers[row->toucher_count - 1];
+		} else {
+			touch = &row->touchers[row->toucher_count++];
+			touch->node   = g->touches[k].node;
+			touch->region = (size_t)VECTOR(*membership)[
+				g->touches[k].node];
+			touch->writes = false;
+			touch->reads  = false;
+		}
+
+		if (g->touches[k].write)
+			touch->writes = true;
+		else
+			touch->reads = true;
+	}
+}
+
+/* How many distinct weakly connected regions touch this object, and what that
+ * makes of it.
+ *
+ * A single function touching an object should have declared it at block scope;
+ * more than one region touching it is the hidden channel. The order of the two
+ * tests matters only in that one function is always one region (HLR-092,
+ * HLR-093).
+ */
+static void judge_object(GlobalRow *row)
+{
+	for (size_t a = 0; a < row->toucher_count; a++) {
+		bool first = true;
+
+		for (size_t b = 0; b < a; b++)
+			if (row->touchers[b].region == row->touchers[a].region)
+				first = false;
+		if (first)
+			row->region_count++;
+	}
+
+	if (row->toucher_count == 1)
+		row->verdict = GLOBAL_SCOPE_REDUCTION;
+	else if (row->region_count > 1)
+		row->verdict = GLOBAL_HIDDEN_CHANNEL;
+	else
+		row->verdict = GLOBAL_ORDINARY;
+}
+
+/* One row per distinct object, over access records already sorted by it. */
+static int build_global_rows(const Sdg *g,
+                             const igraph_vector_int_t *membership,
+                             StateResults *out)
+{
+	for (size_t i = 0; i < g->touch_count; ) {
+		const char *object = g->touches[i].object;
+		size_t      j      = i;
+		GlobalRow  *row;
+
+		while (j < g->touch_count &&
+		       strcmp(g->touches[j].object, object) == 0)
+			j++;
+
+		row           = &out->globals[out->global_count];
+		row->object   = object;
+		row->touchers = calloc(j - i, sizeof *row->touchers);
+		if (!row->touchers)
+			return -1;
+
+		fold_touchers(g, i, j, membership, row);
+		judge_object(row);
+
+		out->global_count++;
+		i = j;
+	}
+	return 0;
+}
+
 int classify_globals(const Sdg *g, StateResults *out)
 {
 	igraph_vector_int_t membership;
@@ -289,73 +395,7 @@ int classify_globals(const Sdg *g, StateResults *out)
 	if (!out->globals)
 		goto cleanup;
 
-	for (size_t i = 0; i < g->touch_count; ) {
-		const char *object = g->touches[i].object;
-		size_t      j      = i;
-
-		while (j < g->touch_count &&
-		       strcmp(g->touches[j].object, object) == 0)
-			j++;
-
-		GlobalRow *row = &out->globals[out->global_count];
-
-		row->object   = object;
-		row->touchers = calloc(j - i, sizeof *row->touchers);
-		if (!row->touchers)
-			goto cleanup;
-
-		/* The access records arrive sorted by object then node, so one
-		 * function reading and writing the same object is two adjacent
-		 * records and folds into one toucher here. */
-		for (size_t k = i; k < j; k++) {
-			GlobalToucher *touch = NULL;
-
-			if (row->toucher_count > 0 &&
-			    row->touchers[row->toucher_count - 1].node ==
-			            g->touches[k].node)
-				touch = &row->touchers[row->toucher_count - 1];
-			else {
-				touch = &row->touchers[row->toucher_count++];
-				touch->node   = g->touches[k].node;
-				touch->region = (size_t)VECTOR(membership)[
-					g->touches[k].node];
-				touch->writes = false;
-				touch->reads  = false;
-			}
-
-			if (g->touches[k].write)
-				touch->writes = true;
-			else
-				touch->reads = true;
-		}
-
-		for (size_t a = 0; a < row->toucher_count; a++) {
-			bool first = true;
-
-			for (size_t b = 0; b < a; b++)
-				if (row->touchers[b].region ==
-				    row->touchers[a].region)
-					first = false;
-			if (first)
-				row->region_count++;
-		}
-
-		/* A single function touching an object should have declared it
-		 * at block scope; more than one region touching it is the
-		 * hidden channel. The order of the two tests matters only in
-		 * that one function is always one region (HLR-092, HLR-093). */
-		if (row->toucher_count == 1)
-			row->verdict = GLOBAL_SCOPE_REDUCTION;
-		else if (row->region_count > 1)
-			row->verdict = GLOBAL_HIDDEN_CHANNEL;
-		else
-			row->verdict = GLOBAL_ORDINARY;
-
-		out->global_count++;
-		i = j;
-	}
-
-	status = 0;
+	status = build_global_rows(g, &membership, out);
 
 cleanup:
 	igraph_vector_int_destroy(&membership);
