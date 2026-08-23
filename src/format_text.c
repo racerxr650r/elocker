@@ -218,10 +218,21 @@ static void grid_render_markdown(const Grid *grid, FILE *out)
  */
 static void table_cell(const Grid *grid, size_t c, const char *text, FILE *out)
 {
+	bool unpadded = c + 1 == grid->column_count && !grid->numeric[c];
+
+	/* An empty final cell contributes nothing at all — not even the
+	 * separator that would precede it. Leaving the separator in put two
+	 * spaces at the end of the line, which is the whole of what not
+	 * padding the column was for: a row whose last column is blank is the
+	 * common case in every table with an optional Finding column
+	 * (LLR-SUM-04). */
+	if (unpadded && text[0] == '\0')
+		return;
+
 	if (c)
 		fputs("  ", out);
 
-	if (c + 1 == grid->column_count && !grid->numeric[c])
+	if (unpadded)
 		fputs(text, out);
 	else
 		fprintf(out, "%*s",

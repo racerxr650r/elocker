@@ -758,3 +758,113 @@ setup() {
 	chmod -R u+w "$tree"        # so the harness can clean up
 	[ "$rc" -eq 0 ]
 }
+
+# --- what a usage error must not do -----------------------------------------
+
+@test "LLR-MAIN-01: a usage error opens no file under the target" {
+	# `main` runs cli_parse first and stops there. Asserted by observation
+	# rather than by reading main, because the property is about ordering
+	# and the ordering is only visible from outside: a version that
+	# discovered targets and then validated the command line would produce
+	# the identical diagnostic and the identical exit status.
+	require_tool strace "LLR-MAIN-01 no file system access on a usage error"
+	local log="$BATS_TEST_TMPDIR/usage.log"
+	local tree="$BATS_TEST_TMPDIR/tree"
+
+	mkdir -p "$tree"
+	printf 'int f(void){return 0;}\n' > "$tree/a.c"
+
+	# A target that exists, alongside an option that does not: the run has
+	# something it could open and must not.
+	strace_elc "$log" "openat" --no-such-option "$tree"
+	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
+
+	refute grep -q "$tree/a.c" "$log"
+}
+
+# --- the usage summary as a translation unit --------------------------------
+
+@test "LLR-USG-08: no string literal in the usage summary reaches the C11 limit" {
+	# ISO C11 guarantees a translation unit supports string literals of
+	# 4095 characters and no more. The build treats a warning as a defect,
+	# so a summary that outgrew the guarantee would stop the build rather
+	# than degrade — and it outgrew it as soon as the option list reached
+	# this size. Split into several literals for that reason, and this is
+	# what keeps them split as options are added.
+	local longest
+
+	longest=$(awk '
+		/^void cli_usage/       { in_fn = 1 }
+		in_fn && /^}/           { in_fn = 0 }
+		in_fn {
+			line = $0
+			while (match(line, /"([^"\\]|\\.)*"/)) {
+				lit = substr(line, RSTART + 1, RLENGTH - 2)
+				if (length(lit) > max) max = length(lit)
+				line = substr(line, RSTART + RLENGTH)
+			}
+		}
+		END { print max + 0 }
+	' "$REPO_ROOT/src/cli.c")
+
+	[ "$longest" -gt 0 ] || {
+		echo "found no string literal in cli_usage; the check is not looking at it" >&2
+		false
+	}
+	[ "$longest" -lt 4095 ] || {
+		echo "a usage-summary literal is $longest characters, at or over the C11 minimum" >&2
+		false
+	}
+}
+
+# --- the threshold catalogue as the only opinion ----------------------------
+
+@test "LLR-THR-11: only the threshold catalogue attributes a band" {
+	# The project's claim to carry no opinion of its own is checkable only
+	# if a reviewer can read one table rather than audit every analysis for
+	# a constant.
+	#
+	# What is checked is the *attribution of a band* — the published source
+	# a finding cites for the line it says was crossed. A module naming a
+	# measure it merely presents is a different thing and a required one:
+	# HLR-159 says the Henry-Kafura formula and its attribution travel with
+	# the figures, and thresholds.c has a "sources without bands" section
+	# recording that the measure is deliberately unbanded. A test that
+	# refused both would forbid what another requirement demands.
+	local strays
+
+	strays=$(grep -rlE '"(MISRA C Rule|Martin)' "$REPO_ROOT/src" \
+		| grep -v '/thresholds\.c$' || true)
+
+	if [ -n "$strays" ]; then
+		echo "a band's published source is cited outside the catalogue:" >&2
+		echo "$strays" >&2
+		false
+	fi
+
+	# And the catalogue really is where they live, so that deleting every
+	# attribution would fail this rather than pass it vacuously.
+	grep -qE '"(MISRA C Rule|Martin)' "$REPO_ROOT/src/thresholds.c"
+}
+
+@test "LLR-BLD-06: the graph library brings in no second XML library" {
+	# igraph is built with GraphML support off, and this is what that
+	# decision is worth. Its reader and writer are unused — elc writes
+	# GraphML itself — and enabling them links libxml2, an XML library the
+	# project has no other need for and does not choose to depend on.
+	#
+	# Asserted against the link line rather than against the cmake flags,
+	# because the flag is the mechanism and this is the property: a future
+	# igraph that pulled libxml2 in for another reason would satisfy the
+	# flag and fail this.
+	require_tool ldd "LLR-BLD-06 no second XML library"
+	run ldd "$ELC"
+	assert_success
+
+	refute_output --partial "libxml2"
+	refute_output --partial "libxslt"
+
+	# The one XML library elc does link, so that deleting every XML
+	# dependency would fail this rather than pass it vacuously.
+	assert_output --partial "libexpat"
+}

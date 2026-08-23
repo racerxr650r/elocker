@@ -119,6 +119,21 @@ record() {
 	assert_output --partial "1"
 }
 
+@test "LLR-XRD-10: a numeric attribute that is not a number is a malformed record" {
+	# Not a zero. A record accepted on those terms renders perfectly
+	# cleanly and reports the wrong figure, which is the one failure mode
+	# a regenerated report has no way of showing its reader — every other
+	# rejection at least tells them something is wrong (HLR-058).
+	record
+	sed 's/eloc="[0-9]*"/eloc="lots"/' "$RECORD" \
+		> "$BATS_TEST_TMPDIR/nan.xml"
+
+	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" \
+		"$BATS_TEST_TMPDIR/nan.xml"
+	assert_equal "$status" 2
+	assert_output "" "rejected outright, not read as zero"
+}
+
 @test "HLR-058: a truncated record is rejected" {
 	record
 	head -4 "$RECORD" > "$BATS_TEST_TMPDIR/cut.xml"

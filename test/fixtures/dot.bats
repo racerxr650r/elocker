@@ -317,3 +317,23 @@ edges() {
 	assert_success
 	assert_equal "$(nodes | wc -l)" "3"
 }
+
+@test "LLR-DOT-05: a companion that cannot be written is diagnosed, not fatal" {
+	# The primary report is the deliverable; the call tree is a companion.
+	# A companion that cannot be created must therefore leave the report
+	# written and say so, rather than take the run down with it — the
+	# report a user asked for is already on disk by the time this is
+	# attempted (HLR-103, HLR-119).
+	#
+	# The .dot path is blocked by putting a directory where the file would
+	# go, which fopen(3) refuses whatever the permissions are — so the case
+	# reproduces for root as well, where a read-only directory would not.
+	local out="$BATS_TEST_TMPDIR/blocked.md"
+	mkdir -p "$BATS_TEST_TMPDIR/blocked.dot"
+
+	run bash -c '"$0" -o "$1" "$2"' "$ELC" "$out" "$TREE"
+
+	assert [ -s "$out" ]
+	assert_output --partial "blocked.dot"
+	refute [ "$status" -eq 0 ]
+}

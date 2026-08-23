@@ -1107,6 +1107,32 @@ Test(analyze, a_dead_span_is_attributed_to_the_innermost_function)
 	registry_close(&reg);
 }
 
+/* Verifies LLR-DED-08: a statement after a terminator at file scope is not
+   recorded. HLR-137 asks about statements *within a function*, and a span
+   outside every one of them has no enclosing function to be reported against —
+   so it would reach the report with a blank where the attribution goes. */
+Test(analyze, a_dead_span_outside_every_function_is_not_recorded)
+{
+	Registry   reg;
+	FileFacts *facts;
+
+	registry_for_tests(&reg);
+	facts = analyze_facts(&reg, source_holding(
+		"int live(void)\n"
+		"{\n"
+		"\treturn 0;\n"
+		"\tint dead = 1;\n"
+		"}\n"
+		"int at_file_scope = 2;\n"));
+
+	cr_assert_eq(facts->dead_count, 1,
+	             "the statement inside the function is recorded and the "
+	             "file-scope declaration after it is not");
+
+	filefacts_free(facts);
+	registry_close(&reg);
+}
+
 Test(analyze, a_language_with_no_dead_code_query_is_unanalysed_not_clean)
 {
 	Registry   reg;
