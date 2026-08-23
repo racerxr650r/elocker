@@ -313,7 +313,7 @@ void cli_usage(FILE *stream)
 "",
 	      stream);
 
-	/* The second of four, for the reason given below: the summary has
+	/* The second of five, for the reason given below: the summary has
 	 * outgrown the guaranteed literal length twice now, and each option
 	 * added moves it closer again. The breaks fall between groups of
 	 * options rather than mid-entry. */
@@ -332,7 +332,7 @@ void cli_usage(FILE *stream)
 "",
 	      stream);
 
-	/* The third of four. Same reason as the break above: the summary has
+	/* The third of five. Same reason as the break above: the summary has
 	 * outgrown the guaranteed literal length again, and the break falls
 	 * between groups rather than mid-entry (LLR-USG-08). */
 	fputs(
@@ -361,6 +361,38 @@ void cli_usage(FILE *stream)
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.graphml. Requires --output,\n"
 "                     since there is otherwise no name to derive\n"
+"",
+	      stream);
+
+	/* The fourth of five. Same reason as the breaks above: purification's
+	 * three companion artefacts pushed the third block past the guaranteed
+	 * literal length, and the break falls between groups of options rather
+	 * than mid-entry (LLR-USG-08). */
+	fputs(
+"      --manifest FILE\n"
+"                     read the purification manifest FILE, whose statements\n"
+"                     overrule what elc concluded about the functions it\n"
+"                     names. A manifest is read only when it is named here:\n"
+"                     never from the working directory, the target, an\n"
+"                     ancestor of either, or a dotfile. A manifest elc cannot\n"
+"                     read, or that is not a manifest, ends the run; one that\n"
+"                     names a function no analysed file defines is reported\n"
+"                     and ignored\n"
+"      --write-manifest\n"
+"                     also write the purification manifest, beside the report\n"
+"                     and named from it: an --output of report.md yields\n"
+"                     report.manifest.json. Edit a classification you\n"
+"                     disagree with and hand it back with --manifest.\n"
+"                     Requires --output, since there is otherwise no name to\n"
+"                     derive\n"
+"      --purify-dot   also write the call graph as built and the purified\n"
+"                     recovery view, as two Graphviz files beside the report\n"
+"                     and named from it: an --output of report.md yields\n"
+"                     report.raw.dot and report.purified.dot. The masked and\n"
+"                     excluded nodes are drawn greyed and detached rather\n"
+"                     than deleted, so the pair shows what purification did.\n"
+"                     Requires --output, since there is otherwise no name to\n"
+"                     derive\n"
 "      --dsm          also write the dependency structure matrix as CSV,\n"
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.dsm.csv. Rows are callers and\n"
@@ -400,11 +432,11 @@ void cli_usage(FILE *stream)
 "  -h, --help         display this help and exit\n",
 	      stream);
 
-	/* Split, and not for style: one literal holding the whole summary
-	 * exceeds the 4095 characters ISO C99 requires a compiler to
-	 * support, and this build treats a warning as a defect. The break
-	 * falls between the options and the prose so that adding an option
-	 * does not move it. */
+	/* The fifth and last. Split, and not for style: one literal holding
+	 * the whole summary exceeds the 4095 characters ISO C99 requires a
+	 * compiler to support, and this build treats a warning as a defect. The
+	 * break falls between the options and the prose so that adding an
+	 * option does not move it. */
 	fputs(
 "\n"
 "Output:\n"
@@ -419,7 +451,10 @@ void cli_usage(FILE *stream)
 "  and what the dependence graph says — fan-out, recursion, call depth,\n"
 "  coupling, dependency cycles, layering, global state, dead code,\n"
 "  cross-scope access — each measurement beside the published threshold it\n"
-"  was judged against, with any custom-rule matches.\n"
+"  was judged against, with any custom-rule matches, what graph purification\n"
+"  set aside, and the layering recovered from what remained. A recovered\n"
+"  layering is a proposal and never a baseline: nothing is measured against\n"
+"  it, and it takes effect only if you pass it back as --stratum arguments.\n"
 "\n"
 "  Files are listed by canonical absolute path, in ascending byte order,\n"
 "  each exactly once however many targets reach it.\n"
@@ -444,7 +479,8 @@ void cli_usage(FILE *stream)
 enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
        OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF,
        OPT_DSM, OPT_SINK_AUTHORITY, OPT_SINK_HUB, OPT_GOD_BETWEENNESS,
-       OPT_GOD_HUB, OPT_CORE_DEPTH };
+       OPT_GOD_HUB, OPT_CORE_DEPTH, OPT_MANIFEST, OPT_WRITE_MANIFEST,
+       OPT_PURIFY_DOT };
 
 /* What reading one option needs: the options being built, and the record of
  * how the format came to be what it is. All three outlive the option that
@@ -710,6 +746,44 @@ static int opt_dsm(const char *arg, CliParse *p)
 	return CLI_OK;
 }
 
+static int opt_manifest(const char *arg, CliParse *p)
+{
+	/* The path, borrowed from argv, and nothing else. The file is read by
+	 * `purify.c`, which owns the failure, so the parser stays the module
+	 * that reads argv rather than becoming one that reads files
+	 * (LLR-CLI-22).
+	 *
+	 * **This is the only way a manifest is reached** (HLR-176). Nothing
+	 * searches the working directory, the analysis target, an ancestor of
+	 * either, or a dotfile: a manifest is read because the user named it,
+	 * exactly as a custom rule file is, and the zero-configuration
+	 * guarantee is unchanged by the option existing (HLR-039). */
+	p->out->manifest_path = arg;
+	return CLI_OK;
+}
+
+static int opt_write_manifest(const char *arg, CliParse *p)
+{
+	/* Recorded, not validated against --output, by the rule --graphml
+	 * follows: the manifest is a companion artefact named from the report's
+	 * own path, so a request made with the report on standard output writes
+	 * nothing rather than failing (HLR-104, HLR-119, HLR-175). */
+	(void)arg;
+	p->out->write_manifest = true;
+	return CLI_OK;
+}
+
+static int opt_purify_dot(const char *arg, CliParse *p)
+{
+	/* One flag for the pair of drawings, and the same companion rule again.
+	 * A single drawing of the recovery view cannot show what purification
+	 * acted on, so producing one without the other would answer half the
+	 * question the option exists to answer (HLR-178). */
+	(void)arg;
+	p->out->purify_dot = true;
+	return CLI_OK;
+}
+
 static int opt_no_dot(const char *arg, CliParse *p)
 {
 	/* A refusal, not a request, which is why it needs no validation against
@@ -799,6 +873,9 @@ static const struct { int code; OptionFn handle; } OPTION_HANDLERS[] = {
 	{ OPT_SCOPE,         opt_scope         },
 	{ OPT_GRAPHML,       opt_graphml       },
 	{ OPT_DSM,           opt_dsm           },
+	{ OPT_MANIFEST,      opt_manifest      },
+	{ OPT_WRITE_MANIFEST, opt_write_manifest },
+	{ OPT_PURIFY_DOT,    opt_purify_dot    },
 	{ OPT_NO_DOT,        opt_no_dot        },
 	{ 'v',               opt_verbose       },
 	{ OPT_RULES,         opt_rules         },
@@ -963,6 +1040,33 @@ static int check_regenerate(int argc, char *argv[], CliParse *p)
 		return CLI_ERROR;
 	}
 
+	/* The same rule, for the three artefacts purification and recovery add.
+	 * A record carries what a run concluded and not the graph it concluded
+	 * it from, so there is nothing here to classify, to mask, or to draw —
+	 * and a user who asked for a file and got none is told why rather than
+	 * left to discover the absence (HLR-122, LLR-CLI-15). */
+	if (p->out->purify_dot) {
+		fputs("elc: --purify-dot cannot be combined with --from-xml: a "
+		      "saved record carries the findings of a run, not the "
+		      "graph they came from\n", stderr);
+		return CLI_ERROR;
+	}
+
+	if (p->out->write_manifest) {
+		fputs("elc: --write-manifest cannot be combined with "
+		      "--from-xml: a saved record carries the classifications a "
+		      "run made, not the graph it made them over\n", stderr);
+		return CLI_ERROR;
+	}
+
+	if (p->out->manifest_path) {
+		fputs("elc: --manifest cannot be combined with --from-xml: a "
+		      "saved record already carries the classifications it was "
+		      "written with, and nothing here recomputes them\n",
+		      stderr);
+		return CLI_ERROR;
+	}
+
 	/* Pruning happens when a file is measured, not when a report is
 	 * rendered, so a record already describes one configuration and cannot
 	 * be re-cut into another. Rejected rather than ignored, so that a user
@@ -1038,6 +1142,9 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "output",               required_argument, NULL, 'o' },
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
 		{ "dsm",                  no_argument,       NULL, OPT_DSM },
+		{ "manifest",             required_argument, NULL, OPT_MANIFEST },
+		{ "write-manifest",       no_argument,       NULL, OPT_WRITE_MANIFEST },
+		{ "purify-dot",           no_argument,       NULL, OPT_PURIFY_DOT },
 		{ "no-dot",               no_argument,       NULL, OPT_NO_DOT },
 		{ "verbose",              no_argument,       NULL, 'v' },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },

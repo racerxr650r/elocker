@@ -485,9 +485,57 @@ static void write_purification(const Report *report, FILE *out)
 		write_attribute(out, "metric", r->metric);
 		write_attribute(out, "value", r->value);
 		write_attribute(out, "action", r->action);
+		/* Where the class came from. A record that dropped it would
+		 * leave a reader of a regenerated report unable to tell the
+		 * tool's assumptions from their own team's, which is the whole
+		 * of what HLR-177 asks the report to distinguish. */
+		write_attribute(out, "source", r->source);
 		fprintf(out, " line=\"%" PRIu32 "\"/>\n", r->line);
 	}
 	fputs("  </purification>\n", out);
+}
+
+/* The layering recovery proposed, and the arguments that would declare it
+ * (HLR-172, HLR-173).
+ *
+ * Carried for the reason every other analysis result is: a record holds no
+ * graph to re-order, so a proposal absent from it is one a regenerated report
+ * cannot present. **It is a proposal in the record too** — nothing reads these
+ * elements back as a declaration, and the conformance analyses of a
+ * regenerated report are exactly as omitted as they were in the run it
+ * describes (HLR-115, HLR-173).
+ */
+static void write_recovery(const Report *report, FILE *out)
+{
+	static const char *const STATES[] = { "omitted-empty", "cyclic",
+	                                      "proposed" };
+	size_t                   state = (size_t)report->recovery_state;
+
+	fprintf(out, "  <recovery state=\"%s\" layers=\"%zu\" masked=\"%zu\""
+	        " excluded=\"%zu\">\n",
+	        state < sizeof STATES / sizeof *STATES ? STATES[state]
+	                                              : "omitted-empty",
+	        report->recovery_strata, report->recovery_masked,
+	        report->recovery_excluded);
+	for (size_t i = 0; i < report->recovery_count; i++) {
+		fputs("    <recovered", out);
+		write_attribute(out, "directory", report->recovery[i].directory);
+		fprintf(out, " layer=\"%zu\" functions=\"%zu\"/>\n",
+		        report->recovery[i].layer,
+		        report->recovery[i].functions);
+	}
+	for (size_t i = 0; i < report->recovery_cycles.count; i++) {
+		fputs("    <recovery-cycle", out);
+		write_attribute(out, "members",
+		                report->recovery_cycles.paths[i]);
+		fputs("/>\n", out);
+	}
+	if (report->recovery_proposal) {
+		fputs("    <proposal", out);
+		write_attribute(out, "arguments", report->recovery_proposal);
+		fputs("/>\n", out);
+	}
+	fputs("  </recovery>\n", out);
 }
 
 /* The findings. Carried because regeneration has no measurements to re-band
@@ -564,6 +612,7 @@ int xml_write_report(const Report *report, FILE *out)
 		write_architecture,
 		write_dsm,
 		write_purification,
+		write_recovery,
 		write_findings,
 		write_discovery,
 		write_skipped
@@ -633,6 +682,14 @@ typedef struct {
 	PurifyThresholds    purify_thresholds;
 	size_t              purified_nodes;
 	size_t              purified_edges;
+	RecoveryState       recovery_state;
+	RecoveredRow       *recovery;
+	size_t              recovery_count;
+	size_t              recovery_strata;
+	PathList            recovery_cycles;
+	size_t              recovery_masked;
+	size_t              recovery_excluded;
+	char               *recovery_proposal;
 	DeadRow            *dead;
 	size_t              dead_count;
 	RuleMatchRow       *rule_matches;
@@ -1575,8 +1632,10 @@ static void on_classification(ReadState *state, const XML_Char **atts)
 	const char *metric   = attribute(atts, "metric");
 	const char *value    = attribute(atts, "value");
 	const char *action   = attribute(atts, "action");
+	const char *source   = attribute(atts, "source");
 
-	if (!function || !file || !class || !metric || !value || !action) {
+	if (!function || !file || !class || !metric || !value || !action ||
+	    !source) {
 		fail(state, "a classification element is incomplete");
 		return;
 	}
@@ -1600,13 +1659,111 @@ static void on_classification(ReadState *state, const XML_Char **atts)
 	row->metric     = strdup(metric);
 	row->value      = strdup(value);
 	row->action     = strdup(action);
+	row->source     = strdup(source);
 	if (!row->function || !row->file || !row->class_name || !row->metric ||
-	    !row->value || !row->action) {
+	    !row->value || !row->action || !row->source) {
 		fail(state, "out of memory");
 		return;
 	}
 	row->line = (uint32_t)uint_attribute(state, atts, "line");
 	state->purification_count++;
+}
+
+/* The proposal, restored as it was written (HLR-172, HLR-173).
+ *
+ * **Restored, never re-derived, and never adopted.** A record carries no graph
+ * to re-order, so what a regenerated report presents is what the run it
+ * describes proposed; and nothing reads these elements as a declaration, so
+ * the conformance analyses of a regenerated report stay exactly as omitted as
+ * they were then (HLR-115).
+ */
+static void on_recovery(ReadState *state, const XML_Char **atts)
+{
+	static const char *const STATES[] = { "omitted-empty", "cyclic",
+	                                      "proposed" };
+	const char              *name = attribute(atts, "state");
+
+	state->recovery_state = RECOVERY_OMITTED_EMPTY;
+	for (size_t i = 0; name && i < sizeof STATES / sizeof *STATES; i++)
+		if (strcmp(STATES[i], name) == 0)
+			state->recovery_state = (RecoveryState)i;
+
+	state->recovery_strata   = (size_t)uint_attribute(state, atts, "layers");
+	state->recovery_masked   = (size_t)uint_attribute(state, atts, "masked");
+	state->recovery_excluded =
+		(size_t)uint_attribute(state, atts, "excluded");
+}
+
+static void on_recovered(ReadState *state, const XML_Char **atts)
+{
+	const char   *directory = attribute(atts, "directory");
+	RecoveredRow *grown;
+
+	if (!directory) {
+		fail(state, "a recovered element names no directory");
+		return;
+	}
+
+	grown = realloc(state->recovery,
+	                (state->recovery_count + 1) * sizeof *grown);
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->recovery = grown;
+
+	RecoveredRow *row = &state->recovery[state->recovery_count];
+
+	memset(row, 0, sizeof *row);
+	row->directory = strdup(directory);
+	if (!row->directory) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->layer     = (size_t)uint_attribute(state, atts, "layer");
+	row->functions = (size_t)uint_attribute(state, atts, "functions");
+	state->recovery_count++;
+}
+
+static void on_recovery_cycle(ReadState *state, const XML_Char **atts)
+{
+	const char *members = attribute(atts, "members");
+	char      **grown;
+
+	if (!members) {
+		fail(state, "a recovery cycle names no members");
+		return;
+	}
+
+	grown = realloc(state->recovery_cycles.paths,
+	                (state->recovery_cycles.count + 1) * sizeof *grown);
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->recovery_cycles.paths = grown;
+	state->recovery_cycles.paths[state->recovery_cycles.count] =
+		strdup(members);
+	if (!state->recovery_cycles.paths[state->recovery_cycles.count]) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->recovery_cycles.count++;
+	state->recovery_cycles.capacity = state->recovery_cycles.count;
+}
+
+static void on_proposal(ReadState *state, const XML_Char **atts)
+{
+	const char *arguments = attribute(atts, "arguments");
+
+	if (!arguments) {
+		fail(state, "a proposal carries no arguments");
+		return;
+	}
+	free(state->recovery_proposal);
+	state->recovery_proposal = strdup(arguments);
+	if (!state->recovery_proposal)
+		fail(state, "out of memory");
 }
 
 static void on_layering(ReadState *state, const XML_Char **atts)
@@ -1779,6 +1936,10 @@ static const struct {
 	{ "dsm-subject",         on_dsm_subject },
 	{ "dsm-cell",            on_dsm_cell },
 	{ "purification",        on_purification },
+	{ "recovery",            on_recovery },
+	{ "recovered",           on_recovered },
+	{ "recovery-cycle",      on_recovery_cycle },
+	{ "proposal",            on_proposal },
 	{ "classification",      on_classification },
 	{ "graph",               on_graph },
 	{ "route",               on_route },
@@ -1922,8 +2083,16 @@ static void free_findings_state(ReadState *state)
 		free(state->purification[i].metric);
 		free(state->purification[i].value);
 		free(state->purification[i].action);
+		free(state->purification[i].source);
 	}
 	free(state->purification);
+	for (size_t i = 0; i < state->recovery_count; i++)
+		free(state->recovery[i].directory);
+	free(state->recovery);
+	for (size_t i = 0; i < state->recovery_cycles.count; i++)
+		free(state->recovery_cycles.paths[i]);
+	free(state->recovery_cycles.paths);
+	free(state->recovery_proposal);
 }
 
 static void free_source_state(ReadState *state)
@@ -2057,6 +2226,18 @@ static void move_to_report(ReadState *state, Report *out)
 	out->purify_thresholds        = state->purify_thresholds;
 	out->purified_nodes           = state->purified_nodes;
 	out->purified_edges           = state->purified_edges;
+	out->recovery_state           = state->recovery_state;
+	out->recovery                 = state->recovery;
+	out->recovery_count           = state->recovery_count;
+	out->recovery_strata          = state->recovery_strata;
+	out->recovery_cycles          = state->recovery_cycles;
+	out->recovery_masked          = state->recovery_masked;
+	out->recovery_excluded        = state->recovery_excluded;
+	out->recovery_proposal        = state->recovery_proposal;
+	state->recovery               = NULL;
+	state->recovery_count         = 0;
+	memset(&state->recovery_cycles, 0, sizeof state->recovery_cycles);
+	state->recovery_proposal      = NULL;
 	out->dead                     = state->dead;
 	out->dead_count               = state->dead_count;
 	out->rule_matches             = state->rule_matches;

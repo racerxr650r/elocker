@@ -1264,6 +1264,165 @@ shows. That is why the section names the metric and the value behind every row:
 masking you cannot inspect is a black box, and this table is what lets you
 judge whether the right things were set aside.
 
+#### Seeing what the masking did
+
+Two drawings, on request, beside the report:
+
+```sh
+elc --purify-dot -o report.md src/   # writes report.raw.dot and report.purified.dot
+```
+
+The first is the call graph as built. The second is the recovery view, in which
+the masked and excluded functions are **greyed, labelled with their class, and
+left holding no edge** — never deleted. Seeing what purification did is what
+lets you judge whether it did the right thing, and one drawing of the result
+cannot show what it acted on. Neither replaces the annotated call tree: that
+answers a different question and is written by default.
+
+Like every companion, they take their names from `--output` and accept no path
+of their own, so with the report on standard output nothing is written.
+
+### The recovered layering
+
+With the fusing functions set aside, `elc` orders what remains and folds the
+order into layers — a description of the architecture your code already has,
+for a reader who has declared none:
+
+```text
+Architecture recovery (a proposal, never the baseline conformance is measured against; 3 layers over 3 directories, 0 functions masked and 0 excluded)
+  Layer  Directory or cycle       Functions
+  -----  -----------------------  ---------
+  0      /home/u/proj/app                 2
+  1      /home/u/proj/svc                 3
+  2      /home/u/proj/hal                 2
+
+Architecture recovery — the proposal as arguments (elc never applies it; passing it back is what declares it)
+  Adopt with
+  ----------------------------------------------------------------------------------
+  --stratum app:'/home/u/proj/app/*' --stratum hal:'/home/u/proj/hal/*' --stratum svc:'/home/u/proj/svc/*' --stratum-order 'app>svc>hal'
+```
+
+**This is a proposal and never a baseline.** Nothing in the report is measured
+against it. The `--stratum` declarations remain the sole standard the layering
+findings, the back-call index and the skip-call index are judged by, and with
+none declared those analyses stay omitted with their reason stated — however
+confidently a layering was recovered. `elc` measuring conformance against its
+own proposal would be a tool marking its own homework: every code base would
+conform, because the standard would have been read off the thing being judged.
+
+So the proposal arrives as an **argument list**, not as prose. Read it, and if
+you agree with it, paste it back:
+
+```sh
+elc --verbose src/            # proposes a layering; conformance stays omitted
+elc --verbose --stratum app:'/home/u/proj/app/*' \
+    --stratum hal:'/home/u/proj/hal/*' \
+    --stratum svc:'/home/u/proj/svc/*' \
+    --stratum-order 'app>svc>hal' src/   # now it is a declaration, and it is yours
+```
+
+The quoting is load-bearing in both halves: the patterns hold a `*` and the
+order holds `>`, which a shell would otherwise read as a redirection. And the
+declarations come out ordered by directory depth rather than by layer, on
+purpose — `elc` takes the first declared layer whose pattern matches a file,
+and `app/*` matches everything beneath `app/` as well as in it, so a parent
+directory declared before its child would claim the child's files. The layer
+order comes from `--stratum-order` beside them, which is why the declaration
+order is free to be chosen for correctness.
+
+**A topological order is not a layering.** It orders functions; an architecture
+orders directories. So the order is folded by the directory each file belongs
+to, and a directory's layer is fixed by *where the bulk of its edges point*
+rather than by its earliest or latest member. One function reaching far down
+the order does not drag its whole directory with it — a completion callback
+called from the layer below its own is an ordinary shape, and it should not
+turn a service layer upside down. Functions excluded from the recovery view get
+no layer at all.
+
+Where the recovery view is still cyclic, no ordering of it exists:
+
+```text
+Architecture recovery (omitted: the recovery view is cyclic, so no ordering exists; the mutually reachable groups below are reported in its place)
+  Layer  Directory or cycle                       Functions
+  -----  ---------------------------------------  ---------
+  cycle  hal_init, hal_stop, svc_open, svc_close
+```
+
+The groups are reported instead of a layering, rather than the graph being
+ordered arbitrarily — the same answer `elc` gives for a call depth over a
+cyclic graph. A function that calls *itself* is not one of these: the edge runs
+from a node to itself and orders nothing, the recursion section already says
+so, and treating it as blocking would cost every project holding one recursive
+function this whole analysis. A group is printed as its membership and not as a chain of
+arrows: every member reaches every other, but the decomposition yields no
+order, and arrows would assert a path that may not exist. Breaking any edge
+among them is what would make a layering possible.
+
+### When you disagree: the purification manifest
+
+The classifications are heuristics, and heuristics have false positives. A
+state machine's dispatcher legitimately lies on a great many shortest paths and
+legitimately calls widely; nothing in the graph separates it from the monolith
+the god-object test describes, and only you know which it is.
+
+```sh
+elc --write-manifest -o report.md src/    # also writes report.manifest.json
+```
+
+```json
+{
+  "manifest-version": 1,
+  "classifications": [
+    {
+      "function": "dispatch",
+      "file": "/home/u/proj/app/dispatch.c",
+      "class": "god object",
+      "mask": true
+    }
+  ]
+}
+```
+
+Edit the statement you disagree with and hand the file back:
+
+```sh
+elc --verbose --manifest report.manifest.json src/
+```
+
+A statement **governs**: the class it names is the class `elc` uses, and `elc`
+neither recomputes nor overrules it. Setting `"mask"` to `false` is the usual
+correction — you agree the function is the dispatcher and disagree that it
+should be set aside, so the classification stays in the report and the
+function's edges stay in the recovery view, which changes the layering read off
+it. Omitting `"file"` matches the function wherever it is defined; naming it is
+the precise form and is what `elc` writes.
+
+The report tells you which is which:
+
+```text
+  File                     Function  Class         Metric     Value                                 Action                  Source
+  -----------------------  --------  ------------  ---------  ------------------------------------  ----------------------  --------
+  /home/u/proj/app/d.c     dispatch  god object                                                     kept in the view        manifest
+  /home/u/proj/util/l.c    util_log  utility sink  authority  1.0000, above 100% of functions       incoming edges masked   computed
+```
+
+Without that column a reader cannot tell the tool's assumptions from their own
+team's, which is the whole reason the section exists.
+
+**A manifest is read only when you name it.** It is never discovered from the
+working directory, the analysis target, an ancestor of either, or a dotfile —
+the same rule custom rule files follow, and the reason two people running the
+same command on the same tree get the same answer.
+
+A manifest that cannot be read, and one that is well-formed JSON but not a
+manifest — no version, a version this build does not read, a class name it does
+not know — both end the run with a diagnostic naming the fault, and the
+diagnostic quotes the line and column of a syntax error so you know where you
+broke it. You named the file, so the failure is yours to correct. A statement
+naming a function no analysed file defines is a different matter: it is
+reported and ignored, and the run continues, because analysing one directory of
+a project whose manifest covers all of it is ordinary use.
+
 ### Dead code between functions
 
 ```text
@@ -2130,6 +2289,9 @@ comparable.
 | `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `--dsm` | — | off | Also write the dependency structure matrix as CSV, named from `--output` |
+| `--manifest` | `FILE` | none | Read the purification manifest `FILE`, whose statements overrule what `elc` concluded |
+| `--write-manifest` | — | off | Also write the purification manifest as JSON, named from `--output` |
+| `--purify-dot` | — | off | Also write the raw and purified graphs as two Graphviz files, named from `--output` |
 | `--no-dot` | — | `.dot` written | Do not write the annotated Graphviz call tree, which is otherwise written beside the report |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 

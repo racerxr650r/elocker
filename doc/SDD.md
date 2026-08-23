@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.15
+**Version:** 2.16
 **Date:** 2026-08-22
 **Author(s):** John Anderson
 
@@ -216,6 +216,7 @@ The runtime data flow of an analysis run is:
 *   Parse the structured declarations — architectural strata, entry points, and execution scopes — into their in-memory forms.
 *   Validate every option value and reject an unknown option, a missing argument, or a missing target before any analysis begins.
 *   Emit the usage summary, to `stdout` on request and to `stderr` on error.
+*   Record the purification manifest's path, and the two companion requests purification and recovery add, without reading or validating any file: the manifest is read by `purify.c`, which owns the failure, and a companion asked for with the report on standard output writes nothing rather than failing (HLR-104, HLR-119, HLR-175, HLR-176).
 
 ### 4.2 External Interfaces
 Options are the entirety of `elc`'s configuration surface: there is no configuration file and no dotfile discovery (HLR-039).
@@ -973,6 +974,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   Present every tier the uniform-composition rule requires, in both formats.
 *   Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).
 *   Present the two conformance indices as a summary tier and the dependency matrix as a detail tier, delegating the matrix's decoration to `format_dsm.c` in both human-facing formats (HLR-162, HLR-163, HLR-166).
+*   Present the recovered layering as a detail tier, stating in the heading that it is a proposal and never the baseline conformance is measured against, and rendering the proposal itself as the argument list a user passes back (HLR-172, HLR-173).
 
 
 ### 14.3 Internal Structure
@@ -1174,9 +1176,19 @@ The Henry-Kafura value is deliberately **not** a key here. `eloc`, `fan-in` and 
 
 #### 17.2.2 Companion Artefact Naming
 
-Both companion files derive their names from the report's output path by extension substitution: an output of `report.md` yields `report.dot` and `report.graphml`. Neither takes a path of its own. This is precisely why neither is produced when the report goes to standard output — there is no output path to derive a name from, which is the rationale HLR-104 and HLR-106 give (HLR-103, HLR-104, HLR-106).
+Every companion file derives its name from the report's output path by extension substitution: an output of `report.md` yields `report.dot`, `report.graphml`, `report.raw.dot` and `report.purified.dot`. None takes a path of its own. This is precisely why none is produced when the report goes to standard output — there is no output path to derive a name from, which is the rationale HLR-104 and HLR-106 give (HLR-103, HLR-104, HLR-106, HLR-119).
 
-#### 17.2.3 DOT Annotation Encoding
+#### 17.2.3 The Raw and Purified Drawings
+
+Two drawings of one graph, written by one function under a flag, and the pairing is the requirement rather than a convenience (HLR-178). A single drawing of the recovery view cannot show what purification *acted on*: it looks like a clean layering whether the masking was right or wrong. So they are produced together, and they share a writer, because a reader comparing them needs the node set, the labels and the layout to differ only where the masking differs — two writers is how two drawings come to differ in a way that has nothing to do with what was masked.
+
+**Nothing is deleted from the purified drawing.** A masked function is greyed and labelled with its class; an excluded one is greyed, dashed, and labelled likewise; both are left holding no edge. Drawn detached rather than removed, they are what makes the pair legible: the reader sees which functions were set aside and what the graph looks like without them, in one glance.
+
+Which edges survive is asked of `purify.c` through `purify_edge_retained` rather than answered again here. Two answers to one question is how a drawing comes to show a graph the analysis never read, which would defeat the whole purpose of drawing it.
+
+Neither drawing replaces the annotated call tree of HLR-102. That answers a different question — where the findings fall on the call graph — and is enabled by a different default.
+
+#### 17.2.4 DOT Annotation Encoding
 
 The `.dot` file is the **call tree**, so only call edges are drawn. Coupling through a shared global object is not an edge here — it is not a call — and reaches the drawing as a property of the functions that take part in it, which is what HLR-105 asks for: the participants of a hidden channel, not the channel.
 
@@ -1206,6 +1218,8 @@ Every one is an attribute a renderer may ignore; ignoring all of them leaves the
 
 *   **`bool graph_dot_warranted(const ElcOptions *opts)`** — True only when .dot generation is enabled and the report goes to a named file.
 *   **`int graph_write_dot(const Sdg *g, const Report *r, const char *path)`** — Write the annotated call tree in DOT format.
+*   **`bool graph_purify_dot_warranted(const ElcOptions *opts)`** — Whether the raw and purified drawings are to be written: requested, with a named output path to derive their names from, and not in regeneration mode (HLR-104, HLR-119, HLR-178).
+*   **`int graph_write_purify_dot(const Sdg *g, const PurifyResults *p, bool purified, const char *path)`** — Write the call graph as built, or the recovery view read off it. One writer for both, because the pair exists to be compared.
 *   **`int graph_write_graphml(const Sdg *g, const char *path)`** — Write the SDG in GraphML, nodes in ascending identifier order and each node's edges by ascending target. Reuses `write_escaped` from `format_xml.c` rather than carrying a second escaper: one implementation of HLR-065 means one place for it to be wrong.
 *   **`bool graph_graphml_warranted(const ElcOptions *opts)`** — True only when the export was requested *and* the report goes to a named file. Both halves matter: the export is off by default (HLR-106), and requesting it with the report on standard output writes nothing, because there is no path to derive a name from (HLR-104).
 *   **`char *graph_companion_path(const char *output_path, const char *extension)`** — The companion's name, by extension substitution on the report's output path. The extension search is scoped to the last path component, so a dot in a directory name is not mistaken for one.
@@ -1395,13 +1409,29 @@ A utility sink keeps its outgoing edges because the fusion it causes is between 
 
 #### 20.2.3 The Manifest Format, and What It Costs
 
-The manifest is **JSON**, restricted to a flat array of objects each naming a function, its file, its class, and whether it is masked. Two properties of the requirement decide the format between them: HLR-175 requires a user be able to edit it by hand, and HLR-176 requires `elc` read it back.
+The manifest is **JSON**: an object carrying a format version and one array of statements, each naming a function, its file, its class, and whether that class is masked. Two properties of the requirement decide the format between them: HLR-175 requires a user be able to edit it by hand, and HLR-176 requires `elc` read it back.
+
+The version is why the top level is an object rather than the bare array this section first described. A version has to live somewhere a reader meets before the statements, and an array has no such place; the alternative — versioning by a magic first element — is a shape nobody would hand-edit correctly, which is the one property the format was chosen for.
+
+```json
+{
+  "manifest-version": 1,
+  "classifications": [
+    { "function": "dispatch", "file": "/p/app/dispatch.c",
+      "class": "god object", "mask": true }
+  ]
+}
+```
+
+**The class and the masking action are two facts, and the manifest states both.** The usual correction is not that `elc` misread the graph but that it drew the wrong conclusion from a correct reading: a user agrees their dispatcher is the graph's dispatcher and disagrees that it should be set aside. Setting `mask` to `false` keeps the classification in the transparency report — where it still tells a reader where the function sits — and keeps the function's edges in the recovery view. A format carrying only the class would force such a user to relabel the function as something it is not.
+
+`file` is optional. Naming it is the precise form and is what `elc` writes; omitting it matches the function wherever it is defined, which is what a person adding a statement by hand will reach for. A project with two static functions of one name is the case that makes the distinction earn its keep.
 
 Being read back is what makes this different from every other artefact `elc` emits. The `.dot`, GraphML, CSV and XML *writers* are hand-rolled precisely because emission needs only correct escaping (SDD §16.3.2) — but a format `elc` must also parse needs a parser, and the project has exactly one, Expat, which reads XML alone. So the choice is between reusing XML and taking on a reader for something else.
 
 JSON is chosen over both, and the reason is the audience rather than the engineering: this file exists to be edited by a person who disagrees with a classification, and of the candidates it is the one they are most likely to edit correctly.
 
-**Both directions go through Jansson** (≥ 2.14), the JSON library selected in §22 under HLR-112. This is the one place `elc` uses a library to *write* a format rather than hand-rolling emission, and the exception is argued in full beside that selection: the manifest is the only artefact that round-trips, so a hand-rolled writer paired with a library reader would be two implementations of one format with `elc` on both ends of the disagreement.
+**Both directions go through Jansson** (≥ 2.14), the JSON library selected under HLR-112 in the dependency-selection table of the data dictionary. This is the one place `elc` uses a library to *write* a format rather than hand-rolling emission, and the exception is argued in full beside that selection: the manifest is the only artefact that round-trips, so a hand-rolled writer paired with a library reader would be two implementations of one format with `elc` on both ends of the disagreement.
 
 What the module owes the library is bounded. Jansson parses and validates; `purify.c` maps the resulting values onto classifications and rejects anything it does not recognise. A manifest that is well-formed JSON but not a manifest — a missing class, a class name this build does not know, a version it does not read — is rejected exactly as a malformed one is (HLR-176), because well-formedness is a property of the syntax and this module is judging the contents.
 
@@ -1411,14 +1441,17 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 ### 20.3 Internal Structure
 #### 20.3.1 Key Functions
 
-*   **`int purify_analyse(const Sdg *g, const ElcOptions *opts, PurifyResults *out)`** — Classify every function and build the masked recovery view. `g` is taken by const pointer, which is where HLR-167 is enforced rather than remembered; the manifest of HLR-175 – HLR-177 enters as a further argument with the module that reads it.
-*   **`int classify_nodes(const Sdg *g, const PurifyThresholds *t, Classification *out)`** — Assign each node its class against the thresholds in force, a manifest statement overruling a computed one once the manifest exists.
+*   **`int purify_analyse(const Sdg *g, const ElcOptions *opts, Manifest *manifest, PurifyResults *out)`** — Classify every function and build the masked recovery view. `g` is taken by const pointer, which is where HLR-167 is enforced rather than remembered; the manifest of HLR-175 – HLR-177 enters as a further argument, non-const because a statement records whether it named anything.
+*   **`int classify_nodes(const Sdg *g, const PurifyThresholds *t, Manifest *manifest, Classification *out)`** — Assign each node its class against the thresholds in force, applying the manifest last so that a statement overrules a computed class rather than competing with one.
 *   **`int build_recovery_view(const Sdg *g, const Classification *c, RecoveryView *out)`** — Copy the call view, omitting the masked edges and the peripheral nodes.
+*   **`bool purify_edge_retained(const Classification *c, uint32_t from, uint32_t to)`** — Whether the view keeps one call edge. Exposed so that the purified drawing of HLR-178 asks the same question the view was built from rather than reimplementing the three masking rules.
 *   **`int purify_score_cmp(double a, double b)`** — Compare two scores to the tolerance HLR-179 requires be stated, returning -1, 0, or 1.
-*   **`int report_set_purify(Report *report, const PurifyResults *purify, const Sdg *g, const ElcOptions *opts)`** — Copy the classifications onto an assembled report, resolving each node identifier to the name and location a reader can act on (HLR-174).
-*   **`int manifest_read(const char *path, Manifest *out)`** — Parse a named manifest; reject a malformed one rather than partially applying it (HLR-176).
-*   **`int manifest_write(const PurifyResults *r, const char *path)`** — Write the classifications in the documented format, ready to be edited and handed back.
-*   **`void purify_results_free(PurifyResults *r)`** — Release the classifications, the recovery view, and the manifest.
+*   **`int report_set_purify(Report *report, const PurifyResults *purify, const Sdg *g, const ElcOptions *opts)`** — Copy the classifications onto an assembled report, resolving each node identifier to the name and location a reader can act on, and recording whether each class was computed or supplied (HLR-174, HLR-177).
+*   **`bool purify_class_from_name(const char *name, PurifyClass *out)`** — The inverse of `purify_class_name`, for the manifest read path. A name this build does not know is refused rather than guessed at.
+*   **`int manifest_read(const char *path, Manifest *out)`** — Parse a named manifest; reject a malformed one, and one that is JSON but not a manifest, rather than partially applying either (HLR-176).
+*   **`int manifest_write(const PurifyResults *r, const Sdg *g, const char *path)`** — Write the classifications in the documented format, ready to be edited and handed back. The `Sdg` is needed and the results alone are not: a classification is held against a node identifier, and an identifier is not something a person can edit.
+*   **`void manifest_free(Manifest *m)`** — Release a manifest's statements.
+*   **`void purify_results_free(PurifyResults *r)`** — Release the classifications and the recovery view.
 
 #### 20.3.2 Parsing Strategy / Algorithm
 
@@ -1436,18 +1469,24 @@ The two are applied in that order and not the other way about. The ordering is b
 
 **Coreness is taken over the undirected neighbourhood.** A *k*-core is the mutually connected centre of a program, and a leaf hanging off it is peripheral whichever way its one edge points (HLR-170).
 
+**A manifest statement is applied last, and that is what makes it govern** (HLR-177). Every computed class is in place before the manifest is read over it, so "the statement governs" is a property of the order rather than of a condition scattered through the three tests. The metric and value that would have justified a computed class are cleared with it: no measurement triggered a decision the user made, and reporting one beside a manifest row would present a number as the reason for a judgement it had no part in.
+
+**A statement matching no analysed function is recorded, reported, and ignored.** Analysing one directory of a project whose manifest covers all of it is ordinary use, and rejecting the file there would make a manifest unusable exactly where a large code base most needs one — the rule a declared entry point matching nothing already follows (LLR-CTR-08). It is reported rather than passed over in silence because such a statement is far more often a typo than a deliberate partial run, and a user who never hears about it goes on believing their correction took effect.
+
 **A cyclic recovery view has no layering, and that is reported rather than worked around** (HLR-172). Purification often breaks the cycles that a god object created, which is much of its purpose — but where cycles remain, the cycles are the finding.
 
 ### 20.4 Dependencies
 
 *   The graph library, for `igraph_hub_and_authority_scores`, `igraph_betweenness`, and `igraph_coreness` (HLR-113).
-*   **Jansson**, for the manifest in both directions — `json_load_file` and `json_error_t` on the read path, `json_dump_file` on the write path. The only third-party writer in the project, for the round-trip reason argued in §22.
+*   **Jansson**, for the manifest in both directions — `json_load_file` and `json_error_t` on the read path, `json_dumpf` on the write path. The only third-party writer in the project, for the round-trip reason argued beside the dependency-selection table in the data dictionary. The write goes through a stream of `elc`'s own rather than `json_dump_file`, for one byte: a text file this project writes ends with a newline and Jansson's file writer does not add one, and a manifest is meant to be hand-edited and kept under version control.
 *   `src/graph.c` for the SDG and its call view. Depended upon by `src/recover.c`.
 
 ### 20.5 Error Handling and Logging
 
 *   **Manifest cannot be read or parsed** Diagnostic naming the path, and a fatal exit. The user named the file, so the failure is theirs to correct (HLR-176).
 *   **Manifest names an unknown function** Diagnostic, the statement ignored, the run continues. Analysing one directory of a project whose manifest covers all of it is ordinary use (HLR-177).
+*   **Manifest is JSON but not a manifest** Diagnostic naming the path and what is wrong with it, and a fatal exit — exactly as a syntax fault is. Well-formedness is a property of the syntax and this module is judging the contents: a missing or unreadable version, a missing classifications array, and a class name this build does not know are each a file that is not a manifest (HLR-176).
+*   **Manifest keeps a classified function in the view** Not an error and not an omission. The classification is reported with its action given as retained rather than masked, and the recovery view keeps the function's edges. The usual correction is not that `elc` misread the graph but that it drew the wrong conclusion from a correct reading (HLR-175, HLR-177).
 *   **No functions survive purification** Not an error. The recovery of HLR-172 is omitted with its reason stated, as an analysis short of its inputs always is (HLR-115).
 *   **A graph with fewer than two nodes** Not an error, and nothing is classified by centrality. There is no distribution to hold a position in, and a rank over zero other nodes is met by every threshold at once — which would classify the single function as all three at the boundary. The coreness test still applies, since it is absolute.
 *   **A call view with no edges** The hub-and-authority decomposition is not asked for. It is undefined there — every score is zero — and the library reports the fact on standard error, which would put a diagnostic naming one of its own source files into the stream HLR-038 reserves for `elc`'s. A program whose functions call nothing has no hub-and-authority structure to find, and leaving the scores at their zero says exactly that.
@@ -1462,30 +1501,70 @@ The two are applied in that order and not the other way about. The ordering is b
 *   Present the proposal in a form a user can adopt as a declaration without transcribing it (HLR-173).
 *   State which functions were masked or excluded in producing the proposal.
 
+### 21.2 External Interfaces
+#### 21.2.1 The Boundary Is the Dependency Direction
+
+`arch.c` includes no header of this module, holds no `RecoveryResults`, and is handed no path to one. That is HLR-173 made structural rather than remembered, by the same construction that makes HLR-167 structural one section above: a module that cannot reach a proposal cannot accidentally measure against it, and a rule kept by remembering is a rule one refactor away from being forgotten.
+
+The results travel to the report and stop there. Renderers and the saved record read them; no analysis takes an input from them. `elc` measuring conformance against its own proposal would be a tool marking its own homework — every code base would conform, because the standard would have been read off the thing it was judging.
+
+The corollary is the one a reader is most likely to find surprising, and it is deliberate: a run over a plainly layered tree recovers that layering with complete confidence **and** still reports the conformance analyses as omitted for want of a declaration (HLR-115). Recovery is what a user without strata is *given*; it is not a substitute baseline.
+
+#### 21.2.2 The Proposal Is an Argument List
+
+What this module emits is the command line that would declare the layering, in the form `--stratum` and `--stratum-order` accept:
+
+```text
+--stratum app:'/p/app/*' --stratum svc:'/p/svc/*' --stratum-order 'app>svc'
+```
+
+Two properties of that line are load-bearing rather than cosmetic.
+
+**It is quoted.** The patterns hold a `*` and the order holds `>`. An unquoted order would not merely fail to be adopted — a shell would read it as a redirection, create files named after the layers, and hand `elc` a partial order it rejects. A proposal that has to be repaired before it can be used is a transcription, which is the thing HLR-173 asks be avoided.
+
+**The declarations are ordered by directory depth, deepest first, and the layer order is stated separately.** `stratum_of_components` takes the *first* declared layer whose pattern matches a file, and a directory wildcard matches everything beneath that directory rather than only the files directly in it — so an ancestor declared before its child would claim the child's files. Declaring the deepest first removes that and costs nothing, because a layer's ordinal comes from `--stratum-order` beside it and not from the order the declarations appear in.
+
+Each layer is named after the basename of the first directory in it, sanitised of anything a shell or the option syntax would take for punctuation, and suffixed on a collision — two layers sharing a name would silently become one, since repeating a name adds patterns to the layer already declared.
+
 
 ### 21.3 Internal Structure
 #### 21.3.1 Key Functions
 
-*   **`int recover_layers(const RecoveryView *v, const Report *r, RecoveryResults *out)`** — Propose a layering, or report why none could be.
-*   **`int layer_by_directory(const RecoveryView *v, const size_t *order, RecoveryResults *out)`** — Fold the topological order into per-directory layers by edge density.
-*   **`void recovery_results_free(RecoveryResults *r)`** — Release the proposal and its exclusion list.
+*   **`int recover_layers(const PurifyResults *p, const Sdg *g, const Report *r, RecoveryResults *out)`** — Propose a layering, or report why none could be. The `Sdg` supplies each function's component and the `Report` supplies that component's directory, recorded once at discovery rather than re-derived here (HLR-160).
+*   **`int layer_by_directory(const PurifyResults *p, const Sdg *g, const Report *r, const size_t *order, RecoveryResults *out)`** — Fold a topological order of the view into per-directory layers by edge density. Exposed because the fold — and not the ordering — is the whole of what this module decides.
+*   **`int report_set_recovery(Report *report, const RecoveryResults *rec)`** — Copy the proposal onto an assembled report. Declared in `recover.h` rather than `report.h`, exactly as `report_set_purify` is, so the report model need not know what a `RecoveryResults` is to be included.
+*   **`void recovery_results_free(RecoveryResults *r)`** — Release the proposal, its cycles, and its argument list.
 
 #### 21.3.2 Parsing Strategy / Algorithm
 
 **A topological order is not yet a layering.** It orders functions; an architecture orders *directories*. The order is therefore folded by component directory, and a directory's layer is fixed by where the bulk of its edges point rather than by its earliest or latest member — one function reaching far down the order should not drag its whole directory with it.
 
+**"Where the bulk of its edges point" is the mean position of a directory's functions weighted by the retained edges each carries.** A function holding one edge counts once against the ten held by the rest, so an outlier moves a directory in proportion to how much of the directory's coupling it actually accounts for. The case this is written against is ordinary rather than contrived: a completion callback defined in a service layer and called from the hardware layer beneath it sits at the very bottom of the topological order, and a fold reading a directory's latest member would turn the service layer upside down on the strength of it. A directory all of whose functions are isolated in the view falls back to the unweighted mean, since a weighted mean over a total weight of zero is not a number.
+
+**The positions are compared as exact fractions, never as floating point.** Two directories whose weighted means are equal belong in one layer, and a comparison deciding otherwise on the last bits of a division would split them on one machine and not on another — the property HLR-179 exists to remove. Cross-multiplying is the obvious way to compare two fractions exactly and overflows for a large project, since each numerator is a sum of position × degree over every retained function; the comparison is therefore made by continued fraction, which compares integer parts and then the reciprocals of the remainders and multiplies nothing. Directories at equal positions share a layer: cutting between them would invent a dependency direction the graph does not hold, which is the kind of claim HLR-101 forbids. Ties in the *ordering* break by directory path, so two runs list them alike.
+
+**An excluded function is not folded in at all** (HLR-170). The fold walks the vertices the view still contains, and a directory all of whose functions were excluded receives no layer rather than the bottom one. A fold that read the excluded vertices back in would put every leaf in the lowest layer, which is the one thing that requirement names.
+
 **The proposal is emitted as a declaration.** HLR-173 requires that a user who agrees with the recovered layering be able to adopt it without retyping, so the proposal is rendered in the form the `--stratum` and `--stratum-order` options accept. That is also the boundary the requirement draws made visible: what `elc` produces is an *argument list*, and it takes effect only when a user passes it back.
+
+**A self-call orders nothing, and is disregarded.** The ordering runs over the view with its loops removed. A function calling itself makes the graph cyclic in the strict sense, but the edge runs from a node to itself and says nothing about where that node sits relative to any other; reporting it in place of a layering would repeat a fact the recursion analysis of HLR-089 already states, and would cost every project holding one recursive function the whole of this analysis. It does not weight the function's position either, for the same reason: a function coupled to nothing but itself had no part in choosing where its directory sits. A *mutual* cycle is a different claim and is still reported — there is genuinely no order to read.
+
+**A cycle is reported as its membership, not as a chain of arrows.** Where the recovery view is cyclic the strongly connected components of two or more members are listed in place of a layering, each as its members in ascending node identifier. A strongly connected component is a *set*: every member reaches every other, but the decomposition yields no order, and `a -> b -> c` would assert a path that may not exist. This is the rule the recursion report already follows, and the true statement is the useful one — breaking any edge among these functions is what would make a layering possible.
 
 **Nothing here feeds the conformance analyses** (HLR-173). `recover.c` is depended upon by the report and by nothing in `arch.c`; the dependency direction is what keeps a recovered layering from becoming the baseline it is measured against.
 
 ### 21.4 Dependencies
 
-*   The graph library, for topological ordering. `src/purify.c` for the recovery view.
+*   The graph library, for the acyclicity test, the topological ordering, and the strongly connected components where no ordering exists. `src/purify.c` for the recovery view and the classifications behind it.
+*   `src/graph.c` for each function's component, and `src/report.c` for that component's directory — read from the report's own record of it rather than sliced off the path here, since more than one analysis groups by directory and two consumers each slicing a path for themselves is how two of them come to disagree (HLR-160).
 
 ### 21.5 Error Handling and Logging
 
-*   **Recovery view is cyclic** Not an error. The cycles are reported in place of a proposed layering, as HLR-090 does for call depth over a cyclic graph (HLR-172).
+*   **Recovery view is cyclic** Not an error. The mutually reachable groups are reported in place of a proposed layering, as HLR-090 does for call depth over a cyclic graph (HLR-172).
+*   **A function calls itself** Not a cycle for this purpose, and not reported here. The edge orders nothing, the recursion analysis of HLR-089 already states the fact, and treating it as blocking would cost every project holding one recursive function the whole of this analysis.
 *   **No strata declared** Not a reason to omit recovery — recovery is what a user without strata is given. It is the *conformance* analyses that stay omitted (HLR-115, HLR-173).
+*   **No function survives purification** Not an error. The proposal is omitted with its reason stated, as an analysis short of its inputs always is, rather than reported as an empty layering (HLR-115).
+*   **A directory holds only excluded functions** Not an error and not the bottom layer. The directory receives no layer at all, because a function `elc` did not consider is not a function `elc` placed at the edge of the architecture (HLR-170).
 
 ## 22. Detailed Design for [src/format_dsm.c](../src/format_dsm.c)
 
@@ -1546,6 +1625,9 @@ The two are applied in that order and not the other way about. The ordering is b
 | `verbose` | `bool` | The *request* for the verbose report, not the selection between two compositions: the summary is the default (HLR-150), so a zeroed ElcOptions must mean the summary, which it does only if the flag records the positive. A property of the rendering alone — it changes no measurement, no finding, and not the exit status, and the complete-record formats ignore it (HLR-151, HLR-152) |
 | `complexity_threshold` | `uint32_t` | Default 15 (HLR-022) |
 | `bottleneck_threshold` | `uint32_t` | Default 5 (HLR-081) |
+| `manifest_path` | `const char *` | The purification manifest to read, or NULL. Borrowed from argv, and the only way a manifest is reached: nothing is discovered from the working directory, the target, an ancestor of either, or a dotfile (HLR-039, HLR-176) |
+| `write_manifest` | `bool` | Write the manifest beside the report (HLR-175). Off unless asked for, and silently nothing with the report on standard output, by the companion rule of HLR-119 |
+| `purify_dot` | `bool` | Write the raw and purified drawings beside the report (HLR-178). One flag for the pair, because a single drawing of the recovery view cannot show what purification acted on |
 | `no_dot` | `bool` | The *refusal* of the `.dot` companion, not the request for it: generation is enabled by default (HLR-103), so a zeroed ElcOptions must mean enabled, which it does only if the flag records the negative |
 | `graphml_path` | `const char *` | NULL unless --graphml given |
 | `dsm` | `bool` | The *request* for the dependency-matrix CSV companion (HLR-180). Off unless asked for, as the GraphML export is, so a zeroed ElcOptions means no companion; and silently nothing where the report goes to standard output, there being no path to derive a name from (HLR-104). Unlike the two graph companions it is accepted with `--from-xml`, because a record carries the matrix where it carries no topology |
@@ -1816,6 +1898,10 @@ The two are applied in that order and not the other way about. The ordering is b
 | `global_state, reach_state, unreachable, unreachable_globals, scope_state, cross_scope` | `GlobalStateRow *, ReachState, UnreachableRow *, char **, ScopeState, CrossScopeRow *` | The global-state and reachability measurements, each carrying the state that distinguishes a measurement from an analysis omitted for want of a declaration (HLR-091 – HLR-096, HLR-115) |
 | `back_call, skip_call` | `ConformanceRow` | The two conformance indices as the report presents them: the violations counted, the inter-layer call edges they are over, and both the index and its complementary conforming proportion as rendered text. Text because "undefined" is one of their legitimate values, exactly as it is for Instability, and a renderer choosing between a number and a word is a decision that would then be made four times (HLR-162, HLR-163) |
 | `dsm` | `Dsm` | The dependency matrix: the ordered subject labels and the square grid of call counts between them, with a flag saying whether the subjects are declared layers or directories. Part of the model rather than a renderer's scratch space, because a record of a run must be able to regenerate it and a record carries no call graph to rebuild it from (HLR-165, HLR-166, HLR-054) |
+| `purification, purify_thresholds, purified_nodes, purified_edges` | `PurificationRow *, PurifyThresholds, size_t, size_t` | Every classification purification made, the five thresholds they were decided against, and what the masking left behind. Reported before anything is relied on, because automated masking a reader cannot inspect is a black box; ordinary functions are absent, since `elc concluded nothing about this function` is not a classification (HLR-174, HLR-171) |
+| `recovery_state, recovery, recovery_count, recovery_strata` | `RecoveryState, RecoveredRow *, size_t, size_t` | The layering read off the purified view: whether one was proposed, the directories placed, and how many distinct layers they fell into. **Never a baseline** — these rows reach the renderers and the record and nothing else, and with no strata declared the conformance analyses stay omitted whatever was recovered (HLR-172, HLR-173, HLR-115) |
+| `recovery_cycles, recovery_masked, recovery_excluded` | `PathList, size_t, size_t` | Where the view is cyclic, the mutually reachable groups reported in place of an ordering; and the functions the masking cut edges from or left out entirely, since a layering read from a graph with parts set aside is a claim about that graph and not about the program (HLR-172) |
+| `recovery_proposal` | `char *` | The proposal as the argument list `--stratum` and `--stratum-order` accept, or NULL. The boundary HLR-173 draws made visible: elc produces a command line, and it takes effect only when the user passes it back (owned) |
 | `findings` | `FindingRow *` | Every measurement that crossed a published line, ranked most severe first, each naming its source (HLR-098, HLR-123) |
 | `dead, dead_unanalysed` | `DeadRow *, PathList` | The unreachable statements within functions, sorted by file then start line, and the languages whose module supplied no dead-code query — the second because unanalysed and none-found are different claims (HLR-137, HLR-139) |
 | `rule_matches` | `RuleMatchRow *` | What the user's own rules matched, sorted and reported beside the findings rather than among them (HLR-109, HLR-111) |
@@ -1866,6 +1952,50 @@ The two are applied in that order and not the other way about. The ordering is b
 | `metric` | `PurifyMetric` | Which measurement triggered the class, for the report of HLR-174 |
 | `value` | `double` | Its value — the number the comparison was actually made against |
 | `rank` | `uint32_t` | Its rank; unused where the metric is coreness, which is absolute |
+| `masked` | `bool` | Whether the recovery view applies this class's masking action. Set with the class by a computed classification, so an ordinary function is unmasked by construction; a manifest may state the class and withhold the action, which is the correction HLR-175 exists for (HLR-177) |
+| `from_manifest` | `bool` | True where the class was stated by a manifest rather than computed. Carried so the report can say which of the assumptions in front of a reader are elc's and which are their own team's — without it the two are indistinguishable in the one section whose purpose is to be inspected (HLR-177) |
+*   **`ManifestEntry`** (defined in [include/purify.h](../include/purify.h)) — One statement a manifest makes about one function (HLR-175, HLR-177). The class and the masking action are two facts and the entry carries both, because the usual correction is not that `elc` misread the graph but that it drew the wrong conclusion from a correct reading.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `function` | `char *` | The function the statement is about; owned |
+| `file` | `char *` | The file defining it, or NULL where the manifest omitted it, in which case the statement matches by function name alone; owned |
+| `klass` | `PurifyClass` | The class the statement assigns, which governs and is not recomputed |
+| `mask` | `bool` | Whether the view applies that class's action. False keeps the classification reportable and the function's edges in the view |
+| `matched` | `bool` | Whether the statement named a function the run analysed. Tracked rather than assumed: one that matched nothing is reported and ignored rather than fatal, since analysing one directory of a project whose manifest covers all of it is ordinary use (LLR-CTR-08) |
+*   **`Manifest`** (defined in [include/purify.h](../include/purify.h)) — The statements one named manifest holds (HLR-176). Read only from a path given on the command line — never from the working directory, the analysis target, an ancestor of either, or a dotfile — so the zero-configuration guarantee is unchanged by the format existing (HLR-039).
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `entries` | `ManifestEntry *` | One per statement, in the order the file listed them; owned |
+| `count` | `size_t` | Statements read. Zero after a rejection: a manifest is refused whole rather than partly applied |
+*   **`RecoveredLayer`** (defined in [include/recover.h](../include/recover.h)) — One directory the proposal places, and where it placed it (HLR-172). The subject is a *directory* because an architecture orders directories; the topological order underneath orders functions and is folded before it reaches here.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `directory` | `char *` | The directory, as discovery recorded it; owned |
+| `layer` | `size_t` | 0-based, topmost first. Directories at equal positions share a layer — cutting between them would invent a dependency direction the graph does not hold |
+| `functions` | `size_t` | The functions the recovery view retained there. A directory holding only excluded ones is not a row at all (HLR-170) |
+*   **`RecoveryResults`** (defined in [include/recover.h](../include/recover.h)) — What recovery concluded, before the report is told about it (HLR-172, HLR-173). The three outcomes are exclusive and each is a complete answer: a layering, the cycles that make one impossible, or the statement that nothing survived purification to order. None is an error.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `state` | `RecoveryState` | Proposed, cyclic, or omitted for an empty view. The omission is the zero, so a model carrying no recovery at all reads as `nothing was proposed` rather than as an empty proposal |
+| `layers` | `RecoveredLayer *` | Sorted by layer, then by path; owned |
+| `layer_count` | `size_t` | Rows, one per directory placed |
+| `strata` | `size_t` | Distinct layers among them |
+| `cycles` | `char **` | Where the view is cyclic, each mutually reachable group rendered as its membership; sorted; owned |
+| `cycle_count` | `size_t` | Groups reported in place of an ordering |
+| `masked` | `size_t` | Functions whose edges the masking cut |
+| `excluded` | `size_t` | Peripheral functions left out of the view entirely |
+| `proposal` | `char *` | The proposal in the form the stratum options accept, or NULL where there is nothing to propose. An argument list rather than prose: adoption is then a copy rather than a transcription, and the boundary HLR-173 draws is visible in the form of the thing (owned) |
+*   **`RecoveredRow`** (defined in [include/report.h](../include/report.h)) — One directory the recovered layering places, as the report presents it (HLR-172). **A proposal, and never the baseline it would be measured against** (HLR-173): nothing in `arch.c` can reach these rows, the conformance analyses take their layer index from the declared strata of HLR-078 and from nothing else, and where none are declared they stay omitted however confidently a layering was recovered.
+
+    | Field | Type | Description |
+    | ----- | ---- | ----------- |
+| `directory` | `char *` | The directory placed; owned |
+| `layer` | `size_t` | 0-based, topmost first |
+| `functions` | `size_t` | The ones the recovery view retained there |
 *   **`RecoveryView`** (defined in [include/purify.h](../include/purify.h)) — The masked copy of the call view (HLR-167 – HLR-170). Vertex identifiers are the `Sdg`'s own, so a result read off this graph indexes the node table directly and a tie broken by vertex identifier is a tie broken by the stable node identifier of HLR-033. A peripheral node is therefore excluded by its `included` flag and by holding no edge rather than by being renumbered out of existence — renumbering would put the determinism of HLR-179 on a mapping instead of on the identifier the rest of the run already agrees about.
 
     | Field | Type | Description |
@@ -1896,6 +2026,7 @@ The two are applied in that order and not the other way about. The ordering is b
 | `metric` | `char *` | The measurement that triggered it; owned |
 | `value` | `char *` | Its value and rank, rendered; owned |
 | `action` | `char *` | What the masking did to the view; owned |
+| `source` | `char *` | `computed` or `manifest` — where the class came from. Carried on the row rather than inferred, because a reader of this section is being asked to judge whether the masking was right and cannot do that without knowing which rows are elc's own reading of the graph and which are their team's correction of it (HLR-177); owned |
 *   **Compile-time constants** (in [include/elc.h](../include/elc.h)):
 
     | Name | Value | Purpose |
@@ -1909,6 +2040,7 @@ The two are applied in that order and not the other way about. The ordering is b
 | `ELC_DEPTH_WARNING` | 8 | Call depth beyond which constrained targets are at risk |
 | `ELC_DEPTH_CRITICAL` | 12 | Call depth at which stack/heap collision is likely |
 | `ELC_XML_FORMAT_VERSION` | 1 | Record format identifier (HLR-061, HLR-058) |
+| `ELC_MANIFEST_VERSION` | 1 | Purification manifest format identifier, so a manifest written by a later build is rejected rather than half-understood; declared in include/purify.h (HLR-175, HLR-176) |
 | `ELC_RUNTIME_DIR_ENV` | "ELC_RUNTIME_DIR" | Overrides the runtime location adjacent to the binary (HLR-059) |
 **Interception points for unit testing.** The STP mocks dependencies with GNU ld's `--wrap` rather than with a seam in `src/`. The canonical wrap targets per module are recorded here so that the Makefile's `-Wl,--wrap=` lists and the tests' `__wrap_` definitions have one source rather than two:
 
@@ -1935,6 +2067,10 @@ A grammar's external scanner must be located by a shell glob rather than by `$(w
 
 Two consequences follow. A grammar's ABI must lie inside the range the linked `libtree-sitter` supports, and a mismatch fails at *load* with a version error rather than at build, so the pin is checked against the library rather than assumed. And because grammars are gitignored build products that no `clean` should discard, `make clean` deliberately leaves them: the sanitized pass cleans twice, and refetching an upstream tarball on each is a network round trip for nothing.
 
+`clean` leaves the **unpacked dependency sources** alone for the same reason, and the division of labour is the point: `prereqs-clean` is the target named for removing them, and a `clean` that took both made one of the two a lie.
+
+It is load-bearing as well as tidy, because of a failure mode worth recording. The prereq recipes escalate exactly where they need to — `apt-get`, `make install`, `cmake --install` — and a user who runs the whole target under `sudo` instead has the *unpacking* run as root. An unprivileged `tar` ignores the uid and gid an archive records and gives everything to the invoking user; a root `tar` honours them, and igraph's release tarball carries `501:staff`, the account of whoever packaged it. What is left is a source tree the developer who built it cannot delete — and since `clean` runs at the head of both `asan` and `valgrind`, it took both sanitizer gates down with it. The gates now run whatever state that tree is in, the prereq targets refuse to run as root at all, and `prereqs-clean` names the one command that takes ownership back rather than emitting a screen of permission errors.
+
 **Dependency selection.** HLR-112 defers library choice to this document. Every library `elc` links is recorded below, whether or not the PVD named a candidate for its role, so that this table and the instrumented dependency allowlist describe the same set:
 
 | Role | Selected | Rationale |
@@ -1947,7 +2083,7 @@ Two consequences follow. A grammar's ABI must lie inside the range the linked `l
 | DOT writing | **none** | Plain text. Graphviz renders the output; `elc` never links it. |
 | Object-file reading | **libelf** | A well-specified container with a mature implementation; hand-rolling one would put endianness, class, and section-header handling into this project's defect surface for no benefit (SDD §18). Taken from the distribution rather than built from source — the one linked library that is, because building elfutils imports *more* distribution packages than using it does. |
 | Linkage-name demangling | **the C++ runtime's `__cxa_demangle`** | No new dependency: `libstdc++` has been linked as a transitive dependency of igraph since Phase 8, and is now named on the link line deliberately rather than relied upon indirectly (LLR-BLD-19). Decodes the Itanium ABI, and so C++ and Rust's legacy scheme alike. |
-| JSON generation and parsing | **Jansson** (≥ 2.14) | The purification manifest is the one artefact `elc` both writes and reads back (HLR-175, HLR-176), and Jansson does both through one API. C-native, MIT, no dependencies of its own, and built from a pinned release with no code generation (HLR-040). Its `json_error_t` reports the line, column, and byte position of a fault, which is what lets the rejection HLR-176 requires name *where* a hand-edited manifest went wrong rather than only that it did; and it validates UTF-8 strictly, which matters for a file carrying function names and paths lifted from source. See below for why the alternatives lost. |
+| JSON generation and parsing | **Jansson** (≥ 2.14), *from the distribution* | The purification manifest is the one artefact `elc` both writes and reads back (HLR-175, HLR-176), and Jansson does both through one API. C-native, MIT, no dependencies of its own. **Taken from the distribution rather than built from a pinned release**, which is the third exception to that rule and the only one taken because building it is actively unsafe — see below. Its `json_error_t` reports the line, column, and byte position of a fault, which is what lets the rejection HLR-176 requires name *where* a hand-edited manifest went wrong rather than only that it did; and it validates UTF-8 strictly, which matters for a file carrying function names and paths lifted from source. See below for why the alternatives lost. |
 
 **Why a library writes the manifest when nothing else here uses one.** Every other format `elc` emits — XML, GraphML, CSV, DOT — is hand-rolled, because emission needs only correct escaping and a writer library would add a dependency for no benefit (§16.3.2). The manifest is the exception, and the reason is that it is the only artefact that **round-trips**: `elc` writes it, a user edits it by hand, and `elc` reads it back (HLR-175 – HLR-177).
 
@@ -1960,7 +2096,13 @@ Candidates weighed against Jansson, and why each lost:
 *   **json-c** — widely packaged and long-lived, but with an older API and a heavier CVE history again, and no advantage here to set against either.
 *   **yyjson** — excellent, single-file, and considerably faster. Speed is not the constraint: a manifest holds one entry per classified function and is read once per run. Against Jansson's longer maintenance record — the property every other row in the table above was chosen on — throughput it does not need is not a reason to prefer it.
 
-The version is pinned and built from source with the rest (SDP §0), so an advisory against it is answered by bumping a version in the makefile rather than by waiting for a distribution. Jansson has no dependencies of its own, so the instrumented allowlist grows by exactly one entry.
+**Why this one comes from the distribution.** Every other linked library is built from a pinned upstream release so that an advisory is answered by bumping a version rather than by waiting for a distribution (SDP §0). Jansson is the exception, and not for the reason libelf and libdw are: building it works perfectly well, and *installing* it is what does the damage.
+
+GNU `ld` links libjansson, for its JSON map-file output. A second copy installed under `/usr/local/lib` — which `ldconfig` ranks ahead of the distribution's — therefore replaces the system linker's jansson for the whole machine. Nor is it a question of choosing a compatible version: Debian and Ubuntu patch jansson's symbol version node to `libjansson.so.4`, while upstream's own build names it `JANSSON_4`. `ld` looks for `json_delete@libjansson.so.4`, does not find it in the copy that now shadows the one it was linked against, and exits 127 before linking anything at all.
+
+The trade is therefore not "pinned release versus distribution package" but "pinned release versus a working toolchain", and it is not close — the library in question reads one optional file, and the thing it breaks is the linker. The distribution ships 2.14, which is the minimum `check-prereqs` asks for, and `libjansson-dev` joins `libelf-dev` and `libdw-dev` in the package list the pipeline installs. Jansson has no dependencies of its own, so the instrumented allowlist still grows by exactly one entry.
+
+The failure is recorded here rather than merely fixed because nothing about it is visible from the source: the build compiles, the link fails inside `ld` itself, and a developer whose distribution patches the version node the same way upstream does would never see it.
 
 **Ownership of the intermediate structures.** HLR-125's leak gate makes this load-bearing rather than merely tidy, and the pipeline's shape leaves it otherwise ambiguous:
 

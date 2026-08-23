@@ -865,13 +865,13 @@ Two boundaries govern the whole section, and both exist because this is the one 
     The edge masking of HLR-168 through HLR-170 shall apply to a view of the graph constructed for architecture recovery alone. No measurement, finding, or artefact `elc` reports outside this section shall be computed over a masked graph: fan-out (HLR-085), fan-in (HLR-156), call depth (HLR-087), recursion (HLR-089), coupling and Instability (HLR-080, HLR-082), dependency cycles (HLR-083), reachability (HLR-096), the indices and matrix of Section 21, and the Henry–Kafura values of Section 20 shall each be exactly what they would be had no purification run.
 
     This is the requirement the rest of the section is built on. Masking exists because a topological ordering over a tangled graph yields nothing; it is a lens for one question, not a correction to the graph. A fan-out that quietly omitted the calls into a masked utility would be a wrong number reported with the authority of a measured one, and a reachability analysis over a masked graph would call live code dead — the precise failure HLR-096 and HLR-144 are written to prevent.
-    *Trace:* [SDD Section 19](SDD.md), [SDD Section 20](SDD.md).
+    *Trace:* [SDD Section 20](SDD.md), [SDD Section 21](SDD.md).
 
 *   <a id="HLR-168"></a>**HLR-168: Utility-Sink Detection.**
     `elc` shall identify as a **utility sink** every function whose authority score is high and whose hub score is near zero, computed by the hub-and-authority (HITS) decomposition of the call graph, and shall mask that function's *incoming* edges in the recovery view.
 
     A node many parts of the program call and which calls almost nothing back is domain-agnostic by construction — a logger, a string helper, an arithmetic routine. Its incoming edges join every caller to every other caller through it, fusing domains that share nothing but a dependency on it. Masking the incoming edges alone, rather than the node, is what removes that fusion while leaving the node's own position observable.
-    *Trace:* [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 20](SDD.md).
 
 *   <a id="HLR-169"></a>**HLR-169: God-Object Detection.**
     `elc` shall identify as a **god object** every function whose betweenness centrality is high and whose hub score is also high, and shall mask its edges in the recovery view.
@@ -879,7 +879,7 @@ Two boundaries govern the whole section, and both exist because this is the one 
     Betweenness counts the shortest paths a node lies on; a node lying on a great many is an architectural short circuit, joining regions whose only connection is that it dispatches to both. The hub score is required beside it because betweenness alone does not distinguish a dispatcher from a genuine intermediary that a layering ought to keep: a monolithic dispatcher calls widely, and a legitimate waypoint need not.
 
     Where one function satisfies both this requirement and HLR-168, it shall be classified as a god object and reported as one, since masking its edges subsumes masking its incoming edges and the more specific claim is the more useful one to a reader.
-    *Trace:* [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 20](SDD.md).
 
 *   <a id="HLR-170"></a>**HLR-170: Peripheral Stripping by K-Core Decomposition.**
     `elc` shall compute the coreness of every function and shall exclude from the recovery view those functions lying in the outermost cores, so that a layering is recovered from the mutually connected centre of the program rather than from the leaves hanging off it.
@@ -887,7 +887,7 @@ Two boundaries govern the whole section, and both exist because this is the one 
     The core depth below which a function is treated as peripheral shall be user-configurable, since a program's periphery is a function of its size: a threshold that isolates the domain logic of a large code base strips a small one to nothing.
 
     Peripheral functions shall be reported as excluded rather than silently dropped, and shall be assigned no recovered layer. A function `elc` did not consider is not a function `elc` placed at the edge of the architecture, and a proposal that did not distinguish the two would put every leaf in the bottom layer.
-    *Trace:* [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 20](SDD.md).
 
 *   <a id="HLR-171"></a>**HLR-171: Purification Thresholds Are elc's Own.**
     Every threshold governing the classifications of HLR-168 through HLR-170 — the authority and hub scores that make a utility sink, the betweenness and hub scores that make a god object, and the core depth that makes a function peripheral — is `elc`'s own heuristic rather than a published standard, and shall be identified as such wherever a classification is reported, by the rule HLR-099 already applies to the bottleneck threshold of HLR-081.
@@ -895,7 +895,7 @@ Two boundaries govern the whole section, and both exist because this is the one 
     Each shall be user-configurable. These are the values a user is most likely to disagree with, because unlike a published threshold they rest on nothing but this project's judgement, and a heuristic that cannot be adjusted is one whose disagreements have nowhere to go but the manifest of HLR-175.
 
     No classification made under this section shall carry a severity or become a finding (HLR-123). A god object is an observation about the shape of a graph, not a measurement banded against an accepted range, and presenting one as a finding would place `elc`'s own opinion in the section whose whole claim is that it holds none.
-    *Trace:* [SDD Section 12](SDD.md), [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 12](SDD.md), [SDD Section 20](SDD.md).
 
 *   <a id="HLR-172"></a>**HLR-172: Automated Layer Recovery.**
     `elc` shall propose a layering of the analysed components by ordering the purified recovery view topologically and grouping the result by the directory each component belongs to (HLR-160), so that a user with no declared architecture is given a description of the one their code already has.
@@ -903,7 +903,7 @@ Two boundaries govern the whole section, and both exist because this is the one 
     Where the recovery view is cyclic no topological ordering exists, and `elc` shall report the cycles in place of a proposed layering rather than ordering the graph arbitrarily — the rule HLR-090 applies to call depth, applied to the same underlying impossibility.
 
     The proposal shall state which functions were masked or excluded in producing it (HLR-168 – HLR-170), since a layering recovered from a graph with parts of it set aside is a claim about that graph and not about the program.
-    *Trace:* [SDD Section 20](SDD.md).
+    *Trace:* [SDD Section 21](SDD.md).
 
 *   <a id="HLR-173"></a>**HLR-173: A Recovered Layering Is a Proposal, Never a Baseline.**
     A layering recovered under HLR-172 shall never be used as the declared architecture that the conformance analyses measure against. The strata of HLR-078 are the sole baseline for the layering findings of Section 11 and the indices of HLR-162 and HLR-163, and where no strata are declared those analyses shall remain omitted with their reason stated (HLR-115) however confidently a layering was recovered.
@@ -913,40 +913,40 @@ Two boundaries govern the whole section, and both exist because this is the one 
     `elc` measuring conformance against its own proposal would be a tool marking its own homework: every code base would conform, because the standard would have been read off the thing it was judging. HLR-078's rule that strata are never discovered automatically is unchanged by this section — what is added is a *proposal a user may read, adopt, and then declare*, and the declaring is theirs.
 
     The proposal shall be presented in a form that can be adopted without transcription, so that a user who agrees with it can turn it into a declaration rather than retype it.
-    *Trace:* [SDD Section 9](SDD.md), [SDD Section 20](SDD.md).
+    *Trace:* [SDD Section 9](SDD.md), [SDD Section 21](SDD.md).
 
 *   <a id="HLR-174"></a>**HLR-174: Purification Reported Before It Is Relied On.**
     `elc` shall report every classification purification made: the function classified, the class assigned, the metric and value that triggered it, and the action taken upon it. Automated masking that a reader cannot inspect is a black box whose output they have no grounds to trust, and this report is what makes the recovery of HLR-172 something other than an assertion.
 
     The report shall be a section of the rendered report, presented under the composition rules every other section obeys (HLR-031, HLR-150) and written to the results destination like every other result. It shall **not** be written directly to standard output when the report is going elsewhere: HLR-038 reserves that stream, and a run redirecting its report to a file must not have a second report appear on the terminal.
-    *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md), [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md), [SDD Section 20](SDD.md).
 
 *   <a id="HLR-175"></a>**HLR-175: The Purification Manifest.**
     `elc` shall write, on request, a **purification manifest**: a machine-readable record of every classification it made, in a documented text format, structured so that a user may edit a classification and hand it back.
 
     The manifest exists because these classifications are heuristics (HLR-171) and heuristics have false positives. A state machine's dispatcher legitimately lies on a great many shortest paths and legitimately calls widely; nothing in the graph distinguishes it from the monolith HLR-169 describes, and only the user knows which it is. Without a way to say so, a wrong classification is a permanent property of every future run.
-    *Trace:* [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 20](SDD.md).
 
 *   <a id="HLR-176"></a>**HLR-176: The Manifest Is Read Only When Named.**
     `elc` shall read a purification manifest only from a path given on the command line, and shall never discover one from the working directory, the analysis target, any ancestor of either, or any dotfile. The zero-configuration guarantee of HLR-039 is unchanged by this section: a manifest is read for the same reason a custom rule file is (HLR-107, HLR-110) — because the user named it — and two people running the same command on the same tree must still obtain the same result.
 
     A manifest that cannot be read, or whose contents `elc` does not understand, shall be rejected with a diagnostic and a non-zero exit status rather than partially applied. The user named the file, so the failure is theirs to correct — the provenance rule HLR-116 draws for a custom rule named on the command line, and HLR-146 for an unusable image.
-    *Trace:* [SDD Section 4](SDD.md), [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 20](SDD.md).
 
 *   <a id="HLR-177"></a>**HLR-177: A Manual Classification Overrides a Computed One.**
     Where a manifest supplied under HLR-176 states a classification for a function, that statement shall govern, and `elc` shall not recompute or overrule it. The report of HLR-174 shall distinguish a classification `elc` computed from one the manifest supplied, so that a reader can tell which of the assumptions in front of them are the tool's and which are the team's.
 
     A manifest naming a function no analysed file defines shall be reported and ignored rather than ending the run: analysing one directory of a project whose manifest covers all of it is ordinary use, and rejecting it would make the manifest unusable exactly where a large code base most needs one — the rule HLR-095's entry points already follow (LLR-CTR-08).
-    *Trace:* [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 20](SDD.md).
 
 *   <a id="HLR-178"></a>**HLR-178: Raw and Purified Graph Exports.**
     `elc` shall export, on request, two Graphviz `.dot` files: the graph as built, and the recovery view with the masked and excluded nodes of HLR-168 through HLR-170 visually distinguished rather than removed. Seeing what purification did is what lets a user judge whether it did the right thing, and a single drawing of the result cannot show what it acted on.
 
     Both shall derive their names from the report's output path by extension substitution and shall accept no path of their own, exactly as the call tree and GraphML export do (HLR-119); both shall therefore be absent when the report is written to standard output, since no output path exists from which to derive a name (HLR-104). Neither shall replace the annotated call tree of HLR-102, which answers a different question and is enabled by a different default.
-    *Trace:* [SDD Section 17](SDD.md), [SDD Section 19](SDD.md).
+    *Trace:* [SDD Section 17](SDD.md), [SDD Section 20](SDD.md).
 
 *   <a id="HLR-179"></a>**HLR-179: Deterministic Classification.**
     Every classification, ordering, and proposal this section produces shall be identical across two runs over the same target, as HLR-032 requires of every other output. Two properties of the mathematics make that harder to satisfy here than elsewhere, and both shall be addressed rather than assumed.
 
     The centrality scores of HLR-168 and HLR-169 are floating-point values produced by an iterative computation, so a comparison against a threshold shall be made in a defined way, and a run shall not classify differently on a different machine for want of one. And a ranking of nodes by such a score contains ties, which shall be broken by the stable node identifier of HLR-033 rather than by the order the graph library happened to enumerate them.
-    *Trace:* [SDD Section 19](SDD.md), [SDD Section 20](SDD.md).
+    *Trace:* [SDD Section 20](SDD.md), [SDD Section 21](SDD.md).

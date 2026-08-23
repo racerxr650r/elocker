@@ -989,3 +989,82 @@ Test(cli, the_matrix_companion_is_accepted_with_regeneration)
 	cr_assert_eq(o.mode, MODE_REGENERATE);
 	cli_options_free(&o);
 }
+
+/* ------------------------------------------------ the manifest and drawings --
+ *
+ * Three options with one property between them, and it is the property that
+ * matters most about the manifest: `elc` reaches a manifest through `--manifest`
+ * and through nothing else. A zeroed `ElcOptions` names no manifest, which is
+ * HLR-039's zero-configuration guarantee expressed in the structure rather than
+ * remembered in a comment.
+ */
+
+Test(cli, no_manifest_is_read_without_the_option)
+{
+	char      *argv[] = { "elc", "a.c", NULL };
+	ElcOptions o;
+
+	/* **Read only when named** (HLR-176). There is nowhere else for a
+	 * manifest to come from: not the working directory, not the analysis
+	 * target, not an ancestor of either, and no dotfile. The field is NULL
+	 * and there is no code that fills it but the option below. */
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_OK);
+	cr_assert_null(o.manifest_path);
+	cr_assert_not(o.write_manifest);
+	cr_assert_not(o.purify_dot);
+	cli_options_free(&o);
+}
+
+Test(cli, the_manifest_path_is_taken_from_the_command_line)
+{
+	char      *argv[] = { "elc", "--manifest", "team.json", "a.c", NULL };
+	ElcOptions o;
+
+	/* Borrowed from argv, like the image path and for the same reason: the
+	 * file is read by `purify.c`, which owns the failure, so the parser
+	 * stays the module that reads argv rather than becoming one that reads
+	 * files (LLR-CLI-22). */
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_str_eq(o.manifest_path, "team.json");
+	cr_assert_eq(o.manifest_path, argv[2]);
+	cli_options_free(&o);
+}
+
+Test(cli, the_manifest_and_drawing_companions_are_requests)
+{
+	char      *argv[] = { "elc", "--write-manifest", "--purify-dot",
+	                      "-o", "r.md", "a.c", NULL };
+	ElcOptions o;
+
+	/* Both are recorded rather than validated against --output here. A
+	 * request made with the report on standard output writes nothing
+	 * rather than failing, by the rule --graphml already follows: the
+	 * companion's name is derived from the report's, and there is then no
+	 * name to derive (HLR-104, HLR-119). */
+	cr_assert_eq(cli_parse(6, argv, &o), CLI_OK);
+	cr_assert(o.write_manifest);
+	cr_assert(o.purify_dot);
+	cli_options_free(&o);
+}
+
+Test(cli, the_recovery_companions_are_refused_in_regeneration_mode)
+{
+	char      *dot[]  = { "elc", "--from-xml", "r.xml", "--purify-dot",
+	                      NULL };
+	char      *write[] = { "elc", "--from-xml", "r.xml",
+	                       "--write-manifest", NULL };
+	char      *read[]  = { "elc", "--from-xml", "r.xml", "--manifest",
+	                       "m.json", NULL };
+	ElcOptions o;
+
+	/* A record carries what a run concluded and not the graph it concluded
+	 * it from, so there is nothing here to classify, to mask, or to draw.
+	 * Rejected rather than silently producing nothing, so that a user who
+	 * asked for a file and got none is told why (HLR-122, LLR-CLI-15). */
+	cr_assert_eq(cli_parse(4, dot, &o), CLI_ERROR);
+	cli_options_free(&o);
+	cr_assert_eq(cli_parse(4, write, &o), CLI_ERROR);
+	cli_options_free(&o);
+	cr_assert_eq(cli_parse(5, read, &o), CLI_ERROR);
+	cli_options_free(&o);
+}

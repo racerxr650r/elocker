@@ -45,7 +45,6 @@
 #>  prereqs-libgit2      Build libgit2 from source, no network transports (needs sudo)
 #>  prereqs-igraph       Build igraph from source, GraphML off (needs sudo)
 #>  prereqs-expat        Build Expat from source (needs sudo)
-#>  prereqs-jansson      Build Jansson from source, shared, docs and tests off (needs sudo)
 #>  prereqs-clean   Remove the unpacked dependency sources
 #>  check-prereqs   Report which dependencies are present and flag version gaps
 #>
@@ -122,12 +121,21 @@ ELF_LIBS     ?= $(shell $(PKG_CONFIG) --libs libelf 2>/dev/null || echo -lelf)
 # HLR-141 and observed by test/instrumented/environment.bats.
 DW_CFLAGS    ?= $(shell $(PKG_CONFIG) --cflags libdw 2>/dev/null)
 DW_LIBS      ?= $(shell $(PKG_CONFIG) --libs libdw 2>/dev/null || echo -ldw)
+
+# Jansson reads and writes the purification manifest (HLR-175 - HLR-177). It
+# is the one place elc uses a library to *write* a format rather than
+# hand-rolling emission, and the exception is the round trip: the manifest is
+# the only artefact elc must also parse, and a hand-rolled writer paired with a
+# library reader would be two implementations of one format with elc on both
+# ends of the disagreement (doc/SDD.md §20.2.3).
+JANSSON_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags jansson 2>/dev/null)
+JANSSON_LIBS   ?= $(shell $(PKG_CONFIG) --libs jansson 2>/dev/null || echo -ljansson)
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
 # set before any include; they live here rather than in the .c files.
-CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS) $(DW_CFLAGS)
+CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS) $(DW_CFLAGS) $(JANSSON_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
-LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) $(ELF_LIBS) $(DW_LIBS) -lstdc++ -ldl
+LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) $(ELF_LIBS) $(DW_LIBS) $(JANSSON_LIBS) -lstdc++ -ldl
 
 # Flags the build requires whatever the caller chose, appended in the recipes
 # rather than folded into CFLAGS.
@@ -213,12 +221,23 @@ help:
 # package family, and taken for the same reason — Phase 20 added it to read
 # debug line information (HLR-153), and it arrives with the libelf that was
 # already here.
+#
+# Jansson is the third, and the only one taken from the distribution because
+# building it from source is actively *unsafe*. GNU ld links libjansson — for
+# its JSON map-file output — so installing another copy under $(SRC_PREFIX),
+# which ldconfig ranks ahead of the distribution's, replaces the system
+# linker's jansson for the whole machine. It is not even a version question:
+# Debian and Ubuntu patch the symbol version node to `libjansson.so.4` while
+# upstream's own build names it `JANSSON_4`, so `ld` looks for
+# `json_delete@libjansson.so.4`, does not find it, and exits 127 before
+# linking anything. A tool that cannot link is a worse outcome than an
+# unpinned dependency, and the dependency in question reads one optional file.
+# The distribution ships 2.14, which is the minimum `check-prereqs` asks for.
 
 TREE_SITTER_VER ?= 0.26.2
 LIBGIT2_VER     ?= 1.9.0
 IGRAPH_VER      ?= 1.0.1
 EXPAT_VER       ?= 2.8.3
-JANSSON_VER     ?= 2.15.1
 
 # Grammars are pinned like the libraries, and for the same reason. Each is a
 # separate upstream project on its own release cadence, and the ABI it
@@ -236,7 +255,7 @@ SRC_WORK        ?= $(BUILD)/prereq-src
 
 # Toolchain, test framework, and the headers the source builds need.
 PKGS_BUILD  ?= build-essential pkg-config python3 cmake curl zlib1g-dev \
-               libelf-dev libdw-dev
+               libelf-dev libdw-dev libjansson-dev
 PKGS_TEST   ?= libcriterion-dev
 
 # Test and inspection tools. These are executables the suites invoke, never
@@ -247,8 +266,35 @@ PKGS_TOOLS  ?= valgrind strace graphviz libxml2-utils binutils
 
 PKGS        := $(PKGS_BUILD) $(PKGS_TEST) $(PKGS_TOOLS)
 
+# Refuse to run any prereq target as root, and say why.
+#
+# The recipes below sudo exactly where they need to — `apt-get`, `make install`,
+# `cmake --install` — and nowhere else. Run the whole target under sudo and the
+# *unpacking* runs as root too, and that is the part that does lasting damage:
+# an unprivileged `tar x` ignores the uid and gid recorded in an archive and
+# gives everything to the invoking user, while a root `tar x` honours them.
+# igraph's release tarball carries 501:staff — the account of whoever packaged
+# it — so a sudo-run leaves directories here owned by root and by a stranger's
+# uid, and the developer who ran the build cannot remove their own build tree.
+# `prereqs-clean`, the target named for removing it, then fails.
+#
+# Caught here rather than diagnosed afterwards, because afterwards costs a
+# password and a refetch.
+.PHONY: _not-root
+_not-root:
+	@[ "$$(id -u)" -ne 0 ] || { \
+		echo "prereqs: do not run this under sudo." >&2; \
+		echo "  The recipes escalate where they need to and nowhere" >&2; \
+		echo "  else. Running the whole target as root leaves" >&2; \
+		echo "  $(SRC_WORK) owned by root and by whatever uid each" >&2; \
+		echo "  upstream tarball happens to carry, which you will then" >&2; \
+		echo "  need a password to delete." >&2; \
+		echo "  Run it as yourself; you will be prompted where sudo" >&2; \
+		echo "  is actually required." >&2; \
+		exit 1; }
+
 .PHONY: prereqs
-prereqs:
+prereqs: _not-root
 	@command -v apt-get >/dev/null 2>&1 || { \
 		echo "prereqs: only apt is automated. Install the equivalents of:" >&2; \
 		echo "  $(PKGS)" >&2; \
@@ -260,8 +306,8 @@ prereqs:
 	@$(MAKE) --no-print-directory check-prereqs
 
 .PHONY: prereqs-src
-prereqs-src: prereqs-tree-sitter prereqs-libgit2 prereqs-igraph prereqs-expat \
-             prereqs-jansson
+prereqs-src: _not-root prereqs-tree-sitter prereqs-libgit2 prereqs-igraph \
+             prereqs-expat
 	@sudo ldconfig
 	@echo "prereqs-src: every linked library built and installed under $(SRC_PREFIX)"
 
@@ -275,7 +321,7 @@ define fetch
 endef
 
 .PHONY: prereqs-tree-sitter
-prereqs-tree-sitter:
+prereqs-tree-sitter: _not-root
 	@echo "tree-sitter $(TREE_SITTER_VER)"
 	$(call fetch,https://github.com/tree-sitter/tree-sitter/archive/refs/tags/v$(TREE_SITTER_VER).tar.gz,tree-sitter-$(TREE_SITTER_VER))
 	@$(MAKE) -C $(SRC_WORK)/tree-sitter-$(TREE_SITTER_VER) PREFIX=$(SRC_PREFIX)
@@ -286,7 +332,7 @@ prereqs-tree-sitter:
 # support is attack surface with no corresponding capability — and dropping
 # it removes the OpenSSL and libssh2 dependencies along with it.
 .PHONY: prereqs-libgit2
-prereqs-libgit2:
+prereqs-libgit2: _not-root
 	@echo "libgit2 $(LIBGIT2_VER) (transports disabled)"
 	$(call fetch,https://github.com/libgit2/libgit2/archive/refs/tags/v$(LIBGIT2_VER).tar.gz,libgit2-$(LIBGIT2_VER))
 	@cmake -S $(SRC_WORK)/libgit2-$(LIBGIT2_VER) -B $(SRC_WORK)/libgit2-build \
@@ -324,7 +370,7 @@ prereqs-libgit2:
 # library. igraph uses GMP only in bliss, for the automorphism-group counts of
 # graph isomorphism, which no elc analysis performs.
 .PHONY: prereqs-igraph
-prereqs-igraph:
+prereqs-igraph: _not-root
 	@echo "igraph $(IGRAPH_VER) (GraphML off, OpenMP off, internal GMP)"
 	$(call fetch,https://github.com/igraph/igraph/releases/download/$(IGRAPH_VER)/igraph-$(IGRAPH_VER).tar.gz,igraph-$(IGRAPH_VER))
 	@cmake -S $(SRC_WORK)/igraph-$(IGRAPH_VER) -B $(SRC_WORK)/igraph-build \
@@ -338,7 +384,7 @@ prereqs-igraph:
 	@sudo cmake --install $(SRC_WORK)/igraph-build
 
 .PHONY: prereqs-expat
-prereqs-expat:
+prereqs-expat: _not-root
 	@echo "expat $(EXPAT_VER)"
 	$(call fetch,https://github.com/libexpat/libexpat/releases/download/R_$(subst .,_,$(EXPAT_VER))/expat-$(EXPAT_VER).tar.gz,expat-$(EXPAT_VER))
 	@cmake -S $(SRC_WORK)/expat-$(EXPAT_VER) -B $(SRC_WORK)/expat-build \
@@ -352,36 +398,18 @@ prereqs-expat:
 	@cmake --build $(SRC_WORK)/expat-build --parallel
 	@sudo cmake --install $(SRC_WORK)/expat-build
 
-# Jansson generates and parses the purification manifest (Phase 23, HLR-175 –
-# HLR-177; doc/SDD.md §22). Every option below would otherwise be decided by
-# the library's own defaults, which LLR-BLD-05 forbids for anything that can
-# alter elc's link line:
-#   JANSSON_BUILD_SHARED_LIBS defaults OFF — the default builds a static
-#     archive, so without this the link line changes shape entirely.
-#   JANSSON_BUILD_DOCS defaults ON and wants python-sphinx, which is a
-#     distribution package this project does not otherwise need.
-#   JANSSON_WITHOUT_TESTS and JANSSON_EXAMPLES only cost build time, and are
-#     pinned for the same reason as the rest: nothing about what gets built
-#     should depend on what the build machine happens to have.
-.PHONY: prereqs-jansson
-prereqs-jansson:
-	@echo "jansson $(JANSSON_VER) (shared, docs off, tests off)"
-	$(call fetch,https://github.com/akheron/jansson/archive/refs/tags/v$(JANSSON_VER).tar.gz,jansson-$(JANSSON_VER))
-	@cmake -S $(SRC_WORK)/jansson-$(JANSSON_VER) -B $(SRC_WORK)/jansson-build \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_INSTALL_PREFIX=$(SRC_PREFIX) \
-		-DJANSSON_BUILD_SHARED_LIBS=ON \
-		-DBUILD_SHARED_LIBS=ON \
-		-DJANSSON_BUILD_DOCS=OFF \
-		-DJANSSON_WITHOUT_TESTS=ON \
-		-DJANSSON_EXAMPLES=OFF \
-		-DJANSSON_INSTALL=ON
-	@cmake --build $(SRC_WORK)/jansson-build --parallel
-	@sudo cmake --install $(SRC_WORK)/jansson-build
-
 .PHONY: prereqs-clean
 prereqs-clean:
-	@rm -rf $(SRC_WORK)
+	@rm -rf $(SRC_WORK) 2>/dev/null || { \
+		echo "prereqs-clean: $(SRC_WORK) holds files this user cannot" >&2; \
+		echo "  remove, which means a prereq target was once run under" >&2; \
+		echo "  sudo. Nothing installed is affected — this tree is only" >&2; \
+		echo "  the unpacked sources. To take it back:" >&2; \
+		echo "" >&2; \
+		echo "    sudo chown -R $$(id -u):$$(id -g) $(SRC_WORK)" >&2; \
+		echo "" >&2; \
+		echo "  then run make prereqs-clean again." >&2; \
+		exit 1; }
 
 .PHONY: check-prereqs
 check-prereqs:
@@ -728,6 +756,21 @@ install: all
 	install -m 644 doc/User_Manual.md $(DESTDIR)$(PREFIX)/share/doc/elc/
 
 # -------------------------------------------------------------------- clean
+# Everything under $(BUILD) *except* the unpacked dependency sources, which
+# `prereqs-clean` removes and this target must not.
+#
+# The division of labour is the whole reason: the help block promises that
+# `clean` removes build artifacts and that `prereqs-clean` removes the
+# dependency sources, and a `clean` that took both made one of those two
+# targets a lie. Refetching a pinned upstream tarball also costs minutes that
+# this target has no business spending — the sanitized pass cleans twice.
+#
+# It is load-bearing as well as tidy. A prereq target run under sudo leaves
+# this tree unremovable by the developer who built it (see `_not-root`), and
+# `clean` runs at the head of both `asan` and `valgrind` — so a tree in that
+# state used to take both sanitizer gates down with it. Those gates now run
+# whatever state the dependency sources are in, which is where they should
+# have been all along.
 .PHONY: clean
 clean:
-	@rm -rf $(BUILD)
+	@rm -rf $(filter-out $(SRC_WORK),$(wildcard $(BUILD)/*))

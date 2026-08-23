@@ -523,11 +523,11 @@ Test(format_xml, the_classifications_survive_the_record)
 		"    <classification function=\"dispatch\" file=\"/a.c\""
 		" class=\"god object\" metric=\"betweenness\""
 		" value=\"14.00, above 100% of functions\""
-		" action=\"all edges masked\" line=\"17\"/>\n"
+		" action=\"all edges masked\" source=\"computed\" line=\"17\"/>\n"
 		"    <classification function=\"util_log\" file=\"/a.c\""
 		" class=\"utility sink\" metric=\"authority\""
 		" value=\"1.0000, above 100% of functions\""
-		" action=\"incoming edges masked\" line=\"31\"/>\n"
+		" action=\"incoming edges masked\" source=\"manifest\" line=\"31\"/>\n"
 		"  </purification>\n"
 		"</elc-report>\n";
 
@@ -548,10 +548,96 @@ Test(format_xml, the_classifications_survive_the_record)
 	cr_assert_str_eq(report.purification[0].action, "all edges masked");
 	cr_assert_eq(report.purification[0].line, 17);
 	cr_assert_str_eq(report.purification[1].class_name, "utility sink");
+	/* The provenance travels with the row. A record that dropped it would
+	 * leave a reader of a regenerated report unable to tell the tool's
+	 * assumptions from their own team's (HLR-177). */
+	cr_assert_str_eq(report.purification[0].source, "computed");
+	cr_assert_str_eq(report.purification[1].source, "manifest");
 	cr_assert_eq(report.purify_thresholds.sink_authority, 90);
 	cr_assert_eq(report.purify_thresholds.core_depth, 2);
 	cr_assert_eq(report.purified_nodes, 9);
 	cr_assert_eq(report.purified_edges, 12);
+
+	unlink(path);
+	report_free(&report);
+}
+
+Test(format_xml, the_proposal_survives_the_record)
+{
+	ElcOptions opts   = { 0 };
+	Report     report = { 0 };
+	char       path[] = "/tmp/elc-xml-XXXXXX";
+	int        fd     = mkstemp(path);
+	const char body[] =
+		"<?xml version=\"1.0\"?>\n"
+		"<elc-report format-version=\"1\">\n"
+		"  <recovery state=\"proposed\" layers=\"2\" masked=\"1\""
+		" excluded=\"1\">\n"
+		"    <recovered directory=\"/p/app\" layer=\"0\""
+		" functions=\"2\"/>\n"
+		"    <recovered directory=\"/p/hal\" layer=\"1\""
+		" functions=\"3\"/>\n"
+		"    <proposal arguments=\"--stratum app:'/p/app/*'"
+		" --stratum-order 'app'\"/>\n"
+		"  </recovery>\n"
+		"</elc-report>\n";
+
+	cr_assert_neq(fd, -1);
+	cr_assert_gt(write(fd, body, sizeof body - 1), 0);
+	close(fd);
+
+	/* A record carries no graph to re-order, so a proposal absent from it
+	 * is one a regenerated report cannot present (HLR-054, HLR-172).
+	 *
+	 * **It is a proposal in the record too.** Nothing reads these elements
+	 * back as a declaration: the conformance analyses of a regenerated
+	 * report are exactly as omitted as they were in the run it describes
+	 * (HLR-115, HLR-173). */
+	cr_assert_eq(xml_read_report(path, &opts, &report), 0);
+	cr_assert_eq(report.recovery_state, RECOVERY_PROPOSED);
+	cr_assert_eq(report.recovery_count, 2);
+	cr_assert_str_eq(report.recovery[1].directory, "/p/hal");
+	cr_assert_eq(report.recovery[1].layer, 1);
+	cr_assert_eq(report.recovery_strata, 2);
+	cr_assert_eq(report.recovery_masked, 1);
+	cr_assert_eq(report.recovery_excluded, 1);
+	cr_assert_not_null(report.recovery_proposal);
+	cr_assert_eq(report.strata_state, STRATA_MEASURED,
+	             "the record's own strata state was left alone");
+	cr_assert_eq(report.layering_count, 0);
+
+	unlink(path);
+	report_free(&report);
+}
+
+Test(format_xml, a_cyclic_recovery_survives_the_record)
+{
+	ElcOptions opts   = { 0 };
+	Report     report = { 0 };
+	char       path[] = "/tmp/elc-xml-XXXXXX";
+	int        fd     = mkstemp(path);
+	const char body[] =
+		"<?xml version=\"1.0\"?>\n"
+		"<elc-report format-version=\"1\">\n"
+		"  <recovery state=\"cyclic\" layers=\"0\" masked=\"0\""
+		" excluded=\"0\">\n"
+		"    <recovery-cycle members=\"hal_init, svc_open\"/>\n"
+		"  </recovery>\n"
+		"</elc-report>\n";
+
+	cr_assert_neq(fd, -1);
+	cr_assert_gt(write(fd, body, sizeof body - 1), 0);
+	close(fd);
+
+	/* The cycles are what is reported in place of an ordering, so a record
+	 * that dropped them would leave a regenerated report claiming a
+	 * layering was omitted and unable to say what stopped it (HLR-172). */
+	cr_assert_eq(xml_read_report(path, &opts, &report), 0);
+	cr_assert_eq(report.recovery_state, RECOVERY_CYCLIC);
+	cr_assert_eq(report.recovery_cycles.count, 1);
+	cr_assert_str_eq(report.recovery_cycles.paths[0],
+	                 "hal_init, svc_open");
+	cr_assert_null(report.recovery_proposal);
 
 	unlink(path);
 	report_free(&report);

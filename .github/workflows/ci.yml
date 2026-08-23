@@ -57,7 +57,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Install libelf and libdw; build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf and libdw; build every from-source library
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -79,6 +79,27 @@ jobs:
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
           #
+          # The list itself is `make prereqs-src`, not an enumeration
+          # repeated here. Which libraries are built from source is one
+          # fact, and a workflow that restated it drifted from the
+          # makefile the moment either gained an entry: Phase 20 lost a
+          # morning to libdw missing from this file, and Phase 23 lost
+          # one to jansson. Calling the target means there is no second
+          # list to keep in step. It also fixes something that had been
+          # wrong quietly — Expat was never built here at all, and the
+          # runner image's copy was linked instead of the pinned release,
+          # which is the arrangement SDP §0 exists to prevent.
+          #
+          # Jansson is taken from the distribution too, and for a reason
+          # that is not convenience: GNU ld links libjansson, so a copy
+          # installed under /usr/local — which ldconfig prefers — replaces
+          # the system linker's. Debian and Ubuntu patch the symbol version
+          # node to `libjansson.so.4` where upstream's build names it
+          # `JANSSON_4`, so `ld` then fails to resolve its own
+          # `json_delete@libjansson.so.4` and exits 127 without linking
+          # anything. That is how this job failed on Phase 23's first green
+          # compile.
+          #
           # libelf and libdw are the linked libraries taken from the
           # distribution. elfutils does not build them on its own —
           # configuring the project pulls in bison, flex, gettext and three
@@ -88,11 +109,8 @@ jobs:
           # configure run, same package family, and libdw arrives with the
           # libelf that was already here (Phase 20, HLR-153).
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev
-          make prereqs-tree-sitter
-          make prereqs-libgit2
-          make prereqs-igraph
-          sudo ldconfig
+          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev libjansson-dev
+          make prereqs-src
       - name: Build
         run: make all CFLAGS="-O2 -g -Werror"
       - name: Confirm the runtime symlink resolves
@@ -104,7 +122,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Install libelf and libdw; build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf and libdw; build every from-source library
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -126,6 +144,27 @@ jobs:
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
           #
+          # The list itself is `make prereqs-src`, not an enumeration
+          # repeated here. Which libraries are built from source is one
+          # fact, and a workflow that restated it drifted from the
+          # makefile the moment either gained an entry: Phase 20 lost a
+          # morning to libdw missing from this file, and Phase 23 lost
+          # one to jansson. Calling the target means there is no second
+          # list to keep in step. It also fixes something that had been
+          # wrong quietly — Expat was never built here at all, and the
+          # runner image's copy was linked instead of the pinned release,
+          # which is the arrangement SDP §0 exists to prevent.
+          #
+          # Jansson is taken from the distribution too, and for a reason
+          # that is not convenience: GNU ld links libjansson, so a copy
+          # installed under /usr/local — which ldconfig prefers — replaces
+          # the system linker's. Debian and Ubuntu patch the symbol version
+          # node to `libjansson.so.4` where upstream's build names it
+          # `JANSSON_4`, so `ld` then fails to resolve its own
+          # `json_delete@libjansson.so.4` and exits 127 without linking
+          # anything. That is how this job failed on Phase 23's first green
+          # compile.
+          #
           # libelf and libdw are the linked libraries taken from the
           # distribution. elfutils does not build them on its own —
           # configuring the project pulls in bison, flex, gettext and three
@@ -135,11 +174,8 @@ jobs:
           # configure run, same package family, and libdw arrives with the
           # libelf that was already here (Phase 20, HLR-153).
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev
-          make prereqs-tree-sitter
-          make prereqs-libgit2
-          make prereqs-igraph
-          sudo ldconfig
+          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev libjansson-dev
+          make prereqs-src
       - name: Install Criterion
         run: |
           sudo apt-get update -qq
@@ -153,7 +189,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Install libelf and libdw; build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf and libdw; build every from-source library
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -175,6 +211,27 @@ jobs:
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
           #
+          # The list itself is `make prereqs-src`, not an enumeration
+          # repeated here. Which libraries are built from source is one
+          # fact, and a workflow that restated it drifted from the
+          # makefile the moment either gained an entry: Phase 20 lost a
+          # morning to libdw missing from this file, and Phase 23 lost
+          # one to jansson. Calling the target means there is no second
+          # list to keep in step. It also fixes something that had been
+          # wrong quietly — Expat was never built here at all, and the
+          # runner image's copy was linked instead of the pinned release,
+          # which is the arrangement SDP §0 exists to prevent.
+          #
+          # Jansson is taken from the distribution too, and for a reason
+          # that is not convenience: GNU ld links libjansson, so a copy
+          # installed under /usr/local — which ldconfig prefers — replaces
+          # the system linker's. Debian and Ubuntu patch the symbol version
+          # node to `libjansson.so.4` where upstream's build names it
+          # `JANSSON_4`, so `ld` then fails to resolve its own
+          # `json_delete@libjansson.so.4` and exits 127 without linking
+          # anything. That is how this job failed on Phase 23's first green
+          # compile.
+          #
           # libelf and libdw are the linked libraries taken from the
           # distribution. elfutils does not build them on its own —
           # configuring the project pulls in bison, flex, gettext and three
@@ -184,11 +241,8 @@ jobs:
           # configure run, same package family, and libdw arrives with the
           # libelf that was already here (Phase 20, HLR-153).
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev
-          make prereqs-tree-sitter
-          make prereqs-libgit2
-          make prereqs-igraph
-          sudo ldconfig
+          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev libjansson-dev
+          make prereqs-src
       - name: Run the integration suites
         run: make integration
 
@@ -198,7 +252,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Install libelf and libdw; build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf and libdw; build every from-source library
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -220,6 +274,27 @@ jobs:
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
           #
+          # The list itself is `make prereqs-src`, not an enumeration
+          # repeated here. Which libraries are built from source is one
+          # fact, and a workflow that restated it drifted from the
+          # makefile the moment either gained an entry: Phase 20 lost a
+          # morning to libdw missing from this file, and Phase 23 lost
+          # one to jansson. Calling the target means there is no second
+          # list to keep in step. It also fixes something that had been
+          # wrong quietly — Expat was never built here at all, and the
+          # runner image's copy was linked instead of the pinned release,
+          # which is the arrangement SDP §0 exists to prevent.
+          #
+          # Jansson is taken from the distribution too, and for a reason
+          # that is not convenience: GNU ld links libjansson, so a copy
+          # installed under /usr/local — which ldconfig prefers — replaces
+          # the system linker's. Debian and Ubuntu patch the symbol version
+          # node to `libjansson.so.4` where upstream's build names it
+          # `JANSSON_4`, so `ld` then fails to resolve its own
+          # `json_delete@libjansson.so.4` and exits 127 without linking
+          # anything. That is how this job failed on Phase 23's first green
+          # compile.
+          #
           # libelf and libdw are the linked libraries taken from the
           # distribution. elfutils does not build them on its own —
           # configuring the project pulls in bison, flex, gettext and three
@@ -229,11 +304,8 @@ jobs:
           # configure run, same package family, and libdw arrives with the
           # libelf that was already here (Phase 20, HLR-153).
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev
-          make prereqs-tree-sitter
-          make prereqs-libgit2
-          make prereqs-igraph
-          sudo ldconfig
+          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev libjansson-dev
+          make prereqs-src
       - name: Install Graphviz
         run: |
           # The dot/ fixture group settles .dot validity by rendering the
@@ -252,7 +324,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Install libelf and libdw; build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf and libdw; build every from-source library
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -274,6 +346,27 @@ jobs:
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
           #
+          # The list itself is `make prereqs-src`, not an enumeration
+          # repeated here. Which libraries are built from source is one
+          # fact, and a workflow that restated it drifted from the
+          # makefile the moment either gained an entry: Phase 20 lost a
+          # morning to libdw missing from this file, and Phase 23 lost
+          # one to jansson. Calling the target means there is no second
+          # list to keep in step. It also fixes something that had been
+          # wrong quietly — Expat was never built here at all, and the
+          # runner image's copy was linked instead of the pinned release,
+          # which is the arrangement SDP §0 exists to prevent.
+          #
+          # Jansson is taken from the distribution too, and for a reason
+          # that is not convenience: GNU ld links libjansson, so a copy
+          # installed under /usr/local — which ldconfig prefers — replaces
+          # the system linker's. Debian and Ubuntu patch the symbol version
+          # node to `libjansson.so.4` where upstream's build names it
+          # `JANSSON_4`, so `ld` then fails to resolve its own
+          # `json_delete@libjansson.so.4` and exits 127 without linking
+          # anything. That is how this job failed on Phase 23's first green
+          # compile.
+          #
           # libelf and libdw are the linked libraries taken from the
           # distribution. elfutils does not build them on its own —
           # configuring the project pulls in bison, flex, gettext and three
@@ -283,11 +376,8 @@ jobs:
           # configure run, same package family, and libdw arrives with the
           # libelf that was already here (Phase 20, HLR-153).
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev
-          make prereqs-tree-sitter
-          make prereqs-libgit2
-          make prereqs-igraph
-          sudo ldconfig
+          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev libjansson-dev
+          make prereqs-src
       - name: Install observation tools
         run: |
           # strace and nm(binutils) are what the process, link and filesystem
@@ -321,7 +411,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Install libelf and libdw; build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf and libdw; build every from-source library
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -343,6 +433,27 @@ jobs:
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
           #
+          # The list itself is `make prereqs-src`, not an enumeration
+          # repeated here. Which libraries are built from source is one
+          # fact, and a workflow that restated it drifted from the
+          # makefile the moment either gained an entry: Phase 20 lost a
+          # morning to libdw missing from this file, and Phase 23 lost
+          # one to jansson. Calling the target means there is no second
+          # list to keep in step. It also fixes something that had been
+          # wrong quietly — Expat was never built here at all, and the
+          # runner image's copy was linked instead of the pinned release,
+          # which is the arrangement SDP §0 exists to prevent.
+          #
+          # Jansson is taken from the distribution too, and for a reason
+          # that is not convenience: GNU ld links libjansson, so a copy
+          # installed under /usr/local — which ldconfig prefers — replaces
+          # the system linker's. Debian and Ubuntu patch the symbol version
+          # node to `libjansson.so.4` where upstream's build names it
+          # `JANSSON_4`, so `ld` then fails to resolve its own
+          # `json_delete@libjansson.so.4` and exits 127 without linking
+          # anything. That is how this job failed on Phase 23's first green
+          # compile.
+          #
           # libelf and libdw are the linked libraries taken from the
           # distribution. elfutils does not build them on its own —
           # configuring the project pulls in bison, flex, gettext and three
@@ -352,11 +463,8 @@ jobs:
           # configure run, same package family, and libdw arrives with the
           # libelf that was already here (Phase 20, HLR-153).
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev
-          make prereqs-tree-sitter
-          make prereqs-libgit2
-          make prereqs-igraph
-          sudo ldconfig
+          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev libjansson-dev
+          make prereqs-src
       - name: Install Criterion
         run: |
           sudo apt-get update -qq
@@ -382,7 +490,7 @@ jobs:
     needs: spec
     steps:
       - uses: actions/checkout@v4
-      - name: Install libelf and libdw; build libtree-sitter, libgit2 and igraph from source
+      - name: Install libelf and libdw; build every from-source library
         run: |
           # The distribution's libtree-sitter is older than the ABI the
           # pinned grammars generate, and a grammar built against a newer
@@ -404,6 +512,27 @@ jobs:
           # during the dynamic linker's init, and elc is single-threaded by
           # requirement (HLR-041). The distribution package has both on.
           #
+          # The list itself is `make prereqs-src`, not an enumeration
+          # repeated here. Which libraries are built from source is one
+          # fact, and a workflow that restated it drifted from the
+          # makefile the moment either gained an entry: Phase 20 lost a
+          # morning to libdw missing from this file, and Phase 23 lost
+          # one to jansson. Calling the target means there is no second
+          # list to keep in step. It also fixes something that had been
+          # wrong quietly — Expat was never built here at all, and the
+          # runner image's copy was linked instead of the pinned release,
+          # which is the arrangement SDP §0 exists to prevent.
+          #
+          # Jansson is taken from the distribution too, and for a reason
+          # that is not convenience: GNU ld links libjansson, so a copy
+          # installed under /usr/local — which ldconfig prefers — replaces
+          # the system linker's. Debian and Ubuntu patch the symbol version
+          # node to `libjansson.so.4` where upstream's build names it
+          # `JANSSON_4`, so `ld` then fails to resolve its own
+          # `json_delete@libjansson.so.4` and exits 127 without linking
+          # anything. That is how this job failed on Phase 23's first green
+          # compile.
+          #
           # libelf and libdw are the linked libraries taken from the
           # distribution. elfutils does not build them on its own —
           # configuring the project pulls in bison, flex, gettext and three
@@ -413,11 +542,8 @@ jobs:
           # configure run, same package family, and libdw arrives with the
           # libelf that was already here (Phase 20, HLR-153).
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev
-          make prereqs-tree-sitter
-          make prereqs-libgit2
-          make prereqs-igraph
-          sudo ldconfig
+          sudo apt-get install -y --no-install-recommends libelf-dev libdw-dev libjansson-dev
+          make prereqs-src
       - name: Install Graphviz
         run: |
           # The dot/ fixture group settles .dot validity by rendering the

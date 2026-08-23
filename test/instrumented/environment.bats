@@ -83,6 +83,21 @@ setup() {
 	# means did, which is why it is said here rather than left to a reader
 	# to infer from an unchanged line.
 	#
+	# libjansson reads and writes the purification manifest (HLR-175 -
+	# HLR-177). It is the one place elc uses a library to *write* a format
+	# rather than hand-rolling emission, and the reason is the round trip:
+	# the manifest is the only artefact elc must also parse, so a
+	# hand-rolled writer paired with a library reader would be two
+	# implementations of one format with elc on both ends of the
+	# disagreement (doc/SDD.md §20.2.3). It brings nothing with it.
+	#
+	# What this list cannot see about it is the property that matters most:
+	# a manifest is read only from a path given on the command line, never
+	# discovered from the working directory, the target, an ancestor, or a
+	# dotfile (HLR-176). Linking a JSON parser is what makes that worth
+	# saying; the open-counting test below and the decoy case in
+	# test/fixtures/recover.bats are what hold it.
+	#
 	# Two libraries are deliberately *absent*, and this list is what
 	# noticed both.
 	#
@@ -106,7 +121,7 @@ setup() {
 	# instrumentation rather than a product dependency: it is absent from
 	# the binary `make all` produces and `make install` ships. Excluding
 	# them here would make the sanitized pass fail on its own scaffolding.
-	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libzstd|libbz2|liblzma|libelf|libdw|libigraph|libasan|libubsan|ld-linux|/lib64/ld-linux)'
+	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libzstd|libbz2|liblzma|libelf|libdw|libigraph|libjansson|libasan|libubsan|ld-linux|/lib64/ld-linux)'
 	while read -r line; do
 		[ -n "$line" ] || continue
 		local lib
@@ -557,6 +572,49 @@ setup() {
 	assert_equal "$from_make" "$from_ci"
 	[[ "$from_make" == *abort_on_error=1* ]] || {
 		echo "the sanitizer gate must abort on error: $from_make" >&2
+		false
+	}
+}
+
+@test "every library the Makefile builds from source is built by CI" {
+	# The distribution half of this pair is guarded above. This is the
+	# from-source half, and it went wrong twice for the same reason: the
+	# workflow enumerated `make prereqs-tree-sitter`, `prereqs-libgit2` and
+	# `prereqs-igraph` by hand, so a library added to `prereqs-src` reached
+	# the makefile and not the pipeline. Phase 20 lost a morning to libdw;
+	# Phase 23 lost one to jansson, whose header every compiling job then
+	# failed on at once.
+	#
+	# Expat is the case that shows why a *test* over two lists was not
+	# enough on its own. It was in `prereqs-src` and absent here for
+	# several phases without anything failing, because the runner image
+	# ships libexpat1-dev — so CI linked the distribution's copy while the
+	# project's stated policy is a pinned release it can bump against an
+	# advisory (SDP §0). A green pipeline was hiding it.
+	#
+	# So the workflow calls the target rather than restating its contents,
+	# and this test holds it to that. It asserts the *absence* of the
+	# enumeration, which is the only form that cannot drift.
+	local workflow="$REPO_ROOT/.github/workflows/ci.yml"
+
+	require_path "$workflow" "LLR-BLD-21 from-source dependency parity"
+
+	# Every job that compiles must reach the whole list through one target.
+	local calls
+	calls="$(grep -c '^ *make prereqs-src$' "$workflow" || true)"
+	[ "$calls" -gt 0 ] || {
+		echo "no job builds the from-source libraries via make prereqs-src" >&2
+		false
+	}
+
+	# And none may name an individual library, which is what drifts.
+	local enumerated
+	enumerated="$(grep -oE '^ *make prereqs-[a-z0-9-]+$' "$workflow" |
+		grep -vE 'prereqs-src$' || true)"
+	[ -z "$enumerated" ] || {
+		echo "the workflow names individual libraries:" >&2
+		printf '%s\n' "$enumerated" >&2
+		echo "use make prereqs-src, so there is no second list to keep in step" >&2
 		false
 	}
 }
