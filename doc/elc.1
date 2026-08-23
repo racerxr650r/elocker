@@ -839,6 +839,64 @@ carries the matrix where it carries no graph. See
 .B THE DEPENDENCY STRUCTURE MATRIX
 below.
 .TP
+.BI \-\-manifest " FILE"
+Read the purification manifest
+.IR FILE ,
+whose statements overrule what
+.B elc
+concluded about the functions it names. A classification the manifest states
+governs, and
+.B elc
+neither recomputes nor overrules it; the report marks such a row
+.I manifest
+rather than
+.IR computed ,
+so a reader can tell the tool's assumptions from their own team's.
+.IP
+A manifest is read only when it is named here. It is never discovered from the
+working directory, the analysis target, an ancestor of either, or a dotfile:
+the zero-configuration guarantee is unchanged by this option existing, and two
+people running the same command on the same tree obtain the same result. A
+manifest that cannot be read, and one that is well-formed JSON but not a
+manifest, both end the run \(em the user named the file, so the failure is
+theirs to correct. A manifest naming a function no analysed file defines is
+reported and ignored, since analysing one directory of a project whose manifest
+covers all of it is ordinary use. See
+.B THE PURIFICATION MANIFEST
+below.
+.TP
+.B \-\-write\-manifest
+Also write the purification manifest. The file is named from the report's own
+output path by extension substitution, so an
+.B \-\-output
+of
+.I report.md
+yields
+.IR report.manifest.json ;
+the option takes no path of its own. Off unless requested, and with the report
+on standard output no file is written at all \(em there is no path to derive a
+name from. Edit a classification you disagree with and hand the file back with
+.BR \-\-manifest .
+.TP
+.B \-\-purify\-dot
+Also write two Graphviz drawings: the call graph as built, and the purified
+recovery view a layering was read off. They are named from the report's own
+output path, so an
+.B \-\-output
+of
+.I report.md
+yields
+.I report.raw.dot
+and
+.IR report.purified.dot ;
+the option takes no path of its own and is off unless requested. In the
+purified drawing the masked and excluded functions are greyed, labelled with
+their class, and left holding no edge \(em never deleted, since a drawing that
+removed them could not show what purification did, which is the entire reason
+there are two. Neither replaces the annotated call tree of
+.BR \-\-no\-dot ,
+which answers a different question.
+.TP
 .B \-\-no\-dot
 Do not write the annotated Graphviz call tree. Unlike
 .BR \-\-graphml ,
@@ -1613,6 +1671,113 @@ is a detail tier, so it appears in a
 report, and it is written to the results destination like every other result:
 a run redirecting its report to a file does not have a second one appear on the
 terminal.
+.SS Seeing what the masking did
+.B \-\-purify\-dot
+writes two Graphviz drawings beside the report: the call graph as built, and
+the recovery view read off it. In the purified drawing the masked and excluded
+functions are greyed, labelled with their class, and left holding no edge \(em
+they are never deleted. Seeing what purification did is what lets a reader
+judge whether it did the right thing, and a single drawing of the result cannot
+show what it acted on.
+.SH ARCHITECTURE RECOVERY
+With the fusing functions set aside,
+.B elc
+orders what remains and folds the order into layers, so that a user who has
+declared no architecture is given a description of the one their code already
+has. The proposal is presented as the
+.B \-\-stratum
+and
+.B \-\-stratum\-order
+arguments that would declare it, so adopting it is a copy rather than a
+transcription.
+.PP
+.B A recovered layering is a proposal and never a baseline.
+Nothing in the report is measured against it. The declared strata of
+.B \-\-stratum
+remain the sole standard the layering findings, the back\-call index, and the
+skip\-call index are judged by, and where none are declared those analyses stay
+omitted with their reason stated \(em however confidently a layering was
+recovered.
+.B elc
+measuring conformance against its own proposal would be a tool marking its own
+homework: every code base would conform, because the standard would have been
+read off the thing being judged. The proposal takes effect when, and only when,
+a user has read it, agreed with it, and passed it back.
+.PP
+.B A topological order is not a layering.
+It orders functions; an architecture orders directories. The order is therefore
+folded by the directory each component belongs to, and a directory's layer is
+fixed by where the bulk of its edges point rather than by its earliest or
+latest member \(em one function reaching far down the order does not drag its
+whole directory with it. Functions excluded from the recovery view are given no
+layer at all.
+.PP
+Where the recovery view is cyclic no ordering of it exists.
+.B elc
+reports the mutually reachable groups in place of a layering rather than
+ordering the graph arbitrarily, exactly as it reports a cyclic call graph in
+place of a call depth. A group is printed as its membership rather than as a
+chain of arrows: every member reaches every other, but the decomposition yields
+no order, and an arrow chain would assert a path that may not exist.
+.PP
+A function that calls itself is not such a group. The edge runs from a node to
+itself and orders nothing; the recursion analysis already reports it, and
+treating it as blocking would cost every project holding one recursive function
+this whole analysis.
+.SH THE PURIFICATION MANIFEST
+The classifications above are heuristics, and heuristics have false positives.
+A state machine's dispatcher legitimately lies on a great many shortest paths
+and legitimately calls widely; nothing in the graph separates it from the
+monolith the god\-object test describes, and only you know which it is. The
+manifest is how you say so.
+.PP
+.B \-\-write\-manifest
+writes every classification a run made to
+.I report.manifest.json
+beside the report. It is JSON, a flat list of statements each naming a
+function, its file, its class, and whether that class is masked:
+.PP
+.RS 4
+.nf
+{
+  "manifest-version": 1,
+  "classifications": [
+    {
+      "function": "dispatch",
+      "file": "/p/app/dispatch.c",
+      "class": "god object",
+      "mask": true
+    }
+  ]
+}
+.fi
+.RE
+.PP
+Edit it and hand it back with
+.BR \-\-manifest .
+A statement governs: the class it names is the class
+.B elc
+uses, and it is neither recomputed nor overruled. Setting
+.I mask
+to
+.B false
+keeps the classification in the report and keeps the function's edges in the
+recovery view, which is the usual correction \(em you agree the function is the
+dispatcher and disagree that it should be set aside. Omitting
+.I file
+matches the function wherever it is defined; naming it is the precise form and
+is what
+.B elc
+writes.
+.PP
+.B A manifest is read only when it is named.
+It is never discovered from the working directory, the analysis target, an
+ancestor of either, or a dotfile. A manifest that cannot be read, and one that
+is well\-formed JSON but not a manifest \(em a missing version, a version this
+build does not read, a class name it does not know \(em both end the run with a
+diagnostic quoting the fault. A statement naming a function no analysed file
+defines is reported and ignored, and the run continues: analysing one directory
+of a project whose manifest covers all of it is ordinary use.
 .SH THE CALL TREE
 Alongside a report written to a named file,
 .B elc

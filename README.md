@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 22 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 23 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, and Python**,
 in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -222,7 +222,36 @@ a small project and a large one, and say so wherever a classification appears.
 No classification carries a severity: `elc` says where a function sits in a
 graph, not that the design is wrong.
 
-**Progress: 22 of 24 phases complete.**
+From what remains, `elc` reads a **layering** — a description of the
+architecture your code already has, for a reader who has declared none. It
+orders the purified view and folds the order by directory, placing each
+directory where the bulk of its edges point rather than at its outermost
+member, so one function reaching far down cannot drag its whole directory with
+it. Where the view is still cyclic there is no ordering to have, and the
+mutually reachable groups are reported in its place.
+
+**A recovered layering is a proposal and never a baseline.** Nothing is
+measured against it: the `--stratum` declarations remain the sole standard the
+conformance analyses judge by, and with none declared those analyses stay
+omitted with their reason stated — however confidently a layering was
+recovered. A tool measuring conformance against its own proposal would find
+every code base conformant, because the standard would have been read off the
+thing being judged. So the proposal arrives as an **argument list** in the form
+`--stratum` and `--stratum-order` accept: read it, and if you agree, paste it
+back. The declaring is yours.
+
+The classifications behind all of that are heuristics, and heuristics have
+false positives — a state machine's dispatcher looks exactly like a monolith
+from inside the graph. `--write-manifest` writes them out as JSON, one
+statement per classified function; edit the one you disagree with and hand it
+back with `--manifest`. Your statement governs, `elc` does not recompute it,
+and the report says which rows came from you and which from the tool. A
+manifest is read **only when you name it** — never from the working directory,
+the target, an ancestor, or a dotfile. And `--purify-dot` draws the graph twice,
+before and after, with the masked functions greyed and detached rather than
+deleted, so you can see what was set aside before deciding to trust it.
+
+**Progress: 23 of 24 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -252,7 +281,7 @@ graph, not that the design is wrong.
 | [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
 | [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
-| [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
+| [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
 
 </details>
 

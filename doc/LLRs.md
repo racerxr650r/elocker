@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.10
+**Version:** 2.11
 **Date:** 2026-08-22
 **Author(s):** John Anderson
 
@@ -70,6 +70,9 @@ Orchestration and exit status. `main` performs no analysis; every requirement be
 
 *   <a id="LLR-MAIN-21"></a>**LLR-MAIN-21** — `main` shall pass the selected verbosity to the two human-facing renderers and to no other, so that the CSV and XML writers produce the same bytes whatever was asked for. The dispatch is where that stops: the complete-record formats have no presentation for a verbosity to select between, and giving them the parameter would create a place for one to be honoured by mistake.
     *Trace:* HLR-152 (Complete-Record Formats Unaffected by Verbosity), HLR-151 (Verbose Report on Request).
+
+*   <a id="LLR-MAIN-22"></a>**LLR-MAIN-22** — `main` shall read a named purification manifest before the classifications it overrules and shall end the run where it cannot be read, the diagnostic already written; shall run recovery after purification and before nothing, handing its result to the report and to no analysis; and shall write the manifest and the pair of drawings as companions, each named from the report's own output path and each written after the report rather than instead of it. The ordering is what makes the boundaries structural: purification produces a second graph and hands it to nobody but the report, and recovery reads that graph and hands its proposal to nobody but the report — so no measurement can be taken over a masked graph and no conformance analysis can reach a proposal, whatever a later change does elsewhere.
+    *Trace:* HLR-176 (The Manifest Is Read Only When Named), HLR-173, HLR-167, HLR-119.
 
 ## 2. `cli_parse` ([src/cli.c](../src/cli.c))
 
@@ -172,6 +175,12 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-CLI-32"></a>**LLR-CLI-32** — `cli_parse` shall accept the five purification thresholds of HLR-171 — the sink authority and hub ranks, the god-object betweenness and hub ranks, and the core depth — defaulting each to `elc`'s own value where none is given, and shall reject as a usage error a rank above 100. The four rank thresholds are positions in an ordered distribution, so 100 is the ceiling and a larger figure names a position no function can occupy; accepting it would leave a run silently classifying nothing rather than telling the user their setting is impossible.
     *Trace:* HLR-171 (Purification Thresholds Are elc's Own), HLR-063, HLR-039.
+
+*   <a id="LLR-CLI-33"></a>**LLR-CLI-33** — `cli_parse` shall record the purification manifest's path as given, borrowed from `argv`, and shall neither open nor validate the file — the module that reads a manifest owns the failure, and the parser stays the module that reads `argv` rather than becoming one that reads files. It shall record the requests for the manifest companion and for the pair of drawings without validating either against `--output`: a companion asked for with the report on standard output writes nothing rather than failing, by the rule the GraphML export already follows. A zeroed `ElcOptions` shall name no manifest and request neither companion, which is where the zero-configuration guarantee lives in this structure rather than in a comment.
+    *Trace:* HLR-176 (The Manifest Is Read Only When Named), HLR-039, HLR-104, HLR-119, HLR-175, HLR-178.
+
+*   <a id="LLR-CLI-34"></a>**LLR-CLI-34** — `cli_parse` shall reject a manifest read, a manifest write, or a request for the drawings combined with regeneration from a saved record. A record carries what a run concluded and not the graph it concluded it from, so there is nothing there to classify, to mask, or to draw; and a user who asked for a file and received none is told why rather than left to discover the absence — the rule the GraphML export already follows.
+    *Trace:* HLR-122 (Companion Artefacts Absent in Regeneration), HLR-063.
 
 ## 3. `cli_usage` ([src/cli.c](../src/cli.c))
 
@@ -1117,6 +1126,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-36"></a>**LLR-RPT-36** — `report_set_purify` shall copy onto the assembled report one row per function purification classified, resolving each node identifier to the function's name and location and carrying the metric that triggered the classification, the value it took, and the action taken; and shall order the rows by file, then by the line the function starts on. A function purification classified as ordinary shall carry no row, since HLR-174 asks for the classifications that were made and `elc` concluded nothing about that function. No row shall carry a severity, there being nothing for one to mean.
     *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-171, HLR-032.
 
+*   <a id="LLR-RPT-37"></a>**LLR-RPT-37** — `report_set_purify` shall record on each row whether the class it carries was computed by `elc` or stated by a manifest, and shall carry a row for a function a manifest classified as ordinary. A reader of this section is being asked to judge whether the masking was right, and cannot do that without knowing which rows are the tool's own reading of the graph and which are their team's correction of it; and a manifest that returned a function to ordinary overruled `elc` there, which a reader who sees no row learns nothing about.
+    *Trace:* HLR-177 (A Manual Classification Overrides a Computed One), HLR-174.
+
 ## 36. `format_table` ([src/format_text.c](../src/format_text.c))
 
 *   <a id="LLR-TBL-01"></a>**LLR-TBL-01** — `format_table` shall render the report as an aligned, human-readable table, computing column widths from the longest path and function name.
@@ -1186,6 +1198,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-SUM-12"></a>**LLR-SUM-12** — `render_summary` shall present the classifications purification made as a **detail** tier in both human-facing formats, one row per classified function naming the class, the metric and value that triggered it, and the action taken; and shall state in the section's heading that the thresholds are `elc`'s own heuristic rather than a published standard, together with the five values in force and what the masking left behind. The section shall carry no severity column. It is written to the results destination like every other section: HLR-038 reserves standard output, and a run redirecting its report to a file must not have a second report appear on the terminal.
     *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-171, HLR-150, HLR-038, HLR-031.
+
+*   <a id="LLR-SUM-13"></a>**LLR-SUM-13** — `render_summary` shall present the recovered layering as a detail tier in both human-facing formats, stating in its heading that what follows is a proposal and never the baseline conformance is measured against, and shall present the proposal itself as the argument list `--stratum` and `--stratum-order` accept rather than as prose. A table of layers printed under an architecture report is otherwise easy to read as a verdict; and rendering the proposal as arguments is what makes adoption a copy rather than a transcription, and is the boundary HLR-173 draws in the one form a reader cannot mistake for a measurement. Where no layering could be read the heading shall say which of the two reasons applied, and where the view was cyclic the mutually reachable groups shall be listed in place of the layers.
+    *Trace:* HLR-173 (A Recovered Layering Is a Proposal, Never a Baseline), HLR-172, HLR-150, HLR-031.
 
 ## 39. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 
@@ -1263,6 +1278,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-18"></a>**LLR-XWR-18** — `xml_write_report` shall record every classification purification made — the function, its file and line, the class assigned, the metric and value that triggered it, and the action taken — together with the five thresholds they were decided against and the counts the recovery view was left with. A record carries no graph, so a classification absent from it is one a regenerated report cannot present; and the thresholds travel beside the rows because a record read a year later has no command line to consult.
     *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-054, HLR-171.
 
+*   <a id="LLR-XWR-19"></a>**LLR-XWR-19** — `xml_write_report` shall record the recovered layering — whether one was proposed, each directory placed and its layer, the groups reported where none could be, the counts of what was masked and excluded, and the argument list a user would pass back — together with the provenance of every classification the purification element already carries. A record holds no graph to re-order, so a proposal absent from it is one a regenerated report cannot present; and a record that dropped the provenance would leave a reader of a regenerated report unable to tell the tool's assumptions from their own team's.
+    *Trace:* HLR-054 (The Complete XML Record), HLR-172, HLR-177.
+
 ## 42. `write_escaped` ([src/format_xml.c](../src/format_xml.c))
 
 *   <a id="LLR-ESC-01"></a>**LLR-ESC-01** — `write_escaped` shall escape every character carrying structural meaning in XML, so that an identifier or path containing such a character cannot render the document unparseable.
@@ -1323,6 +1341,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-XRD-18"></a>**LLR-XRD-18** — `xml_read_report` shall restore the classifications and the thresholds a record carries as the run rendered them, recomputing no centrality, and shall reject as malformed a classification element lacking the class, the metric, the value, or the action. A regenerated report must say what the run it describes said rather than what this build would conclude today; and a classification without the number that produced it is precisely what HLR-174 forbids reporting, so it is rejected rather than half-read.
     *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-056, HLR-058.
+
+*   <a id="LLR-XRD-19"></a>**LLR-XRD-19** — `xml_read_report` shall restore the recovered layering as the record states it, re-deriving nothing, and shall read it back as a proposal and never as a declaration: the strata state, the layering rows, and the conformance indices of a regenerated report shall be exactly what the record carries, so that a report regenerated from a run with no declared strata reports those analyses as omitted just as that run did. What a regenerated report presents is what the run it describes proposed, and a record read as a declaration would make `elc` measure against its own proposal one remove away from where HLR-173 forbids it.
+    *Trace:* HLR-173 (A Recovered Layering Is a Proposal, Never a Baseline), HLR-056, HLR-115.
 
 ## 44. `graph_dot_warranted` ([src/format_graph.c](../src/format_graph.c))
 
@@ -1507,6 +1528,9 @@ Requirements satisfied by the build rather than by any single function. Verified
     **The package list and the pipeline's shall be held in agreement by a test.** They are two statements of one fact in two files, and nothing connected them: this library was added to the Makefile and not to the workflow, and every compiling job failed at once while the local gate stayed green, the developer machine having the package already. That is the drift LLR-BLD-18 guards for the sanitizer options, in the other place the two definitions meet.
     *Trace:* HLR-153 (Debug-Line Pruning From the Image), HLR-141 (Image Read Without a Toolchain), HLR-112.
 
+*   <a id="LLR-BLD-21"></a>**LLR-BLD-21** — The build shall link a JSON library that both parses and generates, for the purification manifest, and the instrumented dependency allowlist shall name it. The manifest is the one artefact `elc` both writes and reads back, so a hand-rolled writer paired with a library reader would be two implementations of one format with `elc` on both ends of the disagreement; and a library added to the link line without a matching entry in the allowlist is a dependency nothing observes, which is what a fixed list exists to prevent.
+    *Trace:* HLR-112 (Library Selection Deferred to Design), HLR-040 (Excluded Runtime Dependencies), HLR-175.
+
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -1631,6 +1655,12 @@ The three classifications, the precedence between them, and the two properties o
 *   <a id="LLR-CLS-07"></a>**LLR-CLS-07** — `classify_nodes` shall record, for each classification it makes, the measurement that triggered it and the value that measurement took, and shall attach no severity to any of them. A classification a reader cannot trace back to a number is an assertion; and a god object is an observation about the shape of a graph rather than a measurement banded against an accepted range, so there is nothing for a severity to mean and no published source to attribute one to.
     *Trace:* HLR-171 (Purification Thresholds Are elc's Own), HLR-174, HLR-101.
 
+*   <a id="LLR-CLS-08"></a>**LLR-CLS-08** — `classify_nodes` shall apply the statements of a supplied manifest **after** every computed classification is in place, taking each statement's class as the class of the function it names and neither recomputing nor overruling it, and shall clear the metric and value that a computed class would have carried. Applying the manifest last is what makes "the statement governs" a property of the order rather than of a condition scattered through the three tests; and no measurement triggered a decision the user made, so reporting one beside a manifest row would present a number as the reason for a judgement it had no part in.
+    *Trace:* HLR-177 (A Manual Classification Overrides a Computed One), HLR-174.
+
+*   <a id="LLR-CLS-09"></a>**LLR-CLS-09** — `classify_nodes` shall record, for each manifest statement, whether it named a function the run analysed, and a statement naming none shall leave every classification unchanged rather than ending the run. Analysing one directory of a project whose manifest covers all of it is ordinary use, and rejecting the file there would make a manifest unusable exactly where a large code base most needs one — the rule a declared entry point matching nothing already follows (LLR-CTR-08).
+    *Trace:* HLR-177 (A Manual Classification Overrides a Computed One).
+
 ## 58. `build_recovery_view` ([src/purify.c](../src/purify.c))
 
 The masked copy itself: which edges each class costs a function, and why the three answers differ.
@@ -1649,3 +1679,102 @@ The masked copy itself: which edges each class costs a function, and why the thr
 
 *   <a id="LLR-RCV-05"></a>**LLR-RCV-05** — `build_recovery_view` shall number the vertices of the view with the graph's own stable node identifiers rather than renumbering the retained nodes, and shall account for every call edge as either retained or masked. Renumbering would put the determinism of HLR-179 on a mapping instead of on the identifier the rest of the run already agrees about; and a view that dropped an edge without counting it would report a masking a reader could not check.
     *Trace:* HLR-179 (Deterministic Classification), HLR-033, HLR-174.
+
+*   <a id="LLR-RCV-06"></a>**LLR-RCV-06** — `build_recovery_view` shall decide each of the three masking rules on whether the classification's *action* is in force, not on the class alone, so that a class a manifest stated and left unmasked changes what is reported and not what the view holds. The class and the action are two facts: the usual correction a user makes is not that `elc` misread the graph but that it drew the wrong conclusion from a correct reading, and a view keyed on the class alone would force such a user to relabel the function as something it is not. The same predicate shall answer the question wherever else it is asked, so that a drawing of the view cannot show a graph the analysis never read.
+    *Trace:* HLR-177 (A Manual Classification Overrides a Computed One), HLR-175, HLR-178.
+
+## 59. `manifest_read` ([src/purify.c](../src/purify.c))
+
+The read half of the one artefact `elc` round-trips. Two properties govern it: a manifest is reached only from a path the user gave, and *well-formed is not valid* — Jansson decides whether the file is JSON, and whether it is a manifest is this module's judgement.
+
+*   <a id="LLR-MFR-01"></a>**LLR-MFR-01** — `manifest_read` shall read the file at the path it is given and shall search for a manifest nowhere: not in the working directory, not in the analysis target, not in any ancestor of either, and in no dotfile. A manifest is read because the user named it, exactly as a custom rule file is, and the zero-configuration guarantee is unchanged by the format existing — two people running the same command on the same tree must still obtain the same result.
+    *Trace:* HLR-176 (The Manifest Is Read Only When Named), HLR-039.
+
+*   <a id="LLR-MFR-02"></a>**LLR-MFR-02** — `manifest_read` shall reject a file it cannot read or parse with a diagnostic naming the path and quoting the line and column of the fault, shall return a failure the caller ends the run on, and shall leave no statement applied. The user named the file, so the failure is theirs to correct — the provenance rule HLR-116 draws for a custom rule named on the command line — and a person who hand-edited the file needs to be told *where* they broke it. A run governed by half of what its author wrote is worse than one that stops, because the half that took effect is invisible.
+    *Trace:* HLR-176 (The Manifest Is Read Only When Named).
+
+*   <a id="LLR-MFR-03"></a>**LLR-MFR-03** — `manifest_read` shall reject, in the same manner and with the same status, a file that is well-formed JSON and not a manifest: one carrying no format version, one carrying no array of classifications, one whose statement names no function, and one naming a class this build does not know. Well-formedness is a property of the syntax; whether the contents are a manifest is this module's judgement, and a class name it guessed at would apply a classification nobody wrote.
+    *Trace:* HLR-176 (The Manifest Is Read Only When Named).
+
+*   <a id="LLR-MFR-04"></a>**LLR-MFR-04** — `manifest_read` shall accept only the format version this build reads and shall reject any other, naming the version found and the version expected. Versioned in the manner of the XML record: a manifest written by a later build is rejected rather than half-understood, which is the failure a reader would never see because a file that parses and means something else looks like a working manifest right up to the point where it silently classifies nothing.
+    *Trace:* HLR-176 (The Manifest Is Read Only When Named), HLR-061.
+
+*   <a id="LLR-MFR-05"></a>**LLR-MFR-05** — `manifest_read` shall treat a statement's file as optional, matching by function name alone where it is absent or empty and requiring an exact match of the analysed file's path where it is given; and shall default an absent masking flag to the action the stated class carries. Naming the file is the precise form and is what `elc` writes; omitting it is the convenience a person hand-editing the file reaches for, and a project with two static functions of one name is the case that makes the distinction earn its keep.
+    *Trace:* HLR-175 (The Purification Manifest), HLR-177.
+
+## 60. `manifest_write` ([src/purify.c](../src/purify.c))
+
+The write half. The only place in the project a third-party library *emits* a format, and the exception is the round trip: a hand-rolled writer paired with a library reader would be two implementations of one format with `elc` on both ends of the disagreement.
+
+*   <a id="LLR-MFW-01"></a>**LLR-MFW-01** — `manifest_write` shall record one statement for every classification the run made — naming the function, the file defining it, the class assigned, and whether that class is masked — and shall omit the functions `elc` concluded nothing about, save where a manifest statement made the conclusion. It shall order the statements by file and then by the line the function starts on, which is the order the transparency report presents the same rows in: a person reading the report and editing the manifest then finds them in the same place, and two runs over one tree produce identical files.
+    *Trace:* HLR-175 (The Purification Manifest), HLR-032.
+
+*   <a id="LLR-MFW-02"></a>**LLR-MFW-02** — `manifest_write` shall stamp the file with the format version this build reads, and shall write it in a form `manifest_read` accepts unmodified. The round trip is why the format goes through one library in both directions rather than a writer of `elc`'s own: two independent implementations of one format produce the failure this project dislikes most — a manifest `elc` emitted that `elc` then rejects, or worse, silently reads as something other than what it wrote.
+    *Trace:* HLR-175 (The Purification Manifest), HLR-176.
+
+*   <a id="LLR-MFW-03"></a>**LLR-MFW-03** — `manifest_write` shall be given a path derived from the report's own output path by the extension substitution every companion follows, shall accept no path of its own, and shall write nothing where the report has no path to derive a name from. The file it writes shall end with a newline: a manifest is meant to be hand-edited and kept under version control, and a text file without a final newline is one every such tool complains about.
+    *Trace:* HLR-119 (Companion Artefact Naming), HLR-104, HLR-175.
+
+## 61. `recover_layers` ([src/recover.c](../src/recover.c))
+
+The recovery pass: an ordering of the purified view, the fold that turns it into a layering, and the argument list a user passes back. Everything here is subordinate to one boundary — what this produces is a *proposal*, and a proposal is never the baseline it is measured against.
+
+*   <a id="LLR-RCY-01"></a>**LLR-RCY-01** — `recover_layers` shall order the recovery view topologically and fold that order into per-directory layers, over the vertices the view retained and over no others. A layering is read from the purified view rather than from the graph as built, which is the whole purpose of the purification preceding it: a topological ordering over a graph a logger and a dispatcher have fused collapses into one tangled stratum that describes nothing.
+    *Trace:* HLR-172 (Automated Layer Recovery), HLR-160.
+
+*   <a id="LLR-RCY-02"></a>**LLR-RCY-02** — `recover_layers` shall test the recovery view for acyclicity before ordering it, and where it is cyclic shall report the strongly connected components in place of a layering, each rendered as its membership in ascending stable node identifier rather than as a chain of arrows, and shall propose nothing. Ordering a cyclic graph anyway would present an invention as a reading — the rule HLR-090 applies to call depth, applied to the same impossibility. A strongly connected component is a *set*: every member reaches every other, but the decomposition yields no order, and an arrow chain would assert a path that may not exist.
+    *Trace:* HLR-172 (Automated Layer Recovery), HLR-033.
+
+*   <a id="LLR-RCY-03"></a>**LLR-RCY-03** — `recover_layers` shall treat a recovery view retaining no function as an omission with its reason stated rather than as an error or an empty proposal, and shall count separately the functions whose edges the masking cut and those excluded from the view entirely. An analysis short of its inputs is omitted with its reason stated; and a layering recovered from a graph with parts of it set aside is a claim about that graph and not about the program, so the proposal states how much was set aside before its rows say anything.
+    *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-172.
+
+*   <a id="LLR-RCY-04"></a>**LLR-RCY-04** — `recover_layers` shall render the proposal as the `--stratum` and `--stratum-order` arguments that would declare it, quoting every pattern and the order itself, naming each layer after the first directory in it and suffixing a name that would otherwise repeat, and emitting the declarations deepest directory first. Adoption is then a copy rather than a transcription, which is what HLR-173 requires, and the argument list is the boundary that requirement draws in the one form a reader cannot mistake for a measurement. The quoting is load-bearing: `>` is a shell redirection, and an unquoted order would create files named after the layers and hand `elc` a partial order. So is the declaration order: `elc` takes the first declared layer whose pattern matches a file and a directory wildcard matches everything beneath it, so an ancestor declared before its child would claim the child's files — while the ordinals come from `--stratum-order` beside them, leaving the declaration order free to be chosen for correctness. Two layers sharing a name would silently become one, since repeating a name adds patterns to the layer already declared.
+    *Trace:* HLR-173 (A Recovered Layering Is a Proposal, Never a Baseline), HLR-078.
+
+*   <a id="LLR-RCY-06"></a>**LLR-RCY-06** — `recover_layers` shall order the recovery view with its self-calls disregarded, and shall report a *mutual* cycle in place of a layering while reporting a self-call not at all. A function calling itself makes the graph cyclic in the strict sense and orders nothing: the edge runs from a node to itself and says nothing about where that node sits relative to any other. Reporting it here would repeat a fact the recursion analysis of HLR-089 already states, and would cost every project holding one recursive function the whole of this analysis — while a mutual cycle genuinely leaves no order to read and is still reported. A self-call shall likewise not weight a function's position, since a function coupled to nothing but itself had no part in choosing where its directory sits.
+    *Trace:* HLR-172 (Automated Layer Recovery), HLR-089.
+
+*   <a id="LLR-RCY-05"></a>**LLR-RCY-05** — `recover_layers` shall produce identical rows and an identical argument list on two runs over one graph, breaking every ordering it makes by a key that is a property of the source tree rather than of the order a library enumerated something in. The ordering underneath is the graph library's and the fold's positions are computed rather than given, so neither may reach the output carrying an enumeration order with it.
+    *Trace:* HLR-179 (Deterministic Classification), HLR-032.
+
+## 62. `layer_by_directory` ([src/recover.c](../src/recover.c))
+
+The fold, which is the whole of what this module decides. A topological order is not a layering: it orders functions, and an architecture orders directories.
+
+*   <a id="LLR-LYR-01"></a>**LLR-LYR-01** — `layer_by_directory` shall group the ordered functions by the directory owning the component each belongs to, reading that directory from the record discovery already made of it rather than deriving it from the path again. An architecture orders directories; a proposal listing functions would be a topological order wearing a layering's name. And more than one analysis groups by directory — two consumers each slicing a path for themselves is how two of them come to disagree about which directory a file is in.
+    *Trace:* HLR-172 (Automated Layer Recovery), HLR-160 (Directory Grouping).
+
+*   <a id="LLR-LYR-02"></a>**LLR-LYR-02** — `layer_by_directory` shall fix a directory's position as the mean topological position of its functions weighted by the retained edges each carries, falling back to the unweighted mean where the directory's functions carry no retained edge at all, and shall not fix it at the directory's earliest or latest member. One function reaching far down the order must not drag its whole directory with it: a completion callback defined in a service layer and called from the layer beneath it sits at the very bottom of the order, and a fold reading the latest member would turn the service layer upside down on the strength of it. A weighted mean over a total weight of zero is not a number, which is what the fallback is for.
+    *Trace:* HLR-172 (Automated Layer Recovery).
+
+*   <a id="LLR-LYR-03"></a>**LLR-LYR-03** — `layer_by_directory` shall compare two positions exactly, as fractions and never as floating point, by a method no product of which can overflow; shall place directories at equal positions in one layer; and shall break an ordering tie by the directory path. A comparison deciding two equal means unequal on the last bits of a division would split a layer on one machine and not on another. Cross-multiplying is the obvious exact comparison and overflows for a large project, since each numerator is a sum of position × degree over every retained function. And cutting between two directories the ordering places level with one another would invent a dependency direction the graph does not hold.
+    *Trace:* HLR-179 (Deterministic Classification), HLR-101.
+
+*   <a id="LLR-LYR-04"></a>**LLR-LYR-04** — `layer_by_directory` shall skip every function the recovery view excluded, and shall give no layer to a directory all of whose functions were excluded. A function `elc` did not consider is not a function `elc` placed at the edge of the architecture, and a fold that read the excluded vertices back in would put every leaf in the bottom layer — the one thing HLR-170 names.
+    *Trace:* HLR-170 (Peripheral Stripping by K-Core Decomposition), HLR-172.
+
+## 63. `report_set_recovery` ([src/recover.c](../src/recover.c))
+
+Where the proposal goes, and — more to the point — where it does not.
+
+*   <a id="LLR-PRP-01"></a>**LLR-PRP-01** — `report_set_recovery` shall copy onto the assembled report the directories placed and their layers, the groups reported where no ordering existed, the counts of what was masked and excluded, and the argument list a user would pass back. A record of a run carries no graph to re-order, so a proposal absent from the model is one a regenerated report cannot present.
+    *Trace:* HLR-172 (Automated Layer Recovery), HLR-054.
+
+*   <a id="LLR-PRP-02"></a>**LLR-PRP-02** — `report_set_recovery` shall write to no field the conformance analyses read: not the declared-strata state, not the layering rows, not either conformance index, and not the subjects of the dependency matrix. The proposal reaches the renderers and the saved record and nothing else, and `arch.c` shall be given no path to a recovery result at all. `elc` measuring conformance against its own proposal would be a tool marking its own homework — every code base would conform, because the standard would have been read off the thing it was judging — so the boundary is kept by the dependency direction rather than by care.
+    *Trace:* HLR-173 (A Recovered Layering Is a Proposal, Never a Baseline), HLR-115, HLR-101.
+
+## 64. `graph_write_purify_dot` ([src/format_graph.c](../src/format_graph.c))
+
+The raw and purified drawings. Two of them because seeing what purification did is what lets a user judge whether it did the right thing, and one drawing of the result cannot show what it acted on.
+
+*   <a id="LLR-DRW-01"></a>**LLR-DRW-01** — The drawings shall be written only where they were asked for, where the report has an output path to derive their names from, and where the run is not regenerating from a saved record. Off by default, unlike the annotated call tree and like the GraphML export; absent with the report on standard output because there is no path to derive a name from; and absent in regeneration because a record carries what a run concluded and not the graph it concluded it from.
+    *Trace:* HLR-178 (Raw and Purified Graph Exports), HLR-104, HLR-122.
+
+*   <a id="LLR-DRW-02"></a>**LLR-DRW-02** — Both drawings shall derive their names from the report's output path by the extension substitution every companion follows, shall accept no path of their own, and shall be written together. Neither shall replace the annotated call tree, which answers a different question and is enabled by a different default. The pair exists to be compared, so producing one without the other would answer half the question the option exists to answer.
+    *Trace:* HLR-119 (Companion Artefact Naming), HLR-178, HLR-102.
+
+*   <a id="LLR-DRW-03"></a>**LLR-DRW-03** — The purified drawing shall contain every function the raw drawing contains, drawing a masked one greyed and an excluded one greyed and dashed, each labelled with the class assigned to it and each holding no edge — and shall delete none of them. A drawing that removed them could not show what purification did, which is the entire reason there are two; distinguished rather than removed is what lets a reader see which functions were set aside and what the graph looks like without them, in one glance.
+    *Trace:* HLR-178 (Raw and Purified Graph Exports), HLR-174.
+
+*   <a id="LLR-DRW-04"></a>**LLR-DRW-04** — The raw drawing shall hold every call edge of the graph as built and shall carry no classification on any node; the purified drawing shall hold the edges the recovery view retained, decided by the same predicate the view itself was built from rather than by rules restated here. The raw drawing is the graph *before* the masking — one that anticipated it would leave the pair with nothing to compare — and two answers to one question about which edges survive is how a drawing comes to show a graph the analysis never read.
+    *Trace:* HLR-178 (Raw and Purified Graph Exports), HLR-167.

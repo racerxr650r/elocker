@@ -64,7 +64,7 @@ release readiness — is ready to start, and is the last.
 | [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
 | [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
-| [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | 🔲 Not started |
+| [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -1952,7 +1952,7 @@ diagonal convention is printed with every rendering.
 Implement **Phase 21 — Architecture Conformance Measurement**, tracked by
 issue #<N>.
 
-Read first: `doc/SDD.md` §9 (`arch.c`) and §21 (`format_dsm.c`); HLR-160
+Read first: `doc/SDD.md` §9 (`arch.c`) and §22 (`format_dsm.c`); HLR-160
 through HLR-166; and HLR-079 and HLR-118, which are the violations these
 indices count.
 
@@ -2024,7 +2024,7 @@ doing so. It recovers nothing — that is Phase 23.
 6. A fixture tree built around a known utility sink and a known dispatcher,
    with the classification hand-worked in its header.
 
-**Requirements:** HLR-167 – HLR-171, HLR-174, HLR-179, and SDD §19.
+**Requirements:** HLR-167 – HLR-171, HLR-174, HLR-179, and SDD §20.
 
 **Acceptance:** every metric `elc` reported before this phase is byte-identical
 after it, on every fixture — masking reaches nothing outside the recovery
@@ -2037,7 +2037,7 @@ over the same tree classify identically. No classification carries a severity.
 ```text
 Implement **Phase 22 — Graph Purification**, tracked by issue #<N>.
 
-Read first: `doc/SDD.md` §19 (`purify.c`, its two interface sections and its
+Read first: `doc/SDD.md` §20 (`purify.c`, its interface sections and its
 Algorithm section) and §8 (`graph.c`); HLR-167 through HLR-171, HLR-174 and
 HLR-179; and HLR-101, which bounds what this phase is allowed to claim.
 
@@ -2112,7 +2112,7 @@ that let them see what purification did before they trust it.
    the recovered layering, and that a manifest naming an unknown function is
    reported and ignored.
 
-**Requirements:** HLR-172, HLR-173, HLR-175 – HLR-178, and SDD §20.
+**Requirements:** HLR-172, HLR-173, HLR-175 – HLR-178, and SDD §20 – §21.
 
 **Acceptance:** a fixture tree with a plain layered structure recovers that
 structure. A tree whose recovery view is cyclic reports the cycles instead of
@@ -2128,7 +2128,7 @@ including one sitting in the working directory.
 Implement **Phase 23 — Architecture Recovery and the Manifest**, tracked by
 issue #<N>.
 
-Read first: `doc/SDD.md` §20 (`recover.c`) and §19 (`purify.c`, its manifest
+Read first: `doc/SDD.md` §21 (`recover.c`) and §20 (`purify.c`, its manifest
 interface); HLR-172, HLR-173, HLR-175 through HLR-178; and the amendments
 those requirements made to HLR-078, HLR-101 and HLR-119.
 
