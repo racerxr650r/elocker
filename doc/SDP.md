@@ -413,9 +413,25 @@ No release is cut before Phase 16. From then on:
    complete and the gap list is empty but for review-verified items. `main`
    does not exist before the first release and is created at that point;
    `develop` is the default branch until then.
-2. The release is tagged `vMAJOR.MINOR.PATCH`.
+2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release is
+   `v0.1.0`.** Feature completeness is not the thing the major version
+   promises — all 24 phases have shipped and the gap list is empty, and the
+   number still says the *command-line interface* is not yet fixed. Two
+   contracts are already stable regardless, and are stable because a
+   requirement says so rather than because a version number implies it:
+   HLR-121's cross-release clause fixes the six query files and their capture
+   names, so a language module written against this release keeps working,
+   and HLR-061 versions the saved record independently, so a record is
+   rejected by a build that cannot read it rather than half-understood. A
+   `1.0.0` would add to those only a promise about option spelling, which is
+   the one thing feedback from real use is most likely to change.
 3. `make install` under a `DESTDIR`/`PREFIX` staging root produces the
-   deliverable: the `elc` binary plus the `runtime/` tree.
+   deliverable: the `elc` binary plus the `runtime/` tree, and the man page
+   and user manual that HLR-128 ships with them. Verified by
+   `test/fixtures/runtime.bats`, which installs into a staging root and runs
+   the result — "the files are present" and "the installed binary works" are
+   different claims, and the build tree flatters the first by putting a
+   `runtime` symlink beside `build/elc` that no installed layout has.
 4. The [Traceability Matrix](Traceability.md) at the tagged commit is the
    evidence of verification and is published with the release.
 
