@@ -83,6 +83,21 @@ setup() {
 	# means did, which is why it is said here rather than left to a reader
 	# to infer from an unchanged line.
 	#
+	# libjansson reads and writes the purification manifest (HLR-175 -
+	# HLR-177). It is the one place elc uses a library to *write* a format
+	# rather than hand-rolling emission, and the reason is the round trip:
+	# the manifest is the only artefact elc must also parse, so a
+	# hand-rolled writer paired with a library reader would be two
+	# implementations of one format with elc on both ends of the
+	# disagreement (doc/SDD.md §20.2.3). It brings nothing with it.
+	#
+	# What this list cannot see about it is the property that matters most:
+	# a manifest is read only from a path given on the command line, never
+	# discovered from the working directory, the target, an ancestor, or a
+	# dotfile (HLR-176). Linking a JSON parser is what makes that worth
+	# saying; the open-counting test below and the decoy case in
+	# test/fixtures/recover.bats are what hold it.
+	#
 	# Two libraries are deliberately *absent*, and this list is what
 	# noticed both.
 	#
@@ -106,7 +121,7 @@ setup() {
 	# instrumentation rather than a product dependency: it is absent from
 	# the binary `make all` produces and `make install` ships. Excluding
 	# them here would make the sanitized pass fail on its own scaffolding.
-	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libzstd|libbz2|liblzma|libelf|libdw|libigraph|libasan|libubsan|ld-linux|/lib64/ld-linux)'
+	local allowed='^(linux-vdso|libc|libm|libdl|libgcc_s|libstdc\+\+|libtree-sitter|libexpat|libgit2|libz|libzstd|libbz2|liblzma|libelf|libdw|libigraph|libjansson|libasan|libubsan|ld-linux|/lib64/ld-linux)'
 	while read -r line; do
 		[ -n "$line" ] || continue
 		local lib

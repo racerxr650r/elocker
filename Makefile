@@ -122,12 +122,21 @@ ELF_LIBS     ?= $(shell $(PKG_CONFIG) --libs libelf 2>/dev/null || echo -lelf)
 # HLR-141 and observed by test/instrumented/environment.bats.
 DW_CFLAGS    ?= $(shell $(PKG_CONFIG) --cflags libdw 2>/dev/null)
 DW_LIBS      ?= $(shell $(PKG_CONFIG) --libs libdw 2>/dev/null || echo -ldw)
+
+# Jansson reads and writes the purification manifest (HLR-175 - HLR-177). It
+# is the one place elc uses a library to *write* a format rather than
+# hand-rolling emission, and the exception is the round trip: the manifest is
+# the only artefact elc must also parse, and a hand-rolled writer paired with a
+# library reader would be two implementations of one format with elc on both
+# ends of the disagreement (doc/SDD.md §20.2.3).
+JANSSON_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags jansson 2>/dev/null)
+JANSSON_LIBS   ?= $(shell $(PKG_CONFIG) --libs jansson 2>/dev/null || echo -ljansson)
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
 # set before any include; they live here rather than in the .c files.
-CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS) $(DW_CFLAGS)
+CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS) $(DW_CFLAGS) $(JANSSON_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
-LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) $(ELF_LIBS) $(DW_LIBS) -lstdc++ -ldl
+LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) $(ELF_LIBS) $(DW_LIBS) $(JANSSON_LIBS) -lstdc++ -ldl
 
 # Flags the build requires whatever the caller chose, appended in the recipes
 # rather than folded into CFLAGS.
@@ -728,6 +737,16 @@ install: all
 	install -m 644 doc/User_Manual.md $(DESTDIR)$(PREFIX)/share/doc/elc/
 
 # -------------------------------------------------------------------- clean
+# Everything under $(BUILD) *except* the unpacked dependency sources, which
+# `prereqs-clean` removes and this target must not.
+#
+# Not fastidiousness about the division of labour: the prereq builds install
+# with sudo, and cmake writes its install manifest into the build directory as
+# root. `rm -rf $(BUILD)` therefore fails as the ordinary user who ran
+# `make prereqs`, and it fails *part way through* — which took `make asan` and
+# `make valgrind` with it, since both begin by cleaning. A target that cannot
+# run is worse than a slow one, and refetching a pinned tarball costs minutes
+# that this target has no business spending anyway.
 .PHONY: clean
 clean:
-	@rm -rf $(BUILD)
+	@rm -rf $(filter-out $(SRC_WORK),$(wildcard $(BUILD)/*))
