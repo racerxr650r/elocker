@@ -58,7 +58,7 @@ release readiness — is ready to start, and is the last.
 | [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | ✅ Complete |
 | [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
 | [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
-| [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
+| [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔄 Partial |
 | [18](#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
 | [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
 | [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
@@ -1520,6 +1520,24 @@ from §8.
 ```
 
 ### Phase 17 — Hardening and Release Readiness
+
+**Status: partial.** The engineering half landed in PR #45 on 2026-08-21 —
+`test/instrumented/sanitized.bats`, the nine error paths the re-run of the
+ordinary suites never reaches, and the decomposition pass that running `elc`
+over `src/` called for. The row above stayed "not started" through all of it,
+which is how Phase 23 came to open an issue describing the phase as untouched.
+
+What is left is the release half and one regression:
+
+*   `main` has never been created and nothing has been tagged.
+*   No test verifies `make install` against a staging root.
+*   **The self-quality bar has drifted.** PR #45 brought `elc`'s own source
+    under complexity 15; Phases 18 through 23 have since put 43 functions back
+    over it, eight of them from Phase 23 alone — `manifest_write` and
+    `build_proposal` at 30, twice the threshold this project holds others to.
+    A tool whose own source fails the standard it reports against is the one
+    kind of defect it cannot credibly report, which is why closing this phase
+    means bringing them back under rather than restating the number.
 
 1. Full sanitizer sweep across every fixture and target type, including every
    error path.
