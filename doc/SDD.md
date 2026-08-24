@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.16
-**Date:** 2026-08-22
+**Version:** 2.17
+**Date:** 2026-08-24
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -21,7 +21,7 @@ This document describes the design of the source modules that implement the high
 *   [src/analyze.c](../src/analyze.c): Per-file parsing and the single-parse extraction of ELOC, cyclomatic complexity, function identity, and the raw call and global-access facts the graph is later built from.
 *   [src/graph.c](../src/graph.c): System Dependence Graph construction: cross-file symbol resolution and population of the graph structure.
 *   [src/arch.c](../src/arch.c): Component-level analyses — coupling, instability, bottlenecks, dependency cycles, and architectural layering.
-*   [src/calltree.c](../src/calltree.c): Function-level call-tree analyses — fan-out, fan-in, the Henry-Kafura information-flow value, depth, the deepest call stack, and recursion detection.
+*   [src/calltree.c](../src/calltree.c): Function-level call-tree analyses — fan-out, fan-in, depth, the deepest call stack, and recursion detection.
 *   [src/state.c](../src/state.c): Global-state coupling, execution-scope isolation, and reachability-based dead-code detection.
 *   [src/thresholds.c](../src/thresholds.c): Evaluation of every measurement against its published threshold, and assignment of severity and attribution.
 *   [src/report.c](../src/report.c): The format-independent report model: assembly of every finding into one structure, in a stable, defined order.
@@ -723,7 +723,7 @@ The SDG is a **simple** directed graph: repeated calls from one function to the 
 *   **A diagnostic from inside the graph library** Its *error* handler is installed non-aborting, so every failure returns a code the caller checks (LLR-SDG-15). Its **warning** handler is separately installed to discard, and that is a different judgement rather than the same one twice. A warning is by definition a result the library still produced, and it is written to standard error naming one of the library's own source files and lines — `Warning at src/centrality/hub_authority.c:77` — which is not a diagnostic a user of `elc` can act on and not `elc`'s own, the only thing HLR-038 admits to that stream. The warnings that actually arise are properties of a call graph rather than faults: the hub-and-authority decomposition warns whenever a third of the scores are zero, which is true of every program whose functions include leaves.
 *   **Duplicate symbol definition** Recorded once with a diagnostic; the first definition in sorted file order wins, keeping resolution deterministic.
 
-    **The artefact reaches the information-flow metric raised to a power.** Where several files define a `static` helper of the same name, every call to that name resolves into the winning definition: it collects every caller's fan-in and the losing definitions collect none. Fan-in and fan-out are each wrong by that amount, and the Henry-Kafura value of HLR-157 multiplies the two and squares the product — so a fan-in overstated by a factor of three overstates the winner's Henry-Kafura value by a factor of nine, and understates each loser's to zero. A four-order-of-magnitude figure can therefore rest entirely on this, and the project total with it. The same imprecision is already recorded for reachability (§11) and for coupling (§9); it is worth stating a third time here because the squared term is what turns a modest resolution error into a dramatic-looking number, and because the metric is ordinal — a reader ranks functions by it, and this artefact moves one to the top of the ranking. Correcting it needs the type resolution the project does not perform; the diagnostic on standard error is what the report is read beside.
+    **The artefact reaches fan-in hardest, and fan-in is now banded.** Where several files define a `static` helper of the same name, every call to that name resolves into the winning definition: it collects every caller's fan-in and the losing definitions collect none. A helper called from three translation units therefore reports the fan-in of all three against one definition and zero against the others — and since HLR-186 draws a line at 25, a resolution error of that shape can put a function over it or hide one that is. The same imprecision is already recorded for reachability (§11) and for coupling (§9); it is worth stating a third time here because this is the measurement whose *finding* it can move rather than only its figure. Correcting it needs the type resolution the project does not perform; the diagnostic on standard error is what the report is read beside.
 
 ## 9. Detailed Design for [src/arch.c](../src/arch.c)
 
@@ -778,11 +778,10 @@ A call that both skips and inverts contributed one violation of each kind and is
 ## 10. Detailed Design for [src/calltree.c](../src/calltree.c)
 
 ### 10.1 Purpose and Responsibilities
-[src/calltree.c](../src/calltree.c) implements the function-level call-tree analyses: fan-out and its threshold classification, fan-in, the Henry-Kafura information-flow value formed from the two, maximum call depth, the deepest call stack in full, and recursion detection.
+[src/calltree.c](../src/calltree.c) implements the function-level call-tree analyses: fan-out and fan-in with their threshold classifications, maximum call depth, the deepest call stack in full, and recursion detection.
 
 *   Compute per-function fan-out and classify it against the published width thresholds.
 *   Compute per-function fan-in — the number of distinct functions that invoke it — over the call view alone (HLR-156).
-*   Compute each function's Henry-Kafura structural complexity from its ELOC and the two degrees, in an integer width no run overflows (HLR-157, HLR-158).
 *   Detect direct and mutual recursion among functions.
 *   Compute the maximum call depth from the declared entry points, and capture the ordered chain that achieves it.
 
@@ -795,13 +794,12 @@ A call that both skips and inverts contributed one violation of each kind and is
     *   Post-condition: Either a depth and a deepest chain are present, or the recursion list is non-empty and the depth is marked unbounded.
     *   Return Value: 0 on success.
     *   Logic:
-        1.  Compute out-degree and in-degree over the *call* edges per function node, in one pass: fan-out is the number of distinct subroutines a function invokes, fan-in the number of distinct functions that invoke it (HLR-085, HLR-156). One pass rather than two because they are the same traversal read from either end of each edge, and because a second traversal is a second place the `kind == EDGE_CALL` test could be forgotten. The classification of fan-out against the healthy, warning, and critical bands is `thresholds.c`'s (HLR-086 traces to Section 12); this module measures and does not judge, so that one catalogue of thresholds exists rather than one per analysis. Fan-in is never classified at all: no published source bands it.
-        2.  Form each function's Henry-Kafura value: `HK = ELOC × (Fan-In × Fan-Out)²`, taking ELOC from the node the graph already carries (HLR-157). **The widening happens before the multiplication, not at the assignment.** The product of two degrees fits in 32 bits comfortably and its square does not, so a 32-bit square assigned to a 64-bit variable has already wrapped by the time the assignment widens it — and a wrapped total renders as a perfectly ordinary number (HLR-158). Computed here rather than by a consumer so that one answer exists for the report, the record, and every renderer.
-        3.  Decompose the *call view* of the function graph into strongly connected components; every non-trivial one, and every self-loop, is a recursive cycle (HLR-089). The call view and not the whole SDG: a global-state edge joins a function that writes an object to one that reads it, and two functions sharing a variable in both directions form a cycle in the SDG that is not recursion. Reporting it as such would be a critical finding against MISRA C Rule 17.2 on ordinary code.
-        4.  If no entry points were declared, mark depth omitted and stop (HLR-115). If entry points were declared but none names an analysed function, mark depth omitted with a *different* reason and stop: "you declared nothing" and "what you declared is not in what you analysed" call for different actions from the reader, and a single omission message would send them to the wrong one. A symbol matching nothing is diagnosed and skipped rather than failing the run, since analysing one directory of a project whose entry point lives in another is ordinary.
-        5.  If any recursion was found, mark the depth unbounded, attach the recursive cycles, and stop — no finite deepest chain exists (HLR-090).
-        6.  Otherwise the graph is a DAG: compute the longest path from each entry point by memoised traversal in reverse topological order, retaining the predecessor of each node.
-        7.  Walk the retained successors out from the deepest entry point to reconstruct the ordered chain, and record it in full (HLR-088). A tie between two chains of equal length resolves to the lower node identifier, which is sorted-file order, so equal candidates always yield the same report (HLR-032).
+        1.  Compute out-degree and in-degree over the *call* edges per function node, in one pass: fan-out is the number of distinct subroutines a function invokes, fan-in the number of distinct functions that invoke it (HLR-085, HLR-156). One pass rather than two because they are the same traversal read from either end of each edge, and because a second traversal is a second place the `kind == EDGE_CALL` test could be forgotten. The classification of both degrees against their bands is `thresholds.c`'s (HLR-086 and HLR-186 trace to Section 12); this module measures and does not judge, so that one catalogue of thresholds exists rather than one per analysis. That separation matters more for fan-in than for fan-out: no published source bands fan-in, so the line drawn at 25 is `elc`'s own and has to sit beside the one other threshold `elc` invented, under the label that says so (HLR-099).
+        2.  Decompose the *call view* of the function graph into strongly connected components; every non-trivial one, and every self-loop, is a recursive cycle (HLR-089). The call view and not the whole SDG: a global-state edge joins a function that writes an object to one that reads it, and two functions sharing a variable in both directions form a cycle in the SDG that is not recursion. Reporting it as such would be a critical finding against MISRA C Rule 17.2 on ordinary code.
+        3.  If no entry points were declared, mark depth omitted and stop (HLR-115). If entry points were declared but none names an analysed function, mark depth omitted with a *different* reason and stop: "you declared nothing" and "what you declared is not in what you analysed" call for different actions from the reader, and a single omission message would send them to the wrong one. A symbol matching nothing is diagnosed and skipped rather than failing the run, since analysing one directory of a project whose entry point lives in another is ordinary.
+        4.  If any recursion was found, mark the depth unbounded, attach the recursive cycles, and stop — no finite deepest chain exists (HLR-090).
+        5.  Otherwise the graph is a DAG: compute the longest path from each entry point by memoised traversal in reverse topological order, retaining the predecessor of each node.
+        6.  Walk the retained successors out from the deepest entry point to reconstruct the ordered chain, and record it in full (HLR-088). A tie between two chains of equal length resolves to the lower node identifier, which is sorted-file order, so equal candidates always yield the same report (HLR-032).
     *   Notes: Establishing acyclicity before measuring depth is what makes the longest-path computation terminate; on a cyclic graph the question has no finite answer, which is precisely why MISRA C Rule 17.2 exists. The measured depth is a lower bound on true worst-case depth: a chain that continues through an unresolved indirect call is not followed. The report therefore presents the depth alongside the unresolved-call count of HLR-077, so the reader can judge how completely the graph covers the program.
 
 *   **`int longest_path_dag(const Sdg *g, const NodeSet *entries, Chain *out)`** — Memoised longest-path search with predecessor retention.
@@ -865,7 +863,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 *   Hold the threshold catalogue as a static table of measurement kind, band boundaries, severity, and citation.
 *   Classify each measurement into its band and emit a `Finding` when it falls outside the accepted range.
 *   Attribute every threshold to its external source, and mark `elc`'s own heuristics as such.
-*   Name the published source of a measurement the catalogue does not band, so that a citation and a threshold stay separate claims (HLR-157, HLR-159).
+*   Answer "is there a band for this kind, and where does this value fall in it" for a caller that needs the classification without a finding — the report's threshold listing (HLR-187).
 *   Be the only module that bands a measurement or names a source, so that the claim to carry no opinion is checkable by reading one table (HLR-099, HLR-111).
 *   Assign a severity as a *label*: it never reaches the exit status, and no finding carries remediation (HLR-100, HLR-101).
 
@@ -876,6 +874,8 @@ The hidden-channel test asks whether the functions touching a global fall into m
 | Measurement | Bands | Attribution |
 | ----------- | ----- | ----------- |
 | Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 warning; >15 critical | Henry–Kafura |
+| Function fan-in | ≤25 silent; >25 warning, with no critical band | **`elc` heuristic — not a published standard** |
+| Cyclomatic complexity | ≤10 silent; 11–15 warning; >15 critical | McCabe (NIST SP 500-235) |
 | Call depth | >8 warning; >12 critical, on stack-constrained targets | Embedded practice |
 | Recursion present | critical | MISRA C Rule 17.2 |
 | Component cycles | any occurrence critical | Martin / acyclic dependencies |
@@ -890,9 +890,13 @@ The fan-out bands are **exhaustive**: every value from 0 upward classifies exact
 
 The rows whose finding is their mere occurrence — recursion, a dependency cycle, a single-function global, a hidden channel — carry a fixed severity instead of bounds. There is no acceptable count of them.
 
-**One row is not a published standard**, and it says so in the text a reader sees. That label is the whole of what separates shipping MISRA and Martin values from having invented them, and it is asserted by a test that also checks no other row carries it (HLR-099).
+**Two rows are not published standards**, and both say so in the text a reader sees. That label is the whole of what separates shipping MISRA, Martin and McCabe values from having invented them, and it is asserted by a test that also checks the exact count, so a third cannot appear by drift (HLR-099).
 
-**Some measurements are cited and not banded, and they are held apart from this table.** The Henry-Kafura value of Section 20 is the case: the formula is Henry and Kafura's and must be attributed wherever it is reported (HLR-157), and no published source divides it into accepted and unaccepted ranges (HLR-159). A row here with empty bounds would not express that — `occurrence` false with both bounds zero is a *silent band*, every value passing, and `thresholds_lookup` would then answer "there is a threshold for this" to a caller asking precisely because there is not. The citation therefore lives in a second, smaller table that `threshold_attribution` consults after the catalogue, which leaves the catalogue holding only rows a reviewer can check against a published table, and leaves the unbanded measurement on the path Section 12.5 already provides for one.
+The complexity row is not one of them. 10 is McCabe's own limit and 15 the highest limit NIST SP 500-235 records as having been used successfully — and then only where an organisation has the review practices to justify it — so both numbers are somebody else's. It is deliberately independent of the value `--complexity-threshold` sets: that one governs a *listing* and carries no severity (HLR-023), and letting the user move it would be letting the user choose what McCabe says.
+
+The fan-in row is one of them, and has no critical band. `elc` has no published basis for a first line and none at all for a second, so it draws one and says whose it is.
+
+**A measurement the catalogue holds no row for has no band, and `thresholds_lookup` says so by answering NULL.** A row here with empty bounds would not express that — `occurrence` false with both bounds zero is a *silent band*, every value passing, and the lookup would then answer "there is a threshold for this" to a caller asking precisely because there is not. Every kind `elc` measures is banded today; the path exists for the next measurement that arrives without a published threshold behind it, and the Henry-Kafura value took it until Phase 24 withdrew the metric.
 
 
 
@@ -901,6 +905,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 
 *   **`int thresholds_apply(const ArchResults *arch, const TreeResults *tree, const StateResults *state, const Sdg *g, const ElcOptions *opts, FindingList *out)`** — Evaluate every measurement against the catalogue and emit findings.
 *   **`const Threshold *thresholds_lookup(MeasurementKind kind)`** — Return the catalogue entry for a measurement kind.
+*   **`bool thresholds_band(MeasurementKind kind, uint32_t value, Severity *out)`** — Band one counted measurement without building a finding, for the report's threshold listing.
 *   **`void findinglist_free(FindingList *f)`** — Release every finding and the detail string each owns.
 ### 12.4 Dependencies
 
@@ -908,7 +913,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 
 ### 12.5 Error Handling and Logging
 
-*   **Measurement with no catalogue entry** Reported as a bare value with no severity, rather than being silently dropped or assigned an invented band. The Henry-Kafura value is the first measurement to take this path deliberately and permanently: it will never have an entry, because no published source bands it (HLR-159).
+*   **Measurement with no catalogue entry** Reported as a bare value with no severity, rather than being silently dropped or assigned an invented band (HLR-098). Every kind `elc` measures is banded today; the path is what the next unbanded measurement will take, and what stops the temptation to invent a band for it.
 *   **Measurement that was not made** Not banded at all. A depth omitted for want of an entry point is not a depth of zero, and a value that does not exist cannot fall outside a range (HLR-115).
 *   **A critical finding** Not an error. The severity is a label within the report and leaves the exit status untouched, which stays reserved for the failure conditions of HLR-120 (HLR-100).
 
@@ -921,7 +926,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   Accumulate per-file metrics as the analysis stage produces them, growing the collection through a checked reallocation, and take ownership of them at assembly.
 *   Carry every computed architectural *measurement* into the model, not only those that crossed a threshold, so that a value lying within its accepted band is still reported.
 *   Compute the project summary, including the most-complex callouts with their tie-break rule.
-*   Apply the complexity threshold to produce each file's over-threshold function list.
+*   Produce the threshold listing: every function at or over the configured complexity threshold, united with every function a complexity, fan-in or fan-out band names, each carrying the highest band that named it (HLR-021, HLR-187).
 *   Sort every collection in the model by an explicit key before any renderer sees it.
 *   Record which analyses were omitted, and why.
 *   Resolve each dead-code span to its enclosing function by containment over the assembled model, rather than by the index the parse recorded against an array since reordered for presentation (LLR-RPT-28).
@@ -929,7 +934,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   Record the linked image a run was filtered by, the linkage names it could not resolve, the source functions it does not define, and the effective lines belonging to no function, so that a filtered figure is reported alongside the image that produced it (HLR-143, HLR-145, HLR-147).
 *   Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).
 *   Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).
-*   Sum the per-function Henry-Kafura values into the project total, in one function that both the live path and the record path call, so that the total *is* the sum of the rows rather than two implementations agreeing (HLR-158).
+*   Join the flow degrees onto the functions they describe, and rebuild the threshold listing over the joined result, in one function that both the live path and the record path call — so that the two cannot drift, and so that a listing which is a union over three measurements is not built before two of them exist (HLR-183, HLR-187).
 *   Define how a component's directory is derived from its path, in one function called at each of the two places a `FileMetrics` is constructed — the measurement of a source file and the reader that rebuilds a model from a record — so that every consumer reads one recorded answer rather than slicing the path for itself (HLR-160).
 *   Render the two conformance indices, and the complementary conforming proportion of each, into the model as text — "undefined" being one of their legitimate values, exactly as it is for Instability (HLR-162, HLR-163).
 
@@ -944,7 +949,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
     *   Logic:
         1.  Sum physical lines and ELOC across all files, both combined and per language (HLR-024, HLR-025). A language's row is created on first sight of a file written in it; the list holds one entry per language present, so a linear search costs less than the structure that would avoid it.
         2.  Select the highest-ELOC file and highest-complexity function, breaking ties by the stable presentation order (HLR-026). Both are chosen *after* the model is ordered, by scanning it and taking a new candidate only on a strictly greater value: scanning in presentation order and refusing to displace an equal value is what makes the winner whichever sorts first, and what makes the callout the same on every run.
-        3.  For each file, filter its functions by the complexity threshold into the over-threshold list, at or above rather than strictly above (HLR-021). The list is built here rather than filtered by a renderer: a renderer is a pure consumer, and a threshold applied at render time would be applied once per format and could differ between them. The threshold reaches nothing else — not a total, not a callout, and never the exit status (HLR-023).
+        3.  For each file, collect its functions into the threshold listing under two rules united into one list. A function whose complexity meets the configured threshold — at or above, rather than strictly above — is listed because the user asked for it, and carries no severity (HLR-021, HLR-023). A function whose complexity, fan-in or fan-out falls in a warning or critical band is listed because a threshold put it there, and carries the higher of the bands that named it (HLR-187). A function satisfying both appears once. The bands are read from `thresholds.c` rather than from constants of this module's own: that file is the only place a line is drawn, and a listing drawing its own would be a second opinion wearing the first's name (HLR-099). The list is built here rather than filtered by a renderer: a renderer is a pure consumer, and a threshold applied at render time would be applied once per format and could differ between them. The configured threshold reaches nothing else — not a total, not a callout, and never the exit status (HLR-023).
         4.  Attach the architectural findings, custom-rule matches, and omission notices.
         5.  Where an image was named, gather each file's absent functions into one list and sum the file-scope ELOC. The list is sorted on its own keys — file, then start line, then name — because a query match arrives in no source order, so without it the rows would carry the order the parser library happened to report them in (HLR-032, HLR-143).
         6.  Sort files by path; functions by start line and then by name; per-language totals by language name; skipped files by path; findings by (severity, kind, primary location); cycles by their lowest member; unreachable functions by (file, line) (HLR-033). The name is the tie-break for functions because two can share a start line — a nested function declared on the line its enclosing body opens — and `qsort` is not stable, so a comparator returning 0 there would leave their order to the implementation.
@@ -952,7 +957,7 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 
         `discover.c` also sorts, and the two are not redundant. Its sort exists so that de-duplication can collapse equal canonical paths, and so that the *analysis* order is not the filesystem's; this one exists so that *presentation* order is a property of the model. A later phase that changes how files are discovered therefore cannot silently change how they are presented.
 
-*   **`void report_total_henry_kafura(Report *r)`** — Sum the per-function Henry-Kafura values into the project total. One function rather than a line in each of the two paths that need it: a live run calls it once the flow rows are filled, and a run regenerating from a record calls it once they are restored, since the total cannot be derived from the per-file metrics `report_assemble` works over (HLR-158).
+*   **`int report_attach_flow(Report *r)`** — Join each flow row's fan-in and fan-out onto the function it describes — matched by file path, start line and name — neither half of the pair suffices, since two static functions in two translation units may share a name and a nested function shares a start line with the one enclosing it — and rebuild the threshold listing over the joined result. One function rather than a line in each of the two paths that need it: a live run calls it once the flow rows are filled from the graph, and a run regenerating from a record calls it once they are restored, since `report_assemble` works over per-file metrics that carry no degree (HLR-183, HLR-187). A row naming no function in the model is dropped rather than diagnosed: a live run cannot produce one, and a hand-written record describing a function it does not define is the record's defect rather than a reason to refuse the rest of it.
 *   **`int report_set_image(Report *r, const SymbolSet *image)`** — Record the image the run was filtered by and the number of its linkage names left unresolved. After assembly rather than within it, for the reason the unresolved-call count is: the image belongs to the run and is read before any file is measured, while the *effects* of the filter — which functions were omitted, and how much file-scope code remained — are properties of the measurement and are assembled with it (HLR-147).
 *   **`int metrics_add(MetricsAccumulator *acc, FileMetrics *m)`** — Append one file's metrics, taking ownership of them. Grows by doubling through a checked reallocation; on failure the accumulator is left intact and the caller still owns the metrics, so nothing is leaked and nothing is freed twice.
 *   **`void metrics_free(MetricsAccumulator *acc)`** — Release the accumulator and every FileMetrics it still owns.
@@ -971,7 +976,10 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 [src/format_text.c](../src/format_text.c) renders the report model in the two human-facing formats: the aligned ASCII table that is the default, and GitHub-Flavored Markdown.
 
 *   Compute column widths from the longest path and function name, and render the aligned table.
-*   Render every tier in the fixed order, so that the report has the same shape whatever the type of the target was (HLR-006).
+*   Render every tier in the fixed order of HLR-184, so that the report reaches the same sections whatever the type of the target was (HLR-006).
+*   Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).
+*   Present every per-function figure in one table — lines, ELOC, complexity, fan-in and fan-out — rather than in three tables enumerating the same functions (HLR-183).
+*   Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).
 *   Render Markdown with functions grouped under a per-file heading.
 *   Present every tier the uniform-composition rule requires, in both formats.
 *   Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).
@@ -986,6 +994,8 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
 *   **`int format_markdown(const Report *r, Verbosity verbosity, FILE *out)`** — Render GitHub-Flavored Markdown at the given verbosity.
 *   **`int render_report(const Report *r, Style style, Verbosity verbosity, FILE *out)`** — The one traversal both formats and both verbosities go through: walks the ordered section list once, emitting the tiers the verbosity selects in the decoration the style selects.
 *   **`void render_summary(const Report *r, FILE *out, Style style)`** — Shared project-summary rendering for both formats.
+*   **`static int grid_render(Grid *g, Style style, FILE *out, EmptyTables *empty)`** — Emit one tier's grid in the requested style and release it — or, where the grid has no rows, emit nothing and record its heading for the closing statement (HLR-188).
+*   **`static void empty_tables_section(const EmptyTables *empty, Style style, FILE *out)`** — The closing statement: the headings of the tables this run had nothing to put in, verbatim, so that a section omitted for want of a declaration still states its reason (HLR-189, HLR-115). Emitted whether or not anything was empty.
 
 #### 14.3.2 Parsing Strategy / Algorithm
 
@@ -1001,7 +1011,7 @@ The matrix is the one tier whose decoration is not a `Grid`. Its column count is
 
 The conformance tier tests the model rather than the state. `STRATA_MEASURED` is the zero of its enum, so a model carrying no rendered indices at all — a record written before they existed, or a report a test built by hand — would read as measured while holding nothing to print. A renderer is a pure consumer: it presents what the model has, not what the model's state implies it should have.
 
-The image-filter tier is split along the same boundary. `image_filter_section` presents the image and its two counts, which are the provenance of a filtered run and a summary tier; `absent_functions_section` presents the functions the image does not define, which is one row per function and a detail tier. The two are adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split (LLR-SUM-06).
+The image-filter tier is split along the same boundary. `image_filter_section` presents the image and its two counts, which are the provenance of a filtered run and a summary tier; `absent_functions_section` presents the functions the image does not define, which is one row per function and a detail tier. The provenance sits with the other summary tiers, where a reader meets it before the figures it qualifies; the list of absent functions is the **last** section of the report, because it is the longest table a filtered run produces and is consulted after the report rather than read through (HLR-184, LLR-SUM-06).
 
 Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
 
@@ -1037,9 +1047,19 @@ Files
 
 Each column is exactly as wide as its widest cell and no wider: the path column from the longest path, the numeric columns from the largest value.
 
-Every section is emitted whether or not it has rows. A heading with an empty body says "nothing here"; an absent heading is indistinguishable from a renderer that forgot, and would make the report's shape vary with its content — which is what HLR-006 forbids across target types and HLR-032 forbids across runs. A run that analysed nothing therefore renders every heading and every column rule, with no rows beneath them (HLR-066).
+**A section with no rows is not emitted, and the report closes by naming it.** The report used to emit every heading whether or not it had rows, on the reasoning that an absent heading is indistinguishable from a renderer that forgot. Thirty sections in, that reasoning had inverted: a run over a healthy tree printed a dozen headings with nothing under them, and the sections that did have something to say were what got lost. So `grid_render` records an empty grid's heading instead of printing it, and `empty_tables_section` names every one of them at the end (HLR-188, HLR-189) — which answers the original objection directly, in one place, by saying that the section was rendered and found nothing.
 
-Both renderers walk the identical model in the identical order and emit the identical tiers — project summary, per-file totals and over-threshold list, per-function detail, architectural measurements and findings, custom-rule matches — differing only in decoration. The traversal also emits the discovery route of each directory target (HLR-127) ahead of the per-file detail, so that a reader sees how a target was enumerated before seeing what it yielded. Sharing the traversal is what keeps HLR-031's uniform-composition guarantee true by construction rather than by parallel maintenance.
+The statement names them by their **full headings**, verbatim. Several of those headings carry the reason an analysis was omitted rather than measured, and HLR-115 requires that reason wherever the analysis is not; repeating the heading is what keeps it satisfied by the same words in both cases. The statement is emitted whether or not anything was empty, because a section that appears only sometimes is the problem it exists to solve.
+
+The shape guarantees survive intact, restated one level up. What HLR-006 fixes across target types and HLR-032 across runs is the set of sections the traversal *reaches* — printed where they found rows, named in the closing statement where they did not — rather than the sequence of headings printed. A run that analysed nothing therefore renders the project summary and a closing statement naming every other section (HLR-066).
+
+**The order is the reader's, not the pipeline's.** Every section but the first was appended as its analysis was built, and the result read in the order the tool was written: the findings — the one tier a reader is expected to act on — sat twenty-second, below six hundred rows they are not. HLR-182 puts them second, immediately after the project summary; nothing else needs to move for that, because a finding names its subject and its file, so it is read without the tables and the tables are found from it.
+
+After the Files tier the order is the reader's descent (HLR-184): component coupling, then the dependency cycles between components, then the threshold listing, then the function table, then the deepest call chain and recursion. Coupling before functions because a reader deciding where to look starts at the file everything depends on; the threshold listing before the function table because it is the short list the long one is read through; and the two whole-graph shapes last because they only mean anything once the functions are in view.
+
+**One function table where there were three.** `Functions` carried the lengths and the complexity, `Fan-out (distinct callees)` the out-degree, and `Information flow` the two degrees with a Henry-Kafura value formed from them — three tables enumerating the same functions in the same order, which is three chances to disagree about which functions exist and three places a reader had to look to answer one question about one function (HLR-183). The single table is driven by the file metrics rather than by the flow rows, and that choice is load-bearing: the flow rows exist only where a graph was built, and a table driven by them would report no functions at all on a run whose graph was not — which is exactly the run whose per-function figures a reader still wants.
+
+Both renderers walk the identical model in the identical order and emit the identical tiers, differing only in decoration. The traversal also emits the discovery route of each directory target (HLR-127) ahead of the per-file detail, so that a reader sees how a target was enumerated before seeing what it yielded. Sharing the traversal is what keeps HLR-031's uniform-composition guarantee true by construction rather than by parallel maintenance.
 
 ### 14.4 Dependencies
 
@@ -1092,6 +1112,8 @@ Every field passes through `write_field()` without exception. A C++ template sig
 A root `<elc-report format-version="N">` carrying `<summary>`, `<languages>`, `<files>` with nested `<function>` elements, `<skipped>`, `<architecture>` holding every graph finding and the two `<conformance>` rows, `<dsm>` holding the dependency matrix, `<custom-rules>`, and `<omissions>`. The format version is incremented whenever an element is removed or its meaning changes.
 
 It is **not** incremented when an element is added, because a reader ignores elements it does not recognise. That asymmetry is what makes a later phase's additions compatible with a record written today, and it is why an element that does not yet exist is absent rather than present and empty.
+
+The version is **2**. Phase 24 removed the `hk` attribute from `<fanout>` along with the metric it carried, which is the removal case rather than the addition one — so a record this build writes is rejected by a build reading version 1, and a version-1 record is rejected here rather than read with a field silently missing (HLR-061, HLR-058).
 
 #### 16.2.2 Reading What elc Did Not Write
 
@@ -1174,7 +1196,7 @@ GraphML is the only channel exposing the graph's *topology* — the rendered fin
 
 Nodes are emitted in ascending stable node-id order and each node's edges in ascending target-id order (LLR-DOT-04); every value is escaped per HLR-065.
 
-The Henry-Kafura value is deliberately **not** a key here. `eloc`, `fan-in` and `fan-out` are all three of its inputs, so an ingesting tool can form it exactly; exporting the value as well would put a second computation of it beside the one in `calltree.c`, and two places computing a figure are two places it can be computed differently (HLR-157, LLR-GML-05).
+No figure derived from those keys is exported beside them. A derived value carried in the export is a second place it can be computed, and an ingesting tool holding `eloc`, `complexity`, `fan-in` and `fan-out` can form whatever it wants from them exactly (LLR-GML-05).
 
 #### 17.2.2 Companion Artefact Naming
 
@@ -1689,6 +1711,7 @@ Each layer is named after the basename of the first directory in it, sanitised o
 | `end_line` | `uint32_t` | 1-based |
 | `eloc` | `uint32_t` | Executable statements attributed to this function only (HLR-068) |
 | `complexity` | `uint32_t` | 1 + decision points |
+| `fan_in, fan_out` | `uint32_t, uint32_t` | The flow degrees, attached to the function rather than kept in a table beside it (HLR-183). analyze.c cannot fill them — they are properties of the whole-project graph, not of one file's syntax — so they are zero until report_attach_flow runs, and zero is also the measured value for a function at either end of the call graph |
 | `node_id` | `uint32_t` | Index of this function's SDG node |
 *   **`FileMetrics`** (defined in [include/elc.h](../include/elc.h)) — Per-file totals and the functions the file defines.
 
@@ -1877,7 +1900,6 @@ Each layer is named after the basename of the first directory in it, sanitised o
 | `function_count` | `uint64_t` | Functions reported across the run |
 | `largest_file, largest_file_eloc` | `const char *, uint32_t` | The file with the highest file-level ELOC, borrowed from the model it was chosen from. NULL where the run analysed nothing (HLR-026, HLR-066) |
 | `most_complex, most_complex_file, most_complex_value` | `const char *, const char *, uint32_t` | The function with the highest cyclomatic complexity and the file defining it, both borrowed. Ties are broken by the stable presentation order, so the callout is a property of the report rather than of discovery order (HLR-026, HLR-032) |
-| `henry_kafura` | `uint64_t` | The project's combined Henry-Kafura complexity: the sum of the per-function values, never the formula applied to these totals — the metric is defined over one procedure's traffic and a project has no fan-in. Sixty-four bits because the squared term makes it grow far faster than any other figure here (HLR-158) |
 *   **`PathList`** (defined in [include/report.h](../include/report.h)) — A sorted, owned list of paths. Used for the files discovered but not analysed, so the report accounts for every discovered file (HLR-012).
 
     | Field | Type | Description |
@@ -1894,8 +1916,8 @@ Each layer is named after the basename of the first directory in it, sanitised o
 | `languages` | `LanguageList` | Each language's share of the totals, sorted by language name (HLR-025) |
 | `routes` | `RouteList` | Per directory target, whether it was enumerated from a repository or traversed from the filesystem (HLR-127) |
 | `unresolved_calls` | `size_t` | Call sites with no resolvable target, reported so graph completeness is visible (HLR-077) |
-| `over_threshold` | `ThresholdList` | The per-file listing of functions at or above the complexity threshold, built here rather than filtered by a renderer so every format lists the same functions (HLR-021) |
-| `fan_out, cycles, depth_state, depth, deepest` | `FanOutRow *, CycleRow *, DepthState, uint32_t, ChainRow *` | The call-tree measurements: one FanOutRow per function carrying its fan-out, fan-in, ELOC and Henry-Kafura value — each reported whether or not a threshold was crossed, and three of the four never banded at all — the recursive cycles, and the deepest chain in full with the state saying why a depth figure is absent (HLR-085, HLR-087 – HLR-090, HLR-156, HLR-157) |
+| `over_threshold` | `ThresholdList` | The per-file listing: every function at or above the configured complexity threshold, united with every function a complexity, fan-in or fan-out band names, each entry carrying the highest severity a band gave it and SEVERITY_INFO where the configured threshold alone put it there. Built here rather than filtered by a renderer so every format lists the same functions (HLR-021, HLR-023, HLR-187) |
+| `fan_out, cycles, depth_state, depth, deepest` | `FanOutRow *, CycleRow *, DepthState, uint32_t, ChainRow *` | The call-tree measurements: one FanOutRow per function carrying its fan-out, fan-in and ELOC — each reported whether or not a threshold was crossed — the recursive cycles, and the deepest chain in full with the state saying why a depth figure is absent. No human-readable report renders the rows directly since HLR-183; they carry the degrees from the graph to the per-function metrics and through the saved record (HLR-085, HLR-087 – HLR-090, HLR-156) |
 | `coupling, dep_cycles, strata_state, layering` | `CouplingRow *, CycleDependencyRow *, StrataState, LayeringRow *` | The component-level measurements: Ca, Ce and Instability per component, each dependency cycle with a concrete loop through it, and the layering findings with the state of that analysis (HLR-080 – HLR-083, HLR-118) |
 | `global_state, reach_state, unreachable, unreachable_globals, scope_state, cross_scope` | `GlobalStateRow *, ReachState, UnreachableRow *, char **, ScopeState, CrossScopeRow *` | The global-state and reachability measurements, each carrying the state that distinguishes a measurement from an analysis omitted for want of a declaration (HLR-091 – HLR-096, HLR-115) |
 | `back_call, skip_call` | `ConformanceRow` | The two conformance indices as the report presents them: the violations counted, the inter-layer call edges they are over, and both the index and its complementary conforming proportion as rendered text. Text because "undefined" is one of their legitimate values, exactly as it is for Instability, and a renderer choosing between a number and a word is a decision that would then be made four times (HLR-162, HLR-163) |
@@ -2039,9 +2061,12 @@ Each layer is named after the basename of the first directory in it, sanitised o
 | `ELC_FANOUT_HEALTHY_MAX` | 7 | Upper bound of the healthy fan-out band |
 | `ELC_FANOUT_WARNING` | 10 | Above this, weak abstraction is reported |
 | `ELC_FANOUT_CRITICAL` | 15 | Above this, a god function is reported |
+| `ELC_FANIN_WARNING` | 25 | Above this, a function is reported as an interface; elc's own heuristic, and labelled as one (HLR-186) |
+| `ELC_COMPLEXITY_WARNING` | 10 | McCabe's own limit; above it a warning (HLR-185) |
+| `ELC_COMPLEXITY_CRITICAL` | 15 | The highest limit NIST SP 500-235 records as workable; above it a critical finding. Independent of ELC_DEFAULT_COMPLEXITY_THRESHOLD, which governs a listing and no severity (HLR-023) |
 | `ELC_DEPTH_WARNING` | 8 | Call depth beyond which constrained targets are at risk |
 | `ELC_DEPTH_CRITICAL` | 12 | Call depth at which stack/heap collision is likely |
-| `ELC_XML_FORMAT_VERSION` | 1 | Record format identifier (HLR-061, HLR-058) |
+| `ELC_XML_FORMAT_VERSION` | 2 | Record format identifier; 2 since Phase 24 removed the hk attribute, which is the removal case the version counts (HLR-061, HLR-058) |
 | `ELC_MANIFEST_VERSION` | 1 | Purification manifest format identifier, so a manifest written by a later build is rejected rather than half-understood; declared in include/purify.h (HLR-175, HLR-176) |
 | `ELC_RUNTIME_DIR_ENV` | "ELC_RUNTIME_DIR" | Overrides the runtime location adjacent to the binary (HLR-059) |
 **Interception points for unit testing.** The STP mocks dependencies with GNU ld's `--wrap` rather than with a seam in `src/`. The canonical wrap targets per module are recorded here so that the Makefile's `-Wl,--wrap=` lists and the tests' `__wrap_` definitions have one source rather than two:

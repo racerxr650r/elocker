@@ -429,7 +429,7 @@ below is an analysis over that graph.
 | **Provable dead code** | Functions reported as unreachable are unreachable by graph reachability from the declared entry points and from every address-taken function — never a heuristic guess, never fooled by dead functions that call one another, and never claiming a callback or interrupt handler is dead merely because nothing calls it directly. |
 | **Determinism** | Repeated runs over the same tree produce byte-identical output. |
 | **Coverage** | Every requirement in [HLRs.md](HLRs.md) and [LLRs.md](LLRs.md) is bound to at least one test in [STP.md](STP.md), per [Traceability.md](Traceability.md). Coverage gaps are documented, not silent. |
-| **Self-quality** | `elc` run against its own source reports no function exceeding a cyclomatic complexity of 15. |
+| **Self-quality** | `elc` run against its own source reports no function exceeding a cyclomatic complexity of 15, and no critical finding beyond the recursion and fan-out ones already recorded. The §A.3 warning band at 10 is not part of this criterion: some sixty of `elc`'s own functions sit between 11 and 15, which is a known debt rather than a gate. |
 
 ## 9. Roadmap Themes
 
@@ -555,35 +555,30 @@ the call tree.
 
 The bands are exhaustive: every fan-out value falls in exactly one.
 
-**Structural complexity (the Henry–Kafura metric)**
+**Tree width the other way (function fan-in)**
 
-Fan-out alone weighs what a function calls and ignores what calls
-it, and effective lines of code weigh a function's size and ignore
-both. Henry and Kafura combine the three into one figure per
-procedure:
+| Range | Interpretation |
+| ----- | -------------- |
+| 0–25 | No finding. |
+| > 25 | **Warning** — a function this widely called is an interface, and can no longer be changed without changing its callers. |
 
-> `HK = Length × (Fan-In × Fan-Out)²`
+**This band is `elc`'s own and is labelled as such wherever it is
+reported.** No published source divides fan-in into accepted and
+unaccepted ranges; 25 is this project's judgement, and it sits beside
+the bottleneck heuristic of §A.1 under the same words — *elc
+heuristic — not a published standard*. There is no critical band,
+because `elc` has no published basis for a first line and none
+whatever for a second.
 
-`elc` reports it per function and summed across the project, taking
-**Length** to be the function's ELOC so that the figure is
-comparable with every other length in the report.
-
-Unlike the bands above, this metric carries **no threshold**. No
-published source divides it into accepted and unaccepted ranges, so
-`elc` reports the value and attaches no severity to it. Every other
-figure in this appendix is banded on someone else's published
-authority; inventing a band for this one would put an opinion of
-`elc`'s own beside them under a name — Henry–Kafura — that reads as
-a citation. Two properties of the formula are reported alongside it,
-because a reader who does not know them will misread the number:
-
-*   **A function at either end of the call graph scores zero.** The
-    product term vanishes when fan-in or fan-out is zero, so an
-    entry point and a leaf both score nothing whatever their length.
-*   **The figure is ordinal, not absolute.** The squared term
-    separates values by orders of magnitude, so it ranks functions
-    against each other within one project and means nothing compared
-    across projects.
+*The Henry–Kafura structural-complexity metric,
+`HK = Length × (Fan-In × Fan-Out)²`, was reported here per function
+and summed across the project until Phase 24 withdrew it. No
+published source bands it, so `elc` reported it with no severity —
+and in practice readers took an unbanded four-order-of-magnitude
+figure for a score anyway. The two degrees it was formed from are
+reported as they are measured, side by side with each function's
+ELOC and complexity in one table, and each is now banded on a stated
+authority.*
 
 **Tree height (call-chain depth)**
 
@@ -605,7 +600,28 @@ because a reader who does not know them will misread the number:
     property above, that cycle is reported in place of an unbounded
     depth.
 
-### A.3 Strict DAG Validation (Circular Dependencies)
+### A.3 Cyclomatic Complexity
+
+McCabe's measure counts the linearly independent paths through a
+function, and is the figure `elc` computes per function alongside its
+effective lines.
+
+| Range | Interpretation |
+| ----- | -------------- |
+| 1–10 | No finding. McCabe's own recommended limit. |
+| 11–15 | **Warning.** NIST SP 500-235 records limits as high as 15 as having been used successfully — but only where an organisation has the design, review, and test practices to justify going past 10. |
+| > 15 | **Critical.** Beyond the range any published source reports as workable; the function has more independent paths than a test suite is likely to cover. |
+
+The bands are exhaustive, and both numbers are somebody else's.
+
+They are deliberately **independent of the
+`--complexity-threshold` option**,
+which controls which functions are *listed* and carries no severity
+(§7.1). A user who moves that value is choosing what they want to
+see; if moving it also moved a severity, the number would be theirs
+rather than McCabe's and the attribution above would be false.
+
+### A.4 Strict DAG Validation (Circular Dependencies)
 
 Graph reachability and topological sorting enforce a unidirectional
 flow of dependencies.
@@ -617,7 +633,7 @@ flow of dependencies.
     link them incrementally.
 *   Any cycle is therefore reported at **critical** severity.
 
-### A.4 Global State and Temporal Coupling
+### A.5 Global State and Temporal Coupling
 
 Tracking global-variable mutations across the SDG enforces safe data
 flow and encapsulation, following **MISRA C Rule 8.9** — *an object

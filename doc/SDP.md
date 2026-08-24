@@ -65,6 +65,7 @@ release readiness — is ready to start, and is the last.
 | [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
+| [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, complexity and fan-in bands | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -415,7 +416,7 @@ No release is cut before Phase 16. From then on:
    `develop` is the default branch until then.
 2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release is
    `v0.1.0`.** Feature completeness is not the thing the major version
-   promises — all 24 phases have shipped and the gap list is empty, and the
+   promises — all 25 phases have shipped and the gap list is empty, and the
    number still says the *command-line interface* is not yet fixed. Two
    contracts are already stable regardless, and are stable because a
    requirement says so rather than because a version number implies it:
@@ -2284,6 +2285,106 @@ Watch for:
 The gap baseline is re-derived from the figure this phase inherits rather
 than projected forward: read `test/gap-baseline.txt`, and the six HLRs this
 phase closes must bring it six lower. Phase 22 left it at 134.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push. Close by opening the issue for Phase 24 from §8.
+```
+
+### Phase 24 — Report Composition and the Banded Function Table
+
+The report grew one section per analysis and reads in the order it was built.
+This phase re-orders it for the reader, folds the three per-function tables
+into one, withdraws the one metric that was reported without a band, bands the
+two measurements that should have had one, and stops printing tables with
+nothing in them.
+
+1. `format_text.c`: the findings move to second place, immediately after the
+   project summary. Everything after `Files` is re-ordered — component
+   coupling, component dependency cycles, the threshold listing, the function
+   table, the deepest call chain, recursion — so a reader descends from the
+   component to the function rather than climbing back out of it.
+2. `Functions`, `Fan-out (distinct callees)` and `Information flow` become one
+   table carrying File, Function, Lines, ELOC, Complexity, Fan-in and Fan-out
+   (HLR-183). Three tables enumerating the same functions in the same order
+   were three chances to disagree about which functions exist.
+3. Henry–Kafura is withdrawn per function and per project. HLR-157, HLR-158
+   and HLR-159 are retired, `calltree.c` stops computing it, the `hk`
+   attribute leaves the XML record, and `ELC_XML_FORMAT_VERSION` becomes 2 —
+   an element was removed, which is exactly what that constant counts
+   (HLR-061).
+4. `thresholds.c` gains two catalogue rows: cyclomatic complexity, warning
+   above 10 and critical above 15 on McCabe's authority as NIST SP 500-235
+   records it; and fan-in, warning above 25 on `elc`'s own, carrying the
+   `ELC_OWN_HEURISTIC` label the bottleneck row carries (HLR-185, HLR-186).
+5. The threshold listing becomes the listing of every function a band names —
+   complexity, fan-in, or fan-out — united with the functions at or over the
+   configured complexity threshold, which `--complexity-threshold` still governs
+   (HLR-187).
+6. A table with no rows is not printed, and a closing statement names the ones
+   that were empty (HLR-188, HLR-189). The statement names them by their full
+   heading, so a section omitted for want of a user declaration still carries
+   its reason where HLR-115 requires one.
+
+**Requirements:** HLR-182 – HLR-189, amendments to HLR-021, HLR-031, HLR-061,
+HLR-086, HLR-098, HLR-150 and HLR-151, and the retirement of HLR-157 –
+HLR-159.
+
+**Acceptance:** `elc src/` prints the summary, then the findings, then the
+sections in the order above. No report in any format reports a Henry–Kafura
+figure, while the fan-out band keeps its Henry–Kafura attribution. A record
+this build writes is rejected by a build reading version 1, and the converse.
+A function of complexity 11 warns, one of 16 is critical, one with a fan-in of
+26 warns, and each appears in the threshold listing. A fixture with no
+recursion prints no `Recursion` table and names it in the closing statement.
+`make test`, `make asan` and `make valgrind` are clean, `lint_project.py`
+reports 0 errors, and `test/gap-baseline.txt` is still 0.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 24 — Report Composition and the Banded Function Table**,
+tracked by issue #<N>.
+
+Read first: `doc/SDD.md` §13 (`report.c`), §14 (`format_text.c`) and §12
+(`thresholds.c`); HLR-182 through HLR-189; and PVD Appendix A, which this
+phase edits — the Henry–Kafura subsection goes from A.2, a fan-in band takes
+its place, and a new A.3 carries the complexity bands.
+
+Watch for:
+* **A retired identifier is never reused.** HLR-157 through HLR-159 leave
+  `Project.xml` along with the LLRs and tests that traced to them, and the
+  numbers stay gone — `HLR-042` is the precedent.
+* **The two new bands are not the same kind of claim.** Complexity is
+  published and cited; fan-in is `elc`'s own and must carry
+  `ELC_OWN_HEURISTIC` wherever it is reported (HLR-099). Presenting an
+  invented band beside MISRA and Martin without saying so is the one thing
+  the catalogue exists to prevent — and it is what withdrawing Henry–Kafura
+  is *for*, so do not trade one unlabelled opinion for another.
+* **Every sort still lives in `report.c`.** The combined function table is
+  one table over the model's own file and function order; do not sort in the
+  renderer to get the columns to line up.
+* **The function table must list every function**, whether or not the graph
+  has a node for it. Drive it from the file metrics and attach the flow
+  figures to them, rather than driving it from the flow rows — a run whose
+  graph was not built would otherwise report no functions at all.
+* **Both paths that assemble a model must attach the flow figures**: the live
+  run and the regeneration in `format_xml.c`. The threshold listing is
+  rebuilt after they are attached, or it is a complexity listing wearing the
+  new heading.
+* **An omitted section is not an empty one.** A table omitted for want of a
+  `--stratum` or `--scope` declaration still has to state its reason
+  (HLR-115); naming it by its full heading in the closing statement is what
+  keeps that true once the heading itself is no longer printed.
+* **The record version is a removal counter.** Bump it, and check that both
+  directions are rejected — a new build reading an old record and an old
+  build reading a new one.
+
+The gap baseline is 0 and must stay 0: every new HLR needs an LLR and a
+catalogued test in this same change, and every test that traced to a retired
+requirement is removed with it.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

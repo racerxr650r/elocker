@@ -146,49 +146,20 @@ which is a measurement rather than a finding \(em an entry point, an exported
 API boundary and an interrupt handler reached from a vector table all
 legitimately have none.
 .PP
-.B Henry\-Kafura structural complexity
-weighs a function's size by the traffic passing through it rather than by
-either alone:
-.PP
-.RS 4
-.I "HK = ELOC \(mu (Fan\-In \(mu Fan\-Out)\(ha2"
-.RE
-.PP
-It is reported per function and summed across the project, the total appearing
-among the project totals in the summary. ELOC is the length used so that the
-figure is comparable with every other length in the report.
-.PP
-The metric carries
-.B no threshold
-and no severity. No published source divides it into accepted and unaccepted
-ranges, and
-.B elc
-does not invent one \(em the more firmly for a metric whose name reads as a
-citation. Two properties of the formula must be known to read the figure:
-.RS 4
-.IP \(bu 2
-.B A function at either end of the call graph scores zero.
-The product term vanishes when fan-in or fan-out is zero, so an entry point
-that calls widely and a leaf that is widely called both score nothing whatever
-their length. That
-.B 0
-is a value, not an absence of code, and not the
-.B undefined
-that Instability reports below for its own vanishing inputs.
-.IP \(bu 2
-.B The figure is ordinal, not absolute.
-The squared term separates values by orders of magnitude, so it ranks
-functions against one another within one project and means nothing compared
-across projects.
-.RE
-.PP
-Both are properties of the published metric rather than of this
-implementation, and neither is a defect to be corrected. Note also that
-because calls resolve by name, a
+A fan-in above
+.B 25
+is reported as a
+.BR warning :
+a function this widely called is an interface, and can no longer be changed
+without changing its callers. There is no critical band.
+.B This threshold is elc's own
+and its rows say so \(em no published source divides fan-in into accepted and
+unaccepted ranges, so 25 is a judgement rather than a citation, and it carries
+the same label the bottleneck heuristic carries. Note also that because calls
+resolve by name, a
 .B static
 helper defined in several files gives the winning definition every caller's
-fan-in and the losers none \(em and the squared term magnifies that error
-rather than passing it through.
+fan-in and the losers none.
 .PP
 .B Recursion
 is detected statically, direct and mutual alike, in accordance with MISRA C
@@ -918,15 +889,34 @@ section judges, and it is the only part of
 that does. Each row states what was measured, where, how far outside the
 accepted range it fell, and
 .I which published source draws that line
-\(em MISRA C and its rule number, Robert C. Martin, or the Henry-Kafura
-information-flow metrics.
+\(em MISRA C and its rule number, Robert C. Martin, McCabe as NIST SP 500-235
+records him, or the Henry-Kafura information-flow metrics.
 .PP
-Exactly one threshold is
+Exactly two thresholds are
 .BR elc 's
-own rather than a published standard, the bottleneck of
-.BR \-\-bottleneck\-threshold ,
-and its rows say so where they are read. That label is what lets a reader tell
-a standard from a choice.
+own rather than published standards \(em the bottleneck of
+.B \-\-bottleneck\-threshold
+and the fan-in band \(em and their rows say so where they are read. That label
+is what lets a reader tell a standard from a choice.
+.PP
+.B Cyclomatic complexity
+is banded on McCabe's authority: 10 or below produces no finding, 11 to 15
+warns, and above 15 is critical. 10 is McCabe's own recommended limit, and 15
+the highest limit NIST SP 500-235 records as having been used successfully \(em
+and then only where an organisation has the design, review and test practices
+to justify going past 10. These bands are
+.I independent
+of
+.BR \-\-complexity\-threshold ,
+which governs which functions are
+.I listed
+and carries no severity: a user who moved a severity by moving that option
+would be choosing what McCabe says.
+.PP
+.B Fan-in
+warns above 25 and has no critical band; the threshold is
+.BR elc 's
+own, as above.
 .PP
 The fan-out bands are
 .BR exhaustive :
@@ -1003,8 +993,10 @@ diagnostic text.
 The default format is an aligned table in tiers, and by default it presents
 the summary tiers alone \(em see
 .B REPORT VERBOSITY
-below for which those are. Every section a given verbosity reaches is emitted
-whether or not it has rows. The example below is of a
+below for which those are. A section with no rows is not emitted at all; the
+report closes with a
+.B Nothing to report
+statement naming every one that was empty. The example below is of a
 .B \-\-verbose
 run and is abridged. Column widths are taken from the longest value in each
 column so the figures line up:
@@ -1040,21 +1032,47 @@ Files
   /home/u/proj/src/a.c  c            18    12          2
   /home/u/proj/src/b.c  c            24     6          1
 
-Functions
-  File                  Function    Lines  ELOC  Complexity
-  --------------------  ----------  -----  ----  ----------
-  /home/u/proj/src/a.c  parse        5-19     9           7
-  /home/u/proj/src/a.c  emit        21-24     3           1
-  /home/u/proj/src/b.c  main         3-11     6           2
+At or over a threshold (complexity listed at 5; complexity, fan-in and fan-out banded)
+  File                  Function  Complexity  Fan-in  Fan-out  Severity
+  --------------------  --------  ----------  ------  -------  --------
+  /home/u/proj/src/a.c  parse              7       1        2
 
-At or over the complexity threshold (5)
-  File                  Function  Complexity
-  --------------------  --------  ----------
-  /home/u/proj/src/a.c  parse              7
+Functions
+  File                  Function    Lines  ELOC  Complexity  Fan-in  Fan-out
+  --------------------  ----------  -----  ----  ----------  ------  -------
+  /home/u/proj/src/a.c  parse        5-19     9           7       1        2
+  /home/u/proj/src/a.c  emit        21-24     3           1       1        0
+  /home/u/proj/src/b.c  main         3-11     6           2       0        1
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
+
+Nothing to report
+  4 tables above were empty and omitted:
+    - Component dependency cycles
+    - Recursion
+    - Deepest call chain (omitted: no entry points declared, see --entry)
+    - Layering (omitted: no architectural strata declared, see --stratum)
 .EE
+.PP
+The order is the reader's, not the pipeline's. The
+.B Findings
+section \(em omitted from the abridged example above, which has none \(em
+follows the project summary immediately, ahead of every table that supplies
+its evidence. After the
+.B Files
+tier the order is component coupling, component dependency cycles, the
+threshold listing, the function table, the deepest call chain, and recursion:
+a descent from the component, through the functions a threshold named, to
+every function, and then to the two whole-graph shapes that mean nothing until
+the functions are in view.
+.PP
+There is
+.I one
+per-function table. Its columns are the function's line range, its effective
+lines, its cyclomatic complexity, and its two degrees. Earlier releases split
+these across three tables enumerating the same functions in the same order,
+which was three places to look to answer one question about one function.
 .PP
 A function's line range runs from its signature to the end of its body. A
 named function declared inside another is reported in its own right rather
@@ -1064,21 +1082,30 @@ A file's ELOC may exceed the sum of its functions': a statement outside every
 function — an initialised global, say — counts for the file and for no
 function. It may also fall below that sum, where two functions share a line.
 .PP
-Every section is emitted whether or not it has rows, so the report has the
-same shape whatever the target held. Files are listed by canonical absolute
+A section with no rows is not emitted, and the closing
+.B Nothing to report
+statement names every one that was, by its full heading \(em so a section
+omitted for want of a
+.B \-\-stratum
+or
+.B \-\-entry
+declaration still states why. The statement is present whether or not anything
+was empty: a section that appeared only sometimes would itself be a signal.
+Files are listed by canonical absolute
 path in ascending byte order, and functions within a file in start-line
 order. That
 order is a property of the report rather than of the filesystem, so two runs
 over the same tree produce byte-identical output, and so do two runs that
 name the same targets in a different order.
 .PP
-A run in which no file was found still produces this report, with zero totals
-and an empty table, and exits successfully. Silence would be
-indistinguishable from a failure.
+A run in which no file was found still produces this report \(em zero totals,
+then a closing statement naming every table there was nothing to put in \(em
+and exits successfully. Silence would be indistinguishable from a failure.
 .PP
 The shape of the report does not vary with the type of the target: a single
-file, a plain directory, and a repository all produce the same headings and
-the same columns.
+file, a plain directory, and a repository all reach the same sections with the
+same columns. Which of them are printed and which are named as empty is a
+property of what a run found, not of what kind of target it was given.
 .SH REPORT VERBOSITY
 A report is presented at one of two verbosities. The default is the
 .IR summary ,
@@ -1103,7 +1130,14 @@ edge, per custom\-rule match \(em is a detail tier.
 The summary tiers, in the order they are presented:
 .RS
 .IP \(bu 2
-Project summary, and the project\-wide callouts.
+Project summary.
+.IP \(bu 2
+Findings \(em every measurement that crossed a published line, ranked by
+severity. They come second, ahead of every table that supplies their
+evidence: the summary keeps them deliberately, since a summary that dropped
+the one section you act on would be shorter and useless.
+.IP \(bu 2
+Callouts \(em the project\-wide largest and most complex.
 .IP \(bu 2
 Discovery \(em the route applied to each directory target.
 .IP \(bu 2
@@ -1111,7 +1145,9 @@ Languages \(em the totals broken down by language.
 .IP \(bu 2
 Files \(em each file's own totals.
 .IP \(bu 2
-At or over the complexity threshold \(em the per\-file threshold listing.
+At or over a threshold \(em the threshold listing: every function at or over
+the configured complexity threshold, together with every function a
+complexity, fan\-in or fan\-out band names.
 .IP \(bu 2
 Any analysis omitted for want of a declaration, with its reason. The section
 carrying the notice is a detail tier, but the notice itself is not: an
@@ -1120,10 +1156,6 @@ verbosity.
 .IP \(bu 2
 Architecture conformance \(em the two violation indices, which are
 project\-level aggregates rather than one row per anything.
-.IP \(bu 2
-Findings \(em every measurement that crossed a published line, ranked by
-severity. The summary keeps these deliberately: a summary that dropped the
-one section you act on would be shorter and useless.
 .IP \(bu 2
 Conditional\-compilation definitions \(em the configuration in force.
 .IP \(bu 2
@@ -1139,12 +1171,13 @@ The detail tiers, presented only with
 .BR \-\-verbose :
 .RS
 .IP \(bu 2
-Functions \(em one row per analysed function.
+Functions \(em one row per analysed function, carrying its line range, ELOC,
+cyclomatic complexity, fan\-in and fan\-out.
 .IP \(bu 2
-Fan\-out, recursion, the deepest call chain, component coupling, component
-dependency cycles, and layering \(em the measurements taken over the
-dependence graph, one row per entity. Every one of these that crossed a
-published line is a finding, and the findings are in the summary.
+Recursion, the deepest call chain, component coupling, component dependency
+cycles, and layering \(em the measurements taken over the dependence graph,
+one row per entity. Every one of these that crossed a published line is a
+finding, and the findings are in the summary.
 .IP \(bu 2
 The dependency structure matrix \(em one row per layer or per directory.
 .IP \(bu 2
@@ -1158,15 +1191,23 @@ Unreachable functions, and dead code within functions.
 .IP \(bu 2
 Cross\-scope access.
 .IP \(bu 2
-The functions a linked image does not define.
-.IP \(bu 2
 Custom rule matches.
 .RE
 .PP
-The verbose report is exactly what
-.B elc
-presented before the summary became the default: the option is a restoration
-rather than a new format to learn.
+The functions a linked image does not define are a detail tier too, and are
+the
+.B last
+section of the report. It is the longest table a filtered run produces, and it
+answers a question asked after reading the report rather than one the report is
+read to answer. The image itself stays among the summary tiers, where a reader
+meets it before the figures it qualifies.
+.PP
+A tier a verbosity reaches but which found no rows is not printed; it is
+named in the closing
+.B Nothing to report
+statement instead. A tier a verbosity filtered out appears in neither place,
+which is how a run that found nothing is told apart from a run that did not
+look.
 .PP
 Verbosity governs presentation and nothing else. It changes no measurement,
 no finding, no severity, and not the exit status; a value absent from a
@@ -1611,9 +1652,8 @@ No measurement, finding, or artefact
 .B elc
 reports anywhere else is computed over a masked graph. Fan\-out, fan\-in, call
 depth, recursion, coupling, Instability, dependency cycles, reachability, the
-conformance indices, every cell of the dependency structure matrix, and the
-Henry\-Kafura values are each exactly what they would be had no purification
-run. A masked utility sink still reports the fan\-in every one of its callers
+conformance indices, and every cell of the dependency structure matrix are
+each exactly what they would be had no purification run. A masked utility sink still reports the fan\-in every one of its callers
 gives it. Changing a purification threshold moves no number in the report but
 the ones inside this one section.
 .PP
