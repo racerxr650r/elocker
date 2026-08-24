@@ -206,7 +206,7 @@ static int by_absent(const void *a, const void *b)
 
 /* Add one function to the per-file threshold listing. */
 static int threshold_add(ThresholdList *list, const char *file,
-                         const FunctionMetric *function)
+                         const FunctionMetric *function, Severity severity)
 {
 	if (list->count == list->capacity) {
 		size_t          next   = list->capacity ? list->capacity * 2 : 8;
@@ -223,6 +223,7 @@ static int threshold_add(ThresholdList *list, const char *file,
 
 	list->items[list->count].file     = file;
 	list->items[list->count].function = function;
+	list->items[list->count].severity = severity;
 	list->count++;
 	return 0;
 }
@@ -345,19 +346,60 @@ static void order_collections(Report *out)
 		      sizeof *out->routes.items, by_route_target);
 }
 
-/* The functions at or over the threshold, read from the model *after* it is
- * ordered so the listing comes out in presentation order (HLR-021). */
+/* The severity a function's own measurements put it in, or SEVERITY_INFO
+ * where all three sit inside their accepted bands.
+ *
+ * The bands are read from the catalogue rather than from constants of this
+ * module's own: `thresholds.c` is the only place a line is drawn, and a
+ * listing that drew its own would be a second opinion wearing the first's
+ * name (HLR-099, HLR-185, HLR-186).
+ */
+static Severity function_severity(const FunctionMetric *fn)
+{
+	static const MeasurementKind KINDS[] = {
+		MEASURE_COMPLEXITY, MEASURE_FAN_IN, MEASURE_FAN_OUT
+	};
+	Severity worst = SEVERITY_INFO;
+
+	for (size_t k = 0; k < sizeof KINDS / sizeof *KINDS; k++) {
+		uint32_t value = KINDS[k] == MEASURE_COMPLEXITY
+		                     ? fn->complexity
+		                     : KINDS[k] == MEASURE_FAN_IN ? fn->fan_in
+		                                                  : fn->fan_out;
+		Severity band;
+
+		if (!thresholds_band(KINDS[k], value, &band))
+			continue;
+		if (band > worst)
+			worst = band;
+	}
+	return worst;
+}
+
+/* The listed functions, read from the model *after* it is ordered so the
+ * listing comes out in presentation order (HLR-021).
+ *
+ * Two rules unite into one list. A function whose complexity met the value
+ * `--complexity-threshold` sets is listed because the user asked for it,
+ * carrying no severity (HLR-023). A function any band names is listed because
+ * a published threshold — or, for fan-in, one `elc` says is its own — put it
+ * there (HLR-187). A function satisfying both appears once, at the severity the
+ * band gave it.
+ */
 static int collect_over_threshold(Report *out)
 {
 	for (size_t i = 0; i < out->file_count; i++) {
 		const FileMetrics *file = out->files[i];
 
 		for (size_t j = 0; j < file->function_count; j++) {
-			if (file->functions[j].complexity <
-			    out->complexity_threshold)
+			const FunctionMetric *fn = &file->functions[j];
+			Severity severity = function_severity(fn);
+
+			if (severity == SEVERITY_INFO &&
+			    fn->complexity < out->complexity_threshold)
 				continue;
 			if (threshold_add(&out->over_threshold, file->path,
-			                  &file->functions[j]) != 0)
+			                  fn, severity) != 0)
 				return -1;
 		}
 	}
@@ -471,8 +513,8 @@ int report_set_image(Report *report, const SymbolSet *image)
 	return 0;
 }
 
-/* One row per function: its fan-out, its fan-in, and the information-flow
- * figure derived from the two.
+/* One row per function: its fan-out and its fan-in, carried out of the graph
+ * so the report and the record outlive it.
  */
 static int set_flow_rows(Report *report, const TreeResults *tree, const Sdg *g)
 {
@@ -488,16 +530,13 @@ static int set_flow_rows(Report *report, const TreeResults *tree, const Sdg *g)
 		row->file     = strdup(g->nodes[i].file);
 		if (!row->function || !row->file)
 			return -1;
-		row->line         = g->nodes[i].line_start;
-		row->fan_out      = tree->fan_out[i];
-		row->fan_in       = tree->fan_in ? tree->fan_in[i] : 0;
-		row->eloc         = g->nodes[i].eloc;
-		row->henry_kafura = tree->henry_kafura ? tree->henry_kafura[i]
-		                                       : 0;
+		row->line    = g->nodes[i].line_start;
+		row->fan_out = tree->fan_out[i];
+		row->fan_in  = tree->fan_in ? tree->fan_in[i] : 0;
+		row->eloc    = g->nodes[i].eloc;
 		report->fan_out_count++;
 	}
 
-	report_total_henry_kafura(report);
 	return 0;
 }
 
@@ -589,23 +628,96 @@ void report_set_unresolved(Report *report, size_t unresolved)
 	report->unresolved_calls = unresolved;
 }
 
-/* The project total, summed from the rows rather than recomputed from the
- * formula. Applying the formula to project-level aggregates would multiply a
- * length by a connectivity no procedure has, which is a different number
- * bearing the same name (HLR-158).
+/* The function at one start line within one file, disambiguated by name.
  *
- * The accumulator is 64 bits and so is each term; a project of a hundred
- * thousand functions each at the eighty-million figure HLR-158 uses as its
- * illustration still sums to under 2^43.
+ * A start line is not unique on its own: a nested function declared on the
+ * line its enclosing body opens shares one with it, which is why `report.c`
+ * already sorts functions by start line *and then by name*. So the search
+ * finds the block of functions at that line and picks the one bearing the
+ * name — the pair is what identifies a definition, and neither half suffices.
  */
-void report_total_henry_kafura(Report *report)
+static FunctionMetric *function_named_at(FileMetrics *fm, const char *name,
+                                         uint32_t line)
+{
+	size_t lo = 0;
+	size_t hi = fm->function_count;
+
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo) / 2;
+
+		if (fm->functions[mid].start_line < line)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+
+	for (size_t i = lo;
+	     i < fm->function_count && fm->functions[i].start_line == line; i++)
+		if (strcmp(fm->functions[i].name, name) == 0)
+			return &fm->functions[i];
+
+	return NULL;
+}
+
+/* Locate the function a flow row describes.
+ *
+ * By file path and start line, not by name alone: two static functions in two
+ * translation units may share a name, and where a definition is written is
+ * what identifies it. The files are sorted by path, so this search is binary
+ * too — which matters because it runs once per function over a project's
+ * whole function set.
+ */
+static FunctionMetric *function_at(Report *report, const char *file,
+                                   const char *name, uint32_t line)
+{
+	size_t lo = 0;
+	size_t hi = report->file_count;
+
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo) / 2;
+		int    c   = strcmp(report->files[mid]->path, file);
+
+		if (c == 0)
+			return function_named_at(report->files[mid], name,
+			                         line);
+		if (c < 0)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	return NULL;
+}
+
+int report_attach_flow(Report *report)
 {
 	if (!report)
-		return;
+		return 0;
 
-	report->summary.henry_kafura = 0;
-	for (size_t i = 0; i < report->fan_out_count; i++)
-		report->summary.henry_kafura += report->fan_out[i].henry_kafura;
+	for (size_t i = 0; i < report->fan_out_count; i++) {
+		const FanOutRow *r  = &report->fan_out[i];
+		FunctionMetric  *fn = function_at(report, r->file,
+		                                  r->function, r->line);
+
+		/* A row naming no function is dropped rather than diagnosed.
+		 * The graph is built from these same metrics, so a live run
+		 * cannot produce one; a hand-written record can, and a record
+		 * describing a function the record does not define is the
+		 * record's defect, not a reason to refuse the rest of it. */
+		if (!fn)
+			continue;
+		fn->fan_in  = r->fan_in;
+		fn->fan_out = r->fan_out;
+	}
+
+	/* Rebuilt, not extended: two of the three measurements the listing
+	 * unites did not exist when `report_assemble` first built it
+	 * (HLR-187). */
+	free(report->over_threshold.items);
+	report->over_threshold.items    = NULL;
+	report->over_threshold.count    = 0;
+	report->over_threshold.capacity = 0;
+
+	return collect_over_threshold(report);
 }
 
 /* ------------------------------------------------------- the report model --

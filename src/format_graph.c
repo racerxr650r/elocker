@@ -945,11 +945,9 @@ static uint32_t fan_out(const Sdg *g, uint32_t node)
  * global edge runs from a function that writes an object to one that reads
  * it, and being read by someone is not being called by them.
  *
- * The export carries the two degrees and each node's ELOC, which is every
- * input the Henry-Kafura value is formed from. The value itself is not
- * exported: it is arithmetic over three attributes already here, and a second
- * place computing it is a second place it could be computed differently
- * (HLR-157). */
+ * The export carries both degrees beside each node's ELOC and complexity, so
+ * a consumer reading the GraphML has the same per-function figures the report
+ * presents in its function table (HLR-183). */
 static uint32_t fan_in(const Sdg *g, uint32_t node)
 {
 	uint32_t n = 0;

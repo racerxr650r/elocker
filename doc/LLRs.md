@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.11
-**Date:** 2026-08-22
+**Version:** 2.12
+**Date:** 2026-08-24
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -859,7 +859,7 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
 
 *   <a id="LLR-CTR-07"></a>**LLR-CTR-07** — `calltree_analyse` shall measure fan-out, fan-in, recursion, and call depth over the graph's call-edge view alone, never over the whole System Dependence Graph. A global-state edge records that one function writes an object another reads; it is coupling and not invocation. Counting one as a callee would inflate fan-out, counting one as a caller would inflate fan-in, following one would extend a call chain through a call that never happens, and a pair of functions sharing two objects in opposite directions forms a cycle in the SDG that is not recursion — which would be reported as a critical MISRA C Rule 17.2 violation against ordinary code.
 
-    The rule governs fan-in most strictly of the four, because the error does not stay where it is made: the Henry-Kafura value of HLR-157 squares the product of the two degrees, so an in-degree taken over the whole graph inflates that figure by the square of its own error.
+    The rule governs fan-in as strictly as fan-out, and the report is where a breach shows: the two degrees sit side by side in one function table (HLR-183), so an in-degree taken over the whole SDG would count a reader of a global as a caller and put a function over the band of HLR-186 that no function calls that often.
     *Trace:* HLR-085, HLR-089, HLR-156 (Function Fan-In Measurement), HLR-074 (Global State Edges).
 
 *   <a id="LLR-CTR-08"></a>**LLR-CTR-08** — `calltree_analyse` shall distinguish, in the omission it records, between no entry points having been declared and declared entry points naming no analysed function, since the two call for different actions from the reader. A declared symbol that matches no analysed function shall be diagnosed and skipped rather than ending the run: analysing one directory of a project whose entry point is defined in another is ordinary use, and rejecting it would make the option unusable there.
@@ -878,11 +878,6 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
 
     A function that no analysed function calls has a fan-in of zero, and that zero is recorded as a measurement rather than as a finding: an entry point, an exported API boundary, and an interrupt handler reached from a vector table all legitimately have none.
     *Trace:* HLR-156 (Function Fan-In Measurement), HLR-085 (Function Fan-Out Measurement).
-
-*   <a id="LLR-CTR-11"></a>**LLR-CTR-11** — `calltree_analyse` shall compute, for every function, its Henry-Kafura structural complexity as `ELOC × (Fan-In × Fan-Out)²`, taking the length from the node the graph already carries, and shall widen each degree to the accumulating width **before** the multiplication rather than at the assignment. The product of two degrees fits in 32 bits and its square does not: a 32-bit square assigned to a 64-bit variable has already wrapped by the time the assignment widens it, and a wrapped value renders as a perfectly ordinary number.
-
-    The value shall be zero wherever either degree is zero, which is what the formula gives and is a value rather than an absence.
-    *Trace:* HLR-157 (Henry–Kafura Structural Complexity per Function), HLR-158 (Project-Level Henry–Kafura Total).
 
 ## 27. `longest_path_dag` ([src/calltree.c](../src/calltree.c))
 
@@ -1002,7 +997,7 @@ Evaluation of every measurement against the published threshold catalogue, and a
 
 *   <a id="LLR-THR-11"></a>**LLR-THR-11** — The catalogue shall hold every band as data in one table, and no other module shall band a measurement or cite the published source a band rests on. The project's claim to carry no opinion of its own is checkable only if a reviewer can read one table rather than audit every analysis for a constant; banding spread across the analyses would leave the claim resting on nobody having hidden one.
 
-    **Citing a band's source is what is confined here, not naming a measure.** A renderer presenting Henry-Kafura names Henry-Kafura, and must: HLR-159 requires the formula and its attribution to travel with the figures, precisely because the measure is *not* banded and a reader has to be able to see that it is a measurement rather than a verdict. The catalogue records the same fact from the other side, in a section of sources carrying no band. The distinction is between citing an authority for a line drawn and naming the authority a number is computed after.
+    **Citing a band's source is what is confined here, not naming a measure.** A renderer naming the metric it presents — "Instability (I = Ce/(Ce+Ca), Martin)" in a heading — is naming the authority a number is computed after, which is a different thing from citing an authority for a line drawn and is a required one. What may not happen anywhere but the catalogue is a threshold: a constant that decides a severity, and the citation that justifies it.
     *Trace:* HLR-098 (Evaluation Against Published Thresholds), HLR-099, HLR-111.
 
 *   <a id="LLR-THR-12"></a>**LLR-THR-12** — `thresholds_apply` shall band only a measurement that was made, and shall not treat an omitted one as a value. A depth omitted for want of an entry point is not a depth of zero, and banding it would judge a number that does not exist.
@@ -1011,13 +1006,22 @@ Evaluation of every measurement against the published threshold catalogue, and a
 *   <a id="LLR-THR-13"></a>**LLR-THR-13** — The report shall carry the findings ranked by descending severity, then by measurement and subject, and shall present them beside the measurements rather than in place of them. A value inside its accepted band stays in the table that measured it; the findings list is the subset a reader acts on, and its emptiness is a result rather than a missing section.
     *Trace:* HLR-031 (Uniform Report Composition), HLR-123, HLR-032.
 
-*   <a id="LLR-THR-15"></a>**LLR-THR-15** — `threshold_attribution` shall name the published source of a measurement the catalogue holds no band for, from a table held apart from the catalogue, while `thresholds_lookup` continues to report that no threshold exists for it. A citation and a threshold are separate claims: the Henry-Kafura formula is Henry and Kafura's and must be attributed wherever it is reported, and no published source divides it into accepted and unaccepted ranges.
-
-    A catalogue row with empty bounds shall not be used to carry such a citation. `occurrence` false with both bounds zero is a silent band that every value passes, and `thresholds_lookup` would then answer "there is a threshold for this" to the one caller asking precisely because there is not — which would take the measurement off the path LLR-THR-08 provides and put it on the banded path with a band that judges nothing.
-    *Trace:* HLR-159 (Henry–Kafura Reported Without an Invented Band), HLR-157 (Henry–Kafura Structural Complexity per Function), HLR-099 (Threshold Source Attribution).
-
 *   <a id="LLR-THR-14"></a>**LLR-THR-14** — The record shall carry each finding with its severity, subject, detail and source. Regeneration has no measurements to band and no catalogue call to make against them, so a finding not written is one the regenerated report cannot have.
     *Trace:* HLR-054 (Complete Run Record), HLR-056, HLR-099.
+
+*   <a id="LLR-THR-16"></a>**LLR-THR-16** — The catalogue shall hold a row banding cyclomatic complexity — warning above 10, critical above 15, attributed to McCabe as NIST SP 500-235 records the two limits — and a row banding fan-in, warning above 25 with no critical band, marked as `elc`'s own and carrying the same label the bottleneck row carries.
+
+    The complexity row's bounds shall be constants of this catalogue and shall not be the value `--complexity-threshold` sets. That value governs a listing and carries no severity; a build in which moving it moved a severity would be letting the user choose what McCabe says, which would make the row's attribution false.
+
+    The fan-in row's critical bound shall be the maximum a measurement can take, so that the counted classification's critical test can never fire and the row needs no special case in the code that reads the catalogue.
+    *Trace:* HLR-185 (Cyclomatic Complexity Threshold Classification), HLR-186 (Fan-In Threshold Classification), HLR-099 (Threshold Source Attribution), HLR-023 (Threshold List is Reporting-Only).
+
+*   <a id="LLR-THR-17"></a>**LLR-THR-17** — `thresholds_band` shall report where one counted value falls in its kind's band without building a finding for it, so that the report's threshold listing can name the functions a band names without keeping bounds of its own. It shall report that there is no band where the catalogue holds no row for the kind, and equally where the row's finding is its mere occurrence: such a row carries a fixed severity and both bounds zero, and putting a counted value through it would report every non-zero count as critical.
+
+    `thresholds_apply` shall emit a finding for every function whose cyclomatic complexity, fan-in or fan-out falls outside its band, each naming the function, the file and line it is defined at, the value measured, and the source the band came from.
+
+    Complexity shall be banded from the graph's own node table rather than from a second walk of the report model. The table carries the complexity `analyze.c` measured for every function in the report, so banding there cannot disagree with the fan-out finding beside it about which functions exist.
+    *Trace:* HLR-185 (Cyclomatic Complexity Threshold Classification), HLR-186 (Fan-In Threshold Classification), HLR-187 (The Threshold Listing Names Every Banded Function), HLR-098 (Evaluation Against Published Thresholds).
 
 ## 35. `report_assemble` ([src/report.c](../src/report.c))
 
@@ -1122,16 +1126,21 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-RPT-34"></a>**LLR-RPT-34** — `report_set_image` shall record on the assembled report the image the run was filtered by and the number of its linkage names left unresolved, so that a report states which image it describes and how completely that image could be read. It is set after assembly rather than passed into it for the reason the unresolved-call count is: the image is read before any file is measured and belongs to the run, while the effects of the filter belong to the measurement.
     *Trace:* HLR-147 (Filter Recorded and Reported), HLR-143 (Both Directions of Mismatch Counted and Reported).
 
-*   <a id="LLR-RPT-35"></a>**LLR-RPT-35** — `report_total_henry_kafura` shall set the project-level Henry-Kafura total to the sum of the per-function values held on the report model, and shall be the only place that total is formed. A live run calls it once the flow rows are filled; a run regenerating from a record calls it once they are restored, because `report_assemble` works over the per-file metrics and those carry no fan-in from which the total could be derived.
-
-    One function rather than a line in each of the two paths, so that "the total is the sum of the per-function values" is a property of the code rather than of two implementations agreeing. It shall not apply the formula to project-level aggregates: the metric is defined over one procedure's traffic, and doing so would multiply a length by a connectivity no procedure has.
-    *Trace:* HLR-158 (Project-Level Henry–Kafura Total), HLR-024 (Project-Level Totals), HLR-056 (Regeneration Fidelity).
-
 *   <a id="LLR-RPT-36"></a>**LLR-RPT-36** — `report_set_purify` shall copy onto the assembled report one row per function purification classified, resolving each node identifier to the function's name and location and carrying the metric that triggered the classification, the value it took, and the action taken; and shall order the rows by file, then by the line the function starts on. A function purification classified as ordinary shall carry no row, since HLR-174 asks for the classifications that were made and `elc` concluded nothing about that function. No row shall carry a severity, there being nothing for one to mean.
     *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-171, HLR-032.
 
 *   <a id="LLR-RPT-37"></a>**LLR-RPT-37** — `report_set_purify` shall record on each row whether the class it carries was computed by `elc` or stated by a manifest, and shall carry a row for a function a manifest classified as ordinary. A reader of this section is being asked to judge whether the masking was right, and cannot do that without knowing which rows are the tool's own reading of the graph and which are their team's correction of it; and a manifest that returned a function to ordinary overruled `elc` there, which a reader who sees no row learns nothing about.
     *Trace:* HLR-177 (A Manual Classification Overrides a Computed One), HLR-174.
+
+*   <a id="LLR-RPT-38"></a>**LLR-RPT-38** — `report_attach_flow` shall copy each flow row's fan-in and fan-out onto the function metric it describes, locating that function by file path, start line and name, and shall then rebuild the threshold listing over the joined result. It shall be the only place either is done, and both the live path and the path regenerating from a record shall call it — `report_assemble` works over per-file metrics that carry no degree, so a listing built there is a listing built before two of its three inputs exist.
+
+    The pair identifies the definition and neither half suffices: two `static` functions in two translation units may share a name, and a nested function declared on the line its enclosing body opens shares a start line with it. The search shall therefore locate the file by path, the block of functions at that start line, and the one within it bearing the name. A flow row naming no function in the model shall be dropped rather than diagnosed: a live run cannot produce one, since the graph is built from these same metrics, and a hand-written record describing a function it does not define is the record's defect rather than a reason to refuse the rest of it.
+    *Trace:* HLR-183 (One Per-Function Table), HLR-187 (The Threshold Listing Names Every Banded Function), HLR-156 (Function Fan-In Measurement), HLR-056 (Regeneration Fidelity).
+
+*   <a id="LLR-RPT-39"></a>**LLR-RPT-39** — `report_assemble` shall build the threshold listing as the union of two rules: a function whose cyclomatic complexity is at or above the configured threshold, and a function whose complexity, fan-in or fan-out `thresholds_band` places in a warning or critical band. A function satisfying both shall appear once, carrying the highest severity any band gave it; a function present only because it met the configured threshold shall carry no severity at all.
+
+    The bands shall be read from `thresholds.c` rather than from constants held here. That module is the only place a line is drawn, and a listing drawing its own would be a second opinion wearing the first's name.
+    *Trace:* HLR-187 (The Threshold Listing Names Every Banded Function), HLR-021 (Per-File Complexity-Threshold List), HLR-023 (Threshold List is Reporting-Only), HLR-099 (Threshold Source Attribution).
 
 ## 36. `format_table` ([src/format_text.c](../src/format_text.c))
 
@@ -1170,7 +1179,7 @@ The single place every reported collection is ordered. The audit point for deter
 
     The two line-granularity counts shall appear whether or not the image carried line information: two zeroes state that nothing was pruned and nothing was uncoverable, which is a different claim from a section that omits the question. They are read as the unresolved-call count and the undecided-region count are read — the first states what the filter removed, the second states where it could not look (HLR-155). These sections alone shall be emitted only where a filter was in force, which is the one exception to the rule that every section appears whether or not it has rows: an unfiltered run must report exactly what it reported before the option existed, and an empty section is not nothing.
 
-    The two are separate sections, because the tier boundary of LLR-SUM-09 runs between them: the image and its two counts are the provenance of a filtered run and are a summary tier, while the functions the image does not define are one row per function and are a detail tier. They remain adjacent in the traversal, so a verbose report presents them exactly as one section presented them before the split.
+    The two are separate sections, because the tier boundary of LLR-SUM-09 runs between them: the image and its two counts are the provenance of a filtered run and are a summary tier, while the functions the image does not define are one row per function and are a detail tier. They are no longer adjacent either: the provenance stays among the summary tiers, where a reader meets it before the figures it qualifies, and the list of absent functions closes the report (HLR-184).
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported), HLR-155 (Debug-Line Pruning Recorded and Reported), HLR-031 (Uniform Report Composition Across Formats).
 
 *   <a id="LLR-SUM-07"></a>**LLR-SUM-07** — `render_summary` shall present the custom-rule matches in a section of their own, with no severity column and no source column, and shall emit that section whether or not any rule was supplied.
@@ -1181,9 +1190,9 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-SUM-09"></a>**LLR-SUM-09** — `render_summary` shall classify each tier of the traversal as a **summary** or a **detail** tier, and shall emit, at the summary verbosity, the summary tiers alone; at the verbose verbosity it shall emit every tier. The classification shall be a property of the one shared traversal — a filter over the ordered section list both human-facing formats walk — rather than a second traversal beside it, so that a tier cannot be present at one verbosity and forgotten at the other, by the same construction that stops it being present in one format and forgotten in the other (LLR-SUM-02).
 
-    The summary tiers are the project summary and callouts, the discovery route, the per-language breakdown, each file's own totals, the threshold listing, the findings, the definitions in force, the linked-image provenance, the partly parsed files, and the skipped files. Every remaining tier is a detail tier: it enumerates one row per analysed entity — per function, per global object, per unreachable statement, per graph edge, per custom-rule match. The measurements taken over the dependence graph — fan-out, information flow, recursion, the deepest chain, coupling, dependency cycles, layering — are detail tiers on that rule, each row naming one entity of the graph rather than a file's own totals; nothing is thereby lost from the summary, because every one of them that crossed a published line is a finding and the findings are a summary tier, and because a per-function measurement with a project-level total puts that total in the project summary.
+    The summary tiers are the project summary and callouts, the discovery route, the per-language breakdown, each file's own totals, the threshold listing, the findings, the definitions in force, the linked-image provenance, the partly parsed files, and the skipped files. Every remaining tier is a detail tier: it enumerates one row per analysed entity — per function, per global object, per unreachable statement, per graph edge, per custom-rule match. The measurements taken over the dependence graph — the per-function table, recursion, the deepest chain, coupling, dependency cycles, layering — are detail tiers on that rule, each row naming one entity of the graph rather than a file's own totals; nothing is thereby lost from the summary, because every one of them that crossed a published line is a finding and the findings are a summary tier, and because a per-function measurement with a project-level total puts that total in the project summary.
 
-    A detail section whose analysis was **omitted for want of a declaration** shall be emitted at the summary verbosity as well, since HLR-150 counts the omission notices among the summary tiers. No separate notice is needed: an omitted analysis produced no rows, so the section renders as its heading and the reason in it.
+    A detail section whose analysis was **omitted for want of a declaration** shall be reached at the summary verbosity as well, since HLR-150 counts the omission notices among the summary tiers. An omitted analysis produced no rows, so since HLR-188 the section presents nothing and the notice reaches the reader through the closing statement, which names it by the heading carrying the reason. The classification still governs whether it is reached at all: a detail section a summary run filtered out is neither presented nor named, and would state its reason nowhere.
     *Trace:* HLR-150 (Summary Report by Default), HLR-151 (Verbose Report on Request), HLR-031 (Uniform Report Composition Across Formats), HLR-115 (Analyses Requiring User Declarations).
 
 *   <a id="LLR-SUM-11"></a>**LLR-SUM-11** — `render_summary` shall present the two conformance indices as a summary tier — each with its violating proportion, its complementary conforming proportion, and the inter-layer call-edge count it is over — and the dependency matrix as a detail tier, in both human-facing formats and from one entry apiece in the ordered section list. The indices are project-level aggregates, two rows whatever the size of the project; the matrix enumerates one row per subject, and falls on the detail side by the same rule that puts every other table growing with the graph there.
@@ -1193,18 +1202,39 @@ The single place every reported collection is ordered. The audit point for deter
     The tier shall present the indices only where the model carries them rendered, rather than where the strata state says they were measured. `STRATA_MEASURED` is the zero of its enum, so a model holding no indices at all reads as measured while having nothing to print, and a renderer presents what the model has rather than what its state implies it should have.
     *Trace:* HLR-162 (Back-Call Violation Index), HLR-163 (Skip-Call Violation Index), HLR-166 (Matrix Ordering, the Diagonal, and Its Renderings), HLR-150, HLR-031.
 
-*   <a id="LLR-SUM-10"></a>**LLR-SUM-10** — `render_summary` shall present each function's fan-in, fan-out, effective lines and Henry-Kafura value as a detail tier, and the project-level Henry-Kafura total among the project summary's figures; and shall print a Henry-Kafura value of zero as `0`.
-
-    The heading of the detail tier shall carry the formula, the attribution to Henry and Kafura, and the two properties HLR-159 requires be stated — that a function at either end of the call graph scores zero, and that the figure is ordinal rather than absolute. A reader who does not know them misreads the number rather than merely failing to act on it. Its inputs are repeated in the table beside the result, so the arithmetic is checkable on the line that reports it.
-
-    **The zero is printed as a number and never as `undefined`.** The Instability column of the coupling tier prints `undefined` where its own inputs vanish (HLR-082); this value does not vanish where a degree is zero, it equals zero, and borrowing that spelling would report a measurement as a missing one. The two appearing in nearby tables is what makes the substitution an easy mistake rather than an unlikely one.
-    *Trace:* HLR-157 (Henry–Kafura Structural Complexity per Function), HLR-158 (Project-Level Henry–Kafura Total), HLR-159 (Henry–Kafura Reported Without an Invented Band), HLR-156 (Function Fan-In Measurement), HLR-024 (Project-Level Totals), HLR-150 (Summary Report by Default).
-
 *   <a id="LLR-SUM-12"></a>**LLR-SUM-12** — `render_summary` shall present the classifications purification made as a **detail** tier in both human-facing formats, one row per classified function naming the class, the metric and value that triggered it, and the action taken; and shall state in the section's heading that the thresholds are `elc`'s own heuristic rather than a published standard, together with the five values in force and what the masking left behind. The section shall carry no severity column. It is written to the results destination like every other section: HLR-038 reserves standard output, and a run redirecting its report to a file must not have a second report appear on the terminal.
     *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-171, HLR-150, HLR-038, HLR-031.
 
 *   <a id="LLR-SUM-13"></a>**LLR-SUM-13** — `render_summary` shall present the recovered layering as a detail tier in both human-facing formats, stating in its heading that what follows is a proposal and never the baseline conformance is measured against, and shall present the proposal itself as the argument list `--stratum` and `--stratum-order` accept rather than as prose. A table of layers printed under an architecture report is otherwise easy to read as a verdict; and rendering the proposal as arguments is what makes adoption a copy rather than a transcription, and is the boundary HLR-173 draws in the one form a reader cannot mistake for a measurement. Where no layering could be read the heading shall say which of the two reasons applied, and where the view was cyclic the mutually reachable groups shall be listed in place of the layers.
     *Trace:* HLR-173 (A Recovered Layering Is a Proposal, Never a Baseline), HLR-172, HLR-150, HLR-031.
+
+*   <a id="LLR-SUM-14"></a>**LLR-SUM-14** — `render_summary` shall present every analysed function in one table carrying its file, name, line range, effective lines, cyclomatic complexity, fan-in and fan-out, and shall present no second table enumerating one row per function for any of those measurements.
+
+    The table shall be driven by the per-file function metrics rather than by the flow rows. The rows exist only where a graph was built and the metrics exist because the file was parsed, so a table driven by the rows would present no functions at all on a run whose graph was not built — which is exactly the run whose per-function figures a reader still wants.
+
+    The table shall carry no severity column. Which functions a band named is the threshold listing's subject and the findings', and a severity repeated in three places is a severity that can differ between them.
+    *Trace:* HLR-183 (One Per-Function Table), HLR-085 (Function Fan-Out Measurement), HLR-156 (Function Fan-In Measurement), HLR-017 (Cyclomatic Complexity per Function).
+
+*   <a id="LLR-SUM-15"></a>**LLR-SUM-15** — `render_summary` shall order the sections of its one traversal so that the findings follow the project summary immediately; so that the sections following the per-file totals run: component coupling, component dependency cycles, the threshold listing, the per-function table, the deepest call chain, recursion; and so that the functions a linked image does not define are the last section emitted.
+
+    The order shall be a property of the ordered section list the traversal walks, so that both human-facing formats take it from one place and a section cannot be moved in one and left in the other.
+    *Trace:* HLR-182 (Findings Presented First), HLR-184 (The Order of the Architectural Tiers), HLR-031 (Uniform Report Composition Across Formats).
+
+*   <a id="LLR-SUM-16"></a>**LLR-SUM-16** — `grid_render` shall emit nothing for a grid with no rows, recording that grid's heading instead; and `render_summary` shall close the report with a statement naming every recorded heading, verbatim and in the order the traversal reached them. The statement shall be emitted whether or not any heading was recorded.
+
+    The headings shall be **copied** rather than borrowed. Several sections build theirs into a local buffer carrying a count or a threshold, and a borrowed pointer into one of those would dangle by the time the statement is written.
+
+    The tier a section belongs to shall continue to govern whether it is reached at all: a detail section filtered out of a summary report is neither presented nor named, because it was not rendered. A section whose analysis was omitted for want of a declaration is reached at either verbosity, presents no rows, and is therefore named — which is where its reason reaches the reader once the heading itself is no longer printed.
+    *Trace:* HLR-188 (A Table With No Rows Is Not Presented), HLR-189 (The Empty Tables Named in a Closing Statement), HLR-115 (Analyses Requiring User Declarations), HLR-066 (Empty Analysis Result).
+
+*   <a id="LLR-SUM-17"></a>**LLR-SUM-17** — `render_summary` shall emit, in the Markdown style alone, each table inside an HTML `<details>` element opened beneath the section's `##` heading, with a `<summary>` stating the number of rows the table holds and a blank line separating the element from the table on both sides.
+
+    The heading shall stay outside the element and stay a heading, so that a section keeps its anchor and the composition stays readable off the `##` lines.
+
+    The blank lines are load-bearing rather than cosmetic: GitHub-Flavored Markdown parses the contents of an HTML block as Markdown only where a blank line separates the two, and without them the table is rendered as its own source text.
+
+    The count shall be taken from the rows about to be emitted. The project summary is not built from a grid and shall gather its figures before printing any of them, so that its count is derived from the same array the rows are, rather than written down beside it.
+    *Trace:* HLR-190 (Markdown Tables Presented Behind a Disclosure Element), HLR-029 (Markdown Output Format).
 
 ## 39. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 
@@ -1245,9 +1275,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XWR-09"></a>**LLR-XWR-09** — `xml_write_report` shall write every unreachable statement to the record with its file, function, line range, and cause, together with the set of languages for which the analysis was not performed, and `xml_read_report` shall restore them. Regeneration has no syntax tree and cannot find them again.
     *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity), HLR-137 (Intra-Procedural Dead Code Detection).
 
-*   <a id="LLR-XWR-08"></a>**LLR-XWR-08** — `xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, fan-in, effective lines and Henry-Kafura value, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one. A record carrying fan-out alone would regenerate every Henry-Kafura value as zero, which renders as an ordinary number and reads as a project where nothing is connected.
+*   <a id="LLR-XWR-08"></a>**LLR-XWR-08** — `xml_write_report` shall write the call-tree measurements to the record — every function's fan-out, fan-in and effective lines, every recursive cycle's members, the depth and its state, and the deepest chain in order — and `xml_read_report` shall restore them. None can be recomputed from a record: regeneration has no graph, and no source from which to build one. A record carrying fan-out alone would regenerate every fan-in as zero, which renders as an ordinary number and reads as a project where nothing is called.
 
-    The project-level Henry-Kafura total is **re-summed from the restored rows** rather than written, by the same function the live path calls, so that HLR-158's "the sum of the per-function values" cannot become two figures that disagree. The per-function attributes are optional on read: they were added to an element that already existed under an unchanged format version, and a record predating them means zero rather than a rejection.
+    The degrees are **joined onto the restored function metrics** by the same function the live path calls, and the threshold listing is rebuilt over the joined result, so that neither the function table nor the listing can differ between a live run and a regenerated one (HLR-183, HLR-187). The `hk` attribute this element carried until Phase 24 is gone with the metric it held; that is a removal, which is what the format version counts, so a record written by this build carries version 2 and a version-1 record is rejected rather than read with a field missing (HLR-061, HLR-058).
     *Trace:* HLR-054 (Complete Analysis Record), HLR-056 (Regeneration Fidelity).
 
 *   <a id="LLR-XWR-10"></a>**LLR-XWR-10** — `xml_write_report` shall emit the definitions in force and the count of undecided regions, so that a record states the configuration it was taken under.
@@ -1399,7 +1429,7 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-GML-04"></a>**LLR-GML-04** — `graph_write_graphml` shall emit well-formed XML with every structurally significant character escaped.
     *Trace:* HLR-065 (XML Well-Formedness and Escaping), HLR-106 (Standard Graph Serialisation Export).
 
-*   <a id="LLR-GML-05"></a>**LLR-GML-05** — `graph_write_graphml` shall carry each node's fan-in beside its fan-out, both computed over call edges alone. The export then holds every input the Henry-Kafura value is formed from — the two degrees and the node's ELOC — and shall not carry the value itself: it is arithmetic over three attributes already present, and a second place computing it is a second place it could be computed differently.
+*   <a id="LLR-GML-05"></a>**LLR-GML-05** — `graph_write_graphml` shall carry each node's fan-in beside its fan-out, both computed over call edges alone, so that an ingesting tool has the same per-function figures the report presents in its function table. It shall carry no value derived from them: a derived figure in the export is a second place it can be computed, and two places computing a figure are two places it can be computed differently.
     *Trace:* HLR-156 (Function Fan-In Measurement), HLR-106 (Standard Graph Serialisation Export).
 
 ## 48. `elfsyms_open` ([src/elfsyms.c](../src/elfsyms.c))
@@ -1626,6 +1656,11 @@ The Dependency Structure Matrix: the arrangement of the graph's call edges into 
 
 *   <a id="LLR-DSM-08"></a>**LLR-DSM-08** — `dsm_warranted` shall be true only where the CSV companion was requested and the report has a named output path, and shall not be made false by regeneration mode. The first two are the tests the GraphML export makes, since the companion's name is derived from the report's and a report on standard output offers none; the third is where this companion differs from the two graph companions, a saved record carrying the matrix where it carries no topology.
     *Trace:* HLR-180 (The Matrix Written Beside the Report on Request), HLR-104, HLR-119.
+
+*   <a id="LLR-DSM-09"></a>**LLR-DSM-09** — The Markdown rendering of the matrix shall place the grid inside an HTML `<details>` element stating its row count, as every other Markdown table is (HLR-190), and shall leave the heading and the convention note **outside** it.
+
+    The convention stays outside because of what it says: it is the sentence that makes a cell below the diagonal a back-call rather than a number, and a reader who has not expanded the grid is exactly the reader deciding whether to. HLR-166 requires it to travel with the grid, and it still does — above it rather than inside it.
+    *Trace:* HLR-190 (Markdown Tables Presented Behind a Disclosure Element), HLR-166 (Matrix Ordering, the Diagonal, and Its Renderings).
 
 ## 56. `purify_analyse` ([src/purify.c](../src/purify.c))
 

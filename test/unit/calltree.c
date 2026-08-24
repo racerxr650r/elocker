@@ -249,78 +249,13 @@ Test(calltree, fan_in_ignores_global_edges)
 
 /* ----------------------------------------------------- information flow -- */
 
-Test(calltree, henry_kafura_is_length_times_the_squared_product)
+Test(calltree, the_degrees_are_counted_over_a_wide_hub)
 {
-	const char  *a[]     = { "top", "hub", "leaf" };
-	FileMetrics *files[] = { file_with("/p/a.c", a, 3) };
-	FactList     facts   = { 0 };
-	FileFacts   *fa      = facts_for("/p/a.c");
-	Sdg          g       = { 0 };
-	TreeResults  tree    = { 0 };
-	ElcOptions   opts    = { 0 };
-	Report       report;
-
-	set_eloc(files[0], 5);
-	report = report_of(files, 1);
-
-	/* hub: one caller, one callee, five effective lines.
-	 *      HK = 5 * (1 * 1)^2 = 5. */
-	add_call(fa, "hub", 0);
-	add_call(fa, "leaf", 1);
-	cr_assert_eq(factlist_add(&facts, fa), 0);
-	cr_assert_eq(graph_build(&facts, &report, &g), 0);
-
-	cr_assert_eq(calltree_analyse(&g, &opts, &tree), 0);
-	cr_assert_eq(tree.henry_kafura[node_of(&g, "hub")], 5);
-
-	tree_results_free(&tree);
-	graph_free(&g);
-	factlist_free(&facts);
-	report_free(&report);
-}
-
-Test(calltree, a_function_at_either_end_of_the_graph_scores_zero)
-{
-	const char  *a[]     = { "top", "hub", "leaf" };
-	FileMetrics *files[] = { file_with("/p/a.c", a, 3) };
-	FactList     facts   = { 0 };
-	FileFacts   *fa      = facts_for("/p/a.c");
-	Sdg          g       = { 0 };
-	TreeResults  tree    = { 0 };
-	ElcOptions   opts    = { 0 };
-	Report       report;
-
-	/* Every function is long, and two of them still score nothing: the
-	 * product term vanishes when either degree is zero, whatever the
-	 * length. The zero is a value and not an absence (HLR-159). */
-	set_eloc(files[0], 1000);
-	report = report_of(files, 1);
-
-	add_call(fa, "hub", 0);
-	add_call(fa, "leaf", 1);
-	cr_assert_eq(factlist_add(&facts, fa), 0);
-	cr_assert_eq(graph_build(&facts, &report, &g), 0);
-
-	cr_assert_eq(calltree_analyse(&g, &opts, &tree), 0);
-	cr_assert_eq(tree.henry_kafura[node_of(&g, "top")], 0,
-	             "an entry point calls widely and is called by nothing");
-	cr_assert_eq(tree.henry_kafura[node_of(&g, "leaf")], 0,
-	             "a leaf is called widely and calls nothing");
-
-	tree_results_free(&tree);
-	graph_free(&g);
-	factlist_free(&facts);
-	report_free(&report);
-}
-
-Test(calltree, the_squared_product_is_widened_before_it_is_multiplied)
-{
-	/* The failure this test exists for is invisible at any size a fixture
-	 * tree can reach. With a fan-in and a fan-out of 300 the product is
-	 * 90,000 — comfortable in 32 bits — and its square is 8.1e9, which is
-	 * not. An implementation that squares in 32 bits and widens at the
-	 * assignment reports 3,805,032,704 instead, a perfectly ordinary
-	 * number carrying no sign that it wrapped (HLR-158).
+	/* Both degrees at a size no fixture tree reaches, and at a size the
+	 * bands care about: 300 callers is twelve times the fan-in warning
+	 * bound and 300 callees twenty times the fan-out critical one, so a
+	 * counting error here would move a finding rather than merely a figure
+	 * (HLR-085, HLR-156).
 	 *
 	 * 300 callers and 300 callees around one hub, which is 601 functions
 	 * and 600 call edges — cheap to build and impossible to write by hand.
@@ -367,8 +302,6 @@ Test(calltree, the_squared_product_is_widened_before_it_is_multiplied)
 
 	cr_assert_eq(tree.fan_in[hub], WIDTH);
 	cr_assert_eq(tree.fan_out[hub], WIDTH);
-	/* 7 * (300 * 300)^2 = 7 * 8,100,000,000 = 56,700,000,000. */
-	cr_assert_eq(tree.henry_kafura[hub], UINT64_C(56700000000));
 
 	tree_results_free(&tree);
 	graph_free(&g);

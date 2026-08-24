@@ -366,6 +366,25 @@ eloc_of() {
 	assert_equal "$(absent_of "$OUT")" "unlinked_add unlinked_max "
 }
 
+@test "HLR-184: the absent-function table is the last section of the report" {
+	# The longest table a filtered run produces, and one a reader consults
+	# after the report rather than reading the report through. The image
+	# itself stays among the summary tiers, above the figures it qualifies.
+	build_image
+	report "$TREE" --elf "$IMAGE"
+	assert_success
+
+	local last
+	last="$(grep -E '^[A-Z]' "$OUT" | grep -v '^Nothing to report$' | tail -1)"
+	assert_equal "${last%% (*}" "Functions the image does not define"
+
+	# And its provenance is not dragged down with it.
+	local filter absent
+	filter="$(grep -n '^Linked-image filter$' "$OUT" | cut -d: -f1)"
+	absent="$(grep -n '^Functions the image does not define' "$OUT" | cut -d: -f1)"
+	[ "$filter" -lt "$absent" ]
+}
+
 @test "HLR-143: an absent function is located, not merely named" {
 	# The reader's next action is to open the file, so a name with no line
 	# is a finding they cannot act on.

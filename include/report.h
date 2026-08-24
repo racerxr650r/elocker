@@ -20,16 +20,18 @@
 #include "elc.h"
 #include "elfsyms.h"
 
-/* One function's information-flow figures, as the report presents them: by
- * name and location rather than by node identifier, which means nothing to a
- * reader and does not survive a record round trip.
+/* One function's flow degrees, as the record carries them: by name and
+ * location rather than by node identifier, which means nothing to a reader
+ * and does not survive a record round trip.
  *
- * The row is named for the first measurement it carried and has since grown
- * the rest of the flow figures, because they are one function's answer to one
- * question and splitting them across two collections would let the two
- * disagree about which functions exist. `eloc` is repeated here from the
- * per-function metrics so that a reader can check the Henry-Kafura value
- * against its inputs on the line that reports it (HLR-085, HLR-156, HLR-157).
+ * **No human-readable report renders this collection directly.** Since
+ * Phase 24 the degrees are presented in the one function table, attached to
+ * the per-function metrics they belong beside (HLR-183), and this array is
+ * what carries them from the graph to those metrics and through the saved
+ * record. `eloc` is repeated here because the record restores these rows
+ * before the file metrics are joined to them, and a row that could not be
+ * checked against its own length would be a row nothing could validate
+ * (HLR-085, HLR-156).
  */
 typedef struct {
 	char     *function;  /* owned */
@@ -38,12 +40,6 @@ typedef struct {
 	uint32_t  fan_out;
 	uint32_t  fan_in;
 	uint32_t  eloc;
-	/* Zero where either degree is zero, and that zero is a *value*: an
-	 * entry point and a leaf both score nothing whatever their length. It
-	 * is printed as `0` rather than as the `undefined` Instability shows
-	 * for its own undefined inputs, because this one is defined and equal
-	 * to zero (HLR-159). */
-	uint64_t  henry_kafura;
 } FanOutRow;
 
 /* One recursive cycle, as a rendered list of member names (HLR-089). */
@@ -303,17 +299,25 @@ typedef struct {
 	size_t  capacity;
 } PathList;
 
-/* One function listed for its file because its complexity met or exceeded
- * the threshold (HLR-021). Both fields are borrowed from the report's own
- * files, which outlive the list.
+/* One function the report lists because a threshold named it: its complexity
+ * met or exceeded the value `--complexity-threshold` sets (HLR-021), or one of its
+ * complexity, fan-in and fan-out fell in a warning or critical band
+ * (HLR-187). `file` and `function` are borrowed from the report's own files,
+ * which outlive the list.
  *
  * The list is built here rather than filtered by a renderer: a renderer is a
  * pure consumer, and a threshold applied at render time would be applied
  * once per format and could differ between them.
+ *
+ * `severity` is the highest band any of the three measurements put this
+ * function in, and SEVERITY_INFO for a function present only because it met
+ * the configured listing threshold — which carries no severity by
+ * construction and never has (HLR-023).
  */
 typedef struct {
 	const char           *file;
 	const FunctionMetric *function;
+	Severity              severity;
 } ThresholdEntry;
 
 typedef struct {
@@ -352,12 +356,6 @@ typedef struct {
 	const char *most_complex;      /* function name; borrowed           */
 	const char *most_complex_file; /* the file defining it; borrowed    */
 	uint32_t    most_complex_value;
-
-	/* The combined Henry-Kafura complexity of the project: the sum of the
-	 * per-function values, never the formula applied to these totals. The
-	 * metric is defined over one procedure's traffic, and a project has no
-	 * fan-in (HLR-158). */
-	uint64_t    henry_kafura;
 } ProjectSummary;
 
 /* One language's share of the project totals, so that the contribution of
@@ -625,16 +623,24 @@ int report_set_rules(Report *report, const FactList *facts);
  */
 const char *global_verdict_attribution(GlobalVerdict verdict);
 
-/* Sum the per-function Henry-Kafura values into the project total.
+/* Join the flow degrees onto the functions they belong to, and rebuild the
+ * threshold listing over the joined result.
  *
  * One function rather than a line in each of the two paths that need it,
- * which is what makes HLR-158's "the sum of the per-function values" a
- * property of the code rather than of two implementations agreeing. A live
- * run calls it once the flow rows are filled; a run regenerating from a
- * record calls it once they are restored, since the total cannot be derived
- * from the per-file metrics `report_assemble` works over.
+ * which is what stops the live path and the regeneration path drifting. A
+ * live run calls it once the flow rows are filled from the graph; a run
+ * regenerating from a record calls it once they are restored, since
+ * `report_assemble` works over per-file metrics that carry no degree.
+ *
+ * The listing is rebuilt here rather than extended, because it is a union
+ * over three measurements and two of them do not exist until this point: a
+ * listing built before the join would be a complexity listing wearing the new
+ * heading (HLR-183, HLR-187).
+ *
+ * Returns 0, or -1 on allocation failure, leaving the previous listing freed
+ * and the model safe to release.
  */
-void report_total_henry_kafura(Report *report);
+int report_attach_flow(Report *report);
 
 /* Release the report model and everything it owns. Safe on NULL. */
 void report_free(Report *report);

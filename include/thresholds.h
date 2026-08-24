@@ -14,9 +14,10 @@
  * Two properties the catalogue must keep:
  *
  *   * **Every threshold names its source.** Where the source is `elc` itself
- *     — the bottleneck heuristic is the only one — the entry says so in the
- *     text a reader sees. That label is the whole of what separates shipping
- *     MISRA and Martin values from having invented them (HLR-099).
+ *     — the bottleneck heuristic and the fan-in band are the two — the entry
+ *     says so in the text a reader sees. That label is the whole of what
+ *     separates shipping MISRA, Martin and McCabe values from having invented
+ *     them (HLR-099).
  *   * **A severity is a label.** It never reaches the exit status (HLR-100),
  *     and no finding carries remediation: `elc` reports where a measurement
  *     falls and what standard says so, and stops there (HLR-101).
@@ -95,6 +96,20 @@ int thresholds_apply(const ArchResults *arch, const TreeResults *tree,
  * value with no severity, rather than discarding it or inventing a band
  * (LLR-THR-08). */
 const Threshold *thresholds_lookup(MeasurementKind kind);
+
+/* Band one counted measurement, without building a finding for it.
+ *
+ * The report's threshold listing needs to know which functions a band names
+ * (HLR-187), and it must not learn that by keeping constants of its own: this
+ * file is the only place a line is drawn, and a listing drawing its own would
+ * be a second opinion wearing this one's name (HLR-099).
+ *
+ * Returns true and writes the severity where `value` falls outside the
+ * accepted range for `kind`; false where it falls inside, where the catalogue
+ * holds no row for the kind, or where the row is one whose finding is its
+ * mere occurrence and has no counted band at all.
+ */
+bool thresholds_band(MeasurementKind kind, uint32_t value, Severity *out);
 
 /* The published source a measurement is attributed to, and whether that
  * source is `elc` itself.

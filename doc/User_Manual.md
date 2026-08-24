@@ -24,7 +24,7 @@ It parses source files and reports two scopes of measurements:
 
 - **Per-function metrics** — effective lines of code and cyclomatic
   complexity. It provides project totals, a per-language breakdown, and lists the most complex functions.
-- **Whole-project architecture** — fan-out, fan-in, Henry–Kafura information flow, call depth, recursion, unreachable functions, dead code, file dependencies, and layering violations. These are extracted from a call graph built during the initial parse. Each measurement is checked against a threshold.
+- **Whole-project architecture** — fan-out, fan-in, call depth, recursion, unreachable functions, dead code, file dependencies, and layering violations. These are extracted from a call graph built during the initial parse. Each measurement is checked against a threshold.
 
 `elc` writes the report as a table, Markdown, CSV, or XML. It can rebuild a report
 later from a saved XML file. It can also
@@ -268,33 +268,56 @@ Files
   /home/u/proj/src/a.c  c            18    12          2
   /home/u/proj/src/b.c  c            24     6          1
 
-Functions
-  File                  Function    Lines  ELOC  Complexity
-  --------------------  ----------  -----  ----  ----------
-  /home/u/proj/src/a.c  parse        5-19     9           7
-  /home/u/proj/src/a.c  emit        21-24     3           1
-  /home/u/proj/src/b.c  main         3-11     6           2
+At or over a threshold (complexity listed at 5; complexity, fan-in and fan-out banded)
+  File                  Function  Complexity  Fan-in  Fan-out  Severity
+  --------------------  --------  ----------  ------  -------  --------
+  /home/u/proj/src/a.c  parse              7       1        2
 
-At or over the complexity threshold (5)
-  File                  Function  Complexity
-  --------------------  --------  ----------
-  /home/u/proj/src/a.c  parse              7
+Functions
+  File                  Function    Lines  ELOC  Complexity  Fan-in  Fan-out
+  --------------------  ----------  -----  ----  ----------  ------  -------
+  /home/u/proj/src/a.c  parse        5-19     9           7       1        2
+  /home/u/proj/src/a.c  emit        21-24     3           1       1        0
+  /home/u/proj/src/b.c  main         3-11     6           2       0        1
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
+
+Nothing to report
+  4 tables above were empty and omitted:
+    - Component dependency cycles
+    - Recursion
+    - Deepest call chain (omitted: no entry points declared, see --entry)
+    - Layering (omitted: no architectural strata declared, see --stratum)
 ```
 
 That example is **abridged**: it shows only the sections covered so far in
 this manual — the project totals, the callouts, the discovery route applied
 to each directory target, those totals broken down by language, one row per
-file, one row per function, the functions at or over the complexity
-threshold, and whatever was skipped. A real run also prints the sections
-covered later in this manual, all derived from the call graph: fan-out, fan-in,
-recursion, the deepest call chain, coupling, dependency cycles, layering,
-global state, dead code, cross-scope access, the findings, the configuration
-in force, and any custom-rule matches. Paths are canonical and absolute
-(the full path from the filesystem root, with no `..` or symlinks left in
-it), and each column is padded to its longest value.
+file, the functions a threshold named, one row per function, and whatever was
+skipped. A real run also prints the sections covered later in this manual, all
+derived from the call graph: recursion, the deepest call chain, coupling,
+dependency cycles, layering, global state, dead code, cross-scope access, the
+findings, the configuration in force, and any custom-rule matches. Paths are
+canonical and absolute (the full path from the filesystem root, with no `..`
+or symlinks left in it), and each column is padded to its longest value.
+
+**Three things about the shape of that report are worth noticing now.**
+
+The **findings** come first — right after the project summary, before every
+table that supplies their evidence. The example above has none, so the section
+is absent; a run with findings puts them second.
+
+**A table with no rows is not printed.** Instead the report ends with a
+`Nothing to report` statement naming every one that was empty, by its full
+heading — which is how a section omitted for want of a `--stratum` or
+`--entry` declaration still tells you why. The statement is there whether or
+not anything was empty.
+
+**There is one per-function table.** Its last two columns are the function's
+fan-in and fan-out, explained under
+[Fan-out and fan-in](#fan-out-and-fan-in). Earlier releases split the same
+functions across three tables.
 
 `Discovery` has a row per *directory* target only; a file named directly is
 analysed with no traversal, so there is no route to report for it.
@@ -424,19 +447,26 @@ elc -c 1 src/           # list everything
 ```
 
 ```
-At or over the complexity threshold (10)
-  File                  Function  Complexity
-  --------------------  --------  ----------
-  /home/u/proj/src/a.c  parse             17
+At or over a threshold (complexity listed at 10; complexity, fan-in and fan-out banded)
+  File                  Function  Complexity  Fan-in  Fan-out  Severity
+  --------------------  --------  ----------  ------  -------  --------
+  /home/u/proj/src/a.c  parse             17       2        4  critical
 ```
 
+That table holds two kinds of row. A function is listed because its complexity
+met the threshold you set — or because one of its complexity, fan-in and
+fan-out fell in a warning or critical band, whatever the threshold. The
+**Severity** column is the higher of the bands that named it, and is blank for
+a function the threshold alone put there. The bands are in
+[The bands](#the-bands).
+
 **The threshold changes what is listed and nothing else.** Not a total, not a
-callout, and — this is the part worth being clear about — **not the exit
-status**:
+callout, not a severity, and — this is the part worth being clear about —
+**not the exit status**:
 
 ```sh
 elc -c 1 src/ ; echo $?     # lists everything, exits 0
-elc -c 999 src/ ; echo $?   # lists nothing, exits 0
+elc -c 999 src/ ; echo $?   # lists only what a band named, exits 0
 ```
 
 Findings are data. Deciding what a number warrants is yours, not `elc`'s. If
@@ -488,9 +518,40 @@ elc -f xml src/          # the complete record of the run
 | Format | Extension | For | Notes |
 | ------ | --------- | --- | ----- |
 | `table` | `.txt` | reading | The default on standard output |
-| `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order |
+| `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order; each table folded behind a click-to-expand |
 | `csv` | `.csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it |
 | `xml` | `.xml` | keeping | Complete record; what `--from-xml` reads back |
+
+### The Markdown report folds its tables away
+
+A verbose report over a real project runs to hundreds of rows, and on GitHub
+that is a page nobody scrolls. So every table in the `md` format sits inside
+an HTML `<details>` element, and its `<summary>` says how many rows are
+behind it:
+
+```markdown
+## Functions
+
+<details>
+<summary>639 rows (click to expand)</summary>
+
+| File                 | Function | Lines | ELOC | Complexity | Fan-in | Fan-out |
+| -------------------- | -------- | ----: | ---: | ---------: | -----: | ------: |
+| /home/u/proj/src/a.c | parse    | 21-70 |   31 |          9 |      3 |       7 |
+
+</details>
+```
+
+**The heading stays a heading.** It is what a renderer derives a section
+anchor from, so a link to `#functions` still resolves and a generated table of
+contents still lists the section. That is why the summary states the row count
+rather than repeating the name above it — the count is the one thing the
+heading does not already tell you, and it is what you want when deciding
+whether to expand.
+
+The aligned table has no disclosure to offer and gains none, and `csv` and
+`xml` are parsed by their consumers rather than read, so neither carries any
+HTML.
 
 **An extension `elc` does not recognise is an error, not a guess.**
 
@@ -566,31 +627,45 @@ match — is a detail tier.
 
 | Tier | Summary | Verbose |
 | ---- | ------- | ------- |
-| Project summary, Callouts | ✅ | ✅ |
+| Project summary, Findings | ✅ | ✅ |
+| Callouts | ✅ | ✅ |
 | Discovery | ✅ | ✅ |
 | Languages | ✅ | ✅ |
 | Files | ✅ | ✅ |
-| At or over the complexity threshold | ✅ | ✅ |
+| At or over a threshold | ✅ | ✅ |
 | An analysis omitted for want of a declaration, with its reason | ✅ | ✅ |
 | Architecture conformance | ✅ | ✅ |
-| Findings | ✅ | ✅ |
 | Conditional-compilation definitions | ✅ | ✅ |
 | Linked-image filter | ✅ | ✅ |
 | Partially parsed files | ✅ | ✅ |
 | Skipped files | ✅ | ✅ |
 | Functions | — | ✅ |
-| Fan-out, Information flow, Recursion, Deepest call chain | — | ✅ |
+| Recursion, Deepest call chain | — | ✅ |
 | Component coupling, Component dependency cycles, Layering | — | ✅ |
 | Dependency structure matrix | — | ✅ |
 | Graph purification | — | ✅ |
 | Global state, Unreachable globals | — | ✅ |
 | Unreachable functions, Dead code within functions | — | ✅ |
 | Cross-scope access | — | ✅ |
-| Functions the image does not define | — | ✅ |
 | Custom rule matches | — | ✅ |
+| Functions the image does not define (**last**) | — | ✅ |
 
-**The summary keeps the findings.** That is the point of it. Every
-architectural measurement that crossed a published line becomes a finding,
+**The last row is last on purpose.** The functions a linked image does not
+define is the longest table a filtered run produces, and it answers a question
+you ask *after* reading the report rather than one you read the report to
+answer — so it closes the report. The image itself stays in the summary, where
+you meet it before the figures it qualifies.
+
+**A tier reached but empty is named, not printed.** A table with no rows is
+not printed at all, and the report closes with a `Nothing to report`
+statement listing every one that was empty — by its full heading, so an
+omitted analysis still states its reason there. A tier a summary run filters
+out appears in neither place, which is how you tell "this run found nothing"
+from "this verbosity did not look".
+
+**The summary keeps the findings, and puts them first.** That is the point of
+it. Every architectural measurement that crossed a published line becomes a
+finding,
 and the findings are in the summary — so the summary tells you what to act
 on, and `--verbose` tells you every number behind it. A summary that dropped
 the one section you act on would be shorter and useless.
@@ -751,116 +826,68 @@ worse than a missing one: the [dead-code analysis](#dead-code-between-functions)
 proves that nothing calls a function, and one invented edge would make that
 proof wrong.
 
-### Fan-out
+### Fan-out and fan-in
 
-For every function, the number of **distinct subroutines it invokes**:
+Every per-function figure `elc` measures is in one table — the **Functions**
+table introduced in [The report](#the-report) — and its last two columns are
+the function's two degrees:
 
 ```text
-Fan-out (distinct callees)
-  File                  Function  Fan-out
-  --------------------  --------  -------
-  /home/u/proj/src/a.c  parse           7
+Functions
+  File                  Function  Lines   ELOC  Complexity  Fan-in  Fan-out
+  --------------------  --------  ------  ----  ----------  ------  -------
+  /home/u/proj/src/a.c  main       5-19     12           3       0        4
+  /home/u/proj/src/a.c  parse     21-70     31           9       3        7
+  /home/u/proj/src/a.c  chomp     72-78      4           1       6        0
 ```
 
-Distinct, not call sites. A function that calls one helper in a loop body and
+**Fan-out** is the number of *distinct subroutines a function invokes*.
+Distinct, not call sites: a function that calls one helper in a loop body and
 again in its error path is coupled to *one* thing, and reports a fan-out of 1.
 
-`elc` reports this measurement for every function, whether or not it is high
+**Fan-in** is the converse — how many *distinct functions call it* — and is
+counted the same way. A caller that invokes `parse` at forty call sites
+contributes **one**, and a function that merely *reads* a global `parse`
+writes contributes **nothing**: that is coupling, and coupling is not a call.
+
+A degree of 0 is a measurement and not a complaint. `main` above calls four
+things and nothing calls it, which is what an entry point looks like; `chomp`
+is called from six places and calls nothing, which is what a leaf looks like.
+An exported API function and an interrupt handler reached from a vector table
+also legitimately have no callers. Whether an absence of callers means the
+function is *dead* is a different question, answered in
+[Dead code between functions](#dead-code-between-functions).
+
+`elc` reports both degrees for every function whether or not they are high
 enough to flag. What counts as too many is covered in
 [Findings](#findings-where-a-measurement-falls-and-on-whose-authority) below:
-10 or fewer draws no comment, 11 to 15 is a warning, and above 15 is
-critical. A function's rating, where it has one, appears in the **Findings**
-section rather than here — this table only measures; that section judges.
+for fan-out, 10 or fewer draws no comment, 11 to 15 is a warning, and above 15
+is critical; for fan-in, above 25 is a warning and there is no critical band.
+A function's rating, where it has one, appears in the **Findings** section and
+in the threshold listing rather than here — this table only measures.
 
-### Fan-in and information flow
+> **The fan-in band is `elc`'s own.** No published source divides fan-in into
+> accepted and unaccepted ranges, so the line at 25 is this project's
+> judgement, and the finding says so where you read it. It is one of exactly
+> two thresholds `elc` invented; the other is the
+> [bottleneck](#component-coupling) heuristic.
 
-Fan-out asks what a function calls. **Fan-in** asks the converse — how many
-*distinct* functions call it — and the two together say how much traffic
-passes through it:
+One caveat specific to fan-in. Calls resolve by name, so where several files
+define a `static` helper of the same name, every call resolves into one of
+them: that definition collects every caller's fan-in and the others collect
+none. Since fan-in is banded, an error of that shape can put a function over
+the line or hide one that is. `elc` diagnoses duplicate definitions on
+standard error; read the two together.
 
-```text
-Information flow (HK = ELOC x (Fan-in x Fan-out)^2, Henry-Kafura; zero at either end of the call graph; ordinal, not absolute)
-  File                  Function  ELOC  Fan-in  Fan-out  Henry-Kafura
-  --------------------  --------  ----  ------  -------  ------------
-  /home/u/proj/src/a.c  main        12       0        4             0
-  /home/u/proj/src/a.c  parse       31       3        7         13671
-  /home/u/proj/src/a.c  chomp        4       6        0             0
-```
-
-Fan-in is counted the same way fan-out is. A caller that invokes `parse` at
-forty call sites contributes **one**, and a function that merely *reads* a
-global `parse` writes contributes **nothing** — that is coupling, and coupling
-is not a call. A function nothing calls has a fan-in of 0, which is a
-measurement and not a complaint: an entry point, an exported API function and
-an interrupt handler reached from a vector table all legitimately have none.
-Whether an absence of callers means the function is *dead* is a different
-question, answered in [Dead code between functions](#dead-code-between-functions).
-
-#### The Henry–Kafura value
-
-The last column combines the three figures beside it:
-
-> `HK = ELOC × (Fan-In × Fan-Out)²`
-
-`parse` above scores `31 × (3 × 7)² = 31 × 21² = 31 × 441 = 13671`. The
-inputs are shown beside the result precisely so that you can check it on the
-line that reports it.
-
-Length alone says how much code a function holds. Fan-out alone says how
-widely it delegates. Neither distinguishes a function that is long *and*
-central from one that is merely long, and that is the function this metric is
-looking for. `elc` also reports the **project total** — the sum of every
-function's value — among the figures in the project summary:
-
-```text
-Project summary
-  Files            12
-  Physical lines  4103
-  ELOC            2288
-  Functions        141
-  Henry-Kafura  882014
-```
-
-The total is the sum of the per-function values, not the formula applied to
-the project's totals: the metric is defined over one procedure's traffic, and
-a project does not have a fan-in.
-
-#### Two things you must know to read the number
-
-**A function at either end of the call graph scores zero.** The product term
-vanishes when either degree is zero, so `main` above scores 0 despite calling
-four things across twelve lines, and `chomp` scores 0 despite being called
-from six places. Both zeros are *values*. They do not mean the function holds
-no code, and they are not the `undefined` that
-[Instability](#component-coupling) prints when *its* inputs vanish —
-that one really is undefined; this one is defined and equals zero.
-
-**The figure is ordinal, not absolute.** The squared term separates values by
-orders of magnitude, so a project of a few hundred functions will show
-figures from 0 into the millions. Use it to rank functions *within one
-project* — the top of that ranking is where a change costs most — and never to
-compare one project against another. There is no number here that is "too
-high".
-
-Both are properties of the metric Henry and Kafura published, not of this
-implementation, and neither is a defect. Which is also why the metric carries
-**no severity and no threshold**: no published source divides it into
-accepted and unaccepted ranges, and `elc` does not invent one. You will not
-find a Henry–Kafura row in the
-[Findings](#findings-where-a-measurement-falls-and-on-whose-authority) table,
-and the reason is in
-[the band table](#the-bands): every
-line `elc` draws comes from somebody's published work, and inventing one for a
-metric whose name reads as a citation would be the worst place to start.
-
-One caveat specific to this figure. Calls resolve by name, so where several
-files define a `static` helper of the same name, every call resolves into one
-of them: that definition collects every caller's fan-in and the others collect
-none. Fan-in and fan-out are each wrong by that amount and the formula
-multiplies them and squares the product, so the error arrives here magnified
-rather than passed through. `elc` diagnoses duplicate definitions on standard
-error; read the two together before acting on a figure at the top of the
-ranking.
+> **The Henry–Kafura value is gone.** Earlier releases reported
+> `HK = ELOC × (Fan-In × Fan-Out)²` per function and summed across the
+> project, in a third table beside this one. No published source bands the
+> figure, so `elc` reported it with no severity — and in practice a
+> four-order-of-magnitude number with no threshold got read as a score
+> anyway. The two degrees it was formed from are here, beside the ELOC and
+> the complexity it was formed with, and each is banded on a stated
+> authority. If you want the value, the report and the GraphML export both
+> carry all three of its inputs.
 
 ### Recursion
 
@@ -976,9 +1003,10 @@ elc -b 3 src/     # lower the bar from the default 5
 ```
 
 **This threshold is `elc`'s own heuristic and says so on every row it flags.**
-Everything else `elc` bands comes from a published source; this one does not,
-and presenting it beside Henry–Kafura and MISRA without saying so would lend it
-authority it has not got.
+It is one of exactly two that are; the other is the fan-in band. Everything
+else `elc` bands comes from a published source, and presenting an invented
+line beside McCabe, Henry–Kafura, Martin and MISRA without saying so would
+lend it authority it has not got.
 
 ### Component dependency cycles
 
@@ -1105,9 +1133,9 @@ Architecture conformance (over 0 inter-layer call edges; undefined where there a
 A project whose layers never call one another has not achieved perfect
 conformance; it has demonstrated nothing either way. This is the same
 convention Instability follows when both its couplings are zero, and
-deliberately not the one Henry–Kafura follows — that metric is genuinely
-*equal to* zero when its inputs vanish, and prints `0`. The difference between
-the two is why each exists.
+deliberately not the one the two degrees follow — a fan-in of zero is a
+measured zero and prints `0`. The difference between `undefined` and `0` is
+the difference between a question with no answer and an answer that is none.
 
 **Do not add the two indices together.** A call ascending two layers is a
 back-call and a skip-level call at once and is counted once in each, so a
@@ -1213,10 +1241,10 @@ Graph purification (recovery view only, no measurement above is taken over it; e
 **The view is a copy, and that is the property to hold on to.** Nothing else
 in the report is computed over it. Fan-out, fan-in, call depth, recursion,
 coupling, Instability, dependency cycles, reachability, the conformance
-indices, every cell of the matrix, and the Henry-Kafura values are each
+indices, and every cell of the matrix are each
 exactly what they would be if purification had never run. `util_log` above has
 every one of its incoming edges masked in the view and still reports a fan-in
-of six in the Information flow table. Change a purification threshold and no
+of six in the Functions table. Change a purification threshold and no
 number in the report moves but the ones in this one section.
 
 #### The three classifications
@@ -1644,11 +1672,11 @@ The node attributes are `name`, `file`, `line-start`, `line-end`,
 edges carry `kind` (`call` or `global`), the object's name on a global edge,
 and `call-sites` on a call edge.
 
-The Henry–Kafura value is *not* among them, and does not need to be: `eloc`,
-`fan-in` and `fan-out` are all three of its inputs, so an ingesting tool can
-form it exactly. Exporting the value as well would put a second computation of
-it beside the one in the report, and two places computing a figure are two
-places it can be computed differently.
+No figure *derived* from those attributes is exported beside them. An
+ingesting tool holding `eloc`, `complexity`, `fan-in` and `fan-out` can form
+whatever it wants from them exactly; carrying a derived value as well would
+put a second computation of it beside the one in the report, and two places
+computing a figure are two places it can be computed differently.
 
 ### Where the graph is imprecise, and in which direction
 
@@ -2545,14 +2573,18 @@ ELC_RUNTIME_DIR=/path/to/runtime elc src/
 
 ## Findings: where a measurement falls, and on whose authority
 
-Every section above **measures**. One section judges:
+Every section above **measures**. One section judges — and it is the first
+section of the report, immediately after the project summary, ahead of every
+table that supplies its evidence:
 
 ```text
 Findings
   Severity  Measurement                 Subject    Detail                                Source
   --------  --------------------------  ---------  ------------------------------------  ----------------------------
+  critical  complexity                  helper     cyclomatic complexity 16              McCabe (NIST SP 500-235)
   critical  fan-out                     dispatch   calls 22 distinct subroutines         Henry-Kafura
   critical  component dependency cycle  a.c        a.c -> b.c -> a.c                     Martin, acyclic dependencies
+  warning   fan-in                      chomp      called by 31 distinct functions       elc heuristic — not a published standard
   warning   single-function global      config      named by one function; belongs at
                                                     block scope                          MISRA C Rule 8.9
   warning   bottleneck                  util.c     Ca 7 and Ce 6, each at or above the
@@ -2562,7 +2594,7 @@ Findings
 Ranked most severe first, because the list exists to be worked from the top.
 
 **Every row names its source.** That column is the point of the section: with
-one exception, `elc` does not invent its thresholds — it draws them from
+two exceptions, `elc` does not invent its thresholds — it draws them from
 named, published sources, so you can look up and argue with any line it
 draws:
 
@@ -2574,6 +2606,10 @@ draws:
   and D. Kafura, which relate how likely a function is to contain a defect
   to how much data flows through it. It is the source for the fan-out
   bands.
+- **McCabe** is the author of the cyclomatic complexity measure. The limit
+  of 10 is his own; NIST SP 500-235 records limits as high as 15 as having
+  been used successfully, and only where the practices exist to justify
+  going past 10. Those two numbers are the warning and critical bands.
 - **Martin** refers to Robert C. Martin's software design principles,
   which include the Instability metric and the rule that dependencies
   between components should never form a cycle.
@@ -2582,16 +2618,18 @@ Where a threshold *is* `elc`'s own, the column says so in as many words:
 
 > `elc heuristic — not a published standard`
 
-There is exactly one such threshold today: the bottleneck. If you disagree
-with a published threshold, take it up with the standard it comes from; if
-you disagree with the bottleneck threshold, it is only `elc`'s opinion, and
-it is labelled as such so you know that's all it is.
+There are exactly two such thresholds today: the **bottleneck** and the
+**fan-in** band. If you disagree with a published threshold, take it up with
+the standard it comes from; if you disagree with one of these two, it is only
+`elc`'s opinion, and it is labelled as such so you know that's all it is.
 
 ### The bands
 
 | Measurement | Bands | Source |
 | ----------- | ----- | ------ |
+| Cyclomatic complexity | ≤10 silent; 11–15 **warning**; >15 **critical** | McCabe (NIST SP 500-235) |
 | Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 **warning**; >15 **critical** | Henry–Kafura |
+| Function fan-in | ≤25 silent; >25 **warning**, with no critical band | `elc` heuristic |
 | Call depth | >8 **warning**; >12 **critical** | embedded practice |
 | Recursion | any occurrence **critical** | MISRA C Rule 17.2 |
 | Component dependency cycle | any occurrence **critical** | Martin |
@@ -2599,20 +2637,43 @@ it is labelled as such so you know that's all it is.
 | Hidden channel | **warning** | MISRA C Rule 8.9 |
 | Instability vs. declared layer | **warning** on mismatch | Martin |
 | Bottleneck | **warning** | `elc` heuristic |
-| **Henry–Kafura structural complexity** | **none — reported as a bare value** | Henry–Kafura |
 
 The fan-out bands are **exhaustive**: every value classifies exactly once, and
 three of the five bands produce nothing at all. A fan-out of 9 is acceptable
 and silent — that is a result, not an oversight.
 
-**The last row has no bands, and that is deliberate.** No published source
-divides Henry–Kafura complexity into accepted and unaccepted ranges. Every
-other line in this table is drawn on somebody else's published authority;
-drawing one here would put an opinion of `elc`'s own beside them under a name
-that reads as a citation. So the value is reported, no severity is attached
-to it, and it never appears in the **Findings** section. See
-[Fan-in and information flow](#fan-in-and-information-flow) for how to read
-it instead.
+**The complexity bands are not the same thing as `--complexity-threshold`.**
+That option decides which functions are *listed*; these decide which produce a
+finding, and moving the option moves neither. If it did, the number in the
+Source column would be yours rather than McCabe's.
+
+**Two rows are `elc`'s own**, and both say so where you read them: the
+bottleneck, and the fan-in band. Nobody has published a fan-in threshold, so
+25 is this project's judgement — and there is no critical band, because `elc`
+has no published basis for a first line and none whatever for a second.
+
+### The threshold listing
+
+Every function a band names is collected into one table, alongside the
+functions at or over the complexity threshold `--complexity-threshold` sets:
+
+```text
+At or over a threshold (complexity listed at 15; complexity, fan-in and fan-out banded)
+  File                  Function  Complexity  Fan-in  Fan-out  Severity
+  --------------------  --------  ----------  ------  -------  --------
+  /home/u/proj/src/a.c  parse             12       3        7  warning
+  /home/u/proj/src/b.c  dispatch           4       1       22  critical
+  /home/u/proj/src/b.c  helper            16       2        1  critical
+```
+
+The **Severity** column is the highest band any of the three measurements put
+the function in. It is blank for a function that is here only because its
+complexity met the listing threshold: that threshold has never carried a
+severity and does not start now.
+
+Where the **Findings** table says what crossed a line, this says which
+functions did, with the figures beside them — it is the short list the long
+one is read through.
 
 ### Why the lines sit where they do
 

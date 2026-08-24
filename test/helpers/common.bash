@@ -70,3 +70,41 @@ require_path() {
 	[ -e "$path" ] || \
 		skip "$path unavailable: $requirement unverified on this platform"
 }
+
+# report_shape <table-format report text>
+#
+# The set of sections a report *reached*, one name per line and sorted.
+#
+# Since HLR-188 a table with no rows is not printed, so the sequence of
+# printed headings varies with what a run found. What does not vary is the set
+# of sections the traversal reached: a section with rows appears as a heading,
+# and one without appears in the closing statement of HLR-189. The union of
+# the two is the shape HLR-006 and HLR-031 are about, and comparing it is what
+# those tests have to compare now.
+#
+# Only the leading words of a heading are kept — up to the first " (" — so a
+# heading carrying a count or a threshold compares equal across runs that
+# found different numbers of things.
+report_shape() {
+	{
+		grep -E '^[A-Z]' <<<"$1"
+		sed -n '/^Nothing to report$/,$p' <<<"$1" | sed -n 's/^    - //p'
+	} | sed 's/ (.*$//' | grep -v '^Nothing to report$' | sort -u
+}
+
+# heading_of <heading prefix>
+#
+# A section's heading, whether the section was printed or — having found no
+# rows — named in the closing statement instead (HLR-188, HLR-189).
+#
+# The heading is what carries the reason an analysis was omitted, and HLR-115
+# requires that reason wherever the analysis is not. Reading it from either
+# place is what lets one assertion cover both, so a test asserting "the reason
+# is stated" does not become a test asserting "the table was printed".
+heading_of() {
+	printf '%s\n' "$output" | awk -v p="$1" '
+		index($0, p) == 1          { print; exit }
+		index($0, "## " p) == 1    { sub(/^## /, ""); print; exit }
+		index($0, "    - " p) == 1 { sub(/^    - /, ""); print; exit }
+		index($0, "- " p) == 1     { sub(/^- /, ""); print; exit }'
+}

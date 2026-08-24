@@ -191,24 +191,71 @@ Test(thresholds, every_banded_measurement_names_its_source_in_its_row)
 	}
 }
 
-Test(thresholds, henry_kafura_is_attributed_and_never_banded)
+Test(thresholds, complexity_is_banded_on_a_published_authority)
 {
-	/* The measurement that separates a citation from a threshold. The
-	 * formula is Henry and Kafura's and is named wherever it is reported;
-	 * no published source divides it into accepted and unaccepted ranges,
-	 * so the catalogue holds no row and `thresholds_apply` produces no
-	 * finding for it — LLR-THR-08's path, taken for the first time by a
-	 * measurement that will never have an entry (HLR-159). */
-	cr_assert_null(thresholds_lookup(MEASURE_HENRY_KAFURA),
-	               "no published source bands the metric");
-	cr_assert_str_eq(threshold_attribution(MEASURE_HENRY_KAFURA),
-	                 "Henry-Kafura");
-	cr_assert_not(threshold_is_elc_own(MEASURE_HENRY_KAFURA),
-	              "the formula is not elc's, and neither is the absence "
-	              "of a band");
+	const Threshold *t = thresholds_lookup(MEASURE_COMPLEXITY);
+	Severity         band;
+
+	/* 10 is McCabe's own limit and 15 the highest NIST SP 500-235 records
+	 * as having been used successfully, so both numbers are somebody
+	 * else's and the row is not marked as elc's (HLR-185, HLR-099). */
+	cr_assert_not_null(t);
+	cr_assert_eq(t->warning_above, 10);
+	cr_assert_eq(t->critical_above, 15);
+	cr_assert_not(threshold_is_elc_own(MEASURE_COMPLEXITY));
+	cr_assert_not_null(strstr(threshold_attribution(MEASURE_COMPLEXITY),
+	                          "McCabe"));
+
+	cr_assert_not(thresholds_band(MEASURE_COMPLEXITY, 10, &band),
+	              "ten is inside the accepted range, not over it");
+	cr_assert(thresholds_band(MEASURE_COMPLEXITY, 11, &band));
+	cr_assert_eq(band, SEVERITY_WARNING);
+	cr_assert(thresholds_band(MEASURE_COMPLEXITY, 15, &band));
+	cr_assert_eq(band, SEVERITY_WARNING,
+	             "fifteen is the top of the warning band, not the bottom "
+	             "of the critical one");
+	cr_assert(thresholds_band(MEASURE_COMPLEXITY, 16, &band));
+	cr_assert_eq(band, SEVERITY_CRITICAL);
 }
 
-Test(thresholds, exactly_one_threshold_is_elcs_own_and_says_so)
+Test(thresholds, fan_in_is_banded_on_elcs_own_authority_and_says_so)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_FAN_IN);
+	Severity         band;
+
+	/* No published source bands fan-in, so this row is elc's and carries
+	 * the label that says so wherever it is read. There is no critical
+	 * band, because a second invented line would be a second unsupported
+	 * claim (HLR-186, HLR-099). */
+	cr_assert_not_null(t);
+	cr_assert_eq(t->warning_above, 25);
+	cr_assert(threshold_is_elc_own(MEASURE_FAN_IN));
+	cr_assert_not_null(strstr(threshold_attribution(MEASURE_FAN_IN),
+	                          "not a published standard"));
+
+	cr_assert_not(thresholds_band(MEASURE_FAN_IN, 25, &band));
+	cr_assert(thresholds_band(MEASURE_FAN_IN, 26, &band));
+	cr_assert_eq(band, SEVERITY_WARNING);
+	cr_assert(thresholds_band(MEASURE_FAN_IN, 100000, &band));
+	cr_assert_eq(band, SEVERITY_WARNING,
+	             "no fan-in reaches a critical band, because there is "
+	             "none to reach");
+}
+
+Test(thresholds, an_occurrence_row_bands_no_counted_value)
+{
+	Severity band;
+
+	/* Recursion is a finding by its occurrence: its severity is fixed and
+	 * its bounds are both zero. Putting a count through the counted path
+	 * would report every non-zero count as critical, so the counted
+	 * question answers "no band" for it (LLR-THR-08). */
+	cr_assert_not(thresholds_band(MEASURE_RECURSION, 3, &band));
+	cr_assert_not(thresholds_band((MeasurementKind)MEASURE_KIND_COUNT, 3,
+	                              &band));
+}
+
+Test(thresholds, exactly_two_thresholds_are_elcs_own_and_say_so)
 {
 	int own = 0;
 
@@ -221,15 +268,16 @@ Test(thresholds, exactly_one_threshold_is_elcs_own_and_says_so)
 				"an elc threshold must say so where it is read");
 		}
 
-	/* One, and it is the bottleneck. If a second ever appears it must be
-	 * a deliberate decision rather than a drift, which is what makes the
-	 * exact count worth asserting.
+	/* Two: the bottleneck heuristic and the fan-in band. If a third ever
+	 * appears it must be a deliberate decision rather than a drift, which
+	 * is what makes the exact count worth asserting.
 	 *
-	 * A metric arriving without a published band is not a second: the
-	 * honest treatment is to report it with no severity, not to invent
-	 * one and mark it as elc's (HLR-159). */
-	cr_assert_eq(own, 1);
+	 * A measurement arriving without a published band is not a third: the
+	 * honest treatment is to report it with no severity, not to invent one
+	 * and mark it as elc's (HLR-098). */
+	cr_assert_eq(own, 2);
 	cr_assert(threshold_is_elc_own(MEASURE_BOTTLENECK));
+	cr_assert(threshold_is_elc_own(MEASURE_FAN_IN));
 }
 
 Test(thresholds, the_published_thresholds_are_not_marked_as_elcs_own)

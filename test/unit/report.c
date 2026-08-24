@@ -63,42 +63,166 @@ Test(report, totals_sum_across_every_file)
 	metrics_free(&acc);
 }
 
-Test(report, the_henry_kafura_total_is_the_sum_of_the_per_function_values)
-{
-	Report report = { 0 };
-
-	/* Built directly rather than through an analysis, because the property
-	 * under test is the summation and not the measurement: the total is
-	 * the sum of the rows, never the formula applied to project aggregates
-	 * — a project has no fan-in (HLR-158). */
-	report.fan_out = calloc(3, sizeof *report.fan_out);
-	cr_assert_not_null(report.fan_out);
-	report.fan_out_count = 3;
-	report.fan_out[0].henry_kafura = 144;
-	report.fan_out[1].henry_kafura = 0;      /* an end of the graph */
-	report.fan_out[2].henry_kafura = UINT64_C(56700000000);
-
-	report_total_henry_kafura(&report);
-	cr_assert_eq(report.summary.henry_kafura, UINT64_C(56700000144),
-	             "the total accumulates in the same width the values do");
-
-	/* Idempotent, because both the live path and the regeneration path
-	 * call it and a run reading a record does both. */
-	report_total_henry_kafura(&report);
-	cr_assert_eq(report.summary.henry_kafura, UINT64_C(56700000144));
-
-	report_free(&report);
-}
-
-Test(report, a_project_with_no_functions_totals_zero_rather_than_nothing)
+/* Verifies LLR-RPT-38: the flow degrees measured over the graph are joined
+ * onto the functions they describe, matched by file, start line and name.
+ *
+ * Neither half of the pair suffices, and the fixture says why: two static
+ * functions in two translation units share a name here, so only the one at
+ * the named location may take the figures.
+ */
+Test(report, the_flow_degrees_are_joined_onto_their_functions)
 {
 	MetricsAccumulator acc    = { 0 };
 	Report             report = { 0 };
 	ElcOptions         opts   = { 0 };
+	FileMetrics       *a      = metrics_for("/a.c", 40);
+	FileMetrics       *b      = metrics_for("/b.c", 40);
 
+	a->functions = calloc(2, sizeof *a->functions);
+	cr_assert_not_null(a->functions);
+	a->function_count       = 2;
+	a->functions[0].name    = strdup("helper");
+	a->functions[0].start_line = 1;
+	a->functions[1].name    = strdup("hub");
+	a->functions[1].start_line = 10;
+	b->functions = calloc(1, sizeof *b->functions);
+	cr_assert_not_null(b->functions);
+	b->function_count       = 1;
+	b->functions[0].name    = strdup("helper");   /* the same name */
+	b->functions[0].start_line = 1;
+
+	cr_assert_eq(metrics_add(&acc, a), 0);
+	cr_assert_eq(metrics_add(&acc, b), 0);
 	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
-	report_total_henry_kafura(&report);
-	cr_assert_eq(report.summary.henry_kafura, 0);
+
+	report.fan_out = calloc(3, sizeof *report.fan_out);
+	cr_assert_not_null(report.fan_out);
+	report.fan_out_count = 3;
+	report.fan_out[0].file = strdup("/a.c");
+	report.fan_out[0].function = strdup("hub");
+	report.fan_out[0].line = 10;
+	report.fan_out[0].fan_in = 7;
+	report.fan_out[0].fan_out = 3;
+	report.fan_out[1].file = strdup("/b.c");
+	report.fan_out[1].function = strdup("helper");
+	report.fan_out[1].line = 1;
+	report.fan_out[1].fan_in = 2;
+	report.fan_out[1].fan_out = 0;
+	/* A row naming a function the model does not define is dropped, not
+	 * diagnosed: a hand-written record can carry one, and the rest of the
+	 * record is still readable. */
+	report.fan_out[2].file = strdup("/a.c");
+	report.fan_out[2].function = strdup("absent");
+	report.fan_out[2].line = 900;
+
+	cr_assert_eq(report_attach_flow(&report), 0);
+
+	cr_assert_eq(report.files[0]->functions[1].fan_in, 7);
+	cr_assert_eq(report.files[0]->functions[1].fan_out, 3);
+	cr_assert_eq(report.files[0]->functions[0].fan_in, 0,
+	             "the /a.c helper takes no figures from the /b.c one");
+	cr_assert_eq(report.files[1]->functions[0].fan_in, 2);
+
+	report_free(&report);
+	metrics_free(&acc);
+}
+
+/* Verifies LLR-RPT-39: the threshold listing unites the functions at or over
+ * the configured complexity threshold with every function a band names, and
+ * carries the highest band that named each (HLR-187).
+ */
+Test(report, the_listing_unites_the_configured_threshold_with_the_bands)
+{
+	MetricsAccumulator acc    = { 0 };
+	Report             report = { 0 };
+	ElcOptions         opts   = { 0 };
+	FileMetrics       *a      = metrics_for("/a.c", 90);
+
+	opts.complexity_threshold = 15;
+
+	a->functions = calloc(4, sizeof *a->functions);
+	cr_assert_not_null(a->functions);
+	a->function_count = 4;
+	/* Inside every band, and below the listing threshold: absent. */
+	a->functions[0].name       = strdup("quiet");
+	a->functions[0].start_line = 1;
+	a->functions[0].complexity = 4;
+	/* Complexity 11: a warning, and below the listing threshold of 15 —
+	 * so it is here because of the band and nothing else. */
+	a->functions[1].name       = strdup("branchy");
+	a->functions[1].start_line = 10;
+	a->functions[1].complexity = 11;
+	/* Fan-out 16: critical. Complexity says nothing about it. */
+	a->functions[2].name       = strdup("dispatch");
+	a->functions[2].start_line = 20;
+	a->functions[2].complexity = 2;
+	/* Fan-in 26: a warning on elc's own authority. */
+	a->functions[3].name       = strdup("popular");
+	a->functions[3].start_line = 30;
+	a->functions[3].complexity = 2;
+
+	cr_assert_eq(metrics_add(&acc, a), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
+
+	report.fan_out = calloc(2, sizeof *report.fan_out);
+	cr_assert_not_null(report.fan_out);
+	report.fan_out_count = 2;
+	report.fan_out[0].file = strdup("/a.c");
+	report.fan_out[0].function = strdup("dispatch");
+	report.fan_out[0].line = 20;
+	report.fan_out[0].fan_out = 16;
+	report.fan_out[1].file = strdup("/a.c");
+	report.fan_out[1].function = strdup("popular");
+	report.fan_out[1].line = 30;
+	report.fan_out[1].fan_in = 26;
+
+	cr_assert_eq(report_attach_flow(&report), 0);
+
+	cr_assert_eq(report.over_threshold.count, 3,
+	             "quiet is inside every band and below the threshold");
+	cr_assert_str_eq(report.over_threshold.items[0].function->name,
+	                 "branchy");
+	cr_assert_eq(report.over_threshold.items[0].severity,
+	             SEVERITY_WARNING);
+	cr_assert_str_eq(report.over_threshold.items[1].function->name,
+	                 "dispatch");
+	cr_assert_eq(report.over_threshold.items[1].severity,
+	             SEVERITY_CRITICAL);
+	cr_assert_str_eq(report.over_threshold.items[2].function->name,
+	                 "popular");
+	cr_assert_eq(report.over_threshold.items[2].severity,
+	             SEVERITY_WARNING);
+
+	report_free(&report);
+	metrics_free(&acc);
+}
+
+/* Verifies LLR-RPT-39 for the case the configured threshold governs alone: a
+ * function inside every band, listed because its complexity met the value
+ * `--threshold` set, carries no severity. The listing threshold has never
+ * moved a severity and must not start (HLR-023).
+ */
+Test(report, a_function_listed_by_the_configured_threshold_carries_no_severity)
+{
+	MetricsAccumulator acc    = { 0 };
+	Report             report = { 0 };
+	ElcOptions         opts   = { 0 };
+	FileMetrics       *a      = metrics_for("/a.c", 20);
+
+	opts.complexity_threshold = 5;
+
+	a->functions = calloc(1, sizeof *a->functions);
+	cr_assert_not_null(a->functions);
+	a->function_count          = 1;
+	a->functions[0].name       = strdup("modest");
+	a->functions[0].start_line = 1;
+	a->functions[0].complexity = 6;   /* over 5, inside every band */
+
+	cr_assert_eq(metrics_add(&acc, a), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
+
+	cr_assert_eq(report.over_threshold.count, 1);
+	cr_assert_eq(report.over_threshold.items[0].severity, SEVERITY_INFO);
 
 	report_free(&report);
 	metrics_free(&acc);

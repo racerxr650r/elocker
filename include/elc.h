@@ -94,13 +94,37 @@ typedef struct {
 #define ELC_DEPTH_WARNING      8u
 #define ELC_DEPTH_CRITICAL    12u
 
+/* The cyclomatic-complexity bands (HLR-185).
+ *
+ * McCabe's own limit is 10, and NIST SP 500-235 records 15 as the highest
+ * limit projects have used successfully — and only where an organisation has
+ * the review practices to justify it. So above 10 warns and above 15 is
+ * critical, and both numbers are somebody else's.
+ *
+ * These are separate from `ELC_DEFAULT_COMPLEXITY_THRESHOLD`, which is the
+ * value `--complexity-threshold` sets and governs a *listing* rather than a
+ * severity (HLR-022, HLR-023). The two share a number by coincidence of history, not
+ * by construction: changing the listing threshold must not move a band. */
+#define ELC_COMPLEXITY_WARNING  10u
+#define ELC_COMPLEXITY_CRITICAL 15u
+
+/* The fan-in band (HLR-186), and **the second threshold `elc` invented**.
+ *
+ * No published source bands fan-in. Twenty-five distinct callers is where a
+ * function stops being a routine and starts being an interface that cannot be
+ * changed, and that is a judgement rather than a citation — so the catalogue
+ * row carries `ELC_OWN_HEURISTIC` and the report says so wherever the finding
+ * appears. There is no critical band: `elc` has no basis for a second line it
+ * did not draw from anywhere either. */
+#define ELC_FANIN_WARNING      25u
+
 /* The structure of the XML record this build writes and accepts (HLR-061).
  *
  * Incremented whenever an element is removed or its meaning changes — not
  * when one is added, since a reader ignores elements it does not recognise.
  * A record carrying any other version is rejected rather than read
  * optimistically (HLR-058). */
-#define ELC_XML_FORMAT_VERSION 1
+#define ELC_XML_FORMAT_VERSION 2
 
 /* What the run is being asked to do. */
 typedef enum {
@@ -317,6 +341,18 @@ typedef struct {
 	uint32_t  eloc;       /* statements attributed to this function
 	                       * alone, never to one enclosing it (HLR-068)  */
 	uint32_t  complexity; /* 1 + the decision points attributed to it    */
+	/* The flow degrees, attached to the function rather than kept in a
+	 * table beside it (HLR-183). `analyze.c` cannot fill them — they are
+	 * properties of the whole-project graph, not of one file's syntax — so
+	 * they are zero until `report_attach_flow` runs, and zero is also the
+	 * measured value for a function at either end of the call graph. The
+	 * two are indistinguishable here on purpose: a function no analysed
+	 * function calls and a function measured before the graph existed both
+	 * report nothing, and the report distinguishes them by whether the
+	 * graph was built at all, never by inspecting a degree (HLR-085,
+	 * HLR-156). */
+	uint32_t  fan_in;
+	uint32_t  fan_out;
 } FunctionMetric;
 
 /* One function the source defines and the linked image does not (HLR-143).
@@ -454,16 +490,17 @@ typedef enum {
 
 /* Which measurement a finding is about.
  *
- * Mostly one entry per row of the threshold catalogue (SDD §12.2.1), and
- * deliberately not exactly one. A measurement whose kind has no catalogue
- * entry is reported as a bare value with no severity rather than being
- * dropped or given an invented band (HLR-098, LLR-THR-08), and
- * MEASURE_HENRY_KAFURA is the kind that exercises that path: no published
- * source divides the metric into accepted and unaccepted ranges, so it has a
- * kind, an attribution, and no row (HLR-159).
+ * One entry per row of the threshold catalogue (SDD §12.2.1), and the
+ * catalogue is the only place a band is written down. A kind the catalogue
+ * holds no row for is reported as a bare value with no severity rather than
+ * being dropped or given an invented band (HLR-098, LLR-THR-08); no kind
+ * below is in that position today, and the path stays because the next
+ * measurement without a published band will be.
  */
 typedef enum {
 	MEASURE_FAN_OUT = 0,       /* per function   (HLR-086)  */
+	MEASURE_FAN_IN,            /* per function   (HLR-186)  */
+	MEASURE_COMPLEXITY,        /* per function   (HLR-185)  */
 	MEASURE_CALL_DEPTH,        /* per project    (HLR-087)  */
 	MEASURE_RECURSION,         /* per cycle      (HLR-089)  */
 	MEASURE_COMPONENT_CYCLE,   /* per cycle      (HLR-083)  */
@@ -471,9 +508,6 @@ typedef enum {
 	MEASURE_HIDDEN_CHANNEL,    /* per global     (HLR-093)  */
 	MEASURE_INSTABILITY,       /* per component  (HLR-082)  */
 	MEASURE_BOTTLENECK,        /* per component  (HLR-081)  */
-	/* Banded by nobody, and that is the requirement rather than a gap.
-	 * The catalogue holds no row for it (HLR-159). */
-	MEASURE_HENRY_KAFURA,      /* per function   (HLR-157)  */
 	MEASURE_KIND_COUNT
 } MeasurementKind;
 

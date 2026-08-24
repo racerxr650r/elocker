@@ -50,16 +50,18 @@ setup() {
 }
 
 @test "the output shape does not depend on the type of the target" {
-	# HLR-006: a file target and a directory target produce the same
-	# sections in the same order. Column widths differ with the content,
-	# so the section headings are what is compared.
+	# HLR-006: a file target and a directory target reach the same
+	# sections. Column widths differ with the content, and since HLR-188 so
+	# does which sections are printed — a file target has no discovery
+	# route to list — so the set of sections *reached* is what is compared,
+	# printed or named in the closing statement alike.
 	elc "$TREE/a.c"
 	local file_shape
-	file_shape="$(grep -E '^[A-Z]' <<<"$output")"
+	file_shape="$(report_shape "$output")"
 
 	elc "$TREE"
 	local dir_shape
-	dir_shape="$(grep -E '^[A-Z]' <<<"$output")"
+	dir_shape="$(report_shape "$output")"
 
 	assert_equal "$dir_shape" "$file_shape"
 }

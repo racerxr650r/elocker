@@ -254,7 +254,7 @@ Test(format_xml, the_threshold_supplied_now_is_the_one_applied)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <files>\n"
 		"    <file path=\"/a.c\" language=\"c\" physical-lines=\"9\" eloc=\"5\">\n"
 		"      <function name=\"busy\" start-line=\"1\" end-line=\"9\""
@@ -291,7 +291,7 @@ Test(format_xml, the_model_is_reconstructed_from_the_record)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <files>\n"
 		"    <file path=\"/z.c\" language=\"c\" physical-lines=\"4\" eloc=\"2\">\n"
 		"      <function name=\"g\" start-line=\"1\" end-line=\"4\""
@@ -323,14 +323,13 @@ Test(format_xml, the_model_is_reconstructed_from_the_record)
 	report_free(&report);
 }
 
-/* Verifies LLR-XWR-08 for the information-flow figures: fan-in and the
- * Henry-Kafura value are carried in the record and restored from it, and the
- * project total is re-summed from the restored rows.
+/* Verifies LLR-XWR-08 for the flow degrees: fan-in and fan-out are carried in
+ * the record and restored from it.
  *
- * Neither figure can be recomputed here. Regeneration has no graph and no
- * source from which to build one, so a record that carried fan-out alone
- * would regenerate every Henry-Kafura value as zero — which renders as an
- * ordinary number and reads as a project where nothing is connected.
+ * Neither can be recomputed here. Regeneration has no graph and no source
+ * from which to build one, so a record that carried fan-out alone would
+ * regenerate every fan-in as zero — which renders as an ordinary number and
+ * reads as a project where nothing is called (HLR-156, HLR-183).
  */
 Test(format_xml, the_flow_figures_are_carried_by_the_record)
 {
@@ -340,12 +339,12 @@ Test(format_xml, the_flow_figures_are_carried_by_the_record)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <calltree depth-state=\"0\" depth=\"0\">\n"
 		"    <fanout function=\"hub\" file=\"/a.c\" line=\"1\""
-		" value=\"2\" fan-in=\"3\" eloc=\"4\" hk=\"144\"/>\n"
+		" value=\"2\" fan-in=\"3\" eloc=\"4\"/>\n"
 		"    <fanout function=\"leaf\" file=\"/a.c\" line=\"9\""
-		" value=\"0\" fan-in=\"1\" eloc=\"6\" hk=\"0\"/>\n"
+		" value=\"0\" fan-in=\"1\" eloc=\"6\"/>\n"
 		"  </calltree>\n"
 		"</elc-report>\n";
 
@@ -357,13 +356,11 @@ Test(format_xml, the_flow_figures_are_carried_by_the_record)
 
 	cr_assert_eq(report.fan_out_count, 2);
 	cr_assert_eq(report.fan_out[0].fan_in, 3);
+	cr_assert_eq(report.fan_out[0].fan_out, 2);
 	cr_assert_eq(report.fan_out[0].eloc, 4);
-	cr_assert_eq(report.fan_out[0].henry_kafura, 144);
-	cr_assert_eq(report.fan_out[1].henry_kafura, 0,
+	cr_assert_eq(report.fan_out[1].fan_in, 1);
+	cr_assert_eq(report.fan_out[1].fan_out, 0,
 	             "a leaf's zero is carried as a zero, not as an absence");
-	cr_assert_eq(report.summary.henry_kafura, 144,
-	             "the total is re-summed from the rows, since "
-	             "report_assemble has no fan-in to derive it from");
 
 	unlink(path);
 	report_free(&report);
@@ -381,7 +378,7 @@ Test(format_xml, a_record_without_the_flow_attributes_still_reads)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <calltree depth-state=\"0\" depth=\"0\">\n"
 		"    <fanout function=\"hub\" file=\"/a.c\" line=\"1\""
 		" value=\"2\"/>\n"
@@ -396,7 +393,6 @@ Test(format_xml, a_record_without_the_flow_attributes_still_reads)
 	cr_assert_eq(report.fan_out_count, 1);
 	cr_assert_eq(report.fan_out[0].fan_out, 2);
 	cr_assert_eq(report.fan_out[0].fan_in, 0);
-	cr_assert_eq(report.summary.henry_kafura, 0);
 
 	unlink(path);
 	report_free(&report);
@@ -412,7 +408,7 @@ Test(format_xml, a_truncated_record_is_rejected)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <files>\n"
 		"    <file path=\"/a.c\" physical-lines=\"4\" eloc=\"2\">\n";
 
@@ -458,7 +454,7 @@ Test(format_xml, the_conformance_indices_and_the_matrix_survive_the_record)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <files>\n"
 		"    <file path=\"/a.c\" language=\"c\" physical-lines=\"6\" eloc=\"3\"/>\n"
 		"  </files>\n"
@@ -513,7 +509,7 @@ Test(format_xml, the_classifications_survive_the_record)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <files>\n"
 		"    <file path=\"/a.c\" language=\"c\" physical-lines=\"6\" eloc=\"3\"/>\n"
 		"  </files>\n"
@@ -570,7 +566,7 @@ Test(format_xml, the_proposal_survives_the_record)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <recovery state=\"proposed\" layers=\"2\" masked=\"1\""
 		" excluded=\"1\">\n"
 		"    <recovered directory=\"/p/app\" layer=\"0\""
@@ -618,7 +614,7 @@ Test(format_xml, a_cyclic_recovery_survives_the_record)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <recovery state=\"cyclic\" layers=\"0\" masked=\"0\""
 		" excluded=\"0\">\n"
 		"    <recovery-cycle members=\"hal_init, svc_open\"/>\n"
@@ -651,7 +647,7 @@ Test(format_xml, an_incomplete_classification_is_a_malformed_record)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <purification core-depth=\"2\">\n"
 		"    <classification function=\"dispatch\" file=\"/a.c\""
 		" class=\"god object\"/>\n"
@@ -683,7 +679,7 @@ Test(format_xml, a_record_without_the_matrix_still_reads)
 	int        fd     = mkstemp(path);
 	const char body[] =
 		"<?xml version=\"1.0\"?>\n"
-		"<elc-report format-version=\"1\">\n"
+		"<elc-report format-version=\"2\">\n"
 		"  <files>\n"
 		"    <file path=\"/a.c\" language=\"c\" physical-lines=\"6\" eloc=\"3\"/>\n"
 		"  </files>\n"

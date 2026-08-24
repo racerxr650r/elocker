@@ -65,9 +65,7 @@ layering() {
 		     f && $1 != "Kind" && $1 !~ /^-+$/ && NF { print }'
 }
 
-layering_heading() {
-	printf '%s\n' "$output" | awk '/^Layering/ { print; exit }'
-}
+layering_heading() { heading_of "Layering"; }
 
 # One conformance row as "Violating Conforming Of".
 conformance_of() {
@@ -77,10 +75,7 @@ conformance_of() {
 		                  f && $1 == want { print $2, $3, $4 }'
 }
 
-conformance_heading() {
-	printf '%s\n' "$output" |
-		awk '/^Architecture conformance/ { print; exit }'
-}
+conformance_heading() { heading_of "Architecture conformance"; }
 
 # The matrix rows, with directory paths reduced to their last component so the
 # grid reads the same wherever the checkout lives. The corner cell and the
@@ -94,10 +89,7 @@ matrix() {
 		sed 's#[^ ]*/##g; s/^ *//; s/  */ /g'
 }
 
-matrix_heading() {
-	printf '%s\n' "$output" |
-		awk '/^Dependency structure matrix/ { print; exit }'
-}
+matrix_heading() { heading_of "Dependency structure matrix"; }
 
 # --------------------------------------------------------------- coupling --
 

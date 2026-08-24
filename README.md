@@ -18,7 +18,7 @@ analysis, for many languages.
 
 ## Status
 
-**Phase 23 is complete.** `elc src/` reports **effective lines of code** and
+**Phase 24 is complete.** `elc src/` reports **effective lines of code** and
 **cyclomatic complexity** per function across **C, C++, Rust, and Python**,
 in one invocation over a mixed target, as a table, Markdown, CSV, or
 XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
@@ -39,15 +39,17 @@ from the same single parse that produced the metrics. `--graphml` exports it.
 
 Reading that graph, `elc` reports each function's **fan-out** and
 **fan-in** — callees and callers, both counted distinctly and over calls
-alone, so coupling through a shared global counts towards neither — weighs the
-two against the function's length as the **Henry–Kafura** information-flow
-value, `ELOC × (Fan-In × Fan-Out)²`, and totals that across the project. It
-attaches no severity to the figure and no threshold: no published source bands
-it, and inventing one for a metric whose name reads as a citation is the last
-place to start. It detects **recursion** both direct and mutual, and prints
-the **deepest call chain in full** from entry points you declare with
-`--entry`. It never guesses at an
-entry point, and never invents a number it cannot stand behind: where the
+alone, so coupling through a shared global counts towards neither — beside its
+ELOC and its cyclomatic complexity, in one function table rather than three.
+**Complexity above 10 warns and above 15 is critical**, on McCabe's authority
+as NIST SP 500-235 records it; **fan-out above 10 warns and above 15 is
+critical**, on Henry and Kafura's; and **fan-in above 25 warns** on `elc`'s
+own, which is why that row says so wherever it appears. Every function a band
+names is collected into one listing, beside the functions at or over the
+complexity threshold `--complexity-threshold` sets. It detects **recursion**
+both direct and mutual, and prints the **deepest call chain in full** from
+entry points you declare with `--entry`. It never guesses at an entry point,
+and never invents a number it cannot stand behind: where the
 call graph is recursive the depth is unbounded and the cycle is reported
 instead, and where a declaration is missing the analysis is omitted with the
 reason stated.
@@ -251,7 +253,7 @@ the target, an ancestor, or a dotfile. And `--purify-dot` draws the graph twice,
 before and after, with the masked functions greyed and detached rather than
 deleted, so you can see what was set aside before deciding to trust it.
 
-**Progress: 24 of 24 phases complete.**
+**Progress: 25 of 25 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -277,11 +279,12 @@ deleted, so you can see what was set aside before deciding to trust it.
 | [16](doc/SDP.md#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
 | [17](doc/SDP.md#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | ✅ Complete |
 | [18](doc/SDP.md#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
-| [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
+| [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete (Henry–Kafura withdrawn in Phase 24) |
 | [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
 | [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
+| [24](doc/SDP.md#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, complexity and fan-in bands | ✅ Complete |
 
 </details>
 

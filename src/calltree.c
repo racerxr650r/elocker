@@ -1,7 +1,7 @@
 /* calltree.c — the function-level call-tree analyses.
  *
- * Fan-out and fan-in, the Henry-Kafura value formed from them, recursion,
- * maximum call depth, and the deepest call stack (doc/SDD.md §10).
+ * Fan-out and fan-in, recursion, maximum call depth, and the deepest call
+ * stack (doc/SDD.md §10).
  *
  * The order of the steps is the design, and it is not arbitrary. Acyclicity
  * is established *before* depth is measured, because on a cyclic graph the
@@ -62,35 +62,19 @@ static int calltree_by_node_id(const void *a, const void *b)
  * function it never calls, and a reader's fan-in include a function that
  * never called it (LLR-CTR-07).
  *
- * The Henry-Kafura value below is arithmetic over those two degrees and the
- * function's length, so it is formed here rather than by a consumer: one
- * answer then exists for the report, the record, and every renderer.
+ * The two degrees are reported as they are measured. An earlier revision
+ * combined them with the function's length into a Henry-Kafura value here;
+ * Phase 24 withdrew that metric, and what is left is the pair of counts the
+ * report presents beside the function's own figures (HLR-183).
  */
-
-/* `HK = ELOC * (Fan-In * Fan-Out)^2` (HLR-157). */
-static uint64_t henry_kafura(uint32_t eloc, uint32_t fan_in, uint32_t fan_out)
-{
-	/* **Widened before the multiplication, not at the assignment.** The
-	 * product of two degrees fits in 32 bits comfortably; its square does
-	 * not, and a 32-bit square assigned to a 64-bit variable has already
-	 * wrapped by the time the assignment widens it. Sixty-four bits then
-	 * hold the result with room to spare: overflowing it would take a
-	 * single function with some thirteen million caller-callee pairs
-	 * (HLR-158).
-	 */
-	uint64_t product = (uint64_t)fan_in * (uint64_t)fan_out;
-
-	return (uint64_t)eloc * product * product;
-}
 
 static int compute_flow(const Sdg *g, TreeResults *out)
 {
 	size_t n = g->node_count ? g->node_count : 1;
 
-	out->fan_out      = calloc(n, sizeof *out->fan_out);
-	out->fan_in       = calloc(n, sizeof *out->fan_in);
-	out->henry_kafura = calloc(n, sizeof *out->henry_kafura);
-	if (!out->fan_out || !out->fan_in || !out->henry_kafura)
+	out->fan_out = calloc(n, sizeof *out->fan_out);
+	out->fan_in  = calloc(n, sizeof *out->fan_in);
+	if (!out->fan_out || !out->fan_in)
 		return -1;
 	out->node_count = g->node_count;
 
@@ -104,11 +88,6 @@ static int compute_flow(const Sdg *g, TreeResults *out)
 		if (edge->to < g->node_count)
 			out->fan_in[edge->to]++;
 	}
-
-	for (size_t i = 0; i < g->node_count; i++)
-		out->henry_kafura[i] = henry_kafura(g->nodes[i].eloc,
-		                                    out->fan_in[i],
-		                                    out->fan_out[i]);
 
 	return 0;
 }
@@ -490,6 +469,5 @@ void tree_results_free(TreeResults *r)
 	free(r->deepest.nodes);
 	free(r->fan_out);
 	free(r->fan_in);
-	free(r->henry_kafura);
 	memset(r, 0, sizeof *r);
 }

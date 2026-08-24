@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.8
-**Date:** 2026-08-22
+**Version:** 3.9
+**Date:** 2026-08-24
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -50,6 +50,8 @@ Requirements governing how `elc` discovers and selects the set of source files t
 
 *   <a id="HLR-006"></a>**HLR-006: Uniform Target Output Shape.**
     Regardless of whether the target was a single file, a plain directory, or a Git repository, `elc` shall produce output with the same structure and fields, so that results from different target types are directly comparable.
+
+    In a human-readable format the guarantee is over the set of sections the report **reaches** rather than the sequence of headings it prints: a section with no rows is not printed and is named in the closing statement instead (HLR-188, HLR-189). A file target has no discovery route to list and a directory target may have one; which of the two places that section appears in is content, and the comparability this requirement is about is unaffected by it.
     *Trace:* [SDD Section 13](SDD.md).
 
 ## 2. Automatic Language Detection and Extensibility
@@ -181,7 +183,7 @@ Requirements governing how `elc` computes Effective Lines of Code and cyclomatic
 Requirements governing how `elc` aggregates and summarizes per-function metrics at the file and project level (PVD §7.1, §8 "Project Summary").
 
 *   <a id="HLR-021"></a>**HLR-021: Per-File Complexity-Threshold List.**
-    For each file, `elc` shall report the list of functions within that file whose cyclomatic complexity meets or exceeds a threshold value, alongside that file's totals.
+    For each file, `elc` shall report the list of functions within that file whose cyclomatic complexity meets or exceeds a threshold value, alongside that file's totals. HLR-187 extends that list to every function a published band names, and states how the two rules unite.
     *Trace:* [SDD Section 13](SDD.md).
 
 *   <a id="HLR-022"></a>**HLR-022: Configurable Complexity Threshold.**
@@ -244,6 +246,8 @@ Requirements governing how `elc` renders its computed results for human and mach
     Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), and Graphviz `.dot` (HLR-102) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
 
     The enumeration above is the **verbose** composition of HLR-151. Verbosity selects how much of it a given run presents (HLR-150), and this requirement governs the axis it does not touch: whichever verbosity is in force, every affected format shall present the same tiers as every other. Uniformity is across formats at a fixed verbosity, never across verbosities — a table and a Markdown report of the same run must not differ, and a summary report is not required to match a verbose one.
+
+    The tiers a format **reaches** are what must match, rather than the headings it prints: a tier with no rows is presented in no human format and named in the closing statement of every one of them (HLR-188, HLR-189). The order those tiers are presented in is HLR-182's and HLR-184's, and is likewise the same in every affected format.
     *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md), [SDD Section 15](SDD.md).
 
 *   <a id="HLR-148"></a>**HLR-148: Output Format Determined by Filename Extension.**
@@ -261,7 +265,7 @@ Requirements governing how `elc` renders its computed results for human and mach
     *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md).
 
 *   <a id="HLR-150"></a>**HLR-150: Summary Report by Default.**
-    By default, a report `elc` renders in a human-readable format shall present the **summary** tiers alone: the project summary (HLR-024 through HLR-026), the discovery route of each directory target (HLR-127), the per-language breakdown (HLR-025), each file's totals (HLR-019), the per-file list of functions at or over the complexity threshold (HLR-021), the findings ranked by severity (HLR-098, HLR-123), the files skipped for want of a language module (HLR-012), any analysis omitted for want of a declaration (HLR-115), any partly unparsed files (HLR-035), and the provenance a run carries — the configuration in force (HLR-136) and the image filtered by (HLR-147).
+    By default, a report `elc` renders in a human-readable format shall present the **summary** tiers alone: the project summary (HLR-024 through HLR-026), the discovery route of each directory target (HLR-127), the per-language breakdown (HLR-025), each file's totals (HLR-019), the threshold listing of HLR-021 and HLR-187, the findings ranked by severity (HLR-098, HLR-123) — which HLR-182 places directly after the project summary — the files skipped for want of a language module (HLR-012), any analysis omitted for want of a declaration (HLR-115), any partly unparsed files (HLR-035), and the provenance a run carries — the configuration in force (HLR-136) and the image filtered by (HLR-147).
 
     It shall omit by default the **detail** tiers: every section presenting one row per function, per global object, per unreachable statement, per graph edge, or per custom-rule match. The partition rule is that a tier reporting a project-level or file-level aggregate, or a finding a reader is expected to act on, is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Which tier each section belongs to shall be stated in the delivered documentation (HLR-129), so that the partition is a published property of the report rather than an artefact of how a renderer was written.
 
@@ -574,7 +578,7 @@ Requirements governing how `elc` evaluates its measurements against published in
     *Trace:* [SDD Section 12](SDD.md).
 
 *   <a id="HLR-099"></a>**HLR-099: Threshold Attribution.**
-    Every threshold `elc` reports against shall be attributed to its external source — for example MISRA C and its rule number, Robert C. Martin's Instability metric, or the Henry-Kafura information-flow metrics — so that the reader can distinguish a published standard from a choice made by `elc`.
+    Every threshold `elc` reports against shall be attributed to its external source — for example MISRA C and its rule number, Robert C. Martin's Instability metric, McCabe's complexity limits as NIST SP 500-235 records them, or the Henry-Kafura information-flow metrics — so that the reader can distinguish a published standard from a choice made by `elc`.
     *Trace:* [SDD Section 9](SDD.md), [SDD Section 11](SDD.md), [SDD Section 12](SDD.md).
 
 *   <a id="HLR-123"></a>**HLR-123: Severity Vocabulary.**
@@ -757,41 +761,17 @@ The image answers that question at two granularities, and which of them is avail
     Both counts exist for the reason the unresolved-call count of HLR-077 and the undecided-region count of HLR-133 exist, and are read the same way: the first states what the filter removed, the second states where it could not look. A large second count beside a small first one says the report describes the source more nearly than the image, whatever the image was named — which a reader cannot infer from the metrics themselves.
     *Trace:* [SDD Section 13](SDD.md), [SDD Section 16](SDD.md), [SDD Section 18](SDD.md).
 
-## 20. Information-Flow Complexity
+## 20. Function Fan-In
 
-Requirements governing the Henry–Kafura information-flow metric, which weighs a function's size by the traffic passing through it rather than by either alone (PVD Appendix A.2).
+The converse of the fan-out of Section 12: the number of distinct functions that call one.
 
-Sections 3 and 12 measure two properties separately: how much code a function holds, and how widely it connects. A function may be long and isolated, or short and central, and neither figure alone distinguishes those from a function that is both. The metric here is the product the published work forms from them, and it is reported beside its inputs rather than in place of them.
+The section once held the Henry–Kafura information-flow metric as well — the product `ELOC × (Fan-In × Fan-Out)²` the published work forms from a function's size and its two degrees. HLR-157 through HLR-159 were withdrawn in Phase 24 and the identifiers are retired: the figure is ordinal, separated by orders of magnitude, and unbandable by any published source, and in practice readers took it for a score. The two degrees it was formed from are reported as they are measured, side by side in one function table (HLR-183), and each is banded on a stated authority — fan-out on Henry and Kafura's (HLR-086), fan-in on `elc`'s own and labelled as such (HLR-186).
 
 *   <a id="HLR-156"></a>**HLR-156: Function Fan-In Measurement.**
     For every function in the SDG, `elc` shall compute and report its fan-in: the number of distinct functions that invoke it directly. Fan-in is the converse of the fan-out of HLR-085 and is counted the same way — distinctly, over call edges alone, so that a caller invoking a function in forty places contributes one, and coupling through a global object (HLR-074) contributes nothing, since writing a variable another function reads is not calling it.
 
     A function that no analysed function calls has a fan-in of zero. That figure is a measurement rather than a finding: an entry point, an exported API boundary, and an interrupt handler reached from a vector table all legitimately have none, and the reachability analysis of HLR-096 is what draws conclusions from an absence of callers.
     *Trace:* [SDD Section 8](SDD.md), [SDD Section 10](SDD.md), [SDD Section 13](SDD.md).
-
-*   <a id="HLR-157"></a>**HLR-157: Henry–Kafura Structural Complexity per Function.**
-    For every function, `elc` shall compute and report its Henry–Kafura structural complexity as its length multiplied by the square of the product of its fan-in and its fan-out:
-
-    `HK = Length × (Fan-In × Fan-Out)²`
-
-    where **Length** is the function's Effective Lines of Code (HLR-015), **Fan-In** is the measurement of HLR-156, and **Fan-Out** that of HLR-085. ELOC is the length used because it is the length this project measures everywhere else, and a metric mixing a length definition of its own into a report built on ELOC would not be comparable with the figures beside it.
-
-    The metric shall be attributed to Henry and Kafura wherever it is reported (HLR-099), the squared term being theirs rather than `elc`'s.
-    *Trace:* [SDD Section 10](SDD.md), [SDD Section 13](SDD.md).
-
-*   <a id="HLR-158"></a>**HLR-158: Project-Level Henry–Kafura Total.**
-    Across all files analyzed in a single run, `elc` shall compute and report the combined Henry–Kafura complexity of the project as the sum of the per-function values of HLR-157, and shall present it among the project-level totals of HLR-024.
-
-    The total is a sum of the per-function figures rather than the formula applied to project-level aggregates, because the metric is defined over a single procedure's traffic and applying it to a project's totals would multiply a length by a connectivity no procedure has.
-
-    Both the per-function value and the project total shall be computed and carried in an integer type wide enough that no run overflows it. The squared term makes the value grow far faster than any figure `elc` otherwise reports — a function of a hundred effective lines with a fan-in and fan-out of thirty apiece scores over eighty million on its own — and a total that silently wrapped would be a wrong number presented with the authority of a right one.
-    *Trace:* [SDD Section 13](SDD.md).
-
-*   <a id="HLR-159"></a>**HLR-159: Henry–Kafura Reported Without an Invented Band.**
-    `elc` shall report the Henry–Kafura complexity of HLR-157 and HLR-158 as a bare measurement carrying no severity, since no published threshold divides the metric into accepted and unaccepted ranges. This is the treatment HLR-098 already prescribes for a measurement the catalogue holds no entry for, and inventing a band for this one would breach HLR-099's separation of published thresholds from `elc`'s own opinion — the more seriously for a metric whose name carries a citation.
-
-    Two properties of the formula shall be stated wherever the metric is documented, because a reader who does not know them will misread the figure rather than merely fail to act on it. **A function at either end of the call graph scores zero**: the product term is zero when fan-in or fan-out is zero, so an entry point that calls widely and a leaf that is widely called both score nothing whatever their length. And **the metric is ordinal rather than absolute** — the squared term means values are separated by orders of magnitude, so the figures rank functions against each other within one project and carry no meaning compared across projects. Both are properties of the published metric rather than of this implementation, and neither is a defect to be corrected.
-    *Trace:* [SDD Section 12](SDD.md), [SDD Section 13](SDD.md).
 
 ## 21. Architecture Conformance Measurement
 
@@ -866,7 +846,7 @@ A raw call graph rarely sorts into layers. A logger every module calls, and a di
 Two boundaries govern the whole section, and both exist because this is the one place `elc` forms a view of its own. Purification changes **no reported metric** (HLR-167), and a recovered layering is a **proposal that is never a baseline** (HLR-173). Everything else here is subordinate to those two.
 
 *   <a id="HLR-167"></a>**HLR-167: Purification Confined to Recovery.**
-    The edge masking of HLR-168 through HLR-170 shall apply to a view of the graph constructed for architecture recovery alone. No measurement, finding, or artefact `elc` reports outside this section shall be computed over a masked graph: fan-out (HLR-085), fan-in (HLR-156), call depth (HLR-087), recursion (HLR-089), coupling and Instability (HLR-080, HLR-082), dependency cycles (HLR-083), reachability (HLR-096), the indices and matrix of Section 21, and the Henry–Kafura values of Section 20 shall each be exactly what they would be had no purification run.
+    The edge masking of HLR-168 through HLR-170 shall apply to a view of the graph constructed for architecture recovery alone. No measurement, finding, or artefact `elc` reports outside this section shall be computed over a masked graph: fan-out (HLR-085), fan-in (HLR-156), call depth (HLR-087), recursion (HLR-089), coupling and Instability (HLR-080, HLR-082), dependency cycles (HLR-083), reachability (HLR-096), and the indices and matrix of Section 21 shall each be exactly what they would be had no purification run.
 
     This is the requirement the rest of the section is built on. Masking exists because a topological ordering over a tangled graph yields nothing; it is a lens for one question, not a correction to the graph. A fan-out that quietly omitted the calls into a masked utility would be a wrong number reported with the authority of a measured one, and a reachability analysis over a masked graph would call live code dead — the precise failure HLR-096 and HLR-144 are written to prevent.
     *Trace:* [SDD Section 20](SDD.md), [SDD Section 21](SDD.md).
@@ -954,3 +934,79 @@ Two boundaries govern the whole section, and both exist because this is the one 
 
     The centrality scores of HLR-168 and HLR-169 are floating-point values produced by an iterative computation, so a comparison against a threshold shall be made in a defined way, and a run shall not classify differently on a different machine for want of one. And a ranking of nodes by such a score contains ties, which shall be broken by the stable node identifier of HLR-033 rather than by the order the graph library happened to enumerate them.
     *Trace:* [SDD Section 20](SDD.md), [SDD Section 21](SDD.md).
+
+## 23. Report Composition and Per-Function Banding
+
+Requirements governing the order a human-readable report is presented in, which tables it presents, and the bands that decide which functions it singles out.
+
+Every section before this one added a measurement and, with it, a section of the report. Nothing decided where that section went: it went last, because that is where a new one goes. Thirty sections later the report read in the order the tool was built rather than the order a reader needs — the findings twenty-second, the same six hundred functions enumerated in three tables, and a dozen headings over empty bodies on any project that was in good shape. The requirements here are about that, and about the two measurements that were reported without a band because nobody had gone back and asked whether one existed.
+
+*   <a id="HLR-182"></a>**HLR-182: Findings Presented First.**
+    In every human-readable format, `elc` shall present the findings of HLR-098 immediately after the project summary of HLR-024, ahead of every table that supplies their evidence.
+
+    The findings are the one tier a reader is expected to act on (HLR-150), and they were presented last-but-eight because each analysis appended its section as it was built. A reader who has to scroll past six hundred rows to reach them is a reader who does not reach them. Nothing else need move to accommodate this: a finding names its subject, its file and its line, so it is read without the tables and the tables are found from it rather than the other way round.
+    *Trace:* [SDD Section 14](SDD.md).
+
+*   <a id="HLR-183"></a>**HLR-183: One Per-Function Table.**
+    In every human-readable format, `elc` shall present each function's line range, effective lines, cyclomatic complexity, fan-in and fan-out in a **single** table, and shall present no other table enumerating one row per function for those measurements.
+
+    Three tables did this between them: the per-function detail of HLR-014 through HLR-017, a fan-out table, and an information-flow table. All three enumerated the same functions in the same order, which is three chances to disagree about which functions exist and three places a reader had to look to answer one question about one function.
+
+    The table shall list **every** analysed function, including one for which no flow figure was measured. The degrees are properties of the whole-project graph and the lengths are properties of one file's syntax, so a run that measured the second and not the first shall still present the second — with the degrees reported as the zero they are counted as, since a function at either end of the call graph legitimately has one (HLR-085, HLR-156).
+    *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
+
+*   <a id="HLR-184"></a>**HLR-184: The Order of the Architectural Tiers.**
+    In every human-readable format, `elc` shall present the tiers following the per-file totals of HLR-019 in this order: component coupling (HLR-080, HLR-082), the dependency cycles between components (HLR-083), the threshold listing (HLR-187), the per-function table (HLR-183), the deepest call chain (HLR-088), and recursion (HLR-089).
+
+    The order is the reader's descent through the program: the component, then what is entangled between components, then the short list of functions a threshold named, then every function, then the two whole-graph shapes that mean nothing until the functions are in view. It is stated as a requirement rather than left to the renderer because the order a report is read in is a property of the report, and because the previous order — the order the analyses were implemented in — was nobody's decision.
+
+    The source functions a linked image does not define (HLR-143) shall be presented **last**, after every other tier. It is the longest table a filtered run produces — one row per function the build dropped — and it answers a question a reader asks after reading the report rather than one they read the report to answer. Its provenance stays where it was, among the summary tiers: the image a run was filtered by is something a reader must see before the figures above it mean anything, and the list of what the image lacked is not.
+    *Trace:* [SDD Section 14](SDD.md).
+
+*   <a id="HLR-185"></a>**HLR-185: Cyclomatic Complexity Threshold Classification.**
+    `elc` shall classify each function's cyclomatic complexity (HLR-017) against published bands: a complexity of 10 or below produces no finding; 11 to 15 produces a **warning**; and greater than 15 produces a **critical** finding. The bands shall be attributed to McCabe as NIST SP 500-235 records them — 10 is McCabe's own limit, and 15 the highest limit that document reports as having been used successfully, and then only where an organisation has the design, review and test practices to justify it.
+
+    These bands shall be **independent of the threshold of HLR-022**. That value governs which functions are *listed* and carries no severity (HLR-023); a user who moves it is choosing what they want to see, not what McCabe says. A build in which changing `--complexity-threshold` moved a severity would have made the catalogue's attribution false, since the number would then be the user's rather than the cited source's (HLR-099).
+    *Trace:* [SDD Section 12](SDD.md).
+
+*   <a id="HLR-186"></a>**HLR-186: Fan-In Threshold Classification.**
+    `elc` shall classify each function's fan-in (HLR-156) against a band: a fan-in of 25 or below produces no finding, and greater than 25 produces a **warning**. There shall be no critical band.
+
+    **This threshold is `elc`'s own and shall say so wherever the finding is reported**, in the same words the bottleneck heuristic of HLR-081 carries. No published source divides fan-in into accepted and unaccepted ranges; 25 distinct callers is where this project judges a function to have stopped being a routine and become an interface that cannot be changed, and that is a judgement rather than a citation. Presenting it beside MISRA, Martin and McCabe without the label would lend it an authority it has not got and would make HLR-099's central claim false.
+
+    There is no critical band for the same reason there is a label on the warning one: `elc` has no published basis for a first line and none whatever for a second.
+    *Trace:* [SDD Section 12](SDD.md).
+
+*   <a id="HLR-187"></a>**HLR-187: The Threshold Listing Names Every Banded Function.**
+    The per-file listing of HLR-021 shall name every function that falls in a warning or critical band for cyclomatic complexity (HLR-185), fan-in (HLR-186), or fan-out (HLR-086), united with the functions whose complexity meets the configured threshold of HLR-022. A function named by both rules shall appear once.
+
+    Each listed function shall be presented with its complexity, its fan-in and its fan-out, and with the **highest** severity any band gave it. A function listed only because its complexity met the configured threshold shall carry **no** severity, since that threshold has never carried one and must not begin to (HLR-023).
+
+    The listing is what a reader works from after the findings: the findings say what crossed a line, and this says which functions did, with the figures beside them.
+    *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
+
+*   <a id="HLR-188"></a>**HLR-188: A Table With No Rows Is Not Presented.**
+    In every human-readable format, `elc` shall present no table that has no rows.
+
+    Every table was presented whether or not it had anything in it, on the reasoning that an absent heading cannot be told from a renderer that forgot. At thirty sections that reasoning had inverted: a run over a code base in good order printed a dozen headings with nothing beneath them, and the sections that did have something to say were what a reader lost among them.
+
+    The uniformity requirements are unchanged and are satisfied one level up. What HLR-006 fixes across target types, HLR-031 across formats, and HLR-032 across runs is the set of tiers the report **reaches** — presented where they found rows, and named by HLR-189 where they did not — rather than the sequence of headings a particular run prints. The complete-record formats are unaffected: CSV (HLR-028) and XML (HLR-054) carry every element whatever its content, exactly as HLR-152 exempts them from verbosity.
+    *Trace:* [SDD Section 14](SDD.md).
+
+*   <a id="HLR-190"></a>**HLR-190: Markdown Tables Presented Behind a Disclosure Element.**
+    In the Markdown report of HLR-029, `elc` shall present every table inside an HTML `<details>` element whose `<summary>` states how many rows the table holds, so that a reader expands the tables they want rather than scrolling past the ones they do not.
+
+    **The section's `##` heading shall remain a heading**, outside the element. The heading is what anchors a section: a Markdown renderer derives a link target from it, a table of contents is built out of it, and the report's own composition is read off it. Folding the heading into the `<summary>` would trade a navigable document for a tidy one — so the summary states what is *inside* the element instead, which is the one thing a reader deciding whether to expand does not already know from the heading above it.
+
+    The row count in the summary shall be derived from the rows presented, never written down beside them. A count maintained separately from what it counts is a count that drifts.
+
+    This requirement governs the Markdown report alone. The aligned table (HLR-027) has no disclosure to offer and is unchanged; CSV (HLR-028) and XML (HLR-054) are complete-record formats whose consumers parse them, and HTML in either would be a defect rather than a convenience. Uniform composition across formats (HLR-031) is unaffected: the tiers each format reaches, and the headings it presents them under, are the same as before.
+    *Trace:* [SDD Section 14](SDD.md), [SDD Section 22](SDD.md).
+
+*   <a id="HLR-189"></a>**HLR-189: The Empty Tables Named in a Closing Statement.**
+    A human-readable report shall end with a statement naming every table HLR-188 omitted, and shall end with that statement whether or not any table was omitted.
+
+    Each shall be named by its **full heading**, verbatim. Several headings carry the reason an analysis was omitted for want of a user declaration, and HLR-115 requires that reason to be stated wherever the analysis is not — so repeating the heading is what keeps HLR-115 satisfied by the same words whether the section was presented or not. A statement that merely counted the omitted tables, or named them by some shortened label, would not.
+
+    The statement is unconditional because a section that appears only sometimes is the problem it exists to solve: a reader must be able to tell "this run found no recursion" from "this build does not look for recursion", and the difference has to be legible on the page rather than inferred from an absence.
+    *Trace:* [SDD Section 14](SDD.md).
