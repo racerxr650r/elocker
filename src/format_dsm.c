@@ -312,7 +312,7 @@ typedef enum {
 	DSM_CSV
 } DsmStyle;
 
-static const char *dsm_heading(const Dsm *m)
+const char *format_dsm_heading(const Dsm *m)
 {
 	/* Which kind of subject the grid is over is said in the heading rather
 	 * than left to the reader, because only a *declared* order makes a
@@ -471,12 +471,12 @@ static void emit_convention(const Dsm *m, DsmStyle style, FILE *out)
 		fputs("\r\n", out);
 		break;
 	case DSM_MARKDOWN:
-		fprintf(out, "\n## %s\n\n%s\n\n", dsm_heading(m),
+		fprintf(out, "\n## %s\n\n%s\n\n", format_dsm_heading(m),
 		        DSM_CONVENTION);
 		break;
 	case DSM_TABLE:
 	default:
-		fprintf(out, "\n%s\n  %s\n", dsm_heading(m), DSM_CONVENTION);
+		fprintf(out, "\n%s\n  %s\n", format_dsm_heading(m), DSM_CONVENTION);
 		break;
 	}
 }

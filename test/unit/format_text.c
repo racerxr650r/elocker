@@ -78,6 +78,33 @@ static size_t line_length(const char *text, const char *needle)
 	return (size_t)(end - start);
 }
 
+/* Give a file one function, so the tiers that enumerate functions have
+ * something to enumerate. Since HLR-188 an empty table is not printed, so a
+ * test asserting a per-function tier is present must supply a function. */
+static void add_function(FileMetrics *m, const char *name, uint32_t line,
+                         uint32_t complexity, uint32_t fan_in,
+                         uint32_t fan_out)
+{
+	FunctionMetric *grown = realloc(m->functions,
+	                                (m->function_count + 1) * sizeof *grown);
+
+	cr_assert_not_null(grown);
+	m->functions = grown;
+
+	FunctionMetric *fn = &m->functions[m->function_count];
+
+	memset(fn, 0, sizeof *fn);
+	fn->name = strdup(name);
+	cr_assert_not_null(fn->name);
+	fn->start_line = line;
+	fn->end_line   = line + 4;
+	fn->eloc       = 3;
+	fn->complexity = complexity;
+	fn->fan_in     = fan_in;
+	fn->fan_out    = fan_out;
+	m->function_count++;
+}
+
 static Report report_of(FileMetrics **files, size_t count)
 {
 	MetricsAccumulator acc    = { 0 };
@@ -189,12 +216,16 @@ static char *render_as(Report *report, Style style, Verbosity verbosity)
 
 Test(format_text, the_summary_omits_the_per_function_tier)
 {
-	FileMetrics *files[]  = { metrics_for("/tree/a.c", 3) };
-	Report       report   = report_of(files, 1);
-	char        *summary  = render_as(&report, STYLE_TABLE,
-	                                  VERBOSITY_SUMMARY);
-	char        *verbose  = render_as(&report, STYLE_TABLE,
-	                                  VERBOSITY_VERBOSE);
+	FileMetrics *a       = metrics_for("/tree/a.c", 3);
+	FileMetrics *files[] = { a };
+	Report       report;
+	char        *summary;
+	char        *verbose;
+
+	add_function(a, "helper", 1, 2, 0, 0);
+	report  = report_of(files, 1);
+	summary = render_as(&report, STYLE_TABLE, VERBOSITY_SUMMARY);
+	verbose = render_as(&report, STYLE_TABLE, VERBOSITY_VERBOSE);
 
 	/* The Files tier is a file's own totals and stays; the Functions tier
 	 * is one row per analysed entity and goes (HLR-150). */
@@ -207,18 +238,122 @@ Test(format_text, the_summary_omits_the_per_function_tier)
 	report_free(&report);
 }
 
-Test(format_text, the_summary_keeps_the_findings)
+/* Verifies LLR-SUM-15: the findings are the section immediately after the
+ * project summary, ahead of every table that supplies their evidence
+ * (HLR-182).
+ */
+Test(format_text, the_findings_follow_the_project_summary)
 {
-	FileMetrics *files[] = { metrics_for("/tree/a.c", 3) };
-	Report       report  = report_of(files, 1);
-	char        *summary = render_as(&report, STYLE_TABLE,
-	                                 VERBOSITY_SUMMARY);
+	FileMetrics *a       = metrics_for("/tree/a.c", 3);
+	FileMetrics *files[] = { a };
+	Report       report;
+	char        *summary;
+	const char  *findings;
+	const char  *callouts;
 
-	/* Emitted whether or not it has rows: a summary that dropped the one
-	 * section a reader acts on would be shorter and useless (HLR-150). */
-	cr_assert_not_null(strstr(summary, "\nFindings\n"));
+	add_function(a, "dispatch", 1, 2, 0, 16);
+	report = report_of(files, 1);
+
+	report.findings = calloc(1, sizeof *report.findings);
+	cr_assert_not_null(report.findings);
+	report.finding_count            = 1;
+	report.findings[0].severity     = strdup("critical");
+	report.findings[0].measurement  = strdup("fan-out");
+	report.findings[0].subject      = strdup("dispatch");
+	report.findings[0].where        = strdup("/tree/a.c");
+	report.findings[0].detail       = strdup("calls 16 distinct subroutines");
+	report.findings[0].source       = strdup("Henry-Kafura");
+
+	summary  = render_as(&report, STYLE_TABLE, VERBOSITY_SUMMARY);
+	findings = strstr(summary, "\nFindings\n");
+	callouts = strstr(summary, "\nCallouts\n");
+
+	cr_assert_not_null(findings);
+	cr_assert_not_null(callouts);
+	cr_assert_lt(findings, callouts,
+	             "the findings precede every table beneath them");
+	cr_assert_lt(strstr(summary, "Project summary"), findings,
+	             "and follow the project summary, which heads the report");
 
 	free(summary);
+	report_free(&report);
+}
+
+/* Verifies LLR-SUM-16: a table with no rows is not printed,
+ * and the closing statement names it (HLR-188, HLR-189).
+ */
+Test(format_text, an_empty_table_is_omitted_and_named_at_the_end)
+{
+	FileMetrics *a       = metrics_for("/tree/a.c", 3);
+	FileMetrics *files[] = { a };
+	Report       report;
+	char        *verbose;
+
+	add_function(a, "helper", 1, 2, 0, 0);
+	report = report_of(files, 1);
+	report.strata_state = STRATA_OMITTED_NONE_DECLARED;
+	verbose = render_as(&report, STYLE_TABLE, VERBOSITY_VERBOSE);
+
+	cr_assert_null(strstr(verbose, "\nRecursion\n"),
+	               "a run with no recursion prints no recursion table");
+	cr_assert_not_null(strstr(verbose, "\nNothing to report\n"));
+	cr_assert_not_null(strstr(verbose, "- Recursion\n"),
+	                   "and says so, by name, at the end");
+
+	/* The heading names the reason where there is one, and that is the
+	 * whole point of naming the table rather than merely counting them:
+	 * HLR-115 requires the reason be stated wherever the analysis is
+	 * not. */
+	cr_assert_not_null(strstr(verbose,
+	                          "- Layering (omitted: no architectural "
+	                          "strata declared, see --stratum)\n"));
+
+	free(verbose);
+	report_free(&report);
+}
+
+/* The closing statement is emitted whether or not anything was empty: a
+ * section that appears only sometimes is the problem it exists to solve. */
+Test(format_text, the_closing_statement_is_present_even_with_nothing_empty)
+{
+	Report report = report_of(NULL, 0);
+	char  *out    = render_as(&report, STYLE_MARKDOWN, VERBOSITY_SUMMARY);
+
+	cr_assert_not_null(strstr(out, "## Nothing to report\n"));
+
+	free(out);
+	report_free(&report);
+}
+
+/* Verifies LLR-SUM-14: one function table carrying every per-function figure,
+ * where there were three tables carrying them between them (HLR-183). */
+Test(format_text, the_function_table_carries_the_degrees_beside_the_metrics)
+{
+	FileMetrics *a       = metrics_for("/tree/a.c", 30);
+	FileMetrics *files[] = { a };
+	Report       report;
+	char        *out;
+	const char  *header;
+
+	add_function(a, "hub", 10, 7, 4, 9);
+	report = report_of(files, 1);
+	out    = render_as(&report, STYLE_TABLE, VERBOSITY_VERBOSE);
+
+	header = strstr(out, "\nFunctions\n");
+	cr_assert_not_null(header);
+	cr_assert_not_null(strstr(header, "Fan-in"));
+	cr_assert_not_null(strstr(header, "Fan-out"));
+	cr_assert_not_null(strstr(header, "Complexity"));
+
+	/* And the tables the figures used to live in are gone, not merely
+	 * moved: two tables listing the same functions are two chances to
+	 * disagree about which functions exist. */
+	cr_assert_null(strstr(out, "\nFan-out (distinct callees)\n"));
+	cr_assert_null(strstr(out, "\nInformation flow"));
+	cr_assert_null(strstr(out, "Henry-Kafura"),
+	               "the metric is withdrawn, per function and per project");
+
+	free(out);
 	report_free(&report);
 }
 
@@ -260,6 +395,29 @@ static bool has_heading(const char *text, Style style, const char *name)
 	return false;
 }
 
+/* Whether the traversal *reached* a tier: it either printed the section, or
+ * printed nothing and named it in the closing statement.
+ *
+ * The disjunction is the contract HLR-188 and HLR-189 make together. Before
+ * them, "reached" and "printed" were the same thing; now a tier with no rows
+ * is reached and not printed, and a tier a verbosity filtered out is neither.
+ * Asserting on the disjunction is what keeps this test measuring the
+ * traversal rather than the fixture's contents.
+ */
+static bool reaches(const char *text, Style style, const char *name)
+{
+	char        needle[160];
+	const char *tail = strstr(text, style == STYLE_MARKDOWN
+	                                        ? "\n## Nothing to report\n"
+	                                        : "\nNothing to report\n");
+
+	if (has_heading(text, style, name))
+		return true;
+
+	snprintf(needle, sizeof needle, "- %s", name);
+	return tail && strstr(tail, needle) != NULL;
+}
+
 Test(format_text, both_styles_reach_the_same_tiers_at_each_verbosity)
 {
 	static const char *const summary_tiers[] = {
@@ -268,12 +426,16 @@ Test(format_text, both_styles_reach_the_same_tiers_at_each_verbosity)
 		"Skipped files"
 	};
 	static const char *const detail_tiers[] = {
-		"Functions", "Fan-out", "Global state",
+		"Functions", "Recursion", "Global state",
 		"Dependency structure matrix",
 		"Dead code within functions", "Custom rule matches"
 	};
-	FileMetrics *files[] = { metrics_for("/tree/a.c", 3) };
-	Report       report  = report_of(files, 1);
+	FileMetrics *a       = metrics_for("/tree/a.c", 3);
+	FileMetrics *files[] = { a };
+	Report       report;
+
+	add_function(a, "helper", 1, 2, 0, 0);
+	report = report_of(files, 1);
 
 	/* One traversal under two decorations and two filters: whichever tier
 	 * a verbosity reaches, it reaches in both styles (LLR-SUM-02,
@@ -285,19 +447,19 @@ Test(format_text, both_styles_reach_the_same_tiers_at_each_verbosity)
 
 		for (size_t i = 0; i < sizeof summary_tiers / sizeof *summary_tiers;
 		     i++) {
-			cr_assert(has_heading(summary, style, summary_tiers[i]),
+			cr_assert(reaches(summary, style, summary_tiers[i]),
 			          "style %d summary omitted '%s'",
 			          s, summary_tiers[i]);
-			cr_assert(has_heading(verbose, style, summary_tiers[i]),
+			cr_assert(reaches(verbose, style, summary_tiers[i]),
 			          "style %d verbose omitted '%s'",
 			          s, summary_tiers[i]);
 		}
 		for (size_t i = 0; i < sizeof detail_tiers / sizeof *detail_tiers;
 		     i++) {
-			cr_assert(!has_heading(summary, style, detail_tiers[i]),
+			cr_assert(!reaches(summary, style, detail_tiers[i]),
 			          "style %d summary presented '%s'",
 			          s, detail_tiers[i]);
-			cr_assert(has_heading(verbose, style, detail_tiers[i]),
+			cr_assert(reaches(verbose, style, detail_tiers[i]),
 			          "style %d verbose omitted '%s'",
 			          s, detail_tiers[i]);
 		}

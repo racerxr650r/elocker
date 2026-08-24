@@ -66,6 +66,61 @@ typedef struct {
 	bool        failed;                    /* an allocation gave out    */
 } Grid;
 
+/* The headings of the tables a run had nothing to put in.
+ *
+ * A table with no rows is not printed (HLR-188), and something has to say so
+ * or the report would be silent about the difference between a measurement
+ * that found nothing and one that was never taken. The closing statement of
+ * HLR-189 names them, and it names them by the *full* heading — which is what
+ * keeps an analysis omitted for want of a `--stratum` or `--scope`
+ * declaration stating its reason once the heading itself is no longer printed
+ * (HLR-115).
+ *
+ * The headings are copied. Several sections build theirs into a local buffer
+ * carrying a threshold or a count, and a borrowed pointer into one of those
+ * would dangle by the time the statement is written.
+ */
+typedef struct {
+	char  **headings;   /* owned, in the order the sections were walked */
+	size_t  count;
+	size_t  capacity;
+	bool    failed;     /* an allocation gave out; reported once        */
+} EmptyTables;
+
+static void empty_tables_add(EmptyTables *empty, const char *heading)
+{
+	if (!empty || empty->failed)
+		return;
+
+	if (empty->count == empty->capacity) {
+		size_t  next   = empty->capacity ? empty->capacity * 2 : 16;
+		char  **bigger = realloc(empty->headings,
+		                         next * sizeof *bigger);
+
+		if (!bigger) {
+			empty->failed = true;
+			return;
+		}
+		empty->headings = bigger;
+		empty->capacity = next;
+	}
+
+	empty->headings[empty->count] = strdup(heading);
+	if (!empty->headings[empty->count]) {
+		empty->failed = true;
+		return;
+	}
+	empty->count++;
+}
+
+static void empty_tables_free(EmptyTables *empty)
+{
+	for (size_t i = 0; i < empty->count; i++)
+		free(empty->headings[i]);
+	free(empty->headings);
+	memset(empty, 0, sizeof *empty);
+}
+
 static void grid_begin(Grid *grid, const char *heading, size_t columns,
                        const char *const *names, const bool *numeric)
 {
@@ -262,16 +317,27 @@ static void grid_render_table(const Grid *grid, FILE *out)
 
 /* Emit the grid in the requested style, then release it.
  *
- * Both styles emit the heading, the column names, a rule, and every row —
- * including no rows at all. A heading with an empty body says "nothing
- * here"; an absent heading is indistinguishable from a renderer that forgot,
- * and would make the report's shape vary with its content.
+ * **A grid with no rows is not emitted at all** (HLR-188). The report used to
+ * print the heading and the column names over an empty body, on the reasoning
+ * that an absent heading is indistinguishable from a renderer that forgot.
+ * Thirty sections in, that reasoning had inverted: a run over a healthy tree
+ * printed a dozen headings with nothing under them, and the sections that did
+ * have something to say were what got lost. So an empty grid records its
+ * heading instead, and the closing statement names every one of them —
+ * which answers the original objection directly, by saying in one place that
+ * the section was rendered and found nothing (HLR-189).
  */
-static int grid_render(Grid *grid, Style style, FILE *out)
+static int grid_render(Grid *grid, Style style, FILE *out, EmptyTables *empty)
 {
 	if (grid->failed) {
 		grid_free(grid);
 		return -1;
+	}
+
+	if (grid->row_count == 0) {
+		empty_tables_add(empty, grid->heading);
+		grid_free(grid);
+		return 0;
 	}
 
 	if (style == STYLE_MARKDOWN)
@@ -338,11 +404,6 @@ static void summary_section(const Report *report, Style style, FILE *out)
 		value = width_of(sum->eloc);
 	if (width_of(sum->function_count) > value)
 		value = width_of(sum->function_count);
-	/* The widest figure in the table by a distance, and the one that made
-	 * the column measurement worth extending: the squared term separates
-	 * values by orders of magnitude (HLR-158). */
-	if (width_of(sum->henry_kafura) > value)
-		value = width_of(sum->henry_kafura);
 	if (width_of((uint64_t)sum->file_count) > value)
 		value = width_of((uint64_t)sum->file_count);
 
@@ -365,13 +426,6 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	summary_pair(out, style, label, value, "ELOC", sum->eloc);
 	summary_pair(out, style, label, value, "Functions",
 	             sum->function_count);
-	/* Among the project totals rather than beside the per-function table,
-	 * because it is one: the sum of every function's Henry-Kafura value
-	 * (HLR-024, HLR-158). It carries no severity and never will — no
-	 * published source bands it — so it sits with the counts rather than
-	 * with the findings (HLR-159). */
-	summary_pair(out, style, label, value, "Henry-Kafura",
-	             sum->henry_kafura);
 	summary_pair(out, style, label, value, "Skipped",
 	             (uint64_t)report->skipped_files.count);
 	/* Beside the totals it qualifies, not buried below them. Every figure
@@ -421,7 +475,8 @@ static void summary_section(const Report *report, Style style, FILE *out)
  * and be forgotten in the Markdown. What changes is that a section is now a
  * thing with a name, and the traversal is a list of them.
  */
-static int callouts_section(const Report *report, Style style, FILE *out)
+static int callouts_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -442,13 +497,14 @@ static int callouts_section(const Report *report, Style style, FILE *out)
 		         sum->most_complex, sum->most_complex_file);
 		grid_row(&grid, "Most complex", a, where);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int discovery_section(const Report *report, Style style, FILE *out)
+static int discovery_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -459,13 +515,14 @@ static int discovery_section(const Report *report, Style style, FILE *out)
 		grid_row(&grid, report->routes.items[i].target,
 		         report->routes.items[i].route == ROUTE_REPOSITORY
 		                 ? "repository" : "filesystem");
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int languages_section(const Report *report, Style style, FILE *out)
+static int languages_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -485,13 +542,14 @@ static int languages_section(const Report *report, Style style, FILE *out)
 		snprintf(c, sizeof c, "%" PRIu64, l->eloc);
 		grid_row(&grid, l->language, a, b, c);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int files_section(const Report *report, Style style, FILE *out)
+static int files_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -514,26 +572,52 @@ static int files_section(const Report *report, Style style, FILE *out)
 		grid_row(&grid, f->path, f->language ? f->language : "",
 		         a, b, c);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int functions_section(const Report *report, Style style, FILE *out)
+/* Every function, with everything measured about it on the one line.
+ *
+ * **One table where there were three.** `Functions` carried the lengths and
+ * the complexity, `Fan-out (distinct callees)` the out-degree, and
+ * `Information flow` the pair of degrees with a Henry-Kafura value formed
+ * from them — three tables enumerating the same functions in the same order,
+ * which is three chances to disagree about which functions exist and three
+ * places a reader had to look to answer one question about one function
+ * (HLR-183).
+ *
+ * Driven by the file metrics rather than by the flow rows, and that is the
+ * load-bearing choice. The flow rows exist only where a graph was built; the
+ * functions exist because they were parsed. A table driven by the rows would
+ * report no functions at all on a run whose graph was not built, which is
+ * exactly the run whose per-function figures a reader still wants
+ * (HLR-014, HLR-015, HLR-017).
+ *
+ * No severity column. Which functions a band names is the threshold
+ * listing's subject and the findings' — this table is the measurements, and
+ * a severity repeated in three places is a severity that can differ between
+ * them.
+ */
+static int functions_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
 	char b[32];
 	char c[32];
+	char d[32];
+	char e[32];
 
 	static const char *const names[]   = { "File", "Function",
 	                                       "Lines", "ELOC",
-	                                       "Complexity" };
+	                                       "Complexity", "Fan-in",
+	                                       "Fan-out" };
 	static const bool        numeric[] = { false, false, true,
-	                                       true, true };
+	                                       true, true, true, true };
 
-	grid_begin(&grid, "Functions", 5, names, numeric);
+	grid_begin(&grid, "Functions", 7, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -544,121 +628,76 @@ static int functions_section(const Report *report, Style style, FILE *out)
 			         fn->start_line, fn->end_line);
 			snprintf(b, sizeof b, "%" PRIu32, fn->eloc);
 			snprintf(c, sizeof c, "%" PRIu32, fn->complexity);
-			grid_row(&grid, f->path, fn->name, a, b, c);
+			snprintf(d, sizeof d, "%" PRIu32, fn->fan_in);
+			snprintf(e, sizeof e, "%" PRIu32, fn->fan_out);
+			grid_row(&grid, f->path, fn->name, a, b, c, d, e);
 		}
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int threshold_listing_section(const Report *report, Style style, FILE *out)
+/* Every function a threshold named, and why.
+ *
+ * Two rules, one list (HLR-187). A function whose complexity met the value
+ * `--complexity-threshold` sets is here because the user asked to see it,
+ * and carries no severity — that threshold governs a listing and has never
+ * moved anything else (HLR-021, HLR-023). A function whose complexity,
+ * fan-in or fan-out fell in a warning or critical band is here because a
+ * threshold put it here, and carries the higher of the bands that named it.
+ *
+ * The three measurements are repeated from the function table so the row can
+ * be read without going back to it: a reader working down this list is
+ * deciding which function to open next, and a severity with no figures beside
+ * it does not help them choose.
+ */
+static int threshold_listing_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
+	char b[32];
+	char c[32];
 
 	static const char *const names[]   = { "File", "Function",
-	                                       "Complexity" };
-	static const bool        numeric[] = { false, false, true };
-	char                     heading[64];
+	                                       "Complexity", "Fan-in",
+	                                       "Fan-out", "Severity" };
+	static const bool        numeric[] = { false, false, true, true,
+	                                       true, false };
+	char                     heading[160];
 
 	snprintf(heading, sizeof heading,
-	         "At or over the complexity threshold (%" PRIu32 ")",
+	         "At or over a threshold (complexity listed at %" PRIu32
+	         "; complexity, fan-in and fan-out banded)",
 	         report->complexity_threshold);
 
-	grid_begin(&grid, heading, 3, names, numeric);
+	grid_begin(&grid, heading, 6, names, numeric);
 	for (size_t i = 0; i < report->over_threshold.count; i++) {
 		const ThresholdEntry *e = &report->over_threshold.items[i];
 
 		snprintf(a, sizeof a, "%" PRIu32, e->function->complexity);
-		grid_row(&grid, e->file, e->function->name, a);
+		snprintf(b, sizeof b, "%" PRIu32, e->function->fan_in);
+		snprintf(c, sizeof c, "%" PRIu32, e->function->fan_out);
+		/* Blank rather than "info" for a function present only
+		 * because it met the listing threshold. `info` is a severity
+		 * and this row has none: printing one would turn a listing
+		 * the user configured into a finding elc reported
+		 * (HLR-023, HLR-100). */
+		grid_row(&grid, e->file, e->function->name, a, b, c,
+		         e->severity == SEVERITY_INFO
+		                 ? ""
+		                 : severity_name(e->severity));
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int fanout_section(const Report *report, Style style, FILE *out)
-{
-	Grid grid;
-	char a[32];
-
-	static const char *const names[]   = { "File", "Function",
-	                                       "Fan-out" };
-	static const bool        numeric[] = { false, false, true };
-
-	grid_begin(&grid, "Fan-out (distinct callees)", 3, names,
-	           numeric);
-	for (size_t i = 0; i < report->fan_out_count; i++) {
-		const FanOutRow *r = &report->fan_out[i];
-
-		snprintf(a, sizeof a, "%" PRIu32, r->fan_out);
-		grid_row(&grid, r->file, r->function, a);
-	}
-	if (grid_render(&grid, style, out) != 0)
-		return -1;
-
-	return 0;
-}
-
-/* Fan-in, fan-out, and the Henry-Kafura value the two form with the
- * function's length. A detail tier: one row per function, whatever the value
- * (HLR-156, HLR-157, LLR-SUM-09).
- *
- * The heading carries the formula, the attribution, and the two properties
- * HLR-159 requires be stated. Both are properties of the published metric
- * rather than of this implementation, and a reader who does not know them
- * misreads the figures rather than merely failing to act on them: a zero here
- * means the function sits at one end of the call graph, not that it holds no
- * code, and a value is meaningful only against the other values in this same
- * table.
- *
- * ELOC and fan-out are repeated from the tables above so that the arithmetic
- * is checkable on the line that reports it. No column carries a severity, and
- * none ever will: the catalogue holds no row for this metric, and inventing a
- * band for one whose name reads as a citation is the particular thing HLR-159
- * forbids.
- */
-static int information_flow_section(const Report *report, Style style,
-                                    FILE *out)
-{
-	Grid grid;
-	char a[32], b[32], c[32], d[32];
-
-	static const char *const names[]   = { "File", "Function", "ELOC",
-	                                       "Fan-in", "Fan-out",
-	                                       "Henry-Kafura" };
-	static const bool        numeric[] = { false, false, true, true, true,
-	                                       true };
-
-	grid_begin(&grid,
-	           "Information flow (HK = ELOC x (Fan-in x Fan-out)^2, "
-	           "Henry-Kafura; zero at either end of the call graph; "
-	           "ordinal, not absolute)",
-	           6, names, numeric);
-	for (size_t i = 0; i < report->fan_out_count; i++) {
-		const FanOutRow *r = &report->fan_out[i];
-
-		snprintf(a, sizeof a, "%" PRIu32, r->eloc);
-		snprintf(b, sizeof b, "%" PRIu32, r->fan_in);
-		snprintf(c, sizeof c, "%" PRIu32, r->fan_out);
-		/* Printed as a number in every case, including zero. The
-		 * Instability column two tables down prints `undefined` where
-		 * its inputs vanish (HLR-082); this value does not vanish
-		 * where a degree is zero, it *equals* zero, and borrowing that
-		 * spelling would report a measurement as a missing one. */
-		snprintf(d, sizeof d, "%" PRIu64, r->henry_kafura);
-		grid_row(&grid, r->file, r->function, a, b, c, d);
-	}
-	if (grid_render(&grid, style, out) != 0)
-		return -1;
-
-	return 0;
-}
-
-static int recursion_section(const Report *report, Style style, FILE *out)
+static int recursion_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -694,13 +733,14 @@ static int recursion_section(const Report *report, Style style, FILE *out)
 		grid_row(&grid, c->count == 1 ? "direct" : "mutual",
 		         buf);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int deepest_chain_section(const Report *report, Style style, FILE *out)
+static int deepest_chain_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -745,13 +785,14 @@ static int deepest_chain_section(const Report *report, Style style, FILE *out)
 		snprintf(a, sizeof a, "%zu", i + 1);
 		grid_row(&grid, a, r->file, r->function);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int coupling_section(const Report *report, Style style, FILE *out)
+static int coupling_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -788,13 +829,14 @@ static int coupling_section(const Report *report, Style style, FILE *out)
 		                 ? threshold_attribution(MEASURE_BOTTLENECK)
 		                 : "");
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int dependency_cycles_section(const Report *report, Style style, FILE *out)
+static int dependency_cycles_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -813,13 +855,14 @@ static int dependency_cycles_section(const Report *report, Style style, FILE *ou
 	for (size_t i = 0; i < report->dep_cycle_count; i++)
 		grid_row(&grid, report->dep_cycles[i].components,
 		         report->dep_cycles[i].path);
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int layering_section(const Report *report, Style style, FILE *out)
+static int layering_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -854,7 +897,7 @@ static int layering_section(const Report *report, Style style, FILE *out)
 		         r->from_stratum, r->from_function,
 		         r->to_stratum, r->to_function, a);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
@@ -874,7 +917,8 @@ static int layering_section(const Report *report, Style style, FILE *out)
  * LLR-LAY-04). They are presented as two rows for that reason, not as a
  * decomposition of a total.
  */
-static int conformance_section(const Report *report, Style style, FILE *out)
+static int conformance_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -913,7 +957,7 @@ static int conformance_section(const Report *report, Style style, FILE *out)
 		grid_row(&grid, "Skip-call", report->skip_call.index,
 		         report->skip_call.conforming, a);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
@@ -927,8 +971,18 @@ static int conformance_section(const Report *report, Style style, FILE *out)
  * number of subjects rather than a fixed few, and because its cells must
  * escape the Markdown separator (HLR-064, HLR-166).
  */
-static int dsm_section(const Report *report, Style style, FILE *out)
+static int dsm_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
+	/* A matrix over no subjects has no cells, and the convention note and
+	 * corner label that would be all that survived say nothing on their
+	 * own. Named in the closing statement instead, with the heading the
+	 * grid itself would have carried (HLR-188, HLR-189). */
+	if (report->dsm.count == 0) {
+		empty_tables_add(empty, format_dsm_heading(&report->dsm));
+		return 0;
+	}
+
 	return style == STYLE_MARKDOWN
 	               ? format_dsm_markdown(&report->dsm, out)
 	               : format_dsm_table(&report->dsm, out);
@@ -952,7 +1006,8 @@ static int dsm_section(const Report *report, Style style, FILE *out)
  * accepted range, and a column here would present `elc`'s own view as a finding
  * (HLR-171, HLR-101).
  */
-static int purification_section(const Report *report, Style style, FILE *out)
+static int purification_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -983,7 +1038,7 @@ static int purification_section(const Report *report, Style style, FILE *out)
 		grid_row(&grid, r->file, r->function, r->class_name,
 		         r->metric, r->value, r->action, r->source);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
@@ -1009,7 +1064,8 @@ static int purification_section(const Report *report, Style style, FILE *out)
  * word `cycle` where one could not be, since a cycle is what is reported in
  * place of an ordering rather than beside it (HLR-172).
  */
-static int recovery_section(const Report *report, Style style, FILE *out)
+static int recovery_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid                     grid;
 	Grid                     adopt;
@@ -1055,7 +1111,7 @@ static int recovery_section(const Report *report, Style style, FILE *out)
 	}
 	for (size_t i = 0; i < report->recovery_cycles.count; i++)
 		grid_row(&grid, "cycle", report->recovery_cycles.paths[i], "");
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	/* **The proposal as arguments, not as prose** (HLR-173). Rendering it
@@ -1069,13 +1125,14 @@ static int recovery_section(const Report *report, Style style, FILE *out)
 	           1, adopt_names, NULL);
 	if (report->recovery_proposal)
 		grid_row(&adopt, report->recovery_proposal);
-	if (grid_render(&adopt, style, out) != 0)
+	if (grid_render(&adopt, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int global_state_section(const Report *report, Style style, FILE *out)
+static int global_state_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -1117,13 +1174,14 @@ static int global_state_section(const Report *report, Style style, FILE *out)
 		grid_row(&grid, r->object, r->writers, r->readers,
 		         finding);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int unreachable_functions_section(const Report *report, Style style, FILE *out)
+static int unreachable_functions_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -1165,13 +1223,14 @@ static int unreachable_functions_section(const Report *report, Style style, FILE
 		snprintf(a, sizeof a, "%" PRIu32, r->line);
 		grid_row(&grid, r->file, r->function, a);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int unreachable_globals_section(const Report *report, Style style, FILE *out)
+static int unreachable_globals_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -1184,13 +1243,14 @@ static int unreachable_globals_section(const Report *report, Style style, FILE *
 	           "functions)", 1, names, NULL);
 	for (size_t i = 0; i < report->unreachable_global_count; i++)
 		grid_row(&grid, report->unreachable_globals[i]);
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int dead_code_section(const Report *report, Style style, FILE *out)
+static int dead_code_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -1242,13 +1302,14 @@ static int dead_code_section(const Report *report, Style style, FILE *out)
 		                 ? "literal condition"
 		                 : "after a terminator");
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int cross_scope_section(const Report *report, Style style, FILE *out)
+static int cross_scope_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -1277,13 +1338,14 @@ static int cross_scope_section(const Report *report, Style style, FILE *out)
 		         r->to_scope, r->to_function,
 		         r->object && *r->object ? r->object : "call");
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int findings_section(const Report *report, Style style, FILE *out)
+static int findings_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -1310,13 +1372,14 @@ static int findings_section(const Report *report, Style style, FILE *out)
 		grid_row(&grid, r->severity, r->measurement, r->subject,
 		         r->detail, r->source);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int definitions_section(const Report *report, Style style, FILE *out)
+static int definitions_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -1337,13 +1400,14 @@ static int definitions_section(const Report *report, Style style, FILE *out)
 	grid_begin(&grid, heading, 1, names, NULL);
 	for (size_t i = 0; i < report->definition_count; i++)
 		grid_row(&grid, report->definitions[i]);
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int rule_matches_section(const Report *report, Style style, FILE *out)
+static int rule_matches_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -1374,13 +1438,14 @@ static int rule_matches_section(const Report *report, Style style, FILE *out)
 		         r->start_line, r->end_line);
 		grid_row(&grid, r->rule, r->file, lines);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int partially_parsed_section(const Report *report, Style style, FILE *out)
+static int partially_parsed_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -1408,13 +1473,14 @@ static int partially_parsed_section(const Report *report, Style style, FILE *out
 		snprintf(a, sizeof a, "%" PRIu32, f->unparsed_lines);
 		grid_row(&grid, f->path, a);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int skipped_files_section(const Report *report, Style style, FILE *out)
+static int skipped_files_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 
@@ -1424,13 +1490,14 @@ static int skipped_files_section(const Report *report, Style style, FILE *out)
 	           names, NULL);
 	for (size_t i = 0; i < report->skipped_files.count; i++)
 		grid_row(&grid, report->skipped_files.paths[i]);
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
 }
 
-static int image_filter_section(const Report *report, Style style, FILE *out)
+static int image_filter_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -1475,7 +1542,7 @@ static int image_filter_section(const Report *report, Style style, FILE *out)
 	grid_row(&grid, "Lines not compiled by this build", c);
 	snprintf(d, sizeof d, "%" PRIu64, report->uncovered_files);
 	grid_row(&grid, "Files with no debug coverage", d);
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
@@ -1487,12 +1554,13 @@ static int image_filter_section(const Report *report, Style style, FILE *out)
  * the split is the tier boundary: the three properties above are the image a
  * run was filtered by, which HLR-150 keeps in the summary, and this is one row
  * per function the build dropped, which is a detail tier by the same rule that
- * makes every other per-function table one. Adjacent in the traversal, so a
- * verbose report presents the two exactly as one section presented them before
- * the split (HLR-147, HLR-150, LLR-SUM-06).
+ * makes every other per-function table one. The two are no longer adjacent:
+ * this one closes the report (HLR-184), because it is the longest table a
+ * filtered run produces and a reader consults it after the report rather than
+ * reading the report through it (HLR-147, HLR-150, LLR-SUM-06).
  */
 static int absent_functions_section(const Report *report, Style style,
-                                    FILE *out)
+                                    FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
@@ -1513,10 +1581,53 @@ static int absent_functions_section(const Report *report, Style style,
 		snprintf(a, sizeof a, "%" PRIu32, r->line);
 		grid_row(&grid, r->function, r->file, a);
 	}
-	if (grid_render(&grid, style, out) != 0)
+	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
 	return 0;
+}
+
+/* The closing statement: the tables this run had nothing to put in.
+ *
+ * **The report ends by saying what it did not print** (HLR-189). Without it,
+ * suppressing an empty table would make a report's shape vary with its
+ * content in a way a reader cannot audit — "there is no Recursion section"
+ * would mean either "no recursion was found" or "this build does not look for
+ * recursion", and nothing on the page would separate the two.
+ *
+ * Named by their full headings, verbatim. Several of those headings carry the
+ * reason an analysis was omitted rather than measured, and that reason has to
+ * be stated wherever the analysis is not (HLR-115); repeating the heading is
+ * what keeps that satisfied by the same words in both cases.
+ *
+ * Emitted whether or not anything was empty, because a section that appears
+ * only sometimes is the problem this section exists to solve.
+ */
+static void empty_tables_section(const EmptyTables *empty, Style style,
+                                 FILE *out)
+{
+	if (style == STYLE_MARKDOWN)
+		fputs("\n## Nothing to report\n\n", out);
+	else
+		fputs("\nNothing to report\n", out);
+
+	if (empty->count == 0) {
+		fputs(style == STYLE_MARKDOWN
+		              ? "Every table above carried rows.\n"
+		              : "  Every table above carried rows.\n", out);
+		return;
+	}
+
+	fprintf(out, "%s%zu table%s above %s empty and omitted:\n%s",
+	        style == STYLE_MARKDOWN ? "" : "  ",
+	        empty->count, empty->count == 1 ? "" : "s",
+	        empty->count == 1 ? "was" : "were",
+	        style == STYLE_MARKDOWN ? "\n" : "");
+
+	for (size_t i = 0; i < empty->count; i++)
+		fprintf(out, "%s%s\n",
+		        style == STYLE_MARKDOWN ? "- " : "    - ",
+		        empty->headings[i]);
 }
 
 /* Which of the two tiers a section belongs to (HLR-150).
@@ -1543,10 +1654,12 @@ typedef enum {
 /* Whether an analysis was omitted for want of a declaration (HLR-115).
  *
  * A detail section carrying such a notice is emitted in the summary too,
- * because HLR-150 lists the omission notices among the summary tiers. Nothing
- * special is needed to make it read as a notice rather than a table: an
- * omitted analysis produced no rows, so the section renders as its heading
- * and the reason in it — which is exactly the notice.
+ * because HLR-150 lists the omission notices among the summary tiers. An
+ * omitted analysis produces no rows, so since HLR-188 the section prints
+ * nothing at all and the notice reaches the reader through the closing
+ * statement, which names it by the heading carrying the reason (HLR-189).
+ * The classification below still matters: a section filtered out of a summary
+ * run never renders, and would be named nowhere.
  */
 static bool depth_omitted(const Report *report)
 {
@@ -1581,22 +1694,39 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 	 * other — there is nowhere to forget it, because a section is written
 	 * down once and classified once (LLR-SUM-02, LLR-SUM-09). */
 	static const struct {
-		int  (*render)(const Report *, Style, FILE *);
+		int  (*render)(const Report *, Style, FILE *, EmptyTables *);
 		Tier   tier;
 		bool (*omitted)(const Report *);
 	} SECTIONS[] = {
+		/* **The findings come first**, ahead of every table that
+		 * supplies their evidence (HLR-182). They were twenty-second
+		 * for the reason everything else is in the order it is in —
+		 * each analysis appended its section as it was built — and
+		 * that put the one tier a reader is expected to act on below
+		 * six hundred rows they are not. Nothing else needs to move
+		 * for this: a finding names its subject and its file, so it
+		 * is read without the tables and the tables are found from
+		 * it. */
+		{ findings_section,              TIER_SUMMARY, NULL            },
 		{ callouts_section,              TIER_SUMMARY, NULL            },
 		{ discovery_section,             TIER_SUMMARY, NULL            },
 		{ languages_section,             TIER_SUMMARY, NULL            },
 		{ files_section,                 TIER_SUMMARY, NULL            },
-		{ functions_section,             TIER_DETAIL,  NULL            },
-		{ threshold_listing_section,     TIER_SUMMARY, NULL            },
-		{ fanout_section,                TIER_DETAIL,  NULL            },
-		{ information_flow_section,      TIER_DETAIL,  NULL            },
-		{ recursion_section,             TIER_DETAIL,  NULL            },
-		{ deepest_chain_section,         TIER_DETAIL,  depth_omitted   },
+		/* From here to the recursion table the order is the reader's
+		 * descent, not the pipeline's: the component, then what is
+		 * wrong inside it, then the functions themselves, then the
+		 * two whole-graph shapes that only make sense once the
+		 * functions are in view (HLR-184). Coupling before functions
+		 * because a reader deciding where to look starts at the file
+		 * that everything depends on, and the threshold listing
+		 * before the function table because it is the short list the
+		 * long one is read through. */
 		{ coupling_section,              TIER_DETAIL,  NULL            },
 		{ dependency_cycles_section,     TIER_DETAIL,  NULL            },
+		{ threshold_listing_section,     TIER_SUMMARY, NULL            },
+		{ functions_section,             TIER_DETAIL,  NULL            },
+		{ deepest_chain_section,         TIER_DETAIL,  depth_omitted   },
+		{ recursion_section,             TIER_DETAIL,  NULL            },
 		{ layering_section,              TIER_DETAIL,  strata_omitted  },
 		{ conformance_section,           TIER_SUMMARY, NULL            },
 		{ dsm_section,                   TIER_DETAIL,  NULL            },
@@ -1607,14 +1737,22 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		{ unreachable_globals_section,   TIER_DETAIL,  NULL            },
 		{ dead_code_section,             TIER_DETAIL,  NULL            },
 		{ cross_scope_section,           TIER_DETAIL,  scopes_omitted  },
-		{ findings_section,              TIER_SUMMARY, NULL            },
 		{ definitions_section,           TIER_SUMMARY, NULL            },
 		{ image_filter_section,          TIER_SUMMARY, NULL            },
-		{ absent_functions_section,      TIER_DETAIL,  NULL            },
 		{ rule_matches_section,          TIER_DETAIL,  NULL            },
 		{ partially_parsed_section,      TIER_SUMMARY, NULL            },
 		{ skipped_files_section,         TIER_SUMMARY, NULL            },
+		/* Last, and the only section after the files the run could not
+		 * measure. It is the longest table a filtered run produces —
+		 * one row per function the build dropped — and it answers a
+		 * question a reader asks after reading the report rather than
+		 * one they read the report to answer (HLR-184). */
+		{ absent_functions_section,      TIER_DETAIL,  NULL            },
 	};
+	EmptyTables empty;
+	int         status = -1;
+
+	memset(&empty, 0, sizeof empty);
 
 	/* The project summary heads every report at either verbosity: it is the
 	 * one tier a reader of a summary is certain to want. */
@@ -1628,19 +1766,25 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 
 		if (!wanted)
 			continue;
-		if (SECTIONS[i].render(report, style, out) != 0)
-			return -1;
+		if (SECTIONS[i].render(report, style, out, &empty) != 0)
+			goto done;
 	}
+
+	if (empty.failed)
+		goto done;
+	empty_tables_section(&empty, style, out);
 
 	/* The stream is checked once, after the last write rather than at every
 	 * one (SDD §14.3.1). A section returns non-zero only where its own
 	 * grid_render reported a failure, and a stream that filled partway
 	 * through the final section reports it here — so a truncated report is
 	 * never returned as success. */
-	if (fflush(out) != 0 || ferror(out))
-		return -1;
+	if (fflush(out) == 0 && !ferror(out))
+		status = 0;
 
-	return 0;
+done:
+	empty_tables_free(&empty);
+	return status;
 }
 
 int format_table(const Report *report, Verbosity verbosity, FILE *out)

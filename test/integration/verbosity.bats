@@ -26,18 +26,29 @@ has_heading() {
 	printf '%s\n' "$output" | grep -qE "^$1"
 }
 
+# Whether the traversal *reached* a section, printed or not.
+#
+# Since HLR-188 a section with no rows prints nothing and is named in the
+# closing statement instead, so "is this tier in this composition" is a
+# question about the union of the two. A tier a verbosity filtered out appears
+# in neither, which is what these tests are distinguishing (HLR-189).
+reaches() {
+	has_heading "$1" || printf '%s\n' "$output" | grep -qF "    - $1"
+}
+
 # --- the summary tiers (HLR-150) -------------------------------------------
 
 @test "HLR-150: the summary tiers are present by default" {
 	elc "$TREE"
 	assert_success
 
-	# Every tier HLR-150 enumerates, in the order the traversal emits them.
+	# Every tier HLR-150 enumerates, printed where it found rows and named
+	# in the closing statement where it did not.
 	for heading in "Project summary" "Callouts" "Discovery" "Languages" \
-	               "Files" "At or over the complexity threshold" \
+	               "Files" "At or over a threshold" \
 	               "Findings" "Conditional-compilation definitions" \
 	               "Partially parsed files" "Skipped files"; do
-		has_heading "$heading" || {
+		reaches "$heading" || {
 			echo "the summary omitted '$heading'" >&2
 			false
 		}
@@ -51,11 +62,11 @@ has_heading() {
 	# One row per function, per global object, per graph edge, per
 	# unreachable statement, per custom-rule match: none of them by
 	# default.
-	for heading in "Functions" "Fan-out" "Recursion" "Component coupling" \
+	for heading in "Functions" "Recursion" "Component coupling" \
 	               "Component dependency" "Global state" \
 	               "Unreachable globals" "Dead code within functions" \
 	               "Custom rule matches"; do
-		if has_heading "$heading"; then
+		if reaches "$heading"; then
 			echo "the summary presented the detail tier '$heading'" >&2
 			false
 		fi
@@ -64,12 +75,69 @@ has_heading() {
 
 @test "HLR-150: the summary keeps the findings a reader acts on" {
 	# The section whose loss would make the summary shorter and useless.
-	# Provoked rather than assumed: a threshold of 1 puts `helper` over it,
-	# so there is a finding to keep.
-	elc -c 1 "$TREE"
+	# Provoked rather than assumed: `spread` calls sixteen distinct
+	# subroutines, which is a critical fan-out, so there is a finding to
+	# keep (HLR-086).
+	{
+		for i in $(seq 1 16); do printf 'int s%d(void){return %d;}\n' "$i" "$i"; done
+		printf 'int spread(void)\n{\n\treturn '
+		for i in $(seq 1 15); do printf 's%d() + ' "$i"; done
+		printf 's16();\n}\n'
+	} > "$TREE/spread.c"
+
+	elc "$TREE/spread.c"
 	assert_success
 	has_heading "Findings"
-	assert_output --partial "helper"
+	assert_output --partial "spread"
+}
+
+@test "HLR-182: the findings are the first section after the project summary" {
+	# The tier a reader is expected to act on, ahead of the tables that
+	# supply its evidence rather than below six hundred rows of them.
+	# `branchy` has eleven decision points, which is a complexity warning.
+	{
+		printf 'int branchy(int n)\n{\n'
+		for _ in $(seq 1 10); do printf '\tif (n) n++;\n'; done
+		printf '\treturn n;\n}\n'
+	} > "$TREE/branchy.c"
+
+	elc "$TREE/branchy.c"
+	assert_success
+	assert_equal "$(headings | sed -n '1,2p' | tr '\n' '|')" \
+	             "Project summary|Findings|"
+}
+
+# --- empty tables (HLR-188, HLR-189) ---------------------------------------
+
+@test "HLR-188: a table with no rows is not printed" {
+	elc --verbose "$TREE"
+	assert_success
+	! has_heading "Recursion"
+}
+
+@test "HLR-189: the closing statement names every table that was empty" {
+	elc --verbose "$TREE"
+	assert_success
+	assert_output --partial "Nothing to report"
+	assert_output --partial "    - Recursion"
+}
+
+@test "HLR-189: the closing statement is present when nothing was empty" {
+	# The statement is not conditional on there being something to say: a
+	# section that appears only sometimes is the problem it solves.
+	elc --verbose "$TREE"
+	assert_success
+	assert_output --partial "Nothing to report"
+}
+
+@test "HLR-115: the reason survives the table being omitted" {
+	# The heading carried the reason, and the heading is what the closing
+	# statement names — so an analysis nobody declared for still says why
+	# it did not run.
+	elc "$TREE"
+	assert_success
+	assert_output --partial \
+		"- Layering (omitted: no architectural strata declared, see --stratum)"
 }
 
 @test "HLR-115: an omitted analysis states its reason in the summary too" {
@@ -84,13 +152,25 @@ has_heading() {
 	assert_output --partial "Cross-scope access (omitted: no execution scopes declared"
 }
 
+@test "HLR-183: the function table carries the degrees beside the metrics" {
+	# One table where there were three: Functions, Fan-out, and
+	# Information flow all listed the same functions in the same order.
+	elc --verbose "$TREE"
+	assert_success
+	has_heading "Functions"
+	assert_output --regexp "Function +Lines +ELOC +Complexity +Fan-in +Fan-out"
+	! has_heading "Fan-out \\(distinct callees\\)"
+	! has_heading "Information flow"
+	refute_output --partial "Henry-Kafura;"
+}
+
 @test "HLR-150: an analysis that was measured is not in the summary" {
 	# The converse of the notice above, and what keeps that test from
 	# passing against a renderer that simply always emits the section.
 	elc --entry main "$TREE"
 	assert_success
-	refute_output --partial "Unreachable functions"
-	refute_output --partial "Deepest call chain"
+	refute_output --partial "Unreachable functions (omitted"
+	refute_output --partial "Deepest call chain (omitted"
 }
 
 # --- the verbose report (HLR-151) ------------------------------------------
@@ -99,11 +179,11 @@ has_heading() {
 	elc --verbose "$TREE"
 	assert_success
 
-	for heading in "Functions" "Fan-out" "Recursion" "Component coupling" \
+	for heading in "Functions" "Recursion" "Component coupling" \
 	               "Component dependency" "Global state" \
 	               "Unreachable globals" "Dead code within functions" \
 	               "Custom rule matches"; do
-		has_heading "$heading" || {
+		reaches "$heading" || {
 			echo "the verbose report omitted '$heading'" >&2
 			false
 		}

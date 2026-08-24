@@ -52,12 +52,13 @@ purify_rows() {
 		     f && /^  \// { n++ } END { print n + 0 }'
 }
 
-# One function's row from the Information flow section, as "ELOC in out HK".
+# One function's ELOC, fan-in and fan-out, from the one function table
+# HLR-183 leaves them in.
 flow_of() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Information flow/ { f = 1; next }
+		awk -v want="$1" '/^Functions$/ { f = 1; next }
 		                  f && /^$/ { f = 0 }
-		                  f && $2 == want { print $3, $4, $5, $6 }'
+		                  f && $2 == want { print $4, $6, $7 }'
 }
 
 # ------------------------------------------------- the classifications --
@@ -140,8 +141,8 @@ flow_of() {
 	# outgoing edges and still reports a fan-out of four.
 	elc --verbose "$TREE"
 	assert_success
-	assert_equal "$(flow_of util_log)" "1 6 0 0"
-	assert_equal "$(flow_of dispatch)" "7 2 4 448"
+	assert_equal "$(flow_of util_log)" "1 6 0"
+	assert_equal "$(flow_of dispatch)" "7 2 4"
 }
 
 @test "HLR-167: changing a threshold moves no reported measurement" {

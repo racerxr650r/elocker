@@ -192,13 +192,16 @@ alpha"
 	assert_output --partial "notes.md"
 }
 
-@test "HLR-006: the report has the same sections whatever the target type" {
+@test "HLR-006: the report reaches the same sections whatever the target type" {
+	# Printed or named in the closing statement: which of the two a section
+	# gets depends on whether it found anything, and that is content rather
+	# than shape (HLR-188).
 	elc "$TREE/pair.c"
 	local file_shape
-	file_shape="$(grep -E '^[A-Z]' <<<"$output")"
+	file_shape="$(report_shape "$output")"
 
 	elc "$TREE"
-	assert_equal "$(grep -E '^[A-Z]' <<<"$output")" "$file_shape"
+	assert_equal "$(report_shape "$output")" "$file_shape"
 }
 
 # --- ELOC in the report (HLR-015, HLR-019, HLR-024, HLR-025) ---------------

@@ -281,6 +281,18 @@ static int analyse_measurements(Run *run)
 		return -1;
 	}
 
+	/* The degrees join the functions they belong to, and the threshold
+	 * listing is rebuilt over the joined result. Here rather than inside
+	 * `report_set_calltree` because the regeneration path calls the same
+	 * function at the equivalent point, and a join buried inside a setter
+	 * would be a join one of the two paths could forget (HLR-183,
+	 * HLR-187). */
+	if (report_attach_flow(&run->report) != 0) {
+		fputs("elc: out of memory listing threshold breaches\n",
+		      stderr);
+		return -1;
+	}
+
 	if (state_analyse(&run->sdg, &run->opts, &run->state) != 0 ||
 	    report_set_state(&run->report, &run->state, &run->sdg,
 	                     &run->opts) != 0) {

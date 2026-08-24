@@ -81,12 +81,16 @@ setup() {
 	assert_equal "$marked" "$plain"
 }
 
-@test "HLR-031: a tier with no rows appears in both" {
-	# Nothing is over the default threshold, and the tier is still there.
+@test "HLR-031: a tier with no rows is named in both" {
+	# Nothing is over the default threshold and nothing is banded, so the
+	# tier is not printed — and both formats say so, in the same words
+	# (HLR-188, HLR-189).
 	elc "$TREE"
-	assert_output --partial "At or over the complexity threshold"
+	refute_output --regexp "^At or over a threshold"
+	assert_output --partial "- At or over a threshold"
 	elc -f md "$TREE"
-	assert_output --partial "At or over the complexity threshold"
+	refute_output --regexp "^## At or over a threshold"
+	assert_output --partial "- At or over a threshold"
 }
 
 # --- the formats are views of one run --------------------------------------

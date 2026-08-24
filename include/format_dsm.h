@@ -63,6 +63,16 @@ int dsm_build(const Sdg *g, const Report *r, const ElcOptions *opts, Dsm *out);
  */
 int format_dsm_csv(const Dsm *m, FILE *out);
 
+/* The heading every rendering of the matrix puts over the grid.
+ *
+ * Exported so that a report omitting an empty matrix can still name it in the
+ * closing statement of HLR-189 — and name it with the same words the grid
+ * would have carried, including the clause saying whether the subjects are
+ * declared layers or directories (HLR-165). Two spellings of one heading
+ * would let the statement and the grid describe different things.
+ */
+const char *format_dsm_heading(const Dsm *m);
+
 /* Render the matrix as a GitHub-Flavored Markdown table, escaping the cell
  * separator so that a directory containing a pipe cannot corrupt the grid
  * (HLR-064). Returns 0 on success. */

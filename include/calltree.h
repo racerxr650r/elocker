@@ -8,10 +8,10 @@
  * Every analysis reads the call-edge view of the graph, not the whole SDG. A
  * global-state edge joins a function that writes an object to one that reads
  * it; that is coupling, not a call, and neither recursion nor a call chain
- * may travel along one. Fan-in obeys the rule as strictly as fan-out does,
- * and has more riding on it: the Henry-Kafura value squares the product of
- * the two, so an in-degree taken over the whole SDG would inflate that figure
- * by the square of the error (HLR-156, HLR-157).
+ * may travel along one. Fan-in obeys the rule as strictly as fan-out does:
+ * an in-degree taken over the whole SDG would count a reader of a global as
+ * a caller, and the report presents the two degrees side by side, where a
+ * discrepancy between them is exactly what a reader is looking at (HLR-156).
  */
 #ifndef ELC_CALLTREE_H
 #define ELC_CALLTREE_H
@@ -45,18 +45,6 @@ typedef struct {
 	 * calling it, so none of them is counted here (HLR-156, LLR-CTR-07).
 	 */
 	uint32_t       *fan_in;       /* per node id; owned (HLR-156)      */
-	/* Length weighed by the traffic through the function:
-	 *
-	 *     HK = ELOC * (Fan-In * Fan-Out)^2
-	 *
-	 * Sixty-four bits because the squared term grows far faster than any
-	 * other figure elc reports, and a total that silently wrapped would
-	 * be a wrong number wearing the authority of a right one (HLR-157,
-	 * HLR-158). Zero where either degree is zero, which is a value and
-	 * not an absence: an entry point and a leaf both score nothing
-	 * whatever their length (HLR-159).
-	 */
-	uint64_t       *henry_kafura; /* per node id; owned (HLR-157)      */
 	size_t          node_count;
 
 	RecursiveCycle *cycles;       /* owned (HLR-089)                   */

@@ -9,16 +9,6 @@ setup() {
 	TREE="$BATS_TEST_DIRNAME/calltree/tree"
 }
 
-# The fan-out reported for one function. Scoped to the Fan-out section and
-# terminated at its blank line: paths and names appear in other sections too,
-# and an unterminated extractor reads whichever one comes next — which is
-# exactly how the complexity suite broke when this section was added.
-fan_out_of() {
-	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Fan-out/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && $2 == want { print $3 }'
-}
-
 # Strip the decoration a style adds, so one extractor reads both. The aligned
 # table and the Markdown say the same things in the same order — that is
 # HLR-031 — and the only differences are a `## ` before a heading and a `|`
@@ -29,32 +19,36 @@ undecorated() {
 	printf '%s\n' "$output" | sed 's/^## /  /; s/|/ /g'
 }
 
-# One column of the Information flow section, for one function.
+# One column of the Functions section, for one function.
+#
+# Since HLR-183 there is one per-function table rather than three, so every
+# figure this suite reads comes from here: File, Function, Lines, ELOC,
+# Complexity, Fan-in, Fan-out.
 #
 # The section is entered at its heading and left at the first blank line
 # *after a row*, not at the first blank line: Markdown puts one between the
-# heading and the table. Scoping matters for the reason it does in
-# fan_out_of — function names appear in several sections, and an unterminated
-# extractor reads whichever one comes next.
+# heading and the table. Scoping matters because function names appear in
+# several sections, and an unterminated extractor reads whichever one comes
+# next.
 #
 #   $1  function name
-#   $2  column: 3 ELOC, 4 fan-in, 5 fan-out, 6 Henry-Kafura
-flow_of() {
+#   $2  column: 3 lines, 4 ELOC, 5 complexity, 6 fan-in, 7 fan-out
+function_of() {
 	undecorated |
 		awk -v want="$1" -v col="$2" \
-		    '/^ *Information flow/ { f = 1; next }
+		    '/^ *Functions$/ { f = 1; next }
 		     f && /^ *$/ { if (seen) f = 0; next }
 		     f { seen = 1; if ($2 == want) print $col }'
 }
 
-fan_in_of() { flow_of "$1" 4; }
-hk_of()     { flow_of "$1" 6; }
+fan_in_of()  { function_of "$1" 6; }
+fan_out_of() { function_of "$1" 7; }
 
-# The Information flow section's rows, for assertions about the table as a
-# whole rather than about one cell.
-flow_section() {
+# The Functions section's rows, for assertions about the table as a whole
+# rather than about one cell.
+function_section() {
 	undecorated |
-		awk '/^ *Information flow/ { f = 1 }
+		awk '/^ *Functions$/ { f = 1 }
 		     f && /^ *$/ { if (seen) f = 0; next }
 		     f { seen = 1; print }'
 }
@@ -69,9 +63,9 @@ summary_of() {
 }
 
 # The deepest-chain heading, which states which of the four outcomes happened.
-depth_heading() {
-	printf '%s\n' "$output" | awk '/^Deepest call chain/ { print; exit }'
-}
+# Read from the closing statement too, since an omitted or unbounded chain has
+# no rows and is named there rather than printed (HLR-188, HLR-189).
+depth_heading() { heading_of "Deepest call chain"; }
 
 # The chain itself, in order, as function names.
 chain() {
@@ -121,9 +115,7 @@ chain() {
 	assert_success
 
 	local rows
-	rows="$(printf '%s\n' "$output" |
-		awk '/^Fan-out/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && /^  \// { n++ } END { print n + 0 }')"
+	rows="$(function_section | awk '/^ *\// { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "24"
 }
 
@@ -162,90 +154,66 @@ chain() {
 	assert_success
 
 	local rows
-	rows="$(printf '%s\n' "$output" |
-		awk '/^Information flow/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && /^  \// { n++ } END { print n + 0 }')"
+	rows="$(function_section | awk '/^ *\// { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "8"
 }
 
 # ------------------------------------------------------ information flow --
 
-@test "HLR-157: the hand-computed Henry-Kafura value matches, function by function" {
-	# Every figure is worked out in README.md from the source. hub is the
-	# only function with both a caller and a callee, so it is the only one
-	# that can score anything at all.
+@test "HLR-183: one function table carries every per-function figure" {
+	# Where there were three tables listing the same functions in the same
+	# order, there is one. Three were three chances to disagree about
+	# which functions exist.
 	elc --verbose --entry flow_entry "$TREE/flow.c"
 	assert_success
 
-	assert_equal "$(hk_of hub)" "144"           # 4 x (3 x 2)^2
-	assert_equal "$(hk_of caller_one)" "1"      # 1 x (1 x 1)^2
-	assert_equal "$(hk_of caller_two)" "1"      # 1 x (1 x 1)^2
-	assert_equal "$(hk_of caller_three)" "8"    # 2 x (1 x 2)^2
+	assert_output --regexp "Function +Lines +ELOC +Complexity +Fan-in +Fan-out"
+	refute_output --partial "Fan-out (distinct callees)"
+	refute_output --partial "Information flow"
 }
 
-@test "HLR-159: an entry point and a leaf each report a zero, not a blank" {
-	# The property a reader misreads if it is not stated. flow_entry is the
-	# longest and widest function in the file and scores nothing because
-	# nothing calls it; leaf_a is called and scores nothing because it
-	# calls nothing. Neither is an absence of code, and neither may borrow
-	# Instability's `undefined` spelling for a value that is defined.
+@test "HLR-183: the Henry-Kafura metric is withdrawn, per function and total" {
+	# Phase 24 removed it. What is left is the pair of degrees, reported
+	# as they are measured; the fan-out band keeps its Henry-Kafura
+	# attribution, which is a citation for a threshold rather than a
+	# metric of its own.
 	elc --verbose --entry flow_entry "$TREE/flow.c"
 	assert_success
 
-	assert_equal "$(hk_of flow_entry)" "0"
-	assert_equal "$(hk_of leaf_a)" "0"
+	refute_output --partial "HK = ELOC"
+	refute_output --partial "ordinal, not absolute"
+	assert_equal "$(summary_of Henry-Kafura)" ""
+}
 
-	# Scoped to this table: `undefined` is the right answer two tables
-	# down, where Instability's inputs really do vanish (HLR-082). It is
+@test "HLR-188: an empty table is named rather than presented" {
+	# The flow tree has no recursion, so the table has no rows — and a
+	# table with no rows is not printed at all. The closing statement is
+	# where a reader learns the analysis ran and found nothing.
+	elc --verbose --entry flow_entry "$TREE/flow.c"
+	assert_success
+
+	refute_output --regexp "(^|\n)Recursion\n"
+	assert_output --partial "Nothing to report"
+	assert_output --partial "    - Recursion"
+}
+
+@test "HLR-085, HLR-156: the degrees are reported as zero, not as blank" {
+	# flow_entry is the longest and widest function in the file and has no
+	# caller; leaf_a is called and calls nothing. Neither is an absence,
+	# and neither may borrow Instability's `undefined` spelling for a
+	# value that is defined.
+	elc --verbose --entry flow_entry "$TREE/flow.c"
+	assert_success
+
+	assert_equal "$(fan_in_of flow_entry)" "0"
+	assert_equal "$(fan_out_of leaf_a)" "0"
+
+	# Scoped to this table: `undefined` is the right answer in the coupling
+	# table, where Instability's inputs really do vanish (HLR-082). It is
 	# the wrong answer here, and the two sitting near each other is what
 	# makes borrowing it an easy mistake.
-	run bash -c 'grep -c undefined <<<"$0" || true' "$(flow_section)"
+	run bash -c 'grep -c undefined <<<"$0" || true' "$(function_section)"
 	assert_output "0"
-}
-
-@test "HLR-159: the report states why a zero is a zero" {
-	elc --verbose --entry flow_entry "$TREE/flow.c"
-	assert_success
-	assert_output --partial "zero at either end of the call graph"
-}
-
-@test "HLR-159: the formula and its attribution travel with the figures" {
-	# The squared term is Henry and Kafura's, not elc's (HLR-099), and a
-	# metric whose name reads as a citation must carry it where it is read.
-	elc --verbose --entry flow_entry "$TREE/flow.c"
-	assert_success
-	assert_output --partial "HK = ELOC x (Fan-in x Fan-out)^2"
-	assert_output --partial "Henry-Kafura"
-	assert_output --partial "ordinal, not absolute"
-}
-
-@test "HLR-159: no Henry-Kafura figure is reported as a finding" {
-	# No published source bands the metric, so the catalogue holds no row
-	# and nothing here may acquire a severity (LLR-THR-08).
-	elc --verbose --entry flow_entry "$TREE/flow.c"
-	assert_success
-
-	local findings
-	findings="$(printf '%s\n' "$output" |
-		awk '/^Findings/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && /Henry-Kafura/ { n++ } END { print n + 0 }')"
-	assert_equal "$findings" "0"
-}
-
-@test "HLR-158: the project total is the sum of the per-function values" {
-	# 144 + 1 + 1 + 8, and zero from the four at the ends of the graph.
-	elc --entry flow_entry "$TREE/flow.c"
-	assert_success
-	assert_equal "$(summary_of Henry-Kafura)" "154"
-}
-
-@test "HLR-158: the project total is a summary figure, not a detail one" {
-	# The per-function table is a detail tier and the total is not: a
-	# summary report carries the figure without the table (HLR-024).
-	elc --entry flow_entry "$TREE/flow.c"
-	assert_success
-	assert_equal "$(summary_of Henry-Kafura)" "154"
-	refute_output --partial "Information flow ("
 }
 
 # ----------------------------------------------------------------- depth --
@@ -376,11 +344,13 @@ mutual"
 	assert_equal "$output" "$first"
 }
 
-@test "HLR-156, HLR-157: the flow figures survive a record round trip" {
-	# Neither can be recomputed from a record: regeneration has no graph,
-	# and no source to build one from (LLR-XWR-08). A record that carried
-	# only fan-out would regenerate every Henry-Kafura value as zero, which
-	# is a wrong number that renders as an ordinary one.
+@test "HLR-156, HLR-183: the flow figures survive a record round trip" {
+	# Neither degree can be recomputed from a record: regeneration has no
+	# graph, and no source to build one from (LLR-XWR-08). A record that
+	# carried only fan-out would regenerate every fan-in as zero, which is
+	# a wrong number that renders as an ordinary one — and since HLR-183
+	# the two sit in the function table, which the regeneration path has to
+	# join them onto for itself.
 	local record="$BATS_TEST_TMPDIR/flow.xml"
 
 	run bash -c '"$0" --verbose --entry flow_entry -f md "$1" 2>/dev/null' \
@@ -395,9 +365,8 @@ mutual"
 	run bash -c '"$0" --verbose --from-xml "$1" 2>/dev/null' "$ELC" "$record"
 	assert_success
 	assert_equal "$output" "$direct"
-	assert_equal "$(hk_of hub)" "144"
 	assert_equal "$(fan_in_of hub)" "3"
-	assert_equal "$(summary_of Henry-Kafura)" "154"
+	assert_equal "$(fan_out_of hub)" "2"
 }
 
 @test "HLR-056: the measurements survive a record round trip" {

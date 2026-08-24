@@ -22,9 +22,7 @@ unreachable() {
 		     f && /^  \// { print $2 }'
 }
 
-reach_heading() {
-	printf '%s\n' "$output" | awk '/^Unreachable functions/ { print; exit }'
-}
+reach_heading() { heading_of "Unreachable functions"; }
 
 unreachable_globals() {
 	printf '%s\n' "$output" |
@@ -39,9 +37,7 @@ global_row() {
 		                  f && $1 == want { $1 = ""; sub(/^ +/, ""); print }'
 }
 
-scope_heading() {
-	printf '%s\n' "$output" | awk '/^Cross-scope access/ { print; exit }'
-}
+scope_heading() { heading_of "Cross-scope access"; }
 
 cross_scope() {
 	printf '%s\n' "$output" |

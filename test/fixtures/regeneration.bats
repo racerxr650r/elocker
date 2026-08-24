@@ -80,7 +80,7 @@ record() {
 
 @test "HLR-061: the record carries a format-version identifier" {
 	record
-	run grep -c 'format-version="1"' "$RECORD"
+	run grep -c 'format-version="2"' "$RECORD"
 	assert_output "1"
 }
 
@@ -105,7 +105,7 @@ record() {
 
 @test "HLR-058: an unsupported format version is rejected, naming it" {
 	record
-	sed 's/format-version="1"/format-version="99"/' "$RECORD" \
+	sed 's/format-version="2"/format-version="99"/' "$RECORD" \
 		> "$BATS_TEST_TMPDIR/v99.xml"
 
 	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" \
@@ -116,7 +116,7 @@ record() {
 	run bash -c '"$0" --from-xml "$1" 2>&1 >/dev/null' "$ELC" \
 		"$BATS_TEST_TMPDIR/v99.xml"
 	assert_output --partial "99"
-	assert_output --partial "1"
+	assert_output --partial "this build reads version 2"
 }
 
 @test "LLR-XRD-10: a numeric attribute that is not a number is a malformed record" {

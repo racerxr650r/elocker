@@ -202,7 +202,10 @@ report() {
 	report "$TREE"
 	assert_success
 
-	run bash -c 'grep -c "^Conditional-compilation definitions (0)$" "$0"' \
+	# With none supplied the table has no rows, so it is named in the
+	# closing statement rather than printed — which is still the claim
+	# being made, in the same words (HLR-188, HLR-189).
+	run bash -c 'grep -c "^    - Conditional-compilation definitions (0)$" "$0"' \
 		"$OUT"
 	assert_output "1"
 }
@@ -285,9 +288,9 @@ report() {
 	assert_success
 
 	local fanout
-	fanout="$(awk '/^Fan-out/ {s=1; next}
+	fanout="$(awk '/^Functions$/ {s=1; next}
 	               s && /^$/ {exit}
-	               s && $2 == "caller" {print $3}' "$OUT")"
+	               s && $2 == "caller" {print $NF}' "$OUT")"
 	assert_equal "$fanout" "0"
 }
 
@@ -296,9 +299,9 @@ report() {
 	assert_success
 
 	local complexity
-	complexity="$(awk '/^Functions/ {s=1; next}
+	complexity="$(awk '/^Functions$/ {s=1; next}
 	                   s && /^$/ {exit}
-	                   s && $2 == "caller" {print $NF}' "$OUT")"
+	                   s && $2 == "caller" {print $5}' "$OUT")"
 	assert_equal "$complexity" "1"
 }
 

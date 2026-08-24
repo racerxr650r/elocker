@@ -48,10 +48,48 @@ section_rows() {
 	# The threshold this asserts against is the default one elc applies to
 	# anyone else's code, taken from the report's own heading rather than
 	# written here, so the two can never disagree.
-	rows="$(section_rows 'At or over the complexity threshold')"
+	#
+	# The listing holds more than this since HLR-187 — every function a
+	# complexity, fan-in or fan-out band names is in it too — so the rows
+	# are filtered back to the claim LLR-BLD-23 makes. Filtered, and not
+	# narrowed: a heading this test no longer matched would make it pass
+	# over an empty string, which is the failure mode a self-check has to
+	# be proof against.
+	local threshold
+	threshold="$(awk 'match($0, /^At or over a threshold \(complexity listed at ([0-9]+)/, m) { print m[1]; exit }' "$REPORT")"
+	[ -n "$threshold" ] || {
+		echo "the threshold listing heading was not found in the report" >&2
+		grep -n 'threshold' "$REPORT" >&2
+		false
+	}
+
+	rows="$(section_rows 'At or over a threshold' |
+		awk -v t="$threshold" '$3 >= t')"
 	if [ -n "$rows" ]; then
 		echo "elc reports its own functions at or over the threshold:" >&2
 		echo "$rows" >&2
+		false
+	fi
+}
+
+@test "LLR-BLD-23: elc's own source carries no critical finding but the two it has always carried" {
+	# The complexity and fan-in bands of HLR-185 and HLR-186 are new, and
+	# they are applied to elc's own source like anyone else's. What must
+	# not appear is a *critical* one they did not already produce: the two
+	# recursive groups and the one god function predate this phase and are
+	# recorded as such, and anything beyond them would be a regression this
+	# phase introduced into its own product.
+	#
+	# Warnings are deliberately not gated. The complexity band warns above
+	# 10 where the listing threshold sits at 15, so roughly sixty of elc's
+	# own functions warn today. Bringing them under ten is a refactor of
+	# the whole source tree, not a step in the phase that drew the band.
+	local unexpected
+	unexpected="$(section_rows 'Findings' |
+		awk '$1 == "critical" && $2 != "recursion" && $2 != "fan-out"')"
+	if [ -n "$unexpected" ]; then
+		echo "elc reports a new critical finding against its own source:" >&2
+		echo "$unexpected" >&2
 		false
 	fi
 }

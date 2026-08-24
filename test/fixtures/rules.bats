@@ -129,7 +129,10 @@ house-style.jump 30-30"
 	run bash -c '"$0" --verbose -o "$1" "$2" 2>/dev/null' "$ELC" "$OUT" "$TREE"
 	assert_success
 
-	run bash -c 'grep -c "^Custom rule matches (0)$" "$0"' "$OUT"
+	# With none supplied the table has no rows, so it is named in the
+	# closing statement rather than printed — an absent section and one
+	# reported empty are still different claims (HLR-188, HLR-189).
+	run bash -c 'grep -c "^    - Custom rule matches (0)$" "$0"' "$OUT"
 	assert_output "1"
 }
 
@@ -267,7 +270,10 @@ located.jump 30-30"
 		"$ELC" "$work" "$OUT" "$BATS_TEST_TMPDIR/target"
 	assert_success
 
-	run bash -c 'grep -c "^Custom rule matches (0)$" "$0"' "$OUT"
+	# With none supplied the table has no rows, so it is named in the
+	# closing statement rather than printed — an absent section and one
+	# reported empty are still different claims (HLR-188, HLR-189).
+	run bash -c 'grep -c "^    - Custom rule matches (0)$" "$0"' "$OUT"
 	assert_output "1"
 }
 

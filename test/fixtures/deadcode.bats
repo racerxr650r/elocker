@@ -34,9 +34,7 @@ dead_causes() {
 }
 
 # The section heading, which states which languages were not analysed.
-dead_heading() {
-	printf '%s\n' "$output" | awk '/^Dead code/ { print; exit }'
-}
+dead_heading() { heading_of "Dead code"; }
 
 # --------------------------------------------------- the sibling walk --
 

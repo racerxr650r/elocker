@@ -6,11 +6,11 @@
  *
  * **It is the only module that judges, and that is the design.** The project's
  * central claim is that it carries no opinion of its own — that every line it
- * draws comes from MISRA, Martin, or Henry–Kafura, and that the one exception
- * says so. A reviewer can check that claim by reading the table below. If
- * banding were spread across the analyses, checking it would mean auditing
- * every one of them for a constant, and the claim would rest on nobody having
- * hidden one.
+ * draws comes from MISRA, Martin, McCabe, or Henry–Kafura, and that the two
+ * exceptions say so. A reviewer can check that claim by reading the table
+ * below. If banding were spread across the analyses, checking it would mean
+ * auditing every one of them for a constant, and the claim would rest on
+ * nobody having hidden one.
  *
  * Two rules the catalogue keeps:
  *
@@ -39,8 +39,9 @@
 
 /* ------------------------------------------------------- the catalogue --
  *
- * PVD Appendix A, as data. Every row names its source; the one row `elc`
- * invented says so in the text a reader sees.
+ * PVD Appendix A, as data. Every row names its source; the two rows `elc`
+ * invented — the bottleneck heuristic and the fan-in band — say so in the
+ * text a reader sees.
  *
  * The bands are **exclusive upper bounds**: a value strictly greater than
  * `warning_above` warns, and strictly greater than `critical_above` is
@@ -56,6 +57,30 @@ static const Threshold CATALOGUE[] = {
 	{ MEASURE_FAN_OUT, "fan-out",
 	  ELC_FANOUT_WARNING, ELC_FANOUT_CRITICAL,
 	  SEVERITY_INFO, false, "Henry-Kafura", false },
+
+	/* Fan-in: **the second row `elc` invented**, and it says so for the
+	 * reason the bottleneck row does. No published source divides fan-in
+	 * into accepted and unaccepted ranges, so 25 is a judgement, and there
+	 * is no critical band because a second invented line would be a second
+	 * unsupported claim (HLR-186, HLR-099). UINT32_MAX is the critical
+	 * bound so that `band_of`'s first test can never fire: no measurement
+	 * exceeds it, and the row needs no special case anywhere else. */
+	{ MEASURE_FAN_IN, "fan-in",
+	  ELC_FANIN_WARNING, UINT32_MAX,
+	  SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
+
+	/* Cyclomatic complexity: 10 is McCabe's own limit, and 15 the highest
+	 * limit NIST SP 500-235 records as having been used successfully — and
+	 * then only where an organisation has the review practices to justify
+	 * it. Both numbers are somebody else's, which is what separates this
+	 * row from the two above it (HLR-185).
+	 *
+	 * Independent of the value `--complexity-threshold` sets. That one
+	 * governs a listing and carries no severity (HLR-023); moving it must
+	 * not move a band, or the user would be choosing what McCabe says. */
+	{ MEASURE_COMPLEXITY, "complexity",
+	  ELC_COMPLEXITY_WARNING, ELC_COMPLEXITY_CRITICAL,
+	  SEVERITY_INFO, false, "McCabe (NIST SP 500-235)", false },
 
 	/* Depth: an embedded constraint rather than a numbered rule. Beyond 8
 	 * to 12 layers the stack risks colliding with the heap on a target
@@ -82,10 +107,11 @@ static const Threshold CATALOGUE[] = {
 	{ MEASURE_INSTABILITY, "instability", 0, 0,
 	  SEVERITY_WARNING, true, "Martin", false },
 
-	/* **The one row that is not a published standard**, and the label is
-	 * load-bearing. Presenting it beside MISRA and Martin without saying
-	 * so would lend it an authority it has not got, and would make the
-	 * "no built-in opinion" claim false (HLR-099, LLR-ARC-02). */
+	/* **The second row that is not a published standard**, and the label
+	 * is load-bearing on both. Presenting either beside MISRA, Martin and
+	 * McCabe without saying so would lend it an authority it has not got,
+	 * and would make the "no built-in opinion" claim false (HLR-099,
+	 * LLR-ARC-02). */
 	{ MEASURE_BOTTLENECK, "bottleneck", 0, 0,
 	  SEVERITY_WARNING, true,
 	  ELC_OWN_HEURISTIC, true }
@@ -93,27 +119,18 @@ static const Threshold CATALOGUE[] = {
 
 /* ------------------------------------------------- sources without bands --
  *
- * A citation and a threshold are separate claims, and Henry-Kafura is the
- * measurement that separates them. The formula is Henry and Kafura's and must
- * be attributed wherever it is reported (HLR-157, HLR-099); no published
- * source divides it into accepted and unaccepted ranges, so it gets no band
- * (HLR-159).
+ * A citation and a threshold are separate claims, and the catalogue keeps
+ * them separable: a kind it holds no row for has no band, and
+ * `thresholds_lookup` says so by answering NULL rather than by returning a
+ * row whose bounds are both zero. A row like that would be a *silent* band —
+ * every value passes — and a caller asking whether a threshold exists would
+ * be told yes precisely where the answer is no.
  *
- * A row in CATALOGUE with empty bounds would not express that. `occurrence`
- * is false and both bounds are zero for such a row, which is a *silent*
- * band — every value passes — and `thresholds_lookup` would answer "there is
- * a threshold for this" to a caller asking precisely because there is not.
- * Keeping the citation in its own table is what leaves LLR-THR-08's path the
- * one that runs, and what leaves the catalogue holding only rows a reader can
- * check against a published table.
+ * Every kind `elc` measures is banded today. The path is what LLR-THR-08
+ * specifies and what HLR-098 requires of the next measurement that arrives
+ * without a published threshold behind it; Henry-Kafura was the one that
+ * exercised it until Phase 24 withdrew the metric.
  */
-static const struct {
-	MeasurementKind kind;
-	const char     *attribution;
-} UNBANDED[] = {
-	{ MEASURE_HENRY_KAFURA, "Henry-Kafura" }
-};
-
 const Threshold *thresholds_lookup(MeasurementKind kind)
 {
 	for (size_t i = 0; i < sizeof CATALOGUE / sizeof *CATALOGUE; i++)
@@ -126,14 +143,7 @@ const char *threshold_attribution(MeasurementKind kind)
 {
 	const Threshold *t = thresholds_lookup(kind);
 
-	if (t)
-		return t->attribution;
-
-	for (size_t i = 0; i < sizeof UNBANDED / sizeof *UNBANDED; i++)
-		if (UNBANDED[i].kind == kind)
-			return UNBANDED[i].attribution;
-
-	return NULL;
+	return t ? t->attribution : NULL;
 }
 
 bool threshold_is_elc_own(MeasurementKind kind)
@@ -182,6 +192,21 @@ static bool band_of(const Threshold *t, uint32_t value, Severity *out)
 		return true;
 	}
 	return false;   /* inside the accepted range; no finding */
+}
+
+bool thresholds_band(MeasurementKind kind, uint32_t value, Severity *out)
+{
+	const Threshold *t = thresholds_lookup(kind);
+
+	/* An occurrence row bands nothing: its severity is fixed and its
+	 * bounds are both zero, so putting a counted value through `band_of`
+	 * would report every non-zero count as critical. A caller asking a
+	 * counted question about a kind that is not counted gets "no band",
+	 * which is the truthful answer (LLR-THR-08). */
+	if (!t || t->occurrence)
+		return false;
+
+	return band_of(t, value, out);
 }
 
 /* ------------------------------------------------------------- findings -- */
@@ -261,6 +286,68 @@ static int apply_fan_out(const TreeResults *tree, const Sdg *g,
 		snprintf(detail, sizeof detail, "calls %" PRIu32
 		         " distinct subroutines", tree->fan_out[i]);
 		if (finding_add(out, MEASURE_FAN_OUT, severity,
+		                g->nodes[i].name, g->nodes[i].file,
+		                g->nodes[i].line_start, detail) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
+/* Fan-in, banded on `elc`'s own authority and labelled as such wherever the
+ * finding is presented (HLR-186, HLR-099). */
+static int apply_fan_in(const TreeResults *tree, const Sdg *g,
+                        FindingList *out)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_FAN_IN);
+
+	if (!t || !tree->fan_in)
+		return 0;
+
+	for (size_t i = 0; i < tree->node_count && i < g->node_count; i++) {
+		Severity severity;
+		char     detail[64];
+
+		if (!band_of(t, tree->fan_in[i], &severity))
+			continue;
+
+		snprintf(detail, sizeof detail, "called by %" PRIu32
+		         " distinct functions", tree->fan_in[i]);
+		if (finding_add(out, MEASURE_FAN_IN, severity,
+		                g->nodes[i].name, g->nodes[i].file,
+		                g->nodes[i].line_start, detail) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
+/* Cyclomatic complexity, read off the graph's own nodes rather than off the
+ * file metrics.
+ *
+ * The node table carries the complexity `analyze.c` measured, and it carries
+ * it for every function in the report — so banding here needs no second walk
+ * of the model and cannot disagree with the fan-out finding beside it about
+ * which functions exist (HLR-185).
+ */
+static int apply_complexity(const Sdg *g, FindingList *out)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_COMPLEXITY);
+
+	if (!t)
+		return 0;
+
+	for (size_t i = 0; i < g->node_count; i++) {
+		Severity severity;
+		char     detail[64];
+
+		if (!band_of(t, g->nodes[i].complexity, &severity))
+			continue;
+
+		snprintf(detail, sizeof detail,
+		         "cyclomatic complexity %" PRIu32,
+		         g->nodes[i].complexity);
+		if (finding_add(out, MEASURE_COMPLEXITY, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -521,6 +608,7 @@ static int apply_calltree_rows(const TreeResults *tree, const Sdg *g,
                                FindingList *out)
 {
 	return (apply_fan_out(tree, g, out) != 0 ||
+	        apply_fan_in(tree, g, out) != 0 ||
 	        apply_depth(tree, out) != 0 ||
 	        apply_recursion(tree, g, out) != 0) ? -1 : 0;
 }
@@ -543,12 +631,12 @@ int thresholds_apply(const ArchResults *arch, const TreeResults *tree,
 	if (!g)
 		return 0;
 
-	/* Henry-Kafura is measured and never banded, so nothing appears here
-	 * for it. That is LLR-THR-08's path taken by omission rather than by a
-	 * branch: a kind the catalogue holds no row for produces no finding,
-	 * and the value reaches the reader through the report model as a bare
-	 * measurement (HLR-159). */
-	if ((tree && apply_calltree_rows(tree, g, out) != 0) ||
+	/* Complexity is banded off the graph rather than off the call-tree
+	 * results, because it is a property of one function's own body and
+	 * needs none of them. It is applied here so that a run with no
+	 * call-tree results still bands it (HLR-185). */
+	if (apply_complexity(g, out) != 0 ||
+	    (tree && apply_calltree_rows(tree, g, out) != 0) ||
 	    (state && apply_globals(state, out) != 0) ||
 	    (arch && apply_arch_rows(arch, g, opts, out) != 0)) {
 		findinglist_free(out);
