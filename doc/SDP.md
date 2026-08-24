@@ -58,7 +58,7 @@ release readiness — is ready to start, and is the last.
 | [14](#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | ✅ Complete |
 | [15](#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
 | [16](#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
-| [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | 🔲 Not started |
+| [17](#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | ✅ Complete |
 | [18](#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
 | [19](#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete |
 | [20](#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
@@ -413,9 +413,25 @@ No release is cut before Phase 16. From then on:
    complete and the gap list is empty but for review-verified items. `main`
    does not exist before the first release and is created at that point;
    `develop` is the default branch until then.
-2. The release is tagged `vMAJOR.MINOR.PATCH`.
+2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release is
+   `v0.1.0`.** Feature completeness is not the thing the major version
+   promises — all 24 phases have shipped and the gap list is empty, and the
+   number still says the *command-line interface* is not yet fixed. Two
+   contracts are already stable regardless, and are stable because a
+   requirement says so rather than because a version number implies it:
+   HLR-121's cross-release clause fixes the six query files and their capture
+   names, so a language module written against this release keeps working,
+   and HLR-061 versions the saved record independently, so a record is
+   rejected by a build that cannot read it rather than half-understood. A
+   `1.0.0` would add to those only a promise about option spelling, which is
+   the one thing feedback from real use is most likely to change.
 3. `make install` under a `DESTDIR`/`PREFIX` staging root produces the
-   deliverable: the `elc` binary plus the `runtime/` tree.
+   deliverable: the `elc` binary plus the `runtime/` tree, and the man page
+   and user manual that HLR-128 ships with them. Verified by
+   `test/fixtures/runtime.bats`, which installs into a staging root and runs
+   the result — "the files are present" and "the installed binary works" are
+   different claims, and the build tree flatters the first by putting a
+   `runtime` symlink beside `build/elc` that no installed layout has.
 4. The [Traceability Matrix](Traceability.md) at the tagged commit is the
    evidence of verification and is published with the release.
 
@@ -1521,6 +1537,19 @@ from §8.
 
 ### Phase 17 — Hardening and Release Readiness
 
+**Status: complete.** Delivered in two halves, eight months apart in the
+commit log and one issue apart in the tracker, which is itself the phase's
+most useful finding.
+
+The **engineering half** landed in PR #45 on 2026-08-21:
+`test/instrumented/sanitized.bats`, the nine error paths a re-run of the
+ordinary suites never reaches, and the decomposition pass that running `elc`
+over `src/` called for. The Status row said "not started" throughout, which
+is how Phase 23 came to open an issue describing the phase as untouched.
+
+The **release half** closed it, and had to repair the drift the intervening
+six phases produced.
+
 1. Full sanitizer sweep across every fixture and target type, including every
    error path.
 2. Teardown completeness — every `*_free`, every error path leak-clean.
@@ -1530,41 +1559,113 @@ from §8.
    sanitized gate having been applied and come back clean. Without these,
    HLR-124, HLR-125, and the memory-safety LLRs can never leave the gap list
    however diligently the sanitized build is run ([STP](STP.md) §2.5).
-6. `main` created from `develop` for the first release, per §5.4.
+6. `main` created from `develop` for the first release, per §5.5.
 7. `make install` verified against a staging root.
 
-**Requirements:** HLR-124, HLR-125, plus any requirement still lacking a
-bound test.
+**Requirements:** HLR-124, HLR-125, HLR-181, plus any requirement still
+lacking a bound test.
 
 **Acceptance:** `make asan` and `make valgrind` both clean across the whole
 suite, including runs ending in usage errors, invalid targets, and rejected
 records. `Traceability.md` §6 lists nothing but the review-verified items the
-STP names **and the requirements specified for Phases 18 through 23** — those
-were captured ahead of their implementation, and closing them is each of
-those phases' acceptance rather than this one's. Every requirement covering
-behaviour this release *ships* has a bound test. `elc` on its own source
-reports no function exceeding complexity 15 and no dependency cycle.
-`make install` under a staging root produces a working binary and runtime
-tree.
+STP names. Every requirement covering behaviour this release *ships* has a
+bound test. `elc` on its own source reports no function exceeding complexity
+15 and no dependency cycle. `make install` under a staging root produces a
+working binary and runtime tree.
 
-**On the gap baseline.** It stands at 175 rather than the figure a release
-would otherwise want, because 32 requirements are specified and not yet
-built. This phase lowers it by whatever it closes and no more; the run of
-phases after it brings it back to where it stood before any of this was
-specified. A baseline that has *risen* is normally the signal that a phase
-shipped requirements without tests (§5.4 step 8) — here it is the recorded
-consequence of specifying ahead of building, and it is the one case where
-that is deliberate.
+#### What the self-quality check cost, and why it is now a test
 
-The per-phase figures quoted in the prompts of §8 were projected from 175 on
-the assumption that each phase closes exactly its own requirements and no
-others. Phase 17 closed nine that were already open, and Phase 18 closed five
-of its own plus five that had gone uncovered since earlier phases, so each
-phase from here **re-derives its target from the baseline it actually
-inherits** rather than from the projection. The projections stay in the text
-as the lower bound each phase must beat, not as the figure it must hit: the
-rule step 8 enforces is that the count fell by at least what the phase
-closed.
+PR #45 brought `elc`'s own source under complexity 15. Phases 18 through 23
+put **43 functions** back over it, eight from Phase 23 alone —
+`manifest_write` and `build_proposal` at 30, twice the threshold this project
+holds other people's code to. Nothing said so, because nothing was watching.
+
+All 43 are decomposed, and **none survives over the threshold**: the most
+complex function in `src/` is `collect_calls` at 14. The bar the phase set
+itself was that a split must name a step the enclosing function was
+sequencing, not merely reduce a number — this project would rather carry an
+honest 16 than a dishonest 14. In the event no function needed the
+concession, because the seams were already there and mostly already marked
+by comments: `manifest_write` ordered the rows, built the document, and wrote
+it out, and now calls three functions that each do one.
+
+Two findings fell out of the pass that were not decomposition at all:
+
+*   **A dependency cycle between `analyze.c` and `report.c`**, which `elc`
+    reported at critical severity in its own source. `analyze.c` included
+    `report.h` for one function, `component_directory`, and `report.c`
+    already depends on `analyze.h`. The derivation moved to the module that
+    builds the `FileMetrics` carrying it, and the dependency now runs one
+    way.
+*   **Five file-local statics sharing a name across modules** — two
+    `by_line`, three `by_path`, one each of `render`, `rule` and
+    `markdown_cell`. `elc` resolves a call by name, so each collision put an
+    edge in its own graph pointing at the wrong module: a false claim in the
+    very analysis the acyclicity result rests on.
+
+The check is now `test/instrumented/self.bats`, and the reason it is a
+catalogued test rather than a step someone performs is the reason
+`sanitized.bats` exists (STP §2.5): a person running `elc src/` and finding
+it clean proves nothing the traceability matrix can carry, and the evidence
+decays the moment a phase adds a function. HLR-181 is the requirement it
+verifies, added by this phase because the behaviour had none.
+
+#### The gap baseline, from 128 to 0
+
+The original text deferred the Phases 18–23 requirements to those phases. All
+six have shipped, so what remained was sorted into the review-verified
+residue the STP names and everything genuinely uncovered.
+
+Almost every entry turned out to be the second kind only by construction. The
+convention says black-box tests trace to HLRs and unit tests to LLRs — read
+as a rule rather than a default, that leaves every LLR whose only
+verification is at the fixture level in the gap list *because the thing that
+checks it was forbidden to say so*. LLR-ANL-15 is "a `return` counts toward
+ELOC"; the fixture test named `HLR-047: a return counts, with or without a
+value` runs the delivered binary over a hand-counted fixture and asserts
+exactly that.
+
+STP §2.5 already carried the clause that resolves it — *a test that genuinely
+verifies both may declare both* — and §2.5 now states the rule that governs
+its use: **a test declares every requirement it genuinely verifies, and
+nothing it merely passes through.** A fixture asserting a project total does
+not verify the twenty LLRs that contributed to it, and adding those traces to
+reach a number would empty the gap list while emptying it of meaning. Writing
+a unit test that duplicates a fixture's assertion purely so an LLR may be
+traced from the preferred level is the same evasion wearing a lab coat.
+
+Eleven requirements had nothing checking them at all and now have tests.
+**Two of those tests found defects on their first run**, which is the
+argument for writing them:
+
+*   An empty final table cell still emitted the column separator that would
+    have preceded it, so every row with a blank Finding column ended in
+    trailing whitespace — the exact thing leaving that column unpadded was
+    for (LLR-SUM-04).
+*   LLR-THR-11 read as forbidding any module from naming a published source,
+    which HLR-159 *requires* of the renderer presenting Henry-Kafura. The
+    requirement now distinguishes citing an authority for a line drawn from
+    naming the authority a number is computed after.
+
+One requirement was found stale rather than uncovered: LLR-ANL-29 said an
+error node anywhere made the whole file a parse failure, which LLR-ANL-48
+reversed several phases ago without amending it. It now states what survived
+of it and records the reversal.
+
+`Traceability.md` §6 gains a third section for the three items only review can
+settle — HLR-101, HLR-111, and HLR-121's cross-release clause. They were never
+gaps, and were never written down either, which left the distinction between
+"verified by review" and "not verified" resting on nobody confusing the two.
+
+#### On the Status row
+
+The phase was complete in its engineering half for the whole of Phases 18
+through 23 and its row said "not started". Two consequences followed: an issue
+was opened describing work that existed, and the self-quality bar the phase
+had met decayed unnoticed for six phases. §5.4 step 9 is the step that was
+skipped, and it is worth stating plainly why it is a step at all — the Status
+table is the only place a reader learns what has been done, and a reader
+includes the person deciding what to do next.
 
 **AI prompt.** Run after issue #<N> exists; `<N>` is its number.
 
@@ -1585,26 +1686,24 @@ Deliver:
   targets, rejected records. HLR-125 covers error paths, so teardown cannot
   live only at the bottom of a successful pipeline.
 * `elc` analysed by `elc`: no function above complexity 15, no dependency
-  cycle.
+  cycle — **as a catalogued test**, for the reason `sanitized.bats` is one.
+  A check nothing runs decays silently, and this one did.
 * Closure of every remaining coverage gap, and an explicit record of the
   review-verified residue the STP names (HLR-101, HLR-111, HLR-121's
   cross-release clause).
 * `main` created from `develop`, and `make install` verified against a
-  staging root.
+  staging root — the binary, the runtime tree, and both user documents.
 
-This phase closes the **first release**, not the project: Phases 18 through 20
-specify capability added after it. In place of step 12 of the protocol, open
-the release PR from `develop` to `main` and attach the `Traceability.md` at
-that commit as the evidence of verification. Confirm before doing so that the
-manual and man page describe the whole delivered product, not merely the last
-phase's additions. Open Phase 18's issue afterwards, as step 12 otherwise
-directs.
+Decompose because a function is doing several things, not because a number is
+too high. A function chopped to land under a threshold reads worse than the
+one it replaced, and this project would rather carry an honest 16 than a
+dishonest 14 — if any survive, say so in the phase's spec update and why.
 
-When the work is done, follow the Phase Execution Protocol in §5.4 —
-including step 6 (updating `doc/Project.xml` with everything this phase
-discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
-before you push. Close as that phase's prompt directs.
+This phase closes the **first release**, not the project. In place of step 12
+of the protocol, open the release PR from `develop` to `main` and attach the
+`Traceability.md` at that commit as the evidence of verification. Confirm
+before doing so that the manual and man page describe the whole delivered
+product, not merely the last phase's additions.
 ```
 
 ### Phase 18 — Output Format Selection and Report Verbosity

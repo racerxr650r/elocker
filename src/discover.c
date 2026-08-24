@@ -222,49 +222,58 @@ void binary_exts_free(ExtensionList *list)
 	list->capacity = 0;
 }
 
-int binary_exts_load(const char *runtime_dir, ExtensionList *out)
+/* Open the runtime's binary-extension list, or NULL having said why.
+ *
+ * Every failure here is non-fatal by design: discovery still runs, nothing is
+ * excluded, and the user is told rather than left with a report full of object
+ * files (LLR-EXT-02).
+ */
+static FILE *binary_exts_open(const char *runtime_dir)
 {
-	char   path[PATH_MAX];
-	FILE  *fp     = NULL;
-	char  *line   = NULL;
-	size_t cap    = 0;
-	int    status = 0;
-
-	memset(out, 0, sizeof *out);
+	char path[PATH_MAX];
+	FILE *fp;
+	int   n;
 
 	if (!runtime_dir) {
 		fputs("elc: no runtime directory; "
 		      "no extension is excluded\n", stderr);
-		return 0;
+		return NULL;
 	}
 
-	int n = snprintf(path, sizeof path, "%s/binary.exts", runtime_dir);
+	n = snprintf(path, sizeof path, "%s/binary.exts", runtime_dir);
 	if (n < 0 || (size_t)n >= sizeof path) {
 		fputs("elc: runtime directory path is too long; "
 		      "no extension is excluded\n", stderr);
-		return 0;
+		return NULL;
 	}
 
 	fp = fopen(path, "r");
-	if (!fp) {
-		/* Not fatal. Discovery still runs; nothing is excluded, and the
-		 * user is told why rather than left with a report full of object
-		 * files (LLR-EXT-02). */
+	if (!fp)
 		fprintf(stderr, "elc: %s: %s; no extension is excluded\n",
 		        path, strerror(errno));
-		return 0;
-	}
+	return fp;
+}
 
+/* One extension per line, `#` starting a comment and blank lines ignored.
+ * Returns 0 on success, -1 on allocation failure with the diagnostic written.
+ */
+static int read_extension_lines(FILE *fp, ExtensionList *out)
+{
+	char   *line = NULL;
+	size_t  cap  = 0;
+	int     status = 0;
 	ssize_t len;
+
 	while ((len = getline(&line, &cap, fp)) != -1) {
 		char *p = line;
+		char *end;
 
 		while (*p == ' ' || *p == '\t')
 			p++;
 		if (*p == '#' || *p == '\n' || *p == '\0')
 			continue;
 
-		char *end = p;
+		end = p;
 		while (*end && *end != ' ' && *end != '\t' && *end != '\n' &&
 		       *end != '\r')
 			end++;
@@ -279,6 +288,21 @@ int binary_exts_load(const char *runtime_dir, ExtensionList *out)
 	}
 
 	free(line);
+	return status;
+}
+
+int binary_exts_load(const char *runtime_dir, ExtensionList *out)
+{
+	FILE *fp;
+	int   status;
+
+	memset(out, 0, sizeof *out);
+
+	fp = binary_exts_open(runtime_dir);
+	if (!fp)
+		return 0;
+
+	status = read_extension_lines(fp, out);
 	fclose(fp);
 
 	if (status != 0)
@@ -405,36 +429,35 @@ static int on_tree_entry(const char *root, const git_tree_entry *entry,
 	return 0;
 }
 
-long walk_git_tree(const char *target, const ExtensionList *exts,
-                   FileList *out, size_t *failures)
+/* Where `target` sits inside `repo`'s working tree, as the repository-relative
+ * prefix a tree walk filters on and the canonical working directory a walked
+ * entry is joined onto. Returns 0 on success, -1 where the repository has no
+ * working tree or the target lies outside it.
+ */
+static int repo_relative_prefix(git_repository *repo, const char *target,
+                                char *prefix, size_t prefix_size,
+                                char *joined, size_t joined_size)
 {
-	git_repository *repo     = NULL;
-	git_object     *tree_obj = NULL;
-	char            resolved[PATH_MAX];
-	char            prefix[PATH_MAX];
-	long            result   = -1;
-	size_t          before   = out->count;
-
-	if (git_repository_open_ext(&repo, target, 0, NULL) != 0)
-		return -1;   /* no repository here or above: not an error */
-
 	const char *wd = git_repository_workdir(repo);
+	const char *relative;
+	char        resolved[PATH_MAX];
+	char        real_workdir[PATH_MAX];
+	size_t      wd_len;
+	int         n;
 
 	/* A bare repository has no working directory, so nothing on disk
 	 * corresponds to its tree and the target cannot be inside it. */
 	if (!wd)
-		goto cleanup;
+		return -1;
 
 	/* The workdir libgit2 reports may reach the same place by a different
 	 * spelling than the target does — a symbolic link on either path, or a
 	 * linked worktree — so both are canonicalised and the prefix
 	 * arithmetic below compares like with like. */
-	char real_workdir[PATH_MAX];
-
 	if (!realpath(target, resolved) || !realpath(wd, real_workdir))
-		goto cleanup;
+		return -1;
 
-	size_t wd_len = strlen(real_workdir);
+	wd_len = strlen(real_workdir);
 
 	/* A prefix test on strings is not a prefix test on paths: without the
 	 * boundary check, a working tree at `/src/proj` would claim a target
@@ -445,31 +468,48 @@ long walk_git_tree(const char *target, const ExtensionList *exts,
 	 * this is for when it is not, which a linked worktree can arrange. */
 	if (strncmp(resolved, real_workdir, wd_len) != 0 ||
 	    (resolved[wd_len] != '/' && resolved[wd_len] != '\0'))
-		goto cleanup;   /* the target is not inside this working tree */
+		return -1;   /* the target is not inside this working tree */
 
-	const char *relative = resolved + wd_len;
-
+	relative = resolved + wd_len;
 	while (*relative == '/')
 		relative++;
 
 	if (*relative == '\0') {
 		prefix[0] = '\0';
 	} else {
-		int n = snprintf(prefix, sizeof prefix, "%s/", relative);
-		if (n < 0 || (size_t)n >= sizeof prefix)
-			goto cleanup;
+		n = snprintf(prefix, prefix_size, "%s/", relative);
+		if (n < 0 || (size_t)n >= prefix_size)
+			return -1;
 	}
-
-	if (git_revparse_single(&tree_obj, repo, "HEAD^{tree}") != 0)
-		goto cleanup;   /* an unborn HEAD tracks nothing yet */
 
 	/* realpath strips any trailing slash, so one is put back: the tree walk
 	 * produces repository-relative paths and joining needs a separator. */
-	char joined[PATH_MAX];
+	n = snprintf(joined, joined_size, "%s/", real_workdir);
+	if (n < 0 || (size_t)n >= joined_size)
+		return -1;
 
-	int n = snprintf(joined, sizeof joined, "%s/", real_workdir);
-	if (n < 0 || (size_t)n >= sizeof joined)
+	return 0;
+}
+
+long walk_git_tree(const char *target, const ExtensionList *exts,
+                   FileList *out, size_t *failures)
+{
+	git_repository *repo     = NULL;
+	git_object     *tree_obj = NULL;
+	char            prefix[PATH_MAX];
+	char            joined[PATH_MAX];
+	long            result   = -1;
+	size_t          before   = out->count;
+
+	if (git_repository_open_ext(&repo, target, 0, NULL) != 0)
+		return -1;   /* no repository here or above: not an error */
+
+	if (repo_relative_prefix(repo, target, prefix, sizeof prefix,
+	                         joined, sizeof joined) != 0)
 		goto cleanup;
+
+	if (git_revparse_single(&tree_obj, repo, "HEAD^{tree}") != 0)
+		goto cleanup;   /* an unborn HEAD tracks nothing yet */
 
 	GitWalk walk = {
 		.prefix     = prefix,
@@ -526,6 +566,49 @@ static bool is_hidden(const FTSENT *ent)
 	return ent->fts_level > 0 && ent->fts_name[0] == '.';
 }
 
+/* What the walk does with one entry: descend, record, skip, or diagnose. */
+static void on_fts_entry(FTS *fts, FTSENT *ent, const ExtensionList *exts,
+                         FileList *out, size_t *failures)
+{
+	switch (ent->fts_info) {
+	case FTS_D:
+		if (is_hidden(ent))
+			fts_set(fts, ent, FTS_SKIP);
+		break;
+
+	case FTS_F:
+		if (is_hidden(ent))
+			break;
+		if (is_excluded_extension(ent->fts_path, exts))
+			break;
+		if (filelist_add(out, ent->fts_path) != 0)
+			(*failures)++;
+		break;
+
+	case FTS_SL:
+	case FTS_SLNONE:
+		/* Never followed during traversal. A link to a file inside the
+		 * tree would double-count it; a link to a directory is the
+		 * cyclic case FTS_PHYSICAL rules out. A link named as a target
+		 * is a different matter and is resolved by the classification
+		 * pass (LLR-FTS-05, LLR-DSC-06). */
+		break;
+
+	case FTS_DNR:
+	case FTS_ERR:
+	case FTS_NS:
+		/* Diagnose, skip that subtree, and carry on; the caller folds
+		 * the count into the exit status (LLR-DSC-09). */
+		fprintf(stderr, "elc: %s: %s\n", ent->fts_path,
+		        strerror(ent->fts_errno));
+		(*failures)++;
+		break;
+
+	default:
+		break;
+	}
+}
+
 int walk_filesystem(const char *root, const ExtensionList *exts,
                     FileList *out, size_t *failures)
 {
@@ -546,43 +629,7 @@ int walk_filesystem(const char *root, const ExtensionList *exts,
 
 	errno = 0;
 	while ((ent = fts_read(fts)) != NULL) {
-		switch (ent->fts_info) {
-		case FTS_D:
-			if (is_hidden(ent))
-				fts_set(fts, ent, FTS_SKIP);
-			break;
-
-		case FTS_F:
-			if (is_hidden(ent))
-				break;
-			if (is_excluded_extension(ent->fts_path, exts))
-				break;
-			if (filelist_add(out, ent->fts_path) != 0)
-				(*failures)++;
-			break;
-
-		case FTS_SL:
-		case FTS_SLNONE:
-			/* Never followed during traversal. A link to a file
-			 * inside the tree would double-count it; a link to a
-			 * directory is the cyclic case above. A link named as a
-			 * target is a different matter and is resolved by the
-			 * classification pass (LLR-FTS-05, LLR-DSC-06). */
-			break;
-
-		case FTS_DNR:
-		case FTS_ERR:
-		case FTS_NS:
-			/* Diagnose, skip that subtree, and carry on; the caller
-			 * folds the count into the exit status (LLR-DSC-09). */
-			fprintf(stderr, "elc: %s: %s\n", ent->fts_path,
-			        strerror(ent->fts_errno));
-			(*failures)++;
-			break;
-
-		default:
-			break;
-		}
+		on_fts_entry(fts, ent, exts, out, failures);
 		errno = 0;
 	}
 
@@ -596,6 +643,75 @@ int walk_filesystem(const char *root, const ExtensionList *exts,
 }
 
 /* ------------------------------------------------------ discover_targets -- */
+
+/* Classify one named target, or reject it.
+ *
+ * A named target that cannot be read is rejected here rather than discovered
+ * halfway through the walk, because HLR-062 admits no partial report. A file
+ * *within* a target that turns out to be unreadable is a different case: that
+ * is a per-file failure and the run continues (HLR-035).
+ *
+ * stat(2) follows symbolic links, which is what resolves a link named directly
+ * as a target (LLR-DSC-06). Returns 0 on success, -1 having diagnosed.
+ */
+static int classify_target(const char *path, unsigned char *kind)
+{
+	struct stat st;
+
+	if (stat(path, &st) != 0) {
+		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+
+	if (S_ISREG(st.st_mode)) {
+		*kind = TARGET_FILE;
+	} else if (S_ISDIR(st.st_mode)) {
+		*kind = TARGET_DIR;
+	} else {
+		fprintf(stderr, "elc: %s: not a regular file or directory\n",
+		        path);
+		return -1;
+	}
+
+	if (access(path, R_OK) != 0) {
+		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+/* Enumerate one directory target, by whichever route applies, and record which
+ * route that was.
+ *
+ * Git first, filesystem when it does not apply. A negative return from the
+ * tree walk is inapplicability rather than failure (LLR-DSC-05).
+ */
+static void walk_directory(const char *target, const ExtensionList *exts,
+                           FileList *out, RouteList *routes, size_t *failures)
+{
+	DiscoveryRoute route = ROUTE_REPOSITORY;
+	char           canonical[PATH_MAX];
+	const char    *shown;
+
+	if (walk_git_tree(target, exts, out, failures) < 0) {
+		route = ROUTE_FILESYSTEM;
+		if (walk_filesystem(target, exts, out, failures) != 0)
+			(*failures)++;
+	}
+
+	/* Recorded canonical, as every other path in the report is. A target
+	 * that cannot be canonicalised is recorded as it was given: the walk
+	 * has already succeeded or failed on its own terms by this point, and
+	 * a route the user cannot match to the argument they typed helps
+	 * nobody. */
+	shown = realpath(target, canonical) ? canonical : target;
+
+	if (routelist_add(routes, shown, route) != 0) {
+		fputs("elc: out of memory recording a discovery route\n",
+		      stderr);
+		(*failures)++;
+	}
+}
 
 int discover_targets(const ElcOptions *opts, const char *runtime_dir,
                      FileList *out, RouteList *routes, size_t *failures)
@@ -620,41 +736,12 @@ int discover_targets(const ElcOptions *opts, const char *runtime_dir,
 
 	/* Every target is validated before any of them is walked, so a report
 	 * can never silently cover fewer targets than were named (HLR-062,
-	 * LLR-DSC-01). stat(2) follows symbolic links, which is what resolves
-	 * a link named directly as a target (LLR-DSC-06). */
-	for (size_t i = 0; i < opts->target_count; i++) {
-		struct stat st;
-
-		if (stat(opts->targets[i], &st) != 0) {
-			fprintf(stderr, "elc: %s: %s\n", opts->targets[i],
-			        strerror(errno));
+	 * LLR-DSC-01). */
+	for (size_t i = 0; i < opts->target_count; i++)
+		if (classify_target(opts->targets[i], &kind[i]) != 0) {
 			status = -1;
 			goto cleanup;
 		}
-		if (S_ISREG(st.st_mode)) {
-			kind[i] = TARGET_FILE;
-		} else if (S_ISDIR(st.st_mode)) {
-			kind[i] = TARGET_DIR;
-		} else {
-			fprintf(stderr,
-			        "elc: %s: not a regular file or directory\n",
-			        opts->targets[i]);
-			status = -1;
-			goto cleanup;
-		}
-
-		/* A named target that cannot be read is rejected here rather
-		 * than discovered halfway through the walk, because HLR-062
-		 * admits no partial report. A file *within* a target that turns
-		 * out to be unreadable is a different case: that is a per-file
-		 * failure and the run continues (HLR-035). */
-		if (access(opts->targets[i], R_OK) != 0) {
-			fprintf(stderr, "elc: %s: %s\n", opts->targets[i],
-			        strerror(errno));
-			status = -1;
-			goto cleanup;
-		}
-	}
 
 	if (binary_exts_load(runtime_dir, &exts) != 0) {
 		status = -1;
@@ -667,38 +754,14 @@ int discover_targets(const ElcOptions *opts, const char *runtime_dir,
 	git_libgit2_init();
 
 	for (size_t i = 0; i < opts->target_count; i++) {
+		/* A regular file is appended directly; no traversal is
+		 * performed for it (HLR-001, LLR-DSC-04). */
 		if (kind[i] == TARGET_FILE) {
-			/* A regular file is appended directly; no traversal is
-			 * performed for it (HLR-001, LLR-DSC-04). */
 			if (filelist_add(out, opts->targets[i]) != 0)
 				(*failures)++;
-			continue;
-		}
-
-		/* Git first, filesystem when it does not apply. A negative
-		 * return is inapplicability rather than failure (LLR-DSC-05). */
-		DiscoveryRoute route = ROUTE_REPOSITORY;
-
-		if (walk_git_tree(opts->targets[i], &exts, out, failures) < 0) {
-			route = ROUTE_FILESYSTEM;
-			if (walk_filesystem(opts->targets[i], &exts, out,
-			                    failures) != 0)
-				(*failures)++;
-		}
-
-		/* Recorded canonical, as every other path in the report is. A
-		 * target that cannot be canonicalised is recorded as it was
-		 * given: the walk has already succeeded or failed on its own
-		 * terms by this point, and a route the user cannot match to
-		 * the argument they typed helps nobody. */
-		char        canonical[PATH_MAX];
-		const char *shown = realpath(opts->targets[i], canonical)
-		                            ? canonical : opts->targets[i];
-
-		if (routelist_add(routes, shown, route) != 0) {
-			fputs("elc: out of memory recording a discovery route\n",
-			      stderr);
-			(*failures)++;
+		} else {
+			walk_directory(opts->targets[i], &exts, out, routes,
+			               failures);
 		}
 	}
 

@@ -159,10 +159,105 @@ static void grid_free(Grid *grid)
 	grid->capacity  = 0;
 }
 
-static void rule(FILE *out, int width, char fill)
+static void grid_rule(FILE *out, int width, char fill)
 {
 	for (int i = 0; i < width; i++)
 		fputc(fill, out);
+}
+
+/* One Markdown cell, right-aligned where the column holds numbers. */
+static void grid_markdown_cell(const Grid *grid, size_t c, const char *text,
+                          FILE *out)
+{
+	fprintf(out, " %*s |",
+	        grid->numeric[c] ? grid->width[c] : -grid->width[c], text);
+}
+
+static void grid_render_markdown(const Grid *grid, FILE *out)
+{
+	fprintf(out, "\n## %s\n\n", grid->heading);
+
+	fputc('|', out);
+	for (size_t c = 0; c < grid->column_count; c++)
+		fprintf(out, " %-*s |", grid->width[c], grid->columns[c]);
+	fputc('\n', out);
+
+	fputc('|', out);
+	for (size_t c = 0; c < grid->column_count; c++) {
+		/* GFM marks a right-aligned column with a trailing colon, so a
+		 * renderer downstream aligns numbers the way this one does. */
+		fputc(' ', out);
+		grid_rule(out, grid->width[c] - (grid->numeric[c] ? 1 : 0), '-');
+		fputs(grid->numeric[c] ? ": |" : " |", out);
+	}
+	fputc('\n', out);
+
+	for (size_t r = 0; r < grid->row_count; r++) {
+		fputc('|', out);
+		for (size_t c = 0; c < grid->column_count; c++)
+			grid_markdown_cell(grid, c,
+			              grid->cells[r * grid->column_count + c],
+			              out);
+		fputc('\n', out);
+	}
+}
+
+/* One plain-table cell, with the two spaces that separate it from the one
+ * before.
+ *
+ * A left-aligned final column is not padded: padding it puts trailing
+ * whitespace on every line, which shows up in a diff and in any tool that
+ * strips it.
+ */
+static void table_cell(const Grid *grid, size_t c, const char *text, FILE *out)
+{
+	bool unpadded = c + 1 == grid->column_count && !grid->numeric[c];
+
+	/* An empty final cell contributes nothing at all — not even the
+	 * separator that would precede it. Leaving the separator in put two
+	 * spaces at the end of the line, which is the whole of what not
+	 * padding the column was for: a row whose last column is blank is the
+	 * common case in every table with an optional Finding column
+	 * (LLR-SUM-04). */
+	if (unpadded && text[0] == '\0')
+		return;
+
+	if (c)
+		fputs("  ", out);
+
+	if (unpadded)
+		fputs(text, out);
+	else
+		fprintf(out, "%*s",
+		        grid->numeric[c] ? grid->width[c] : -grid->width[c],
+		        text);
+}
+
+static void grid_render_table(const Grid *grid, FILE *out)
+{
+	fprintf(out, "\n%s\n", grid->heading);
+
+	fputs("  ", out);
+	for (size_t c = 0; c < grid->column_count; c++)
+		table_cell(grid, c, grid->columns[c], out);
+	fputc('\n', out);
+
+	fputs("  ", out);
+	for (size_t c = 0; c < grid->column_count; c++) {
+		if (c)
+			fputs("  ", out);
+		grid_rule(out, grid->width[c], '-');
+	}
+	fputc('\n', out);
+
+	for (size_t r = 0; r < grid->row_count; r++) {
+		fputs("  ", out);
+		for (size_t c = 0; c < grid->column_count; c++)
+			table_cell(grid, c,
+			           grid->cells[r * grid->column_count + c],
+			           out);
+		fputc('\n', out);
+	}
 }
 
 /* Emit the grid in the requested style, then release it.
@@ -179,82 +274,10 @@ static int grid_render(Grid *grid, Style style, FILE *out)
 		return -1;
 	}
 
-	if (style == STYLE_MARKDOWN) {
-		fprintf(out, "\n## %s\n\n", grid->heading);
-
-		fputc('|', out);
-		for (size_t c = 0; c < grid->column_count; c++)
-			fprintf(out, " %-*s |", grid->width[c], grid->columns[c]);
-		fputc('\n', out);
-
-		fputc('|', out);
-		for (size_t c = 0; c < grid->column_count; c++) {
-			/* GFM marks a right-aligned column with a trailing
-			 * colon, so a renderer downstream aligns numbers the
-			 * way this one does. */
-			fputc(' ', out);
-			rule(out, grid->width[c] - (grid->numeric[c] ? 1 : 0), '-');
-			fputs(grid->numeric[c] ? ": |" : " |", out);
-		}
-		fputc('\n', out);
-
-		for (size_t r = 0; r < grid->row_count; r++) {
-			fputc('|', out);
-			for (size_t c = 0; c < grid->column_count; c++)
-				fprintf(out, " %*s |",
-				        grid->numeric[c] ? grid->width[c]
-				                         : -grid->width[c],
-				        grid->cells[r * grid->column_count + c]);
-			fputc('\n', out);
-		}
-	} else {
-		fprintf(out, "\n%s\n", grid->heading);
-
-		fputs("  ", out);
-		for (size_t c = 0; c < grid->column_count; c++) {
-			if (c)
-				fputs("  ", out);
-			/* A left-aligned final column is not padded: padding it
-			 * puts trailing whitespace on every line, which shows
-			 * up in a diff and in any tool that strips it. */
-			if (c + 1 == grid->column_count && !grid->numeric[c])
-				fputs(grid->columns[c], out);
-			else
-				fprintf(out, "%*s",
-				        grid->numeric[c] ? grid->width[c]
-				                         : -grid->width[c],
-				        grid->columns[c]);
-		}
-		fputc('\n', out);
-
-		fputs("  ", out);
-		for (size_t c = 0; c < grid->column_count; c++) {
-			if (c)
-				fputs("  ", out);
-			rule(out, grid->width[c], '-');
-		}
-		fputc('\n', out);
-
-		for (size_t r = 0; r < grid->row_count; r++) {
-			const char *const *row =
-				(const char *const *)&grid->cells[r * grid->column_count];
-
-			fputs("  ", out);
-			for (size_t c = 0; c < grid->column_count; c++) {
-				if (c)
-					fputs("  ", out);
-				if (c + 1 == grid->column_count &&
-				    !grid->numeric[c])
-					fputs(row[c], out);
-				else
-					fprintf(out, "%*s",
-					        grid->numeric[c] ? grid->width[c]
-					                         : -grid->width[c],
-					        row[c]);
-			}
-			fputc('\n', out);
-		}
-	}
+	if (style == STYLE_MARKDOWN)
+		grid_render_markdown(grid, out);
+	else
+		grid_render_table(grid, out);
 
 	grid_free(grid);
 	return 0;
@@ -327,9 +350,9 @@ static void summary_section(const Report *report, Style style, FILE *out)
 		fputs("\n## Project summary\n\n", out);
 		fprintf(out, "| %-*s | %*s |\n", label, "Metric", value, "Value");
 		fputc('|', out);
-		rule(out, label + 2, '-');
+		grid_rule(out, label + 2, '-');
 		fputc('|', out);
-		rule(out, value + 1, '-');
+		grid_rule(out, value + 1, '-');
 		fputs(": |\n", out);
 	} else {
 		fputs("Project summary\n", out);

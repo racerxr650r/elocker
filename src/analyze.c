@@ -31,10 +31,6 @@
 #include "elc.h"
 #include "elfsyms.h"
 #include "registry.h"
-/* For `component_directory` alone: the model defines how a component's
- * directory is derived, and this module records it on the FileMetrics it
- * builds, so that one derivation serves every consumer (HLR-160). */
-#include "report.h"
 
 /* Capture names from runtime/queries/README.md. These are a contract with
  * every language module, not a property of any language. */
@@ -519,14 +515,43 @@ static bool regex_holds(const TSQuery *query,
 
 /* One predicate's steps, minus its trailing sentinel, evaluated against the
  * match. `steps[0]` is the predicate name. */
+/* Evaluate the named filter against the captured text.
+ *
+ * The five are the ones Tree-sitter's query language defines; a predicate
+ * naming anything else rejects the match rather than being ignored, so a
+ * misspelling in a query file is visible as a query that matches nothing
+ * rather than as one that matches everything.
+ */
+static bool filter_holds(const TSQuery *query, const TSQueryMatch *match,
+                         const char *data, const TSQueryPredicateStep *steps,
+                         size_t count, const char *name, uint32_t length,
+                         const char *text)
+{
+	bool not_eq  = text_is(name, length, "not-eq?");
+	bool not_mat = text_is(name, length, "not-match?");
+
+	if (text_is(name, length, "eq?") || not_eq ||
+	    text_is(name, length, "any-of?")) {
+		bool found = any_step_equals(query, match, data, steps, count,
+		                             text);
+
+		return not_eq ? !found : found;
+	}
+
+	if (text_is(name, length, "match?") || not_mat)
+		return regex_holds(query, steps, count, text, not_mat);
+
+	return false;
+}
+
 static bool predicate_holds(const TSQuery *query, const TSQueryMatch *match,
                             const char *data,
                             const TSQueryPredicateStep *steps, size_t count)
 {
 	uint32_t    length = 0;
 	const char *name;
-	char       *text   = NULL;
-	bool        result = false;
+	char       *text;
+	bool        result;
 	TSNode      node;
 
 	if (count == 0 || steps[0].type != TSQueryPredicateStepTypeString)
@@ -549,22 +574,8 @@ static bool predicate_holds(const TSQuery *query, const TSQueryMatch *match,
 	if (!text)
 		return false;
 
-	bool eq      = text_is(name, length, "eq?");
-	bool not_eq  = text_is(name, length, "not-eq?");
-	bool any_of  = text_is(name, length, "any-of?");
-	bool match_p = text_is(name, length, "match?");
-	bool not_mat = text_is(name, length, "not-match?");
-
-	if (eq || not_eq || any_of) {
-		bool found = any_step_equals(query, match, data, steps, count,
-		                             text);
-
-		result = not_eq ? !found : found;
-	} else if (match_p || not_mat) {
-		result = regex_holds(query, steps, count, text, not_mat);
-	} else {
-		result = false;   /* an unrecognised filter rejects the match */
-	}
+	result = filter_holds(query, match, data, steps, count, name, length,
+	                      text);
 
 	free(text);
 	return result;
@@ -1662,31 +1673,19 @@ static void dedupe_dead(FileFacts *facts)
 	facts->dead_count = kept;
 }
 
-int collect_dead_code(const LanguageModule *module, Registry *reg,
-                      const char *data, TSNode root,
-                      const FnRangeIndex *ranges, const SpanList *comments,
-                      FileFacts *facts)
+/* The three capture sets the dead-code query yields, collected in full.
+ *
+ * In full before anything is walked: the sibling walk asks "is this one a
+ * re-entry point?", and a query cursor answers only in the order it matched —
+ * which is not the order the walk needs.
+ */
+static int collect_dead_captures(const TSQuery *query, Registry *reg,
+                                 const char *data, TSNode root,
+                                 NodeList *terminators, NodeList *reentries,
+                                 NodeList *branches)
 {
-	TSQuery      *query = module->queries[QUERY_DEADCODE];
-	NodeList      terminators = { 0 };
-	NodeList      reentries   = { 0 };
-	NodeList      branches    = { 0 };
-	TSQueryMatch  match;
-	int           status = -1;
+	TSQueryMatch match;
 
-	/* A language with no dead-code query is not a failure and is not
-	 * clean. The flag stays false and the report says the analysis was not
-	 * performed for that language — a different claim from "none found",
-	 * and the only honest one (HLR-139, LLR-DED-05). */
-	if (!query) {
-		facts->dead_analysed = false;
-		return 0;
-	}
-	facts->dead_analysed = true;
-
-	/* Collected in full before anything is walked. The sibling walk asks
-	 * "is this one a re-entry point?", and a query cursor answers only in
-	 * the order it matched — which is not the order the walk needs. */
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
@@ -1699,16 +1698,77 @@ int collect_dead_code(const LanguageModule *module, Registry *reg,
 			int      rc    = 0;
 
 			if (capture_is(query, index, CAPTURE_DEAD_TERM))
-				rc = nodelist_add(&terminators, node);
+				rc = nodelist_add(terminators, node);
 			else if (capture_is(query, index, CAPTURE_DEAD_REENTRY))
-				rc = nodelist_add(&reentries, node);
+				rc = nodelist_add(reentries, node);
 			else if (capture_is(query, index, CAPTURE_DEAD_BRANCH))
-				rc = nodelist_add(&branches, node);
+				rc = nodelist_add(branches, node);
 
 			if (rc != 0)
-				goto cleanup;
+				return -1;
 		}
 	}
+	return 0;
+}
+
+/* The named siblings following one terminator, up to the first that can be
+ * entered without falling into it (LLR-DED-01).
+ */
+static int record_after_terminator(FileFacts *facts, const FnRangeIndex *ranges,
+                                   const SpanList *comments,
+                                   const NodeList *reentries, TSNode terminator)
+{
+	TSNode sibling = ts_node_next_named_sibling(terminator);
+
+	while (!ts_node_is_null(sibling)) {
+		if (is_reentry(reentries, sibling))
+			return 0;
+
+		/* **A comment is a named sibling**, and skipping it is not
+		 * cosmetic. Without this the walk records the trailing comment
+		 * on the terminator's own line as dead code — so a `return`
+		 * annotated in passing reports itself, and every commented line
+		 * after one becomes a finding. Skipped rather than stopped at:
+		 * a note between two dead statements does not make the second
+		 * one run.
+		 *
+		 * What a comment *is* stays where it already lives. This asks
+		 * the merged set `comments.scm` produced, the same set the ELOC
+		 * exclusion consults, so no node type enters this file and one
+		 * answer serves both (HLR-016). */
+		if (!byte_is_excluded(comments, ts_node_start_byte(sibling)) &&
+		    dead_add(facts, ranges, sibling, DEAD_AFTER_TERMINATOR) != 0)
+			return -1;
+
+		sibling = ts_node_next_named_sibling(sibling);
+	}
+	return 0;
+}
+
+int collect_dead_code(const LanguageModule *module, Registry *reg,
+                      const char *data, TSNode root,
+                      const FnRangeIndex *ranges, const SpanList *comments,
+                      FileFacts *facts)
+{
+	TSQuery  *query = module->queries[QUERY_DEADCODE];
+	NodeList  terminators = { 0 };
+	NodeList  reentries   = { 0 };
+	NodeList  branches    = { 0 };
+	int       status = -1;
+
+	/* A language with no dead-code query is not a failure and is not
+	 * clean. The flag stays false and the report says the analysis was not
+	 * performed for that language — a different claim from "none found",
+	 * and the only honest one (HLR-139, LLR-DED-05). */
+	if (!query) {
+		facts->dead_analysed = false;
+		return 0;
+	}
+	facts->dead_analysed = true;
+
+	if (collect_dead_captures(query, reg, data, root, &terminators,
+	                          &reentries, &branches) != 0)
+		goto cleanup;
 
 	/* The branch a literal condition excludes. The query decided both
 	 * which condition is literal and which branch it excludes, because
@@ -1719,41 +1779,10 @@ int collect_dead_code(const LanguageModule *module, Registry *reg,
 		             DEAD_LITERAL_CONDITION) != 0)
 			goto cleanup;
 
-	/* The named siblings following each terminator, up to the first that
-	 * can be entered without falling into it (LLR-DED-01). */
-	for (size_t i = 0; i < terminators.count; i++) {
-		TSNode sibling = ts_node_next_named_sibling(terminators.items[i]);
-
-		while (!ts_node_is_null(sibling)) {
-			if (is_reentry(&reentries, sibling))
-				break;
-
-			/* **A comment is a named sibling**, and skipping it is
-			 * not cosmetic. Without this the walk records the
-			 * trailing comment on the terminator's own line as
-			 * dead code — so a `return` annotated in passing
-			 * reports itself, and every commented line after one
-			 * becomes a finding. Skipped rather than stopped at: a
-			 * note between two dead statements does not make the
-			 * second one run.
-			 *
-			 * What a comment *is* stays where it already lives.
-			 * This asks the merged set `comments.scm` produced,
-			 * the same set the ELOC exclusion consults, so no node
-			 * type enters this file and one answer serves both
-			 * (HLR-016). */
-			if (byte_is_excluded(comments,
-			                    ts_node_start_byte(sibling))) {
-				sibling = ts_node_next_named_sibling(sibling);
-				continue;
-			}
-
-			if (dead_add(facts, ranges, sibling,
-			             DEAD_AFTER_TERMINATOR) != 0)
-				goto cleanup;
-			sibling = ts_node_next_named_sibling(sibling);
-		}
-	}
+	for (size_t i = 0; i < terminators.count; i++)
+		if (record_after_terminator(facts, ranges, comments, &reentries,
+		                            terminators.items[i]) != 0)
+			goto cleanup;
 
 	dedupe_dead(facts);
 	status = 0;
@@ -1930,6 +1959,38 @@ static void apply_eloc(FileMetrics *metrics, SiteList *sites)
 		}
 	}
 	metrics->eloc = total;
+}
+
+/* The directory containing `path`, as a fresh allocation (HLR-160).
+ *
+ * Written once and called from both places a FileMetrics is constructed —
+ * the analysis of a source file, and the reader that rebuilds a model from a
+ * saved record — so that a component's directory is the same string whichever
+ * way the model arrived. Deriving it at each *use* is what HLR-160 forbids;
+ * deriving it once per component, here, is what the field is for.
+ *
+ * The last separator is the split point, and the two edge cases are the ones
+ * that make a naive rsplit wrong: a file directly under the root has an empty
+ * prefix and its directory is "/", and a path carrying no separator at all has
+ * no directory to name and yields "." — the working directory, which is what
+ * the path is relative to. Discovery canonicalises every analysed path
+ * (HLR-072), so the second case reaches this function only from a record
+ * someone wrote by hand.
+ */
+char *component_directory(const char *path)
+{
+	const char *slash;
+
+	if (!path)
+		return NULL;
+
+	slash = strrchr(path, '/');
+	if (!slash)
+		return strdup(".");
+	if (slash == path)
+		return strdup("/");
+
+	return strndup(path, (size_t)(slash - path));
 }
 
 /* The two records a measured file produces, and the strings they own outright.

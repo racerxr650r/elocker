@@ -204,6 +204,50 @@ static int by_lowest_component(const void *a, const void *b)
 	                                     : x->members[0] > y->members[0];
 }
 
+/* Record every strongly connected group of more than one component as a
+ * circular dependency.
+ *
+ * **A group of one is not a cycle**, and there is no self-loop exception here
+ * as there is for recursion. `component_edge_add` drops an edge from a
+ * component to itself, because a file does not depend on itself — which is
+ * exactly what keeps two mutually recursive functions inside one file from
+ * being reported as a circular dependency between components (HLR-083,
+ * LLR-CYC-03).
+ */
+static int record_component_cycles(const Sdg *g,
+                                   const igraph_vector_int_t *membership,
+                                   const size_t *sizes,
+                                   igraph_integer_t groups, ArchResults *out)
+{
+	for (igraph_integer_t c = 0; c < groups; c++) {
+		size_t  n       = sizes[c];
+		size_t *members;
+		size_t  at      = 0;
+
+		if (n < 2)
+			continue;
+
+		members = calloc(n, sizeof *members);
+		if (!members)
+			return -1;
+
+		for (size_t i = 0; i < g->component_count && at < n; i++)
+			if (VECTOR(*membership)[i] == c)
+				members[at++] = i;
+
+		if (arch_cycle_add(g, out, members, n) != 0) {
+			free(members);
+			return -1;
+		}
+	}
+
+	if (out->cycle_count > 1)
+		qsort(out->cycles, out->cycle_count, sizeof *out->cycles,
+		      by_lowest_component);
+
+	return 0;
+}
+
 int find_cycles(const Sdg *g, ArchResults *out)
 {
 	igraph_vector_int_t membership;
@@ -229,40 +273,7 @@ int find_cycles(const Sdg *g, ArchResults *out)
 	for (size_t i = 0; i < g->component_count; i++)
 		sizes[VECTOR(membership)[i]]++;
 
-	for (igraph_integer_t c = 0; c < groups; c++) {
-		size_t  n       = sizes[c];
-		size_t *members = NULL;
-		size_t  at      = 0;
-
-		/* **A group of one is not a cycle**, and there is no self-loop
-		 * exception here as there is for recursion. `component_edge_add`
-		 * drops an edge from a component to itself, because a file
-		 * does not depend on itself — which is exactly what keeps two
-		 * mutually recursive functions inside one file from being
-		 * reported as a circular dependency between components
-		 * (HLR-083, LLR-CYC-03). */
-		if (n < 2)
-			continue;
-
-		members = calloc(n, sizeof *members);
-		if (!members)
-			goto cleanup;
-
-		for (size_t i = 0; i < g->component_count && at < n; i++)
-			if (VECTOR(membership)[i] == c)
-				members[at++] = i;
-
-		if (arch_cycle_add(g, out, members, n) != 0) {
-			free(members);
-			goto cleanup;
-		}
-	}
-
-	if (out->cycle_count > 1)
-		qsort(out->cycles, out->cycle_count, sizeof *out->cycles,
-		      by_lowest_component);
-
-	status = 0;
+	status = record_component_cycles(g, &membership, sizes, groups, out);
 
 cleanup:
 	free(sizes);

@@ -135,4 +135,20 @@ int collect_dead_code(const LanguageModule *module, Registry *reg,
                       const FnRangeIndex *ranges, const SpanList *comments,
                       FileFacts *facts);
 
+/* The directory containing `path`, as a fresh allocation the caller owns, or
+ * NULL on allocation failure (HLR-160).
+ *
+ * Exposed because a FileMetrics is constructed in two places — the analysis of
+ * a source file and the reader that rebuilds a model from a saved record — and
+ * a component's directory must be the same string whichever way the model
+ * arrived. Every *consumer* reads `FileMetrics.directory` rather than calling
+ * this, which is the whole of what HLR-160 asks for.
+ *
+ * It lives with the FileMetrics model rather than with the report that
+ * consumes one, so that the module building a FileMetrics never has to depend
+ * on the module rendering it — the dependency runs one way, report to
+ * analysis, and the two do not form a cycle (HLR-084).
+ */
+char *component_directory(const char *path);
+
 #endif /* ELC_ANALYZE_H */

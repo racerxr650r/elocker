@@ -122,6 +122,53 @@ static int executable_dir(char *buf, size_t len)
 	return (m < 0 || (size_t)m >= len) ? -1 : 0;
 }
 
+/* Append one candidate to the comma-separated record of what was tried, so a
+ * failure can name every location searched rather than only the last.
+ */
+static void note_candidate(char *tried, size_t tried_len, size_t *at,
+                           const char *candidate)
+{
+	int w;
+
+	if (*at >= tried_len)
+		return;
+
+	w = snprintf(tried + *at, tried_len - *at, "%s%s",
+	             *at ? ", " : "", candidate);
+	if (w > 0 && (size_t)w < tried_len - *at)
+		*at += (size_t)w;
+}
+
+/* The first of the locations relative to the executable that is a directory,
+ * recording each as it is tried. Returns 0 on success.
+ */
+static int runtime_dir_search(char *buf, size_t len, char *tried,
+                              size_t tried_len)
+{
+	char   dir[PATH_MAX];
+	size_t at = 0;
+
+	if (executable_dir(dir, sizeof dir) != 0)
+		return -1;
+
+	for (size_t i = 0;
+	     i < sizeof RUNTIME_RELATIVE / sizeof *RUNTIME_RELATIVE; i++) {
+		struct stat st;
+		int         n = snprintf(buf, len, "%s/%s", dir,
+		                         RUNTIME_RELATIVE[i]);
+
+		if (n < 0 || (size_t)n >= len)
+			continue;
+
+		note_candidate(tried, tried_len, &at, buf);
+
+		if (stat(buf, &st) == 0 && S_ISDIR(st.st_mode))
+			return 0;
+	}
+
+	return -1;
+}
+
 /* Resolve the runtime location, writing it to `buf`.
  *
  * Returns 0 with a location that exists, or non-zero. On failure `tried`
@@ -133,8 +180,6 @@ static int runtime_dir_resolve(char *buf, size_t len, char *tried,
                                size_t tried_len)
 {
 	const char *env = getenv(ELC_RUNTIME_DIR_ENV);
-	char        dir[PATH_MAX];
-	size_t      at = 0;
 
 	if (tried_len)
 		tried[0] = '\0';
@@ -150,31 +195,7 @@ static int runtime_dir_resolve(char *buf, size_t len, char *tried,
 		return (n < 0 || (size_t)n >= len) ? -1 : 0;
 	}
 
-	if (executable_dir(dir, sizeof dir) != 0)
-		return -1;
-
-	for (size_t i = 0; i < sizeof RUNTIME_RELATIVE / sizeof *RUNTIME_RELATIVE;
-	     i++) {
-		struct stat st;
-		int         n = snprintf(buf, len, "%s/%s", dir,
-		                         RUNTIME_RELATIVE[i]);
-
-		if (n < 0 || (size_t)n >= len)
-			continue;
-
-		if (at < tried_len) {
-			int w = snprintf(tried + at, tried_len - at, "%s%s",
-			                 at ? ", " : "", buf);
-
-			if (w > 0 && (size_t)w < tried_len - at)
-				at += (size_t)w;
-		}
-
-		if (stat(buf, &st) == 0 && S_ISDIR(st.st_mode))
-			return 0;
-	}
-
-	return -1;
+	return runtime_dir_search(buf, len, tried, tried_len);
 }
 
 const char *registry_runtime_dir(const Registry *reg)
@@ -386,28 +407,22 @@ static void module_release(LanguageModule *module)
 	module->usable        = false;
 }
 
-/* Load the grammar and compile the query files: the six required ones, and
- * whichever optional ones the module supplies.
+/* Open the shared object and call its grammar entry point.
  *
- * Returns 0 with `module` populated and usable, or non-zero after a
- * diagnostic — in which case `module` is left named but unusable, so the
- * failure is reported once and not retried (HLR-070, LLR-RFP-06).
+ * ISO C forbids converting void * to a function pointer directly; the form
+ * below is the POSIX-sanctioned one. dlerror() is cleared first and checked
+ * after, because NULL is a legal result for a NULL symbol.
  */
-static int module_load(const Registry *reg, LanguageModule *module,
-                       const char *language)
+static int grammar_load(const Registry *reg, LanguageModule *module,
+                        const char *language)
 {
 	char        path[PATH_MAX];
 	char        symbol[128];
 	const char *error;
+	const TSLanguage *(*entry)(void);
+	int         n;
 
-	module->language_name = strdup(language);
-	if (!module->language_name) {
-		fputs("elc: out of memory loading a language module\n", stderr);
-		return -1;
-	}
-
-	int n = snprintf(path, sizeof path, "%s/parsers/%s.so", reg->dir,
-	                 language);
+	n = snprintf(path, sizeof path, "%s/parsers/%s.so", reg->dir, language);
 	if (n < 0 || (size_t)n >= sizeof path) {
 		fprintf(stderr, "elc: %s: module path is too long\n", language);
 		return -1;
@@ -421,14 +436,11 @@ static int module_load(const Registry *reg, LanguageModule *module,
 
 	n = snprintf(symbol, sizeof symbol, "tree_sitter_%s", language);
 	if (n < 0 || (size_t)n >= sizeof symbol) {
-		fprintf(stderr, "elc: %s: language name is too long\n", language);
+		fprintf(stderr, "elc: %s: language name is too long\n",
+		        language);
 		return -1;
 	}
 
-	/* ISO C forbids converting void * to a function pointer directly; this
-	 * is the POSIX-sanctioned form. dlerror() is cleared first and checked
-	 * after, because NULL is a legal result for a NULL symbol. */
-	const TSLanguage *(*entry)(void);
 	dlerror();
 	*(void **)(&entry) = dlsym(module->dl_handle, symbol);
 	error = dlerror();
@@ -448,52 +460,84 @@ static int module_load(const Registry *reg, LanguageModule *module,
 		        "language\n", language);
 		return -1;
 	}
+	return 0;
+}
 
-	for (size_t i = 0; i < QUERY_COUNT; i++) {
-		char     *source;
-		uint32_t  length      = 0;
-		uint32_t  error_offset = 0;
-		TSQueryError query_error = TSQueryErrorNone;
+/* Compile query file `i` of the contract against the loaded grammar.
+ *
+ * Returns 0 having either compiled it or established that an optional one is
+ * absent, -1 where the language is unusable without it.
+ */
+static int query_load(const Registry *reg, LanguageModule *module,
+                      const char *language, size_t i)
+{
+	char         path[PATH_MAX];
+	char        *source;
+	uint32_t     length       = 0;
+	uint32_t     error_offset = 0;
+	TSQueryError query_error  = TSQueryErrorNone;
+	int          n;
 
-		n = snprintf(path, sizeof path, "%s/queries/%s/%s", reg->dir,
-		             language, QUERY_FILES[i]);
-		if (n < 0 || (size_t)n >= sizeof path) {
-			fprintf(stderr, "elc: %s: query path is too long\n",
-			        language);
-			return -1;
-		}
-
-		source = read_file(path, &length);
-		if (!source) {
-			/* An optional query simply is not there. The language
-			 * loses the analysis that reads it and keeps every
-			 * other one; the consumer sees a NULL and says so in
-			 * the report rather than reporting a clean result
-			 * (HLR-139, LLR-RFP-10). */
-			if (i >= QUERY_REQUIRED_COUNT) {
-				module->queries[i] = NULL;
-				continue;
-			}
-			/* A module is required to supply all six. One missing
-			 * makes the language unusable — reported, excluded, and
-			 * survivable, never undefined (HLR-121, HLR-070). */
-			fprintf(stderr, "elc: %s: %s: %s\n", language,
-			        QUERY_FILES[i], strerror(errno));
-			return -1;
-		}
-
-		module->queries[i] = ts_query_new(module->ts_lang, source,
-		                                  length, &error_offset,
-		                                  &query_error);
-		free(source);
-
-		if (!module->queries[i]) {
-			fprintf(stderr, "elc: %s: %s: %s at byte %u\n",
-			        language, QUERY_FILES[i],
-			        query_error_text(query_error), error_offset);
-			return -1;
-		}
+	n = snprintf(path, sizeof path, "%s/queries/%s/%s", reg->dir, language,
+	             QUERY_FILES[i]);
+	if (n < 0 || (size_t)n >= sizeof path) {
+		fprintf(stderr, "elc: %s: query path is too long\n", language);
+		return -1;
 	}
+
+	source = read_file(path, &length);
+	if (!source) {
+		/* An optional query simply is not there. The language loses the
+		 * analysis that reads it and keeps every other one; the
+		 * consumer sees a NULL and says so in the report rather than
+		 * reporting a clean result (HLR-139, LLR-RFP-10). */
+		if (i >= QUERY_REQUIRED_COUNT) {
+			module->queries[i] = NULL;
+			return 0;
+		}
+		/* A module is required to supply all six. One missing makes the
+		 * language unusable — reported, excluded, and survivable, never
+		 * undefined (HLR-121, HLR-070). */
+		fprintf(stderr, "elc: %s: %s: %s\n", language, QUERY_FILES[i],
+		        strerror(errno));
+		return -1;
+	}
+
+	module->queries[i] = ts_query_new(module->ts_lang, source, length,
+	                                  &error_offset, &query_error);
+	free(source);
+
+	if (!module->queries[i]) {
+		fprintf(stderr, "elc: %s: %s: %s at byte %u\n", language,
+		        QUERY_FILES[i], query_error_text(query_error),
+		        error_offset);
+		return -1;
+	}
+	return 0;
+}
+
+/* Load the grammar and compile the query files: the six required ones, and
+ * whichever optional ones the module supplies.
+ *
+ * Returns 0 with `module` populated and usable, or non-zero after a
+ * diagnostic — in which case `module` is left named but unusable, so the
+ * failure is reported once and not retried (HLR-070, LLR-RFP-06).
+ */
+static int module_load(const Registry *reg, LanguageModule *module,
+                       const char *language)
+{
+	module->language_name = strdup(language);
+	if (!module->language_name) {
+		fputs("elc: out of memory loading a language module\n", stderr);
+		return -1;
+	}
+
+	if (grammar_load(reg, module, language) != 0)
+		return -1;
+
+	for (size_t i = 0; i < QUERY_COUNT; i++)
+		if (query_load(reg, module, language, i) != 0)
+			return -1;
 
 	module->usable = true;
 	return 0;
@@ -681,28 +725,21 @@ static int by_name(const void *a, const void *b)
 	return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
 
-/* Every `.scm` under `runtime/queries/<language>/rules/`, bound to that
- * language by the directory holding it (LLR-RLR-02).
+/* Every `.scm` in `dirpath`, by name.
  *
- * Nothing outside the runtime location is looked at: no working directory, no
- * analysis target, no dotfile. Two users running the same command on the same
- * tree must obtain the same result, and a rule picked up from a checkout would
- * make that false (HLR-110, LLR-RLR-05).
+ * readdir yields whatever order the filesystem holds, and rule matches are
+ * reported in the order the rules were loaded within a file. Sorted here,
+ * once, so no property of a directory's layout reaches the output (HLR-032).
  */
-static int rules_load_located(Registry *reg, const char *language)
+static size_t rule_files(const char *dirpath, char ***out)
 {
-	char           dirpath[PATH_MAX];
 	DIR           *dir;
 	struct dirent *entry;
 	char         **names    = NULL;
 	size_t         count    = 0;
 	size_t         capacity = 0;
-	int            n;
 
-	n = snprintf(dirpath, sizeof dirpath, "%s/queries/%s/rules", reg->dir,
-	             language);
-	if (n < 0 || (size_t)n >= sizeof dirpath)
-		return 0;
+	*out = NULL;
 
 	dir = opendir(dirpath);
 	if (!dir)
@@ -714,7 +751,8 @@ static int rules_load_located(Registry *reg, const char *language)
 		if (!dot || strcmp(dot, ".scm") != 0)
 			continue;
 		if (count == capacity &&
-		    registry_grow((void **)&names, &capacity, sizeof *names) != 0)
+		    registry_grow((void **)&names, &capacity,
+		                  sizeof *names) != 0)
 			break;
 		names[count] = strdup(entry->d_name);
 		if (!names[count])
@@ -723,17 +761,28 @@ static int rules_load_located(Registry *reg, const char *language)
 	}
 	closedir(dir);
 
-	/* readdir yields whatever order the filesystem holds, and rule matches
-	 * are reported in the order the rules were loaded within a file. Sorted
-	 * here, once, so no property of a directory's layout reaches the output
-	 * (HLR-032). */
 	if (count > 1)
 		qsort(names, count, sizeof *names, by_name);
 
+	*out = names;
+	return count;
+}
+
+/* Compile each named rule against the language's module.
+ *
+ * A rule that will not compile is a malformed *component*, not a user error:
+ * diagnose it, leave it out, and carry on with the rest (HLR-116, LLR-RLR-07).
+ * The diagnostic `rule_compile` already emitted names the file.
+ */
+static void rules_compile_all(Registry *reg, const char *language,
+                              const char *dirpath, char *const *names,
+                              size_t count)
+{
 	const LanguageModule *module = NULL;
 
 	for (size_t i = 0; i < count; i++) {
 		char path[PATH_MAX];
+		int  n;
 
 		/* Deferred to the first rule actually found, so that a language
 		 * with an empty rules directory is not loaded on its account. */
@@ -743,7 +792,7 @@ static int rules_load_located(Registry *reg, const char *language)
 				fprintf(stderr, "elc: %s: no usable language "
 				        "module; its custom rules are "
 				        "skipped\n", language);
-				break;
+				return;
 			}
 		}
 
@@ -751,12 +800,32 @@ static int rules_load_located(Registry *reg, const char *language)
 		if (n < 0 || (size_t)n >= sizeof path)
 			continue;
 
-		/* A rule found here is a malformed *component*, not a user
-		 * error: diagnose it, leave it out, and carry on with the rest
-		 * (HLR-116, LLR-RLR-07). The diagnostic rule_compile already
-		 * emitted names the file. */
 		(void)rule_compile(reg, module, path);
 	}
+}
+
+/* Every `.scm` under `runtime/queries/<language>/rules/`, bound to that
+ * language by the directory holding it (LLR-RLR-02).
+ *
+ * Nothing outside the runtime location is looked at: no working directory, no
+ * analysis target, no dotfile. Two users running the same command on the same
+ * tree must obtain the same result, and a rule picked up from a checkout would
+ * make that false (HLR-110, LLR-RLR-05).
+ */
+static int rules_load_located(Registry *reg, const char *language)
+{
+	char    dirpath[PATH_MAX];
+	char  **names;
+	size_t  count;
+	int     n;
+
+	n = snprintf(dirpath, sizeof dirpath, "%s/queries/%s/rules", reg->dir,
+	             language);
+	if (n < 0 || (size_t)n >= sizeof dirpath)
+		return 0;
+
+	count = rule_files(dirpath, &names);
+	rules_compile_all(reg, language, dirpath, names, count);
 
 	for (size_t i = 0; i < count; i++)
 		free(names[i]);

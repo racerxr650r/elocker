@@ -269,6 +269,73 @@ static bool rank_at_or_below(size_t below, size_t n, uint32_t percent)
  * allocation failure inside the library must produce the diagnostic and exit
  * status main promises rather than killing the run (HLR-125).
  */
+
+/* The three measurements themselves, over an initialised set of vectors.
+ *
+ * Separated from the vector lifetime above it because the two are different
+ * concerns: which centralities `elc` asks igraph for is the design decision the
+ * comments below argue, and initialising four vectors and destroying them again
+ * is bookkeeping that would otherwise be read as part of it.
+ */
+static int measure_centralities(const igraph_t *call, igraph_vector_t *hub,
+                                igraph_vector_t *authority,
+                                igraph_vector_t *betweenness,
+                                igraph_vector_int_t *coreness,
+                                igraph_arpack_options_t *arpack)
+{
+	/* **The hub-and-authority decomposition** (HLR-168, HLR-169). A node
+	 * many parts of the program call and which calls almost nothing back
+	 * scores high on authority and near zero on hub, and is domain-agnostic
+	 * by construction. The hub score is what separates a monolithic
+	 * dispatcher from a genuine intermediary a layering ought to keep.
+	 *
+	 * **Not asked of a graph with no edges.** The decomposition is not
+	 * defined there — every score is zero, and the library says so on
+	 * standard error, which would put a diagnostic naming one of its own
+	 * source files into a stream reserved for `elc`'s (HLR-038). A project
+	 * whose functions call nothing has no hub-and-authority structure to
+	 * find, and leaving the scores at their zero says exactly that. */
+	if (igraph_ecount(call) > 0 &&
+	    igraph_hub_and_authority_scores(call, hub, authority, NULL, NULL,
+	                                    arpack) != IGRAPH_SUCCESS)
+		return -1;
+
+	/* Unnormalised, because the figure is compared by rank and a reader
+	 * checking the report against the graph counts shortest paths rather
+	 * than fractions of them. */
+	if (igraph_betweenness(call, NULL, betweenness, igraph_vss_all(),
+	                       true, false) != IGRAPH_SUCCESS)
+		return -1;
+
+	/* Coreness over the **undirected** neighbourhood: the k-core is the
+	 * mutually connected centre of the program, and a leaf hanging off it
+	 * is peripheral whichever way its one edge points (HLR-170). */
+	if (igraph_coreness(call, coreness, IGRAPH_ALL) != IGRAPH_SUCCESS)
+		return -1;
+
+	return 0;
+}
+
+/* Copy the measurements onto the classifications, one node at a time. */
+static void record_centralities(const Sdg *g, Classification *out,
+                                const igraph_vector_t *hub,
+                                const igraph_vector_t *authority,
+                                const igraph_vector_t *betweenness,
+                                const igraph_vector_int_t *coreness)
+{
+	for (size_t i = 0; i < g->node_count; i++) {
+		/* Zero where the decomposition was not run, which is what an
+		 * edgeless graph leaves behind. */
+		out[i].hub         = igraph_vector_size(hub) > (igraph_integer_t)i
+		                             ? VECTOR(*hub)[i] : 0.0;
+		out[i].authority   = igraph_vector_size(authority) >
+		                     (igraph_integer_t)i
+		                             ? VECTOR(*authority)[i] : 0.0;
+		out[i].betweenness = VECTOR(*betweenness)[i];
+		out[i].coreness    = (uint32_t)VECTOR(*coreness)[i];
+	}
+}
+
 static int centralities(const Sdg *g, Classification *out)
 {
 	igraph_vector_t     hub;
@@ -296,47 +363,11 @@ static int centralities(const Sdg *g, Classification *out)
 		goto cleanup;
 	have_core = true;
 
-	/* **The hub-and-authority decomposition** (HLR-168, HLR-169). A node
-	 * many parts of the program call and which calls almost nothing back
-	 * scores high on authority and near zero on hub, and is domain-agnostic
-	 * by construction. The hub score is what separates a monolithic
-	 * dispatcher from a genuine intermediary a layering ought to keep.
-	 *
-	 * **Not asked of a graph with no edges.** The decomposition is not
-	 * defined there — every score is zero, and the library says so on
-	 * standard error, which would put a diagnostic naming one of its own
-	 * source files into a stream reserved for `elc`'s (HLR-038). A project
-	 * whose functions call nothing has no hub-and-authority structure to
-	 * find, and leaving the scores at their zero says exactly that. */
-	if (igraph_ecount(call) > 0 &&
-	    igraph_hub_and_authority_scores(call, &hub, &authority, NULL, NULL,
-	                                    &arpack) != IGRAPH_SUCCESS)
+	if (measure_centralities(call, &hub, &authority, &betweenness,
+	                         &coreness, &arpack) != 0)
 		goto cleanup;
 
-	/* Unnormalised, because the figure is compared by rank and a reader
-	 * checking the report against the graph counts shortest paths rather
-	 * than fractions of them. */
-	if (igraph_betweenness(call, NULL, &betweenness, igraph_vss_all(),
-	                       true, false) != IGRAPH_SUCCESS)
-		goto cleanup;
-
-	/* Coreness over the **undirected** neighbourhood: the k-core is the
-	 * mutually connected centre of the program, and a leaf hanging off it
-	 * is peripheral whichever way its one edge points (HLR-170). */
-	if (igraph_coreness(call, &coreness, IGRAPH_ALL) != IGRAPH_SUCCESS)
-		goto cleanup;
-
-	for (size_t i = 0; i < g->node_count; i++) {
-		/* Zero where the decomposition was not run, which is what an
-		 * edgeless graph leaves behind. */
-		out[i].hub         = igraph_vector_size(&hub) > (igraph_integer_t)i
-		                             ? VECTOR(hub)[i] : 0.0;
-		out[i].authority   = igraph_vector_size(&authority) >
-		                     (igraph_integer_t)i
-		                             ? VECTOR(authority)[i] : 0.0;
-		out[i].betweenness = VECTOR(betweenness)[i];
-		out[i].coreness    = (uint32_t)VECTOR(coreness)[i];
-	}
+	record_centralities(g, out, &hub, &authority, &betweenness, &coreness);
 	status = 0;
 
 cleanup:
@@ -429,11 +460,83 @@ static void apply_manifest(const Sdg *g, Manifest *m, Classification *out)
 		}
 }
 
+/* Rank all three centralities, each over the whole node set.
+ *
+ * One scratch vector serves all three: a rank is taken from a copy of the
+ * scores, and the copy is dead the moment `rank_of` returns. Returns 0 on
+ * success, -1 on allocation failure with the three rank arrays untouched.
+ */
+static int rank_centralities(const Classification *c, size_t n,
+                             size_t *hub_below, size_t *auth_below,
+                             size_t *bet_below)
+{
+	double *scores = calloc(n, sizeof *scores);
+	int     status = -1;
+
+	if (!scores)
+		return -1;
+
+	for (size_t i = 0; i < n; i++)
+		scores[i] = c[i].hub;
+	if (rank_of(scores, n, hub_below) != 0)
+		goto cleanup;
+	for (size_t i = 0; i < n; i++)
+		scores[i] = c[i].authority;
+	if (rank_of(scores, n, auth_below) != 0)
+		goto cleanup;
+	for (size_t i = 0; i < n; i++)
+		scores[i] = c[i].betweenness;
+	if (rank_of(scores, n, bet_below) != 0)
+		goto cleanup;
+	status = 0;
+
+cleanup:
+	free(scores);
+	return status;
+}
+
+/* The three tests, applied to one node in the order that settles which class
+ * a function satisfying more than one of them is reported as.
+ */
+static void classify_one(Classification *c, const PurifyThresholds *t,
+                         size_t n, size_t hub_below, size_t auth_below,
+                         size_t bet_below)
+{
+	c->hub_rank         = rank_percent(hub_below, n);
+	c->authority_rank   = rank_percent(auth_below, n);
+	c->betweenness_rank = rank_percent(bet_below, n);
+
+	/* **A god object first** (HLR-169). Where one function satisfies both
+	 * centrality tests it is a god object and is reported as one: masking
+	 * its edges subsumes masking its incoming edges, and the more specific
+	 * claim is the more useful one to a reader. */
+	if (rank_at_or_above(bet_below, n, t->god_betweenness) &&
+	    rank_at_or_above(hub_below, n, t->god_hub)) {
+		triggered_by(c, PURIFY_GOD_OBJECT, PURIFY_METRIC_BETWEENNESS,
+		             c->betweenness, c->betweenness_rank);
+		return;
+	}
+
+	if (rank_at_or_above(auth_below, n, t->sink_authority) &&
+	    rank_at_or_below(hub_below, n, t->sink_hub)) {
+		triggered_by(c, PURIFY_UTILITY_SINK, PURIFY_METRIC_AUTHORITY,
+		             c->authority, c->authority_rank);
+		return;
+	}
+
+	/* Peripheral last, and only where neither centrality test spoke. Both
+	 * of those name a function's part in *fusing* domains, and a function
+	 * they named is by construction part of the connected centre this test
+	 * is asking about. */
+	if (c->coreness < t->core_depth)
+		triggered_by(c, PURIFY_PERIPHERAL, PURIFY_METRIC_CORENESS,
+		             (double)c->coreness, 0);
+}
+
 int classify_nodes(const Sdg *g, const PurifyThresholds *t, Manifest *manifest,
                    Classification *out)
 {
-	size_t  n      = g->node_count;
-	double *scores = NULL;
+	size_t  n = g->node_count;
 	size_t *hub_below = NULL, *auth_below = NULL, *bet_below = NULL;
 	int     status = -1;
 
@@ -443,63 +546,18 @@ int classify_nodes(const Sdg *g, const PurifyThresholds *t, Manifest *manifest,
 	if (centralities(g, out) != 0)
 		return -1;
 
-	scores     = calloc(n, sizeof *scores);
 	hub_below  = calloc(n, sizeof *hub_below);
 	auth_below = calloc(n, sizeof *auth_below);
 	bet_below  = calloc(n, sizeof *bet_below);
-	if (!scores || !hub_below || !auth_below || !bet_below)
+	if (!hub_below || !auth_below || !bet_below)
+		goto cleanup;
+
+	if (rank_centralities(out, n, hub_below, auth_below, bet_below) != 0)
 		goto cleanup;
 
 	for (size_t i = 0; i < n; i++)
-		scores[i] = out[i].hub;
-	if (rank_of(scores, n, hub_below) != 0)
-		goto cleanup;
-	for (size_t i = 0; i < n; i++)
-		scores[i] = out[i].authority;
-	if (rank_of(scores, n, auth_below) != 0)
-		goto cleanup;
-	for (size_t i = 0; i < n; i++)
-		scores[i] = out[i].betweenness;
-	if (rank_of(scores, n, bet_below) != 0)
-		goto cleanup;
-
-	for (size_t i = 0; i < n; i++) {
-		Classification *c = &out[i];
-
-		c->hub_rank         = rank_percent(hub_below[i], n);
-		c->authority_rank   = rank_percent(auth_below[i], n);
-		c->betweenness_rank = rank_percent(bet_below[i], n);
-
-		/* **A god object first** (HLR-169). Where one function satisfies
-		 * both centrality tests it is a god object and is reported as
-		 * one: masking its edges subsumes masking its incoming edges,
-		 * and the more specific claim is the more useful one to a
-		 * reader. */
-		if (rank_at_or_above(bet_below[i], n, t->god_betweenness) &&
-		    rank_at_or_above(hub_below[i], n, t->god_hub)) {
-			triggered_by(c, PURIFY_GOD_OBJECT,
-			             PURIFY_METRIC_BETWEENNESS, c->betweenness,
-			             c->betweenness_rank);
-			continue;
-		}
-
-		if (rank_at_or_above(auth_below[i], n, t->sink_authority) &&
-		    rank_at_or_below(hub_below[i], n, t->sink_hub)) {
-			triggered_by(c, PURIFY_UTILITY_SINK,
-			             PURIFY_METRIC_AUTHORITY, c->authority,
-			             c->authority_rank);
-			continue;
-		}
-
-		/* Peripheral last, and only where neither centrality test
-		 * spoke. Both of those name a function's part in *fusing*
-		 * domains, and a function they named is by construction part of
-		 * the connected centre this test is asking about. */
-		if (c->coreness < t->core_depth)
-			triggered_by(c, PURIFY_PERIPHERAL,
-			             PURIFY_METRIC_CORENESS,
-			             (double)c->coreness, 0);
-	}
+		classify_one(&out[i], t, n, hub_below[i], auth_below[i],
+		             bet_below[i]);
 
 	/* **Last, so that it overrules rather than competes** (HLR-177). Every
 	 * computed class is in place before a manifest statement is applied,
@@ -512,7 +570,6 @@ cleanup:
 	free(bet_below);
 	free(auth_below);
 	free(hub_below);
-	free(scores);
 	return status;
 }
 
@@ -662,18 +719,16 @@ static int by_file_then_line(const void *a, const void *b)
 	              y->node->name ? y->node->name : "");
 }
 
-int manifest_write(const PurifyResults *r, const Sdg *g, const char *path)
+/* Which classifications the manifest carries, in the order it carries them.
+ *
+ * Returns 0 with `*out` owning `*count_out` entries — possibly none, and
+ * possibly NULL where the graph is empty — or -1 with the diagnostic written.
+ */
+static int manifest_order(const PurifyResults *r, const Sdg *g,
+                          WriteOrder **out, size_t *count_out)
 {
-	json_t     *root     = NULL;
-	json_t     *rows     = NULL;
-	FILE       *file     = NULL;
-	WriteOrder *order    = NULL;
-	size_t      count    = 0;
-	bool        reported = false;
-	int         status   = -1;
-
-	if (!r || !g || !path)
-		return -1;
+	WriteOrder *order;
+	size_t      count = 0;
 
 	order = calloc(g->node_count ? g->node_count : 1, sizeof *order);
 	if (!order) {
@@ -699,83 +754,123 @@ int manifest_write(const PurifyResults *r, const Sdg *g, const char *path)
 	if (count > 1)
 		qsort(order, count, sizeof *order, by_file_then_line);
 
-	root = json_object();
-	rows = json_array();
-	if (!root || !rows)
-		goto cleanup;
+	*out       = order;
+	*count_out = count;
+	return 0;
+}
+
+/* One row of the `classifications` array, or NULL. */
+static json_t *manifest_row(const Classification *c, const SdgNode *node)
+{
+	json_t *row = json_object();
+
+	if (!row)
+		return NULL;
+	if (json_object_set_new(row, "function",
+	                        json_string(node->name)) != 0 ||
+	    json_object_set_new(row, "file",
+	                        json_string(node->file ? node->file : "")) != 0 ||
+	    json_object_set_new(row, "class",
+	                        json_string(purify_class_name(c->klass))) != 0 ||
+	    json_object_set_new(row, "mask", json_boolean(c->masked)) != 0) {
+		json_decref(row);
+		return NULL;
+	}
+	return row;
+}
+
+/* The whole document, built in memory, or NULL on allocation failure. */
+static json_t *manifest_document(const PurifyResults *r,
+                                 const WriteOrder *order, size_t count)
+{
+	json_t *root = json_object();
+	json_t *rows = json_array();
+
+	if (!root || !rows) {
+		json_decref(rows);
+		json_decref(root);
+		return NULL;
+	}
 
 	/* Versioned in the manner of the XML record (HLR-061), so a manifest
 	 * written by a later build is rejected by an earlier one rather than
 	 * half-understood. */
 	if (json_object_set_new(root, "manifest-version",
-	                        json_integer(ELC_MANIFEST_VERSION)) != 0)
-		goto cleanup;
-	if (json_object_set_new(root, "classifications", rows) != 0)
-		goto cleanup;
-	rows = NULL;   /* the object owns it now */
+	                        json_integer(ELC_MANIFEST_VERSION)) != 0 ||
+	    json_object_set_new(root, "classifications", rows) != 0) {
+		json_decref(rows);
+		json_decref(root);
+		return NULL;
+	}
+	/* `root` owns `rows` from here, and frees it with itself. */
 
 	for (size_t i = 0; i < count; i++) {
-		const Classification *c   = &r->classes[order[i].index];
-		json_t               *row = json_object();
+		json_t *row = manifest_row(&r->classes[order[i].index],
+		                           order[i].node);
 
-		if (!row)
-			goto cleanup;
-		if (json_object_set_new(row, "function",
-		                        json_string(order[i].node->name)) != 0 ||
-		    json_object_set_new(row, "file",
-		                        json_string(order[i].node->file
-		                                            ? order[i].node->file
-		                                            : "")) != 0 ||
-		    json_object_set_new(row, "class",
-		                        json_string(purify_class_name(
-		                                            c->klass))) != 0 ||
-		    json_object_set_new(row, "mask",
-		                        json_boolean(c->masked)) != 0 ||
-		    json_array_append_new(json_object_get(root,
-		                                          "classifications"),
-		                          row) != 0) {
+		if (!row || json_array_append_new(rows, row) != 0) {
 			json_decref(row);
-			goto cleanup;
+			json_decref(root);
+			return NULL;
 		}
 	}
+	return root;
+}
 
-	/* Written through a stream of our own rather than `json_dump_file`, for
-	 * one byte: a text file this project writes ends with a newline, and
-	 * Jansson's file writer does not add one. A manifest is meant to be
-	 * hand-edited and put under version control, and a file without a final
-	 * newline is one every such tool complains about. */
-	file = fopen(path, "w");
+/* Write the document to `path`, diagnosing every failure itself.
+ *
+ * Written through a stream of our own rather than `json_dump_file`, for one
+ * byte: a text file this project writes ends with a newline, and Jansson's file
+ * writer does not add one. A manifest is meant to be hand-edited and put under
+ * version control, and a file without a final newline is one every such tool
+ * complains about.
+ */
+static int manifest_emit(json_t *root, const char *path)
+{
+	FILE *file = fopen(path, "w");
+
 	if (!file) {
 		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
-		reported = true;
-		goto cleanup;
+		return -1;
 	}
 	if (json_dumpf(root, file, JSON_INDENT(2)) != 0 ||
 	    fputc('\n', file) == EOF) {
+		fclose(file);
 		fprintf(stderr, "elc: %s: the purification manifest could not "
 		        "be written\n", path);
-		reported = true;
-		goto cleanup;
+		return -1;
 	}
 	if (fclose(file) != 0) {
-		file = NULL;
 		fprintf(stderr, "elc: %s: the purification manifest could not "
 		        "be written\n", path);
-		reported = true;
-		goto cleanup;
+		return -1;
 	}
-	file   = NULL;
-	status = 0;
+	return 0;
+}
 
-cleanup:
-	if (status != 0 && !reported)
+int manifest_write(const PurifyResults *r, const Sdg *g, const char *path)
+{
+	WriteOrder *order = NULL;
+	size_t      count = 0;
+	json_t     *root;
+	int         status;
+
+	if (!r || !g || !path)
+		return -1;
+
+	if (manifest_order(r, g, &order, &count) != 0)
+		return -1;
+
+	root = manifest_document(r, order, count);
+	free(order);
+	if (!root) {
 		fputs("elc: out of memory writing the purification manifest\n",
 		      stderr);
-	if (file)
-		fclose(file);
-	json_decref(rows);
+		return -1;
+	}
+
+	status = manifest_emit(root, path);
 	json_decref(root);
-	free(order);
 	return status;
 }
 
@@ -792,6 +887,48 @@ static int manifest_reject(const char *path, const char *why)
 	return -1;
 }
 
+/* Whether a JSON object is a statement `elc` can act on, and what class it
+ * names.
+ *
+ * Split from the construction below because the two answer different questions:
+ * this one is the whole of what a hand-edited file is checked against, and
+ * every one of its refusals is a message a user has to be able to act on
+ * (HLR-176). Returns 0 with the four members and the parsed class published,
+ * -1 with the diagnostic already written.
+ */
+static int entry_fields(const char *path, json_t *item, json_t **function,
+                        json_t **file, json_t **mask, PurifyClass *parsed)
+{
+	json_t *klass;
+
+	if (!json_is_object(item))
+		return manifest_reject(path, "a classification is not an object");
+
+	*function = json_object_get(item, "function");
+	*file     = json_object_get(item, "file");
+	klass     = json_object_get(item, "class");
+	*mask     = json_object_get(item, "mask");
+
+	if (!json_is_string(*function) ||
+	    json_string_value(*function)[0] == '\0')
+		return manifest_reject(path,
+		                       "a classification names no function");
+	if (!json_is_string(klass))
+		return manifest_reject(path,
+		                       "a classification names no class");
+	if (!purify_class_from_name(json_string_value(klass), parsed))
+		return manifest_reject(path,
+		                       "a classification names a class this "
+		                       "build does not know");
+	if (*file && !json_is_string(*file))
+		return manifest_reject(path, "a classification's file is not "
+		                       "a string");
+	if (*mask && !json_is_boolean(*mask))
+		return manifest_reject(path, "a classification's mask is not "
+		                       "true or false");
+	return 0;
+}
+
 /* Read one statement out of a JSON object.
  *
  * Returns 0 on success, -1 with the diagnostic already written. `function` is
@@ -801,40 +938,16 @@ static int manifest_reject(const char *path, const char *why)
  */
 static int read_entry(const char *path, json_t *item, ManifestEntry *out)
 {
-	json_t     *function, *file, *klass, *mask;
-	PurifyClass parsed;
+	json_t       *function, *file, *mask;
+	PurifyClass   parsed;
+	ManifestEntry entry = { 0 };
 
-	if (!json_is_object(item))
-		return manifest_reject(path, "a classification is not an object");
-
-	function = json_object_get(item, "function");
-	file     = json_object_get(item, "file");
-	klass    = json_object_get(item, "class");
-	mask     = json_object_get(item, "mask");
-
-	if (!json_is_string(function) ||
-	    json_string_value(function)[0] == '\0')
-		return manifest_reject(path,
-		                       "a classification names no function");
-	if (!json_is_string(klass))
-		return manifest_reject(path,
-		                       "a classification names no class");
-	if (!purify_class_from_name(json_string_value(klass), &parsed))
-		return manifest_reject(path,
-		                       "a classification names a class this "
-		                       "build does not know");
-	if (file && !json_is_string(file))
-		return manifest_reject(path, "a classification's file is not "
-		                       "a string");
-	if (mask && !json_is_boolean(mask))
-		return manifest_reject(path, "a classification's mask is not "
-		                       "true or false");
+	if (entry_fields(path, item, &function, &file, &mask, &parsed) != 0)
+		return -1;
 
 	/* Built complete and published in one step, so a statement that runs
 	 * out of memory halfway leaves nothing behind for the caller's teardown
 	 * to miss. */
-	ManifestEntry entry = { 0 };
-
 	entry.function = strdup(json_string_value(function));
 	if (!entry.function)
 		return manifest_reject(path, "out of memory");

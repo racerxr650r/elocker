@@ -149,6 +149,55 @@ static int by_lowest_member(const void *a, const void *b)
 	                                     : x->members[0] > y->members[0];
 }
 
+/* Whether the one function in a single-node component calls itself.
+ *
+ * A component of exactly one node is recursive only on that evidence — every
+ * other function is its own trivial component, and reporting those would
+ * report every program as recursive.
+ */
+static bool component_self_calls(const Sdg *g,
+                                 const igraph_vector_int_t *membership,
+                                 igraph_integer_t c)
+{
+	uint32_t only = 0;
+
+	for (size_t i = 0; i < g->node_count; i++)
+		if (VECTOR(*membership)[i] == c) {
+			only = (uint32_t)i;
+			break;
+		}
+
+	for (size_t e = 0; e < g->edge_count; e++)
+		if (g->edges[e].kind == EDGE_CALL &&
+		    g->edges[e].from == only && g->edges[e].to == only)
+			return true;
+
+	return false;
+}
+
+/* Record one component's membership as a recursive cycle. Returns 0 on
+ * success; the members are released here on any failure to add them.
+ */
+static int record_cycle(const Sdg *g, const igraph_vector_int_t *membership,
+                        igraph_integer_t c, size_t n, TreeResults *out)
+{
+	uint32_t *members = calloc(n, sizeof *members);
+	size_t    at      = 0;
+
+	if (!members)
+		return -1;
+
+	for (size_t i = 0; i < g->node_count && at < n; i++)
+		if (VECTOR(*membership)[i] == c)
+			members[at++] = (uint32_t)i;
+
+	if (calltree_cycle_add(out, members, n) != 0) {
+		free(members);
+		return -1;
+	}
+	return 0;
+}
+
 static int detect_recursion(const Sdg *g, TreeResults *out)
 {
 	igraph_vector_int_t membership;
@@ -174,48 +223,13 @@ static int detect_recursion(const Sdg *g, TreeResults *out)
 	for (size_t i = 0; i < g->node_count; i++)
 		sizes[VECTOR(membership)[i]]++;
 
-	/* A component of more than one node is mutual recursion. A component
-	 * of exactly one is recursive only if the function calls itself —
-	 * every other function is its own trivial component, and reporting
-	 * those would report every program as recursive. */
+	/* A component of more than one node is mutual recursion; one of
+	 * exactly one is recursive only where the function calls itself. */
 	for (igraph_integer_t c = 0; c < components; c++) {
-		size_t    n       = sizes[c];
-		bool      self    = false;
-		uint32_t *members = NULL;
-
-		if (n == 1) {
-			uint32_t only = 0;
-
-			for (size_t i = 0; i < g->node_count; i++)
-				if (VECTOR(membership)[i] == c) {
-					only = (uint32_t)i;
-					break;
-				}
-			for (size_t e = 0; e < g->edge_count; e++)
-				if (g->edges[e].kind == EDGE_CALL &&
-				    g->edges[e].from == only &&
-				    g->edges[e].to == only) {
-					self = true;
-					break;
-				}
-			if (!self)
-				continue;
-		}
-
-		members = calloc(n, sizeof *members);
-		if (!members)
+		if (sizes[c] == 1 && !component_self_calls(g, &membership, c))
+			continue;
+		if (record_cycle(g, &membership, c, sizes[c], out) != 0)
 			goto cleanup;
-
-		size_t at = 0;
-
-		for (size_t i = 0; i < g->node_count && at < n; i++)
-			if (VECTOR(membership)[i] == c)
-				members[at++] = (uint32_t)i;
-
-		if (calltree_cycle_add(out, members, n) != 0) {
-			free(members);
-			goto cleanup;
-		}
 	}
 
 	if (out->cycle_count > 1)
@@ -228,6 +242,67 @@ cleanup:
 	free(sizes);
 	igraph_vector_int_destroy(&membership);
 	return status;
+}
+
+/* The longest chain reachable from each function, and the callee that starts
+ * it.
+ *
+ * `order` is a topological sort with IGRAPH_OUT, which yields callers before
+ * callees; walking it backwards therefore visits every callee before the
+ * function that calls it, which is what lets each node's answer be final the
+ * first time it is set.
+ */
+static void relax_depths(const Sdg *g, const igraph_vector_int_t *order,
+                         uint32_t *depth, uint32_t *successor)
+{
+	for (size_t i = 0; i < g->node_count; i++) {
+		depth[i]     = 1;              /* the function itself */
+		successor[i] = UINT32_MAX;     /* no deeper callee    */
+	}
+
+	for (igraph_integer_t i = igraph_vector_int_size(order) - 1; i >= 0;
+	     i--) {
+		uint32_t node = (uint32_t)VECTOR(*order)[i];
+
+		for (size_t e = 0; e < g->edge_count; e++) {
+			const SdgEdge *edge = &g->edges[e];
+
+			if (edge->kind != EDGE_CALL || edge->from != node)
+				continue;
+			if (edge->to >= g->node_count)
+				continue;
+			if (depth[edge->to] + 1 > depth[node]) {
+				depth[node]     = depth[edge->to] + 1;
+				successor[node] = edge->to;
+			}
+		}
+	}
+}
+
+/* The deepest of the declared entry points, or UINT32_MAX where none of them
+ * names a function in the graph.
+ *
+ * A tie resolves to the lowest node identifier, which is sorted-file order —
+ * so two chains of equal length always yield the same report (HLR-032).
+ */
+static uint32_t deepest_entry(const Sdg *g, const uint32_t *entries,
+                              size_t count, const uint32_t *depth,
+                              uint32_t *best_depth)
+{
+	uint32_t best      = 0;
+	uint32_t best_node = UINT32_MAX;
+
+	for (size_t i = 0; i < count; i++) {
+		if (entries[i] >= g->node_count)
+			continue;
+		if (depth[entries[i]] > best) {
+			best      = depth[entries[i]];
+			best_node = entries[i];
+		}
+	}
+
+	*best_depth = best;
+	return best_node;
 }
 
 /* --------------------------------------------------------- longest path --
@@ -247,6 +322,8 @@ int longest_path_dag(const Sdg *g, const uint32_t *entries, size_t count,
 	igraph_vector_int_t order;
 	uint32_t           *depth     = NULL;
 	uint32_t           *successor = NULL;
+	uint32_t            best      = 0;
+	uint32_t            best_node;
 	int                 status    = -1;
 
 	memset(out, 0, sizeof *out);
@@ -257,9 +334,6 @@ int longest_path_dag(const Sdg *g, const uint32_t *entries, size_t count,
 	if (igraph_vector_int_init(&order, 0) != IGRAPH_SUCCESS)
 		return -1;
 
-	/* IGRAPH_OUT yields callers before callees, so walking it backwards
-	 * visits every callee before the function that calls it — which is
-	 * what lets each node's answer be final the first time it is set. */
 	if (igraph_topological_sorting((const igraph_t *)g->call_graph, &order,
 	                               IGRAPH_OUT) != IGRAPH_SUCCESS)
 		goto cleanup;
@@ -269,42 +343,8 @@ int longest_path_dag(const Sdg *g, const uint32_t *entries, size_t count,
 	if (!depth || !successor)
 		goto cleanup;
 
-	for (size_t i = 0; i < g->node_count; i++) {
-		depth[i]     = 1;              /* the function itself */
-		successor[i] = UINT32_MAX;     /* no deeper callee    */
-	}
-
-	for (igraph_integer_t i = igraph_vector_int_size(&order) - 1; i >= 0; i--) {
-		uint32_t node = (uint32_t)VECTOR(order)[i];
-
-		for (size_t e = 0; e < g->edge_count; e++) {
-			const SdgEdge *edge = &g->edges[e];
-
-			if (edge->kind != EDGE_CALL || edge->from != node)
-				continue;
-			if (edge->to >= g->node_count)
-				continue;
-			if (depth[edge->to] + 1 > depth[node]) {
-				depth[node]     = depth[edge->to] + 1;
-				successor[node] = edge->to;
-			}
-		}
-	}
-
-	/* The deepest of the declared entry points. A tie resolves to the
-	 * lowest node identifier, which is sorted-file order — so two chains
-	 * of equal length always yield the same report (HLR-032). */
-	uint32_t best      = 0;
-	uint32_t best_node = UINT32_MAX;
-
-	for (size_t i = 0; i < count; i++) {
-		if (entries[i] >= g->node_count)
-			continue;
-		if (depth[entries[i]] > best) {
-			best      = depth[entries[i]];
-			best_node = entries[i];
-		}
-	}
+	relax_depths(g, &order, depth, successor);
+	best_node = deepest_entry(g, entries, count, depth, &best);
 
 	if (best_node == UINT32_MAX) {
 		status = 0;   /* nothing reachable to measure */

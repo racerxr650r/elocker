@@ -188,17 +188,18 @@ static DirScore *find_dir(DirScore *dirs, size_t count, const char *path)
 	return NULL;
 }
 
-int layer_by_directory(const PurifyResults *p, const Sdg *g, const Report *r,
-                       const size_t *order, RecoveryResults *out)
+/* Fold every included node onto the directory that defines it, accumulating
+ * both the weighted and the plain position of each.
+ *
+ * Returns the number of distinct directories found, having filled that many
+ * leading entries of `dirs`.
+ */
+static size_t tally_directories(const PurifyResults *p, const Sdg *g,
+                                const Report *r, const size_t *order,
+                                DirScore *dirs)
 {
 	const igraph_t *view  = (const igraph_t *)p->view.graph;
-	DirScore       *dirs  = NULL;
 	size_t          count = 0;
-	int             status = -1;
-
-	dirs = calloc(g->node_count ? g->node_count : 1, sizeof *dirs);
-	if (!dirs)
-		return -1;
 
 	for (size_t i = 0; i < g->node_count && i < p->view.node_count; i++) {
 		const char *dir;
@@ -229,26 +230,21 @@ int layer_by_directory(const PurifyResults *p, const Sdg *g, const Report *r,
 		slot->plain_count++;
 		slot->functions++;
 	}
+	return count;
+}
 
-	if (count == 0) {
-		out->state = RECOVERY_OMITTED_EMPTY;
-		status     = 0;
-		goto cleanup;
-	}
+/* Number the layers of an already-sorted directory list.
+ *
+ * **Equal positions are one layer, not two.** Two directories the ordering
+ * places level with one another are level with one another, and cutting
+ * between them would invent a dependency direction the graph does not hold —
+ * which is the kind of claim HLR-101 forbids.
+ */
+static void assign_layers(DirScore *dirs, size_t count)
+{
+	dirs[0].layer = 0;
 
-	if (count > 1)
-		qsort(dirs, count, sizeof *dirs, by_score_then_path);
-
-	/* **Equal positions are one layer, not two.** Two directories the
-	 * ordering places level with one another are level with one another,
-	 * and cutting between them would invent a dependency direction the
-	 * graph does not hold — which is the kind of claim HLR-101 forbids. */
-	for (size_t i = 0; i < count; i++) {
-		if (i == 0) {
-			dirs[i].layer = 0;
-			continue;
-		}
-
+	for (size_t i = 1; i < count; i++) {
 		uint64_t an, ad, bn, bd;
 
 		score_of(&dirs[i - 1], &an, &ad);
@@ -256,24 +252,54 @@ int layer_by_directory(const PurifyResults *p, const Sdg *g, const Report *r,
 		dirs[i].layer = dirs[i - 1].layer +
 		                (frac_cmp(an, ad, bn, bd) == 0 ? 0 : 1);
 	}
+}
 
+/* Copy the numbered directories onto the results, taking a copy of each path
+ * so the results outlive the graph they were read from. Returns 0 on success.
+ */
+static int publish_layers(const DirScore *dirs, size_t count,
+                          RecoveryResults *out)
+{
 	out->layers = calloc(count, sizeof *out->layers);
 	if (!out->layers)
-		goto cleanup;
+		return -1;
 
 	for (size_t i = 0; i < count; i++) {
 		out->layers[i].directory = strdup(dirs[i].directory);
 		if (!out->layers[i].directory)
-			goto cleanup;
+			return -1;
 		out->layers[i].layer     = dirs[i].layer;
 		out->layers[i].functions = dirs[i].functions;
 		out->layer_count++;
 	}
 	out->strata = dirs[count - 1].layer + 1;
 	out->state  = RECOVERY_PROPOSED;
-	status      = 0;
+	return 0;
+}
 
-cleanup:
+int layer_by_directory(const PurifyResults *p, const Sdg *g, const Report *r,
+                       const size_t *order, RecoveryResults *out)
+{
+	DirScore *dirs;
+	size_t    count;
+	int       status;
+
+	dirs = calloc(g->node_count ? g->node_count : 1, sizeof *dirs);
+	if (!dirs)
+		return -1;
+
+	count = tally_directories(p, g, r, order, dirs);
+	if (count == 0) {
+		out->state = RECOVERY_OMITTED_EMPTY;
+		free(dirs);
+		return 0;
+	}
+
+	if (count > 1)
+		qsort(dirs, count, sizeof *dirs, by_score_then_path);
+	assign_layers(dirs, count);
+	status = publish_layers(dirs, count, out);
+
 	free(dirs);
 	return status;
 }
@@ -326,6 +352,45 @@ static int by_text(const void *a, const void *b)
  * arbitrarily would present an invention as a reading. The cycles are the
  * finding, exactly as HLR-090 reports them in place of a call depth.
  */
+static int render_components(const PurifyResults *p, const Sdg *g,
+                             const igraph_vector_int_t *membership,
+                             const igraph_vector_int_t *sizes,
+                             igraph_integer_t components, size_t *members,
+                             RecoveryResults *out)
+{
+	for (igraph_integer_t c = 0; c < components; c++) {
+		size_t count = 0;
+		char  *text;
+
+		/* **Two or more members.** A component of one is a single
+		 * function, and the graph this runs over holds no self-call —
+		 * a function calling itself orders nothing, and reporting it
+		 * here would repeat a fact the recursion section already
+		 * states while costing a user the analysis this section exists
+		 * for. */
+		if (VECTOR(*sizes)[c] < 2)
+			continue;
+
+		for (size_t i = 0; i < g->node_count &&
+		     (igraph_integer_t)i < igraph_vector_int_size(membership);
+		     i++)
+			if (VECTOR(*membership)[i] == c && p->view.included[i])
+				members[count++] = i;
+		if (count == 0)
+			continue;
+
+		text = render_cycle(g, members, count);
+		if (!text)
+			return -1;
+		out->cycles[out->cycle_count++] = text;
+	}
+
+	if (out->cycle_count > 1)
+		qsort(out->cycles, out->cycle_count, sizeof *out->cycles,
+		      by_text);
+	return 0;
+}
+
 static int collect_cycles(const PurifyResults *p, const Sdg *g,
                           const igraph_t *view, RecoveryResults *out)
 {
@@ -350,45 +415,13 @@ static int collect_cycles(const PurifyResults *p, const Sdg *g,
 		goto cleanup;
 
 	members = calloc(g->node_count ? g->node_count : 1, sizeof *members);
-	if (!members)
-		goto cleanup;
-
 	out->cycles = calloc((size_t)components ? (size_t)components : 1,
 	                     sizeof *out->cycles);
-	if (!out->cycles)
+	if (!members || !out->cycles)
 		goto cleanup;
 
-	for (igraph_integer_t c = 0; c < components; c++) {
-		size_t count = 0;
-		char  *text;
-
-		/* **Two or more members.** A component of one is a single
-		 * function, and the graph this runs over holds no self-call —
-		 * a function calling itself orders nothing, and reporting it
-		 * here would repeat a fact the recursion section already
-		 * states while costing a user the analysis this section exists
-		 * for. */
-		if (VECTOR(sizes)[c] < 2)
-			continue;
-
-		for (size_t i = 0; i < g->node_count &&
-		     (igraph_integer_t)i < igraph_vector_int_size(&membership);
-		     i++)
-			if (VECTOR(membership)[i] == c && p->view.included[i])
-				members[count++] = i;
-		if (count == 0)
-			continue;
-
-		text = render_cycle(g, members, count);
-		if (!text)
-			goto cleanup;
-		out->cycles[out->cycle_count++] = text;
-	}
-
-	if (out->cycle_count > 1)
-		qsort(out->cycles, out->cycle_count, sizeof *out->cycles,
-		      by_text);
-	status = 0;
+	status = render_components(p, g, &membership, &sizes, components,
+	                           members, out);
 
 cleanup:
 	free(members);
@@ -510,6 +543,105 @@ static int by_depth_then_path(const void *a, const void *b)
 	return strcmp(x->directory, y->directory);
 }
 
+/* A layer name not already taken, written into `out`.
+ *
+ * A repeat is suffixed, because `--stratum` merges two declarations sharing a
+ * name into one layer and two layers named alike would silently become one.
+ */
+static void unique_layer_name(char *const *names, size_t strata,
+                              const char *directory, char *out, size_t size)
+{
+	char candidate[64];
+
+	sanitise(basename_of(directory), candidate, sizeof candidate);
+	snprintf(out, size, "%s", candidate);
+
+	for (unsigned n = 2; n < 1000; n++) {
+		bool clash = false;
+
+		for (size_t j = 0; j < strata; j++)
+			if (names[j] && strcmp(names[j], out) == 0) {
+				clash = true;
+				break;
+			}
+		if (!clash)
+			return;
+		snprintf(out, size, "%s-%u", candidate, n);
+	}
+}
+
+/* One name per layer, taken from the first directory in it — the rows are
+ * already ordered by layer and then by path, so "first" is a property of the
+ * model rather than of this loop. Returns 0 on success.
+ */
+static int name_layers(const RecoveryResults *out, char **names)
+{
+	for (size_t i = 0; i < out->layer_count; i++) {
+		size_t layer = out->layers[i].layer;
+		char   unique[80];
+
+		if (names[layer])
+			continue;
+
+		unique_layer_name(names, out->strata, out->layers[i].directory,
+		                  unique, sizeof unique);
+		names[layer] = strdup(unique);
+		if (!names[layer])
+			return -1;
+	}
+	return 0;
+}
+
+/* The declarations themselves, in the order `--stratum` wants to read them. */
+static void order_declarations(const RecoveryResults *out, char *const *names,
+                               Declaration *decls)
+{
+	for (size_t i = 0; i < out->layer_count; i++) {
+		decls[i].directory = out->layers[i].directory;
+		decls[i].name      = names[out->layers[i].layer];
+		decls[i].depth     = depth_of(out->layers[i].directory);
+	}
+	if (out->layer_count > 1)
+		qsort(decls, out->layer_count, sizeof *decls,
+		      by_depth_then_path);
+}
+
+/* The `--stratum name:'pattern'` clauses, one per declaration. */
+static int render_declarations(Buffer *b, const Declaration *decls,
+                               size_t count)
+{
+	for (size_t i = 0; i < count; i++)
+		if (buffer_add(b, i ? " --stratum " : "--stratum ") != 0 ||
+		    buffer_add(b, decls[i].name) != 0 ||
+		    /* Quoted, because the pattern holds a `*` and the list is
+		     * meant to be pasted into a shell. */
+		    buffer_add(b, ":'") != 0 ||
+		    buffer_add(b, decls[i].directory) != 0 ||
+		    buffer_add(b, strcmp(decls[i].directory, "/") == 0
+		                          ? "*'" : "/*'") != 0)
+			return -1;
+	return 0;
+}
+
+/* The single `--stratum-order` clause naming every layer in ascending order.
+ *
+ * Quoted, like the patterns above, and for a sharper reason: `>` is a shell
+ * redirection. An unquoted order would not merely fail to be adopted — it
+ * would create files named after the layers and hand `elc` a partial order. A
+ * proposal that has to be repaired before it can be used is a transcription,
+ * which is the thing HLR-173 asks be avoided.
+ */
+static int render_order(Buffer *b, char *const *names, size_t strata)
+{
+	if (buffer_add(b, " --stratum-order '") != 0)
+		return -1;
+	for (size_t i = 0; i < strata; i++)
+		if ((i && buffer_add(b, ">") != 0) ||
+		    buffer_add(b, names[i]) != 0)
+			return -1;
+	return buffer_add(b, "'");
+}
+
 /* Render the proposal as the arguments that would declare it (HLR-173).
  *
  * **As arguments, not as prose.** A user who agrees with the recovered
@@ -533,75 +665,12 @@ static int build_proposal(RecoveryResults *out)
 	if (!names || !decls)
 		goto cleanup;
 
-	/* One name per layer, taken from the first directory in it — the rows
-	 * are already ordered by layer and then by path, so "first" is a
-	 * property of the model rather than of this loop. A repeat is
-	 * suffixed, because `--stratum` merges two declarations sharing a name
-	 * into one layer and two layers named alike would silently become
-	 * one. */
-	for (size_t i = 0; i < out->layer_count; i++) {
-		size_t layer = out->layers[i].layer;
-		char   candidate[64];
-		char   unique[80];
-
-		if (names[layer])
-			continue;
-
-		sanitise(basename_of(out->layers[i].directory), candidate,
-		         sizeof candidate);
-		snprintf(unique, sizeof unique, "%s", candidate);
-		for (unsigned n = 2; n < 1000; n++) {
-			bool clash = false;
-
-			for (size_t j = 0; j < out->strata; j++)
-				if (names[j] && strcmp(names[j], unique) == 0) {
-					clash = true;
-					break;
-				}
-			if (!clash)
-				break;
-			snprintf(unique, sizeof unique, "%s-%u", candidate, n);
-		}
-
-		names[layer] = strdup(unique);
-		if (!names[layer])
-			goto cleanup;
-	}
-
-	for (size_t i = 0; i < out->layer_count; i++) {
-		decls[i].directory = out->layers[i].directory;
-		decls[i].name      = names[out->layers[i].layer];
-		decls[i].depth     = depth_of(out->layers[i].directory);
-	}
-	if (out->layer_count > 1)
-		qsort(decls, out->layer_count, sizeof *decls,
-		      by_depth_then_path);
-
-	for (size_t i = 0; i < out->layer_count; i++) {
-		if (buffer_add(&b, i ? " --stratum " : "--stratum ") != 0 ||
-		    buffer_add(&b, decls[i].name) != 0 ||
-		    /* Quoted, because the pattern holds a `*` and the list is
-		     * meant to be pasted into a shell. */
-		    buffer_add(&b, ":'") != 0 ||
-		    buffer_add(&b, decls[i].directory) != 0 ||
-		    buffer_add(&b, strcmp(decls[i].directory, "/") == 0
-		                           ? "*'" : "/*'") != 0)
-			goto cleanup;
-	}
-
-	/* Quoted, like the patterns above, and for a sharper reason: `>` is a
-	 * shell redirection. An unquoted order would not merely fail to be
-	 * adopted — it would create files named after the layers and hand
-	 * `elc` a partial order. A proposal that has to be repaired before it
-	 * can be used is a transcription, which is the thing HLR-173 asks be
-	 * avoided. */
-	if (buffer_add(&b, " --stratum-order '") != 0)
+	if (name_layers(out, names) != 0)
 		goto cleanup;
-	for (size_t i = 0; i < out->strata; i++)
-		if ((i && buffer_add(&b, ">") != 0) ||
-		    buffer_add(&b, names[i]) != 0)
-			goto cleanup;
-	if (buffer_add(&b, "'") != 0)
+	order_declarations(out, names, decls);
+
+	if (render_declarations(&b, decls, out->layer_count) != 0 ||
+	    render_order(&b, names, out->strata) != 0)
 		goto cleanup;
 
 	out->proposal = b.text;
@@ -620,21 +689,14 @@ cleanup:
 
 /* ---------------------------------------------------------------- the pass -- */
 
-int recover_layers(const PurifyResults *p, const Sdg *g, const Report *r,
-                   RecoveryResults *out)
+/* How many functions the view set aside, and under which of the two headings.
+ *
+ * The two are counted apart because they are different statements: a
+ * peripheral function was excluded from the ordering altogether, while a sink
+ * or god object stayed in it with its edges masked (HLR-170, HLR-179).
+ */
+static void count_set_aside(const PurifyResults *p, RecoveryResults *out)
 {
-	igraph_vector_int_t sorted;
-	igraph_t            simple;
-	size_t             *order  = NULL;
-	igraph_bool_t       is_dag = false;
-	int                 status = -1;
-	bool                have_sorted = false, have_simple = false;
-
-	memset(out, 0, sizeof *out);
-
-	if (!p || !g || !r || !p->view.graph)
-		return 0;
-
 	for (size_t i = 0; i < p->node_count; i++) {
 		if (p->classes[i].klass == PURIFY_PERIPHERAL &&
 		    p->classes[i].masked)
@@ -643,6 +705,77 @@ int recover_layers(const PurifyResults *p, const Sdg *g, const Report *r,
 		         p->classes[i].masked)
 			out->masked++;
 	}
+}
+
+/* The position of every node in a topological sort of `simple`, written into
+ * `order` by node identifier. Returns 0 on success.
+ */
+static int topological_order(const igraph_t *simple, const Sdg *g,
+                             size_t *order)
+{
+	igraph_vector_int_t sorted;
+	int                 status = -1;
+
+	if (igraph_vector_int_init(&sorted, 0) != IGRAPH_SUCCESS)
+		return -1;
+
+	if (igraph_topological_sorting(simple, &sorted, IGRAPH_OUT) !=
+	    IGRAPH_SUCCESS)
+		goto cleanup;
+
+	for (igraph_integer_t i = 0; i < igraph_vector_int_size(&sorted); i++) {
+		igraph_integer_t node = VECTOR(sorted)[i];
+
+		if (node >= 0 && (size_t)node < g->node_count)
+			order[node] = (size_t)i;
+	}
+	status = 0;
+
+cleanup:
+	igraph_vector_int_destroy(&sorted);
+	return status;
+}
+
+/* A copy of the recovery view with its self-calls removed, and whether what
+ * remains is acyclic. On success the caller owns `*out` and destroys it.
+ *
+ * **Removing the self-calls is a judgement rather than a convenience.** A
+ * function calling itself makes the graph cyclic in the strict sense, but it
+ * orders nothing: it is an edge from a node to itself and says nothing about
+ * where that node sits relative to any other. Reporting it in place of a
+ * layering would repeat a fact the recursion section of HLR-089 already
+ * states, and would cost every project with one recursive function the whole
+ * of this analysis. A *mutual* cycle is different and is still reported: it
+ * genuinely leaves no order to read (HLR-172).
+ */
+static int simplified_view(const PurifyResults *p, igraph_t *out,
+                           igraph_bool_t *is_dag)
+{
+	if (igraph_copy(out, (const igraph_t *)p->view.graph) != IGRAPH_SUCCESS)
+		return -1;
+
+	if (igraph_simplify(out, false, true, NULL) != IGRAPH_SUCCESS ||
+	    igraph_is_dag(out, is_dag) != IGRAPH_SUCCESS) {
+		igraph_destroy(out);
+		return -1;
+	}
+	return 0;
+}
+
+int recover_layers(const PurifyResults *p, const Sdg *g, const Report *r,
+                   RecoveryResults *out)
+{
+	igraph_t      simple;
+	size_t       *order  = NULL;
+	igraph_bool_t is_dag = false;
+	int           status = -1;
+
+	memset(out, 0, sizeof *out);
+
+	if (!p || !g || !r || !p->view.graph)
+		return 0;
+
+	count_set_aside(p, out);
 
 	/* **Nothing survived, so nothing is proposed** (HLR-115). An analysis
 	 * short of its inputs is omitted with its reason stated rather than
@@ -652,47 +785,17 @@ int recover_layers(const PurifyResults *p, const Sdg *g, const Report *r,
 		return 0;
 	}
 
-	/* **The ordering runs over the view with its self-calls removed**, and
-	 * that is a judgement rather than a convenience. A function calling
-	 * itself makes the graph cyclic in the strict sense, but it orders
-	 * nothing: it is an edge from a node to itself and says nothing about
-	 * where that node sits relative to any other. Reporting it in place of
-	 * a layering would repeat a fact the recursion section of HLR-089
-	 * already states, and would cost every project with one recursive
-	 * function the whole of this analysis. A *mutual* cycle is different
-	 * and is still reported: it genuinely leaves no order to read
-	 * (HLR-172). */
-	if (igraph_copy(&simple, (const igraph_t *)p->view.graph) !=
-	    IGRAPH_SUCCESS)
+	if (simplified_view(p, &simple, &is_dag) != 0)
 		return -1;
-	have_simple = true;
-	if (igraph_simplify(&simple, false, true, NULL) != IGRAPH_SUCCESS)
-		goto cleanup;
 
-	if (igraph_is_dag(&simple, &is_dag) != IGRAPH_SUCCESS)
-		goto cleanup;
 	if (!is_dag) {
 		status = collect_cycles(p, g, &simple, out);
 		goto cleanup;
 	}
 
-	if (igraph_vector_int_init(&sorted, 0) != IGRAPH_SUCCESS)
-		goto cleanup;
-	have_sorted = true;
-
-	if (igraph_topological_sorting(&simple, &sorted, IGRAPH_OUT) !=
-	    IGRAPH_SUCCESS)
-		goto cleanup;
-
 	order = calloc(g->node_count ? g->node_count : 1, sizeof *order);
-	if (!order)
+	if (!order || topological_order(&simple, g, order) != 0)
 		goto cleanup;
-	for (igraph_integer_t i = 0; i < igraph_vector_int_size(&sorted); i++) {
-		igraph_integer_t node = VECTOR(sorted)[i];
-
-		if (node >= 0 && (size_t)node < g->node_count)
-			order[node] = (size_t)i;
-	}
 
 	if (layer_by_directory(p, g, r, order, out) != 0)
 		goto cleanup;
@@ -702,10 +805,7 @@ int recover_layers(const PurifyResults *p, const Sdg *g, const Report *r,
 
 cleanup:
 	free(order);
-	if (have_sorted)
-		igraph_vector_int_destroy(&sorted);
-	if (have_simple)
-		igraph_destroy(&simple);
+	igraph_destroy(&simple);
 	return status;
 }
 

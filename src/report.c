@@ -29,38 +29,6 @@
 #include "elc.h"
 #include "report.h"
 
-/* The directory containing `path`, as a fresh allocation (HLR-160).
- *
- * Written once and called from both places a FileMetrics is constructed —
- * the analysis of a source file, and the reader that rebuilds a model from a
- * saved record — so that a component's directory is the same string whichever
- * way the model arrived. Deriving it at each *use* is what HLR-160 forbids;
- * deriving it once per component, here, is what the field is for.
- *
- * The last separator is the split point, and the two edge cases are the ones
- * that make a naive rsplit wrong: a file directly under the root has an empty
- * prefix and its directory is "/", and a path carrying no separator at all has
- * no directory to name and yields "." — the working directory, which is what
- * the path is relative to. Discovery canonicalises every analysed path
- * (HLR-072), so the second case reaches this function only from a record
- * someone wrote by hand.
- */
-char *component_directory(const char *path)
-{
-	const char *slash;
-
-	if (!path)
-		return NULL;
-
-	slash = strrchr(path, '/');
-	if (!slash)
-		return strdup(".");
-	if (slash == path)
-		return strdup("/");
-
-	return strndup(path, (size_t)(slash - path));
-}
-
 int metrics_add(MetricsAccumulator *acc, FileMetrics *metrics)
 {
 	if (acc->count == acc->capacity) {
@@ -133,7 +101,7 @@ void metrics_free(MetricsAccumulator *acc)
 	pathlist_free(&acc->skipped);
 }
 
-static int by_path(const void *a, const void *b)
+static int by_report_path(const void *a, const void *b)
 {
 	const FileMetrics *x = *(FileMetrics *const *)a;
 	const FileMetrics *y = *(FileMetrics *const *)b;
@@ -356,7 +324,7 @@ static int total_files(Report *out)
 static void order_collections(Report *out)
 {
 	if (out->file_count > 1)
-		qsort(out->files, out->file_count, sizeof *out->files, by_path);
+		qsort(out->files, out->file_count, sizeof *out->files, by_report_path);
 
 	for (size_t i = 0; i < out->file_count; i++)
 		if (out->files[i]->function_count > 1)
@@ -503,6 +471,91 @@ int report_set_image(Report *report, const SymbolSet *image)
 	return 0;
 }
 
+/* One row per function: its fan-out, its fan-in, and the information-flow
+ * figure derived from the two.
+ */
+static int set_flow_rows(Report *report, const TreeResults *tree, const Sdg *g)
+{
+	report->fan_out = calloc(g->node_count ? g->node_count : 1,
+	                         sizeof *report->fan_out);
+	if (!report->fan_out)
+		return -1;
+
+	for (size_t i = 0; i < g->node_count && i < tree->node_count; i++) {
+		FanOutRow *row = &report->fan_out[report->fan_out_count];
+
+		row->function = strdup(g->nodes[i].name);
+		row->file     = strdup(g->nodes[i].file);
+		if (!row->function || !row->file)
+			return -1;
+		row->line         = g->nodes[i].line_start;
+		row->fan_out      = tree->fan_out[i];
+		row->fan_in       = tree->fan_in ? tree->fan_in[i] : 0;
+		row->eloc         = g->nodes[i].eloc;
+		row->henry_kafura = tree->henry_kafura ? tree->henry_kafura[i]
+		                                       : 0;
+		report->fan_out_count++;
+	}
+
+	report_total_henry_kafura(report);
+	return 0;
+}
+
+/* The recursive cycles, each as the set of function names in it. */
+static int set_recursive_cycles(Report *report, const TreeResults *tree,
+                                const Sdg *g)
+{
+	report->cycles = calloc(tree->cycle_count, sizeof *report->cycles);
+	if (!report->cycles)
+		return -1;
+
+	for (size_t c = 0; c < tree->cycle_count; c++) {
+		const RecursiveCycle *cycle = &tree->cycles[c];
+		CycleRow             *row   = &report->cycles[c];
+
+		row->members = calloc(cycle->count, sizeof *row->members);
+		if (!row->members)
+			return -1;
+		for (size_t m = 0; m < cycle->count; m++) {
+			if (cycle->members[m] >= g->node_count)
+				continue;
+			row->members[row->count] =
+				strdup(g->nodes[cycle->members[m]].name);
+			if (!row->members[row->count])
+				return -1;
+			row->count++;
+		}
+		report->cycle_count++;
+	}
+	return 0;
+}
+
+/* The deepest call chain, in the order it is called through. */
+static int set_deepest_chain(Report *report, const TreeResults *tree,
+                             const Sdg *g)
+{
+	report->deepest = calloc(tree->deepest.count, sizeof *report->deepest);
+	if (!report->deepest)
+		return -1;
+
+	for (size_t i = 0; i < tree->deepest.count; i++) {
+		uint32_t  node = tree->deepest.nodes[i];
+		ChainRow *row;
+
+		if (node >= g->node_count)
+			continue;
+
+		row           = &report->deepest[report->deepest_count];
+		row->function = strdup(g->nodes[node].name);
+		row->file     = strdup(g->nodes[node].file);
+		if (!row->function || !row->file)
+			return -1;
+		row->line = g->nodes[node].line_start;
+		report->deepest_count++;
+	}
+	return 0;
+}
+
 /* Copy the call-tree measurements into the model, resolving node identifiers
  * to the names and locations a reader can act on.
  *
@@ -520,81 +573,13 @@ int report_set_calltree(Report *report, const TreeResults *tree, const Sdg *g)
 	report->depth_state = tree->depth_state;
 	report->depth       = tree->depth;
 
-	/* --- the flow figures, one row per function ----------------------- */
-
-	report->fan_out = calloc(g->node_count ? g->node_count : 1,
-	                         sizeof *report->fan_out);
-	if (!report->fan_out)
+	if (set_flow_rows(report, tree, g) != 0)
 		return -1;
-
-	for (size_t i = 0; i < g->node_count && i < tree->node_count; i++) {
-		FanOutRow *row = &report->fan_out[report->fan_out_count];
-
-		row->function = strdup(g->nodes[i].name);
-		row->file     = strdup(g->nodes[i].file);
-		if (!row->function || !row->file)
-			return -1;
-		row->line         = g->nodes[i].line_start;
-		row->fan_out      = tree->fan_out[i];
-		row->fan_in       = tree->fan_in ? tree->fan_in[i] : 0;
-		row->eloc         = g->nodes[i].eloc;
-		row->henry_kafura = tree->henry_kafura ? tree->henry_kafura[i] : 0;
-		report->fan_out_count++;
-	}
-
-	report_total_henry_kafura(report);
-
-	/* --- recursive cycles --------------------------------------------- */
-
-	if (tree->cycle_count > 0) {
-		report->cycles = calloc(tree->cycle_count, sizeof *report->cycles);
-		if (!report->cycles)
-			return -1;
-
-		for (size_t c = 0; c < tree->cycle_count; c++) {
-			const RecursiveCycle *cycle = &tree->cycles[c];
-			CycleRow             *row   = &report->cycles[c];
-
-			row->members = calloc(cycle->count, sizeof *row->members);
-			if (!row->members)
-				return -1;
-			for (size_t m = 0; m < cycle->count; m++) {
-				if (cycle->members[m] >= g->node_count)
-					continue;
-				row->members[row->count] =
-					strdup(g->nodes[cycle->members[m]].name);
-				if (!row->members[row->count])
-					return -1;
-				row->count++;
-			}
-			report->cycle_count++;
-		}
-	}
-
-	/* --- the deepest chain, in order ---------------------------------- */
-
-	if (tree->deepest.count > 0) {
-		report->deepest = calloc(tree->deepest.count,
-		                         sizeof *report->deepest);
-		if (!report->deepest)
-			return -1;
-
-		for (size_t i = 0; i < tree->deepest.count; i++) {
-			uint32_t node = tree->deepest.nodes[i];
-
-			if (node >= g->node_count)
-				continue;
-
-			ChainRow *row = &report->deepest[report->deepest_count];
-
-			row->function = strdup(g->nodes[node].name);
-			row->file     = strdup(g->nodes[node].file);
-			if (!row->function || !row->file)
-				return -1;
-			row->line = g->nodes[node].line_start;
-			report->deepest_count++;
-		}
-	}
+	if (tree->cycle_count > 0 &&
+	    set_recursive_cycles(report, tree, g) != 0)
+		return -1;
+	if (tree->deepest.count > 0 && set_deepest_chain(report, tree, g) != 0)
+		return -1;
 
 	return 0;
 }
@@ -763,6 +748,29 @@ static char *participants_of(const Sdg *g, const GlobalRow *row)
 	return joined_take(&out);
 }
 
+/* The two participant lists for one global: who writes it, and who reads it.
+ *
+ * A function doing both is named in both, which is what makes the two columns
+ * readable side by side rather than a partition a reader has to reassemble.
+ */
+static int join_touchers(const GlobalRow *src, const Sdg *g, Joined *writers,
+                         Joined *readers)
+{
+	for (size_t t = 0; t < src->toucher_count; t++) {
+		const GlobalToucher *touch = &src->touchers[t];
+
+		if (touch->node >= g->node_count)
+			continue;
+		if (touch->writes &&
+		    join(writers, ", ", g->nodes[touch->node].name) != 0)
+			return -1;
+		if (touch->reads &&
+		    join(readers, ", ", g->nodes[touch->node].name) != 0)
+			return -1;
+	}
+	return 0;
+}
+
 static int set_globals(Report *report, const StateResults *state, const Sdg *g)
 {
 	if (state->global_count == 0)
@@ -784,18 +792,8 @@ static int set_globals(Report *report, const StateResults *state, const Sdg *g)
 		if (!row->object)
 			return -1;
 
-		for (size_t t = 0; t < src->toucher_count; t++) {
-			const GlobalToucher *touch = &src->touchers[t];
-
-			if (touch->node >= g->node_count)
-				continue;
-			if (touch->writes &&
-			    join(&writers, ", ", g->nodes[touch->node].name) != 0)
-				return -1;
-			if (touch->reads &&
-			    join(&readers, ", ", g->nodes[touch->node].name) != 0)
-				return -1;
-		}
+		if (join_touchers(src, g, &writers, &readers) != 0)
+			return -1;
 
 		row->writers = joined_take(&writers);
 		row->readers = joined_take(&readers);
@@ -1255,6 +1253,36 @@ static void render_purify_value(const Classification *c,
 	}
 }
 
+/* One row of the transparency section: what was classified, on what evidence,
+ * what `elc` did about it, and whose judgement it was.
+ */
+static int purification_row(PurificationRow *row, const Classification *c,
+                            const SdgNode *node,
+                            const PurifyThresholds *thresholds)
+{
+	char value[192];
+
+	render_purify_value(c, thresholds, value, sizeof value);
+
+	row->function   = strdup(node->name);
+	row->file       = strdup(node->file);
+	row->class_name = strdup(purify_class_name(c->klass));
+	row->metric     = strdup(purify_metric_name(c->metric));
+	row->value      = strdup(value);
+	row->action     = strdup(purify_action_name(c->klass, c->masked));
+	/* **Whose assumption this is** (HLR-177). A reader of this section is
+	 * being asked to judge whether the masking was right, and cannot do
+	 * that without knowing which rows are `elc`'s own reading of the graph
+	 * and which are their team's correction of it. */
+	row->source     = strdup(c->from_manifest ? "manifest" : "computed");
+
+	if (!row->function || !row->file || !row->class_name || !row->metric ||
+	    !row->value || !row->action || !row->source)
+		return -1;
+	row->line = node->line_start;
+	return 0;
+}
+
 int report_set_purify(Report *report, const PurifyResults *purify,
                       const Sdg *g, const ElcOptions *opts)
 {
@@ -1274,9 +1302,7 @@ int report_set_purify(Report *report, const PurifyResults *purify,
 		return -1;
 
 	for (size_t i = 0; i < purify->node_count && i < g->node_count; i++) {
-		const Classification *c   = &purify->classes[i];
-		PurificationRow      *row;
-		char                  value[192];
+		const Classification *c = &purify->classes[i];
 
 		/* A manifest statement is a classification even where it says
 		 * "ordinary": the tool was overruled here, and a reader who
@@ -1285,28 +1311,10 @@ int report_set_purify(Report *report, const PurifyResults *purify,
 		if (c->klass == PURIFY_ORDINARY && !c->from_manifest)
 			continue;
 
-		row = &report->purification[report->purification_count];
-		render_purify_value(c, &report->purify_thresholds, value,
-		                    sizeof value);
-
-		row->function   = strdup(g->nodes[i].name);
-		row->file       = strdup(g->nodes[i].file);
-		row->class_name = strdup(purify_class_name(c->klass));
-		row->metric     = strdup(purify_metric_name(c->metric));
-		row->value      = strdup(value);
-		row->action     = strdup(purify_action_name(c->klass,
-		                                            c->masked));
-		/* **Whose assumption this is** (HLR-177). A reader of this
-		 * section is being asked to judge whether the masking was
-		 * right, and cannot do that without knowing which rows are
-		 * `elc`'s own reading of the graph and which are their team's
-		 * correction of it. */
-		row->source     = strdup(c->from_manifest ? "manifest"
-		                                          : "computed");
-		if (!row->function || !row->file || !row->class_name ||
-		    !row->metric || !row->value || !row->action || !row->source)
+		if (purification_row(
+			    &report->purification[report->purification_count],
+			    c, &g->nodes[i], &report->purify_thresholds) != 0)
 			return -1;
-		row->line = g->nodes[i].line_start;
 		report->purification_count++;
 	}
 
@@ -1639,17 +1647,14 @@ int report_set_dead(Report *report, const FactList *facts)
 	return 0;
 }
 
-void report_free(Report *report)
+/* Teardown is grouped the way assembly is: one function per section of the
+ * report, mirroring the `report_set_*` that filled it in. A single flat
+ * sequence releasing twenty owned collections reads as one thing and is
+ * twenty, and the failure it invites — a new section added to the model and
+ * released nowhere — is the one HLR-125 exists to catch.
+ */
+static void free_calltree_rows(Report *report)
 {
-	if (!report)
-		return;
-
-	for (size_t i = 0; i < report->file_count; i++)
-		filemetrics_free(report->files[i]);
-	free(report->files);
-	report->files      = NULL;
-	report->file_count = 0;
-	routelist_free(&report->routes);
 	for (size_t i = 0; i < report->fan_out_count; i++) {
 		free(report->fan_out[i].function);
 		free(report->fan_out[i].file);
@@ -1657,6 +1662,7 @@ void report_free(Report *report)
 	free(report->fan_out);
 	report->fan_out       = NULL;
 	report->fan_out_count = 0;
+
 	for (size_t i = 0; i < report->cycle_count; i++) {
 		for (size_t m = 0; m < report->cycles[i].count; m++)
 			free(report->cycles[i].members[m]);
@@ -1665,6 +1671,7 @@ void report_free(Report *report)
 	free(report->cycles);
 	report->cycles      = NULL;
 	report->cycle_count = 0;
+
 	for (size_t i = 0; i < report->deepest_count; i++) {
 		free(report->deepest[i].function);
 		free(report->deepest[i].file);
@@ -1672,14 +1679,10 @@ void report_free(Report *report)
 	free(report->deepest);
 	report->deepest       = NULL;
 	report->deepest_count = 0;
-	free(report->languages.items);
-	report->languages.items    = NULL;
-	report->languages.count    = 0;
-	report->languages.capacity = 0;
-	free(report->over_threshold.items);
-	report->over_threshold.items    = NULL;
-	report->over_threshold.count    = 0;
-	report->over_threshold.capacity = 0;
+}
+
+static void free_state_rows(Report *report)
+{
 	for (size_t i = 0; i < report->global_state_count; i++) {
 		free(report->global_state[i].object);
 		free(report->global_state[i].writers);
@@ -1689,6 +1692,7 @@ void report_free(Report *report)
 	free(report->global_state);
 	report->global_state       = NULL;
 	report->global_state_count = 0;
+
 	for (size_t i = 0; i < report->unreachable_count; i++) {
 		free(report->unreachable[i].function);
 		free(report->unreachable[i].file);
@@ -1696,11 +1700,13 @@ void report_free(Report *report)
 	free(report->unreachable);
 	report->unreachable       = NULL;
 	report->unreachable_count = 0;
+
 	for (size_t i = 0; i < report->unreachable_global_count; i++)
 		free(report->unreachable_globals[i]);
 	free(report->unreachable_globals);
 	report->unreachable_globals      = NULL;
 	report->unreachable_global_count = 0;
+
 	for (size_t i = 0; i < report->cross_scope_count; i++) {
 		free(report->cross_scope[i].from_scope);
 		free(report->cross_scope[i].from_function);
@@ -1711,6 +1717,7 @@ void report_free(Report *report)
 	free(report->cross_scope);
 	report->cross_scope       = NULL;
 	report->cross_scope_count = 0;
+
 	for (size_t i = 0; i < report->dead_count; i++) {
 		free(report->dead[i].file);
 		free(report->dead[i].function);
@@ -1718,6 +1725,10 @@ void report_free(Report *report)
 	free(report->dead);
 	report->dead       = NULL;
 	report->dead_count = 0;
+}
+
+static void free_source_rows(Report *report)
+{
 	for (size_t i = 0; i < report->rule_match_count; i++) {
 		free(report->rule_matches[i].rule);
 		free(report->rule_matches[i].file);
@@ -1725,11 +1736,13 @@ void report_free(Report *report)
 	free(report->rule_matches);
 	report->rule_matches     = NULL;
 	report->rule_match_count = 0;
+
 	for (size_t i = 0; i < report->definition_count; i++)
 		free(report->definitions[i]);
 	free(report->definitions);
 	report->definitions      = NULL;
 	report->definition_count = 0;
+
 	for (size_t i = 0; i < report->absent_count; i++) {
 		free(report->absent[i].function);
 		free(report->absent[i].file);
@@ -1737,8 +1750,13 @@ void report_free(Report *report)
 	free(report->absent);
 	report->absent       = NULL;
 	report->absent_count = 0;
+
 	free(report->image);
 	report->image = NULL;
+}
+
+static void free_purification_rows(Report *report)
+{
 	for (size_t i = 0; i < report->purification_count; i++) {
 		free(report->purification[i].function);
 		free(report->purification[i].file);
@@ -1757,9 +1775,14 @@ void report_free(Report *report)
 	free(report->recovery);
 	report->recovery       = NULL;
 	report->recovery_count = 0;
+
 	pathlist_free(&report->recovery_cycles);
 	free(report->recovery_proposal);
 	report->recovery_proposal = NULL;
+}
+
+static void free_architecture_rows(Report *report)
+{
 	for (size_t i = 0; i < report->coupling_count; i++) {
 		free(report->coupling[i].component);
 		free(report->coupling[i].instability);
@@ -1767,6 +1790,7 @@ void report_free(Report *report)
 	free(report->coupling);
 	report->coupling       = NULL;
 	report->coupling_count = 0;
+
 	for (size_t i = 0; i < report->dep_cycle_count; i++) {
 		free(report->dep_cycles[i].components);
 		free(report->dep_cycles[i].path);
@@ -1774,6 +1798,7 @@ void report_free(Report *report)
 	free(report->dep_cycles);
 	report->dep_cycles      = NULL;
 	report->dep_cycle_count = 0;
+
 	for (size_t i = 0; i < report->layering_count; i++) {
 		free(report->layering[i].from_stratum);
 		free(report->layering[i].from_function);
@@ -1785,6 +1810,7 @@ void report_free(Report *report)
 	free(report->layering);
 	report->layering       = NULL;
 	report->layering_count = 0;
+
 	free(report->back_call.index);
 	free(report->back_call.conforming);
 	free(report->skip_call.index);
@@ -1792,6 +1818,10 @@ void report_free(Report *report)
 	memset(&report->back_call, 0, sizeof report->back_call);
 	memset(&report->skip_call, 0, sizeof report->skip_call);
 	dsm_free(&report->dsm);
+}
+
+static void free_findings(Report *report)
+{
 	for (size_t i = 0; i < report->finding_count; i++) {
 		free(report->findings[i].severity);
 		free(report->findings[i].measurement);
@@ -1803,6 +1833,36 @@ void report_free(Report *report)
 	free(report->findings);
 	report->findings      = NULL;
 	report->finding_count = 0;
+}
+
+void report_free(Report *report)
+{
+	if (!report)
+		return;
+
+	for (size_t i = 0; i < report->file_count; i++)
+		filemetrics_free(report->files[i]);
+	free(report->files);
+	report->files      = NULL;
+	report->file_count = 0;
+	routelist_free(&report->routes);
+
+	free(report->languages.items);
+	report->languages.items    = NULL;
+	report->languages.count    = 0;
+	report->languages.capacity = 0;
+	free(report->over_threshold.items);
+	report->over_threshold.items    = NULL;
+	report->over_threshold.count    = 0;
+	report->over_threshold.capacity = 0;
+
+	free_calltree_rows(report);
+	free_state_rows(report);
+	free_source_rows(report);
+	free_purification_rows(report);
+	free_architecture_rows(report);
+	free_findings(report);
+
 	pathlist_free(&report->dead_unanalysed);
 	pathlist_free(&report->skipped_files);
 	memset(&report->summary, 0, sizeof report->summary);

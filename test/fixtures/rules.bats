@@ -87,6 +87,43 @@ house-style.jump 30-30"
 	assert_output "1"
 }
 
+@test "LLR-ANL-47: a directive carries information and does not filter" {
+	# `#set!` attaches a property to a match. It is not a filter, and a
+	# match carrying one must survive — an evaluator that treated every
+	# unrecognised predicate alike would discard the match and the rule
+	# would silently find nothing.
+	local rule="$BATS_TEST_TMPDIR/directive.scm"
+
+	printf '((goto_statement) @jump\n (#set! "kind" "control"))\n' > "$rule"
+
+	run bash -c '"$0" --verbose --rules "c:$1" -o "$2" "$3" 2>/dev/null' \
+		"$ELC" "$rule" "$OUT" "$TREE"
+	assert_success
+
+	# Two, by the fixture's own hand count: lines 15 and 30 (rules/README.md).
+	run bash -c 'grep -c "directive\.jump" "$0"' "$OUT"
+	assert_output "2"
+}
+
+@test "LLR-ANL-47: a filter this build cannot apply discards the match" {
+	# The opposite direction, and the reason it is that way round. A filter
+	# the query author wrote and this build cannot honour is a condition
+	# nobody applied; accepting the match would apply the condition's
+	# *inverse* and report a finding the author asked not to see. Under-
+	# reporting is the direction every capture in the contract errs in.
+	local rule="$BATS_TEST_TMPDIR/unknown.scm"
+
+	printf '((goto_statement) @jump\n (#not-a-real-predicate? @jump "x"))\n' \
+		> "$rule"
+
+	run bash -c '"$0" --verbose --rules "c:$1" -o "$2" "$3" 2>/dev/null' \
+		"$ELC" "$rule" "$OUT" "$TREE"
+	assert_success
+
+	run bash -c 'grep -c "unknown\.jump" "$0" || true' "$OUT"
+	assert_output "0"
+}
+
 @test "HLR-031: the section is emitted even with no rule supplied" {
 	# An absent section and an empty one are different claims.
 	run bash -c '"$0" --verbose -o "$1" "$2" 2>/dev/null' "$ELC" "$OUT" "$TREE"

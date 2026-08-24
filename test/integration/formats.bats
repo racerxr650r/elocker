@@ -300,3 +300,19 @@ setup() {
 	run grep -c "^## Project summary$" "$BATS_TEST_TMPDIR/out.md"
 	assert_output "1"
 }
+
+@test "LLR-SUM-04: no line of the aligned table carries trailing whitespace" {
+	# The final column of a table is left-aligned and holds the longest
+	# values — a path, a detail sentence. Padding it to the column width
+	# would put spaces at the end of almost every line, which shows up in
+	# a diff, in a review, and in every tool that strips them. Asserted
+	# over the verbose report so that every tier is present.
+	local out="$BATS_TEST_TMPDIR/table.txt"
+
+	run bash -c '"$0" --verbose -o "$1" "$2" 2>/dev/null' \
+		"$ELC" "$out" "$TREE"
+	assert_success
+
+	run bash -c 'grep -n "[[:space:]]$" "$0" || true' "$out"
+	assert_output ""
+}

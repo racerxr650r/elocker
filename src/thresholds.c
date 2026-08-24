@@ -516,6 +516,24 @@ static int apply_bottlenecks(const ArchResults *arch, const Sdg *g,
 	return 0;
 }
 
+/* The catalogue rows read off the call-tree results. */
+static int apply_calltree_rows(const TreeResults *tree, const Sdg *g,
+                               FindingList *out)
+{
+	return (apply_fan_out(tree, g, out) != 0 ||
+	        apply_depth(tree, out) != 0 ||
+	        apply_recursion(tree, g, out) != 0) ? -1 : 0;
+}
+
+/* The catalogue rows read off the architecture results. */
+static int apply_arch_rows(const ArchResults *arch, const Sdg *g,
+                           const ElcOptions *opts, FindingList *out)
+{
+	return (apply_cycles(arch, g, out) != 0 ||
+	        apply_instability(arch, g, opts, out) != 0 ||
+	        apply_bottlenecks(arch, g, opts, out) != 0) ? -1 : 0;
+}
+
 int thresholds_apply(const ArchResults *arch, const TreeResults *tree,
                      const StateResults *state, const Sdg *g,
                      const ElcOptions *opts, FindingList *out)
@@ -530,13 +548,9 @@ int thresholds_apply(const ArchResults *arch, const TreeResults *tree,
 	 * branch: a kind the catalogue holds no row for produces no finding,
 	 * and the value reaches the reader through the report model as a bare
 	 * measurement (HLR-159). */
-	if ((tree && apply_fan_out(tree, g, out) != 0) ||
-	    (tree && apply_depth(tree, out) != 0) ||
-	    (tree && apply_recursion(tree, g, out) != 0) ||
-	    (arch && apply_cycles(arch, g, out) != 0) ||
+	if ((tree && apply_calltree_rows(tree, g, out) != 0) ||
 	    (state && apply_globals(state, out) != 0) ||
-	    (arch && apply_instability(arch, g, opts, out) != 0) ||
-	    (arch && apply_bottlenecks(arch, g, opts, out) != 0)) {
+	    (arch && apply_arch_rows(arch, g, opts, out) != 0)) {
 		findinglist_free(out);
 		return -1;
 	}

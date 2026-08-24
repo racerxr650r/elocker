@@ -378,6 +378,10 @@ Requirements constraining `elc`'s runtime environment, dependencies, execution m
     `elc` shall release, before it exits, every heap allocation it made, every file mapping it created, and every dynamic-library handle it opened. A run that terminates for any reason other than a fatal signal shall leave no allocation unreleased, including runs that end in a usage error, an invalid target, or a rejected saved record.
     *Trace:* [SDD Section 3](SDD.md), [SDD Section 6](SDD.md), [SDD Section 7](SDD.md), [SDD Section 13](SDD.md), [SDD Section 22](SDD.md).
 
+*   <a id="HLR-181"></a>**HLR-181: Self-Application.**
+    The delivered source of `elc` shall satisfy the standard `elc` reports against: no function at or over the complexity threshold it applies by default, no dependency cycle among its own components, no source file it cannot parse, and no call site whose destination it cannot resolve to exactly one definition. A tool that reports a defect it exhibits cannot be relied on to report that defect in anyone else's code, and the claim is cheap to check because the tool is the checker — `elc src/` is the whole of the measurement. This is a property of what is delivered rather than of any run a user makes, and is verified in the manner of the build-configuration requirements.
+    *Trace:* [SDD Section 22](SDD.md).
+
 *   <a id="HLR-043"></a>**HLR-043: Read-Only Operation.**
     `elc` shall only read the files it analyzes; `elc` shall never modify, rewrite, or delete any file under analysis.
     *Trace:* [SDD Section 7](SDD.md).

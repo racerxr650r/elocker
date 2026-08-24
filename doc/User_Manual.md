@@ -36,6 +36,26 @@ binary using `--elf`.
 This manual describes the features and behavior of the `elc` application. `elc --help`
 lists the available options.
 
+### `elc` meets the standard it reports
+
+`elc` is analysed by `elc`, and the result is part of the test suite rather than
+a claim made here. Over its own `src/` the delivered binary reports no function
+at or over the default complexity threshold of 15, no dependency cycle between
+its own modules, no source file it cannot parse, and no call it cannot resolve
+to exactly one definition.
+
+The reason to say so is not modesty. A tool that flagged your function at 16
+while its own stood at 30 would be telling you something true and giving you no
+reason to act on it, and no wording fixes that. The check runs on every change,
+so a release that stopped meeting it fails its own gate rather than shipping and
+being discovered.
+
+What this does **not** mean is that the thresholds are the last word. They are
+published ones, cited to their sources, and `elc` names the source of each
+precisely so that you can disagree with one — see *Findings: where a measurement
+falls, and on whose authority*. It means only that `elc` holds itself to the
+lines it draws for you.
+
 ## Installing
 
 ```sh

@@ -21,6 +21,65 @@
 #include "cli.h"
 #include "elc.h"
 
+/* The colon separating a declaration's name from its pattern list, or NULL
+ * having diagnosed against `arg`.
+ *
+ * `--scope` and `--stratum` take the same grammar and refuse it in the same
+ * words, so the refusal is written once (HLR-104, HLR-161).
+ */
+static const char *declaration_colon(const char *arg, const char *what)
+{
+	const char *colon = strchr(arg, ':');
+
+	if (!colon || colon == arg || colon[1] == '\0') {
+		fprintf(stderr, "elc: '%s' is not %s; expected "
+		        "name:glob[,glob...]\n", arg, what);
+		return NULL;
+	}
+	return colon;
+}
+
+/* Append every comma-separated pattern in `list` to the array `patterns`
+ * holds, growing it one entry at a time. Returns 0, or -1 having diagnosed.
+ *
+ * Shared by the two declarations that take a pattern list, because they take
+ * the same one: `--scope` and `--stratum` differ in what they do with the name
+ * ahead of it, not in how they read the patterns after it.
+ */
+static int append_patterns(const char *arg, const char *list, char ***patterns,
+                           size_t *count)
+{
+	for (const char *p = list; *p; ) {
+		const char *comma = strchr(p, ',');
+		size_t      len   = comma ? (size_t)(comma - p) : strlen(p);
+		char      **grown;
+
+		if (len == 0) {
+			fprintf(stderr,
+			        "elc: '%s' has an empty component pattern\n",
+			        arg);
+			return -1;
+		}
+
+		grown = realloc(*patterns, (*count + 1) * sizeof *grown);
+		if (!grown) {
+			fputs("elc: out of memory\n", stderr);
+			return -1;
+		}
+		*patterns = grown;
+
+		(*patterns)[*count] = strndup(p, len);
+		if (!(*patterns)[*count]) {
+			fputs("elc: out of memory\n", stderr);
+			return -1;
+		}
+		(*count)++;
+
+		p = comma ? comma + 1 : p + len;
+	}
+	return 0;
+}
+
 /* Parse one `name:glob[,glob…]` execution-scope declaration (LLR-SCP-01).
  *
  * Every string is copied. The declaration is split on two separators, so
@@ -35,54 +94,32 @@
  */
 int parse_scope(const char *arg, ElcOptions *out)
 {
-	const char *colon = strchr(arg, ':');
+	const char *colon = declaration_colon(arg, "an execution scope");
 	ScopeDecl   scope = { 0 };
 
-	if (!colon || colon == arg || colon[1] == '\0') {
-		fprintf(stderr,
-		        "elc: '%s' is not an execution scope; expected "
-		        "name:glob[,glob...]\n", arg);
+	if (!colon)
 		return -1;
-	}
 
 	scope.name = strndup(arg, (size_t)(colon - arg));
-	if (!scope.name)
-		goto oom;
-
-	for (const char *p = colon + 1; *p; ) {
-		const char *comma = strchr(p, ',');
-		size_t      len   = comma ? (size_t)(comma - p) : strlen(p);
-
-		if (len == 0) {
-			fprintf(stderr,
-			        "elc: '%s' has an empty component pattern\n",
-			        arg);
-			goto invalid;
-		}
-
-		char **grown = realloc(scope.patterns,
-		                       (scope.pattern_count + 1) * sizeof *grown);
-
-		if (!grown)
-			goto oom;
-		scope.patterns = grown;
-
-		scope.patterns[scope.pattern_count] = strndup(p, len);
-		if (!scope.patterns[scope.pattern_count])
-			goto oom;
-		scope.pattern_count++;
-
-		p = comma ? comma + 1 : p + len;
+	if (!scope.name) {
+		fputs("elc: out of memory\n", stderr);
+		goto failed;
 	}
 
+	if (append_patterns(arg, colon + 1, &scope.patterns,
+	                    &scope.pattern_count) != 0)
+		goto failed;
+
 	if (out->scopes.count == out->scopes.capacity) {
-		size_t     next  = out->scopes.capacity ? out->scopes.capacity * 2
-		                                        : 4;
+		size_t     next  = out->scopes.capacity
+		                           ? out->scopes.capacity * 2 : 4;
 		ScopeDecl *grown = realloc(out->scopes.items,
 		                           next * sizeof *grown);
 
-		if (!grown)
-			goto oom;
+		if (!grown) {
+			fputs("elc: out of memory\n", stderr);
+			goto failed;
+		}
 		out->scopes.items    = grown;
 		out->scopes.capacity = next;
 	}
@@ -90,14 +127,54 @@ int parse_scope(const char *arg, ElcOptions *out)
 	out->scopes.items[out->scopes.count++] = scope;
 	return 0;
 
-oom:
-	fputs("elc: out of memory\n", stderr);
-invalid:
+failed:
 	for (size_t i = 0; i < scope.pattern_count; i++)
 		free(scope.patterns[i]);
 	free(scope.patterns);
 	free(scope.name);
 	return -1;
+}
+
+/* The stratum called `name`, appending a new one where none is declared yet.
+ *
+ * Takes ownership of `name` only when it appends: two `--stratum` arguments
+ * naming the same layer are one declaration with two pattern lists, which is
+ * what lets a layer be built up across several arguments (HLR-161).
+ */
+static StratumDecl *stratum_named(ElcOptions *out, char *name)
+{
+	StratumDecl *layer;
+
+	for (size_t i = 0; i < out->strata.count; i++)
+		if (strcmp(out->strata.items[i].name, name) == 0) {
+			free(name);
+			return &out->strata.items[i];
+		}
+
+	if (out->strata.count == out->strata.capacity) {
+		size_t       next  = out->strata.capacity
+		                             ? out->strata.capacity * 2 : 4;
+		StratumDecl *grown = realloc(out->strata.items,
+		                             next * sizeof *grown);
+
+		if (!grown) {
+			fputs("elc: out of memory\n", stderr);
+			free(name);
+			return NULL;
+		}
+		out->strata.items    = grown;
+		out->strata.capacity = next;
+	}
+
+	layer = &out->strata.items[out->strata.count];
+	memset(layer, 0, sizeof *layer);
+	layer->name = name;
+	/* Declaration order is the direction until told otherwise: the first
+	 * layer named is the top, permitted to depend downward. */
+	layer->ordinal = out->strata.count;
+	out->strata.count++;
+
+	return layer;
 }
 
 /* Parse one `name:glob[,glob…]` architectural-stratum declaration
@@ -116,16 +193,12 @@ invalid:
  */
 int parse_stratum(const char *arg, ElcOptions *out)
 {
-	const char *colon = strchr(arg, ':');
-	StratumDecl *layer = NULL;
-	char        *name  = NULL;
+	const char  *colon = declaration_colon(arg, "a stratum");
+	StratumDecl *layer;
+	char        *name;
 
-	if (!colon || colon == arg || colon[1] == '\0') {
-		fprintf(stderr,
-		        "elc: '%s' is not a stratum; expected "
-		        "name:glob[,glob...]\n", arg);
+	if (!colon)
 		return -1;
-	}
 
 	name = strndup(arg, (size_t)(colon - arg));
 	if (!name) {
@@ -133,69 +206,12 @@ int parse_stratum(const char *arg, ElcOptions *out)
 		return -1;
 	}
 
-	for (size_t i = 0; i < out->strata.count; i++)
-		if (strcmp(out->strata.items[i].name, name) == 0) {
-			layer = &out->strata.items[i];
-			break;
-		}
+	layer = stratum_named(out, name);
+	if (!layer)
+		return -1;
 
-	if (!layer) {
-		if (out->strata.count == out->strata.capacity) {
-			size_t       next  = out->strata.capacity
-			                             ? out->strata.capacity * 2 : 4;
-			StratumDecl *grown = realloc(out->strata.items,
-			                             next * sizeof *grown);
-
-			if (!grown) {
-				fputs("elc: out of memory\n", stderr);
-				free(name);
-				return -1;
-			}
-			out->strata.items    = grown;
-			out->strata.capacity = next;
-		}
-
-		layer = &out->strata.items[out->strata.count];
-		memset(layer, 0, sizeof *layer);
-		layer->name    = name;
-		/* Declaration order is the direction until told otherwise: the
-		 * first layer named is the top, permitted to depend downward. */
-		layer->ordinal = out->strata.count;
-		out->strata.count++;
-		name = NULL;
-	}
-	free(name);
-
-	for (const char *p = colon + 1; *p; ) {
-		const char *comma = strchr(p, ',');
-		size_t      len   = comma ? (size_t)(comma - p) : strlen(p);
-
-		if (len == 0) {
-			fprintf(stderr,
-			        "elc: '%s' has an empty component pattern\n", arg);
-			return -1;
-		}
-
-		char **grown = realloc(layer->patterns,
-		                       (layer->pattern_count + 1) * sizeof *grown);
-
-		if (!grown) {
-			fputs("elc: out of memory\n", stderr);
-			return -1;
-		}
-		layer->patterns = grown;
-
-		layer->patterns[layer->pattern_count] = strndup(p, len);
-		if (!layer->patterns[layer->pattern_count]) {
-			fputs("elc: out of memory\n", stderr);
-			return -1;
-		}
-		layer->pattern_count++;
-
-		p = comma ? comma + 1 : p + len;
-	}
-
-	return 0;
+	return append_patterns(arg, colon + 1, &layer->patterns,
+	                       &layer->pattern_count);
 }
 
 /* Apply a `NAME>NAME[>NAME...]` declaration to the strata already parsed

@@ -44,7 +44,7 @@ static int dwarfline_grow(void **items, size_t *capacity, size_t item_size)
 	return 0;
 }
 
-static int by_line(const void *a, const void *b)
+static int by_dwarf_line(const void *a, const void *b)
 {
 	uint32_t x = *(const uint32_t *)a;
 	uint32_t y = *(const uint32_t *)b;
@@ -52,12 +52,57 @@ static int by_line(const void *a, const void *b)
 	return x < y ? -1 : x > y;
 }
 
-static int by_path(const void *a, const void *b)
+static int by_dwarf_path(const void *a, const void *b)
 {
 	const CoveredFile *x = a;
 	const CoveredFile *y = b;
 
 	return strcmp(x->path, y->path);
+}
+
+/* The length `out` would have with its last component removed, or `at`
+ * unchanged where there is nothing to remove.
+ *
+ * A leading ".." on a relative path has nothing to cancel and is kept, as is a
+ * ".." following another, so that two such paths still compare equal to each
+ * other.
+ */
+static size_t without_last_component(const char *out, size_t at)
+{
+	size_t back = at;
+
+	if (back > 0 && out[back - 1] == '/')
+		back--;
+	while (back > 0 && out[back - 1] != '/')
+		back--;
+
+	if (back == at ||
+	    (at - back == 3 && memcmp(out + back, "..", 2) == 0))
+		return at;
+
+	return back;
+}
+
+/* Append one path component, resolving "." and ".." against what is already
+ * written. Returns the new length.
+ */
+static size_t append_component(char *out, size_t at, const char *seg,
+                               size_t len)
+{
+	/* "." contributes nothing. */
+	if (len == 1 && seg[0] == '.')
+		return at;
+
+	/* ".." removes the previous component, where there is one to remove. */
+	if (len == 2 && seg[0] == '.' && seg[1] == '.') {
+		size_t back = without_last_component(out, at);
+
+		if (back != at)
+			return back;
+	}
+
+	memcpy(out + at, seg, len);
+	return at + len;
 }
 
 /* ------------------------------------------------------- path normalising --
@@ -91,6 +136,8 @@ static char *normalised(const char *path)
 		return NULL;
 
 	for (size_t i = 0; i < len; ) {
+		size_t start;
+
 		/* Collapse a run of separators to one. */
 		if (path[i] == '/') {
 			if (at == 0 || out[at - 1] != '/')
@@ -99,37 +146,11 @@ static char *normalised(const char *path)
 			continue;
 		}
 
-		size_t start = i;
-
+		start = i;
 		while (i < len && path[i] != '/')
 			i++;
 
-		size_t seg = i - start;
-
-		/* "." contributes nothing. */
-		if (seg == 1 && path[start] == '.')
-			continue;
-
-		/* ".." removes the previous component, where there is one to
-		 * remove and it is not itself a "..". A leading ".." on a
-		 * relative path has nothing to cancel and is kept, so that two
-		 * such paths still compare equal to each other. */
-		if (seg == 2 && path[start] == '.' && path[start + 1] == '.') {
-			size_t back = at;
-
-			if (back > 0 && out[back - 1] == '/')
-				back--;
-			while (back > 0 && out[back - 1] != '/')
-				back--;
-			if (back != at &&
-			    !(at - back == 3 && memcmp(out + back, "..", 2) == 0)) {
-				at = back;
-				continue;
-			}
-		}
-
-		memcpy(out + at, path + start, seg);
-		at += seg;
+		at = append_component(out, at, path + start, i - start);
 	}
 
 	/* A trailing separator is not part of a file's identity. */
@@ -225,7 +246,7 @@ static void compact(LineCoverage *out)
 		if (file->count == 0)
 			continue;
 
-		qsort(file->lines, file->count, sizeof *file->lines, by_line);
+		qsort(file->lines, file->count, sizeof *file->lines, by_dwarf_line);
 		for (size_t i = 0; i < file->count; i++)
 			if (i == 0 || file->lines[i] != file->lines[kept - 1])
 				file->lines[kept++] = file->lines[i];
@@ -233,7 +254,7 @@ static void compact(LineCoverage *out)
 	}
 
 	if (out->count > 1)
-		qsort(out->files, out->count, sizeof *out->files, by_path);
+		qsort(out->files, out->count, sizeof *out->files, by_dwarf_path);
 }
 
 /* One compilation unit's line table into the coverage set. */

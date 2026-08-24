@@ -508,7 +508,9 @@ Note on the division of labour, which determines where a failure lives: the requ
 *   <a id="LLR-ANL-28"></a>**LLR-ANL-28** — `analyze_file` shall emit a diagnostic naming the file and return non-zero, without aborting the run, when the file cannot be read or its contents cannot be decoded.
     *Trace:* HLR-035 (Per-File Read- and Parse-Failure Tolerance).
 
-*   <a id="LLR-ANL-29"></a>**LLR-ANL-29** — `analyze_file` shall treat a syntax tree containing any error node as a parse failure and skip the whole file, rather than reporting metrics derived from a damaged tree.
+*   <a id="LLR-ANL-29"></a>**LLR-ANL-29** — `analyze_file` shall report a file it cannot map or whose parser produced no tree as a failure carrying no metrics, rather than as a file measuring zero. A file that measures zero and a file that could not be read are different facts, and reporting the second as the first hides a target from its own report.
+
+    **This reverses the rule it replaces**, which said that any error node in the tree made the whole file a parse failure. LLR-ANL-48 states what happens now: a tree the grammar could partly follow is measured from the parts it could, and the damage is counted and reported beside the figures it qualifies. The reversal was made when a real project showed the cost — one macro-built `printf` discarded every metric in the file containing it — and this contract is what survived of the old one: the failure case is now the file with *no* tree rather than the file with a damaged one.
     *Trace:* HLR-035 (Per-File Read- and Parse-Failure Tolerance).
 
 *   <a id="LLR-ANL-30"></a>**LLR-ANL-30** — `analyze_file` shall copy every identifier out of the mapping into separately allocated storage before the mapping is released.
@@ -998,7 +1000,9 @@ Evaluation of every measurement against the published threshold catalogue, and a
 *   <a id="LLR-THR-10"></a>**LLR-THR-10** — `thresholds_apply` shall form no judgement as to whether a user-supplied rule is appropriate, and shall supply no rule of its own beyond the catalogued metrics and thresholds.
     *Trace:* HLR-111 (Custom Rules Carry No Built-In Opinion).
 
-*   <a id="LLR-THR-11"></a>**LLR-THR-11** — The catalogue shall hold every band as data in one table, and no other module shall band a measurement or name a source. The project's claim to carry no opinion of its own is checkable only if a reviewer can read one table rather than audit every analysis for a constant; banding spread across the analyses would leave the claim resting on nobody having hidden one.
+*   <a id="LLR-THR-11"></a>**LLR-THR-11** — The catalogue shall hold every band as data in one table, and no other module shall band a measurement or cite the published source a band rests on. The project's claim to carry no opinion of its own is checkable only if a reviewer can read one table rather than audit every analysis for a constant; banding spread across the analyses would leave the claim resting on nobody having hidden one.
+
+    **Citing a band's source is what is confined here, not naming a measure.** A renderer presenting Henry-Kafura names Henry-Kafura, and must: HLR-159 requires the formula and its attribution to travel with the figures, precisely because the measure is *not* banded and a reader has to be able to see that it is a measurement rather than a verdict. The catalogue records the same fact from the other side, in a section of sources carrying no band. The distinction is between citing an authority for a line drawn and naming the authority a number is computed after.
     *Trace:* HLR-098 (Evaluation Against Published Thresholds), HLR-099, HLR-111.
 
 *   <a id="LLR-THR-12"></a>**LLR-THR-12** — `thresholds_apply` shall band only a measurement that was made, and shall not treat an omitted one as a value. A depth omitted for want of an entry point is not a depth of zero, and banding it would judge a number that does not exist.
@@ -1534,6 +1538,15 @@ Requirements satisfied by the build rather than by any single function. Verified
 *   <a id="LLR-BLD-22"></a>**LLR-BLD-22** — The pipeline shall build the from-source libraries by invoking the makefile target that names them, and shall not enumerate individual libraries itself. Which libraries are built from source is one fact, and a pipeline restating it drifts from the makefile the moment either gains an entry — twice now, each time failing every compiling job at once while the suite stayed green on a developer machine that had the library already. A test over two lists is not enough on its own: Expat sat in the makefile's list and absent from the pipeline for several phases without anything failing, because the runner image ships it, so the pipeline linked a distribution copy where the project's policy is a pinned release it can bump against an advisory. Calling the target leaves no second list to keep in step.
     *Trace:* HLR-112 (Library Selection Deferred to Design), HLR-124.
 
+*   <a id="LLR-BLD-23"></a>**LLR-BLD-23** — The delivered source shall report no function at or over the default complexity threshold when analysed by the delivered binary. The threshold `elc` applies to other people's code is the one its own must meet; a report naming a function at 30 while the tool's own `manifest_write` stood at 30 is the one kind of finding a reader is entitled to discount.
+    *Trace:* HLR-181 (Self-Application), HLR-023.
+
+*   <a id="LLR-BLD-24"></a>**LLR-BLD-24** — The delivered source shall report no component dependency cycle when analysed by the delivered binary. A cycle is the finding `elc` raises at critical severity in anyone else's code (HLR-084), and one among its own modules would be the same defect reported by the module that contains it.
+    *Trace:* HLR-181 (Self-Application), HLR-084.
+
+*   <a id="LLR-BLD-25"></a>**LLR-BLD-25** — No two file-local functions in the delivered source shall share a name. `elc` resolves a call by name, so two definitions of one name make every call to it resolve to whichever the graph indexed first — an edge pointing at the wrong module, in the analysis on which the acyclicity of LLR-BLD-24 rests. The diagnostic `elc` already emits for an ambiguous resolution is the check.
+    *Trace:* HLR-181 (Self-Application), HLR-077.
+
 *   <a id="LLR-BLD-09"></a>**LLR-BLD-09** — The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.
     *Trace:* HLR-124 (Memory Safety), HLR-125 (Complete Resource Release).
 
@@ -1572,7 +1585,7 @@ The aggregate over the layering findings: how much of the code base conforms to 
 *   <a id="LLR-CNF-03"></a>**LLR-CNF-03** — `conformance_indices` shall count a call that both bypasses a layer and inverts the declared direction once in each index, and shall produce no combined score. The two are independent proportions of one denominator, so their sum may exceed the denominator itself; combining them would count twice exactly the call most worth acting on, and would name no remedy where each index separately names one.
     *Trace:* HLR-163 (Skip-Call Violation Index), HLR-118.
 
-## 53. `component_directory` ([src/report.c](../src/report.c))
+## 53. `component_directory` ([src/analyze.c](../src/analyze.c))
 
 Where a component's directory is derived, once, for every consumer that groups by one.
 

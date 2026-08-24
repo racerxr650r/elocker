@@ -183,6 +183,34 @@ staged_install() {
 	assert [ ! -e "$STAGED/bin/runtime" ]
 }
 
+@test "LLR-DOC-03: the staging root carries the man page and the manual" {
+	# The deliverable is not only the binary and the runtime. §5.5 calls the
+	# install target's output "the deliverable", and HLR-128 says both
+	# documents ship with it — so a release that installed a working elc
+	# and neither document would satisfy every test there was and still be
+	# short of what was promised.
+	staged_install
+	assert [ -f "$STAGED/share/man/man1/elc.1" ]
+	assert [ -f "$STAGED/share/doc/elc/User_Manual.md" ]
+}
+
+@test "LLR-DOC-03: the installed man page is the one that renders" {
+	# Asserted against the installed copy rather than the source tree's,
+	# since installing a truncated or empty file would pass a check made
+	# on the original.
+	staged_install
+	run man --warnings -E UTF-8 -l "$STAGED/share/man/man1/elc.1"
+	assert_success
+	assert_output --partial "elc"
+}
+
+@test "HLR-059: the installed binary is executable as installed" {
+	# `install -m 755` is the claim; a mode the target got wrong would show
+	# up only as a permission error at the moment a user first runs it.
+	staged_install
+	assert [ -x "$STAGED/bin/elc" ]
+}
+
 @test "HLR-059: the environment variable still wins over the installed layout" {
 	staged_install
 	rm "$RT/parsers/c.so"

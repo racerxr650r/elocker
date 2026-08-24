@@ -180,3 +180,62 @@ man_text() {
 		false
 	}
 }
+
+@test "LLR-DOC-05: every output format is described in both documents" {
+	# The documentation test can check the option lists against --help,
+	# and cannot check that a new *format* was described — that part was
+	# left to the author, and this is the part of it a machine can hold.
+	local man="$REPO_ROOT/doc/elc.1"
+	local manual="$REPO_ROOT/doc/User_Manual.md"
+
+	for format in table csv md xml; do
+		grep -q -- "$format" "$man" || {
+			echo "the man page does not name the $format format" >&2
+			false
+		}
+		grep -q -- "$format" "$manual" || {
+			echo "the manual does not name the $format format" >&2
+			false
+		}
+	done
+}
+
+@test "LLR-DOC-05: every companion artefact is described in both documents" {
+	local man="$REPO_ROOT/doc/elc.1"
+	local manual="$REPO_ROOT/doc/User_Manual.md"
+
+	# Each is named by the extension elc gives it, which is what a reader
+	# finds beside their report and looks up.
+	for artefact in ".dot" ".graphml" "dsm.csv" "raw.dot" "purified.dot" \
+	                "manifest.json"; do
+		grep -qF -- "$artefact" "$man" || {
+			echo "the man page does not describe $artefact" >&2
+			false
+		}
+		grep -qF -- "$artefact" "$manual" || {
+			echo "the manual does not describe $artefact" >&2
+			false
+		}
+	done
+}
+
+@test "LLR-DOC-05: every category of finding is described in both documents" {
+	# Taken from the threshold catalogue's own measurement names, so that
+	# a category added to the catalogue and to neither document fails
+	# here rather than being noticed by a reader who cannot look it up.
+	local man="$REPO_ROOT/doc/elc.1"
+	local manual="$REPO_ROOT/doc/User_Manual.md"
+
+	for finding in "fan-out" "call depth" "recursion" \
+	               "component dependency cycle" "global" "instability" \
+	               "bottleneck"; do
+		grep -qiF -- "$finding" "$man" || {
+			echo "the man page does not describe the $finding finding" >&2
+			false
+		}
+		grep -qiF -- "$finding" "$manual" || {
+			echo "the manual does not describe the $finding finding" >&2
+			false
+		}
+	done
+}

@@ -47,7 +47,7 @@
  * and a verbose request against either is honoured by changing nothing rather
  * than rejected (HLR-152, LLR-MAIN-21).
  */
-static int render(const Report *report, const ElcOptions *opts, FILE *out)
+static int render_to(const Report *report, const ElcOptions *opts, FILE *out)
 {
 	Verbosity verbosity = opts->verbose ? VERBOSITY_VERBOSE
 	                                    : VERBOSITY_SUMMARY;
@@ -242,34 +242,39 @@ static int assemble_report(Run *run)
 	return 0;
 }
 
-/* Build the graph and run the analyses that read it.
+/* Build the dependence graph and release what it was built from.
  *
- * They measure; what the numbers mean is the threshold pass's judgement
- * (SDD §10), which is why it comes last and why no severity it assigns
- * reaches the exit status (HLR-100).
+ * The graph is built from the assembled report, not from the raw file list:
+ * its node identifiers run in the report's sorted file order, which is what
+ * makes them a property of the source tree rather than of the order discovery
+ * happened to walk it (LLR-SDG-09).
  *
- * Returns 0, or -1 with the diagnostic already written.
+ * The facts are released immediately afterwards. graph_build copies what it
+ * keeps, and holding the whole project's call sites alive for the rest of the
+ * run would be memory spent on data nothing reads (SDD §18).
  */
-static int analyse_graph(Run *run)
+static int build_dependence_graph(Run *run)
 {
-	/* The graph is built from the assembled report, not from the raw file
-	 * list: its node identifiers run in the report's sorted file order,
-	 * which is what makes them a property of the source tree rather than
-	 * of the order discovery happened to walk it (LLR-SDG-09).
-	 *
-	 * The facts are released immediately afterwards. graph_build copies
-	 * what it keeps, and holding the whole project's call sites alive for
-	 * the rest of the run would be memory spent on data nothing reads
-	 * (SDD §18). */
 	if (graph_build(&run->facts_list, &run->report, &run->sdg) != 0) {
 		fputs("elc: out of memory building the dependence graph\n",
 		      stderr);
 		return -1;
 	}
+
 	factlist_free(&run->facts_list);
 	report_set_unresolved(&run->report, graph_unresolved_count(&run->sdg));
 	run->graph_built = true;
+	return 0;
+}
 
+/* The four measurements taken over the graph as it was built.
+ *
+ * Every one of them reads the same graph and none reads another's output, so
+ * the order below is the order they are reported in and carries no other
+ * meaning.
+ */
+static int analyse_measurements(Run *run)
+{
 	if (calltree_analyse(&run->sdg, &run->opts, &run->tree) != 0 ||
 	    report_set_calltree(&run->report, &run->tree, &run->sdg) != 0) {
 		fputs("elc: out of memory analysing the call tree\n", stderr);
@@ -304,13 +309,28 @@ static int analyse_graph(Run *run)
 		return -1;
 	}
 
-	/* Purification runs **last among the analyses**, and reads the graph
-	 * every one of them read. It is the only stage that forms a view of
-	 * `elc`'s own, so it is the only one placed where nothing downstream
-	 * could take its output for a measurement: it produces a second graph
-	 * and hands it to nobody but the report (HLR-167). Running it here
-	 * rather than earlier changes no number — that is the point of the
-	 * copy — and puts the ordering beyond argument as well. */
+	return 0;
+}
+
+/* The recovery view, and the layering proposed over it.
+ *
+ * **Purification runs last among the analyses**, and reads the graph every one
+ * of them read. It is the only stage that forms a view of `elc`'s own, so it
+ * is the only one placed where nothing downstream could take its output for a
+ * measurement: it produces a second graph and hands it to nobody but the
+ * report (HLR-167). Running it here rather than earlier changes no number —
+ * that is the point of the copy — and puts the ordering beyond argument as
+ * well.
+ *
+ * Recovery then reads the masked copy and hands its result to the report; no
+ * analysis takes an input from it, and `arch.c` cannot reach it — which is how
+ * a proposal is kept from becoming the baseline it would be measured against
+ * (HLR-173). Its absence of a declaration is not a reason to omit it: recovery
+ * is what a user with no strata is *given*, and it is the conformance analyses
+ * that stay omitted (HLR-115).
+ */
+static int analyse_recovery(Run *run)
+{
 	/* **The manifest, and only where the user named one** (HLR-176). Read
 	 * before the classifications it overrules, and fatal where it cannot be
 	 * read or is not a manifest: the user named the file, so the failure is
@@ -329,19 +349,30 @@ static int analyse_graph(Run *run)
 		return -1;
 	}
 
-	/* Recovery runs after purification and before nothing at all. It reads
-	 * the masked copy and hands its result to the report; no analysis takes
-	 * an input from it, and `arch.c` cannot reach it — which is how a
-	 * proposal is kept from becoming the baseline it would be measured
-	 * against (HLR-173). Its absence of a declaration is not a reason to
-	 * omit it: recovery is what a user with no strata is *given*, and it is
-	 * the conformance analyses that stay omitted (HLR-115). */
 	if (recover_layers(&run->purify, &run->sdg, &run->report,
 	                   &run->recovery) != 0 ||
 	    report_set_recovery(&run->report, &run->recovery) != 0) {
 		fputs("elc: out of memory recovering a layering\n", stderr);
 		return -1;
 	}
+
+	return 0;
+}
+
+/* Build the graph and run the analyses that read it.
+ *
+ * They measure; what the numbers mean is the threshold pass's judgement
+ * (SDD §10), which is why it comes last and why no severity it assigns
+ * reaches the exit status (HLR-100).
+ *
+ * Returns 0, or -1 with the diagnostic already written.
+ */
+static int analyse_graph(Run *run)
+{
+	if (build_dependence_graph(run) != 0 ||
+	    analyse_measurements(run) != 0 ||
+	    analyse_recovery(run) != 0)
+		return -1;
 
 	if (thresholds_apply(&run->arch, &run->tree, &run->state, &run->sdg,
 	                     &run->opts, &run->findings) != 0 ||
@@ -434,6 +465,46 @@ static void write_companion(Run *run, const char *extension, const char *what,
 	free(companion);
 }
 
+/* Every companion the options warrant, after the report and never instead of
+ * it.
+ *
+ * Each follows the one companion rule: a name derived from the report's own
+ * output path, no path of its own, and nothing written when the report goes to
+ * standard output (HLR-119, HLR-175, HLR-178). Each predicate holds its own
+ * default, so this sequence expresses no opinion about any of them.
+ */
+static void write_companions(Run *run)
+{
+	/* The `.dot` call tree is written unless refused; the GraphML export
+	 * only when asked for (HLR-103, HLR-106). */
+	if (run->graph_built && graph_dot_warranted(&run->opts))
+		write_companion(run, "dot", "call-tree", companion_dot);
+
+	if (run->graph_built && graph_graphml_warranted(&run->opts))
+		write_companion(run, "graphml", "GraphML", companion_graphml);
+
+	/* The third companion, and the only one a regenerated report can also
+	 * produce: it is written from the model rather than from the graph
+	 * (HLR-180). Off unless asked for, like the GraphML export. */
+	if (dsm_warranted(&run->opts))
+		write_companion(run, "dsm.csv", "dependency matrix",
+		                companion_dsm);
+
+	/* The two drawings are written together because they exist to be
+	 * compared — one of them alone answers half the question. */
+	if (run->graph_built && graph_purify_dot_warranted(&run->opts)) {
+		write_companion(run, "raw.dot", "raw call graph",
+		                companion_raw_dot);
+		write_companion(run, "purified.dot", "purified recovery view",
+		                companion_purified_dot);
+	}
+
+	if (run->graph_built && run->opts.write_manifest &&
+	    run->opts.output_path)
+		write_companion(run, "manifest.json", "purification manifest",
+		                companion_manifest);
+}
+
 /* Write the report to the selected destination, then the companions.
  *
  * Returns 0, or -1 with the diagnostic already written. A companion that fails
@@ -454,7 +525,7 @@ static int emit(Run *run)
 
 	/* Results go to the selected destination and nothing else does; every
 	 * diagnostic above and below went to stderr (HLR-038, LLR-MAIN-12). */
-	if (render(&run->report, &run->opts, run->out) != 0) {
+	if (render_to(&run->report, &run->opts, run->out) != 0) {
 		fprintf(stderr, "elc: %s: %s\n",
 		        run->opts.output_path ? run->opts.output_path
 		                              : "standard output",
@@ -462,40 +533,7 @@ static int emit(Run *run)
 		return -1;
 	}
 
-	/* Both companions, after the report and never instead of it. The `.dot`
-	 * call tree is written unless refused and the GraphML export only when
-	 * asked for; each predicate holds its own default, so this sequence
-	 * expresses no opinion about either (HLR-103, HLR-106). */
-	if (run->graph_built && graph_dot_warranted(&run->opts))
-		write_companion(run, "dot", "call-tree", companion_dot);
-
-	if (run->graph_built && graph_graphml_warranted(&run->opts))
-		write_companion(run, "graphml", "GraphML", companion_graphml);
-
-	/* The third companion, and the only one a regenerated report can also
-	 * produce: it is written from the model rather than from the graph
-	 * (HLR-180). Off unless asked for, like the GraphML export. */
-	if (dsm_warranted(&run->opts))
-		write_companion(run, "dsm.csv", "dependency matrix",
-		                companion_dsm);
-
-	/* The pair of drawings, and the manifest. Each follows the one
-	 * companion rule: a name derived from the report's own output path, no
-	 * path of its own, and nothing written when the report goes to standard
-	 * output (HLR-119, HLR-175, HLR-178). The two drawings are written
-	 * together because they exist to be compared — one of them alone
-	 * answers half the question. */
-	if (run->graph_built && graph_purify_dot_warranted(&run->opts)) {
-		write_companion(run, "raw.dot", "raw call graph",
-		                companion_raw_dot);
-		write_companion(run, "purified.dot", "purified recovery view",
-		                companion_purified_dot);
-	}
-
-	if (run->graph_built && run->opts.write_manifest &&
-	    run->opts.output_path)
-		write_companion(run, "manifest.json", "purification manifest",
-		                companion_manifest);
+	write_companions(run);
 
 	return 0;
 }

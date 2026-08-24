@@ -61,7 +61,7 @@ const char DSM_CORNER[] = "caller \\ callee";
  * property of this artefact rather than of a collection the model already
  * holds, so there is nothing in report.c to sort.
  */
-static int by_path(const void *a, const void *b)
+static int by_dsm_path(const void *a, const void *b)
 {
 	return strcmp(*(const char *const *)a, *(const char *const *)b);
 }
@@ -97,7 +97,7 @@ static int subjects_from_directories(const Report *r, size_t components,
 	}
 
 	if (count > 1)
-		qsort(labels, count, sizeof *labels, by_path);
+		qsort(labels, count, sizeof *labels, by_dsm_path);
 
 	out->subjects = labels;
 	out->count    = count;
@@ -212,6 +212,37 @@ static size_t *subject_of_components(const Sdg *g, const Report *r,
 	return map;
 }
 
+/* Count every call from one subject into another into the cell that joins
+ * them.
+ *
+ * **Calls only** (HLR-165, LLR-LAY-05). A global object two subjects share is
+ * coupling and not invocation, and counting one here would put a cell below
+ * the diagonal that no call put there.
+ */
+static void tally_edges(const Sdg *g, const size_t *map, size_t components,
+                        Dsm *out)
+{
+	for (size_t e = 0; e < g->edge_count; e++) {
+		const SdgEdge *edge = &g->edges[e];
+		size_t         from;
+		size_t         to;
+
+		if (edge->kind != EDGE_CALL)
+			continue;
+		if (edge->from >= g->node_count || edge->to >= g->node_count)
+			continue;
+
+		from = g->nodes[edge->from].component;
+		to   = g->nodes[edge->to].component;
+		if (from >= components || to >= components)
+			continue;
+		if (map[from] == SIZE_MAX || map[to] == SIZE_MAX)
+			continue;
+
+		out->cells[map[from] * out->count + map[to]]++;
+	}
+}
+
 int dsm_build(const Sdg *g, const Report *r, const ElcOptions *opts, Dsm *out)
 {
 	size_t *map;
@@ -249,29 +280,7 @@ int dsm_build(const Sdg *g, const Report *r, const ElcOptions *opts, Dsm *out)
 		return -1;
 	}
 
-	for (size_t e = 0; e < g->edge_count; e++) {
-		const SdgEdge *edge = &g->edges[e];
-		size_t         from;
-		size_t         to;
-
-		/* **Calls only** (HLR-165, LLR-LAY-05). A global object two
-		 * subjects share is coupling and not invocation, and counting
-		 * one here would put a cell below the diagonal that no call
-		 * put there. */
-		if (edge->kind != EDGE_CALL)
-			continue;
-		if (edge->from >= g->node_count || edge->to >= g->node_count)
-			continue;
-
-		from = g->nodes[edge->from].component;
-		to   = g->nodes[edge->to].component;
-		if (from >= components || to >= components)
-			continue;
-		if (map[from] == SIZE_MAX || map[to] == SIZE_MAX)
-			continue;
-
-		out->cells[map[from] * out->count + map[to]]++;
-	}
+	tally_edges(g, map, components, out);
 
 	free(map);
 	return 0;
@@ -418,43 +427,27 @@ static void emit_number(FILE *out, DsmStyle style, size_t value, int width)
 	}
 }
 
-/* The one walk of the grid the three renderings share.
- *
- * Widths are measured before anything is written, because a column's width is
- * not known until its last cell is in — and measuring a value one way and
- * printing it another is how a column comes out a character short.
+/* The width of every column: the corner and row-label column first, then one
+ * per subject, each wide enough for its own name and for the widest count
+ * beneath it. `longest` comes back as the longest label in characters, which
+ * is what sizes the escaping scratch buffer.
  */
-static int render(const Dsm *m, DsmStyle style, FILE *out)
+static void column_widths(const Dsm *m, DsmStyle style, int *width,
+                          size_t *longest)
 {
-	int    *width   = calloc(m->count + 1, sizeof *width);
-	size_t  columns = m->count + 1;
-	size_t  longest = strlen(DSM_CORNER);
-	char   *scratch = NULL;
-
-	if (!width)
-		return -1;
-
+	*longest = strlen(DSM_CORNER);
 	width[0] = cell_width(DSM_CORNER, style);
+
 	for (size_t s = 0; s < m->count; s++) {
 		int label = cell_width(m->subjects[s], style);
 
 		if (label > width[0])
 			width[0] = label;
-		width[s + 1] = cell_width(m->subjects[s], style);
-		if (strlen(m->subjects[s]) > longest)
-			longest = strlen(m->subjects[s]);
+		width[s + 1] = label;
+		if (strlen(m->subjects[s]) > *longest)
+			*longest = strlen(m->subjects[s]);
 	}
 
-	/* Twice the widest label plus a terminator: the worst case is a label
-	 * that is every character a pipe. Allocated once for the whole grid
-	 * rather than per cell, and only where an escaping style needs it. */
-	if (style == DSM_MARKDOWN) {
-		scratch = malloc(2 * longest + 1);
-		if (!scratch) {
-			free(width);
-			return -1;
-		}
-	}
 	for (size_t row = 0; row < m->count; row++)
 		for (size_t col = 0; col < m->count; col++) {
 			int figure = digits_of(m->cells[row * m->count + col]);
@@ -462,8 +455,11 @@ static int render(const Dsm *m, DsmStyle style, FILE *out)
 			if (figure > width[col + 1])
 				width[col + 1] = figure;
 		}
+}
 
-	/* The convention, with the grid and never apart from it (HLR-166). */
+/* The convention, with the grid and never apart from it (HLR-166). */
+static void emit_convention(const Dsm *m, DsmStyle style, FILE *out)
+{
 	switch (style) {
 	case DSM_CSV:
 		/* A record of its own ahead of the grid: CSV has no comment
@@ -483,9 +479,12 @@ static int render(const Dsm *m, DsmStyle style, FILE *out)
 		fprintf(out, "\n%s\n  %s\n", dsm_heading(m), DSM_CONVENTION);
 		break;
 	}
+}
 
-	/* --- the column names ---------------------------------------- */
-
+/* The row of column names, the corner cell first. */
+static void emit_header(const Dsm *m, DsmStyle style, const int *width,
+                        size_t columns, char *scratch, FILE *out)
+{
 	if (style == DSM_MARKDOWN)
 		fputc('|', out);
 	else if (style == DSM_TABLE)
@@ -501,12 +500,14 @@ static int render(const Dsm *m, DsmStyle style, FILE *out)
 		          scratch);
 	}
 	fputs(style == DSM_CSV ? "\r\n" : "\n", out);
+}
 
-	/* --- the rule under them -------------------------------------- */
-
+/* The rule under the column names, where the style has one. CSV does not. */
+static void emit_rule_row(const Dsm *m, DsmStyle style, const int *width,
+                          size_t columns, FILE *out)
+{
 	if (style == DSM_MARKDOWN) {
-		fputc('|', out);
-		fputc(' ', out);
+		fputs("| ", out);
 		rule(out, width[0], '-');
 		fputs(" |", out);
 		for (size_t s = 0; s < m->count; s++) {
@@ -527,9 +528,12 @@ static int render(const Dsm *m, DsmStyle style, FILE *out)
 		}
 		fputc('\n', out);
 	}
+}
 
-	/* --- the rows -------------------------------------------------- */
-
+/* One row per subject: its name, then its count against every subject. */
+static void emit_rows(const Dsm *m, DsmStyle style, const int *width,
+                      char *scratch, FILE *out)
+{
 	for (size_t row = 0; row < m->count; row++) {
 		if (style == DSM_MARKDOWN)
 			fputc('|', out);
@@ -548,6 +552,41 @@ static int render(const Dsm *m, DsmStyle style, FILE *out)
 		}
 		fputs(style == DSM_CSV ? "\r\n" : "\n", out);
 	}
+}
+
+/* The one walk of the grid the three renderings share.
+ *
+ * Widths are measured before anything is written, because a column's width is
+ * not known until its last cell is in — and measuring a value one way and
+ * printing it another is how a column comes out a character short.
+ */
+static int render(const Dsm *m, DsmStyle style, FILE *out)
+{
+	int    *width   = calloc(m->count + 1, sizeof *width);
+	size_t  columns = m->count + 1;
+	size_t  longest;
+	char   *scratch = NULL;
+
+	if (!width)
+		return -1;
+
+	column_widths(m, style, width, &longest);
+
+	/* Twice the widest label plus a terminator: the worst case is a label
+	 * that is every character a pipe. Allocated once for the whole grid
+	 * rather than per cell, and only where an escaping style needs it. */
+	if (style == DSM_MARKDOWN) {
+		scratch = malloc(2 * longest + 1);
+		if (!scratch) {
+			free(width);
+			return -1;
+		}
+	}
+
+	emit_convention(m, style, out);
+	emit_header(m, style, width, columns, scratch, out);
+	emit_rule_row(m, style, width, columns, out);
+	emit_rows(m, style, width, scratch, out);
 
 	free(scratch);
 	free(width);

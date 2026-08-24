@@ -960,6 +960,23 @@ An unbalanced delimiter is the limit of that recovery: it leaves the parser
 nothing to resynchronise on, so everything after it counts as damaged. The line
 count covers what was lost, so the scale remains visible. Any file partly
 unparsed makes the exit status 1.
+.SS Self-application
+.B elc
+is analysed by
+.BR elc ,
+and the result is part of its test suite. Over its own sources the delivered
+binary reports no function at or over the default complexity threshold of 15,
+no dependency cycle between its own modules, no source file it cannot parse,
+and no call it cannot resolve to exactly one definition.
+.PP
+A tool reporting a defect it exhibits gives its reader a true finding and no
+reason to act on it. The check runs on every change, so a release that stopped
+meeting it fails its own gate rather than shipping.
+.PP
+This is not a claim that the thresholds are beyond argument. Each is published
+and cited to its source \(em see
+.B Findings, severity, and attribution
+\(em precisely so that a reader may disagree with one.
 .SH EXIT STATUS
 The three classes are distinct so that a caller can tell a degraded run from a
 run that never happened. No finding severity ever contributes to the exit

@@ -17,10 +17,10 @@
     <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.17" date="2026-08-22" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.18" date="2026-08-22" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="179"/>
-      <count name="llrs"       value="514"/>
-      <count name="tests"      value="1050"/>
-      <count name="test_files" value="50"/>
+      <count name="hlrs"       value="180"/>
+      <count name="llrs"       value="517"/>
+      <count name="tests"      value="1076"/>
+      <count name="test_files" value="51"/>
     </counts>
   </metadata>
 
@@ -491,6 +491,7 @@ The signature above is the complete one. The `FileFacts` output arrived with the
           <function signature="int collect_inactive_regions(const LanguageModule *m, Registry *reg, const ElcOptions *opts, const char *data, TSNode root, SpanList *spans, uint32_t *undecided)" summary="Append every region this configuration does not compile to the excluded set, and count the regions left active because their condition could not be decided. A language whose module supplies no `conditionals.scm` has no conditional compilation, which is the truth for a language that has none."/>
           <function signature="bool symbol_defined(const ElcOptions *opts, const char *data, TSNode node)" summary="Whether a symbol was named by a `-D`. Definedness is the only thing a definition can assert, so &quot;mentioned&quot; and &quot;defined&quot; are the same question — and a symbol that was not mentioned is undecidable rather than undefined (HLR-133)."/>
           <function signature="int collect_rule_matches(const LanguageModule *m, Registry *reg, const char *data, TSNode root, FileFacts *facts)" summary="Record every match of every rule bound to this file&apos;s language, with its identity and line range. Runs through the same predicate evaluation the built-in queries use, which is what HLR-107&apos;s &quot;same query mechanism&quot; means in practice: a rule author&apos;s `#eq?` behaves as it does in `elc`&apos;s own query files rather than being silently dropped. Records no severity, because there is none to record (HLR-111)."/>
+          <function signature="char *component_directory(const char *path)" summary="The directory containing `path`, as a fresh allocation. Two edge cases a split on the last separator gets wrong are handled here rather than at each call site: a file directly under the root yields &quot;/&quot; rather than the empty string, and a path carrying no separator yields &quot;.&quot; (HLR-160).&#10;&#10;It lives with the model that builds a FileMetrics rather than with the report that renders one. The other way round put an edge from analysis to reporting on top of the edge reporting already has to analysis, and elc reported the resulting cycle in its own source (HLR-084, HLR-181)."/>
           <function signature="int collect_dead_code(const LanguageModule *m, Registry *reg, const char *data, TSNode root, const FnRangeIndex *ranges, const SpanList *comments, FileFacts *facts)">
             <purpose><![CDATA[Record every statement within a function that cannot execute (HLR-137).]]></purpose>
             <pre><![CDATA[`ranges` holds the reported functions of this file, so each finding can be attributed to the one containing it.]]></pre>
@@ -801,7 +802,6 @@ The rows whose finding is their mere occurrence — recursion, a dependency cycl
           <function signature="int report_set_image(Report *r, const SymbolSet *image)" summary="Record the image the run was filtered by and the number of its linkage names left unresolved. After assembly rather than within it, for the reason the unresolved-call count is: the image belongs to the run and is read before any file is measured, while the *effects* of the filter — which functions were omitted, and how much file-scope code remained — are properties of the measurement and are assembled with it (HLR-147)."/>
           <function signature="int metrics_add(MetricsAccumulator *acc, FileMetrics *m)" summary="Append one file's metrics, taking ownership of them. Grows by doubling through a checked reallocation; on failure the accumulator is left intact and the caller still owns the metrics, so nothing is leaked and nothing is freed twice."/>
           <function signature="void metrics_free(MetricsAccumulator *acc)" summary="Release the accumulator and every FileMetrics it still owns."/>
-          <function signature="char *component_directory(const char *path)" summary="The directory containing `path`, as a fresh allocation. Two edge cases a split on the last separator gets wrong are handled here rather than at each call site: a file directly under the root yields &quot;/&quot; rather than the empty string, and a path carrying no separator yields &quot;.&quot; (HLR-160)."/>
           <function signature="void report_free(Report *r)" summary="Release the report model and everything it owns, the rendered conformance rows and the dependency matrix included."/>
         </functions>
         <dependencies>
@@ -1913,6 +1913,12 @@ The same identifiers appear in the `<traces>` block of the matching `<test>` ent
 
 Unit tests trace to **LLRs**, since an LLR is a per-function contract. Integration, fixture, and instrumented tests trace to **HLRs**, since an HLR is externally observable behaviour. A test that genuinely verifies both may declare both.
 
+**That last clause is load-bearing, and Phase 17 is what established it.** Read as a rule rather than a default, "black-box tests trace to HLRs" leaves every LLR whose only verification is at the fixture level in the gap list *by construction* — not because nothing checks it, but because the thing that checks it was forbidden to say so. The gap list stood at 128 on that reading, and almost every entry named a contract a fixture already pinned: `analyze_file` counting a `return` toward ELOC is LLR-ANL-15, and `HLR-047: a return counts, with or without a value` is a test of exactly that, run against the delivered binary over a hand-counted fixture.
+
+The rule that resolves it is the one the clause already states, applied deliberately: **a test declares every requirement it genuinely verifies, and nothing it does not.** Which level it runs at governs where it is *written*, not what it is allowed to claim. What it may never do is claim a contract it merely passes through — a fixture asserting a project total does not verify each of the twenty LLRs that contributed to it, and adding those traces to reach a number would empty the gap list while emptying it of meaning.
+
+Writing a unit test that duplicates a fixture's assertion, purely so an LLR may be traced from the level convention prefers, is the same evasion wearing a lab coat: it produces a second test of one behaviour and no new coverage at all.
+
 The sanitized gate of §2.1 needs stating separately, because it would otherwise fall outside this scheme altogether. Re-running an existing suite produces no new catalogued test, so HLR-124, HLR-125, and the memory-safety LLRs would never acquire a verifying test however diligently the sanitized build was run — they would sit permanently in the gap list while being, in fact, thoroughly exercised. `test/instrumented/sanitized.bats` therefore carries catalogued tests of its own: one per instrumented pass over the fixture corpus, tracing to HLR-124 and HLR-125, and one covering the sanitized unit run, tracing to the memory-safety LLRs. The re-run is the mechanism; the catalogued test is the record that the mechanism was applied and came back clean.]]></traceability_convention>
     </strategy>
 
@@ -2729,6 +2735,13 @@ Where a syntax tree contains error nodes, `elc` shall measure the file from the 
         <trace target="SDD" ref="6"/>
         <trace target="SDD" ref="7"/>
         <trace target="SDD" ref="13"/>
+        <trace target="SDD" ref="22"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-181" name="Self-Application">
+        <text><![CDATA[The delivered source of `elc` shall satisfy the standard `elc` reports against: no function at or over the complexity threshold it applies by default, no dependency cycle among its own components, no source file it cannot parse, and no call site whose destination it cannot resolve to exactly one definition. A tool that reports a defect it exhibits cannot be relied on to report that defect in anyone else's code, and the claim is cheap to check because the tool is the checker — `elc src/` is the whole of the measurement. This is a property of what is delivered rather than of any run a user makes, and is verified in the manner of the build-configuration requirements.]]></text>
+      <traces>
         <trace target="SDD" ref="22"/>
       </traces>
       </hlr>
@@ -4823,7 +4836,9 @@ Note on the division of labour, which determines where a failure lives: the requ
       </llr>
 
       <llr id="LLR-ANL-29">
-        <text><![CDATA[`analyze_file` shall treat a syntax tree containing any error node as a parse failure and skip the whole file, rather than reporting metrics derived from a damaged tree.]]></text>
+        <text><![CDATA[`analyze_file` shall report a file it cannot map or whose parser produced no tree as a failure carrying no metrics, rather than as a file measuring zero. A file that measures zero and a file that could not be read are different facts, and reporting the second as the first hides a target from its own report.
+
+**This reverses the rule it replaces**, which said that any error node in the tree made the whole file a parse failure. LLR-ANL-48 states what happens now: a tree the grammar could partly follow is measured from the parts it could, and the damage is counted and reported beside the figures it qualifies. The reversal was made when a real project showed the cost — one macro-built `printf` discarded every metric in the file containing it — and this contract is what survived of the old one: the failure case is now the file with *no* tree rather than the file with a damaged one.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-035" name="Per-File Read- and Parse-Failure Tolerance"/>
         </traces>
@@ -5869,7 +5884,9 @@ The value shall be zero wherever either degree is zero, which is what the formul
         </traces>
       </llr>
       <llr id="LLR-THR-11">
-        <text><![CDATA[The catalogue shall hold every band as data in one table, and no other module shall band a measurement or name a source. The project's claim to carry no opinion of its own is checkable only if a reviewer can read one table rather than audit every analysis for a constant; banding spread across the analyses would leave the claim resting on nobody having hidden one.]]></text>
+        <text><![CDATA[The catalogue shall hold every band as data in one table, and no other module shall band a measurement or cite the published source a band rests on. The project's claim to carry no opinion of its own is checkable only if a reviewer can read one table rather than audit every analysis for a constant; banding spread across the analyses would leave the claim resting on nobody having hidden one.
+
+**Citing a band's source is what is confined here, not naming a measure.** A renderer presenting Henry-Kafura names Henry-Kafura, and must: HLR-159 requires the formula and its attribution to travel with the figures, precisely because the measure is *not* banded and a reader has to be able to see that it is a measurement rather than a verdict. The catalogue records the same fact from the other side, in a section of sources carrying no band. The distinction is between citing an authority for a line drawn and naming the authority a number is computed after.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-098" name="Evaluation Against Published Thresholds"/>
           <trace target="HLR" ref="HLR-099"/>
@@ -7069,6 +7086,30 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         </traces>
       </llr>
 
+      <llr id="LLR-BLD-23">
+        <text><![CDATA[The delivered source shall report no function at or over the default complexity threshold when analysed by the delivered binary. The threshold `elc` applies to other people's code is the one its own must meet; a report naming a function at 30 while the tool's own `manifest_write` stood at 30 is the one kind of finding a reader is entitled to discount.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-181" name="Self-Application"/>
+          <trace target="HLR" ref="HLR-023"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-BLD-24">
+        <text><![CDATA[The delivered source shall report no component dependency cycle when analysed by the delivered binary. A cycle is the finding `elc` raises at critical severity in anyone else's code (HLR-084), and one among its own modules would be the same defect reported by the module that contains it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-181" name="Self-Application"/>
+          <trace target="HLR" ref="HLR-084"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-BLD-25">
+        <text><![CDATA[No two file-local functions in the delivered source shall share a name. `elc` resolves a call by name, so two definitions of one name make every call to it resolve to whichever the graph indexed first — an edge pointing at the wrong module, in the analysis on which the acyclicity of LLR-BLD-24 rests. The diagnostic `elc` already emits for an ambiguous resolution is the check.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-181" name="Self-Application"/>
+          <trace target="HLR" ref="HLR-077"/>
+        </traces>
+      </llr>
+
 
       <llr id="LLR-BLD-09">
         <text><![CDATA[The build shall provide a configuration instrumented with AddressSanitizer and UndefinedBehaviorSanitizer, with leak detection enabled, under which the whole test suite can be re-run.]]></text>
@@ -7152,7 +7193,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       </llr>
     </function>
 
-    <function number="53" title="`component_directory` ([src/report.c](../src/report.c))" name="component_directory" source="src/report.c">
+    <function number="53" title="`component_directory` ([src/analyze.c](../src/analyze.c))" name="component_directory" source="src/analyze.c">
       <intro><![CDATA[Where a component's directory is derived, once, for every consumer that groups by one.]]></intro>
       <llr id="LLR-DIR-01">
         <text><![CDATA[`component_directory` shall return the portion of a path preceding its last separator, carrying no trailing separator, and shall return `/` for a path whose last separator is its first character and `.` for a path carrying none. The two edge cases are handled here rather than at each call site because a split on the last separator gets both wrong: a file directly under the root would yield the empty string, which names no directory, and a path with no separator would yield nothing at all.]]></text>
@@ -7969,7 +8010,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       </traces>
     </test>
   </file>
-  <file path="test/unit/cli.c" role="unit" count="76">
+  <file path="test/unit/cli.c" role="unit" count="80">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -8214,6 +8255,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The `lang:path` argument reaches the options as given. The parser does not split it, and deliberately: whether the named language exists is the registry's question, and answering it here would put a second copy of that knowledge in the option parser.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-RLR-02"/>
+              <trace target="LLR" ref="LLR-CLI-09"/>
       </traces>
     </test>
     <test name="rule_arguments_accumulate">
@@ -8232,24 +8274,28 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A definition reaches the options as given, `NAME` and `NAME=VALUE` alike. What one *means* belongs to the evaluation, which alone knows what a language's conditions can test.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CLI-25"/>
+              <trace target="LLR" ref="LLR-CLI-19"/>
       </traces>
     </test>
     <test name="definitions_are_empty_by_default">
       <purpose><![CDATA[With no definitions nothing prunes, which is how adding the option changes no existing result.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-131"/>
+              <trace target="LLR" ref="LLR-CLI-19"/>
       </traces>
     </test>
     <test name="an_empty_definition_is_a_usage_error">
       <purpose><![CDATA[`-D` with an empty argument names no symbol and is rejected rather than recorded as one.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-063"/>
+              <trace target="LLR" ref="LLR-CLI-20"/>
       </traces>
     </test>
     <test name="a_definition_with_regeneration_is_a_usage_error">
       <purpose><![CDATA[Pruning happens when a file is measured, so a saved record already describes one configuration and cannot be re-cut into another.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CLI-24"/>
+              <trace target="LLR" ref="LLR-CLI-21"/>
       </traces>
     </test>
     <test name="regeneration_without_a_definition_is_accepted">
@@ -8454,7 +8500,37 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="LLR" ref="LLR-CLI-34"/>
       </traces>
     </test>
-</file>
+    <test name="entry_points_accumulate_across_occurrences">
+      <purpose><![CDATA[A second --entry adds a root rather than replacing the first, and the symbols are borrowed from argv rather than copied — only the array holding them is owned.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-18"/>
+        <trace target="LLR" ref="LLR-CLI-08"/>
+        <trace target="HLR" ref="HLR-095"/>
+      </traces>
+    </test>
+      <test name="no_entry_point_leaves_the_set_empty">
+      <purpose><![CDATA[What makes reachability and depth omit themselves with a reason rather than measure from a root elc chose for the user.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-08"/>
+        <trace target="HLR" ref="HLR-095"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+      <test name="the_graphml_export_is_a_flag_taking_no_path">
+      <purpose><![CDATA[The argument following --graphml is the target. A flag that took a path would have swallowed it, and the companion's name is derived from the report rather than given (HLR-119).]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-07"/>
+        <trace target="HLR" ref="HLR-106"/>
+      </traces>
+    </test>
+      <test name="the_call_tree_is_on_unless_declined">
+      <purpose><![CDATA[Default-on is the whole of HLR-103: the option declines the call tree rather than requesting it, and takes no argument.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-06"/>
+        <trace target="HLR" ref="HLR-103"/>
+      </traces>
+    </test>
+  </file>
 
   <file path="test/unit/registry.c" role="unit" count="23">
     <test name="the_environment_variable_names_the_runtime_location">
@@ -8605,7 +8681,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/unit/analyze.c" role="unit" count="46">
+  <file path="test/unit/analyze.c" role="unit" count="47">
     <test name="physical_lines_are_counted">
       <purpose><![CDATA[The physical line count comes from the mapped contents.]]></purpose>
       <traces>
@@ -8616,6 +8692,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A trailing fragment with no terminating newline is a line the reader sees, and is counted as one.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-06"/>
+              <trace target="LLR" ref="LLR-ANL-05"/>
       </traces>
     </test>
     <test name="a_zero_length_file_reports_zero_without_error">
@@ -8628,6 +8705,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A file that cannot be read yields a failure and no metrics for the caller to release, so the run continues leak-free.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-02"/>
+              <trace target="LLR" ref="LLR-ANL-29"/>
       </traces>
     </test>
     <test name="the_metrics_carry_the_path_and_language">
@@ -8660,6 +8738,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A name is still readable after analyze_file returns, so it was copied out of the mapping rather than pointed into it.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-07"/>
+              <trace target="LLR" ref="LLR-ANL-30"/>
       </traces>
     </test>
         <test name="an_unmapped_extension_is_a_skip_not_a_failure">
@@ -8904,7 +8983,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="HLR" ref="HLR-035"/>
       </traces>
     </test>
-</file>
+    <test name="a_dead_span_outside_every_function_is_not_recorded">
+      <purpose><![CDATA[HLR-137 asks about statements within a function, and a span outside every one of them has no enclosing function to be reported against — so it would reach the report with a blank where the attribution goes.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DED-08"/>
+        <trace target="HLR" ref="HLR-137"/>
+      </traces>
+    </test>
+  </file>
 
   <file path="test/unit/calltree.c" role="unit" count="21">
     <test name="fan_out_counts_distinct_callees">
@@ -10142,6 +10228,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The usage summary names each accepted option, making it the reference the documentation is checked against.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
+              <trace target="LLR" ref="LLR-USG-01"/>
       </traces>
     </test>
     <test name="HLR-103: --help documents the switch that declines the call tree">
@@ -10234,11 +10321,13 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[Configuration-like files planted beside the invocation produce byte-identical output to their absence.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-039" name="Zero Configuration"/>
+              <trace target="LLR" ref="LLR-CLI-14"/>
+        <trace target="LLR" ref="LLR-ROP-06"/>
       </traces>
     </test>
   </file>
 
-  <file path="test/integration/docs.bats" role="integration" count="12">
+  <file path="test/integration/docs.bats" role="integration" count="15">
     <test name="the man page exists">
       <purpose><![CDATA[The project delivers a man page.]]></purpose>
       <traces>
@@ -10249,6 +10338,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The project delivers a user manual.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-128" name="User Manual and Man Page Delivered"/>
+              <trace target="LLR" ref="LLR-DOC-02"/>
       </traces>
     </test>
     <test name="the man page renders without diagnostic">
@@ -10265,6 +10355,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-129" name="Documentation Describes the Delivered Behaviour"/>
         <trace target="HLR" ref="HLR-130" name="Documentation Updated With the Behaviour It Describes"/>
+              <trace target="LLR" ref="LLR-DOC-06"/>
       </traces>
     </test>
     <test name="every option in the usage summary appears in the user manual">
@@ -10272,6 +10363,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-129" name="Documentation Describes the Delivered Behaviour"/>
         <trace target="HLR" ref="HLR-130" name="Documentation Updated With the Behaviour It Describes"/>
+              <trace target="LLR" ref="LLR-DOC-06"/>
       </traces>
     </test>
     <test name="every long option the man page documents is accepted by elc">
@@ -10293,6 +10385,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-129" name="Documentation Describes the Delivered Behaviour"/>
         <trace target="HLR" ref="HLR-130" name="Documentation Updated With the Behaviour It Describes"/>
+              <trace target="LLR" ref="LLR-DOC-02"/>
+        <trace target="LLR" ref="LLR-DOC-06"/>
       </traces>
     </test>
     <test name="every shipped query file is named in the user manual">
@@ -10300,6 +10394,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-129" name="Documentation Describes the Delivered Behaviour"/>
         <trace target="HLR" ref="HLR-130" name="Documentation Updated With the Behaviour It Describes"/>
+              <trace target="LLR" ref="LLR-BLD-08"/>
       </traces>
     </test>
     <test name="every language in the runtime is named in the user manual">
@@ -10311,6 +10406,30 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
     <test name="the counts block matches what Project.xml actually holds">
       <purpose><![CDATA[Traceability.md reports the requirement, contract, and test totals from one hand-maintained block, and nothing else checks it against the artefacts it counts. Re-rendering cannot detect a stale figure, because the document and the block read the same number.]]></purpose>
+    </test>
+      <test name="LLR-DOC-05: every output format is described in both documents">
+      <purpose><![CDATA[The documentation test can check the option lists against --help and cannot check that a new format was described. This is the part of that a machine can hold.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DOC-05"/>
+        <trace target="HLR" ref="HLR-129"/>
+        <trace target="HLR" ref="HLR-130"/>
+      </traces>
+    </test>
+      <test name="LLR-DOC-05: every companion artefact is described in both documents">
+      <purpose><![CDATA[Each named by the extension elc gives it, which is what a reader finds beside their report and looks up.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DOC-05"/>
+        <trace target="HLR" ref="HLR-129"/>
+        <trace target="HLR" ref="HLR-130"/>
+      </traces>
+    </test>
+      <test name="LLR-DOC-05: every category of finding is described in both documents">
+      <purpose><![CDATA[Taken from the threshold catalogue's own measurement names, so a category added to the catalogue and to neither document fails here rather than being met by a reader who cannot look it up.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DOC-05"/>
+        <trace target="HLR" ref="HLR-129"/>
+        <trace target="HLR" ref="HLR-130"/>
+      </traces>
     </test>
   </file>
 
@@ -10500,6 +10619,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-012"/>
         <trace target="LLR" ref="LLR-MAIN-18"/>
+              <trace target="LLR" ref="LLR-RPT-07"/>
       </traces>
     </test>
     <test name="HLR-012: a skipped file is also reported on stderr">
@@ -10545,6 +10665,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-035"/>
         <trace target="HLR" ref="HLR-038"/>
+              <trace target="LLR" ref="LLR-ANL-28"/>
       </traces>
     </test>
         <test name="HLR-019: each file reports its own line and function counts">
@@ -10564,6 +10685,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A file target and a directory target produce the same sections in the same order.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-006"/>
+              <trace target="LLR" ref="LLR-RPT-13"/>
       </traces>
     </test>
     <test name="HLR-015: each function reports its own ELOC">
@@ -10582,6 +10704,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The report carries a per-language section, so each language's contribution is separately visible.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-025"/>
+              <trace target="LLR" ref="LLR-RPT-02"/>
+        <trace target="LLR" ref="LLR-RPT-19"/>
       </traces>
     </test>
     <test name="HLR-025: the per-language totals sum to the project totals">
@@ -10589,6 +10713,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-025"/>
         <trace target="HLR" ref="HLR-024"/>
+              <trace target="LLR" ref="LLR-RPT-02"/>
       </traces>
     </test>
     <test name="HLR-019: a header of declarations only reports zero ELOC">
@@ -10608,6 +10733,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-011"/>
         <trace target="HLR" ref="HLR-007"/>
+              <trace target="LLR" ref="LLR-BLD-07"/>
       </traces>
     </test>
     <test name="HLR-008: a mixed-language target is analysed in one invocation">
@@ -10622,6 +10748,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-025"/>
         <trace target="HLR" ref="HLR-011"/>
+              <trace target="LLR" ref="LLR-RPT-19"/>
       </traces>
     </test>
     <test name="HLR-011: elc requires no particular language to be present">
@@ -10671,6 +10798,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The report carries both project-wide callouts, naming the function and the file.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-026"/>
+              <trace target="LLR" ref="LLR-RPT-03"/>
       </traces>
     </test>
     <test name="HLR-022: the threshold defaults to 15">
@@ -10683,12 +10811,15 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A function meeting the threshold appears in the per-file listing, against the file that defines it.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-021"/>
+              <trace target="LLR" ref="LLR-RPT-05"/>
+        <trace target="LLR" ref="LLR-RPT-20"/>
       </traces>
     </test>
     <test name="HLR-021: the listing is at-or-over, not strictly over">
       <purpose><![CDATA[A function whose complexity equals the threshold is listed; one below it is not. The boundary is the requirement's word, and an off-by-one here is invisible in any other test.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-021"/>
+              <trace target="LLR" ref="LLR-RPT-20"/>
       </traces>
     </test>
     <test name="HLR-022: a lower threshold lists more">
@@ -10709,12 +10840,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-023"/>
         <trace target="HLR" ref="HLR-120"/>
+              <trace target="LLR" ref="LLR-RPT-06"/>
       </traces>
     </test>
     <test name="HLR-023: the threshold changes the listing and nothing else">
       <purpose><![CDATA[Everything above the listing section is byte-identical at two very different thresholds, so no total, callout, or ordering moves with it.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-023"/>
+              <trace target="LLR" ref="LLR-RPT-06"/>
       </traces>
     </test>
     <test name="HLR-023: the threshold does not change the totals or the callouts">
@@ -10730,6 +10863,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="HLR" ref="HLR-026"/>
         <trace target="HLR" ref="HLR-032"/>
         <trace target="HLR" ref="HLR-033"/>
+              <trace target="LLR" ref="LLR-RPT-04"/>
+        <trace target="LLR" ref="LLR-RPT-21"/>
       </traces>
     </test>
     <test name="HLR-032: two runs with a threshold are byte-identical">
@@ -10984,11 +11119,12 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
 </file>
 
-  <file path="test/integration/formats.bats" role="integration" count="27">
+  <file path="test/integration/formats.bats" role="integration" count="28">
     <test name="HLR-027: table is the format when none is selected">
       <purpose><![CDATA[The aligned table is what a run with no format option produces.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-027"/>
+              <trace target="LLR" ref="LLR-TBL-02"/>
       </traces>
     </test>
     <test name="HLR-027: table may also be selected explicitly">
@@ -11001,12 +11137,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[CSV carries a header and a record naming each function.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-028"/>
+              <trace target="LLR" ref="LLR-CSV-02"/>
       </traces>
     </test>
     <test name="HLR-029: md produces GitHub-Flavored Markdown">
       <purpose><![CDATA[Markdown carries headings and pipe tables rather than the aligned form.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-029"/>
+              <trace target="LLR" ref="LLR-MKD-01"/>
       </traces>
     </test>
     <test name="HLR-054: xml produces a record with a version">
@@ -11032,6 +11170,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The two formats emit the same headings in the same order, which is the observable form of their sharing one traversal.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-031"/>
+              <trace target="LLR" ref="LLR-SUM-03"/>
       </traces>
     </test>
     <test name="HLR-031: a tier with no rows appears in both">
@@ -11052,6 +11191,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-028"/>
         <trace target="HLR" ref="HLR-023"/>
+              <trace target="LLR" ref="LLR-CSV-02"/>
       </traces>
     </test>
     <test name="HLR-054: xml is unfiltered by the threshold">
@@ -11157,6 +11297,13 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="HLR" ref="HLR-148"/>
       </traces>
     </test>
+      <test name="LLR-SUM-04: no line of the aligned table carries trailing whitespace">
+      <purpose><![CDATA[The final column is left-aligned and unpadded for this reason, and the rule had a hole: an empty final cell still emitted the two-space separator that would have preceded it, so every row with a blank Finding column ended in whitespace. Asserted over the verbose report so every tier is present.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-04"/>
+        <trace target="HLR" ref="HLR-027"/>
+      </traces>
+    </test>
   </file>
 
   <file path="test/integration/verbosity.bats" role="integration" count="16">
@@ -11203,6 +11350,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-151"/>
         <trace target="HLR" ref="HLR-150"/>
+              <trace target="LLR" ref="LLR-SUM-01"/>
       </traces>
     </test>
     <test name="HLR-151: -v is the short form of --verbose">
@@ -11223,6 +11371,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-031"/>
         <trace target="HLR" ref="HLR-150"/>
+              <trace target="LLR" ref="LLR-SUM-03"/>
       </traces>
     </test>
     <test name="HLR-152: --verbose with an xml output is accepted, not rejected">
@@ -11256,6 +11405,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-056"/>
         <trace target="HLR" ref="HLR-152"/>
+              <trace target="LLR" ref="LLR-XRD-08"/>
       </traces>
     </test>
     <test name="HLR-056: the two verbosities regenerate differently from one record">
@@ -11286,6 +11436,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The file's ELOC accounts for every qualifying line, including the one that belongs to no function.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-019"/>
+              <trace target="LLR" ref="LLR-ANL-23"/>
       </traces>
     </test>
     <test name="HLR-049 – HLR-052: blanks, braces, bare declarations and directives are excluded">
@@ -11295,6 +11446,10 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="HLR" ref="HLR-050"/>
         <trace target="HLR" ref="HLR-051"/>
         <trace target="HLR" ref="HLR-052"/>
+              <trace target="LLR" ref="LLR-ANL-17"/>
+        <trace target="LLR" ref="LLR-ANL-18"/>
+        <trace target="LLR" ref="LLR-ANL-19"/>
+        <trace target="LLR" ref="LLR-ANL-20"/>
       </traces>
     </test>
     <test name="HLR-017: the hand-counted complexity matches">
@@ -11326,6 +11481,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[An initialising declaration, a plain assignment, and a compound operation each contribute a line.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-044"/>
+              <trace target="LLR" ref="LLR-ANL-12"/>
       </traces>
     </test>
     <test name="HLR-046: a call counts whether or not its result is used">
@@ -11333,12 +11489,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-046"/>
         <trace target="HLR" ref="HLR-051"/>
+              <trace target="LLR" ref="LLR-ANL-14"/>
       </traces>
     </test>
     <test name="HLR-047: a return counts, with or without a value">
       <purpose><![CDATA[A bare return and a return carrying a value each contribute a line.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-047"/>
+              <trace target="LLR" ref="LLR-ANL-15"/>
       </traces>
     </test>
     <test name="HLR-045: else-if on one line counts once">
@@ -11346,12 +11504,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-045"/>
         <trace target="HLR" ref="HLR-053"/>
+              <trace target="LLR" ref="LLR-ANL-13"/>
       </traces>
     </test>
     <test name="HLR-020: a file with nothing executable reports zero, without error">
       <purpose><![CDATA[A file of comments, directives, and declarations reports zero ELOC and succeeds.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-020"/>
+              <trace target="LLR" ref="LLR-ANL-24"/>
       </traces>
     </test>
     <test name="HLR-011: C++ matches its hand-counted categories">
@@ -11379,6 +11539,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The one ELOC category C cannot express. `try`, `catch`, and `throw` each contribute a line, which no earlier phase could verify in any shipped language.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-048"/>
+              <trace target="LLR" ref="LLR-ANL-16"/>
       </traces>
     </test>
     <test name="HLR-048: a catch clause is a decision point">
@@ -11408,6 +11569,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A string containing a block-comment opener is a string. A textual matcher would open a comment there and swallow the rest of the file.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-013"/>
+              <trace target="LLR" ref="LLR-ANL-32"/>
       </traces>
     </test>
     <test name="HLR-013: a line-comment opener inside a string discards nothing">
@@ -11420,6 +11582,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[An unbalanced quote inside a comment opens nothing. A matcher tracking strings textually would mis-read everything after it — the case no regular expression survives, and the reason HLR-013's verification is bound to this group.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-013"/>
+              <trace target="LLR" ref="LLR-ANL-32"/>
       </traces>
     </test>
     <test name="HLR-016: a comment sharing a line with code does not remove that line">
@@ -11439,6 +11602,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A file with nothing but comments reports zero, without error.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-020"/>
+              <trace target="LLR" ref="LLR-ANL-24"/>
       </traces>
     </test>
   </file>
@@ -11562,12 +11726,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[An independent parser accepts the document, so the escaping is correct rather than merely present.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-065"/>
+              <trace target="LLR" ref="LLR-ESC-02"/>
       </traces>
     </test>
     <test name="HLR-065: the structural characters are escaped, not emitted raw">
       <purpose><![CDATA[The angle brackets, ampersand, and quotation marks appear as entities in the document.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-065"/>
+              <trace target="LLR" ref="LLR-ESC-02"/>
       </traces>
     </test>
     <test name="HLR-065: the path arrives intact after unescaping">
@@ -11606,6 +11772,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The angle brackets appear as entities, never raw, so no identifier can open or close a tag.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-065"/>
+              <trace target="LLR" ref="LLR-GML-04"/>
       </traces>
     </test>
     <test name="HLR-065: XML carrying such an identifier is well-formed">
@@ -11623,7 +11790,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/fixtures/regeneration.bats" role="fixture" count="19">
+  <file path="test/fixtures/regeneration.bats" role="fixture" count="20">
     <test name="the hand-counted subject totals match">
       <purpose><![CDATA[The subject's totals match the values in the fixture's header, so a later failure is about the round trip rather than about the subject having changed.]]></purpose>
       <traces>
@@ -11634,36 +11801,42 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The report rebuilt from a record is identical to the one a direct analysis produces at the same threshold — not similar, identical, so a diff of the two is empty.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-056"/>
+              <trace target="LLR" ref="LLR-XRD-08"/>
       </traces>
     </test>
     <test name="HLR-057: the threshold supplied now is the one applied">
       <purpose><![CDATA[Regeneration at a given threshold matches a direct run at that threshold, so the threshold reaches the rebuilt report.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-057"/>
+              <trace target="LLR" ref="LLR-CLI-11"/>
       </traces>
     </test>
     <test name="HLR-057: the same record at two thresholds gives two listings">
       <purpose><![CDATA[Two thresholds over one record produce different reports. Without this, the test above would pass for a build that ignored the threshold entirely.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-057"/>
+              <trace target="LLR" ref="LLR-CLI-11"/>
       </traces>
     </test>
     <test name="HLR-055: regeneration reads no source file">
       <purpose><![CDATA[A report is produced from the record with the working directory elsewhere and the source unreachable.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-055"/>
+              <trace target="LLR" ref="LLR-MAIN-03"/>
       </traces>
     </test>
     <test name="HLR-054: the record carries every tier the report presents">
       <purpose><![CDATA[Every tier the report has today appears in the record — the totals, the languages, the files and their functions, and the skipped list. A tier missing here regenerates as a report that looks complete and is not.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-054"/>
+              <trace target="LLR" ref="LLR-XWR-02"/>
       </traces>
     </test>
     <test name="HLR-061: the record carries a format-version identifier">
       <purpose><![CDATA[The record identifies the structure it uses, exactly once.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-061"/>
+              <trace target="LLR" ref="LLR-XWR-05"/>
       </traces>
     </test>
     <test name="HLR-058: input that is not XML is rejected with no output">
@@ -11684,12 +11857,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-058"/>
         <trace target="HLR" ref="HLR-061"/>
+              <trace target="LLR" ref="LLR-XWR-05"/>
       </traces>
     </test>
     <test name="HLR-058: a truncated record is rejected">
       <purpose><![CDATA[A record whose root never closes is rejected rather than read as far as it goes.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-058"/>
+              <trace target="LLR" ref="LLR-XRD-02"/>
       </traces>
     </test>
     <test name="HLR-058: an absent record is rejected">
@@ -11722,6 +11897,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-063"/>
         <trace target="HLR" ref="HLR-055"/>
+              <trace target="LLR" ref="LLR-CLI-17"/>
       </traces>
     </test>
     <test name="HLR-122: regeneration writes no .dot, default-on though it is">
@@ -11729,6 +11905,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-122"/>
         <trace target="LLR" ref="LLR-WAR-03"/>
+              <trace target="LLR" ref="LLR-MAIN-04"/>
       </traces>
     </test>
     <test name="LLR-CLI-15: an explicit companion request with --from-xml is rejected">
@@ -11746,9 +11923,16 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="LLR" ref="LLR-CLI-15"/>
       </traces>
     </test>
+      <test name="LLR-XRD-10: a numeric attribute that is not a number is a malformed record">
+      <purpose><![CDATA[Not a zero. A record accepted on those terms renders perfectly cleanly and reports the wrong figure, which is the one failure mode a regenerated report has no way of showing its reader — every other rejection at least tells them something is wrong.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-10"/>
+        <trace target="HLR" ref="HLR-058"/>
+      </traces>
+    </test>
   </file>
 
-  <file path="test/fixtures/runtime.bats" role="fixture" count="19">
+  <file path="test/fixtures/runtime.bats" role="fixture" count="22">
     <test name="an intact runtime analyses the subject">
       <purpose><![CDATA[The control the rest of the group is read against: an unbroken runtime directory analyses the subject and reports its function.]]></purpose>
       <traces>
@@ -11760,6 +11944,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-036"/>
         <trace target="HLR" ref="HLR-120"/>
+              <trace target="LLR" ref="LLR-MAIN-05"/>
       </traces>
     </test>
     <test name="HLR-036: a runtime location that is a file is fatal">
@@ -11773,6 +11958,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-036"/>
         <trace target="HLR" ref="HLR-060"/>
+              <trace target="LLR" ref="LLR-ROP-07"/>
       </traces>
     </test>
     <test name="HLR-036: an extension map naming no language is fatal">
@@ -11825,6 +12011,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-070"/>
         <trace target="HLR" ref="HLR-038"/>
+              <trace target="LLR" ref="LLR-RFP-09"/>
       </traces>
     </test>
     <test name="HLR-070: an unusable module is reported once, not once per file">
@@ -11850,6 +12037,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-ROP-09"/>
         <trace target="HLR" ref="HLR-059"/>
+              <trace target="LLR" ref="LLR-ROP-07"/>
       </traces>
     </test>
     <test name="HLR-059: the install puts the runtime where the binary looks for it">
@@ -11873,7 +12061,29 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="HLR" ref="HLR-036"/>
       </traces>
     </test>
-</file>
+    <test name="LLR-DOC-03: the staging root carries the man page and the manual">
+      <purpose><![CDATA[The deliverable is not only the binary and the runtime: SDP §5.5 calls the install target's output the deliverable and HLR-128 says both documents ship with it, so a release installing a working elc and neither document would satisfy every test there was and still fall short of what was promised.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DOC-03"/>
+        <trace target="HLR" ref="HLR-128"/>
+      </traces>
+    </test>
+      <test name="LLR-DOC-03: the installed man page is the one that renders">
+      <purpose><![CDATA[Asserted against the installed copy rather than the source tree's, since installing a truncated or empty file would pass a check made on the original.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DOC-03"/>
+        <trace target="LLR" ref="LLR-DOC-01"/>
+        <trace target="HLR" ref="HLR-128"/>
+      </traces>
+    </test>
+      <test name="HLR-059: the installed binary is executable as installed">
+      <purpose><![CDATA[The mode `install -m 755` claims. A target that got it wrong would show up only at the moment a user first ran the installed copy.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ROP-09"/>
+        <trace target="HLR" ref="HLR-059"/>
+      </traces>
+    </test>
+  </file>
 
   <file path="test/fixtures/traversal.bats" role="fixture" count="11">
     <test name="the walk yields exactly the three source files">
@@ -11995,6 +12205,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-DED-09"/>
         <trace target="HLR" ref="HLR-032"/>
+              <trace target="LLR" ref="LLR-RPT-28"/>
       </traces>
     </test>
     <test name="HLR-137: the consequence of if (0) and the else of if (1) are reported">
@@ -12037,6 +12248,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-DED-01"/>
         <trace target="HLR" ref="HLR-137"/>
+              <trace target="LLR" ref="LLR-RPT-26"/>
       </traces>
     </test>
     <test name="HLR-016: a comment is not dead code">
@@ -12051,6 +12263,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-DED-05"/>
         <trace target="HLR" ref="HLR-139"/>
+              <trace target="LLR" ref="LLR-XWR-09"/>
       </traces>
     </test>
     <test name="HLR-139: a language with no dead-code query is reported not analysed">
@@ -12058,6 +12271,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-DED-05"/>
         <trace target="HLR" ref="HLR-139"/>
+              <trace target="LLR" ref="LLR-RPT-26"/>
       </traces>
     </test>
     <test name="HLR-139: removing a query file makes that language unanalysed, not clean">
@@ -12086,6 +12300,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-DED-06"/>
         <trace target="HLR" ref="HLR-137"/>
+              <trace target="LLR" ref="LLR-RPT-28"/>
       </traces>
     </test>
     <test name="HLR-139: dead code is found in every language supplying a query">
@@ -12110,6 +12325,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-RCH-03"/>
         <trace target="HLR" ref="HLR-097"/>
+              <trace target="LLR" ref="LLR-RCH-02"/>
       </traces>
     </test>
     <test name="HLR-096: a function reachable only through an address-taken pointer is NOT reported">
@@ -12180,6 +12396,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-GLB-01"/>
         <trace target="HLR" ref="HLR-091"/>
+              <trace target="LLR" ref="LLR-RPT-29"/>
       </traces>
     </test>
     <test name="HLR-092: a global touched by one function is flagged for scope reduction">
@@ -12229,6 +12446,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-ISO-01"/>
         <trace target="HLR" ref="HLR-094"/>
+              <trace target="LLR" ref="LLR-RPT-29"/>
       </traces>
     </test>
     <test name="HLR-115: with no scopes declared the analysis is omitted with a reason">
@@ -12296,6 +12514,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-INS-01"/>
         <trace target="HLR" ref="HLR-082"/>
+              <trace target="LLR" ref="LLR-RPT-15"/>
       </traces>
     </test>
     <test name="HLR-082: a component with both couplings zero is undefined, not zero">
@@ -12345,6 +12564,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-CYC-02"/>
         <trace target="HLR" ref="HLR-083"/>
+              <trace target="LLR" ref="LLR-SDG-17"/>
       </traces>
     </test>
     <test name="HLR-083: the same pair is a recursion finding as well">
@@ -12359,6 +12579,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-CYC-03"/>
         <trace target="HLR" ref="HLR-083"/>
+              <trace target="LLR" ref="LLR-SDG-17"/>
       </traces>
     </test>
     <test name="LLR-CYC-03: that same file still reports the recursion">
@@ -12660,6 +12881,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-THR-02"/>
         <trace target="HLR" ref="HLR-099"/>
+              <trace target="LLR" ref="LLR-INS-03"/>
       </traces>
     </test>
     <test name="HLR-099: no published threshold is labelled as elc's own">
@@ -12695,6 +12917,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-THR-03"/>
         <trace target="HLR" ref="HLR-100"/>
+              <trace target="LLR" ref="LLR-MAIN-11"/>
       </traces>
     </test>
     <test name="HLR-100: the summary counts findings without gating on them">
@@ -12723,6 +12946,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-THR-09"/>
         <trace target="HLR" ref="HLR-101"/>
+              <trace target="LLR" ref="LLR-THR-10"/>
       </traces>
     </test>
     <test name="HLR-032: findings survive a record round trip byte-identically">
@@ -12764,6 +12988,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[All twenty-four functions are listed: this is a measurement table, not a finding list.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-085"/>
+              <trace target="LLR" ref="LLR-RPT-15"/>
       </traces>
     </test>
     <test name="HLR-156: fan-in counts the distinct functions that call one">
@@ -12855,12 +13080,15 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The ordered sequence from entry point to deepest leaf is reported, not merely its length.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-088"/>
+              <trace target="LLR" ref="LLR-LPD-02"/>
+              <trace target="LLR" ref="LLR-RPT-24"/>
       </traces>
     </test>
     <test name="HLR-088: the deepest branch is taken, not the first">
       <purpose><![CDATA[The entry point calls the shallow branch first; the reported chain is the deep one, so the traversal is a longest-path search and not a first-path one.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-088"/>
+              <trace target="LLR" ref="LLR-LPD-02"/>
       </traces>
     </test>
     <test name="HLR-087: the depth is presented with the unresolved count">
@@ -12880,12 +13108,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The members of each cycle are named, since MISRA C Rule 17.2 is about which functions are involved.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-089"/>
+              <trace target="LLR" ref="LLR-RPT-24"/>
       </traces>
     </test>
     <test name="HLR-090: recursion yields no depth figure, and the run terminates">
       <purpose><![CDATA[A recursive graph reports unbounded depth with no chain, and the run completes — a longest-path search over it would not.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-090"/>
+              <trace target="LLR" ref="LLR-RPT-25"/>
       </traces>
     </test>
     <test name="HLR-090: no finite depth is invented for a recursive graph">
@@ -12898,6 +13128,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The run succeeds and the report states that no entry points were declared, rather than reporting an empty or zero result.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-115"/>
+              <trace target="LLR" ref="LLR-RPT-09"/>
+        <trace target="LLR" ref="LLR-RPT-25"/>
       </traces>
     </test>
     <test name="HLR-115: an omitted depth does not omit the other measurements">
@@ -12910,12 +13142,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A file containing an obvious entry point still omits the analysis, because entry points are declared and never guessed at.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-095"/>
+              <trace target="LLR" ref="LLR-CLI-18"/>
       </traces>
     </test>
     <test name="HLR-115: an entry point matching nothing is a distinct omission">
       <purpose><![CDATA[A declared symbol matching no analysed function produces its own omission message, distinct from having declared none.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-115"/>
+              <trace target="LLR" ref="LLR-RPT-25"/>
       </traces>
     </test>
     <test name="an unmatched entry point is diagnosed on stderr">
@@ -12955,11 +13189,12 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/fixtures/dot.bats" role="fixture" count="24">
+  <file path="test/fixtures/dot.bats" role="fixture" count="25">
     <test name="HLR-102: the emitted call tree renders under Graphviz">
       <purpose><![CDATA[Validity is settled by handing the file to Graphviz and requiring it to render, never by matching text that looks like DOT — the first artefact elc produces for another program to read deserves the reader's own verdict.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-102"/>
+              <trace target="LLR" ref="LLR-DOT-01"/>
       </traces>
     </test>
     <test name="HLR-102: the recursive tree renders too">
@@ -12979,18 +13214,23 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The companion appears with no option naming it, which is the default the requirement states.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-103"/>
+              <trace target="LLR" ref="LLR-MAIN-15"/>
+        <trace target="LLR" ref="LLR-CLI-06"/>
       </traces>
     </test>
     <test name="HLR-103: --no-dot suppresses it">
       <purpose><![CDATA[The report is still written and the companion is not, so declining the artefact costs the run nothing else.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-103"/>
+              <trace target="LLR" ref="LLR-MAIN-15"/>
+        <trace target="LLR" ref="LLR-CLI-06"/>
       </traces>
     </test>
     <test name="HLR-104: no call tree is written when the report goes to stdout">
       <purpose><![CDATA[With no output path there is no name to derive, so nothing is written and no default name is invented.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-104"/>
+              <trace target="LLR" ref="LLR-MAIN-15"/>
       </traces>
     </test>
     <test name="HLR-104: still none on stdout with generation disabled">
@@ -13112,12 +13352,21 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A run full of critical findings in which every file was read still exits 0. Severity is a label, and drawing it on a graph does not change that.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-100"/>
+              <trace target="LLR" ref="LLR-MAIN-11"/>
       </traces>
     </test>
     <test name="a forward declaration is not a node">
       <purpose><![CDATA[Three nodes and not four, which also pins that the C module's function query captures definitions rather than declarations.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-013"/>
+      </traces>
+    </test>
+      <test name="LLR-DOT-05: a companion that cannot be written is diagnosed, not fatal">
+      <purpose><![CDATA[The primary report is the deliverable and the call tree is a companion, so a companion that cannot be created leaves the report written and says so. The path is blocked with a directory rather than with permissions, which fopen refuses whatever the mode is — so the case reproduces for root, where a read-only directory would not.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DOT-05"/>
+        <trace target="HLR" ref="HLR-103"/>
+        <trace target="HLR" ref="HLR-119"/>
       </traces>
     </test>
   </file>
@@ -13395,6 +13644,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[Nine functions, nine ELOC, five undecided regions, against a table worked out by hand. Every function holds exactly one statement so the second column can be checked against the first.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-131"/>
+              <trace target="LLR" ref="LLR-ANL-45"/>
       </traces>
     </test>
     <test name="HLR-132: -DFEATURE measures the configuration in which it is defined">
@@ -13402,6 +13652,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-132"/>
         <trace target="LLR" ref="LLR-CND-03"/>
+              <trace target="LLR" ref="LLR-ANL-42"/>
       </traces>
     </test>
     <test name="HLR-132: a definition can make a condition false as well as true">
@@ -13430,6 +13681,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-133"/>
         <trace target="LLR" ref="LLR-CND-05"/>
+              <trace target="LLR" ref="LLR-ANL-44"/>
       </traces>
     </test>
     <test name="HLR-133: an undecidable condition is counted, not silently kept">
@@ -13490,6 +13742,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-136"/>
         <trace target="LLR" ref="LLR-SUM-08"/>
+              <trace target="LLR" ref="LLR-RPT-27"/>
+              <trace target="LLR" ref="LLR-SUM-05"/>
       </traces>
     </test>
     <test name="HLR-031: the section is emitted with no definitions supplied">
@@ -13503,6 +13757,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-032"/>
         <trace target="LLR" ref="LLR-RPT-33"/>
+              <trace target="LLR" ref="LLR-RPT-27"/>
       </traces>
     </test>
     <test name="HLR-056: a configured run survives a record round trip">
@@ -13517,6 +13772,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-136"/>
         <trace target="LLR" ref="LLR-XWR-16"/>
+              <trace target="LLR" ref="LLR-XWR-10"/>
+        <trace target="LLR" ref="LLR-XRD-13"/>
       </traces>
     </test>
     <test name="HLR-063: -D with --from-xml is a usage error">
@@ -13524,6 +13781,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-063"/>
         <trace target="LLR" ref="LLR-CLI-24"/>
+              <trace target="LLR" ref="LLR-CLI-21"/>
       </traces>
     </test>
     <test name="HLR-032: two configured runs produce identical output">
@@ -13538,6 +13796,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-132"/>
         <trace target="LLR" ref="LLR-ANL-56"/>
+              <trace target="LLR" ref="LLR-ANL-43"/>
       </traces>
     </test>
     <test name="HLR-132: a decision point inside an uncompiled region is not counted">
@@ -13559,6 +13818,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-CND-08"/>
         <trace target="HLR" ref="HLR-134"/>
+              <trace target="LLR" ref="LLR-RFP-10"/>
       </traces>
     </test>
     <test name="LLR-CND-08: a definition changes nothing for such a language">
@@ -13568,17 +13828,21 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       </traces>
     </test></file>
 
-  <file path="test/fixtures/rules.bats" role="fixture" count="17">
+  <file path="test/fixtures/rules.bats" role="fixture" count="19">
     <test name="HLR-109: one rule file expresses several independently named rules">
       <purpose><![CDATA[Three matches under two identities. A rule's identity is the file's basename plus the capture name, so a fixture with one capture per file could not show it.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-109"/>
+              <trace target="LLR" ref="LLR-ANL-26"/>
+        <trace target="LLR" ref="LLR-ANL-27"/>
+        <trace target="LLR" ref="LLR-CRM-03"/>
       </traces>
     </test>
     <test name="HLR-109: the match count is reported in the heading">
       <purpose><![CDATA[The section names how many matched, so an empty one is a result rather than an absence of information.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-109"/>
+              <trace target="LLR" ref="LLR-RPT-14"/>
       </traces>
     </test>
     <test name="HLR-107: a rule's predicate is evaluated, so free is not an allocation">
@@ -13599,6 +13863,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The absence is the requirement rather than an omission: elc reports what a rule matched and forms no view about whether the rule was worth writing, so there is nothing honest to put in a severity column and there is none.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-111"/>
+              <trace target="LLR" ref="LLR-CRM-04"/>
+        <trace target="LLR" ref="LLR-THR-10"/>
       </traces>
     </test>
     <test name="HLR-107: a rule in the runtime location is used without being named">
@@ -13606,12 +13872,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-107"/>
         <trace target="LLR" ref="LLR-RLR-02"/>
+              <trace target="LLR" ref="LLR-RLR-10"/>
       </traces>
     </test>
     <test name="HLR-107: what a rule does does not depend on how it arrived">
       <purpose><![CDATA[The same query from both provenances produces the same matches; only the identity's first half differs, that being the file's name. What a rule does cannot depend on how it was supplied.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-107"/>
+              <trace target="LLR" ref="LLR-CRM-01"/>
       </traces>
     </test>
     <test name="HLR-108: adding a rule requires no rebuild">
@@ -13619,6 +13887,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-108"/>
         <trace target="LLR" ref="LLR-RLR-04"/>
+              <trace target="LLR" ref="LLR-RFP-04"/>
       </traces>
     </test>
     <test name="HLR-116: a broken rule in the runtime location is skipped, not fatal">
@@ -13633,6 +13902,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-116"/>
         <trace target="LLR" ref="LLR-RLR-06"/>
+              <trace target="LLR" ref="LLR-RLR-08"/>
       </traces>
     </test>
     <test name="HLR-116: a named rule that does not exist is fatal and names itself">
@@ -13640,12 +13910,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-116"/>
         <trace target="LLR" ref="LLR-RLR-06"/>
+              <trace target="LLR" ref="LLR-RLR-08"/>
       </traces>
     </test>
     <test name="LLR-RLR-03: a rule naming an unavailable language is skipped">
       <purpose><![CDATA[What is missing is the module rather than the rule, which is the absence that makes a source file a skip and not a failure.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-RLR-03"/>
+              <trace target="LLR" ref="LLR-RLR-10"/>
       </traces>
     </test>
     <test name="HLR-063: --rules without a language is a usage error">
@@ -13653,6 +13925,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-063"/>
         <trace target="LLR" ref="LLR-RLR-09"/>
+              <trace target="LLR" ref="LLR-CLI-09"/>
       </traces>
     </test>
     <test name="HLR-110: no rule is discovered from the working directory or target">
@@ -13681,6 +13954,22 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-032"/>
         <trace target="LLR" ref="LLR-RLR-11"/>
+              <trace target="LLR" ref="LLR-RPT-32"/>
+      </traces>
+    </test>
+      <test name="LLR-ANL-47: a directive carries information and does not filter">
+      <purpose><![CDATA[`#set!` attaches a property to a match rather than filtering it, and the match must survive. An evaluator treating every unrecognised predicate alike would discard it and the rule would silently find nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-47"/>
+        <trace target="HLR" ref="HLR-107"/>
+      </traces>
+    </test>
+      <test name="LLR-ANL-47: a filter this build cannot apply discards the match">
+      <purpose><![CDATA[The opposite direction, and the reason it is that way round: a filter the query author wrote and this build cannot honour is a condition nobody applied, and accepting the match would apply that condition's inverse. Under-reporting is the direction every capture in the contract errs in.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-47"/>
+        <trace target="HLR" ref="HLR-107"/>
+        <trace target="HLR" ref="HLR-111"/>
       </traces>
     </test>
   </file>
@@ -13691,12 +13980,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-106"/>
         <trace target="HLR" ref="HLR-073"/>
+              <trace target="LLR" ref="LLR-GML-01"/>
       </traces>
     </test>
     <test name="HLR-106: the export is off unless asked for">
       <purpose><![CDATA[No GraphML file appears without the option, whatever the output path.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-106"/>
+              <trace target="LLR" ref="LLR-CLI-07"/>
       </traces>
     </test>
     <test name="HLR-106: no companion is written when the report goes to stdout">
@@ -13738,6 +14029,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A writer in one file and a reader in another are joined by an edge naming the object, though neither names the other.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-074"/>
+              <trace target="LLR" ref="LLR-ANL-25"/>
       </traces>
     </test>
     <test name="HLR-074: call edges and global edges are distinguishable">
@@ -13750,6 +14042,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A function assigned to a pointer without being called is marked a reachability root, and the function that installs it is not.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-096"/>
+              <trace target="LLR" ref="LLR-ANL-25"/>
       </traces>
     </test>
     <test name="HLR-077: an unresolvable call is counted, not fatal">
@@ -13762,6 +14055,9 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[The project summary states the count, so a reader can judge the graph's completeness without reading the export.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-077"/>
+              <trace target="LLR" ref="LLR-RPT-08"/>
+        <trace target="LLR" ref="LLR-RPT-23"/>
+              <trace target="LLR" ref="LLR-XWR-07"/>
       </traces>
     </test>
     <test name="HLR-077: no destination is invented for an unresolved call">
@@ -13802,6 +14098,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-076"/>
+              <trace target="LLR" ref="LLR-MAIN-06"/>
+        <trace target="LLR" ref="LLR-SDG-06"/>
       </traces>
     </test>
   </file>
@@ -14177,6 +14475,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A tracked file named `.c` whose content is binary is excluded, and the extension list is shown not to contain `.c`, so git's own content check is what excluded it.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-003"/>
+              <trace target="LLR" ref="LLR-GIT-03"/>
       </traces>
     </test>
     <test name="HLR-005: the exclusions of the filesystem walk apply to this route too">
@@ -14210,6 +14509,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-004"/>
         <trace target="HLR" ref="HLR-127"/>
+              <trace target="LLR" ref="LLR-DSC-05"/>
       </traces>
     </test>
     <test name="HLR-002: an enclosing repository that does not track the target is disregarded">
@@ -14217,6 +14517,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-002"/>
         <trace target="HLR" ref="HLR-004"/>
+              <trace target="LLR" ref="LLR-DSC-05"/>
       </traces>
     </test>
     <test name="HLR-002: a directory tracked by no repository above it falls back">
@@ -14237,6 +14538,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[A run over a repository target and a plain directory reports a Discovery section naming each target with the route applied to it.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-127"/>
+              <trace target="LLR" ref="LLR-RPT-17"/>
       </traces>
     </test>
     <test name="HLR-072: one directory named twice is one row, canonically spelled">
@@ -14251,12 +14553,14 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-033"/>
         <trace target="HLR" ref="HLR-127"/>
+              <trace target="LLR" ref="LLR-RPT-17"/>
       </traces>
     </test>
     <test name="HLR-006: a repository target produces the same report shape as any other">
       <purpose><![CDATA[A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-006"/>
+              <trace target="LLR" ref="LLR-RPT-13"/>
       </traces>
     </test>
     <test name="HLR-056: the record carries the route, so regeneration is the same report">
@@ -14265,6 +14569,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="HLR" ref="HLR-055"/>
         <trace target="HLR" ref="HLR-056"/>
         <trace target="HLR" ref="HLR-127"/>
+              <trace target="LLR" ref="LLR-XWR-06"/>
+        <trace target="LLR" ref="LLR-XRD-12"/>
       </traces>
     </test>
   </file>
@@ -14305,6 +14611,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[Configuration-like files planted in all three locations produce output byte-identical to their absence.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-039"/>
+              <trace target="LLR" ref="LLR-CLI-14"/>
+        <trace target="LLR" ref="LLR-ROP-06"/>
       </traces>
     </test>
     <test name="HLR-039: a decoy does not change the file count either">
@@ -14315,30 +14623,35 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
     </test>
   </file>
 
-  <file path="test/instrumented/environment.bats" role="instrumented" count="32">
+  <file path="test/instrumented/environment.bats" role="instrumented" count="36">
     <test name="HLR-040: the binary links no interpreter or virtual machine">
       <purpose><![CDATA[The link line is checked against an allowlist; a language runtime appearing there is what the requirement forbids.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-040" name="Excluded Runtime Dependencies"/>
         <trace target="LLR" ref="LLR-BLD-21"/>
+              <trace target="LLR" ref="LLR-BLD-01"/>
+        <trace target="LLR" ref="LLR-BLD-03"/>
       </traces>
     </test>
     <test name="HLR-040: elc makes no network syscall">
       <purpose><![CDATA[`strace -e trace=%network` over a full run logs no network syscall. This observes the syscalls directly rather than inferring the property from survival inside an isolated network namespace: it proves `elc` never *attempts* network access, and it runs in containers where unprivileged user namespaces are unavailable.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-040" name="Excluded Runtime Dependencies"/>
+              <trace target="LLR" ref="LLR-BLD-02"/>
       </traces>
     </test>
     <test name="HLR-041: /proc reports a single thread while elc runs">
       <purpose><![CDATA[The running process reports exactly one thread. Redirecting the report into a FIFO removes the race that made this observation impossible before: opening a FIFO for writing blocks until a reader arrives, so the sample is taken while elc is certainly alive.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-041"/>
+              <trace target="LLR" ref="LLR-MAIN-14"/>
       </traces>
     </test>
     <test name="HLR-041: elc issues no thread-creating syscall">
       <purpose><![CDATA[No clone or clone3 syscall is observed for the whole run, which is stronger than sampling a thread count because it holds for every instant rather than the one sampled.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-041"/>
+              <trace target="LLR" ref="LLR-MAIN-14"/>
       </traces>
     </test>
     <test name="HLR-041: elc links no threading library">
@@ -14395,6 +14708,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[No delivered grammar has an unresolved external-scanner symbol. The rule located an optional scanner with a construct make expands before running the recipe, so it looked for a file the fetch above it had not unpacked and silently found none — invisible while C, which has no scanner, was the only grammar.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-BLD-16"/>
+              <trace target="LLR" ref="LLR-BLD-12"/>
       </traces>
     </test>
     <test name="the grammar build takes its owner and reference as parameters">
@@ -14407,6 +14721,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[Each name the build lists has a rule behind it. A missing one fails only on a clean tree, which is the tree nobody builds on.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-BLD-15"/>
+              <trace target="LLR" ref="LLR-BLD-07"/>
+        <trace target="LLR" ref="LLR-BLD-12"/>
       </traces>
     </test>
     <test name="check-prereqs reports every grammar against upstream">
@@ -14426,6 +14742,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-060"/>
         <trace target="HLR" ref="HLR-121"/>
+              <trace target="LLR" ref="LLR-BLD-08"/>
       </traces>
     </test>
     <test name="HLR-043: elc does not modify the tree it analyses">
@@ -14444,6 +14761,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <purpose><![CDATA[No source file is opened twice for the whole run, which is the observable form of the single-parse rule: a second open would mean some stage re-read it.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-076"/>
+              <trace target="LLR" ref="LLR-MAIN-06"/>
+        <trace target="LLR" ref="LLR-ANL-03"/>
       </traces>
     </test>
     <test name="HLR-009: the grammar is loaded from the runtime location, not linked">
@@ -14451,6 +14770,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-009"/>
         <trace target="HLR" ref="HLR-010"/>
+              <trace target="LLR" ref="LLR-RFP-04"/>
       </traces>
     </test>
     <test name="HLR-043: elc runs against a read-only directory">
@@ -14464,6 +14784,7 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="LLR" ref="LLR-BLD-20"/>
         <trace target="HLR" ref="HLR-112"/>
+              <trace target="LLR" ref="LLR-BLD-04"/>
       </traces>
     </test>
     <test name="HLR-125: the local sanitizer gate is as strong as the pipeline's">
@@ -14524,9 +14845,38 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       <traces>
         <trace target="HLR" ref="HLR-112"/>
         <trace target="LLR" ref="LLR-BLD-22"/>
+              <trace target="LLR" ref="LLR-BLD-04"/>
+        <trace target="LLR" ref="LLR-BLD-05"/>
       </traces>
     </test>
-</file>
+    <test name="LLR-MAIN-01: a usage error opens no file under the target">
+      <purpose><![CDATA[Observed rather than read off main, because the property is about ordering and ordering is only visible from outside: a version that discovered targets and then validated the command line would produce the identical diagnostic and the identical exit status. The target exists and holds a source file, so the run has something it could open and must not.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MAIN-01"/>
+        <trace target="HLR" ref="HLR-063"/>
+      </traces>
+    </test>
+      <test name="LLR-USG-08: no string literal in the usage summary reaches the C11 limit">
+      <purpose><![CDATA[ISO C11 guarantees a translation unit supports string literals of 4095 characters and no more, and the build treats a warning as a defect — so a summary that outgrew the guarantee would stop the build rather than degrade. It outgrew it as soon as the option list reached this size; this is what keeps the literals split as options are added.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-USG-08"/>
+      </traces>
+    </test>
+      <test name="LLR-THR-11: only the threshold catalogue attributes a band">
+      <purpose><![CDATA[The claim to carry no opinion is checkable only if a reviewer can read one table rather than audit every analysis for a constant. What is checked is the citation of a band's published source; a module naming a measure it merely presents is a different thing and a required one, since HLR-159 has the Henry-Kafura formula and its attribution travel with the figures.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-11"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+      <test name="LLR-BLD-06: the graph library brings in no second XML library">
+      <purpose><![CDATA[What building igraph with GraphML support off is worth. Its reader and writer are unused — elc writes GraphML itself — and enabling them links libxml2, which the project has no other need for. Asserted against the link line rather than the cmake flag, because the flag is the mechanism and this is the property.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-BLD-06"/>
+        <trace target="HLR" ref="HLR-112"/>
+      </traces>
+    </test>
+  </file>
 
   <file path="test/fixtures/smoke.bats" role="fixture" count="2">
     <test name="the fixture level is wired and elc is runnable">
@@ -14628,6 +14978,8 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="LLR" ref="LLR-ANL-33"/>
         <trace target="LLR" ref="LLR-ANL-34"/>
         <trace target="LLR" ref="LLR-SDG-11"/>
+              <trace target="LLR" ref="LLR-ANL-30"/>
+        <trace target="LLR" ref="LLR-ANL-31"/>
       </traces>
     </test>
     <test name="LLR-BLD-09: the build provides a sanitized configuration">
@@ -14675,5 +15027,51 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
       </traces>
     </test>
 </file>
+  <file path="test/instrumented/self.bats" role="instrumented" count="6">
+    <test name="LLR-BLD-23: no function in elc is at or over the complexity threshold">
+      <purpose><![CDATA[The self-quality check, as a catalogued test rather than as something a person remembers running. PR #45 brought the source under the threshold and six phases of feature work put 43 functions back over it with nothing saying so; the section is read from the report elc produces over its own `src/`, so the threshold asserted against is the one elc applies to everyone else.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-181"/>
+        <trace target="LLR" ref="LLR-BLD-23"/>
+      </traces>
+    </test>
+      <test name="LLR-BLD-24: elc's own components hold no dependency cycle">
+      <purpose><![CDATA[A cycle is what elc reports at critical severity in anyone else's code, and it had one: analyze.c included report.h for a single derivation, closing a loop with the module that renders what analysis produces.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-181"/>
+        <trace target="LLR" ref="LLR-BLD-24"/>
+        <trace target="HLR" ref="HLR-084"/>
+      </traces>
+    </test>
+      <test name="LLR-BLD-25: no call in elc resolves ambiguously">
+      <purpose><![CDATA[A precondition of the claim above rather than a tidiness check. elc resolves a call by name, so two file-local statics sharing one make every call to it point at whichever module was indexed first — an edge in the wrong place, in the graph the acyclicity is measured over.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-181"/>
+        <trace target="LLR" ref="LLR-BLD-25"/>
+        <trace target="HLR" ref="HLR-077"/>
+      </traces>
+    </test>
+      <test name="LLR-BLD-14: elc parses every one of its own source files">
+      <purpose><![CDATA[The delivered grammar cannot follow every construct C admits, and the project's answer is to avoid those constructs rather than to accept a per-file failure in its own report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-181"/>
+        <trace target="LLR" ref="LLR-BLD-14"/>
+      </traces>
+    </test>
+      <test name="LLR-BLD-14: no source file of elc is skipped for want of a module">
+      <purpose><![CDATA[The other half of the same claim: a file measured around damage and a file never measured at all are different failures, and neither is acceptable in the delivered source.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-181"/>
+        <trace target="LLR" ref="LLR-BLD-14"/>
+      </traces>
+    </test>
+      <test name="HLR-181: the self-analysis is the ordinary run, not a special mode">
+      <purpose><![CDATA[Nothing above passes an option that relaxes anything, and the absence of such an option is part of the claim: a tool that needed one to measure itself cleanly would have measured nothing.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-181"/>
+      </traces>
+    </test>
+  </file>
+
 </tests>
 </project>

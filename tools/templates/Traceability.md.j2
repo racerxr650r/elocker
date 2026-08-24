@@ -207,11 +207,16 @@ the [Software Test Plan](STP.md) catalogue.
 
 ## 6. Coverage Gaps
 
-The following items have no direct verification. They are
-typically structural, configuration, or aspirational
-requirements that are verified implicitly by the build system,
-by code review, or by the test harness existing at all (rather
-than by a dedicated test).
+**There are none.** Both tables below are empty, and that is the
+state a release is cut in: every requirement covering behaviour
+this release ships has at least one passing test tracing to it
+([SDP](SDP.md) §5.5).
+
+A gap appearing here is not a formality. It means a requirement
+was written and nothing checks it — and because `make asan`
+broadens memory-safety coverage as a side effect of covering a
+requirement, a requirement with no test has no memory-safety
+coverage either ([STP](STP.md) §7).
 
 ### 6.1 LLRs Without a Bound Test
 
@@ -237,6 +242,25 @@ LLR-bound test in their implementation chain.
 {%- set h = project.hlr_by_id[hid] -%}
 | {{ hlr_link(hid) }} | {{ h.name }} |
 {% endfor %}
+
+### 6.3 Verified by Review Rather Than by Execution
+
+Three claims cannot be settled by any run of the binary. They are
+recorded here rather than in the tables above because they are
+**not gaps**: each is verified, by a reviewer, and each has a test
+asserting as much of it as execution can reach ([STP](STP.md) §2.4,
+§7).
+
+| Item | What execution verifies | What review verifies |
+| ---- | ----------------------- | -------------------- |
+| [`HLR-101`](HLRs.md#HLR-101) | Every finding carries a measurement, a subject, and a published source, and no finding contains imperative text — `no finding proposes a fix` | That the report as a whole offers no advice: an argument about what the words mean, which no assertion can make |
+| [`HLR-111`](HLRs.md#HLR-111) | A custom-rule match carries no severity and no attribution — `a rule match carries no severity` | That `elc` holds no opinion of its own about a rule a user supplied |
+| [`HLR-121`](HLRs.md#HLR-121) | That the six required query files and their capture names are the contract every shipped module satisfies today | The **cross-release** clause: that the contract does not change under a released tool. A property of the release process, which no run of one release can observe |
+
+A review item is satisfied when the review is recorded. None of
+the three counts toward automated coverage, and all three are
+listed so the distinction between "verified by review" and
+"not verified" is never lost by being left unstated.
 
 ---
 
