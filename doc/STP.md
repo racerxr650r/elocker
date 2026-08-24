@@ -138,7 +138,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1094 test(s)** across
+Snapshot: **1095 test(s)** across
 **51 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
@@ -1171,9 +1171,10 @@ Role: **fixture**. **45 test(s).**
 | 40 | <a id="HLR-165: with no strata declared the matrix is over directories"></a>`HLR-165: with no strata declared the matrix is over directories` | `LLR-DSM-01` | The fallback, over the same six edges arranged by path rather than by layer, with the heading saying which of the two the reader is looking at — since with directories no cell below the diagonal is a violation. |
 | 41 | <a id="HLR-161: a component outside every stratum reaches no matrix cell"></a>`HLR-161: a component outside every stratum reaches no matrix cell` | `LLR-DSM-02` | With only the middle layer declared the grid is one subject wide and holds nothing, the same treatment the layering findings give an undeclared file. |
 | 42 | <a id="HLR-166: the convention is printed with every rendering"></a>`HLR-166: the convention is printed with every rendering` | `LLR-DSM-05` | The aligned table, the Markdown report, and the CSV companion all carry the orientation sentence. A reader who has to infer which way round the grid runs gets the opposite answer half the time. |
-| 43 | <a id="HLR-166: the CSV companion carries the grid the report shows"></a>`HLR-166: the CSV companion carries the grid the report shows` | `LLR-DSM-05` | The companion's rows are asserted against the same hand-drawn grid the report is, so the machine-readable copy cannot drift from the printed one. |
-| 44 | <a id="HLR-064: a directory carrying a comma is quoted in the CSV matrix"></a>`HLR-064: a directory carrying a comma is quoted in the CSV matrix` | `LLR-DSM-06` | Built in the test's temporary directory rather than committed, since a directory with a comma in its name is awkward to carry in a repository and the escaping rule is what is under test rather than the tree. |
-| 45 | <a id="HLR-104: the matrix companion needs a name to derive"></a>`HLR-104: the matrix companion needs a name to derive` | `LLR-DSM-08` | Asking for the companion with the report on standard output writes no file and is not an error, and the report still carries the matrix — only the companion needs a path to be named from. |
+| 43 | <a id="HLR-190: the Markdown matrix folds the grid and keeps the convention out"></a>`HLR-190: the Markdown matrix folds the grid and keeps the convention out` | `LLR-DSM-09` | The Markdown rendering of the matrix places the grid behind a disclosure element stating its row count, with the heading and the convention note above the fold — the convention being what makes a cell below the diagonal a back-call rather than a number, for a reader who has not expanded the grid yet. The aligned rendering gains no element and still carries the note. |
+| 44 | <a id="HLR-166: the CSV companion carries the grid the report shows"></a>`HLR-166: the CSV companion carries the grid the report shows` | `LLR-DSM-05` | The companion's rows are asserted against the same hand-drawn grid the report is, so the machine-readable copy cannot drift from the printed one. |
+| 45 | <a id="HLR-064: a directory carrying a comma is quoted in the CSV matrix"></a>`HLR-064: a directory carrying a comma is quoted in the CSV matrix` | `LLR-DSM-06` | Built in the test's temporary directory rather than committed, since a directory with a comma in its name is awkward to carry in a repository and the escaping rule is what is under test rather than the tree. |
+| 46 | <a id="HLR-104: the matrix companion needs a name to derive"></a>`HLR-104: the matrix companion needs a name to derive` | `LLR-DSM-08` | Asking for the companion with the report on standard output writes no file and is not an error, and the report still carries the matrix — only the companion needs a path to be named from. |
 
 ### 3.37. [test/fixtures/thresholds.bats](../test/fixtures/thresholds.bats)
 
@@ -2078,7 +2079,7 @@ verified by code review — see
 | `LLR-DSM-06` | `format_dsm` | `HLR-064`, `HLR-166` | `a_comma_in_a_subject_is_quoted_in_the_csv`, `a_pipe_in_a_subject_is_escaped_in_the_markdown`, `the_markdown_columns_are_measured_after_escaping`, `HLR-064: a directory carrying a comma is quoted in the CSV matrix` |
 | `LLR-DSM-07` | `format_dsm` | `HLR-125`, `HLR-165` | `free_is_safe_on_null_and_on_a_zeroed_matrix` |
 | `LLR-DSM-08` | `format_dsm` | `HLR-180`, `HLR-104`, `HLR-119` | `the_companion_is_written_only_when_asked_and_named`, `HLR-104: the matrix companion needs a name to derive` |
-| `LLR-DSM-09` | `format_dsm` | `HLR-190`, `HLR-166` | **(no direct test)** |
+| `LLR-DSM-09` | `format_dsm` | `HLR-190`, `HLR-166` | `HLR-190: the Markdown matrix folds the grid and keeps the convention out` |
 | `LLR-PUR-01` | `purify_analyse` | `HLR-168`, `HLR-169`, `HLR-170` | `the_view_counts_what_the_masking_removed` |
 | `LLR-PUR-02` | `purify_analyse` | `HLR-167` | `the_call_view_is_not_modified` |
 | `LLR-PUR-03` | `purify_analyse` | `HLR-125`, `HLR-113` | `HLR-125: the purification pass releases every vector it allocated` |

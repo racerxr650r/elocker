@@ -19,7 +19,7 @@
     <counts>
       <count name="hlrs"       value="186"/>
       <count name="llrs"       value="522"/>
-      <count name="tests"      value="1094"/>
+      <count name="tests"      value="1095"/>
       <count name="test_files" value="51"/>
     </counts>
   </metadata>
@@ -13117,6 +13117,15 @@ The convention stays outside because of what it says: it is the sentence that ma
         <trace target="LLR" ref="LLR-DSM-05"/>
       </traces>
     </test>
+    <test name="HLR-190: the Markdown matrix folds the grid and keeps the convention out">
+      <purpose><![CDATA[The Markdown rendering of the matrix places the grid behind a disclosure element stating its row count, with the heading and the convention note above the fold — the convention being what makes a cell below the diagonal a back-call rather than a number, for a reader who has not expanded the grid yet. The aligned rendering gains no element and still carries the note.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DSM-09"/>
+        <trace target="HLR" ref="HLR-190"/>
+        <trace target="HLR" ref="HLR-166"/>
+      </traces>
+    </test>
+
     <test name="HLR-166: the CSV companion carries the grid the report shows">
       <purpose><![CDATA[The companion's rows are asserted against the same hand-drawn grid the report is, so the machine-readable copy cannot drift from the printed one.]]></purpose>
       <traces>
