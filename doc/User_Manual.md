@@ -518,9 +518,40 @@ elc -f xml src/          # the complete record of the run
 | Format | Extension | For | Notes |
 | ------ | --------- | --- | ----- |
 | `table` | `.txt` | reading | The default on standard output |
-| `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order |
+| `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order; each table folded behind a click-to-expand |
 | `csv` | `.csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it |
 | `xml` | `.xml` | keeping | Complete record; what `--from-xml` reads back |
+
+### The Markdown report folds its tables away
+
+A verbose report over a real project runs to hundreds of rows, and on GitHub
+that is a page nobody scrolls. So every table in the `md` format sits inside
+an HTML `<details>` element, and its `<summary>` says how many rows are
+behind it:
+
+```markdown
+## Functions
+
+<details>
+<summary>639 rows (click to expand)</summary>
+
+| File                 | Function | Lines | ELOC | Complexity | Fan-in | Fan-out |
+| -------------------- | -------- | ----: | ---: | ---------: | -----: | ------: |
+| /home/u/proj/src/a.c | parse    | 21-70 |   31 |          9 |      3 |       7 |
+
+</details>
+```
+
+**The heading stays a heading.** It is what a renderer derives a section
+anchor from, so a link to `#functions` still resolves and a generated table of
+contents still lists the section. That is why the summary states the row count
+rather than repeating the name above it — the count is the one thing the
+heading does not already tell you, and it is what you want when deciding
+whether to expand.
+
+The aligned table has no disclosure to offer and gains none, and `csv` and
+`xml` are parsed by their consumers rather than read, so neither carries any
+HTML.
 
 **An extension `elc` does not recognise is an error, not a guess.**
 

@@ -17,9 +17,9 @@
     <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.18" date="2026-08-24" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.19" date="2026-08-24" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="185"/>
-      <count name="llrs"       value="520"/>
-      <count name="tests"      value="1089"/>
+      <count name="hlrs"       value="186"/>
+      <count name="llrs"       value="522"/>
+      <count name="tests"      value="1094"/>
       <count name="test_files" value="51"/>
     </counts>
   </metadata>
@@ -824,6 +824,7 @@ The fan-in row is one of them, and has no critical band. `elc` has no published 
         <responsibility><![CDATA[Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).]]></responsibility>
         <responsibility><![CDATA[Present every per-function figure in one table — lines, ELOC, complexity, fan-in and fan-out — rather than in three tables enumerating the same functions (HLR-183).]]></responsibility>
         <responsibility><![CDATA[Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).]]></responsibility>
+        <responsibility><![CDATA[In the Markdown style alone, place each table inside an HTML `<details>` element stating its row count, beneath a heading that stays a heading (HLR-190).]]></responsibility>
         <responsibility><![CDATA[Render Markdown with functions grouped under a per-file heading.]]></responsibility>
         <responsibility><![CDATA[Present every tier the uniform-composition rule requires, in both formats.]]></responsibility>
         <responsibility><![CDATA[Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).]]></responsibility>
@@ -854,6 +855,10 @@ The image-filter tier is split along the same boundary. `image_filter_section` p
 Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
 
 A left-aligned final column is not padded in the aligned style. Padding it puts trailing whitespace on every line, which shows up in a diff and is stripped by half the tools that would read it.
+
+**In the Markdown style each table is folded behind a disclosure element** (HLR-190). The report runs to hundreds of rows on any real project, and a reader opening it wants to choose which of them to look at. The section's `##` heading stays a heading and stays outside the element — it is what anchors the section, what a table of contents is built from, and what the composition tests read the report's shape off — so the `<summary>` states the row count instead, which is the one thing the heading above it does not already say. The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
+
+The blank lines on either side of the table are load-bearing. GitHub-Flavored Markdown parses the contents of an HTML block as Markdown only where a blank line separates the two, and without them the table renders as its own source text.
 
 The table is laid out in tiers, each introduced by a heading and indented beneath it:
 
@@ -3779,6 +3784,20 @@ The uniformity requirements are unchanged and are satisfied one level up. What H
       </traces>
       </hlr>
 
+      <hlr id="HLR-190" name="Markdown Tables Presented Behind a Disclosure Element">
+        <text><![CDATA[In the Markdown report of HLR-029, `elc` shall present every table inside an HTML `<details>` element whose `<summary>` states how many rows the table holds, so that a reader expands the tables they want rather than scrolling past the ones they do not.
+
+**The section's `##` heading shall remain a heading**, outside the element. The heading is what anchors a section: a Markdown renderer derives a link target from it, a table of contents is built out of it, and the report's own composition is read off it. Folding the heading into the `<summary>` would trade a navigable document for a tidy one — so the summary states what is *inside* the element instead, which is the one thing a reader deciding whether to expand does not already know from the heading above it.
+
+The row count in the summary shall be derived from the rows presented, never written down beside them. A count maintained separately from what it counts is a count that drifts.
+
+This requirement governs the Markdown report alone. The aligned table (HLR-027) has no disclosure to offer and is unchanged; CSV (HLR-028) and XML (HLR-054) are complete-record formats whose consumers parse them, and HTML in either would be a defect rather than a convenience. Uniform composition across formats (HLR-031) is unaffected: the tiers each format reaches, and the headings it presents them under, are the same as before.]]></text>
+      <traces>
+        <trace target="SDD" ref="14"/>
+        <trace target="SDD" ref="22"/>
+      </traces>
+      </hlr>
+
       <hlr id="HLR-189" name="The Empty Tables Named in a Closing Statement">
         <text><![CDATA[A human-readable report shall end with a statement naming every table HLR-188 omitted, and shall end with that statement whether or not any table was omitted.
 
@@ -6499,6 +6518,20 @@ The tier a section belongs to shall continue to govern whether it is reached at 
         </traces>
       </llr>
 
+      <llr id="LLR-SUM-17">
+        <text><![CDATA[`render_summary` shall emit, in the Markdown style alone, each table inside an HTML `<details>` element opened beneath the section's `##` heading, with a `<summary>` stating the number of rows the table holds and a blank line separating the element from the table on both sides.
+
+The heading shall stay outside the element and stay a heading, so that a section keeps its anchor and the composition stays readable off the `##` lines.
+
+The blank lines are load-bearing rather than cosmetic: GitHub-Flavored Markdown parses the contents of an HTML block as Markdown only where a blank line separates the two, and without them the table is rendered as its own source text.
+
+The count shall be taken from the rows about to be emitted. The project summary is not built from a grid and shall gather its figures before printing any of them, so that its count is derived from the same array the rows are, rather than written down beside it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-190" name="Markdown Tables Presented Behind a Disclosure Element"/>
+          <trace target="HLR" ref="HLR-029" name="Markdown Output Format"/>
+        </traces>
+      </llr>
+
 </function>
 
     <function number="39" title="`format_csv` ([src/format_csv.c](../src/format_csv.c))" name="format_csv" source="src/format_csv.c">
@@ -7404,6 +7437,16 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
           <trace target="HLR" ref="HLR-180" name="The Matrix Written Beside the Report on Request"/>
           <trace target="HLR" ref="HLR-104"/>
           <trace target="HLR" ref="HLR-119"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-DSM-09">
+        <text><![CDATA[The Markdown rendering of the matrix shall place the grid inside an HTML `<details>` element stating its row count, as every other Markdown table is (HLR-190), and shall leave the heading and the convention note **outside** it.
+
+The convention stays outside because of what it says: it is the sentence that makes a cell below the diagonal a back-call rather than a number, and a reader who has not expanded the grid is exactly the reader deciding whether to. HLR-166 requires it to travel with the grid, and it still does — above it rather than inside it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-190" name="Markdown Tables Presented Behind a Disclosure Element"/>
+          <trace target="HLR" ref="HLR-166" name="Matrix Ordering, the Diagonal, and Its Renderings"/>
         </traces>
       </llr>
     </function>
@@ -10330,6 +10373,21 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="LLR" ref="LLR-SUM-14"/>
       </traces>
     </test>
+
+    <test name="markdown_tables_sit_inside_a_disclosure_element">
+      <purpose><![CDATA[Every Markdown table sits inside a details element whose summary states its row count, beneath a heading that stays a heading and stays outside the element. The blank lines either side of the table are asserted too: they are what makes GitHub-Flavored Markdown parse the contents as Markdown rather than as its own source text.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-17"/>
+        <trace target="HLR" ref="HLR-190"/>
+      </traces>
+    </test>
+
+    <test name="the_aligned_table_carries_no_html">
+      <purpose><![CDATA[The aligned table gains no disclosure element. HLR-190 governs the Markdown report alone, and HTML in a terminal is noise.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-17"/>
+      </traces>
+    </test>
     <test name="the_verbose_report_is_a_superset_of_the_summary">
       <purpose><![CDATA[The verbose render of one model is strictly longer than its summary, so the verbosity selects something rather than being accepted and ignored.]]></purpose>
       <traces>
@@ -11372,6 +11430,30 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
         <trace target="HLR" ref="HLR-031"/>
         <trace target="HLR" ref="HLR-188"/>
         <trace target="HLR" ref="HLR-189"/>
+      </traces>
+    </test>
+
+    <test name="HLR-190: every Markdown table sits inside a disclosure element">
+      <purpose><![CDATA[One details element per section heading but the closing statement, which is prose rather than a table; each states a row count and each is closed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-190"/>
+      </traces>
+    </test>
+
+    <test name="HLR-190: the heading stays outside the element and stays a heading">
+      <purpose><![CDATA[The section keeps its anchor, so a link into the report still resolves and the composition is still readable off the heading lines.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-190"/>
+        <trace target="HLR" ref="HLR-031"/>
+      </traces>
+    </test>
+
+    <test name="HLR-190: the complete-record formats carry no HTML">
+      <purpose><![CDATA[CSV and XML are parsed by their consumers, and the aligned table is read in a terminal; a disclosure element in any of the three would be a defect rather than a convenience.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-190"/>
+        <trace target="HLR" ref="HLR-028"/>
+        <trace target="HLR" ref="HLR-054"/>
       </traces>
     </test>
     <test name="the format changes the rendering and not the analysis">

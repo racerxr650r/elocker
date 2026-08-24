@@ -482,6 +482,22 @@ An aligned table for reading. The default.
 The same report as GitHub-Flavored Markdown. The two present the same tiers
 in the same order and differ only in decoration, because they are one
 traversal of one model.
+.IP
+Each table is folded behind an HTML
+.B <details>
+element whose
+.B <summary>
+states how many rows it holds, so that a reader of a report running to
+hundreds of rows expands the tables they want and scrolls past the ones they
+do not. The section heading stays a
+.I heading
+and stays outside the element, so a section keeps the anchor a renderer
+derives from it and a link into the report still resolves. This applies to the
+Markdown format alone: the aligned table has no disclosure to offer, and
+.B csv
+and
+.B xml
+are parsed by their consumers rather than read.
 .TP
 .B csv
 One record per function, RFC 4180, with the complete dataset: the complexity

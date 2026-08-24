@@ -325,6 +325,70 @@ Test(format_text, the_closing_statement_is_present_even_with_nothing_empty)
 	report_free(&report);
 }
 
+/* Verifies LLR-SUM-17: every Markdown table sits inside a disclosure element
+ * stating its row count, beneath a heading that stays a heading (HLR-190).
+ *
+ * The blank lines either side of the table are asserted because they are what
+ * makes the table render at all: GitHub-Flavored Markdown parses the contents
+ * of an HTML block as Markdown only where a blank line separates them.
+ */
+Test(format_text, markdown_tables_sit_inside_a_disclosure_element)
+{
+	FileMetrics *a       = metrics_for("/tree/a.c", 30);
+	FileMetrics *files[] = { a };
+	Report       report;
+	char        *out;
+	const char  *files_at;
+
+	add_function(a, "one", 1, 2, 0, 0);
+	add_function(a, "two", 10, 2, 0, 0);
+	report = report_of(files, 1);
+	out    = render_as(&report, STYLE_MARKDOWN, VERBOSITY_VERBOSE);
+
+	/* The heading stays a heading and stays outside the element, so the
+	 * section keeps its anchor and the composition is still readable off
+	 * the `##` lines. */
+	files_at = strstr(out, "\n## Files\n\n<details>\n<summary>1 row "
+	                       "(click to expand)</summary>\n\n|");
+	cr_assert_not_null(files_at,
+	                   "the Files table opens a disclosure under its "
+	                   "heading, and says it holds one row");
+
+	/* Plural where there is more than one, and the count is the rows
+	 * actually emitted rather than a number written down beside them. */
+	cr_assert_not_null(strstr(out, "\n## Functions\n\n<details>\n"
+	                               "<summary>2 rows (click to expand)"
+	                               "</summary>\n\n|"),
+	                   "two functions are two rows");
+
+	cr_assert_not_null(strstr(out, "|\n\n</details>\n"),
+	                   "and the element closes a blank line after the "
+	                   "last row");
+
+	free(out);
+	report_free(&report);
+}
+
+/* The aligned table offers no disclosure and gains none: HLR-190 governs the
+ * Markdown report alone, and HTML in a terminal is noise. */
+Test(format_text, the_aligned_table_carries_no_html)
+{
+	FileMetrics *a       = metrics_for("/tree/a.c", 30);
+	FileMetrics *files[] = { a };
+	Report       report;
+	char        *out;
+
+	add_function(a, "one", 1, 2, 0, 0);
+	report = report_of(files, 1);
+	out    = render_as(&report, STYLE_TABLE, VERBOSITY_VERBOSE);
+
+	cr_assert_null(strstr(out, "<details>"));
+	cr_assert_null(strstr(out, "<summary>"));
+
+	free(out);
+	report_free(&report);
+}
+
 /* Verifies LLR-SUM-14: one function table carrying every per-function figure,
  * where there were three tables carrying them between them (HLR-183). */
 Test(format_text, the_function_table_carries_the_degrees_beside_the_metrics)

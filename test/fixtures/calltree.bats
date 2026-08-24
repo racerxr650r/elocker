@@ -16,7 +16,13 @@ setup() {
 # columns, which matters here because `--from-xml` regenerates as Markdown
 # alone and the round-trip test has to read what it produced.
 undecorated() {
-	printf '%s\n' "$output" | sed 's/^## /  /; s/|/ /g'
+	# The disclosure element HLR-190 wraps each Markdown table in is
+	# dropped along with the decoration, and it has to be: the blank line
+	# after `<summary>` would otherwise terminate a section extractor at
+	# the very line the table begins on.
+	printf '%s\n' "$output" |
+		sed 's/^## /  /; s/|/ /g' |
+		grep -vE '^(<details>|<summary>|</details>)'
 }
 
 # One column of the Functions section, for one function.

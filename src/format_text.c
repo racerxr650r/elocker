@@ -228,9 +228,33 @@ static void grid_markdown_cell(const Grid *grid, size_t c, const char *text,
 	        grid->numeric[c] ? grid->width[c] : -grid->width[c], text);
 }
 
-static void grid_render_markdown(const Grid *grid, FILE *out)
+/* Open a Markdown table behind a disclosure element.
+ *
+ * The heading stays a real `##` heading, and the table goes inside a
+ * `<details>` beneath it (HLR-190). Both halves of that are deliberate. The
+ * heading is what anchors a section — GitHub derives a link target from it,
+ * the table of contents is built out of it, and the report's own tests read
+ * the composition off it — so folding it into the `<summary>` would trade a
+ * navigable document for a tidy one. The summary therefore says what is
+ * *inside* rather than repeating the name above it, which is the one thing a
+ * reader deciding whether to expand actually wants to know.
+ *
+ * The blank line after `</summary>` is load-bearing: GitHub-Flavored Markdown
+ * parses the contents of a `<details>` as Markdown only where a blank line
+ * separates them from the HTML, and without it the table renders as its own
+ * source text (HLR-029).
+ */
+static void markdown_disclosure_open(const Grid *grid, FILE *out)
 {
 	fprintf(out, "\n## %s\n\n", grid->heading);
+	fprintf(out, "<details>\n<summary>%zu row%s (click to expand)"
+	             "</summary>\n\n",
+	        grid->row_count, grid->row_count == 1 ? "" : "s");
+}
+
+static void grid_render_markdown(const Grid *grid, FILE *out)
+{
+	markdown_disclosure_open(grid, out);
 
 	fputc('|', out);
 	for (size_t c = 0; c < grid->column_count; c++)
@@ -255,6 +279,10 @@ static void grid_render_markdown(const Grid *grid, FILE *out)
 			              out);
 		fputc('\n', out);
 	}
+
+	/* The blank line before the close is the counterpart of the one after
+	 * `<summary>`, and is needed for the same reason. */
+	fputs("\n</details>\n", out);
 }
 
 /* One plain-table cell, with the two spaces that separate it from the one
@@ -400,6 +428,49 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	const int             label = (int)strlen("Physical lines");
 	int                   value = width_of(sum->physical_lines);
 
+	/* The figures, gathered before any are printed.
+	 *
+	 * Collected rather than emitted one call at a time so that the number
+	 * of them is a property of this array — the disclosure summary below
+	 * states a row count, and a count written down separately from the
+	 * rows it counts is a count that drifts (HLR-190).
+	 */
+	const struct {
+		const char *name;
+		uint64_t    value;
+	} rows[] = {
+		{ "Files",          (uint64_t)sum->file_count },
+		{ "Physical lines", sum->physical_lines },
+		{ "ELOC",           sum->eloc },
+		{ "Functions",      sum->function_count },
+		{ "Skipped",        (uint64_t)report->skipped_files.count },
+		/* Beside the totals it qualifies, not buried below them. Every
+		 * figure above covers the file *minus* these lines, and a
+		 * reader comparing ELOC against a line count of their own needs
+		 * to know that before they start looking for the discrepancy
+		 * (HLR-035). */
+		{ "Unparsed lines", unparsed_total(report) },
+		/* Counted in the summary so the shape of the run is visible
+		 * before the tables. A severity is a label and moves no exit
+		 * status, so these are figures to read rather than gates to
+		 * pass (HLR-100). */
+		{ "Critical findings", severity_total(report, "critical") },
+		{ "Warnings",          severity_total(report, "warning") },
+		/* Not a failure and not a defect — a measure of how complete
+		 * the graph is. A project calling into libc has unresolved
+		 * calls by definition, and a reader comparing fan-out against
+		 * the source needs to know how many calls the graph could not
+		 * represent (HLR-077). */
+		{ "Unresolved calls", (uint64_t)report->unresolved_calls },
+		/* The completeness of the pruning, stated for the reason the
+		 * unresolved-call count is: a region elc could not decide is
+		 * left whole and counted here, so a reader can tell a
+		 * configuration that was cut cleanly from one that mostly was
+		 * not (HLR-133). */
+		{ "Undecided regions", report->undecided_regions },
+	};
+	const size_t row_count = sizeof rows / sizeof *rows;
+
 	if (width_of(sum->eloc) > value)
 		value = width_of(sum->eloc);
 	if (width_of(sum->function_count) > value)
@@ -409,6 +480,8 @@ static void summary_section(const Report *report, Style style, FILE *out)
 
 	if (style == STYLE_MARKDOWN) {
 		fputs("\n## Project summary\n\n", out);
+		fprintf(out, "<details>\n<summary>%zu rows (click to expand)"
+		             "</summary>\n\n", row_count);
 		fprintf(out, "| %-*s | %*s |\n", label, "Metric", value, "Value");
 		fputc('|', out);
 		grid_rule(out, label + 2, '-');
@@ -419,40 +492,12 @@ static void summary_section(const Report *report, Style style, FILE *out)
 		fputs("Project summary\n", out);
 	}
 
-	summary_pair(out, style, label, value, "Files",
-	             (uint64_t)sum->file_count);
-	summary_pair(out, style, label, value, "Physical lines",
-	             sum->physical_lines);
-	summary_pair(out, style, label, value, "ELOC", sum->eloc);
-	summary_pair(out, style, label, value, "Functions",
-	             sum->function_count);
-	summary_pair(out, style, label, value, "Skipped",
-	             (uint64_t)report->skipped_files.count);
-	/* Beside the totals it qualifies, not buried below them. Every figure
-	 * above covers the file *minus* these lines, and a reader comparing
-	 * ELOC against a line count of their own needs to know that before
-	 * they start looking for the discrepancy (HLR-035). */
-	summary_pair(out, style, label, value, "Unparsed lines",
-	             (uint64_t)unparsed_total(report));
-	/* Counted in the summary so the shape of the run is visible before the
-	 * tables. A severity is a label and moves no exit status, so these are
-	 * figures to read rather than gates to pass (HLR-100). */
-	summary_pair(out, style, label, value, "Critical findings",
-	             severity_total(report, "critical"));
-	summary_pair(out, style, label, value, "Warnings",
-	             severity_total(report, "warning"));
-	/* Not a failure and not a defect — a measure of how complete the graph
-	 * is. A project calling into libc has unresolved calls by definition,
-	 * and a reader comparing fan-out against the source needs to know how
-	 * many calls the graph could not represent (HLR-077). */
-	summary_pair(out, style, label, value, "Unresolved calls",
-	             (uint64_t)report->unresolved_calls);
-	/* The completeness of the pruning, stated for the reason the
-	 * unresolved-call count is: a region elc could not decide is left whole
-	 * and counted here, so a reader can tell a configuration that was cut
-	 * cleanly from one that mostly was not (HLR-133). */
-	summary_pair(out, style, label, value, "Undecided regions",
-	             report->undecided_regions);
+	for (size_t i = 0; i < row_count; i++)
+		summary_pair(out, style, label, value, rows[i].name,
+		             rows[i].value);
+
+	if (style == STYLE_MARKDOWN)
+		fputs("\n</details>\n", out);
 }
 
 /* -------------------------------------------------------- the traversal --

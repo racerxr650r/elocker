@@ -993,6 +993,16 @@ Every section before this one added a measurement and, with it, a section of the
     The uniformity requirements are unchanged and are satisfied one level up. What HLR-006 fixes across target types, HLR-031 across formats, and HLR-032 across runs is the set of tiers the report **reaches** — presented where they found rows, and named by HLR-189 where they did not — rather than the sequence of headings a particular run prints. The complete-record formats are unaffected: CSV (HLR-028) and XML (HLR-054) carry every element whatever its content, exactly as HLR-152 exempts them from verbosity.
     *Trace:* [SDD Section 14](SDD.md).
 
+*   <a id="HLR-190"></a>**HLR-190: Markdown Tables Presented Behind a Disclosure Element.**
+    In the Markdown report of HLR-029, `elc` shall present every table inside an HTML `<details>` element whose `<summary>` states how many rows the table holds, so that a reader expands the tables they want rather than scrolling past the ones they do not.
+
+    **The section's `##` heading shall remain a heading**, outside the element. The heading is what anchors a section: a Markdown renderer derives a link target from it, a table of contents is built out of it, and the report's own composition is read off it. Folding the heading into the `<summary>` would trade a navigable document for a tidy one — so the summary states what is *inside* the element instead, which is the one thing a reader deciding whether to expand does not already know from the heading above it.
+
+    The row count in the summary shall be derived from the rows presented, never written down beside them. A count maintained separately from what it counts is a count that drifts.
+
+    This requirement governs the Markdown report alone. The aligned table (HLR-027) has no disclosure to offer and is unchanged; CSV (HLR-028) and XML (HLR-054) are complete-record formats whose consumers parse them, and HTML in either would be a defect rather than a convenience. Uniform composition across formats (HLR-031) is unaffected: the tiers each format reaches, and the headings it presents them under, are the same as before.
+    *Trace:* [SDD Section 14](SDD.md), [SDD Section 22](SDD.md).
+
 *   <a id="HLR-189"></a>**HLR-189: The Empty Tables Named in a Closing Statement.**
     A human-readable report shall end with a statement naming every table HLR-188 omitted, and shall end with that statement whether or not any table was omitted.
 

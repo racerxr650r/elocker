@@ -980,6 +980,7 @@ The fan-in row is one of them, and has no critical band. `elc` has no published 
 *   Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).
 *   Present every per-function figure in one table — lines, ELOC, complexity, fan-in and fan-out — rather than in three tables enumerating the same functions (HLR-183).
 *   Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).
+*   In the Markdown style alone, place each table inside an HTML `<details>` element stating its row count, beneath a heading that stays a heading (HLR-190).
 *   Render Markdown with functions grouped under a per-file heading.
 *   Present every tier the uniform-composition rule requires, in both formats.
 *   Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).
@@ -1016,6 +1017,10 @@ The image-filter tier is split along the same boundary. `image_filter_section` p
 Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
 
 A left-aligned final column is not padded in the aligned style. Padding it puts trailing whitespace on every line, which shows up in a diff and is stripped by half the tools that would read it.
+
+**In the Markdown style each table is folded behind a disclosure element** (HLR-190). The report runs to hundreds of rows on any real project, and a reader opening it wants to choose which of them to look at. The section's `##` heading stays a heading and stays outside the element — it is what anchors the section, what a table of contents is built from, and what the composition tests read the report's shape off — so the `<summary>` states the row count instead, which is the one thing the heading above it does not already say. The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
+
+The blank lines on either side of the table are load-bearing. GitHub-Flavored Markdown parses the contents of an HTML block as Markdown only where a blank line separates the two, and without them the table renders as its own source text.
 
 The table is laid out in tiers, each introduced by a heading and indented beneath it:
 

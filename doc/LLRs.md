@@ -1227,6 +1227,15 @@ The single place every reported collection is ordered. The audit point for deter
     The tier a section belongs to shall continue to govern whether it is reached at all: a detail section filtered out of a summary report is neither presented nor named, because it was not rendered. A section whose analysis was omitted for want of a declaration is reached at either verbosity, presents no rows, and is therefore named — which is where its reason reaches the reader once the heading itself is no longer printed.
     *Trace:* HLR-188 (A Table With No Rows Is Not Presented), HLR-189 (The Empty Tables Named in a Closing Statement), HLR-115 (Analyses Requiring User Declarations), HLR-066 (Empty Analysis Result).
 
+*   <a id="LLR-SUM-17"></a>**LLR-SUM-17** — `render_summary` shall emit, in the Markdown style alone, each table inside an HTML `<details>` element opened beneath the section's `##` heading, with a `<summary>` stating the number of rows the table holds and a blank line separating the element from the table on both sides.
+
+    The heading shall stay outside the element and stay a heading, so that a section keeps its anchor and the composition stays readable off the `##` lines.
+
+    The blank lines are load-bearing rather than cosmetic: GitHub-Flavored Markdown parses the contents of an HTML block as Markdown only where a blank line separates the two, and without them the table is rendered as its own source text.
+
+    The count shall be taken from the rows about to be emitted. The project summary is not built from a grid and shall gather its figures before printing any of them, so that its count is derived from the same array the rows are, rather than written down beside it.
+    *Trace:* HLR-190 (Markdown Tables Presented Behind a Disclosure Element), HLR-029 (Markdown Output Format).
+
 ## 39. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 
 *   <a id="LLR-CSV-01"></a>**LLR-CSV-01** — `format_csv` shall emit one record per function over the complete dataset, unfiltered by the complexity threshold.
@@ -1647,6 +1656,11 @@ The Dependency Structure Matrix: the arrangement of the graph's call edges into 
 
 *   <a id="LLR-DSM-08"></a>**LLR-DSM-08** — `dsm_warranted` shall be true only where the CSV companion was requested and the report has a named output path, and shall not be made false by regeneration mode. The first two are the tests the GraphML export makes, since the companion's name is derived from the report's and a report on standard output offers none; the third is where this companion differs from the two graph companions, a saved record carrying the matrix where it carries no topology.
     *Trace:* HLR-180 (The Matrix Written Beside the Report on Request), HLR-104, HLR-119.
+
+*   <a id="LLR-DSM-09"></a>**LLR-DSM-09** — The Markdown rendering of the matrix shall place the grid inside an HTML `<details>` element stating its row count, as every other Markdown table is (HLR-190), and shall leave the heading and the convention note **outside** it.
+
+    The convention stays outside because of what it says: it is the sentence that makes a cell below the diagonal a back-call rather than a number, and a reader who has not expanded the grid is exactly the reader deciding whether to. HLR-166 requires it to travel with the grid, and it still does — above it rather than inside it.
+    *Trace:* HLR-190 (Markdown Tables Presented Behind a Disclosure Element), HLR-166 (Matrix Ordering, the Diagonal, and Its Renderings).
 
 ## 56. `purify_analyse` ([src/purify.c](../src/purify.c))
 

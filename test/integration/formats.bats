@@ -93,6 +93,44 @@ setup() {
 	assert_output --partial "- At or over a threshold"
 }
 
+@test "HLR-190: every Markdown table sits inside a disclosure element" {
+	elc --verbose -f md "$TREE"
+	assert_success
+
+	# One `<details>` per `##` heading, minus the one section that is not
+	# a table: the closing statement of HLR-189 is prose.
+	local headings details
+	headings="$(grep -c '^## ' <<<"$output")"
+	details="$(grep -c '^<details>$' <<<"$output")"
+	assert_equal "$details" "$(( headings - 1 ))"
+
+	# Every summary states a row count, and every element is closed.
+	assert_equal \
+		"$(grep -cE '^<summary>[0-9]+ rows? \(click to expand\)</summary>$' \
+			<<<"$output")" "$details"
+	assert_equal "$(grep -c '^</details>$' <<<"$output")" "$details"
+}
+
+@test "HLR-190: the heading stays outside the element and stays a heading" {
+	# A section keeps its anchor, and the composition is still readable
+	# off the `##` lines — which is what the uniformity tests above do.
+	elc -f md "$TREE"
+	assert_success
+	assert_output --partial "## Files"
+	refute_output --partial "<summary><strong>"
+}
+
+@test "HLR-190: the complete-record formats carry no HTML" {
+	# CSV and XML are parsed by their consumers; a disclosure element in
+	# either would be a defect rather than a convenience.
+	for format in table csv xml; do
+		elc --verbose -f "$format" "$TREE"
+		assert_success
+		refute_output --partial "<details>"
+		refute_output --partial "<summary>"
+	done
+}
+
 # --- the formats are views of one run --------------------------------------
 
 @test "the format changes the rendering and not the analysis" {

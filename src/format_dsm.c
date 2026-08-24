@@ -471,8 +471,17 @@ static void emit_convention(const Dsm *m, DsmStyle style, FILE *out)
 		fputs("\r\n", out);
 		break;
 	case DSM_MARKDOWN:
+		/* The heading, then the convention, then the grid behind a
+		 * disclosure element like every other Markdown table
+		 * (HLR-190). The convention stays *outside* the fold: it is
+		 * what tells a reader that a cell below the diagonal is a
+		 * back-call, and a reader who has not expanded the grid yet is
+		 * exactly the one deciding whether to (HLR-166). */
 		fprintf(out, "\n## %s\n\n%s\n\n", format_dsm_heading(m),
 		        DSM_CONVENTION);
+		fprintf(out, "<details>\n<summary>%zu row%s (click to expand)"
+		             "</summary>\n\n",
+		        m->count, m->count == 1 ? "" : "s");
 		break;
 	case DSM_TABLE:
 	default:
@@ -587,6 +596,8 @@ static int render(const Dsm *m, DsmStyle style, FILE *out)
 	emit_header(m, style, width, columns, scratch, out);
 	emit_rule_row(m, style, width, columns, out);
 	emit_rows(m, style, width, scratch, out);
+	if (style == DSM_MARKDOWN)
+		fputs("\n</details>\n", out);
 
 	free(scratch);
 	free(width);
