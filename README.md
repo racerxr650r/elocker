@@ -320,6 +320,9 @@ Most tools in this space report per *file* and per *language*, so a polyglot
 repository needs several of them that disagree with each other, or one large
 platform. `elc` is built on a few decisions that follow from that:
 
+<details>
+<summary><strong>The decisions behind it</strong> (click to expand)</summary>
+
 | Decision | Why |
 | -------- | --- |
 | **Per function, not per file** | A 2,000-line file tells you nothing about which of its forty functions nobody wants to touch. |
@@ -329,6 +332,8 @@ platform. `elc` is built on a few decisions that follow from that:
 | **Architecture, not just size** | Dead code proven by graph reachability rather than guessed at by pattern matching — including the case that fools textual linters, where unused functions call one another. |
 | **Measures, never lectures** | Findings are reported against *published* thresholds (MISRA C, Robert C. Martin's Instability metric, Henry–Kafura), each attributed to its source. `elc` proposes no fixes and holds no style opinions of its own. |
 | **Small and self-contained** | One C11 binary, five libraries, a POSIX libc. No interpreter, no virtual machine, no network access, no plugin ecosystem, no server. |
+
+</details>
 
 ## Adding a language costs no rebuild
 
@@ -408,15 +413,20 @@ current deliverable. It is managed with [TraceR](https://github.com/racerxr650r/
 [`doc/Project.xml`](doc/Project.xml) is the single source of truth, and the
 documents below are generated from it.
 
+<details>
+<summary><strong>The specification stack</strong> (click to expand)</summary>
+
 | Document | Answers |
 | -------- | ------- |
 | [PVD.md](doc/PVD.md) | *Why* does this exist, who is it for, how do we know it is succeeding? |
-| [HLRs.md](doc/HLRs.md) | *What* must it do — 135 high-level requirements |
+| [HLRs.md](doc/HLRs.md) | *What* must it do — 185 high-level requirements |
 | [SDD.md](doc/SDD.md) | *How is it structured* — modules, data, algorithms, dependency selection |
-| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 296 low-level requirements |
+| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 520 low-level requirements |
 | [STP.md](doc/STP.md) | *How is it verified* — test levels, fixtures, the sanitizer gate |
 | [Traceability.md](doc/Traceability.md) | *Where are the gaps*, end to end |
-| [SDP.md](doc/SDP.md) | *How is it built* — the 17 phases below |
+| [SDP.md](doc/SDP.md) | *How is it built* — the 25 phases below |
+
+</details>
 
 ## Building
 
@@ -430,6 +440,9 @@ make install    # binary, runtime/, man page, and user manual
 
 ### Dependencies
 
+<details>
+<summary><strong>Runtime dependencies</strong> (click to expand)</summary>
+
 | Library | Used for |
 | ------- | -------- |
 | [`libtree-sitter`](https://tree-sitter.github.io/tree-sitter/) | Parsing and query execution |
@@ -439,6 +452,8 @@ make install    # binary, runtime/, man page, and user manual
 | [`libelf`](https://sourceware.org/elfutils/) | Reading the symbol table of the image `--elf` names |
 | The C++ runtime | `__cxa_demangle`, for C++ and Rust linkage names. Already linked — `igraph` is partly C++ inside |
 | POSIX libc | `mmap`, `fts`, `dlopen` |
+
+</details>
 
 Build tooling: GNU make, a C11 compiler, GNU ld or lld (for `--wrap`),
 [Criterion](https://github.com/Snaipe/Criterion) and
