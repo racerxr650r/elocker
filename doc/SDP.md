@@ -65,7 +65,7 @@ release readiness — is ready to start, and is the last.
 | [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
-| [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, complexity and fan-in bands | ✅ Complete |
+| [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, complexity, fan-in and maintainability bands | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -2327,8 +2327,23 @@ nothing in them.
    that were empty (HLR-188, HLR-189). The statement names them by their full
    heading, so a section omitted for want of a user declaration still carries
    its reason where HLR-115 requires one.
+7. Every Markdown table is folded behind an HTML `<details>` whose `<summary>`
+   states its row count, beneath a heading that stays a heading so a section
+   keeps its anchor (HLR-190).
+8. `calltree.c` gains the **Adapted Maintainability Index** — Coleman and
+   Oman's, with the information flow through a function substituted for its
+   Halstead Volume — reported as a column of the function table and banded
+   downwards at 65 and 55 (HLR-191, HLR-192). The bands are `elc`'s own and
+   labelled as such: a citation is not transitive, and the Software
+   Engineering Institute's published thresholds were calibrated against the
+   term this adaptation replaces. Applied unchanged they band four functions
+   in five, which is the measurement no longer discriminating.
 
-**Requirements:** HLR-182 – HLR-189, amendments to HLR-021, HLR-031, HLR-061,
+Deliverables 7 and 8 landed after the first pull request merged, and are
+recorded here rather than as a phase of their own because their subject is
+this phase's: what the report presents, and on whose authority.
+
+**Requirements:** HLR-182 – HLR-192, amendments to HLR-021, HLR-031, HLR-061,
 HLR-086, HLR-098, HLR-150 and HLR-151, and the retirement of HLR-157 –
 HLR-159.
 

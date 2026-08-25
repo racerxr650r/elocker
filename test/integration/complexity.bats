@@ -196,12 +196,67 @@ setup() {
 	# is what puts it in the listing, and the severity says which.
 	elc -c 100 "$TREE/bands.c"
 	assert_success
-	assert_output --regexp "warn +11 +[0-9]+ +[0-9]+ +warning"
+	assert_output --regexp "warn +11 +[0-9]+ +[0-9]+ +[0-9]+ +warning"
+}
+
+@test "HLR-191: the function table carries a maintainability score" {
+	elc --verbose "$TREE/pair.c"
+	assert_success
+	assert_output --regexp "Function +Lines +ELOC +Complexity +Fan-in +Fan-out +MI"
+	# simple() is four lines, complexity 1, and joined to nothing: the flow
+	# and length terms are small, so it sits at the top of the scale.
+	assert_output --regexp "simple +1-4 +1 +1 +0 +0 +100"
+}
+
+@test "HLR-192: a low score is banded downwards and says whose line it is" {
+	# A long, branchy, widely-joined function. The bands run the other way
+	# from every other row in the catalogue: low is the bad one.
+	{
+		printf 'int leaf%d(void){return %d;}\n' 1 1
+		printf 'int sink(int n)\n{\n'
+		for _ in $(seq 1 40); do printf '\tif (n) n += leaf1();\n'; done
+		printf '\treturn n;\n}\n'
+		printf 'int a(void){return sink(1);}\nint b(void){return sink(2);}\n'
+	} > "$TREE/sink.c"
+
+	elc "$TREE/sink.c"
+	assert_success
+	assert_output --regexp "critical +maintainability +sink +maintainability index [0-9]+ of 100"
+	assert_output --partial "elc heuristic — not a published standard"
+}
+
+@test "HLR-101: a maintainability finding recommends nothing" {
+	# The metric's name suggests a verdict, which is the last place to
+	# start advising. A finding states the score and stops.
+	{
+		printf 'int leaf1(void){return 1;}\n'
+		printf 'int sink(int n)\n{\n'
+		for _ in $(seq 1 40); do printf '\tif (n) n += leaf1();\n'; done
+		printf '\treturn n;\n}\n'
+		printf 'int a(void){return sink(1);}\nint b(void){return sink(2);}\n'
+	} > "$TREE/sink.c"
+
+	elc "$TREE/sink.c"
+	assert_success
+	assert_output --partial "maintainability index"
+	refute_output --partial "recommend"
+	refute_output --partial "refactor"
+	refute_output --partial "review"
+}
+
+@test "HLR-192: a healthy function is not banded at all" {
+	# Refuting the finding's own words rather than the measurement's name:
+	# the threshold listing's heading names every band it unites, so a
+	# report with no maintainability finding still says "maintainability".
+	printf 'int tidy(int n)\n{\n\treturn n + 1;\n}\n' > "$TREE/tidy.c"
+	elc "$TREE/tidy.c"
+	assert_success
+	refute_output --partial "maintainability index"
 }
 
 @test "HLR-023: a function listed by the configured threshold carries no severity" {
 	# branchy is complexity 4 — inside every band — and -c 4 lists it.
 	elc -c 4 "$TREE/pair.c"
 	assert_success
-	refute_output --regexp "branchy +4 +[0-9]+ +[0-9]+ +(warning|critical)"
+	refute_output --regexp "branchy +4 +[0-9]+ +[0-9]+ +[0-9]+ +(warning|critical)"
 }

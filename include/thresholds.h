@@ -49,16 +49,30 @@
 
 /* One row of the catalogue.
  *
- * `warning_above` and `critical_above` are exclusive bounds on a counted
- * measurement: a value strictly greater than the bound falls in that band. A
- * kind that is a finding by its mere occurrence — recursion, a cycle — leaves
- * both zero and carries its severity in `fixed`.
+ * `warning_bound` and `critical_bound` are exclusive bounds on a counted
+ * measurement, and `inverted` says which side of them the band lies on. For
+ * an ordinary row a value strictly *greater* than the bound falls in the
+ * band — "> 15 is a god function". For an inverted row a value strictly
+ * *below* it does, because the measurement runs the other way: the
+ * Maintainability Index of HLR-192 is a score out of a hundred, and a low one
+ * is the bad one.
+ *
+ * The flag exists rather than a second pair of fields, or a row storing the
+ * complement of its bound, because either of those would leave the catalogue
+ * holding numbers a reviewer could not read straight off a published table.
+ * The whole design of this module is that the table below can be checked by
+ * reading it (HLR-099), and `55` next to `inverted` reads as the fifty-five
+ * a reader is looking for.
+ *
+ * A kind that is a finding by its mere occurrence — recursion, a cycle —
+ * leaves both bounds zero and carries its severity in `fixed`.
  */
 typedef struct {
 	MeasurementKind kind;
 	const char     *name;           /* what the measurement is called   */
-	uint32_t        warning_above;
-	uint32_t        critical_above;
+	uint32_t        warning_bound;
+	uint32_t        critical_bound;
+	bool            inverted;       /* the band lies below the bound    */
 	Severity        fixed;          /* for occurrence-is-the-finding    */
 	bool            occurrence;     /* true when `fixed` governs        */
 	const char     *attribution;    /* the published source             */

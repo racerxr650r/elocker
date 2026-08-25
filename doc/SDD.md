@@ -778,10 +778,11 @@ A call that both skips and inverts contributed one violation of each kind and is
 ## 10. Detailed Design for [src/calltree.c](../src/calltree.c)
 
 ### 10.1 Purpose and Responsibilities
-[src/calltree.c](../src/calltree.c) implements the function-level call-tree analyses: fan-out and fan-in with their threshold classifications, maximum call depth, the deepest call stack in full, and recursion detection.
+[src/calltree.c](../src/calltree.c) implements the function-level call-tree analyses: fan-out and fan-in with their threshold classifications, the Adapted Maintainability Index formed from them, maximum call depth, the deepest call stack in full, and recursion detection.
 
 *   Compute per-function fan-out and classify it against the published width thresholds.
 *   Compute per-function fan-in — the number of distinct functions that invoke it — over the call view alone (HLR-156).
+*   Define the Adapted Maintainability Index — and define it once, since both the report's function table and the threshold catalogue need the figure and two computations of it are two figures (HLR-191).
 *   Detect direct and mutual recursion among functions.
 *   Compute the maximum call depth from the declared entry points, and capture the ordered chain that achieves it.
 
@@ -802,6 +803,7 @@ A call that both skips and inverts contributed one violation of each kind and is
         6.  Walk the retained successors out from the deepest entry point to reconstruct the ordered chain, and record it in full (HLR-088). A tie between two chains of equal length resolves to the lower node identifier, which is sorted-file order, so equal candidates always yield the same report (HLR-032).
     *   Notes: Establishing acyclicity before measuring depth is what makes the longest-path computation terminate; on a cyclic graph the question has no finite answer, which is precisely why MISRA C Rule 17.2 exists. The measured depth is a lower bound on true worst-case depth: a chain that continues through an unresolved indirect call is not followed. The report therefore presents the depth alongside the unresolved-call count of HLR-077, so the reader can judge how completely the graph covers the program.
 
+*   **`uint32_t calltree_maintainability(uint32_t eloc, uint32_t complexity, uint32_t fan_in, uint32_t fan_out)`** — Coleman and Oman's Maintainability Index with the information flow through a function substituted for its Halstead Volume, normalised over 171 to a 0-100 scale and rounded to the integer the report prints (HLR-191). A pure function of four measurements and the only definition of the formula: the report needs it for the function table and `thresholds.c` to band, and a second computation is a second place it could differ. A function with no effective lines is taken as having one, so the length term vanishes rather than becoming an infinity; either degree being zero makes the flow term vanish for the same reason, which is the intended reading rather than a gap.
 *   **`int longest_path_dag(const Sdg *g, const NodeSet *entries, Chain *out)`** — Memoised longest-path search with predecessor retention.
 *   **`void tree_results_free(TreeResults *r)`** — Release the per-node measurement tables, the recursive-cycle list, and the retained deepest chain.
 ### 10.4 Dependencies
@@ -875,6 +877,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 | ----------- | ----- | ----------- |
 | Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 warning; >15 critical | Henry–Kafura |
 | Function fan-in | ≤25 silent; >25 warning, with no critical band | **`elc` heuristic — not a published standard** |
+| Adapted Maintainability Index | ≥65 silent; <65 warning; <55 critical — **the one row that runs downwards** | **`elc` heuristic — not a published standard** |
 | Cyclomatic complexity | ≤10 silent; 11–15 warning; >15 critical | McCabe (NIST SP 500-235) |
 | Call depth | >8 warning; >12 critical, on stack-constrained targets | Embedded practice |
 | Recursion present | critical | MISRA C Rule 17.2 |
@@ -890,11 +893,15 @@ The fan-out bands are **exhaustive**: every value from 0 upward classifies exact
 
 The rows whose finding is their mere occurrence — recursion, a dependency cycle, a single-function global, a hidden channel — carry a fixed severity instead of bounds. There is no acceptable count of them.
 
-**Two rows are not published standards**, and both say so in the text a reader sees. That label is the whole of what separates shipping MISRA, Martin and McCabe values from having invented them, and it is asserted by a test that also checks the exact count, so a third cannot appear by drift (HLR-099).
+**Three rows are not published standards**, and each says so in the text a reader sees. That label is the whole of what separates shipping MISRA, Martin and McCabe values from having invented them, and it is asserted by a test that also checks the exact count, so a third cannot appear by drift (HLR-099).
 
 The complexity row is not one of them. 10 is McCabe's own limit and 15 the highest limit NIST SP 500-235 records as having been used successfully — and then only where an organisation has the review practices to justify it — so both numbers are somebody else's. It is deliberately independent of the value `--complexity-threshold` sets: that one governs a *listing* and carries no severity (HLR-023), and letting the user move it would be letting the user choose what McCabe says.
 
 The fan-in row is one of them, and has no critical band. `elc` has no published basis for a first line and none at all for a second, so it draws one and says whose it is.
+
+The maintainability row is the third, and the reason is instructive. The index *is* published — Coleman and Oman's — and so are thresholds for it: the Software Engineering Institute's 85 and 65. But this build adapts the formula, substituting the information flow through a function for its Halstead Volume, and the published thresholds were calibrated against the term that was replaced. Removing it removes some thirty to forty-five points of range, and HLR-191's normalisation rescales what is left; the published numbers carried across unchanged put four functions in five in a band. So the bands here are drawn for the adapted formula and labelled accordingly. **A citation is not transitive**: adapting a metric does not inherit the thresholds calibrated for the original, and this row is the case that makes the rule concrete.
+
+It is also **the one row that runs downwards**, since the index is a score. The `inverted` flag on the row says so, and `band_of` reads it; the bounds stay the numbers a reviewer is looking for rather than their complements.
 
 **A measurement the catalogue holds no row for has no band, and `thresholds_lookup` says so by answering NULL.** A row here with empty bounds would not express that — `occurrence` false with both bounds zero is a *silent band*, every value passing, and the lookup would then answer "there is a threshold for this" to a caller asking precisely because there is not. Every kind `elc` measures is banded today; the path exists for the next measurement that arrives without a published threshold behind it, and the Henry-Kafura value took it until Phase 24 withdrew the metric.
 
@@ -934,6 +941,7 @@ The fan-in row is one of them, and has no critical band. `elc` has no published 
 *   Record the linked image a run was filtered by, the linkage names it could not resolve, the source functions it does not define, and the effective lines belonging to no function, so that a filtered figure is reported alongside the image that produced it (HLR-143, HLR-145, HLR-147).
 *   Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).
 *   Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).
+*   Derive each function's Adapted Maintainability Index onto the per-function metrics, in both assembly paths — before the threshold listing is built and again once the degrees are joined — so the field is never read as an unset zero, which for this measurement is the worst score on the scale rather than a neutral one (HLR-191).
 *   Join the flow degrees onto the functions they describe, and rebuild the threshold listing over the joined result, in one function that both the live path and the record path call — so that the two cannot drift, and so that a listing which is a union over three measurements is not built before two of them exist (HLR-183, HLR-187).
 *   Define how a component's directory is derived from its path, in one function called at each of the two places a `FileMetrics` is constructed — the measurement of a source file and the reader that rebuilds a model from a record — so that every consumer reads one recorded answer rather than slicing the path for itself (HLR-160).
 *   Render the two conformance indices, and the complementary conforming proportion of each, into the model as text — "undefined" being one of their legitimate values, exactly as it is for Instability (HLR-162, HLR-163).
@@ -978,7 +986,7 @@ The fan-in row is one of them, and has no critical band. `elc` has no published 
 *   Compute column widths from the longest path and function name, and render the aligned table.
 *   Render every tier in the fixed order of HLR-184, so that the report reaches the same sections whatever the type of the target was (HLR-006).
 *   Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).
-*   Present every per-function figure in one table — lines, ELOC, complexity, fan-in and fan-out — rather than in three tables enumerating the same functions (HLR-183).
+*   Present every per-function figure in one table — lines, ELOC, complexity, fan-in, fan-out and the Adapted Maintainability Index — rather than in three tables enumerating the same functions (HLR-183, HLR-191).
 *   Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).
 *   In the Markdown style alone, place each table inside an HTML `<details>` element stating its row count, beneath a heading that stays a heading (HLR-190).
 *   Render Markdown with functions grouped under a per-file heading.

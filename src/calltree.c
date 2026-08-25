@@ -18,6 +18,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <math.h>
+
 #include <igraph.h>
 
 #include "calltree.h"
@@ -67,6 +69,37 @@ static int calltree_by_node_id(const void *a, const void *b)
  * Phase 24 withdrew that metric, and what is left is the pair of counts the
  * report presents beside the function's own figures (HLR-183).
  */
+
+uint32_t calltree_maintainability(uint32_t eloc, uint32_t complexity,
+                                  uint32_t fan_in, uint32_t fan_out)
+{
+	/* Widened before the multiplication rather than at the assignment,
+	 * for the reason any squared term is: the product of two degrees is
+	 * comfortable in 32 bits and its square is not, and a value that
+	 * wrapped would enter the logarithm as an ordinary-looking number. */
+	double flow   = (double)fan_in * (double)fan_out;
+	double length = eloc ? (double)eloc : 1.0;
+	double mi;
+
+	flow *= flow;
+
+	/* `log1p(x)` is `ln(x + 1)` computed without forming the sum, which
+	 * matters at the bottom of the range: for a function with a single
+	 * caller and a single callee the sum is 2 and the addition is exact,
+	 * but for one at the end of the graph it is 1 and `log(1.0 + 0.0)`
+	 * throws away the precision `log1p` keeps. */
+	mi = 171.0 - 5.2 * log1p(flow)
+	           - 0.23 * (double)complexity
+	           - 16.2 * log(length);
+
+	mi = mi / 171.0 * 100.0;
+	if (mi <= 0.0)
+		return 0;
+	if (mi >= 100.0)
+		return 100;
+
+	return (uint32_t)lround(mi);
+}
 
 static int compute_flow(const Sdg *g, TreeResults *out)
 {

@@ -108,6 +108,27 @@ typedef struct {
 #define ELC_COMPLEXITY_WARNING  10u
 #define ELC_COMPLEXITY_CRITICAL 15u
 
+/* The Adapted Maintainability Index bands (HLR-192), and **the third
+ * threshold `elc` invented**.
+ *
+ * The index itself is Coleman and Oman's, adapted: their third term is the
+ * logarithm of a function's Halstead Volume, and this one substitutes the
+ * information flow through it (HLR-191). That substitution is what makes the
+ * bands `elc`'s own rather than inherited. The figures usually quoted with
+ * the Maintainability Index — 85 and 65, from the Software Engineering
+ * Institute — were calibrated for the *unadapted* formula on its own 0-171
+ * scale, and neither half of that survives here: replacing the Halstead term
+ * removes some thirty to forty-five points of range, and the normalisation of
+ * HLR-191 then rescales what is left. Carrying those numbers across
+ * unchanged would flag four functions in five, which is a measurement that
+ * has stopped discriminating.
+ *
+ * So the bands below are drawn for the adapted formula, and the catalogue row
+ * says whose they are. **Lower is worse here**, which no other row in the
+ * catalogue is: a value strictly *below* the bound falls in the band. */
+#define ELC_MI_WARNING         65u  /* below this, moderate structural risk */
+#define ELC_MI_CRITICAL        55u  /* below this, a rigid monolith         */
+
 /* The fan-in band (HLR-186), and **the second threshold `elc` invented**.
  *
  * No published source bands fan-in. Twenty-five distinct callers is where a
@@ -353,6 +374,15 @@ typedef struct {
 	 * HLR-156). */
 	uint32_t  fan_in;
 	uint32_t  fan_out;
+	/* The Adapted Maintainability Index, 0-100 (HLR-191).
+	 *
+	 * Derived from the four fields above it rather than measured, and
+	 * derived *here* rather than at render time, so that the figure the
+	 * report prints and the figure `thresholds.c` banded are the same
+	 * one. Filled by `report_attach_flow` with the degrees, since three
+	 * of its four inputs are known before the graph is built and the
+	 * fourth is not. */
+	uint32_t  mi;
 } FunctionMetric;
 
 /* One function the source defines and the linked image does not (HLR-143).
@@ -501,6 +531,7 @@ typedef enum {
 	MEASURE_FAN_OUT = 0,       /* per function   (HLR-086)  */
 	MEASURE_FAN_IN,            /* per function   (HLR-186)  */
 	MEASURE_COMPLEXITY,        /* per function   (HLR-185)  */
+	MEASURE_MAINTAINABILITY,   /* per function   (HLR-192)  */
 	MEASURE_CALL_DEPTH,        /* per project    (HLR-087)  */
 	MEASURE_RECURSION,         /* per cycle      (HLR-089)  */
 	MEASURE_COMPONENT_CYCLE,   /* per cycle      (HLR-083)  */
