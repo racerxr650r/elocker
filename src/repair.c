@@ -175,6 +175,40 @@ static bool upper_macro(const char *s, size_t from, size_t to)
  * literal to begin with, and `BOLD` becomes eligible only once `FG_BLUE` is
  * one. A single scan would leave `BOLD ""`, which is two identifiers and
  * exactly the shape the grammar rejected. */
+/* Past a string literal, escapes included. The scan must step over one whole
+ * rather than into it: a macro name occurring inside a literal is text, not a
+ * macro. */
+static size_t past_literal(const char *buf, size_t i, size_t to)
+{
+	for (i++; i < to && buf[i] != '"'; i++)
+		if (buf[i] == '\\' && i + 1 < to)
+			i++;
+
+	return i < to ? i + 1 : to;
+}
+
+static size_t past_identifier(const char *buf, size_t i, size_t to)
+{
+	while (i < to && is_ident(buf[i]))
+		i++;
+
+	return i;
+}
+
+/* Whether a literal sits either side of [start, end), ignoring the single
+ * space that conventionally separates the two in this idiom. */
+static bool beside_literal(const char *buf, size_t from, size_t to,
+                           size_t start, size_t end)
+{
+	while (start > from && buf[start - 1] == ' ')
+		start--;
+	while (end < to && buf[end] == ' ')
+		end++;
+
+	return (start > from && buf[start - 1] == '"')
+	    || (end < to && buf[end] == '"');
+}
+
 static bool string_macro_scan(char *buf, size_t from, size_t to)
 {
 	bool changed = false;
@@ -182,11 +216,8 @@ static bool string_macro_scan(char *buf, size_t from, size_t to)
 	for (size_t i = from; i < to; ) {
 		size_t start;
 
-		if (buf[i] == '"') {           /* skip over a literal entire */
-			for (i++; i < to && buf[i] != '"'; i++)
-				if (buf[i] == '\\' && i + 1 < to)
-					i++;
-			i++;
+		if (buf[i] == '"') {
+			i = past_literal(buf, i, to);
 			continue;
 		}
 		if (!is_ident(buf[i])) {
@@ -195,28 +226,14 @@ static bool string_macro_scan(char *buf, size_t from, size_t to)
 		}
 
 		start = i;
-		while (i < to && is_ident(buf[i]))
-			i++;
+		i     = past_identifier(buf, i, to);
 
-		if (!upper_macro(buf, start, i))
+		if (!upper_macro(buf, start, i) ||
+		    !beside_literal(buf, from, to, start, i))
 			continue;
 
-		/* Adjacent to a literal on one side or the other, ignoring the
-		 * single space that conventionally separates them. */
-		size_t before = start;
-		while (before > from && buf[before - 1] == ' ')
-			before--;
-		size_t after = i;
-		while (after < to && buf[after] == ' ')
-			after++;
-
-		bool beside = (before > from && buf[before - 1] == '"')
-		           || (after < to && buf[after] == '"');
-
-		if (!beside)
-			continue;
-
-		/* `""` is two bytes, and the token is at least three. */
+		/* `""` is two bytes and the token is at least three, so the
+		 * replacement always fits the width it replaces. */
 		buf[start]     = '"';
 		buf[start + 1] = '"';
 		memset(buf + start + 2, ' ', i - start - 2);
@@ -238,22 +255,11 @@ static bool rule_string_macro(char *buf, size_t from, size_t to)
 
 /* Rule 2: a token in front of a declaration is a storage-class or attribute
  * macro. Blanked, so the declaration beneath it is what the grammar sees. */
-static bool rule_leading_macro(char *buf, size_t from, size_t to)
+/* A keyword in the declaration-specifier position is the declaration itself,
+ * not a macro standing in front of one. Blanking it would delete the very
+ * thing being measured. */
+static bool is_c_keyword(const char *word, size_t len)
 {
-	size_t i = from;
-	size_t start;
-
-	while (i < to && (buf[i] == ' ' || buf[i] == '\t'))
-		i++;
-	if (i >= to || !is_ident(buf[i]) || isdigit((unsigned char)buf[i]))
-		return false;
-
-	start = i;
-	while (i < to && is_ident(buf[i]))
-		i++;
-
-	/* A keyword in this position is the declaration, not a macro in front
-	 * of one. Blanking it would delete the very thing being measured. */
 	static const char *const KEYWORDS[] = {
 		"static", "extern", "const", "volatile", "inline", "register",
 		"unsigned", "signed", "struct", "union", "enum", "typedef",
@@ -261,23 +267,43 @@ static bool rule_leading_macro(char *buf, size_t from, size_t to)
 		"return", "if", "else", "for", "while", "do", "switch", "case",
 		"break", "continue", "goto", "sizeof", "default"
 	};
-	size_t len = i - start;
 
 	for (size_t k = 0; k < sizeof KEYWORDS / sizeof *KEYWORDS; k++)
 		if (strlen(KEYWORDS[k]) == len &&
-		    strncmp(buf + start, KEYWORDS[k], len) == 0)
-			return false;
+		    strncmp(word, KEYWORDS[k], len) == 0)
+			return true;
+
+	return false;
+}
+
+static size_t past_blanks(const char *buf, size_t i, size_t to)
+{
+	while (i < to && (buf[i] == ' ' || buf[i] == '\t'))
+		i++;
+
+	return i;
+}
+
+static bool rule_leading_macro(char *buf, size_t from, size_t to)
+{
+	size_t start = past_blanks(buf, from, to);
+	size_t end;
+
+	if (start >= to || !is_ident(buf[start]) ||
+	    isdigit((unsigned char)buf[start]))
+		return false;
+
+	end = past_identifier(buf, start, to);
+	if (is_c_keyword(buf + start, end - start))
+		return false;
 
 	/* Something must follow it on the line, or there is no declaration for
 	 * it to be standing in front of. */
-	size_t next = i;
-
-	while (next < to && (buf[next] == ' ' || buf[next] == '\t'))
-		next++;
-	if (next >= to || !is_ident(buf[next]))
+	if (past_blanks(buf, end, to) >= to ||
+	    !is_ident(buf[past_blanks(buf, end, to)]))
 		return false;
 
-	memset(buf + start, ' ', len);
+	memset(buf + start, ' ', end - start);
 	return true;
 }
 
@@ -467,6 +493,100 @@ static int repair_pass(Buffer *buf, const RegionList *regions, size_t *counts,
 	return 0;
 }
 
+/* One pass over the tree's rejected regions: widen, repair, re-parse, and keep
+ * the result only if it reduced the damage.
+ *
+ * Returns the tree to carry forward, or NULL where the pass achieved nothing
+ * and the buffer has been restored to what it found (LLR-RPR-04).
+ */
+static TSTree *try_pass(TSParser *parser, Buffer *buf, TSTree *tree,
+                        char *previous, size_t *prev_len, size_t *counts,
+                        RepairLog *log)
+{
+	RegionList regions = { 0 };
+	size_t     before  = error_count(ts_tree_root_node(tree));
+	bool       touched = false;
+	TSTree    *next;
+
+	if (collect_regions(ts_tree_root_node(tree), &regions) != 0) {
+		free(regions.items);
+		return NULL;
+	}
+	widen_to_lines(&regions, buf->data, buf->length);
+
+	memcpy(previous, buf->data, buf->length);
+	*prev_len = buf->length;
+
+	int status = repair_pass(buf, &regions, counts, log, &touched);
+
+	free(regions.items);
+	if (status != 0 || !touched)
+		return NULL;
+
+	next = ts_parser_parse_string(parser, NULL, buf->data,
+	                              (uint32_t)buf->length);
+
+	/* A pass that did not reduce the damage is withdrawn whole, which is
+	 * what makes a wrong rule cheap: the file is measured unrepaired,
+	 * which is where it started. */
+	if (!next || error_count(ts_tree_root_node(next)) >= before) {
+		if (next)
+			ts_tree_delete(next);
+		memcpy(buf->data, previous, *prev_len);
+		buf->length = *prev_len;
+		return NULL;
+	}
+
+	return next;
+}
+
+/* Take a pass that stood: its tree, its tally, and its log.
+ *
+ * The log is flushed here rather than as each repair is made, because a pass
+ * that failed to reduce the damage is withdrawn — and a companion naming
+ * repairs that were undone would describe a buffer nothing was measured from
+ * (HLR-199).
+ */
+static void accept_pass(RepairResult *out, TSTree *next, const size_t *counts,
+                        const RepairLog *log, const char *path)
+{
+	ts_tree_delete(out->tree);
+	out->tree = next;
+
+	for (size_t k = 0; k < REPAIR_RULE_COUNT; k++) {
+		out->counts[k] += counts[k];
+		out->total     += counts[k];
+	}
+
+	for (size_t i = 0; i < log->count; i++)
+		diag_detail("repair: %s at %s byte %u\n",
+		            repair_rule_name(log->items[i].rule), path,
+		            log->items[i].offset);
+	if (log->dropped)
+		diag_detail("repair: %zu further repairs not listed\n",
+		            log->dropped);
+}
+
+/* The two scratch buffers a repairing run needs: the working copy, and the
+ * snapshot a withdrawn pass is restored from. */
+static int repair_buffers(const char *data, size_t length, Buffer *buf,
+                          char **previous)
+{
+	buf->data = malloc(length ? length : 1);
+	*previous = malloc(length ? length : 1);
+	if (!buf->data || !*previous) {
+		free(buf->data);
+		free(*previous);
+		buf->data = NULL;
+		*previous = NULL;
+		return -1;
+	}
+
+	memcpy(buf->data, data, length);
+	buf->length = buf->capacity = length;
+	return 0;
+}
+
 int repair_parse(TSParser *parser, const char *data, size_t length,
                  const char *path, RepairResult *out)
 {
@@ -489,88 +609,38 @@ int repair_parse(TSParser *parser, const char *data, size_t length,
 	if (!ts_node_has_error(ts_tree_root_node(out->tree)))
 		return 0;
 
-	buf.data = malloc(length ? length : 1);
-	previous = malloc(length ? length : 1);
-	if (!buf.data || !previous) {
-		free(buf.data);
-		free(previous);
+	if (repair_buffers(data, length, &buf, &previous) != 0) {
 		ts_tree_delete(out->tree);
 		out->tree = NULL;
 		return -1;
 	}
-	memcpy(buf.data, data, length);
-	buf.length = buf.capacity = length;
 
 	for (unsigned pass = 0; pass < REPAIR_MAX_PASSES; pass++) {
-		RegionList regions = { 0 };
-		size_t     before  = error_count(ts_tree_root_node(out->tree));
-		size_t     counts[REPAIR_RULE_COUNT] = { 0 };
-		bool       touched = false;
+		size_t    counts[REPAIR_RULE_COUNT] = { 0 };
+		RepairLog log  = { .count = 0, .dropped = 0 };
+		TSTree   *next;
 
-		if (collect_regions(ts_tree_root_node(out->tree),
-		                    &regions) != 0) {
-			free(regions.items);
-			break;
-		}
-		widen_to_lines(&regions, buf.data, buf.length);
-
-		/* Kept so the pass can be withdrawn whole. */
 		if (buf.length > prev_len) {
 			char *bigger = realloc(previous, buf.length);
 
-			if (!bigger) {
-				free(regions.items);
+			if (!bigger)
 				break;
-			}
 			previous = bigger;
 		}
-		memcpy(previous, buf.data, buf.length);
-		prev_len = buf.length;
 
-		RepairLog log = { .count = 0, .dropped = 0 };
-		int status = repair_pass(&buf, &regions, counts, &log,
-		                         &touched);
-
-		free(regions.items);
-		if (status != 0 || !touched)
+		next = try_pass(parser, &buf, out->tree, previous, &prev_len,
+		                counts, &log);
+		if (!next)
 			break;
 
-		TSTree *next = ts_parser_parse_string(parser, NULL, buf.data,
-		                                      (uint32_t)buf.length);
-
-		/* A pass that did not reduce the damage is withdrawn whole,
-		 * which is what makes a wrong rule cheap: the file is measured
-		 * unrepaired, which is where it started (LLR-RPR-04). */
-		if (!next || error_count(ts_tree_root_node(next)) >= before) {
-			if (next)
-				ts_tree_delete(next);
-			memcpy(buf.data, previous, prev_len);
-			buf.length = prev_len;
-			break;
-		}
-
-		ts_tree_delete(out->tree);
-		out->tree = next;
-		for (size_t k = 0; k < REPAIR_RULE_COUNT; k++) {
-			out->counts[k] += counts[k];
-			out->total     += counts[k];
-		}
-
-		/* The pass stands, so what it did is now worth recording. */
-		for (size_t i = 0; i < log.count; i++)
-			diag_detail("repair: %s at %s byte %u\n",
-			            repair_rule_name(log.items[i].rule), path,
-			            log.items[i].offset);
-		if (log.dropped)
-			diag_detail("repair: %zu further repairs not listed\n",
-			            log.dropped);
+		accept_pass(out, next, counts, &log, path);
 	}
 
 	free(previous);
 
 	if (out->total == 0) {
-		/* Nothing survived the loop: the caller's own buffer is what
-		 * the tree describes, so the copy is not kept. */
+		/* Nothing survived, so the tree describes the caller's own
+		 * buffer and the copy is not kept. */
 		free(buf.data);
 		out->buffer = data;
 		out->length = length;

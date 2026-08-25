@@ -383,7 +383,7 @@ Test(analyze, damage_is_counted_in_distinct_lines)
 	registry_close(&reg);
 }
 
-Test(analyze, the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable)
+Test(analyze, the_macro_concatenation_the_c_grammar_cannot_follow_is_repaired)
 {
 	Registry     reg;
 	FileMetrics *m = NULL;
@@ -391,17 +391,29 @@ Test(analyze, the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable)
 	/* The exact idiom that prompted this: `tree-sitter-c` accepts one
 	 * identifier before the first string literal of a concatenation and
 	 * not two, so the ANSI-colour macro convention common in embedded C
-	 * does not parse. The function around it must still be measured. */
+	 * does not parse.
+	 *
+	 * Until Phase 25 this test asserted that the damage was survivable —
+	 * the functions either side measured, one line lost. Repair changes
+	 * the outcome it was written to pin: the line is now repaired inside
+	 * itself, so `middle` is measured too and nothing is lost (HLR-196).
+	 * The original claim is kept below rather than replaced, because a
+	 * repair that measured the neighbours wrongly would be a worse defect
+	 * than the parse error it removed. */
 	registry_for_tests(&reg);
 	cr_assert_eq(analyze_metrics(&reg, source_holding(
 		"int before(void) { return 0; }\n"
 		"void middle(void) { printf(BOLD FG_BLUE \"%s\", x); }\n"
-		"int after(void) { return 1; }\n"), &m), ANALYZE_DAMAGED);
+		"int after(void) { return 1; }\n"), &m), ANALYZE_OK);
 
 	cr_assert_not_null(function_named(m, "before"));
 	cr_assert_not_null(function_named(m, "after"));
-	cr_assert_eq(m->unparsed_lines, 1,
-	             "one line of damage, not the whole file");
+	cr_assert_not_null(function_named(m, "middle"),
+	                   "the repaired function is measured, not merely "
+	                   "survived");
+	cr_assert_eq(m->unparsed_lines, 0,
+	             "the line was repaired, so nothing is unmeasured");
+	cr_assert_eq(m->repairs, 1, "and the report can say a repair was made");
 
 	filemetrics_free(m);
 	registry_close(&reg);
