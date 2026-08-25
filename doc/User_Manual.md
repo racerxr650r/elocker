@@ -2181,6 +2181,49 @@ still reports the lines its data occupies — which is how you tell a file of
 retained functions from a file of retained data. Folding that figure into the
 totals would hide the one part of them the filter did not narrow.
 
+### When one name is defined twice
+
+Two translation units can both define a `static helper`. That is ordinary C,
+and it is the one case where the image's symbol table alone cannot answer the
+question `--elf` asks: the link produced two separate symbols and may have
+kept or discarded them independently, so matching on the name retains both or
+discards both — and either way one of them is wrong.
+
+**With debug information, `elc` reads which file each function was written in**
+and matches on the name *and* the file. A definition the link dropped is
+reported among the functions the image does not define, beside its namesake
+that survived:
+
+```text
+Functions the image does not define (2)
+  Function  File                  Line
+  --------  --------------------  ----
+  helper    /home/u/proj/src/b.c     1
+  used_b    /home/u/proj/src/b.c     2
+```
+
+**Without it, `elc` refuses the run:**
+
+```sh
+$ elc --elf build/app src/
+elc: helper is defined in src/a.c and src/b.c, and build/app carries no
+debug information placing it; rebuild the image with -g so the filter can
+tell them apart
+$ echo $?
+2
+```
+
+No report is written. Retaining both definitions overstates what the build
+contains, and retaining the first is a guess wearing the authority of a
+measurement — and a filtered figure you cannot trust is worse than none,
+because nothing on the page distinguishes it from a correct one.
+
+The refusal is narrow. A name defined once is unaffected. So is a name the
+image does not define, since both definitions are excluded whichever was
+linked and the ambiguity changes nothing you would see. And **debug
+information is still not required**: an image built without it filters exactly
+as it always did, wherever each name is defined once.
+
 ### What counts as a function the image defines
 
 A symbol only counts as one of your program's functions if it is marked as a

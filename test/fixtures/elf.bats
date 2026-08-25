@@ -366,6 +366,103 @@ eloc_of() {
 	assert_equal "$(absent_of "$OUT")" "unlinked_add unlinked_max "
 }
 
+# A tree in which one name is defined twice, which is ordinary C and the case
+# the whole of HLR-193 is about. Built two ways: with debug information, so the
+# filter can tell the definitions apart, and without, so it cannot.
+build_ambiguous() {
+	require_tool cc "HLR-193 debug-information placement"
+	AMB="$BATS_TEST_TMPDIR/amb"
+	mkdir -p "$AMB"
+	printf 'static int helper(void){return 1;}\nint used_a(void){return helper();}\n' \
+		> "$AMB/a.c"
+	printf 'static int helper(void){return 2;}\nint used_b(void){return helper();}\n' \
+		> "$AMB/b.c"
+	printf 'int used_a(void);int used_b(void);\nint main(void){return used_a()+used_b();}\n' \
+		> "$AMB/m.c"
+	# The second image links b.c's replacement, which defines no helper at
+	# all — so exactly one of the two definitions survives the link.
+	printf 'int used_b(void){return 7;}\n' > "$AMB/b2.c"
+
+	cc -O0 -g -o "$AMB/with" "$AMB/a.c" "$AMB/b.c" "$AMB/m.c" 2>/dev/null || \
+		skip "cc cannot link here: HLR-193 unverified"
+	cc -O0 -g -o "$AMB/one" "$AMB/a.c" "$AMB/b2.c" "$AMB/m.c" 2>/dev/null || \
+		skip "cc cannot link here: HLR-193 unverified"
+	cc -O0 -g0 -o "$AMB/without" "$AMB/a.c" "$AMB/b.c" "$AMB/m.c" 2>/dev/null || \
+		skip "cc cannot link here: HLR-193 unverified"
+}
+
+@test "HLR-193: debug information places each definition in its own file" {
+	# Both statics survive this link, so both are retained — each against
+	# the file that defines it rather than both against whichever the
+	# filter happened to match first.
+	build_ambiguous
+	elc --verbose --elf "$AMB/with" "$AMB/a.c" "$AMB/b.c" "$AMB/m.c"
+	assert_success
+
+	assert_equal "$(functions_of <(printf '%s\n' "$output"))" \
+		"helper helper main used_a used_b "
+}
+
+@test "HLR-193: a definition the link dropped is absent, its namesake retained" {
+	# The case name-only matching gets wrong. a.c's helper is linked and
+	# b.c's is not; before HLR-193 both were retained, one of them falsely.
+	build_ambiguous
+	elc --verbose --elf "$AMB/one" "$AMB/a.c" "$AMB/b.c" "$AMB/m.c"
+	assert_success
+
+	# One helper kept, and it is a.c's.
+	local kept
+	kept="$(printf '%s\n' "$output" |
+		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && $2 == "helper" { print $1 }')"
+	assert_equal "$kept" "$AMB/a.c"
+
+	# And b.c's is reported absent, beside the function that called it.
+	printf '%s\n' "$output" | grep -q "helper .*$AMB/b.c"
+}
+
+@test "HLR-193: an unplaceable ambiguous name fails the run" {
+	# No debug information and two definitions: nothing available says
+	# which the link kept, so the run stops rather than guessing.
+	build_ambiguous
+	elc --elf "$AMB/without" "$AMB/a.c" "$AMB/b.c" "$AMB/m.c"
+	assert_equal "$status" 2
+}
+
+@test "HLR-193: the diagnostic names both files, the image, and the remedy" {
+	build_ambiguous
+	run bash -c '"$0" --elf "$1" "$2" "$3" "$4" 2>&1 >/dev/null' \
+		"$ELC" "$AMB/without" "$AMB/a.c" "$AMB/b.c" "$AMB/m.c"
+
+	assert_output --partial "helper is defined in"
+	assert_output --partial "$AMB/a.c"
+	assert_output --partial "$AMB/b.c"
+	assert_output --partial "$AMB/without"
+	assert_output --partial "rebuild the image with -g"
+}
+
+@test "HLR-193: no report is produced when the run fails" {
+	# A filtered figure resting on a guess is indistinguishable from a
+	# correct one, which is what makes it worse than no figure at all.
+	build_ambiguous
+	run bash -c '"$0" --elf "$1" "$2" "$3" "$4" 2>/dev/null' \
+		"$ELC" "$AMB/without" "$AMB/a.c" "$AMB/b.c" "$AMB/m.c"
+	assert_output ""
+}
+
+@test "HLR-141: an unambiguous run still needs no debug information" {
+	# The failure is confined to the ambiguous case. Every name here is
+	# defined once, so an image built without debug information filters
+	# exactly as it did before HLR-193.
+	build_ambiguous
+	cc -O0 -g0 -o "$AMB/plain" "$AMB/a.c" "$AMB/b2.c" "$AMB/m.c" 2>/dev/null || \
+		skip "cc cannot link here"
+
+	elc --verbose --elf "$AMB/plain" "$AMB/a.c" "$AMB/m.c"
+	assert_success
+	assert_output --partial "used_a"
+}
+
 @test "HLR-184: the absent-function table is the last section of the report" {
 	# The longest table a filtered run produces, and one a reader consults
 	# after the report rather than reading the report through. The image

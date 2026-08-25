@@ -30,7 +30,7 @@ This document describes the design of the source modules that implement the high
 *   [src/format_xml.c](../src/format_xml.c): The XML record writer and the reader that drives the report-regeneration mode.
 *   [src/format_graph.c](../src/format_graph.c): The Graphviz `.dot` call-tree writer and the GraphML graph-export writer.
 *   [src/elfsyms.c](../src/elfsyms.c): The linked-image reader: the function symbols an image defines, and the resolution of a linkage name to the source name the report presents.
-*   [src/dwarfline.c](../src/dwarfline.c): The image's debug line information: which source lines this build compiled an instruction for, and which files that mapping covers at all.
+*   [src/dwarfline.c](../src/dwarfline.c): The image's debug information: which source lines this build compiled an instruction for, which files that mapping covers at all, and which source file each function the image describes was written in.
 *   [src/purify.c](../src/purify.c): The graph purification engine: centrality-based classification of utility sinks, god objects, and peripheral nodes, the masked recovery view built from them, and the manifest by which a user overrules a classification.
 *   [src/recover.c](../src/recover.c): Architecture recovery: a proposed layering read off the purified recovery view, emitted in the form the stratum options accept.
 *   [src/format_dsm.c](../src/format_dsm.c): The Dependency Structure Matrix and its CSV and Markdown renderings.
@@ -938,6 +938,7 @@ It is also **the one row that runs downwards**, since the index is a score. The 
 *   Record which analyses were omitted, and why.
 *   Resolve each dead-code span to its enclosing function by containment over the assembled model, rather than by the index the parse recorded against an array since reordered for presentation (LLR-RPT-28).
 *   Record the conditional-compilation definitions in force and the number of regions whose condition could not be decided, so that a figure which depends on a configuration is reported alongside it (HLR-136, HLR-133).
+*   Refuse a filtered run in which a function name two analysed files define is one the image keeps and its debug information cannot place — the result would rest on a guess, and a filtered figure a reader cannot trust is indistinguishable from a correct one (HLR-193).
 *   Record the linked image a run was filtered by, the linkage names it could not resolve, the source functions it does not define, and the effective lines belonging to no function, so that a filtered figure is reported alongside the image that produced it (HLR-143, HLR-145, HLR-147).
 *   Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).
 *   Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).

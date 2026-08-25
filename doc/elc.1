@@ -1406,6 +1406,40 @@ only which
 .I functions
 survived, and nothing about which lines inside one were compiled out. The two
 compose, and may be given together.
+.SS Two definitions of one name
+Where the source defines a function name more than once \(em two translation
+units with a
+.B static
+helper of the same name, which is ordinary C \(em the image's symbol table
+alone cannot say which definition the link kept. The two are separate symbols
+and the linker may keep or discard them independently, so matching on the name
+retains both or discards both, and either way one of them is wrong.
+.PP
+Where the image carries
+.B debug information
+the question is answered exactly:
+.B elc
+reads the source file each function was written in and matches on the name
+.I and
+the file. A definition the link dropped is then reported among the functions
+the image does not define, beside its namesake that survived.
+.PP
+Where the image carries no debug information covering such a name,
+.B elc
+.B refuses the run
+\(em exit status 2, a diagnostic naming the function, both files, the image
+and the remedy, and no report at all. Retaining both definitions overstates
+what the build contains; retaining the first is a guess wearing the authority
+of a measurement, and a filtered figure a reader cannot trust is worse than no
+figure, because nothing distinguishes it from a correct one.
+.PP
+The refusal is confined to that case. A name the source defines once is
+unaffected, and so is a name the image does not define \(em both definitions
+are excluded whichever was linked, so the ambiguity changes nothing a reader
+would see. Debug information stays
+.I not
+required: an image built without it filters exactly as before wherever each
+name is defined once.
 .SS What counts as a function the image defines
 A symbol is taken as one when it is of function type
 .I and

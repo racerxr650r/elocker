@@ -539,7 +539,7 @@ int elfsyms_open(const char *path, SymbolSet *out)
 	 * debug information yields an empty set and is not a failure: HLR-141
 	 * forbids requiring it, so its absence costs the line granularity and
 	 * nothing else (HLR-153). */
-	if (dwarfline_read(elf, &out->lines) != 0) {
+	if (dwarfline_read(elf, &out->lines, &out->origins) != 0) {
 		fputs("elc: out of memory reading the image's line "
 		      "information\n", stderr);
 		goto cleanup;
@@ -555,6 +555,28 @@ cleanup:
 	if (status != 0)
 		elfsyms_free(out);
 	return status;
+}
+
+bool elfsyms_defines_in(const SymbolSet *set, const char *function,
+                        const char *file)
+{
+	if (!elfsyms_defines(set, function))
+		return false;
+
+	/* The image defines *a* function of this name. Which definitions it
+	 * kept is a question only the debug information can answer, and where
+	 * it answers, the answer governs: two translation units defining a
+	 * `static helper` produce two symbols the link may keep or drop
+	 * independently, and matching on the name retains or discards both
+	 * together — one of them wrongly (HLR-193).
+	 *
+	 * Where it cannot answer, the name alone is the best that can be said,
+	 * and `report_check_image_ambiguity` has already refused the run if
+	 * that was not good enough. */
+	if (!file || !dwarfline_knows(&set->origins, function))
+		return true;
+
+	return dwarfline_places(&set->origins, function, file);
 }
 
 bool elfsyms_defines(const SymbolSet *set, const char *function)
@@ -593,5 +615,6 @@ void elfsyms_free(SymbolSet *set)
 	free(set->names);
 	free(set->path);
 	dwarfline_free(&set->lines);
+	originmap_free(&set->origins);
 	memset(set, 0, sizeof *set);
 }

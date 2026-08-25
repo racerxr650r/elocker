@@ -594,6 +594,20 @@ void report_set_unresolved(Report *report, size_t unresolved);
  */
 int report_set_image(Report *report, const SymbolSet *image);
 
+/* Refuse a filtered run whose result would rest on a guess.
+ *
+ * Where two analysed files define a function the image kept, and the image
+ * carries no debug information placing that name in one of them, the filter
+ * cannot tell which definition survived the link. Retaining both overstates
+ * what the build contains and retaining the first is a guess wearing the
+ * authority of a measurement, so the run stops with a diagnostic naming both
+ * files and the remedy (HLR-193).
+ *
+ * Returns 0 where every such name can be placed, or -1 having written the
+ * diagnostic.
+ */
+int report_check_image_ambiguity(const Report *report, const SymbolSet *image);
+
 /* Copy the intra-procedural dead-code findings onto an assembled report,
  * resolving each span's function index to the name a reader can act on.
  *

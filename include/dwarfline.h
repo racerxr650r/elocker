@@ -57,6 +57,39 @@ typedef struct {
 	bool         present;
 } LineCoverage;
 
+/* One function definition the image's debug information records: the name, and
+ * the source file it was written in.
+ *
+ * A **pair**, and that is the whole design. Keying by name alone would make
+ * two translation units defining a `static helper` collapse into one unusable
+ * entry — which is precisely the case the map exists to resolve, since the
+ * debug information carries a separate subprogram for each and knows exactly
+ * which file each was written in (HLR-193).
+ */
+typedef struct {
+	char *name;   /* as the debug information records it; owned */
+	char *file;   /* absolute and normalised; owned             */
+} FunctionOrigin;
+
+/* Every function definition the image's debug information places.
+ *
+ * The map exists so that the `--elf` filter of HLR-140 can match a source
+ * function to an image symbol by *name and file* rather than by name alone.
+ * Two translation units defining a `static helper` produce two symbols the
+ * link may keep or drop independently, and a filter matching on the name
+ * retains or discards both together — one of them wrongly.
+ *
+ * `present` distinguishes an image carrying no debug information from one
+ * whose debug information places no function, exactly as `LineCoverage` does
+ * and for the same reason: only the second says anything about the target.
+ */
+typedef struct {
+	FunctionOrigin *items;   /* sorted by name, then file; owned */
+	size_t          count;
+	size_t          capacity;
+	bool            present;
+} OriginMap;
+
 /* Read the line information of an already-opened image.
  *
  * `elf` is the `Elf *` handle `elfsyms.c` holds, passed opaquely so that no
@@ -68,7 +101,32 @@ typedef struct {
  * debug information: its absence costs the finer granularity and nothing
  * else. Non-zero is returned only on allocation failure.
  */
-int dwarfline_read(void *elf, LineCoverage *out);
+int dwarfline_read(void *elf, LineCoverage *out, OriginMap *origins);
+
+/* Whether the debug information records this function at all, in any file.
+ *
+ * The question that decides whether the map can be trusted for a name. False
+ * means the image was built without debug information, or built without it for
+ * the unit that defines this function — and in either case a caller with two
+ * candidate definitions has nothing to choose between them (HLR-193).
+ */
+bool dwarfline_knows(const OriginMap *origins, const char *function);
+
+/* Whether the debug information records this function as written in this file.
+ *
+ * Only meaningful where `dwarfline_knows` is true for the same name: false is
+ * returned for a name the map does not hold, and a caller that skipped the
+ * first test would read that as "not defined here" for every function of an
+ * image built without debug information. The two are separate calls so the
+ * distinction cannot be made by accident — the same shape `dwarfline_covers`
+ * and `dwarfline_compiled` take, for the same reason.
+ */
+bool dwarfline_places(const OriginMap *origins, const char *function,
+                      const char *file);
+
+/* Release the map and every name and path it owns. Safe on NULL, and safe
+ * twice. */
+void originmap_free(OriginMap *origins);
 
 /* Whether the image's line information covers this source file.
  *

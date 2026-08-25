@@ -538,6 +538,70 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 	return 0;
 }
 
+/* The names two or more analysed files define, that the image also defines and
+ * the debug information cannot place.
+ *
+ * The filter matches a source function to an image symbol by name, and by file
+ * too wherever the debug information says which file (HLR-193). Where it does
+ * not, and two files define the name, there is no honest answer: the image
+ * kept one of the two definitions and nothing available says which. Retaining
+ * both overstates what the build contains and retaining the first is a guess
+ * wearing the authority of a measurement, so the run stops.
+ *
+ * Checked here rather than during the parse because it is a question about the
+ * whole project, and one file's parse cannot see the other definition. The
+ * work already done is discarded, which costs a second on a large tree and is
+ * the right trade against reporting a filtered figure nobody can trust.
+ *
+ * Returns 0 where every ambiguous name can be placed, or -1 having written the
+ * diagnostic.
+ */
+int report_check_image_ambiguity(const Report *report, const SymbolSet *image)
+{
+	if (!report || !image)
+		return 0;
+
+	for (size_t i = 0; i < report->file_count; i++) {
+		const FileMetrics *fi = report->files[i];
+
+		for (size_t f = 0; f < fi->function_count; f++) {
+			const char *name = fi->functions[f].name;
+
+			/* Only a name the image kept matters: one the image
+			 * dropped is excluded from both files whichever
+			 * definition it came from, so the ambiguity changes
+			 * nothing a reader would see. */
+			if (!elfsyms_defines(image, name))
+				continue;
+			if (dwarfline_knows(&image->origins, name))
+				continue;
+
+			for (size_t j = i + 1; j < report->file_count; j++) {
+				const FileMetrics *fj = report->files[j];
+
+				for (size_t g = 0; g < fj->function_count; g++) {
+					if (strcmp(fj->functions[g].name,
+					           name) != 0)
+						continue;
+
+					fprintf(stderr,
+					        "elc: %s is defined in %s and "
+					        "%s, and %s carries no debug "
+					        "information placing it; "
+					        "rebuild the image with -g so "
+					        "the filter can tell them "
+					        "apart\n",
+					        name, fi->path, fj->path,
+					        image->path);
+					return -1;
+				}
+			}
+		}
+	}
+
+	return 0;
+}
+
 int report_set_image(Report *report, const SymbolSet *image)
 {
 	if (!report || !image || !image->path)

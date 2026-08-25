@@ -1161,6 +1161,13 @@ The single place every reported collection is ordered. The audit point for deter
     Both derivations are required and neither is redundant. The first runs before a graph exists, when both degrees are zero and the figure rests on length and branching; the second runs when they are real. What the pair prevents is the field ever being read as the zero of an uninitialised value, which for this measurement is not a neutral figure but the worst one on the scale — a listing built between the two would report every function in the project as critically unmaintainable.
     *Trace:* HLR-191 (Adapted Maintainability Index per Function), HLR-192 (Maintainability Index Threshold Classification).
 
+*   <a id="LLR-RPT-41"></a>**LLR-RPT-41** — `report_check_image_ambiguity` shall fail a filtered run in which some function name is defined by two or more analysed files, is defined by the image, and is not held by the image's origin map — writing a diagnostic that names the function, both files, the image, and the remedy, and producing no report.
+
+    All three conditions are required. A name the image does not define is excluded from both files whichever was linked, so the ambiguity changes nothing a reader would see; a name the debug information places needs no guess; and a name defined once has nothing to be ambiguous between.
+
+    It shall run over the assembled model rather than during the parse, because it is a question about the whole project and one file's parse cannot see the other definition. The analysis already done is discarded, which is the right trade: a filtered figure resting on a guess is indistinguishable from a correct one, and that is what makes it worse than no figure at all.
+    *Trace:* HLR-193 (Image Symbols Placed by Debug Information), HLR-120.
+
 ## 36. `format_table` ([src/format_text.c](../src/format_text.c))
 
 *   <a id="LLR-TBL-01"></a>**LLR-TBL-01** — `format_table` shall render the report as an aligned, human-readable table, computing column widths from the longest path and function name.
@@ -1491,6 +1498,11 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SYM-03"></a>**LLR-SYM-03** — `resolved_name` shall reduce a decoded name to the function name the report presents, discarding the signature, the enclosing qualification, the template argument list, any leading return type, and any hash suffix, so that both sides of the comparison are in one form. Two parenthesised forms are part of a name rather than a signature and shall be kept: the empty pair of `operator()`, and the `(anonymous namespace)` an internal-linkage definition is qualified by. Each would otherwise truncate the name to nothing, and the punctuation of an operator would likewise unbalance a scan that took it for structure.
     *Trace:* HLR-142 (Linkage Names Resolved to Source Names), HLR-014 (Per-Function Identity).
 
+*   <a id="LLR-SYM-09"></a>**LLR-SYM-09** — `elfsyms_defines_in` shall report whether the image defines a function of a given name **written in a given file**: where the debug information holds any definition of the name, the file governs and a definition in any other file is not one the image kept; where it holds none, or where the caller supplies no file, the answer is the name-only one `elfsyms_defines` gives.
+
+    The fallback is safe because it is guarded elsewhere: a run in which the fallback would be ambiguous has already been refused (LLR-RPT-41), so reaching it means the name is unique in the analysed source and the file could not change the answer.
+    *Trace:* HLR-193 (Image Symbols Placed by Debug Information), HLR-140.
+
 *   <a id="LLR-SYM-04"></a>**LLR-SYM-04** — `resolved_name` shall return no name for a linkage name encoded by a scheme this build does not decode, so that the symbol is counted as unresolved rather than matched against a guess.
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported).
 
@@ -1513,6 +1525,20 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-DWL-04"></a>**LLR-DWL-04** — An image carrying no debug line information shall yield an empty coverage set and shall not be a failure, since HLR-141 forbids requiring debug information. `dwarfline_read` shall return non-zero on allocation failure alone, and shall release the partially built set before doing so — a coverage set built halfway would prune on evidence it does not have.
     *Trace:* HLR-153 (Debug-Line Pruning From the Image), HLR-141 (Image Read Without a Toolchain), HLR-125 (Complete Resource Release).
+
+*   <a id="LLR-DWL-06"></a>**LLR-DWL-06** — `dwarfline_read` shall additionally record, for every subprogram the image's debug information describes with a code address, the function's name and the source file it was written in, as a set of **name-and-file pairs** made absolute against the compilation directory by the same rule the line table's file names are.
+
+    The pair is the unit of the map, not the name. Keying by name alone would collapse two translation units defining a `static helper` into one unusable entry, which is precisely the case the map exists to resolve — the debug information carries a separate subprogram for each and knows which file each was written in.
+
+    Read from the subprogram DIEs rather than from the line table and a symbol address: the declaration attribute says where a function was *written*, which is the question, while an address lookup answers where its first instruction ended up — a different question that inlining and identical-code folding give a plausible wrong answer to.
+
+    A subprogram with no code address shall be skipped, since a declaration is not a definition and would place a name in a file that merely mentioned it. An image with no debug information shall yield an empty map rather than a failure, exactly as it yields an empty line coverage (HLR-141).
+    *Trace:* HLR-193 (Image Symbols Placed by Debug Information), HLR-141.
+
+*   <a id="LLR-DWL-07"></a>**LLR-DWL-07** — `dwarfline_knows` shall report whether the map holds any definition of a name, and `dwarfline_places` whether it holds one in a given file. They shall be separate calls, and `dwarfline_places` shall be meaningful only where `dwarfline_knows` is true for the same name.
+
+    The split is the one `dwarfline_covers` and `dwarfline_compiled` already take, for the same reason: a single call returning false would conflate "the debug information says this function is not in that file" with "there is no debug information", and a caller that made the distinction by accident would exclude every function of an image built without it.
+    *Trace:* HLR-193 (Image Symbols Placed by Debug Information).
 
 *   <a id="LLR-DWL-05"></a>**LLR-DWL-05** — Coverage and compilation shall be two queries rather than one, and the first shall govern the second. `dwarfline_covers` shall answer whether the image's line information describes a file at all; `dwarfline_compiled` shall answer whether a line of it produced an instruction, and shall answer *false* for a file that is not covered.
 

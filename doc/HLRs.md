@@ -943,6 +943,16 @@ Each of those is answerable on its own and none of them answers the question a m
 
 **The substitution is what makes the bands `elc`'s own.** The formula is adapted, so the thresholds published for the unadapted one no longer describe it, and Section 24 says so where a reader sees it rather than borrowing an authority the adaptation forfeited.
 
+*   <a id="HLR-193"></a>**HLR-193: Image Symbols Placed by Debug Information.**
+    Where a run is filtered by a linked image (HLR-140) and that image carries debug information placing a function in a source file, `elc` shall match a source function to an image symbol by **name and file** rather than by name alone.
+
+    Matching by name alone is wrong wherever a name is not unique across the analysed source. Two translation units defining a `static helper` produce two symbols, which the link may keep or discard independently; a filter keyed on the name retains both definitions or discards both, and in either case one of them is wrong. The debug information records a separate subprogram for each definition and the file it was written in, which answers the question exactly.
+
+    **Where the debug information cannot place a name and two or more analysed files define it, the run shall fail** with a diagnostic naming the function, both files, the image, and the remedy — and shall produce no report. Retaining both definitions overstates what the build contains, and retaining the first is a guess presented with the authority of a measurement; a filtered figure a reader cannot trust is worse than no figure, because nothing distinguishes it from a correct one.
+
+    The failure is confined to that case. A name defined once is unaffected, a name the image does not define is unaffected — the ambiguity changes nothing a reader would see, since both definitions are excluded whichever was linked — and a run with no image never asks the question. Debug information remains **not required** (HLR-141): an image built without it filters exactly as before wherever the source defines each name once.
+    *Trace:* [SDD Section 18](SDD.md), [SDD Section 19](SDD.md), [SDD Section 13](SDD.md).
+
 *   <a id="HLR-191"></a>**HLR-191: Adapted Maintainability Index per Function.**
     For every function, `elc` shall compute and report an Adapted Maintainability Index, formed from the function's information flow, its cyclomatic complexity (HLR-017) and its effective lines of code (HLR-015):
 
