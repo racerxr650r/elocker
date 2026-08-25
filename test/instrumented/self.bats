@@ -118,6 +118,24 @@ section_rows() {
 	# refactored away, because the honest response to a metric artefact is
 	# to name it.
 	#
+	# **It moved from fifteen to sixteen when name reduction was
+	# centralised, and the crossing is the same artefact making a sharper
+	# point.** `symname_reduce` is fifteen effective lines of complexity
+	# five — as simple as anything in the tree — and scores 54 entirely on
+	# a fan-in of five against a fan-out of five. It was static in
+	# `elfsyms.c` and scored above the band; sharing it cost it the
+	# difference.
+	#
+	# What makes this one worth recording rather than arguing with is that
+	# HLR-200 *requires* the sharing. One reduction used by every path that
+	# compares names is the requirement; a second copy is the defect it was
+	# written to remove. The two ways to lift the score are to inline the
+	# five helpers it calls, which trades fifteen simple lines for one long
+	# one, or to give it fewer callers, which means copying it. The metric
+	# is asking for worse code in both directions, and HLR-099 is explicit
+	# that a threshold is a prompt to look rather than an instruction to
+	# comply.
+	#
 	# Warnings are not gated, here or for complexity. Bringing sixty-odd
 	# functions under a band is a refactor of the whole source tree, not a
 	# step in the phase that drew it.
@@ -126,9 +144,9 @@ section_rows() {
 		awk '$1 == "critical" && $2 == "maintainability" { n++ }
 		     END { print n + 0 }')"
 
-	if [ "$critical" -gt 15 ]; then
+	if [ "$critical" -gt 16 ]; then
 		echo "elc's maintainability debt grew: $critical functions" >&2
-		echo "below the critical band, against a recorded 15." >&2
+		echo "below the critical band, against a recorded 16." >&2
 		section_rows 'Findings' | awk '$2 == "maintainability"' >&2
 		false
 	fi
