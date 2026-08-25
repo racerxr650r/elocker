@@ -922,6 +922,21 @@ maintain, so it sits at the top of the scale.
 This is the only measurement in `elc` where the **low** value is the bad one.
 Everywhere else a finding means a number got too big.
 
+> **One caveat, and it is the metric's rather than your code's.** The
+> information-flow term squares the product of the two degrees, so a small,
+> simple helper that many functions call scores badly *for being widely
+> shared*. `elc`'s own `diag_printf` is ten effective lines with a complexity
+> of two and scores 51, because seventy-nine functions call it — which is
+> good factoring, not a fragile monolith.
+>
+> A related surprise: routing calls through one of your own functions rather
+> than a library one *lowers* the scores of every caller, because a library
+> call cannot be resolved into the graph and yours can. Centralising something
+> can therefore make the number worse while making the code simpler.
+>
+> Read a low score as *a question worth asking*, not a verdict. That is why
+> the finding says where the score fell and stops.
+
 And as with every other finding, the row says where the score fell and who
 drew the line. It does not tell you to refactor anything — what a low score
 warrants is your call, and a metric whose name sounds like a verdict is the

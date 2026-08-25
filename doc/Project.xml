@@ -15835,7 +15835,7 @@ The text shall be bounded, and where it is truncated the number of lines omitted
     </test>
 
     <test name="LLR-BLD-23: elc's own maintainability debt does not grow">
-      <purpose><![CDATA[A ratchet rather than a clean bill of health: twelve of elc's own functions score below the critical maintainability band, which is a new band meeting old code rather than new code getting worse. The figure is recorded debt and not a target, asserted so the debt cannot quietly grow — the same contract test/gap-baseline.txt holds for coverage. Warnings are not gated, here or for complexity: bringing sixty-odd functions under a band is a refactor of the source tree rather than a step in the phase that drew it.]]></purpose>
+      <purpose><![CDATA[A ratchet rather than a clean bill of health: fifteen of elc's own functions score below the critical maintainability band. The figure is recorded debt and not a target, asserted so the debt cannot quietly grow — the same contract test/gap-baseline.txt holds for coverage. It moved from twelve to fifteen when diagnostics were centralised, and the three that crossed are the metric's artefact rather than the code's: `fprintf` is a library call the graph cannot resolve and `diag_printf` is one it can, so every diagnosing function gained a point of fan-out, and `diag_printf` itself scores 51 for being called by seventy-nine functions despite being ten lines of complexity two.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-181"/>
         <trace target="HLR" ref="HLR-192"/>
