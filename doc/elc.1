@@ -161,6 +161,43 @@ resolve by name, a
 helper defined in several files gives the winning definition every caller's
 fan-in and the losers none.
 .PP
+.B The Adapted Maintainability Index
+combines the two degrees above with the function's cyclomatic complexity and
+its effective lines into a single score out of a hundred:
+.PP
+.RS 4
+.I "IF = (Fan\-In \(mu Fan\-Out)\(ha2"
+.br
+.I "MI = 171 \- 5.2 ln(IF + 1) \- 0.23 v(G) \- 16.2 ln(ELOC)"
+.br
+.I "MI' = max(0, MI \(di 171 \(mu 100)"
+.RE
+.PP
+This is Coleman and Oman's index with one substitution: their third term is
+the logarithm of a function's Halstead Volume, and this one uses the
+information flow through it, so the score falls when a function is entangled
+with its neighbours and not only when it is long or branchy. The one added to
+the information flow keeps a function at either end of the call graph defined
+rather than infinite; a function with no effective lines is taken as having
+one, for the same reason.
+.PP
+A score of 65 or above draws no comment; below 65 is a
+.BR warning ,
+and below 55 is
+.BR critical .
+.B These thresholds are elc's own
+and their rows say so. The index is published and so are thresholds for it \(em
+the Software Engineering Institute's 85 and 65 \(em but those were calibrated
+against the Halstead term this adaptation replaces, and carried across
+unchanged they band four functions in five. A citation is not transitive:
+adapting a metric does not inherit the thresholds drawn for the original.
+.PP
+It is the only measurement
+.B elc
+reports where the
+.I low
+value is the bad one.
+.PP
 .B Recursion
 is detected statically, direct and mutual alike, in accordance with MISRA C
 Rule 17.2 \(em under which recursion is forbidden because it makes worst-case
@@ -908,12 +945,13 @@ accepted range it fell, and
 \(em MISRA C and its rule number, Robert C. Martin, McCabe as NIST SP 500-235
 records him, or the Henry-Kafura information-flow metrics.
 .PP
-Exactly two thresholds are
+Exactly three thresholds are
 .BR elc 's
 own rather than published standards \(em the bottleneck of
-.B \-\-bottleneck\-threshold
-and the fan-in band \(em and their rows say so where they are read. That label
-is what lets a reader tell a standard from a choice.
+.BR \-\-bottleneck\-threshold ,
+the fan-in band, and the maintainability bands \(em and their rows say so where
+they are read. That label is what lets a reader tell a standard from a
+choice.
 .PP
 .B Cyclomatic complexity
 is banded on McCabe's authority: 10 or below produces no finding, 11 to 15
@@ -1048,17 +1086,17 @@ Files
   /home/u/proj/src/a.c  c            18    12          2
   /home/u/proj/src/b.c  c            24     6          1
 
-At or over a threshold (complexity listed at 5; complexity, fan-in and fan-out banded)
-  File                  Function  Complexity  Fan-in  Fan-out  Severity
-  --------------------  --------  ----------  ------  -------  --------
-  /home/u/proj/src/a.c  parse              7       1        2
+At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and maintainability banded)
+  File                  Function  Complexity  Fan-in  Fan-out  MI  Severity
+  --------------------  --------  ----------  ------  -------  --  --------
+  /home/u/proj/src/a.c  parse              7       1        2  62
 
 Functions
-  File                  Function    Lines  ELOC  Complexity  Fan-in  Fan-out
-  --------------------  ----------  -----  ----  ----------  ------  -------
-  /home/u/proj/src/a.c  parse        5-19     9           7       1        2
-  /home/u/proj/src/a.c  emit        21-24     3           1       1        0
-  /home/u/proj/src/b.c  main         3-11     6           2       0        1
+  File                  Function    Lines  ELOC  Complexity  Fan-in  Fan-out   MI
+  --------------------  ----------  -----  ----  ----------  ------  -------  ---
+  /home/u/proj/src/a.c  parse        5-19     9           7       1        2   77
+  /home/u/proj/src/a.c  emit        21-24     3           1       1        0   90
+  /home/u/proj/src/b.c  main         3-11     6           2       0        1   83
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
@@ -1086,7 +1124,8 @@ the functions are in view.
 There is
 .I one
 per-function table. Its columns are the function's line range, its effective
-lines, its cyclomatic complexity, and its two degrees. Earlier releases split
+lines, its cyclomatic complexity, its two degrees, and its Adapted
+Maintainability Index. Earlier releases split
 these across three tables enumerating the same functions in the same order,
 which was three places to look to answer one question about one function.
 .PP
@@ -1188,7 +1227,8 @@ The detail tiers, presented only with
 .RS
 .IP \(bu 2
 Functions \(em one row per analysed function, carrying its line range, ELOC,
-cyclomatic complexity, fan\-in and fan\-out.
+cyclomatic complexity, fan\-in, fan\-out and its Adapted Maintainability
+Index.
 .IP \(bu 2
 Recursion, the deepest call chain, component coupling, component dependency
 cycles, and layering \(em the measurements taken over the dependence graph,

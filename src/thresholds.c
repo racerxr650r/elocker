@@ -43,12 +43,18 @@
  * invented — the bottleneck heuristic and the fan-in band — say so in the
  * text a reader sees.
  *
- * The bands are **exclusive upper bounds**: a value strictly greater than
- * `warning_above` warns, and strictly greater than `critical_above` is
+ * The bands are **exclusive bounds**: a value strictly greater than
+ * `warning_bound` warns, and strictly greater than `critical_bound` is
  * critical. Written that way because the published tables are written that
  * way — "> 15 is a god function" — and a catalogue that had to be mentally
  * translated from its source would be a catalogue nobody could check against
  * it.
+ *
+ * One row runs the other way and says so in its `inverted` flag: the
+ * Maintainability Index is a score, and a value strictly *below* its bound
+ * falls in the band. The flag is what keeps the numbers in this table
+ * readable as the numbers a reader is looking for rather than as their
+ * complements.
  */
 static const Threshold CATALOGUE[] = {
 	/* Fan-out: 0–2 below healthy, 3–7 healthy, 8–10 acceptable, all
@@ -56,7 +62,7 @@ static const Threshold CATALOGUE[] = {
 	 * value a fan-out can take (HLR-086). */
 	{ MEASURE_FAN_OUT, "fan-out",
 	  ELC_FANOUT_WARNING, ELC_FANOUT_CRITICAL,
-	  SEVERITY_INFO, false, "Henry-Kafura", false },
+	  false, SEVERITY_INFO, false, "Henry-Kafura", false },
 
 	/* Fan-in: **the second row `elc` invented**, and it says so for the
 	 * reason the bottleneck row does. No published source divides fan-in
@@ -67,7 +73,7 @@ static const Threshold CATALOGUE[] = {
 	 * exceeds it, and the row needs no special case anywhere else. */
 	{ MEASURE_FAN_IN, "fan-in",
 	  ELC_FANIN_WARNING, UINT32_MAX,
-	  SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
+	  false, SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
 
 	/* Cyclomatic complexity: 10 is McCabe's own limit, and 15 the highest
 	 * limit NIST SP 500-235 records as having been used successfully — and
@@ -80,31 +86,44 @@ static const Threshold CATALOGUE[] = {
 	 * not move a band, or the user would be choosing what McCabe says. */
 	{ MEASURE_COMPLEXITY, "complexity",
 	  ELC_COMPLEXITY_WARNING, ELC_COMPLEXITY_CRITICAL,
-	  SEVERITY_INFO, false, "McCabe (NIST SP 500-235)", false },
+	  false, SEVERITY_INFO, false, "McCabe (NIST SP 500-235)", false },
+
+	/* Maintainability: **the third row `elc` invented**, and the only one
+	 * that runs downwards. Coleman and Oman's index with the information
+	 * flow through a function substituted for its Halstead Volume, so the
+	 * formula is an adaptation and the bands drawn for the original no
+	 * longer fit it — the Software Engineering Institute's 85 and 65 were
+	 * calibrated against a term this formula does not have, and carrying
+	 * them across would flag four functions in five. These two are drawn
+	 * for the adapted formula, which makes them a judgement rather than a
+	 * citation (HLR-192, HLR-099). */
+	{ MEASURE_MAINTAINABILITY, "maintainability",
+	  ELC_MI_WARNING, ELC_MI_CRITICAL,
+	  true, SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
 
 	/* Depth: an embedded constraint rather than a numbered rule. Beyond 8
 	 * to 12 layers the stack risks colliding with the heap on a target
 	 * with a couple of kilobytes of SRAM. */
 	{ MEASURE_CALL_DEPTH, "call depth",
 	  ELC_DEPTH_WARNING, ELC_DEPTH_CRITICAL,
-	  SEVERITY_INFO, false, "embedded practice (PVD Appendix A.2)", false },
+	  false, SEVERITY_INFO, false, "embedded practice (PVD Appendix A.2)", false },
 
 	/* Occurrence is the finding for the next four: there is no acceptable
 	 * count of recursive cycles or dependency cycles, and a global touched
 	 * by one function is a finding whatever the number of touches. */
-	{ MEASURE_RECURSION, "recursion", 0, 0,
+	{ MEASURE_RECURSION, "recursion", 0, 0, false,
 	  SEVERITY_CRITICAL, true, "MISRA C Rule 17.2", false },
 
 	{ MEASURE_COMPONENT_CYCLE, "component dependency cycle", 0, 0,
-	  SEVERITY_CRITICAL, true, "Martin, acyclic dependencies", false },
+	  false, SEVERITY_CRITICAL, true, "Martin, acyclic dependencies", false },
 
-	{ MEASURE_SCOPE_REDUCTION, "single-function global", 0, 0,
+	{ MEASURE_SCOPE_REDUCTION, "single-function global", 0, 0, false,
 	  SEVERITY_WARNING, true, "MISRA C Rule 8.9", false },
 
-	{ MEASURE_HIDDEN_CHANNEL, "hidden channel", 0, 0,
+	{ MEASURE_HIDDEN_CHANNEL, "hidden channel", 0, 0, false,
 	  SEVERITY_WARNING, true, "MISRA C Rule 8.9", false },
 
-	{ MEASURE_INSTABILITY, "instability", 0, 0,
+	{ MEASURE_INSTABILITY, "instability", 0, 0, false,
 	  SEVERITY_WARNING, true, "Martin", false },
 
 	/* **The second row that is not a published standard**, and the label
@@ -112,7 +131,7 @@ static const Threshold CATALOGUE[] = {
 	 * McCabe without saying so would lend it an authority it has not got,
 	 * and would make the "no built-in opinion" claim false (HLR-099,
 	 * LLR-ARC-02). */
-	{ MEASURE_BOTTLENECK, "bottleneck", 0, 0,
+	{ MEASURE_BOTTLENECK, "bottleneck", 0, 0, false,
 	  SEVERITY_WARNING, true,
 	  ELC_OWN_HEURISTIC, true }
 };
@@ -183,11 +202,13 @@ int severity_rank(const char *name)
  */
 static bool band_of(const Threshold *t, uint32_t value, Severity *out)
 {
-	if (value > t->critical_above) {
+	if (t->inverted ? value < t->critical_bound
+	                : value > t->critical_bound) {
 		*out = SEVERITY_CRITICAL;
 		return true;
 	}
-	if (value > t->warning_above) {
+	if (t->inverted ? value < t->warning_bound
+	                : value > t->warning_bound) {
 		*out = SEVERITY_WARNING;
 		return true;
 	}
@@ -348,6 +369,50 @@ static int apply_complexity(const Sdg *g, FindingList *out)
 		         "cyclomatic complexity %" PRIu32,
 		         g->nodes[i].complexity);
 		if (finding_add(out, MEASURE_COMPLEXITY, severity,
+		                g->nodes[i].name, g->nodes[i].file,
+		                g->nodes[i].line_start, detail) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
+/* The Adapted Maintainability Index, banded downwards.
+ *
+ * The value comes from `calltree_maintainability`, which is also what fills
+ * the report's own column — one definition of the formula, so the score a
+ * finding names and the score the table prints cannot disagree (HLR-191).
+ *
+ * Read off the graph's nodes and the call-tree results together, because the
+ * index needs all four: length and branching from the node table, the two
+ * degrees from the analysis over it.
+ *
+ * The detail states the figure and the scale it is out of, and stops there.
+ * What a low score warrants is the reader's judgement, not `elc`'s
+ * (HLR-101).
+ */
+static int apply_maintainability(const TreeResults *tree, const Sdg *g,
+                                 FindingList *out)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_MAINTAINABILITY);
+
+	if (!t || !tree->fan_in || !tree->fan_out)
+		return 0;
+
+	for (size_t i = 0; i < tree->node_count && i < g->node_count; i++) {
+		Severity severity;
+		char     detail[64];
+		uint32_t mi = calltree_maintainability(g->nodes[i].eloc,
+		                                       g->nodes[i].complexity,
+		                                       tree->fan_in[i],
+		                                       tree->fan_out[i]);
+
+		if (!band_of(t, mi, &severity))
+			continue;
+
+		snprintf(detail, sizeof detail,
+		         "maintainability index %" PRIu32 " of 100", mi);
+		if (finding_add(out, MEASURE_MAINTAINABILITY, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -609,6 +674,7 @@ static int apply_calltree_rows(const TreeResults *tree, const Sdg *g,
 {
 	return (apply_fan_out(tree, g, out) != 0 ||
 	        apply_fan_in(tree, g, out) != 0 ||
+	        apply_maintainability(tree, g, out) != 0 ||
 	        apply_depth(tree, out) != 0 ||
 	        apply_recursion(tree, g, out) != 0) ? -1 : 0;
 }

@@ -197,6 +197,58 @@ Test(report, the_listing_unites_the_configured_threshold_with_the_bands)
 	metrics_free(&acc);
 }
 
+/* Verifies LLR-RPT-40: the index is derived onto the metrics in both assembly
+ * paths, so the field is never read as the zero of an uninitialised value.
+ *
+ * For this measurement that zero is not neutral — it is the worst score on
+ * the scale — so a listing built between the two derivations would report
+ * every function in the project as critically unmaintainable.
+ */
+Test(report, the_maintainability_index_is_derived_in_both_paths)
+{
+	MetricsAccumulator acc    = { 0 };
+	Report             report = { 0 };
+	ElcOptions         opts   = { 0 };
+	FileMetrics       *a      = metrics_for("/a.c", 40);
+
+	opts.complexity_threshold = 15;
+
+	a->functions = calloc(1, sizeof *a->functions);
+	cr_assert_not_null(a->functions);
+	a->function_count          = 1;
+	a->functions[0].name       = strdup("hub");
+	a->functions[0].start_line = 10;
+	a->functions[0].eloc       = 20;
+	a->functions[0].complexity = 5;
+
+	cr_assert_eq(metrics_add(&acc, a), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
+
+	/* Assembled before any graph exists: both degrees are zero, the flow
+	 * term vanishes, and the figure rests on length and branching. */
+	cr_assert_eq(report.files[0]->functions[0].mi, 71);
+	cr_assert_eq(report.over_threshold.count, 0,
+	             "a score of 71 is inside the accepted band, so nothing "
+	             "is listed — the field was not read as an unset zero");
+
+	/* And again once the degrees are real: one caller, two callees. */
+	report.fan_out = calloc(1, sizeof *report.fan_out);
+	cr_assert_not_null(report.fan_out);
+	report.fan_out_count       = 1;
+	report.fan_out[0].file     = strdup("/a.c");
+	report.fan_out[0].function = strdup("hub");
+	report.fan_out[0].line     = 10;
+	report.fan_out[0].fan_in   = 1;
+	report.fan_out[0].fan_out  = 2;
+
+	cr_assert_eq(report_attach_flow(&report), 0);
+	cr_assert_eq(report.files[0]->functions[0].mi, 66,
+	             "the flow term now costs it five points");
+
+	report_free(&report);
+	metrics_free(&acc);
+}
+
 /* Verifies LLR-RPT-39 for the case the configured threshold governs alone: a
  * function inside every band, listed because its complexity met the value
  * `--threshold` set, carries no severity. The listing threshold has never

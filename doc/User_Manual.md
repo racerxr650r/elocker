@@ -268,17 +268,17 @@ Files
   /home/u/proj/src/a.c  c            18    12          2
   /home/u/proj/src/b.c  c            24     6          1
 
-At or over a threshold (complexity listed at 5; complexity, fan-in and fan-out banded)
-  File                  Function  Complexity  Fan-in  Fan-out  Severity
-  --------------------  --------  ----------  ------  -------  --------
-  /home/u/proj/src/a.c  parse              7       1        2
+At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and maintainability banded)
+  File                  Function  Complexity  Fan-in  Fan-out  MI  Severity
+  --------------------  --------  ----------  ------  -------  --  --------
+  /home/u/proj/src/a.c  parse              7       1        2  62
 
 Functions
-  File                  Function    Lines  ELOC  Complexity  Fan-in  Fan-out
-  --------------------  ----------  -----  ----  ----------  ------  -------
-  /home/u/proj/src/a.c  parse        5-19     9           7       1        2
-  /home/u/proj/src/a.c  emit        21-24     3           1       1        0
-  /home/u/proj/src/b.c  main         3-11     6           2       0        1
+  File                  Function    Lines  ELOC  Complexity  Fan-in  Fan-out   MI
+  --------------------  ----------  -----  ----  ----------  ------  -------  ---
+  /home/u/proj/src/a.c  parse        5-19     9           7       1        2   77
+  /home/u/proj/src/a.c  emit        21-24     3           1       1        0   90
+  /home/u/proj/src/b.c  main         3-11     6           2       0        1   83
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
@@ -447,10 +447,10 @@ elc -c 1 src/           # list everything
 ```
 
 ```
-At or over a threshold (complexity listed at 10; complexity, fan-in and fan-out banded)
-  File                  Function  Complexity  Fan-in  Fan-out  Severity
-  --------------------  --------  ----------  ------  -------  --------
-  /home/u/proj/src/a.c  parse             17       2        4  critical
+At or over a threshold (complexity listed at 10; complexity, fan-in, fan-out and maintainability banded)
+  File                  Function  Complexity  Fan-in  Fan-out  MI  Severity
+  --------------------  --------  ----------  ------  -------  --  --------
+  /home/u/proj/src/a.c  parse             17       2        4  58  critical
 ```
 
 That table holds two kinds of row. A function is listed because its complexity
@@ -535,9 +535,9 @@ behind it:
 <details>
 <summary>639 rows (click to expand)</summary>
 
-| File                 | Function | Lines | ELOC | Complexity | Fan-in | Fan-out |
-| -------------------- | -------- | ----: | ---: | ---------: | -----: | ------: |
-| /home/u/proj/src/a.c | parse    | 21-70 |   31 |          9 |      3 |       7 |
+| File                 | Function | Lines | ELOC | Complexity | Fan-in | Fan-out | MI |
+| -------------------- | -------- | ----: | ---: | ---------: | -----: | ------: | -: |
+| /home/u/proj/src/a.c | parse    | 21-70 |   31 |          9 |      3 |       7 | 62 |
 
 </details>
 ```
@@ -834,11 +834,11 @@ the function's two degrees:
 
 ```text
 Functions
-  File                  Function  Lines   ELOC  Complexity  Fan-in  Fan-out
-  --------------------  --------  ------  ----  ----------  ------  -------
-  /home/u/proj/src/a.c  main       5-19     12           3       0        4
-  /home/u/proj/src/a.c  parse     21-70     31           9       3        7
-  /home/u/proj/src/a.c  chomp     72-78      4           1       6        0
+  File                  Function  Lines   ELOC  Complexity  Fan-in  Fan-out   MI
+  --------------------  --------  ------  ----  ----------  ------  -------  ---
+  /home/u/proj/src/a.c  main       5-19     12           3       0        4   84
+  /home/u/proj/src/a.c  parse     21-70     31           9       3        7   62
+  /home/u/proj/src/a.c  chomp     72-78      4           1       6        0   93
 ```
 
 **Fan-out** is the number of *distinct subroutines a function invokes*.
@@ -878,6 +878,54 @@ them: that definition collects every caller's fan-in and the others collect
 none. Since fan-in is banded, an error of that shape can put a function over
 the line or hide one that is. `elc` diagnoses duplicate definitions on
 standard error; read the two together.
+
+### The Adapted Maintainability Index
+
+The last column of the Functions table is a single score out of a hundred,
+combining everything else on the row:
+
+```text
+IF  = (Fan-In × Fan-Out)²
+MI  = 171 − 5.2 ln(IF + 1) − 0.23 v(G) − 16.2 ln(ELOC)
+MI′ = max(0, MI ÷ 171 × 100)
+```
+
+It is Coleman and Oman's Maintainability Index with one substitution: their
+third term is the logarithm of a function's Halstead Volume, and `elc` uses
+the information flow through it instead. That is what makes the score fall
+when a function is *entangled* and not only when it is long or branchy — a
+short function that forty things call and that calls twenty more is hard to
+change, and no measure of its size says so.
+
+Two details keep the arithmetic defined. **One is added to the information
+flow** before the logarithm, so a function at either end of the call graph
+scores on length and branching alone rather than on an infinity — an entry
+point is not coupled by being an entry point. **A function with no effective
+lines is taken as having one**, for the same reason: it has nothing to
+maintain, so it sits at the top of the scale.
+
+| Score | Meaning |
+| ----- | ------- |
+| 65–100 | No finding. |
+| below 65 | **Warning** — moderate structural risk. |
+| below 55 | **Critical** — a rigid, fragile monolith. |
+
+> **These thresholds are `elc`'s own**, and it is the third of the three that
+> are. The index is published and so are thresholds for it — the Software
+> Engineering Institute's 85 and 65 — but those were calibrated against the
+> Halstead term this adaptation replaces. Dropping it removes thirty to
+> forty-five points of range, and the normalisation rescales what is left;
+> carried across unchanged, the published numbers flag four functions in five.
+> **A citation is not transitive.** Adapting a metric does not inherit the
+> thresholds drawn for the original, so `elc` draws its own and says so.
+
+This is the only measurement in `elc` where the **low** value is the bad one.
+Everywhere else a finding means a number got too big.
+
+And as with every other finding, the row says where the score fell and who
+drew the line. It does not tell you to refactor anything — what a low score
+warrants is your call, and a metric whose name sounds like a verdict is the
+last place `elc` would start giving advice.
 
 > **The Henry–Kafura value is gone.** Earlier releases reported
 > `HK = ELOC × (Fan-In × Fan-Out)²` per function and summed across the
@@ -2618,8 +2666,8 @@ Where a threshold *is* `elc`'s own, the column says so in as many words:
 
 > `elc heuristic — not a published standard`
 
-There are exactly two such thresholds today: the **bottleneck** and the
-**fan-in** band. If you disagree with a published threshold, take it up with
+There are exactly three such thresholds today: the **bottleneck**, the
+**fan-in** band, and the **maintainability** bands. If you disagree with a published threshold, take it up with
 the standard it comes from; if you disagree with one of these two, it is only
 `elc`'s opinion, and it is labelled as such so you know that's all it is.
 
@@ -2628,6 +2676,7 @@ the standard it comes from; if you disagree with one of these two, it is only
 | Measurement | Bands | Source |
 | ----------- | ----- | ------ |
 | Cyclomatic complexity | ≤10 silent; 11–15 **warning**; >15 **critical** | McCabe (NIST SP 500-235) |
+| Adapted Maintainability Index | ≥65 silent; <65 **warning**; <55 **critical** — the one that runs *downwards* | `elc` heuristic |
 | Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 **warning**; >15 **critical** | Henry–Kafura |
 | Function fan-in | ≤25 silent; >25 **warning**, with no critical band | `elc` heuristic |
 | Call depth | >8 **warning**; >12 **critical** | embedded practice |
@@ -2647,10 +2696,15 @@ That option decides which functions are *listed*; these decide which produce a
 finding, and moving the option moves neither. If it did, the number in the
 Source column would be yours rather than McCabe's.
 
-**Two rows are `elc`'s own**, and both say so where you read them: the
-bottleneck, and the fan-in band. Nobody has published a fan-in threshold, so
-25 is this project's judgement — and there is no critical band, because `elc`
-has no published basis for a first line and none whatever for a second.
+**Three rows are `elc`'s own**, and each says so where you read them: the
+bottleneck, the fan-in band, and the maintainability bands. Nobody has
+published a fan-in threshold, so 25 is this project's judgement — and there is
+no critical band, because `elc` has no published basis for a first line and
+none whatever for a second. The maintainability bands are `elc`'s for a
+subtler reason, set out under
+[The Adapted Maintainability Index](#the-adapted-maintainability-index): the
+index is published, but this build adapts the formula, and the published
+thresholds were calibrated for the term the adaptation replaced.
 
 ### The threshold listing
 

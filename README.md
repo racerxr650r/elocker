@@ -46,7 +46,12 @@ as NIST SP 500-235 records it; **fan-out above 10 warns and above 15 is
 critical**, on Henry and Kafura's; and **fan-in above 25 warns** on `elc`'s
 own, which is why that row says so wherever it appears. Every function a band
 names is collected into one listing, beside the functions at or over the
-complexity threshold `--complexity-threshold` sets. It detects **recursion**
+complexity threshold `--complexity-threshold` sets. The same table carries an
+**Adapted Maintainability Index** — Coleman and Oman's, with the information
+flow through a function in place of its Halstead Volume — banded *downwards*
+at 65 and 55 on `elc`'s own authority, because a citation is not transitive
+and the published thresholds were calibrated for the term the adaptation
+replaces. It detects **recursion**
 both direct and mutual, and prints the **deepest call chain in full** from
 entry points you declare with `--entry`. It never guesses at an entry point,
 and never invents a number it cannot stand behind: where the
@@ -284,7 +289,7 @@ deleted, so you can see what was set aside before deciding to trust it.
 | [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
-| [24](doc/SDP.md#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, complexity and fan-in bands | ✅ Complete |
+| [24](doc/SDP.md#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, complexity, fan-in and maintainability bands | ✅ Complete |
 
 </details>
 

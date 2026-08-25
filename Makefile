@@ -135,7 +135,11 @@ JANSSON_LIBS   ?= $(shell $(PKG_CONFIG) --libs jansson 2>/dev/null || echo -ljan
 CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS) $(DW_CFLAGS) $(JANSSON_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
-LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) $(ELF_LIBS) $(DW_LIBS) $(JANSSON_LIBS) -lstdc++ -ldl
+# `-lm` for the logarithms the Maintainability Index is formed from
+# (HLR-191). Named explicitly rather than left to the linker: glibc splits the
+# maths functions into their own object, and a `log` reached through another
+# library's dependency links on one distribution and fails on the next.
+LDLIBS      += $(TS_LIBS) $(EXPAT_LIBS) $(GIT2_LIBS) $(IGRAPH_LIBS) $(ELF_LIBS) $(DW_LIBS) $(JANSSON_LIBS) -lstdc++ -ldl -lm
 
 # Flags the build requires whatever the caller chose, appended in the recipes
 # rather than folded into CFLAGS.

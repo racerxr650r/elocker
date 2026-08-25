@@ -654,15 +654,17 @@ static int functions_section(const Report *report, Style style,
 	char c[32];
 	char d[32];
 	char e[32];
+	char f2[32];
 
 	static const char *const names[]   = { "File", "Function",
 	                                       "Lines", "ELOC",
 	                                       "Complexity", "Fan-in",
-	                                       "Fan-out" };
+	                                       "Fan-out", "MI" };
 	static const bool        numeric[] = { false, false, true,
-	                                       true, true, true, true };
+	                                       true, true, true, true,
+	                                       true };
 
-	grid_begin(&grid, "Functions", 7, names, numeric);
+	grid_begin(&grid, "Functions", 8, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -675,7 +677,8 @@ static int functions_section(const Report *report, Style style,
 			snprintf(c, sizeof c, "%" PRIu32, fn->complexity);
 			snprintf(d, sizeof d, "%" PRIu32, fn->fan_in);
 			snprintf(e, sizeof e, "%" PRIu32, fn->fan_out);
-			grid_row(&grid, f->path, fn->name, a, b, c, d, e);
+			snprintf(f2, sizeof f2, "%" PRIu32, fn->mi);
+			grid_row(&grid, f->path, fn->name, a, b, c, d, e, f2);
 		}
 	}
 	if (grid_render(&grid, style, out, empty) != 0)
@@ -705,32 +708,34 @@ static int threshold_listing_section(const Report *report, Style style,
 	char a[32];
 	char b[32];
 	char c[32];
+	char d[32];
 
 	static const char *const names[]   = { "File", "Function",
 	                                       "Complexity", "Fan-in",
-	                                       "Fan-out", "Severity" };
+	                                       "Fan-out", "MI", "Severity" };
 	static const bool        numeric[] = { false, false, true, true,
-	                                       true, false };
+	                                       true, true, false };
 	char                     heading[160];
 
 	snprintf(heading, sizeof heading,
 	         "At or over a threshold (complexity listed at %" PRIu32
-	         "; complexity, fan-in and fan-out banded)",
+	         "; complexity, fan-in, fan-out and maintainability banded)",
 	         report->complexity_threshold);
 
-	grid_begin(&grid, heading, 6, names, numeric);
+	grid_begin(&grid, heading, 7, names, numeric);
 	for (size_t i = 0; i < report->over_threshold.count; i++) {
 		const ThresholdEntry *e = &report->over_threshold.items[i];
 
 		snprintf(a, sizeof a, "%" PRIu32, e->function->complexity);
 		snprintf(b, sizeof b, "%" PRIu32, e->function->fan_in);
 		snprintf(c, sizeof c, "%" PRIu32, e->function->fan_out);
+		snprintf(d, sizeof d, "%" PRIu32, e->function->mi);
 		/* Blank rather than "info" for a function present only
 		 * because it met the listing threshold. `info` is a severity
 		 * and this row has none: printing one would turn a listing
 		 * the user configured into a finding elc reported
 		 * (HLR-023, HLR-100). */
-		grid_row(&grid, e->file, e->function->name, a, b, c,
+		grid_row(&grid, e->file, e->function->name, a, b, c, d,
 		         e->severity == SEVERITY_INFO
 		                 ? ""
 		                 : severity_name(e->severity));

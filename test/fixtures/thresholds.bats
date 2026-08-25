@@ -30,29 +30,45 @@ findings() {
 # The subject is matched as a whole field anywhere in the row rather than at a
 # fixed position: a measurement name may be several words ("single-function
 # global"), so awk's positional fields do not line up with the columns.
+# The severity of one subject's finding, for one measurement.
+#
+# Scoped to the measurement as well as the subject since HLR-192: a function
+# can now carry a fan-out finding and a maintainability one at once, and a
+# lookup by subject alone returns both and compares equal to neither.
+# Defaults to fan-out, which is what this group is about.
 severity_of() {
+	local measure="${2:-fan-out}"
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Findings/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && ($1 == "critical" || $1 == "warning" ||
-		                        $1 == "info") &&
-		                  $0 ~ ("(^| )" want "( |$)") { print $1 }'
+		awk -v want="$1" -v measure="$measure" \
+		    '/^Findings/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && ($1 == "critical" || $1 == "warning" ||
+		           $1 == "info") && index($0, measure) &&
+		     $0 ~ ("(^| )" want "( |$)") { print $1 }'
 }
 
 # The Source column of one subject's finding — everything after the last
 # column gap, the detail's own words being single-spaced.
 source_of() {
+	local measure="${2:-fan-out}"
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Findings/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && ($1 == "critical" || $1 == "warning" ||
-		                        $1 == "info") &&
-		                  $0 ~ ("(^| )" want "( |$)") { print }' |
+		awk -v want="$1" -v measure="$measure" \
+		    '/^Findings/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && ($1 == "critical" || $1 == "warning" ||
+		           $1 == "info") && index($0, measure) &&
+		     $0 ~ ("(^| )" want "( |$)") { print }' |
 		sed 's/ *$//; s/^.*  //'
 }
 
+# The findings for one measurement, counted. Scoped since HLR-192, for the
+# reason `severity_of` is: one function can carry several findings now, and a
+# count over all of them stops being a statement about the band under test.
 finding_rows() {
+	local measure="${1:-fan-out}"
 	printf '%s\n' "$output" |
-		awk '/^Findings/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && ($1 == "critical" || $1 == "warning" || $1 == "info") { n++ }
+		awk -v measure="$measure" \
+		    '/^Findings/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && ($1 == "critical" || $1 == "warning" ||
+		           $1 == "info") && $2 == measure { n++ }
 		     END { print n + 0 }'
 }
 
@@ -88,11 +104,13 @@ finding_rows() {
 	assert_equal "$(severity_of band_acceptable_high)" ""
 }
 
-@test "HLR-086: exactly three findings come out of the boundary file" {
-	# The count is what catches a band claiming a value twice.
+@test "HLR-086: exactly three fan-out findings come out of the boundary file" {
+	# The count is what catches a band claiming a value twice. Scoped to
+	# fan-out: the same file now also produces maintainability findings,
+	# which are a different band's business (HLR-192).
 	elc --entry bands_entry "$TREE/bands.c"
 	assert_success
-	assert_equal "$(finding_rows)" "3"
+	assert_equal "$(finding_rows fan-out)" "3"
 }
 
 @test "HLR-031: a measurement inside its band is still reported" {
@@ -101,10 +119,11 @@ finding_rows() {
 	elc --verbose --entry bands_entry "$TREE/bands.c"
 	assert_success
 
+	# Fan-out is the column before the Maintainability Index, which is last.
 	local fanout
 	fanout="$(printf '%s\n' "$output" |
 		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $2 == "band_acceptable_high" { print $NF }')"
+		     f && $2 == "band_acceptable_high" { print $(NF-1) }')"
 	assert_equal "$fanout" "10"
 }
 
@@ -132,7 +151,7 @@ finding_rows() {
 @test "HLR-099: a single-function global is attributed to MISRA C Rule 8.9" {
 	elc "$REACH/globals.c"
 	assert_success
-	assert_equal "$(severity_of solo_owned)" "warning"
+	assert_equal "$(severity_of solo_owned "single-function global")" "warning"
 	assert_output --partial "MISRA C Rule 8.9"
 }
 
@@ -145,12 +164,29 @@ finding_rows() {
 	assert_output --partial "elc heuristic — not a published standard"
 }
 
-@test "HLR-099: no published threshold is labelled as elc's own" {
-	# Paired with the test above: the marker must appear on the one row
-	# that earns it and nowhere else.
+@test "HLR-099: the label appears on exactly the rows that earn it" {
+	# Paired with the test above. Stated as a correspondence rather than an
+	# absence, because three measurements now earn the marker — the
+	# bottleneck, fan-in, and maintainability — and a report containing one
+	# of them legitimately contains the words (HLR-186, HLR-192).
+	#
+	# What must never happen is a row citing MISRA, Martin, McCabe or
+	# Henry-Kafura carrying it, or a row of elc's own going without.
 	elc --entry bands_entry "$TREE/bands.c"
 	assert_success
-	refute_output --partial "elc heuristic"
+
+	local mismatched
+	mismatched="$(printf '%s\n' "$output" |
+		awk '/^Findings/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && ($1 == "critical" || $1 == "warning" ||
+		           $1 == "info") {
+			own = index($0, "elc heuristic") > 0
+			earns = ($2 == "bottleneck" || $2 == "fan-in" ||
+			         $2 == "maintainability")
+			if (own != earns) n++
+		     }
+		     END { print n + 0 }')"
+	assert_equal "$mismatched" "0"
 }
 
 # ---------------------------------------------------------------- severity --

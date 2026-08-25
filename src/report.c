@@ -346,27 +346,60 @@ static void order_collections(Report *out)
 		      sizeof *out->routes.items, by_route_target);
 }
 
+/* Derive every function's Maintainability Index from what is known of it.
+ *
+ * Called twice, and that is deliberate rather than wasteful. `report_assemble`
+ * calls it before the threshold listing is built, when the graph does not yet
+ * exist and both degrees are zero; `report_attach_flow` calls it again once
+ * they are joined. Both figures are honest — a zero degree is what a function
+ * at the end of the call graph carries anyway — and computing it in both
+ * places is what stops `mi` ever being read as the zero of an uninitialised
+ * field, which for this metric is not a neutral value but the worst one there
+ * is (HLR-191).
+ */
+static void set_maintainability(Report *out)
+{
+	for (size_t i = 0; i < out->file_count; i++) {
+		FileMetrics *f = out->files[i];
+
+		for (size_t j = 0; j < f->function_count; j++) {
+			FunctionMetric *fn = &f->functions[j];
+
+			fn->mi = calltree_maintainability(fn->eloc,
+			                                  fn->complexity,
+			                                  fn->fan_in,
+			                                  fn->fan_out);
+		}
+	}
+}
+
 /* The severity a function's own measurements put it in, or SEVERITY_INFO
  * where all three sit inside their accepted bands.
  *
  * The bands are read from the catalogue rather than from constants of this
  * module's own: `thresholds.c` is the only place a line is drawn, and a
  * listing that drew its own would be a second opinion wearing the first's
- * name (HLR-099, HLR-185, HLR-186).
+ * name (HLR-099, HLR-185, HLR-186, HLR-192).
  */
 static Severity function_severity(const FunctionMetric *fn)
 {
 	static const MeasurementKind KINDS[] = {
-		MEASURE_COMPLEXITY, MEASURE_FAN_IN, MEASURE_FAN_OUT
+		MEASURE_COMPLEXITY, MEASURE_FAN_IN, MEASURE_FAN_OUT,
+		MEASURE_MAINTAINABILITY
 	};
 	Severity worst = SEVERITY_INFO;
 
 	for (size_t k = 0; k < sizeof KINDS / sizeof *KINDS; k++) {
-		uint32_t value = KINDS[k] == MEASURE_COMPLEXITY
-		                     ? fn->complexity
-		                     : KINDS[k] == MEASURE_FAN_IN ? fn->fan_in
-		                                                  : fn->fan_out;
+		uint32_t value;
 		Severity band;
+
+		switch (KINDS[k]) {
+		case MEASURE_COMPLEXITY:      value = fn->complexity; break;
+		case MEASURE_FAN_IN:          value = fn->fan_in;     break;
+		case MEASURE_FAN_OUT:         value = fn->fan_out;    break;
+		case MEASURE_MAINTAINABILITY:
+		default:                      value = fn->mi;         break;
+		}
 
 		if (!thresholds_band(KINDS[k], value, &band))
 			continue;
@@ -485,6 +518,12 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 		return -1;
 
 	order_collections(out);
+
+	/* Before the listing, which bands the index among the rest (HLR-192).
+	 * The degrees are zero here and the figure rests on length and
+	 * branching; `report_attach_flow` recomputes it once the graph has
+	 * supplied them. */
+	set_maintainability(out);
 
 	/* Both of these read the model *after* it is ordered, so the listing
 	 * comes out in presentation order and the callouts break their ties by
@@ -708,6 +747,11 @@ int report_attach_flow(Report *report)
 		fn->fan_in  = r->fan_in;
 		fn->fan_out = r->fan_out;
 	}
+
+	/* Again, now that the degrees are real. Deriving the index here rather
+	 * than in a renderer is what makes the figure the report prints and
+	 * the figure `thresholds.c` banded the same one (HLR-191). */
+	set_maintainability(report);
 
 	/* Rebuilt, not extended: two of the three measurements the listing
 	 * unites did not exist when `report_assemble` first built it

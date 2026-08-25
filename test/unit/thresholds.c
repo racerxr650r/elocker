@@ -200,8 +200,8 @@ Test(thresholds, complexity_is_banded_on_a_published_authority)
 	 * as having been used successfully, so both numbers are somebody
 	 * else's and the row is not marked as elc's (HLR-185, HLR-099). */
 	cr_assert_not_null(t);
-	cr_assert_eq(t->warning_above, 10);
-	cr_assert_eq(t->critical_above, 15);
+	cr_assert_eq(t->warning_bound, 10);
+	cr_assert_eq(t->critical_bound, 15);
 	cr_assert_not(threshold_is_elc_own(MEASURE_COMPLEXITY));
 	cr_assert_not_null(strstr(threshold_attribution(MEASURE_COMPLEXITY),
 	                          "McCabe"));
@@ -228,7 +228,7 @@ Test(thresholds, fan_in_is_banded_on_elcs_own_authority_and_says_so)
 	 * band, because a second invented line would be a second unsupported
 	 * claim (HLR-186, HLR-099). */
 	cr_assert_not_null(t);
-	cr_assert_eq(t->warning_above, 25);
+	cr_assert_eq(t->warning_bound, 25);
 	cr_assert(threshold_is_elc_own(MEASURE_FAN_IN));
 	cr_assert_not_null(strstr(threshold_attribution(MEASURE_FAN_IN),
 	                          "not a published standard"));
@@ -240,6 +240,47 @@ Test(thresholds, fan_in_is_banded_on_elcs_own_authority_and_says_so)
 	cr_assert_eq(band, SEVERITY_WARNING,
 	             "no fan-in reaches a critical band, because there is "
 	             "none to reach");
+}
+
+Test(thresholds, maintainability_is_banded_downwards_on_elcs_own_authority)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_MAINTAINABILITY);
+	Severity         band;
+
+	/* The one row that runs the other way: a score, where the low value is
+	 * the bad one. The bounds read as the numbers a reader is looking for
+	 * rather than as their complements, which is what `inverted` buys
+	 * (HLR-192). */
+	cr_assert_not_null(t);
+	cr_assert(t->inverted);
+	cr_assert_eq(t->warning_bound, 65);
+	cr_assert_eq(t->critical_bound, 55);
+
+	/* Adapted from Coleman and Oman, so the bands are elc's own and say
+	 * so — the SEI's 85 and 65 were calibrated for a formula with a
+	 * Halstead term this one does not have (HLR-099). */
+	cr_assert(threshold_is_elc_own(MEASURE_MAINTAINABILITY));
+	cr_assert_not_null(
+		strstr(threshold_attribution(MEASURE_MAINTAINABILITY),
+		       "not a published standard"));
+
+	cr_assert_not(thresholds_band(MEASURE_MAINTAINABILITY, 65, &band),
+	              "sixty-five is inside the accepted range, not below it");
+	cr_assert(thresholds_band(MEASURE_MAINTAINABILITY, 64, &band));
+	cr_assert_eq(band, SEVERITY_WARNING);
+	cr_assert(thresholds_band(MEASURE_MAINTAINABILITY, 55, &band));
+	cr_assert_eq(band, SEVERITY_WARNING,
+	             "fifty-five is the floor of the warning band, not the "
+	             "top of the critical one");
+	cr_assert(thresholds_band(MEASURE_MAINTAINABILITY, 54, &band));
+	cr_assert_eq(band, SEVERITY_CRITICAL);
+	cr_assert(thresholds_band(MEASURE_MAINTAINABILITY, 0, &band));
+	cr_assert_eq(band, SEVERITY_CRITICAL);
+
+	/* And the direction is not shared: a high fan-out is still the bad
+	 * one, so an inverted row must not have inverted the others. */
+	cr_assert_not(thresholds_band(MEASURE_FAN_OUT, 0, &band));
+	cr_assert(thresholds_band(MEASURE_FAN_OUT, 99, &band));
 }
 
 Test(thresholds, an_occurrence_row_bands_no_counted_value)
@@ -255,7 +296,7 @@ Test(thresholds, an_occurrence_row_bands_no_counted_value)
 	                              &band));
 }
 
-Test(thresholds, exactly_two_thresholds_are_elcs_own_and_say_so)
+Test(thresholds, exactly_three_thresholds_are_elcs_own_and_say_so)
 {
 	int own = 0;
 
@@ -268,16 +309,18 @@ Test(thresholds, exactly_two_thresholds_are_elcs_own_and_say_so)
 				"an elc threshold must say so where it is read");
 		}
 
-	/* Two: the bottleneck heuristic and the fan-in band. If a third ever
-	 * appears it must be a deliberate decision rather than a drift, which
-	 * is what makes the exact count worth asserting.
+	/* Three: the bottleneck heuristic, the fan-in band, and the
+	 * maintainability bands. If a fourth ever appears it must be a
+	 * deliberate decision rather than a drift, which is what makes the
+	 * exact count worth asserting.
 	 *
-	 * A measurement arriving without a published band is not a third: the
+	 * A measurement arriving without a published band is not a fourth: the
 	 * honest treatment is to report it with no severity, not to invent one
 	 * and mark it as elc's (HLR-098). */
-	cr_assert_eq(own, 2);
+	cr_assert_eq(own, 3);
 	cr_assert(threshold_is_elc_own(MEASURE_BOTTLENECK));
 	cr_assert(threshold_is_elc_own(MEASURE_FAN_IN));
+	cr_assert(threshold_is_elc_own(MEASURE_MAINTAINABILITY));
 }
 
 Test(thresholds, the_published_thresholds_are_not_marked_as_elcs_own)

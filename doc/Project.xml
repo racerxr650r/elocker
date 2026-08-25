@@ -17,9 +17,9 @@
     <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.18" date="2026-08-24" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.19" date="2026-08-24" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="186"/>
-      <count name="llrs"       value="522"/>
-      <count name="tests"      value="1095"/>
+      <count name="hlrs"       value="188"/>
+      <count name="llrs"       value="526"/>
+      <count name="tests"      value="1105"/>
       <count name="test_files" value="51"/>
     </counts>
   </metadata>
@@ -651,9 +651,10 @@ A call that both skips and inverts contributed one violation of each kind and is
       </module>
 
       <module path="src/calltree.c">
-        <purpose><![CDATA[implements the function-level call-tree analyses: fan-out and fan-in with their threshold classifications, maximum call depth, the deepest call stack in full, and recursion detection.]]></purpose>
+        <purpose><![CDATA[implements the function-level call-tree analyses: fan-out and fan-in with their threshold classifications, the Adapted Maintainability Index formed from them, maximum call depth, the deepest call stack in full, and recursion detection.]]></purpose>
         <responsibility><![CDATA[Compute per-function fan-out and classify it against the published width thresholds.]]></responsibility>
         <responsibility><![CDATA[Compute per-function fan-in — the number of distinct functions that invoke it — over the call view alone (HLR-156).]]></responsibility>
+        <responsibility><![CDATA[Define the Adapted Maintainability Index — and define it once, since both the report's function table and the threshold catalogue need the figure and two computations of it are two figures (HLR-191).]]></responsibility>
         <responsibility><![CDATA[Detect direct and mutual recursion among functions.]]></responsibility>
         <responsibility><![CDATA[Compute the maximum call depth from the declared entry points, and capture the ordered chain that achieves it.]]></responsibility>
         <functions>
@@ -671,6 +672,7 @@ A call that both skips and inverts contributed one violation of each kind and is
             </logic>
             <notes><![CDATA[Establishing acyclicity before measuring depth is what makes the longest-path computation terminate; on a cyclic graph the question has no finite answer, which is precisely why MISRA C Rule 17.2 exists. The measured depth is a lower bound on true worst-case depth: a chain that continues through an unresolved indirect call is not followed. The report therefore presents the depth alongside the unresolved-call count of HLR-077, so the reader can judge how completely the graph covers the program.]]></notes>
           </function>
+          <function signature="uint32_t calltree_maintainability(uint32_t eloc, uint32_t complexity, uint32_t fan_in, uint32_t fan_out)" summary="Coleman and Oman's Maintainability Index with the information flow through a function substituted for its Halstead Volume, normalised over 171 to a 0-100 scale and rounded to the integer the report prints (HLR-191). A pure function of four measurements and the only definition of the formula: the report needs it for the function table and `thresholds.c` to band, and a second computation is a second place it could differ. A function with no effective lines is taken as having one, so the length term vanishes rather than becoming an infinity; either degree being zero makes the flow term vanish for the same reason, which is the intended reading rather than a gap."/>
           <function signature="int longest_path_dag(const Sdg *g, const NodeSet *entries, Chain *out)" summary="Memoised longest-path search with predecessor retention."/>
           <function signature="void tree_results_free(TreeResults *r)" summary="Release the per-node measurement tables, the recursive-cycle list, and the retained deepest chain."/>
         </functions>
@@ -729,6 +731,7 @@ A call that both skips and inverts contributed one violation of each kind and is
 | ----------- | ----- | ----------- |
 | Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 warning; >15 critical | Henry–Kafura |
 | Function fan-in | ≤25 silent; >25 warning, with no critical band | **`elc` heuristic — not a published standard** |
+| Adapted Maintainability Index | ≥65 silent; <65 warning; <55 critical — **the one row that runs downwards** | **`elc` heuristic — not a published standard** |
 | Cyclomatic complexity | ≤10 silent; 11–15 warning; >15 critical | McCabe (NIST SP 500-235) |
 | Call depth | >8 warning; >12 critical, on stack-constrained targets | Embedded practice |
 | Recursion present | critical | MISRA C Rule 17.2 |
@@ -744,11 +747,15 @@ The fan-out bands are **exhaustive**: every value from 0 upward classifies exact
 
 The rows whose finding is their mere occurrence — recursion, a dependency cycle, a single-function global, a hidden channel — carry a fixed severity instead of bounds. There is no acceptable count of them.
 
-**Two rows are not published standards**, and both say so in the text a reader sees. That label is the whole of what separates shipping MISRA, Martin and McCabe values from having invented them, and it is asserted by a test that also checks the exact count, so a third cannot appear by drift (HLR-099).
+**Three rows are not published standards**, and each says so in the text a reader sees. That label is the whole of what separates shipping MISRA, Martin and McCabe values from having invented them, and it is asserted by a test that also checks the exact count, so a third cannot appear by drift (HLR-099).
 
 The complexity row is not one of them. 10 is McCabe's own limit and 15 the highest limit NIST SP 500-235 records as having been used successfully — and then only where an organisation has the review practices to justify it — so both numbers are somebody else's. It is deliberately independent of the value `--complexity-threshold` sets: that one governs a *listing* and carries no severity (HLR-023), and letting the user move it would be letting the user choose what McCabe says.
 
 The fan-in row is one of them, and has no critical band. `elc` has no published basis for a first line and none at all for a second, so it draws one and says whose it is.
+
+The maintainability row is the third, and the reason is instructive. The index *is* published — Coleman and Oman's — and so are thresholds for it: the Software Engineering Institute's 85 and 65. But this build adapts the formula, substituting the information flow through a function for its Halstead Volume, and the published thresholds were calibrated against the term that was replaced. Removing it removes some thirty to forty-five points of range, and HLR-191's normalisation rescales what is left; the published numbers carried across unchanged put four functions in five in a band. So the bands here are drawn for the adapted formula and labelled accordingly. **A citation is not transitive**: adapting a metric does not inherit the thresholds calibrated for the original, and this row is the case that makes the rule concrete.
+
+It is also **the one row that runs downwards**, since the index is a score. The `inverted` flag on the row says so, and `band_of` reads it; the bounds stay the numbers a reviewer is looking for rather than their complements.
 
 **A measurement the catalogue holds no row for has no band, and `thresholds_lookup` says so by answering NULL.** A row here with empty bounds would not express that — `occurrence` false with both bounds zero is a *silent band*, every value passing, and the lookup would then answer "there is a threshold for this" to a caller asking precisely because there is not. Every kind `elc` measures is banded today; the path exists for the next measurement that arrives without a published threshold behind it, and the Henry-Kafura value took it until Phase 24 withdrew the metric.
 ]]></interface>
@@ -783,6 +790,7 @@ The fan-in row is one of them, and has no critical band. `elc` has no published 
         <responsibility><![CDATA[Record the linked image a run was filtered by, the linkage names it could not resolve, the source functions it does not define, and the effective lines belonging to no function, so that a filtered figure is reported alongside the image that produced it (HLR-143, HLR-145, HLR-147).]]></responsibility>
         <responsibility><![CDATA[Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).]]></responsibility>
         <responsibility><![CDATA[Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).]]></responsibility>
+        <responsibility><![CDATA[Derive each function's Adapted Maintainability Index onto the per-function metrics, in both assembly paths — before the threshold listing is built and again once the degrees are joined — so the field is never read as an unset zero, which for this measurement is the worst score on the scale rather than a neutral one (HLR-191).]]></responsibility>
         <responsibility><![CDATA[Join the flow degrees onto the functions they describe, and rebuild the threshold listing over the joined result, in one function that both the live path and the record path call — so that the two cannot drift, and so that a listing which is a union over three measurements is not built before two of them exist (HLR-183, HLR-187).]]></responsibility>
         <responsibility><![CDATA[Define how a component's directory is derived from its path, in one function called at each of the two places a `FileMetrics` is constructed — the measurement of a source file and the reader that rebuilds a model from a record — so that every consumer reads one recorded answer rather than slicing the path for itself (HLR-160).]]></responsibility>
         <responsibility><![CDATA[Render the two conformance indices, and the complementary conforming proportion of each, into the model as text — "undefined" being one of their legitimate values, exactly as it is for Instability (HLR-162, HLR-163).]]></responsibility>
@@ -822,7 +830,7 @@ The fan-in row is one of them, and has no critical band. `elc` has no published 
         <responsibility><![CDATA[Compute column widths from the longest path and function name, and render the aligned table.]]></responsibility>
         <responsibility><![CDATA[Render every tier in the fixed order of HLR-184, so that the report reaches the same sections whatever the type of the target was (HLR-006).]]></responsibility>
         <responsibility><![CDATA[Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).]]></responsibility>
-        <responsibility><![CDATA[Present every per-function figure in one table — lines, ELOC, complexity, fan-in and fan-out — rather than in three tables enumerating the same functions (HLR-183).]]></responsibility>
+        <responsibility><![CDATA[Present every per-function figure in one table — lines, ELOC, complexity, fan-in, fan-out and the Adapted Maintainability Index — rather than in three tables enumerating the same functions (HLR-183, HLR-191).]]></responsibility>
         <responsibility><![CDATA[Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).]]></responsibility>
         <responsibility><![CDATA[In the Markdown style alone, place each table inside an HTML `<details>` element stating its row count, beneath a heading that stays a heading (HLR-190).]]></responsibility>
         <responsibility><![CDATA[Render Markdown with functions grouped under a per-file heading.]]></responsibility>
@@ -3704,6 +3712,53 @@ The centrality scores of HLR-168 and HLR-169 are floating-point values produced 
       </hlr>
     </section>
 
+    <section number="24" title="Adapted Maintainability Index">
+      <intro><![CDATA[Requirements governing a single per-function score formed from the three things Sections 3, 4 and 12 measure separately: how much code a function holds, how branchy it is, and how entangled it is with its neighbours.
+
+Each of those is answerable on its own and none of them answers the question a maintainer actually asks, which is *how hard will this be to change*. A function may be short and central, long and isolated, or branchy and neither. The index here is Coleman and Oman's, with one substitution: their third term is the logarithm of a function's Halstead Volume, and this one uses the information flow through it instead, so that the figure falls when a function is entangled and not only when it is large.
+
+**The substitution is what makes the bands `elc`'s own.** The formula is adapted, so the thresholds published for the unadapted one no longer describe it, and Section 24 says so where a reader sees it rather than borrowing an authority the adaptation forfeited.]]></intro>
+
+      <hlr id="HLR-191" name="Adapted Maintainability Index per Function">
+        <text><![CDATA[For every function, `elc` shall compute and report an Adapted Maintainability Index, formed from the function's information flow, its cyclomatic complexity (HLR-017) and its effective lines of code (HLR-015):
+
+`IF = (Fan-In × Fan-Out)²`
+
+`MI = 171 − 5.2 ln(IF + 1) − 0.23 v(G) − 16.2 ln(ELOC)`
+
+`MI′ = max(0, MI ÷ 171 × 100)`
+
+where **Fan-In** is the measurement of HLR-156 and **Fan-Out** that of HLR-085. The reported figure shall be `MI′` rounded to a whole number, presented in the per-function table of HLR-183.
+
+**One is added to the information flow before the logarithm** so that a function at either end of the call graph is defined rather than infinite: either degree being zero makes the product zero, and `ln(1)` is zero, so the term vanishes and the figure rests on length and branching alone. That is the intended reading and not a gap — an entry point is not coupled by being an entry point.
+
+**A function with no effective lines shall be treated as having one**, for the same reason: `ln(0)` is not a number, and a function with nothing in it has nothing to maintain, so the term vanishes and the figure is at the top of the scale.
+
+**The normalisation and its clamp** put the figure on a 0-to-100 scale, so that a monolith reports a floor rather than a negative score and the number can be read as a proportion of the best a function could do.
+
+The figure shall be derived once, where the report model is assembled, and both the table and any finding over it shall present that same figure. A band read off a value other than the printed one is a band a reader cannot check against the table.]]></text>
+      <traces>
+        <trace target="SDD" ref="10"/>
+        <trace target="SDD" ref="13"/>
+        <trace target="SDD" ref="14"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-192" name="Maintainability Index Threshold Classification">
+        <text><![CDATA[`elc` shall classify each function's Adapted Maintainability Index (HLR-191) against bands that run **downwards**, this being the one measurement in the catalogue where the low value is the bad one: a score of 65 or above produces no finding; below 65 produces a **warning**; and below 55 produces a **critical** finding.
+
+**These thresholds are `elc`'s own and shall say so wherever a finding carries them**, in the same words the bottleneck heuristic of HLR-081 and the fan-in band of HLR-186 carry. The figures usually quoted with the Maintainability Index — 85 and 65, from the Software Engineering Institute — were calibrated against Coleman and Oman's unadapted formula, whose third term is a Halstead Volume this one does not have. Removing that term removes some thirty to forty-five points of range, and HLR-191's normalisation rescales what remains; carrying the published numbers across unchanged would put four functions in five in a band, which is a measurement that has stopped discriminating. Presenting a threshold calibrated here under a citation earned elsewhere is precisely what HLR-099 forbids.
+
+A finding shall state the score and the scale it is out of, and nothing further. It shall not recommend a review, a refactoring, or any other action: HLR-101 governs this measurement as it governs every other, and a metric whose name suggests a verdict is the last place to start advising.
+
+Every function a band names shall appear in the threshold listing of HLR-187 alongside the functions the other bands name.]]></text>
+      <traces>
+        <trace target="SDD" ref="12"/>
+        <trace target="SDD" ref="13"/>
+      </traces>
+      </hlr>
+    </section>
+
     <section number="23" title="Report Composition and Per-Function Banding">
       <intro><![CDATA[Requirements governing the order a human-readable report is presented in, which tables it presents, and the bands that decide which functions it singles out.
 
@@ -5748,6 +5803,17 @@ A function that no analysed function calls has a fan-in of zero, and that zero i
         </traces>
       </llr>
 
+      <llr id="LLR-CTR-12">
+        <text><![CDATA[`calltree_maintainability` shall return the Adapted Maintainability Index of HLR-191 for one function, as a whole number on a 0-to-100 scale, and shall be the only definition of the formula. The report needs the figure for its function table and `thresholds.c` needs it to band; a second computation is a second place it could be computed differently.
+
+The degrees shall be widened before their product is squared rather than at the assignment, for the reason any squared term is: the product of two degrees is comfortable in 32 bits and its square is not, and a value that wrapped would enter the logarithm as an ordinary-looking number.
+
+A function with no effective lines shall be treated as having one, and the sum inside the first logarithm shall be formed by the library routine that computes `ln(x + 1)` without forming the sum, which keeps the precision the addition would discard at the bottom of the range. The result shall be clamped to the closed interval 0 to 100 and rounded, so that the value returned is the value the report prints.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-191" name="Adapted Maintainability Index per Function"/>
+        </traces>
+      </llr>
+
     </function>
 
     <function number="27" title="`longest_path_dag` ([src/calltree.c](../src/calltree.c))" name="longest_path_dag" source="src/calltree.c">
@@ -6039,6 +6105,19 @@ Complexity shall be banded from the graph's own node table rather than from a se
           <trace target="HLR" ref="HLR-186" name="Fan-In Threshold Classification"/>
           <trace target="HLR" ref="HLR-187" name="The Threshold Listing Names Every Banded Function"/>
           <trace target="HLR" ref="HLR-098" name="Evaluation Against Published Thresholds"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-THR-18">
+        <text><![CDATA[The catalogue shall hold a row banding the Adapted Maintainability Index, warning below 65 and critical below 55, marked as `elc`'s own and carrying the label that says so; and the row shall be marked **inverted**, so that a value strictly below a bound falls in that band rather than above it.
+
+The flag shall be a property of the row rather than a second pair of fields or a row storing the complement of its bound. Either alternative would leave the catalogue holding numbers a reviewer could not read straight off the table, which is the one thing this module's design exists to guarantee.
+
+`thresholds_apply` shall emit a finding for every function whose index falls in a band, stating the score and the scale it is out of and nothing further — no recommendation, no remediation, no ranking of one design above another (HLR-101).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-192" name="Maintainability Index Threshold Classification"/>
+          <trace target="HLR" ref="HLR-099" name="Threshold Source Attribution"/>
+          <trace target="HLR" ref="HLR-101" name="No Remediation Advice"/>
         </traces>
       </llr>
     </function>
@@ -6335,6 +6414,16 @@ The bands shall be read from `thresholds.c` rather than from constants held here
           <trace target="HLR" ref="HLR-099" name="Threshold Source Attribution"/>
         </traces>
       </llr>
+
+      <llr id="LLR-RPT-40">
+        <text><![CDATA[`report_assemble` shall derive each function's Adapted Maintainability Index onto the per-function metrics before the threshold listing is built, and `report_attach_flow` shall derive it again once the flow degrees have been joined.
+
+Both derivations are required and neither is redundant. The first runs before a graph exists, when both degrees are zero and the figure rests on length and branching; the second runs when they are real. What the pair prevents is the field ever being read as the zero of an uninitialised value, which for this measurement is not a neutral figure but the worst one on the scale — a listing built between the two would report every function in the project as critically unmaintainable.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-191" name="Adapted Maintainability Index per Function"/>
+          <trace target="HLR" ref="HLR-192" name="Maintainability Index Threshold Classification"/>
+        </traces>
+      </llr>
 </function>
 
     <function number="36" title="`format_table` ([src/format_text.c](../src/format_text.c))" name="format_table" source="src/format_text.c">
@@ -6529,6 +6618,15 @@ The count shall be taken from the rows about to be emitted. The project summary 
         <traces>
           <trace target="HLR" ref="HLR-190" name="Markdown Tables Presented Behind a Disclosure Element"/>
           <trace target="HLR" ref="HLR-029" name="Markdown Output Format"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-SUM-18">
+        <text><![CDATA[`render_summary` shall present each function's Adapted Maintainability Index as a column of the one function table of LLR-SUM-14, and as a column of the threshold listing beside the three measurements already there, so that a listed function's score is readable without going back to the table.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-191" name="Adapted Maintainability Index per Function"/>
+          <trace target="HLR" ref="HLR-183" name="One Per-Function Table"/>
+          <trace target="HLR" ref="HLR-187" name="The Threshold Listing Names Every Banded Function"/>
         </traces>
       </llr>
 
@@ -9202,6 +9300,29 @@ The convention stays outside because of what it says: it is the sentence that ma
         <trace target="LLR" ref="LLR-CTR-10"/>
       </traces>
     </test>
+
+    <test name="the_maintainability_index_matches_the_formula">
+      <purpose><![CDATA[A function of twenty effective lines, complexity five, one caller and two callees scores 66 — the formula worked through by hand from its definition, so an arithmetic change in any of the three terms is caught against the arithmetic rather than against elc's own output.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-12"/>
+        <trace target="HLR" ref="HLR-191"/>
+      </traces>
+    </test>
+
+    <test name="the_maintainability_index_handles_its_edges">
+      <purpose><![CDATA[The three edges the formula reaches: a function with no effective lines takes its length as one rather than putting ln(0) in the third term; either degree being zero makes the flow term vanish, so a wide fan-out costs nothing with no callers; and a function of some millions of lines is clamped at zero rather than reporting a negative score.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-12"/>
+        <trace target="HLR" ref="HLR-191"/>
+      </traces>
+    </test>
+
+    <test name="the_maintainability_index_falls_as_a_function_worsens">
+      <purpose><![CDATA[The index falls when a function is made longer, branchier or more entangled, and never rises. The direction is the whole of what the metric asserts, and a sign error in any term would leave the arithmetic plausible and the meaning inverted.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-12"/>
+      </traces>
+    </test>
     <test name="direct_recursion_is_detected">
       <purpose><![CDATA[A function calling itself is reported as a one-member cycle.]]></purpose>
       <traces>
@@ -9937,8 +10058,16 @@ The convention stays outside because of what it says: it is the sentence that ma
         <trace target="LLR" ref="LLR-THR-08"/>
       </traces>
     </test>
-    <test name="exactly_two_thresholds_are_elcs_own_and_say_so">
-      <purpose><![CDATA[Exactly two thresholds are not published standards — the bottleneck heuristic and the fan-in band — and each says so where a reader sees it. Asserting the count means a third could only appear by decision rather than by drift.]]></purpose>
+
+    <test name="maintainability_is_banded_downwards_on_elcs_own_authority">
+      <purpose><![CDATA[The one catalogue row that runs the other way: a value strictly below a bound falls in the band, the bounds read as the numbers a reader is looking for rather than as their complements, and the row is marked as elc's own — the SEI's 85 and 65 were calibrated for a formula with a Halstead term this one does not have. Asserts too that inverting one row did not invert the others.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-18"/>
+        <trace target="HLR" ref="HLR-192"/>
+      </traces>
+    </test>
+    <test name="exactly_three_thresholds_are_elcs_own_and_say_so">
+      <purpose><![CDATA[Exactly three thresholds are not published standards — the bottleneck heuristic, the fan-in band, and the maintainability bands — and each says so where a reader sees it. Asserting the count means a fourth could only appear by decision rather than by drift.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-THR-02"/>
         <trace target="LLR" ref="LLR-THR-16"/>
@@ -10249,6 +10378,14 @@ The convention stays outside because of what it says: it is the sentence that ma
       <traces>
         <trace target="LLR" ref="LLR-RPT-38"/>
         <trace target="HLR" ref="HLR-183"/>
+      </traces>
+    </test>
+
+    <test name="the_maintainability_index_is_derived_in_both_paths">
+      <purpose><![CDATA[The index is derived onto the metrics before the threshold listing is built and again once the degrees are joined, so the field is never read as the zero of an uninitialised value — which for this measurement is the worst score on the scale rather than a neutral one, and would report every function in a project as critically unmaintainable.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPT-40"/>
+        <trace target="HLR" ref="HLR-191"/>
       </traces>
     </test>
 
@@ -11129,6 +11266,37 @@ The convention stays outside because of what it says: it is the sentence that ma
       <traces>
         <trace target="HLR" ref="HLR-023"/>
         <trace target="HLR" ref="HLR-187"/>
+      </traces>
+    </test>
+
+    <test name="HLR-191: the function table carries a maintainability score">
+      <purpose><![CDATA[The one function table gains an MI column, and a short, unbranchy, unjoined function sits at the top of the scale.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-191"/>
+        <trace target="LLR" ref="LLR-SUM-18"/>
+      </traces>
+    </test>
+
+    <test name="HLR-192: a low score is banded downwards and says whose line it is">
+      <purpose><![CDATA[A long, branchy, widely-joined function falls into the critical band, and the finding names elc as the source of the line rather than borrowing a citation the adapted formula forfeited.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-192"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+
+    <test name="HLR-101: a maintainability finding recommends nothing">
+      <purpose><![CDATA[The finding states the score and the scale and stops. A metric whose name suggests a verdict is the last place to start advising, and HLR-101 governs it as it governs every other measurement.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-101"/>
+        <trace target="HLR" ref="HLR-192"/>
+      </traces>
+    </test>
+
+    <test name="HLR-192: a healthy function is not banded at all">
+      <purpose><![CDATA[A short function produces no maintainability finding. Asserted against the finding's own words rather than the measurement's name, since the threshold listing's heading names every band it unites.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-192"/>
       </traces>
     </test>
   </file>
@@ -13173,7 +13341,7 @@ The convention stays outside because of what it says: it is the sentence that ma
         <trace target="HLR" ref="HLR-086"/>
       </traces>
     </test>
-    <test name="HLR-086: exactly three findings come out of the boundary file">
+    <test name="HLR-086: exactly three fan-out findings come out of the boundary file">
       <purpose><![CDATA[The count catches a band claiming a value twice, which a per-value assertion would not.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-THR-05"/>
@@ -13216,8 +13384,8 @@ The convention stays outside because of what it says: it is the sentence that ma
               <trace target="LLR" ref="LLR-INS-03"/>
       </traces>
     </test>
-    <test name="HLR-099: no published threshold is labelled as elc's own">
-      <purpose><![CDATA[Paired with the test above: the marker appears on the row that earns it and nowhere else.]]></purpose>
+    <test name="HLR-099: the label appears on exactly the rows that earn it">
+      <purpose><![CDATA[The elc-heuristic label appears on exactly the rows entitled to it — the bottleneck, fan-in and maintainability bands — and on no row citing MISRA, Martin, McCabe or Henry-Kafura. Stated as a correspondence rather than an absence, since a report can now legitimately contain the words.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-THR-02"/>
         <trace target="HLR" ref="HLR-099"/>
@@ -15355,11 +15523,19 @@ The convention stays outside because of what it says: it is the sentence that ma
       </traces>
     </test>
 
-    <test name="LLR-BLD-23: elc's own source carries no critical finding but the two it has always carried">
-      <purpose><![CDATA[The complexity and fan-in bands of HLR-185 and HLR-186 are applied to elc's own source like anyone else's, and must produce no critical finding beyond the recursion and fan-out ones that predate them. Warnings are deliberately not gated: the complexity band warns above 10 where the listing threshold sits at 15, so some sixty of elc's own functions warn, and bringing them under ten is a refactor of the source tree rather than a step in the phase that drew the band.]]></purpose>
+    <test name="LLR-BLD-23: no critical finding against elc comes from an unexpected band">
+      <purpose><![CDATA[The bands of HLR-185, HLR-186 and HLR-192 are applied to elc's own source like anyone else's, and three of them fire. What must never appear is a critical finding from a band not named in the test, which would be a measurement newly turned on the product without anybody deciding to.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-181"/>
         <trace target="HLR" ref="HLR-185"/>
+      </traces>
+    </test>
+
+    <test name="LLR-BLD-23: elc's own maintainability debt does not grow">
+      <purpose><![CDATA[A ratchet rather than a clean bill of health: twelve of elc's own functions score below the critical maintainability band, which is a new band meeting old code rather than new code getting worse. The figure is recorded debt and not a target, asserted so the debt cannot quietly grow — the same contract test/gap-baseline.txt holds for coverage. Warnings are not gated, here or for complexity: bringing sixty-odd functions under a band is a refactor of the source tree rather than a step in the phase that drew it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-181"/>
+        <trace target="HLR" ref="HLR-192"/>
       </traces>
     </test>
       <test name="LLR-BLD-24: elc's own components hold no dependency cycle">

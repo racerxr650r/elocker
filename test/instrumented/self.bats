@@ -72,24 +72,46 @@ section_rows() {
 	fi
 }
 
-@test "LLR-BLD-23: elc's own source carries no critical finding but the two it has always carried" {
-	# The complexity and fan-in bands of HLR-185 and HLR-186 are new, and
-	# they are applied to elc's own source like anyone else's. What must
-	# not appear is a *critical* one they did not already produce: the two
-	# recursive groups and the one god function predate this phase and are
-	# recorded as such, and anything beyond them would be a regression this
-	# phase introduced into its own product.
-	#
-	# Warnings are deliberately not gated. The complexity band warns above
-	# 10 where the listing threshold sits at 15, so roughly sixty of elc's
-	# own functions warn today. Bringing them under ten is a refactor of
-	# the whole source tree, not a step in the phase that drew the band.
+@test "LLR-BLD-23: no critical finding against elc comes from an unexpected band" {
+	# The bands of HLR-185, HLR-186 and HLR-192 are applied to elc's own
+	# source like anyone else's, and three of them do fire. What must never
+	# appear is a critical finding from a band not named here: that would
+	# be a measurement newly turned on its own product without anybody
+	# deciding to.
 	local unexpected
 	unexpected="$(section_rows 'Findings' |
-		awk '$1 == "critical" && $2 != "recursion" && $2 != "fan-out"')"
+		awk '$1 == "critical" && $2 != "recursion" && $2 != "fan-out" &&
+		     $2 != "maintainability"')"
 	if [ -n "$unexpected" ]; then
-		echo "elc reports a new critical finding against its own source:" >&2
+		echo "elc reports a critical finding from an unexpected band:" >&2
 		echo "$unexpected" >&2
+		false
+	fi
+}
+
+@test "LLR-BLD-23: elc's own maintainability debt does not grow" {
+	# A ratchet, not a clean bill of health. Twelve of elc's own functions
+	# score below 55 on the Adapted Maintainability Index, which is the new
+	# band meeting old code rather than new code getting worse — the same
+	# situation the complexity band produced when it was drawn.
+	#
+	# The figure is *recorded debt and not a target*. It is asserted so
+	# that the debt cannot quietly grow: make elc worse and this fails,
+	# make it better and the number comes down with the commit that earned
+	# it. The same contract `test/gap-baseline.txt` holds for coverage.
+	#
+	# Warnings are not gated, here or for complexity. Bringing sixty-odd
+	# functions under a band is a refactor of the whole source tree, not a
+	# step in the phase that drew it.
+	local critical
+	critical="$(section_rows 'Findings' |
+		awk '$1 == "critical" && $2 == "maintainability" { n++ }
+		     END { print n + 0 }')"
+
+	if [ "$critical" -gt 12 ]; then
+		echo "elc's maintainability debt grew: $critical functions" >&2
+		echo "below the critical band, against a recorded 12." >&2
+		section_rows 'Findings' | awk '$2 == "maintainability"' >&2
 		false
 	fi
 }
