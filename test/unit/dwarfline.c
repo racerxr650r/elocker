@@ -53,6 +53,32 @@ static void add_file(LineCoverage *c, const char *path,
 
 /* --------------------------------------------------------------- coverage */
 
+/* Verifies LLR-DWL-07: the two questions the origin map answers are separate
+ * calls, and the second is meaningful only where the first is true.
+ *
+ * A single call returning false would conflate "the debug information says
+ * this function is not in that file" with "there is no debug information",
+ * and a caller that made the distinction by accident would exclude every
+ * function of an image built without it.
+ */
+Test(dwarfline, an_empty_origin_map_knows_and_places_nothing)
+{
+	OriginMap m = { 0 };
+
+	cr_assert_not(dwarfline_knows(&m, "helper"));
+	cr_assert_not(dwarfline_places(&m, "helper", "/p/a.c"));
+
+	/* NULL is the empty map, for the reason it is everywhere else here:
+	 * a run with no image asks the question and must not crash on it. */
+	cr_assert_not(dwarfline_knows(NULL, "helper"));
+	cr_assert_not(dwarfline_places(NULL, "helper", "/p/a.c"));
+	cr_assert_not(dwarfline_knows(&m, NULL));
+
+	originmap_free(&m);
+	originmap_free(NULL);
+	originmap_free(&m);   /* safe twice */
+}
+
 Test(dwarfline, a_file_the_mapping_describes_is_covered)
 {
 	LineCoverage c = { 0 };
@@ -181,7 +207,7 @@ Test(dwarfline, reading_a_null_image_yields_an_empty_set)
 	/* Not a failure. An image with no debug information is ordinary, and
 	 * HLR-141 forbids requiring it: the set comes back empty and the run
 	 * proceeds at function granularity alone. */
-	cr_assert_eq(dwarfline_read(NULL, &c), 0);
+	cr_assert_eq(dwarfline_read(NULL, &c, NULL), 0);
 	cr_assert_eq(c.count, 0);
 	cr_assert_not(c.present);
 

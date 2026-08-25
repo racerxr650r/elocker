@@ -257,6 +257,183 @@ static void compact(LineCoverage *out)
 		qsort(out->files, out->count, sizeof *out->files, by_dwarf_path);
 }
 
+/* ------------------------------------------------------- function origins --
+ *
+ * Which source file the debug information places each function in, so that the
+ * `--elf` filter can match a source function to an image symbol by name *and*
+ * file rather than by name alone (HLR-193).
+ *
+ * Read from the subprogram DIEs rather than from the line table and a symbol
+ * address. `DW_AT_decl_file` says where a function was *written*, which is the
+ * question being asked; an address lookup would answer where its first
+ * instruction ended up, which inlining and identical-code folding make a
+ * different question with a plausible wrong answer.
+ */
+static int origin_grow(OriginMap *out)
+{
+	size_t          next   = out->capacity ? out->capacity * 2 : 64;
+	FunctionOrigin *bigger = realloc(out->items, next * sizeof *bigger);
+
+	if (!bigger)
+		return -1;
+	out->items    = bigger;
+	out->capacity = next;
+	return 0;
+}
+
+/* Record one definition, unless the same pair is already held.
+ *
+ * A linear scan while the map is unsorted, for the reason the covered-file
+ * lookup is: sorting as it grows would cost more than the search saves, and
+ * the map is sorted once at the end. The same pair arrives repeatedly —
+ * a header included by twenty units names its inline functions twenty times —
+ * and each is the same fact stated again.
+ */
+static int origin_add(OriginMap *out, const char *name, char *file)
+{
+	for (size_t i = 0; i < out->count; i++)
+		if (strcmp(out->items[i].name, name) == 0 &&
+		    strcmp(out->items[i].file, file) == 0) {
+			free(file);
+			return 0;
+		}
+
+	if (out->count == out->capacity && origin_grow(out) != 0) {
+		free(file);
+		return -1;
+	}
+
+	out->items[out->count].name = strdup(name);
+	if (!out->items[out->count].name) {
+		free(file);
+		return -1;
+	}
+	out->items[out->count].file = file;
+	out->count++;
+	return 0;
+}
+
+typedef struct {
+	OriginMap  *out;
+	const char *comp_dir;
+	int         status;
+} OriginWalk;
+
+static int on_subprogram(Dwarf_Die *die, void *arg)
+{
+	OriginWalk *walk = arg;
+	const char *name = dwarf_diename(die);
+	const char *decl;
+	char       *path;
+
+	/* A declaration with no code is not a definition, and the question is
+	 * which file *defines* the function. `dwarf_getfuncs` reaches abstract
+	 * instances and external declarations too, and either would place a
+	 * name in a file that merely mentioned it. */
+	if (!name || !dwarf_hasattr(die, DW_AT_low_pc))
+		return DWARF_CB_OK;
+
+	decl = dwarf_decl_file(die);
+	if (!decl)
+		return DWARF_CB_OK;
+
+	path = absolute(decl, walk->comp_dir);
+	if (!path) {
+		walk->status = -1;
+		return DWARF_CB_ABORT;
+	}
+
+	if (origin_add(walk->out, name, path) != 0) {
+		walk->status = -1;
+		return DWARF_CB_ABORT;
+	}
+
+	return DWARF_CB_OK;
+}
+
+/* One compilation unit's subprograms into the origin map. */
+static int unit_origins(Dwarf_Die *cu, OriginMap *out)
+{
+	Dwarf_Attribute attr;
+	OriginWalk      walk = { out, NULL, 0 };
+
+	if (dwarf_attr(cu, DW_AT_comp_dir, &attr))
+		walk.comp_dir = dwarf_formstring(&attr);
+
+	out->present = true;
+	dwarf_getfuncs(cu, on_subprogram, &walk, 0);
+	return walk.status;
+}
+
+/* By name, then by file: the name is what a lookup binary-searches on, and the
+ * file orders the run of definitions sharing one name so that two runs over
+ * one image produce the same map (HLR-032). */
+static int by_origin_name(const void *a, const void *b)
+{
+	const FunctionOrigin *x = a;
+	const FunctionOrigin *y = b;
+	int                   c = strcmp(x->name, y->name);
+
+	return c ? c : strcmp(x->file, y->file);
+}
+
+/* The first entry bearing this name, or the map's end. */
+static size_t origin_lower_bound(const OriginMap *origins, const char *name)
+{
+	size_t low  = 0;
+	size_t high = origins->count;
+
+	while (low < high) {
+		size_t mid = low + (high - low) / 2;
+
+		if (strcmp(origins->items[mid].name, name) < 0)
+			low = mid + 1;
+		else
+			high = mid;
+	}
+	return low;
+}
+
+bool dwarfline_knows(const OriginMap *origins, const char *function)
+{
+	size_t at;
+
+	if (!origins || !function || origins->count == 0)
+		return false;
+
+	at = origin_lower_bound(origins, function);
+	return at < origins->count &&
+	       strcmp(origins->items[at].name, function) == 0;
+}
+
+bool dwarfline_places(const OriginMap *origins, const char *function,
+                      const char *file)
+{
+	if (!origins || !function || !file || origins->count == 0)
+		return false;
+
+	for (size_t i = origin_lower_bound(origins, function);
+	     i < origins->count &&
+	     strcmp(origins->items[i].name, function) == 0; i++)
+		if (strcmp(origins->items[i].file, file) == 0)
+			return true;
+
+	return false;
+}
+
+void originmap_free(OriginMap *origins)
+{
+	if (!origins)
+		return;
+
+	for (size_t i = 0; i < origins->count; i++) {
+		free(origins->items[i].name);
+		free(origins->items[i].file);
+	}
+	free(origins->items);
+	memset(origins, 0, sizeof *origins);
+}
+
 /* One compilation unit's line table into the coverage set. */
 static int unit_lines(Dwarf_Die *cu, LineCoverage *out)
 {
@@ -320,7 +497,7 @@ static int unit_lines(Dwarf_Die *cu, LineCoverage *out)
 	return 0;
 }
 
-int dwarfline_read(void *elf, LineCoverage *out)
+int dwarfline_read(void *elf, LineCoverage *out, OriginMap *origins)
 {
 	Dwarf     *dw;
 	Dwarf_Off  offset      = 0;
@@ -329,6 +506,8 @@ int dwarfline_read(void *elf, LineCoverage *out)
 	int        status      = -1;
 
 	memset(out, 0, sizeof *out);
+	if (origins)
+		memset(origins, 0, sizeof *origins);
 
 	if (!elf)
 		return 0;
@@ -349,17 +528,24 @@ int dwarfline_read(void *elf, LineCoverage *out)
 
 		if (cu && unit_lines(cu, out) != 0)
 			goto cleanup;
+		if (cu && origins && unit_origins(cu, origins) != 0)
+			goto cleanup;
 
 		offset = next;
 	}
 
 	compact(out);
+	if (origins && origins->count > 1)
+		qsort(origins->items, origins->count, sizeof *origins->items,
+		      by_origin_name);
 	status = 0;
 
 cleanup:
 	dwarf_end(dw);
-	if (status != 0)
+	if (status != 0) {
 		dwarfline_free(out);
+		originmap_free(origins);
+	}
 	return status;
 }
 

@@ -775,7 +775,7 @@ static int collect_absent_functions(const LanguageModule *module, Registry *reg,
 		if (!name)
 			goto cleanup;
 
-		if (elfsyms_defines(image, name)) {
+		if (elfsyms_defines_in(image, name, metrics->path)) {
 			/* Kept by the link, so its extent is where the finer
 			 * filter may look. HLR-154 confines line pruning to
 			 * within a function the image defines: a line outside

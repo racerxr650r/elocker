@@ -65,7 +65,7 @@ release readiness — is ready to start, and is the last.
 | [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
-| [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, complexity, fan-in and maintainability bands | ✅ Complete |
+| [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -2339,11 +2339,17 @@ nothing in them.
    term this adaptation replaces. Applied unchanged they band four functions
    in five, which is the measurement no longer discriminating.
 
-Deliverables 7 and 8 landed after the first pull request merged, and are
+9. `dwarfline.c` gains a map of which source file the image's debug
+   information places each function in, and the `--elf` filter matches on
+   name *and* file where it can. Where it cannot, and two analysed files
+   define a name the image keeps, the run is refused rather than guessed at
+   (HLR-193).
+
+Deliverables 7, 8 and 9 landed after the first pull request merged, and are
 recorded here rather than as a phase of their own because their subject is
 this phase's: what the report presents, and on whose authority.
 
-**Requirements:** HLR-182 – HLR-192, amendments to HLR-021, HLR-031, HLR-061,
+**Requirements:** HLR-182 – HLR-193, amendments to HLR-021, HLR-031, HLR-061,
 HLR-086, HLR-098, HLR-150 and HLR-151, and the retirement of HLR-157 –
 HLR-159.
 

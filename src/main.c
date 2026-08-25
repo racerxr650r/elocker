@@ -220,6 +220,14 @@ static int assemble_report(Run *run)
 	 * later reads the set itself: a report that filtered and did not say
 	 * which image it filtered by cannot be checked against the build it
 	 * claims to describe (HLR-147). */
+	/* Before anything is reported: a filtered run whose result would rest
+	 * on a guess is refused rather than qualified (HLR-193). The check
+	 * needs the whole project, which is why it is here and not in the
+	 * per-file parse the filter is applied in. */
+	if (run->filtered &&
+	    report_check_image_ambiguity(&run->report, &run->image) != 0)
+		return -1;
+
 	if (run->filtered && report_set_image(&run->report, &run->image) != 0)
 		return -1;
 

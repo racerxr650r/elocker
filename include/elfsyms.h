@@ -44,6 +44,12 @@ typedef struct {
 	 * would break it while every unit test still passed.
 	 */
 	LineCoverage lines;
+	/* Which source file the image's debug information places each function
+	 * in, from the same open and for the reason the line coverage is: the
+	 * image is read once (HLR-141). Empty where the build wrote no debug
+	 * information, which is what makes an ambiguous name fatal rather than
+	 * silently resolved (HLR-193). */
+	OriginMap    origins;
 } SymbolSet;
 
 /* Read the named image and populate its function set.
@@ -66,6 +72,21 @@ int elfsyms_open(const char *path, SymbolSet *out);
  * (HLR-142, LLR-SYM-03).
  */
 bool elfsyms_defines(const SymbolSet *set, const char *function);
+
+/* Whether the image defines a function of this name **written in this file**.
+ *
+ * The question the `--elf` filter actually has to answer. Where the image's
+ * debug information places the name in a source file, the placement governs
+ * and a definition in any other file is not the one the image kept. Where it
+ * does not — no debug information, or a name it attributes to two files — this
+ * falls back to the name alone, which is what `elfsyms_defines` answers and is
+ * the best that can be said without the debug information (HLR-193).
+ *
+ * A NULL `file` asks the name-only question deliberately, for a caller that
+ * has no source file in hand.
+ */
+bool elfsyms_defines_in(const SymbolSet *set, const char *function,
+                        const char *file);
 
 /* How many of the image's function symbols carried an encoding this build does
  * not decode (HLR-143). */
