@@ -28,6 +28,7 @@
 #include <tree_sitter/api.h>
 
 #include "diag.h"
+#include "repair.h"
 #include "analyze.h"
 #include "elc.h"
 #include "elfsyms.h"
@@ -2295,8 +2296,13 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	SpanList              comments = { 0 };
 	SiteList              sites    = { 0 };
 	struct stat           st;
-	void                 *map    = MAP_FAILED;
+	/* The mapping, kept apart from the text that is parsed: repair may hand
+	 * back a copy, and `munmap` must still receive what `mmap` returned. */
+	void                 *mapping = MAP_FAILED;
+	size_t                maplen  = 0;
+	const char           *map    = NULL;
 	size_t                len    = 0;
+	RepairResult          repaired = { 0 };
 	TSTree               *tree   = NULL;
 	int                   fd     = -1;
 	int                   status = ANALYZE_FAILED;
@@ -2336,9 +2342,11 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 		goto cleanup;
 	}
 
-	len = (size_t)st.st_size;
-	map = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
-	if (map == MAP_FAILED) {
+	maplen  = (size_t)st.st_size;
+	mapping = mmap(NULL, maplen, PROT_READ, MAP_PRIVATE, fd, 0);
+	map     = mapping;
+	len     = maplen;
+	if (mapping == MAP_FAILED) {
 		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		goto cleanup;
 	}
@@ -2349,11 +2357,21 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 
 	/* The length is explicit because the mapping is not NUL-terminated
 	 * (LLR-ANL-05). */
-	tree = ts_parser_parse_string(reg->parser, NULL, map, (uint32_t)len);
-	if (!tree) {
+	/* Parsed through the repair path, which for source the grammar accepts
+	 * is one parse of the caller's own buffer and nothing else (HLR-196,
+	 * LLR-RPR-01). Where it does not, the regions it rejected are repaired
+	 * in a copy and the tally is carried onto the file's metrics, so the
+	 * report can declare that a figure rested on a guess (HLR-199). */
+	if (repair_parse(reg->parser, map, len, path, &repaired) != 0) {
 		diag_printf("elc: %s: parse failed\n", path);
 		goto cleanup;
 	}
+	tree = repaired.tree;
+	map  = repaired.buffer;
+	len  = repaired.length;
+	metrics->repairs = repaired.total;
+	for (size_t k = 0; k < REPAIR_RULE_COUNT; k++)
+		metrics->repair_counts[k] = repaired.counts[k];
 
 	TSNode root = ts_tree_root_node(tree);
 
@@ -2382,10 +2400,12 @@ cleanup:
 	free(sites.items);
 	free(comments.items);
 	free(ranges.items);
-	if (tree)
-		ts_tree_delete(tree);
-	if (map != MAP_FAILED)
-		munmap(map, len);
+	/* The tree is released through the repair result, which owns it and the
+	 * copied buffer together; the mapping is released here, by the function
+	 * that made it. */
+	repair_result_free(&repaired);
+	if (mapping != MAP_FAILED)
+		munmap(mapping, maplen);
 	filemetrics_free(metrics);
 	filefacts_free(facts);
 	if (fd >= 0)

@@ -464,6 +464,12 @@ typedef struct {
 	 * False on every run with no image, where the question does not arise
 	 * and nothing is pruned either way. */
 	bool            coverage_unestablished;
+	/* Repairs made to the regions the grammar rejected in this file, in
+	 * total and by rule (HLR-199). Carried so the report can declare that a
+	 * figure rested on a guess the grammar could not make — the discipline
+	 * the unresolved-call and undecided-region counts already follow. */
+	size_t          repairs;
+	size_t          repair_counts[3];
 	FunctionMetric *functions;      /* dynamic array, grown by doubling  */
 	size_t          function_count;
 	/* The functions this file defines that the image does not, in the order

@@ -34,6 +34,7 @@
 #include "thresholds.h"
 #include "format_text.h"
 #include "report.h"
+#include "repair.h"
 
 #define GRID_MAX_COLUMNS 8
 
@@ -1529,6 +1530,46 @@ static int partially_parsed_section(const Report *report, Style style,
 	return 0;
 }
 
+static int repaired_files_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
+{
+	Grid grid;
+	char a[32];
+
+	/* What the grammar could not follow and `elc` rewrote in its own
+	 * copy before measuring (HLR-199).
+	 *
+	 * A repair is a guess the grammar could not make, so a figure
+	 * resting on one says so. Naming the rule is what makes the guess
+	 * checkable: a reader who knows *which* shape was rewritten knows
+	 * what the repair assumed, and can go and look. A bare total would
+	 * say only that something was guessed.
+	 *
+	 * The count carries no severity and does not reach the exit status
+	 * (HLR-100). It is a figure to read, not a gate to pass. */
+	static const char *const names[]   = { "File", "Rule", "Repairs" };
+	static const bool        numeric[] = { false, false, true };
+
+	grid_begin(&grid,
+	           "Repaired regions (rewritten in elc's buffer to be "
+	           "measured; the files are untouched)", 3, names, numeric);
+	for (size_t i = 0; i < report->file_count; i++) {
+		const FileMetrics *f = report->files[i];
+
+		for (size_t k = 0; k < REPAIR_RULE_COUNT; k++) {
+			if (!f->repair_counts[k])
+				continue;
+			snprintf(a, sizeof a, "%zu", f->repair_counts[k]);
+			grid_row(&grid, f->path,
+			         repair_rule_name((RepairRule)k), a);
+		}
+	}
+	if (grid_render(&grid, style, out, empty) != 0)
+		return -1;
+
+	return 0;
+}
+
 static int skipped_files_section(const Report *report, Style style,
                              FILE *out, EmptyTables *empty)
 {
@@ -1791,6 +1832,7 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		{ image_filter_section,          TIER_SUMMARY, NULL            },
 		{ rule_matches_section,          TIER_DETAIL,  NULL            },
 		{ partially_parsed_section,      TIER_SUMMARY, NULL            },
+		{ repaired_files_section,        TIER_SUMMARY, NULL            },
 		{ skipped_files_section,         TIER_SUMMARY, NULL            },
 		/* Last, and the only section after the files the run could not
 		 * measure. It is the longest table a filtered run produces —

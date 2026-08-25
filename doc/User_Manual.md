@@ -2920,8 +2920,9 @@ crossed a line; the tables above it are the whole picture.
 ## When the parser cannot follow your code
 
 `elc` parses source as written and runs no preprocessor (that is deliberate —
-see below). A grammar occasionally meets something it cannot follow, and when
-that happens **only the lines it could not read are lost**:
+see below). A grammar occasionally meets something it cannot follow. When that
+happens `elc` first **tries to repair it**, and only what repair cannot reach
+is lost:
 
 ```text
 Project summary
@@ -2938,7 +2939,56 @@ Partially parsed files (measured except for these lines)
 
 Every function around the damage is measured normally and appears in the usual
 tables. The count is what tells you how far to trust the figures: 35 unparsed
-lines in 5151 is noise, and 35 in 60 is not.
+lines in 5151 is noise, and 35 in 60 is not. It is what remains **after**
+repair, so it is the damage nothing could reach.
+
+### What repair does
+
+The commonest reason a C grammar stops is a macro standing where the grammar
+expects something else — a name that expands to a string literal, to a storage
+class, or to a whole declarator. `elc` cannot expand it, because expanding
+means running a preprocessor over your build's include paths and defines, and
+that changes the code being measured. What it can do is recognise the *shape*
+and put something the grammar accepts in its place, in its own copy of the
+buffer:
+
+| The shape | What replaces it |
+|---|---|
+| An upper-case name beside a string literal — `printf(BOLD "%d" RESET, n)` | an empty string literal, which concatenates to the same string |
+| An upper-case name in front of a declaration — `local int f(void)` | nothing; the declaration beneath it parses |
+| An upper-case name where a declarator belongs — `ARR = { 1, 2, 3 };` | `int` before it, making it a definition |
+
+Three properties make this safe to trust:
+
+- **Only rejected regions are rewritten.** Text the grammar accepted is never
+  touched, so the worst a wrong guess can do is fail to fix something that was
+  already broken.
+- **Every repair spans the same number of lines it replaced.** Nothing beneath
+  it moves, so every line number in the report still points where it did.
+- **Your files are never modified.** The rewriting happens in memory, in a
+  copy `elc` made to parse.
+
+A repair is a guess the grammar could not make, so the report says it made
+one:
+
+```text
+Repaired regions (rewritten in elc's buffer to be measured; the files are untouched)
+  File        Rule                        Repairs
+  ----------  --------------------------  -------
+  drv/uart.c  macro adjacent to a string       29
+  drv/uart.c  macro before a declaration        3
+```
+
+That count is a figure to read, not a threshold to pass: it carries no
+severity and does not affect the exit status. It tells you how much of the
+measurement rests on shape-matching rather than on the grammar. Where no
+repair was made the table is absent, and named among the empty ones at the end
+of the report — *none needed* and *not attempted* are different claims.
+
+Repair runs in passes and stops when a pass rewrites nothing or fails to
+reduce the damage; a pass that does not help is withdrawn whole. So `elc`
+terminates on source no rule fits, which is most of the source it will ever
+meet.
 
 **Why not simply reject the file?** `elc` used to, and it was badly wrong. A
 single unparsable macro damages one line; discarding the whole file over it

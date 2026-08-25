@@ -17,10 +17,10 @@
     <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.18" date="2026-08-24" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.19" date="2026-08-24" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="191"/>
-      <count name="llrs"       value="537"/>
-      <count name="tests"      value="1124"/>
-      <count name="test_files" value="52"/>
+      <count name="hlrs"       value="195"/>
+      <count name="llrs"       value="543"/>
+      <count name="tests"      value="1138"/>
+      <count name="test_files" value="53"/>
     </counts>
   </metadata>
 
@@ -50,6 +50,7 @@
       <file path="src/dwarfline.c"><![CDATA[The image's debug information: which source lines this build compiled an instruction for, which files that mapping covers at all, and which source file each function the image describes was written in.]]></file>
       <file path="src/purify.c"><![CDATA[The graph purification engine: centrality-based classification of utility sinks, god objects, and peripheral nodes, the masked recovery view built from them, and the manifest by which a user overrules a classification.]]></file>
       <file path="src/recover.c"><![CDATA[Architecture recovery: a proposed layering read off the purified recovery view, emitted in the form the stratum options accept.]]></file>
+      <file path="src/repair.c"><![CDATA[Repair of source the grammar rejected: the rules, the bounded pass loop, and the tally the report declares.]]></file>
       <file path="src/diag.c"><![CDATA[The diagnostic stream every message to standard error passes through, and the debug companion that records the run beside the report.]]></file>
       <file path="src/format_dsm.c"><![CDATA[The Dependency Structure Matrix and its CSV and Markdown renderings.]]></file>
       <file path="doc/elc.1"><![CDATA[The section-1 man page: the reference form of every option, format, and finding category.]]></file>
@@ -1328,6 +1329,50 @@ Each layer is named after the basename of the first directory in it, sanitised o
           <case name="No strata declared"><![CDATA[Not a reason to omit recovery — recovery is what a user without strata is given. It is the *conformance* analyses that stay omitted (HLR-115, HLR-173).]]></case>
           <case name="No function survives purification"><![CDATA[Not an error. The proposal is omitted with its reason stated, as an analysis short of its inputs always is, rather than reported as an empty layering (HLR-115).]]></case>
           <case name="A directory holds only excluded functions"><![CDATA[Not an error and not the bottom layer. The directory receives no layer at all, because a function `elc` did not consider is not a function `elc` placed at the edge of the architecture (HLR-170).]]></case>
+        </error_handling>
+      </module>
+
+      <module path="src/repair.c">
+        <purpose><![CDATA[rewrites the regions of a parse buffer the grammar rejected, so that a macro standing where a keyword, a type or a string was expected does not cost the whole surrounding function.]]></purpose>
+        <responsibility><![CDATA[Rewrite only within regions the grammar rejected, never text it accepted (HLR-196).]]></responsibility>
+        <responsibility><![CDATA[Preserve the line count of every replacement, which is what keeps every line-based measurement and every reported location correct (HLR-197).]]></responsibility>
+        <responsibility><![CDATA[Terminate: withdraw a repair that does not reduce the damage, and stop when a pass achieves nothing (HLR-198).]]></responsibility>
+        <responsibility><![CDATA[Count what it did, by rule, so the report can declare it (HLR-199).]]></responsibility>
+        <responsibility><![CDATA[Leave the source file untouched. The buffer is elc's own copy of the mapping.]]></responsibility>
+        <functions>
+          <function signature="int repair_parse(TSParser *parser, const TSLanguage *lang, const char *data, size_t length, RepairResult *out)">
+            <purpose><![CDATA[Parse, and where the grammar rejects anything, repair and parse again until it stops helping.]]></purpose>
+            <post><![CDATA[`out` carries the tree to measure, the buffer it was parsed from, and the tally of repairs. Where nothing was rejected the buffer is the caller's own and the tree is from a single parse.]]></post>
+            <returns><![CDATA[0 on success, -1 on allocation failure with nothing owned.]]></returns>
+            <logic>
+              <step><![CDATA[Parse the buffer as given. If the root carries no error, return that tree and the caller's buffer untouched — a sound file is parsed once and never copied, which is what leaves HLR-076 unchanged for it.]]></step>
+              <step><![CDATA[Copy the buffer, since the mapping is read-only and the source file is not ours to modify.]]></step>
+              <step><![CDATA[Collect the rejected regions by walking the tree from the root, descending only where `ts_node_has_error` holds — the same traversal the damage tally uses, and for the same reason: it walks to the damage and skips the sound majority.]]></step>
+              <step><![CDATA[For each region in document order, try each rule in a fixed order and take the first whose shape matches. The two orders together are what make the result a property of the source rather than of the traversal (HLR-032, HLR-033).]]></step>
+              <step><![CDATA[Re-parse. If the count of rejected regions did not fall, restore the buffer from before the pass and stop: the pass achieved nothing, and keeping its edits would leave the measured text further from the source for no gain (HLR-198).]]></step>
+              <step><![CDATA[Repeat until a pass rewrites nothing or fails to reduce the damage.]]></step>
+            </logic>
+            <notes><![CDATA[The rules are heuristics about the shape of a failure, not knowledge of what a macro expands to, and the module is written so that being wrong is cheap: a rule that does not match leaves the region alone, and a rule that matches but does not help is withdrawn by the pass loop. What it cannot do is be wrong *invisibly*, which is why HLR-199 has the report declare the tally.]]></notes>
+          </function>
+          <function signature="static bool rule_string_macro(char *line, size_t length)" summary="An upper-case token adjacent to a string literal becomes an empty literal, padded to the width it replaced. The commonest shape by an order of magnitude, and the one a colour-macro idiom produces on every logging line."/>
+          <function signature="static bool rule_leading_macro(char *line, size_t length)" summary="An unknown token in front of a declaration is blanked. `local int f(void)` measures as the `static int f(void)` it expands to."/>
+          <function signature="static bool rule_declarator_macro(char *line, size_t length)" summary="`NAME =` alone at file scope is given a type, so the initialiser attaches to an object rather than to nothing."/>
+          <function signature="void repair_result_free(RepairResult *r)" summary="Release the tree and, where one was made, the copied buffer. Safe on NULL and safe twice."/>
+        </functions>
+        <algorithm><![CDATA[**Every rule replaces text with text of the same width, in place, within one line.** Same width rather than merely the same line count, because it costs nothing here and buys the byte offsets as well: a region's extent stays valid across a repair, so the regions collected before a pass do not have to be recollected during it.
+
+That constraint is what makes the replacements look the way they do. `BOLD` becomes `""` followed by two spaces rather than `""` alone; `local` becomes five blanks rather than nothing. A shorter replacement would have been easier to write and would have moved every subsequent column, and — for a rule that ever spanned a line boundary — every subsequent line.
+
+**The pass loop is where being wrong is made cheap.** A rule matching the wrong shape produces a buffer the grammar rejects in the same places or worse; the loop notices the count did not fall, restores, and stops. So the failure mode of a bad rule is a file that stays unrepaired, which is where it started, rather than a file quietly measured as something else.
+
+**A sound file never reaches any of this.** The first parse is the only parse, the buffer is never copied, and the module returns the caller's own pointer. The cost of the feature to a code base that does not need it is one test of the root node.]]></algorithm>
+        <dependencies>
+          <dep><![CDATA[`libtree-sitter`, for the parse and the error nodes. No third-party dependency beyond it, and no toolchain: HLR-135 and HLR-040 are untouched.]]></dep>
+        </dependencies>
+        <error_handling>
+          <case name="A region no rule matches"><![CDATA[Left alone, and counted by HLR-035 as unparsed exactly as before. Repair is an improvement on the failure, not a promise to eliminate it.]]></case>
+          <case name="A pass that does not reduce the damage"><![CDATA[Withdrawn, and the loop stops. The buffer returns to what the pass found (HLR-198).]]></case>
+          <case name="Allocation failure"><![CDATA[The copy is released and the caller receives -1, having been given nothing to free. A file that could not be repaired for want of memory is a file measured unrepaired, not a failed run.]]></case>
         </error_handling>
       </module>
 
@@ -3837,6 +3882,73 @@ Every function a band names shall appear in the threshold listing of HLR-187 alo
       <traces>
         <trace target="SDD" ref="12"/>
         <trace target="SDD" ref="13"/>
+      </traces>
+      </hlr>
+    </section>
+
+    <section number="25" title="Repairing What the Grammar Could Not Follow">
+      <intro><![CDATA[Requirements governing what `elc` does with source the grammar rejects, and the bounds that keep doing anything at all defensible.
+
+Tree-sitter parses source the preprocessor has not touched. A macro standing where the grammar expects a keyword, a type, or a string is therefore a parse error, and three shapes account for every failure observed in the field: a macro expanding to a storage class in front of a declaration, one or more expanding to string literals at the head of a concatenation, and one expanding to a whole declarator at file scope.
+
+None of the three is fixable in the grammar. `MACRO MACRO` is genuinely ambiguous with `Type var`, which is why the upstream `concatenated_string` rule requires a string literal within its first two tokens, and relaxing it cascades conflicts against `type_specifier`. Nor is another grammar available: one C grammar is maintained, and its macro handling is a known, open problem. Running a preprocessor would resolve all three and cost a toolchain `elc` refuses to require (HLR-135, HLR-040), include paths it cannot know, header definitions attributed to whichever file included them, and the correctness of every reported line number.
+
+What is left is to repair the source enough for the grammar to proceed, which needs no knowledge of what any macro means — only of the shape the failure takes. The requirements below are mostly restrictions, and each one is what separates a bounded repair from a tool quietly inventing the code it measures.]]></intro>
+
+      <hlr id="HLR-196" name="Repair Confined to Rejected Regions">
+        <text><![CDATA[Where the grammar reports an error region in a source file, `elc` may rewrite the contents of **that region** in the buffer it parses, and shall parse the result again.
+
+No text the grammar accepted shall be rewritten. The rules of HLR-197 are heuristics about the shape of a failure, and a heuristic applied to code that parsed correctly is a tool editing a measurement it had already taken. Confining them to the regions the grammar itself rejected is what makes them safe: the worst a wrong repair can do is fail to fix a region that was already broken.
+
+A file the grammar parses without error shall not be rewritten and shall be parsed **once**, so the single-parse rule of HLR-076 is unchanged for sound source, and the repair path is unreachable for it.
+
+The buffer is `elc`'s own copy. No source file is modified, which HLR-039's zero-configuration guarantee and the read-only contract of the analysis both require.]]></text>
+      <traces>
+        <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="25"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-197" name="Repairs Preserve the Line Count">
+        <text><![CDATA[Every repair shall replace text with text spanning the **same number of lines**.
+
+This single property is what keeps a repaired measurement correct. Effective lines (HLR-015), cyclomatic complexity (HLR-017) and every location `elc` reports are line-based, so a replacement confined to the lines it replaces cannot move any of them. A repair free to add or remove a line would shift every function beneath it, and the resulting report would carry right-looking figures against wrong locations — which a reader cannot detect and therefore cannot discount.
+
+Three rules are defined, and each meets that constraint within a single line:
+
+*   An identifier in upper case adjacent to a string literal shall be replaced by an empty string literal. Such a token is a macro expanding to a string, and an empty literal concatenated with the literal beside it has the same shape and the same effect on every measurement.
+*   An identifier standing in front of a declaration shall be replaced by blanks. Such a token is a storage-class or attribute macro, and the declaration is what carries the function.
+*   An identifier alone before `=` at file scope shall be given a type. Such a token is a macro expanding to a declarator, and what remains is the object it declares.
+
+A rule shall be applied only where its shape matches within a rejected region. `elc` shall not infer what a macro expands to, and none of the three requires it to.]]></text>
+      <traces>
+        <trace target="SDD" ref="25"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-198" name="Repair Terminates">
+        <text><![CDATA[Repair shall proceed in passes, and shall stop when a pass rewrites nothing or fails to reduce the number of rejected regions. A repair that does not reduce them shall be withdrawn, leaving the buffer as the pass found it.
+
+Termination is a requirement rather than an expectation because the rules operate on source `elc` did not write and cannot anticipate. A rule that repairs one region into a shape another rule rejects would otherwise run until the process was killed, on somebody else's code and for reasons nothing in the report would explain.
+
+Rules shall be applied in a fixed order, and regions in a fixed order, so that two runs over one target repair identically as HLR-032 and HLR-033 require of every other output.]]></text>
+      <traces>
+        <trace target="SDD" ref="25"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-199" name="Repairs Are Declared">
+        <text><![CDATA[A report over source that was repaired shall state how many repairs were made and under which rule, and the debug companion of HLR-194 shall record each one with the text before and after.
+
+**A repair is a guess the grammar could not make**, and a figure resting on one shall say so. This is the discipline the unresolved-call count of HLR-077 and the undecided-region count of HLR-133 already follow: a measurement whose completeness is unstated cannot be acted on, and one silently reconstructed is worse than the failure it replaced — the figures look ordinary and nothing distinguishes them from measured ones.
+
+The count is a figure to read rather than a gate to pass. It carries no severity and does not reach the exit status, for the reason no other measurement does (HLR-100).
+
+The unparsed-line count of HLR-035 shall be what remains **after** repair, since it exists to tell a reader how much of a file was not measured, and repaired lines were.]]></text>
+      <traces>
+        <trace target="SDD" ref="13"/>
+        <trace target="SDD" ref="14"/>
+        <trace target="SDD" ref="25"/>
       </traces>
       </hlr>
     </section>
@@ -8086,6 +8198,70 @@ The text shall be bounded, and where it is truncated the number of lines omitted
       </llr>
     </function>
 
+    <function number="66" title="`repair_parse` ([src/repair.c](../src/repair.c))" name="repair_parse" source="src/repair.c">
+      <intro><![CDATA[Repair of the regions the grammar rejected. Every requirement below is a restriction, and each is what separates a bounded repair from a tool inventing the code it measures.]]></intro>
+      <llr id="LLR-RPR-01">
+        <text><![CDATA[`repair_parse` shall parse the buffer as given, and where the root node carries no error shall return that tree and the caller's own buffer, having copied nothing and parsed once.
+
+The early return is the requirement rather than an optimisation. It is what leaves the single-parse rule of HLR-076 exactly as it was for source that needs no repair, and what makes the cost of this feature to such a code base one test of the root node.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-196" name="Repair Confined to Rejected Regions"/>
+          <trace target="HLR" ref="HLR-076"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-RPR-02">
+        <text><![CDATA[Where the grammar rejects anything, `repair_parse` shall copy the buffer before rewriting it, and shall rewrite only bytes lying within a rejected region.
+
+The copy is required because the buffer is a read-only mapping of a file `elc` does not own. Confinement to the rejected regions is required because the rules are heuristics about the shape of a failure: applied to text the grammar accepted, a heuristic is a tool editing a measurement it had already taken correctly.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-196" name="Repair Confined to Rejected Regions"/>
+          <trace target="HLR" ref="HLR-039"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-RPR-03">
+        <text><![CDATA[Every rule shall replace text with text of the **same width in bytes**, within a single line.
+
+Same width rather than merely the same line count, because it costs nothing and buys the byte offsets too: a region's extent stays valid across a repair, so the regions collected before a pass need not be recollected during it. The line count is what HLR-197 requires and what keeps every line-based measurement and every reported location correct; the width is how this implementation obtains it.
+
+An upper-case identifier adjacent to a string literal shall become an empty string literal padded to the width it replaced; an identifier in front of a declaration shall become blanks; an identifier alone before `=` at file scope shall be given a type by consuming the blanks around it. A rule whose replacement would not fit the width it replaces shall decline to fire.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-197" name="Repairs Preserve the Line Count"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-RPR-04">
+        <text><![CDATA[`repair_parse` shall re-parse after each pass and compare the number of rejected regions with the number before it. Where the number did not fall, it shall restore the buffer to its state before the pass and stop.
+
+This is what makes a wrong rule cheap rather than dangerous. A rule matching a shape it should not produces a buffer the grammar rejects in the same places or in worse ones; the comparison notices, the restore undoes it, and the file is measured unrepaired — which is where it started. Without the comparison a rule that repairs one region into a shape another rule rejects would run until the process was killed, on source `elc`'s authors never saw.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-198" name="Repair Terminates"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-RPR-05">
+        <text><![CDATA[Rules shall be tried in a fixed order against regions taken in document order, and the first rule whose shape matches a region shall be the one applied.
+
+Two runs over one target must repair identically, or every figure downstream of a repair varies between runs and HLR-032's byte-identical guarantee fails in the one place hardest to notice — a report that is *nearly* the same.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-198" name="Repair Terminates"/>
+          <trace target="HLR" ref="HLR-032"/>
+          <trace target="HLR" ref="HLR-033"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-RPR-06">
+        <text><![CDATA[`repair_parse` shall count the repairs it made, by rule, and `analyze.c` shall carry that tally onto the file's metrics so the report can declare it and the debug companion can record each repair with the text before and after.
+
+A repair is a guess the grammar could not make. A report that presented a repaired figure as a measured one would be the confidently-wrong result `elc` exists to avoid, and worse than the parse error it replaced — the figures look ordinary, and nothing on the page distinguishes them.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-199" name="Repairs Are Declared"/>
+          <trace target="HLR" ref="HLR-194"/>
+        </traces>
+      </llr>
+    </function>
+
   </llrs>
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
@@ -9431,6 +9607,7 @@ The text shall be bounded, and where it is truncated the number of lines omitted
       <traces>
         <trace target="LLR" ref="LLR-ANL-48"/>
         <trace target="HLR" ref="HLR-035"/>
+        <trace target="HLR" ref="HLR-196"/>
       </traces>
     </test>
     <test name="a_damaged_file_is_a_degraded_outcome_not_a_clean_one">
@@ -9454,8 +9631,8 @@ The text shall be bounded, and where it is truncated the number of lines omitted
         <trace target="HLR" ref="HLR-016"/>
       </traces>
     </test>
-    <test name="the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable">
-      <purpose><![CDATA[The exact idiom that prompted the change: tree-sitter-c accepts one identifier before the first string literal of a concatenation and not two, so the ANSI-colour macro convention common in embedded C does not parse. One line of damage, and the functions around it measured.]]></purpose>
+    <test name="the_macro_concatenation_the_c_grammar_cannot_follow_is_repaired">
+      <purpose><![CDATA[The ANSI-colour macro convention common in embedded C, which tree-sitter-c cannot follow because it accepts one identifier before a concatenation's first literal and not two. Until Phase 25 this pinned the damage as survivable — the neighbours measured, one line lost; repair changes that outcome, so the line is repaired within itself and the function on it is measured too. The original claim about the neighbours is kept, because a repair that measured them wrongly would be a worse defect than the parse error it removed.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-48"/>
         <trace target="HLR" ref="HLR-035"/>
@@ -14103,6 +14280,117 @@ The text shall be bounded, and where it is truncated the number of lines omitted
       <purpose><![CDATA[Observed from outside by killing the run and reading what survived. This is the property the companion exists for: a run that faults on a tree nobody can reproduce still leaves everything up to the fault on disk, where a buffered implementation would leave an empty file.]]></purpose>
       <traces><trace target="LLR" ref="LLR-DBG-03"/><trace target="HLR" ref="HLR-194"/></traces>
     </test>
+  </file>
+
+  <file path="test/fixtures/repair.bats" role="fixture" count="14">
+    <test name="HLR-196: each macro shape parses where it did not before">
+      <purpose><![CDATA[The three shapes a macro takes where the grammar expects a keyword, a type or a string all parse once repaired.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-196"/>
+      </traces>
+    </test>
+
+    <test name="HLR-197: a repaired file measures what the expanded source measures">
+      <purpose><![CDATA[The oracle is a hand-written expanded equivalent beside the fixture, not elc's own output: a repaired function must report the ELOC and complexity the expansion would, or the repair changed the meaning of the code it repaired.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-197"/>
+        <trace target="LLR" ref="LLR-RPR-03"/>
+      </traces>
+    </test>
+
+    <test name="HLR-197: a repair does not move the lines beneath it">
+      <purpose><![CDATA[The whole defence of the approach. Every rule replaces text within the line it sits on, so a function below a repair keeps its reported range — a report whose figures are right and whose locations are wrong is the one failure a reader cannot detect.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-197"/>
+      </traces>
+    </test>
+
+    <test name="LLR-RPR-01: a file with nothing to repair is untouched">
+      <purpose><![CDATA[Source the grammar accepts is parsed once and never copied, which is what leaves the single-parse rule unchanged for code bases that need none of this.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPR-01"/>
+        <trace target="HLR" ref="HLR-076"/>
+      </traces>
+    </test>
+
+    <test name="LLR-RPR-02: the source file is never modified">
+      <purpose><![CDATA[Repair happens in elc's own copy. The analysis is read-only, and a tool that edited the tree it measured would be measuring its own output.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPR-02"/>
+        <trace target="HLR" ref="HLR-039"/>
+      </traces>
+    </test>
+
+    <test name="LLR-RPR-03: every rule fires on the shape it is for">
+      <purpose><![CDATA[Each rule is exercised by the fixture rather than only the commonest one, so a rule that stopped matching is caught by this suite rather than by a user's report.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPR-03"/>
+      </traces>
+    </test>
+
+    <test name="LLR-RPR-05: two runs over one target repair identically">
+      <purpose><![CDATA[Rules in a fixed order over regions in a fixed order. Without it every figure downstream of a repair varies between runs, and the byte-identical guarantee fails in the place hardest to notice — a report that is nearly the same.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPR-05"/>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+
+    <test name="LLR-RPR-06, HLR-199: each repair is recorded with its rule">
+      <purpose><![CDATA[A repair is a guess the grammar could not make, and the debug companion records each one with its rule and location so a figure resting on one can be traced to it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPR-06"/>
+        <trace target="HLR" ref="HLR-199"/>
+      </traces>
+    </test>
+
+    <test name="HLR-199: the report states how many repairs and under which rule">
+      <purpose><![CDATA[The report itself names each rule that fired and how many regions it rewrote. The debug companion serves a maintainer holding the file; this serves the reader of the figures, who is the one deciding whether to act on them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPR-06"/>
+        <trace target="HLR" ref="HLR-199"/>
+      </traces>
+    </test>
+
+    <test name="HLR-199: a report rebuilt from XML still declares its repairs">
+      <purpose><![CDATA[A saved record carries the tally, so a report regenerated from it declares the same repairs. A reconstruction that dropped the declaration would read as measured source — the silent reconstruction HLR-199 exists to prevent.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPR-06"/>
+        <trace target="HLR" ref="HLR-199"/>
+      </traces>
+    </test>
+
+    <test name="HLR-199: a sound file declares no repairs at all">
+      <purpose><![CDATA[Source the grammar accepted renders no repair rows, and the table is named among those omitted as empty. "None found" and "not looked for" are different claims, and the report distinguishes them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPR-06"/>
+        <trace target="HLR" ref="HLR-199"/>
+      </traces>
+    </test>
+
+    <test name="HLR-198: repair terminates on source it cannot fix">
+      <purpose><![CDATA[A file of shapes no rule matches completes rather than looping: the pass that fails to reduce the damage ends the loop. Asserted with a timeout, because the failure this guards against is a run that never returns on somebody else's source.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-198"/>
+      </traces>
+    </test>
+    <test name="LLR-RPR-04: a pass that does not help is withdrawn, not left half-done">
+      <purpose><![CDATA[The mechanism termination rests on, and the one that makes a wrong rule cheap: a file no rule can fix is measured unrepaired, which is where it started. Observed from outside — the sound function reports the same figures whether or not damage sits beside it, and no repair is recorded.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RPR-04"/>
+        <trace target="HLR" ref="HLR-198"/>
+      </traces>
+    </test>
+
+
+    <test name="HLR-035: the unparsed count is what remains after repair">
+      <purpose><![CDATA[The count exists to tell a reader how much of a file was not measured, and repaired lines were.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-035"/>
+        <trace target="HLR" ref="HLR-199"/>
+      </traces>
+    </test>
+
   </file>
 
   <file path="test/fixtures/elf.bats" role="fixture" count="37">

@@ -1020,10 +1020,35 @@ applies no style opinion of its own.
 .B elc
 parses source as written and runs no preprocessor, so a grammar occasionally
 meets a construct it cannot follow \(em a macro standing in for a string
-literal is the usual cause in embedded C. Only the lines it could not read are
-lost. The file is measured from the parts the grammar understood, the lines it
-could not are counted, and the figure is reported per file and in the project
-summary, so a partial measurement is never mistaken for a complete one.
+literal is the usual cause in embedded C.
+.PP
+Such a region is first
+.IR repaired :
+in its own copy of the buffer,
+.B elc
+replaces the rejected text with something the grammar accepts and parses again.
+An upper-case name beside a string literal becomes an empty literal, one in
+front of a declaration is removed, and one standing where a declarator belongs
+gains an
+.B int
+before it. Only regions the grammar itself rejected are rewritten, every
+replacement spans the number of lines it replaced so nothing beneath it moves,
+and the source files are never modified. Repair proceeds in passes and stops
+when a pass rewrites nothing or fails to reduce the damage; a pass that does
+not help is withdrawn whole.
+.PP
+A repair is a guess the grammar could not make, so a report resting on one
+says so: a
+.B Repaired regions
+table names each rule that fired and how many regions it rewrote, and
+.B \-\-dbg
+records each repair with the text before and after. The count carries no
+severity and does not reach the exit status.
+.PP
+Only what repair could not reach is lost. The file is measured from the parts
+the grammar understood, the lines it could not are counted, and the figure is
+reported per file and in the project summary, so a partial measurement is
+never mistaken for a complete one.
 .PP
 An unbalanced delimiter is the limit of that recovery: it leaves the parser
 nothing to resynchronise on, so everything after it counts as damaged. The line

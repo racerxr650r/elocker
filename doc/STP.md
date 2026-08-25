@@ -138,8 +138,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1124 test(s)** across
-**52 file(s)**.
+Snapshot: **1138 test(s)** across
+**53 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
 
@@ -397,7 +397,7 @@ Role: **unit**. **47 test(s).**
 | 43 | <a id="a_damaged_file_is_a_degraded_outcome_not_a_clean_one"></a>`a_damaged_file_is_a_degraded_outcome_not_a_clean_one` | `LLR-ANL-49` | A partly unparsed file is an outcome distinct from a clean analysis, so its metrics are used and the run is still counted against the exit status. |
 | 44 | <a id="a_sound_file_reports_no_damage"></a>`a_sound_file_reports_no_damage` | `LLR-ANL-48` | Paired with the tests above so that an implementation reporting damage everywhere cannot pass them. |
 | 45 | <a id="damage_is_counted_in_distinct_lines"></a>`damage_is_counted_in_distinct_lines` | `LLR-ANL-48` | Two unparsable constructs on one line are one line, by the rule the comment exclusion already counts by. |
-| 46 | <a id="the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable"></a>`the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable` | `LLR-ANL-48` | The exact idiom that prompted the change: tree-sitter-c accepts one identifier before the first string literal of a concatenation and not two, so the ANSI-colour macro convention common in embedded C does not parse. One line of damage, and the functions around it measured. |
+| 46 | <a id="the_macro_concatenation_the_c_grammar_cannot_follow_is_repaired"></a>`the_macro_concatenation_the_c_grammar_cannot_follow_is_repaired` | `LLR-ANL-48` | The ANSI-colour macro convention common in embedded C, which tree-sitter-c cannot follow because it accepts one identifier before a concatenation's first literal and not two. Until Phase 25 this pinned the damage as survivable — the neighbours measured, one line lost; repair changes that outcome, so the line is repaired within itself and the function on it is measured too. The original claim about the neighbours is kept, because a repair that measured them wrongly would be a worse defect than the parse error it removed. |
 | 47 | <a id="a_dead_span_outside_every_function_is_not_recorded"></a>`a_dead_span_outside_every_function_is_not_recorded` | `LLR-DED-08` | HLR-137 asks about statements within a function, and a span outside every one of them has no enclosing function to be reported against — so it would reach the report with a blank where the attribution goes. |
 
 ### 3.8. [test/unit/calltree.c](../test/unit/calltree.c)
@@ -1300,7 +1300,28 @@ Role: **fixture**. **12 test(s).**
 | 11 | <a id="HLR-032: the timestamps stay out of the report"></a>`HLR-032: the timestamps stay out of the report` | `LLR-DBG-05` | A log nobody watched being produced needs timestamps; a report must be byte-identical across two runs over one target. The companion is a record of a run rather than a result of one, and that is the line they sit on. |
 | 12 | <a id="HLR-194: the companion is readable while the run is still going"></a>`HLR-194: the companion is readable while the run is still going` | `LLR-DBG-03` | Observed from outside by killing the run and reading what survived. This is the property the companion exists for: a run that faults on a tree nobody can reproduce still leaves everything up to the fault on disk, where a buffered implementation would leave an empty file. |
 
-### 3.41. [test/fixtures/elf.bats](../test/fixtures/elf.bats)
+### 3.41. [test/fixtures/repair.bats](../test/fixtures/repair.bats)
+
+Role: **fixture**. **14 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-196: each macro shape parses where it did not before"></a>`HLR-196: each macro shape parses where it did not before` | — | The three shapes a macro takes where the grammar expects a keyword, a type or a string all parse once repaired. |
+| 2 | <a id="HLR-197: a repaired file measures what the expanded source measures"></a>`HLR-197: a repaired file measures what the expanded source measures` | `LLR-RPR-03` | The oracle is a hand-written expanded equivalent beside the fixture, not elc's own output: a repaired function must report the ELOC and complexity the expansion would, or the repair changed the meaning of the code it repaired. |
+| 3 | <a id="HLR-197: a repair does not move the lines beneath it"></a>`HLR-197: a repair does not move the lines beneath it` | — | The whole defence of the approach. Every rule replaces text within the line it sits on, so a function below a repair keeps its reported range — a report whose figures are right and whose locations are wrong is the one failure a reader cannot detect. |
+| 4 | <a id="LLR-RPR-01: a file with nothing to repair is untouched"></a>`LLR-RPR-01: a file with nothing to repair is untouched` | `LLR-RPR-01` | Source the grammar accepts is parsed once and never copied, which is what leaves the single-parse rule unchanged for code bases that need none of this. |
+| 5 | <a id="LLR-RPR-02: the source file is never modified"></a>`LLR-RPR-02: the source file is never modified` | `LLR-RPR-02` | Repair happens in elc's own copy. The analysis is read-only, and a tool that edited the tree it measured would be measuring its own output. |
+| 6 | <a id="LLR-RPR-03: every rule fires on the shape it is for"></a>`LLR-RPR-03: every rule fires on the shape it is for` | `LLR-RPR-03` | Each rule is exercised by the fixture rather than only the commonest one, so a rule that stopped matching is caught by this suite rather than by a user's report. |
+| 7 | <a id="LLR-RPR-05: two runs over one target repair identically"></a>`LLR-RPR-05: two runs over one target repair identically` | `LLR-RPR-05` | Rules in a fixed order over regions in a fixed order. Without it every figure downstream of a repair varies between runs, and the byte-identical guarantee fails in the place hardest to notice — a report that is nearly the same. |
+| 8 | <a id="LLR-RPR-06, HLR-199: each repair is recorded with its rule"></a>`LLR-RPR-06, HLR-199: each repair is recorded with its rule` | `LLR-RPR-06` | A repair is a guess the grammar could not make, and the debug companion records each one with its rule and location so a figure resting on one can be traced to it. |
+| 9 | <a id="HLR-199: the report states how many repairs and under which rule"></a>`HLR-199: the report states how many repairs and under which rule` | `LLR-RPR-06` | The report itself names each rule that fired and how many regions it rewrote. The debug companion serves a maintainer holding the file; this serves the reader of the figures, who is the one deciding whether to act on them. |
+| 10 | <a id="HLR-199: a report rebuilt from XML still declares its repairs"></a>`HLR-199: a report rebuilt from XML still declares its repairs` | `LLR-RPR-06` | A saved record carries the tally, so a report regenerated from it declares the same repairs. A reconstruction that dropped the declaration would read as measured source — the silent reconstruction HLR-199 exists to prevent. |
+| 11 | <a id="HLR-199: a sound file declares no repairs at all"></a>`HLR-199: a sound file declares no repairs at all` | `LLR-RPR-06` | Source the grammar accepted renders no repair rows, and the table is named among those omitted as empty. "None found" and "not looked for" are different claims, and the report distinguishes them. |
+| 12 | <a id="HLR-198: repair terminates on source it cannot fix"></a>`HLR-198: repair terminates on source it cannot fix` | — | A file of shapes no rule matches completes rather than looping: the pass that fails to reduce the damage ends the loop. Asserted with a timeout, because the failure this guards against is a run that never returns on somebody else's source. |
+| 13 | <a id="LLR-RPR-04: a pass that does not help is withdrawn, not left half-done"></a>`LLR-RPR-04: a pass that does not help is withdrawn, not left half-done` | `LLR-RPR-04` | The mechanism termination rests on, and the one that makes a wrong rule cheap: a file no rule can fix is measured unrepaired, which is where it started. Observed from outside — the sound function reports the same figures whether or not damage sits beside it, and no repair is recorded. |
+| 14 | <a id="HLR-035: the unparsed count is what remains after repair"></a>`HLR-035: the unparsed count is what remains after repair` | — | The count exists to tell a reader how much of a file was not measured, and repaired lines were. |
+
+### 3.42. [test/fixtures/elf.bats](../test/fixtures/elf.bats)
 
 Role: **fixture**. **37 test(s).**
 
@@ -1351,7 +1372,7 @@ Role: **fixture**. **37 test(s).**
 | 43 | <a id="HLR-032: two filtered runs over the same tree are byte-identical"></a>`HLR-032: two filtered runs over the same tree are byte-identical` | `LLR-ELF-05`, `LLR-ANL-59` | Nothing about symbol-table order or query-match order reaches the output, which is what the sorted symbol set and the sorted absent list are for. |
 | 44 | <a id="LLR-ANL-58: a function no configuration builds is not one the image lacks"></a>`LLR-ANL-58: a function no configuration builds is not one the image lacks` | `LLR-ANL-58` | The ordering the three exclusions are gathered in. A function inside a constant condition is gone before the image is consulted, so it is not reported as one the linker discarded; a function the image genuinely lacks is reported in the same run, so the case cannot pass by reporting nothing at all. |
 
-### 3.42. [test/fixtures/conditional.bats](../test/fixtures/conditional.bats)
+### 3.43. [test/fixtures/conditional.bats](../test/fixtures/conditional.bats)
 
 Role: **fixture**. **26 test(s).**
 
@@ -1384,7 +1405,7 @@ Role: **fixture**. **26 test(s).**
 | 25 | <a id="LLR-CND-08: a language supplying no conditional query has none"></a>`LLR-CND-08: a language supplying no conditional query has none` | `LLR-CND-08`, `LLR-RFP-10` | Python ships no `conditionals.scm`, which the contract permits by omission: the file is measured normally and nothing is excluded or counted undecided. |
 | 26 | <a id="LLR-CND-08: a definition changes nothing for such a language"></a>`LLR-CND-08: a definition changes nothing for such a language` | `LLR-CND-08` | A definition supplied against a language with no conditional compilation moves nothing but the section that names it. |
 
-### 3.43. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
+### 3.44. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1410,7 +1431,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="LLR-ANL-47: a directive carries information and does not filter"></a>`LLR-ANL-47: a directive carries information and does not filter` | `LLR-ANL-47` | `#set!` attaches a property to a match rather than filtering it, and the match must survive. An evaluator treating every unrecognised predicate alike would discard it and the rule would silently find nothing. |
 | 19 | <a id="LLR-ANL-47: a filter this build cannot apply discards the match"></a>`LLR-ANL-47: a filter this build cannot apply discards the match` | `LLR-ANL-47` | The opposite direction, and the reason it is that way round: a filter the query author wrote and this build cannot honour is a condition nobody applied, and accepting the match would apply that condition's inverse. Under-reporting is the direction every capture in the contract errs in. |
 
-### 3.44. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
+### 3.45. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
 Role: **fixture**. **18 test(s).**
 
@@ -1435,7 +1456,7 @@ Role: **fixture**. **18 test(s).**
 | 17 | <a id="HLR-075: a cross-target call resolves rather than counting unresolved"></a>`HLR-075: a cross-target call resolves rather than counting unresolved` | `LLR-SDG-05` | The half the identity above cannot see alone: two runs that both resolved nothing across the boundary would still match each other. A global written in one target and read in the other must produce an edge joining nodes the two separate arguments contributed. |
 | 18 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | `LLR-MAIN-06`, `LLR-SDG-06` | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
-### 3.45. [test/fixtures/purify.bats](../test/fixtures/purify.bats)
+### 3.46. [test/fixtures/purify.bats](../test/fixtures/purify.bats)
 
 Role: **fixture**. **21 test(s).**
 
@@ -1463,7 +1484,7 @@ Role: **fixture**. **21 test(s).**
 | 20 | <a id="HLR-179: two runs over the same tree classify identically"></a>`HLR-179: two runs over the same tree classify identically` | — | HITS is iterative and its scores approximate, so the ordering read off them is the part that has to be pinned rather than assumed. |
 | 21 | <a id="HLR-179: the classification does not depend on the order of the targets"></a>`HLR-179: the classification does not depend on the order of the targets` | — | The graph is the same graph whichever way its files were reached, so the ranking read off it is too — node identifiers run in the report's sorted file order. |
 
-### 3.46. [test/fixtures/recover.bats](../test/fixtures/recover.bats)
+### 3.47. [test/fixtures/recover.bats](../test/fixtures/recover.bats)
 
 Role: **fixture**. **28 test(s).**
 
@@ -1498,7 +1519,7 @@ Role: **fixture**. **28 test(s).**
 | 27 | <a id="HLR-179: two runs over the same tree propose one layering"></a>`HLR-179: two runs over the same tree propose one layering` | — | Two runs over one tree produce byte-identical reports, so neither the ordering underneath nor the fold above it carries an enumeration order into the output. |
 | 28 | <a id="HLR-038: the recovery section goes to the results destination"></a>`HLR-038: the recovery section goes to the results destination` | — | A run redirecting its report to a file produces nothing on the terminal, the recovery section included. |
 
-### 3.47. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+### 3.48. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1524,7 +1545,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | `LLR-RPT-13` | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
 | 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | `LLR-XWR-06`, `LLR-XRD-12` | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
 
-### 3.48. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.49. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -1538,7 +1559,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | `LLR-CLI-14`, `LLR-ROP-06` | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.49. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.50. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **36 test(s).**
 
@@ -1581,7 +1602,7 @@ Role: **instrumented**. **36 test(s).**
 | 35 | <a id="LLR-THR-11: only the threshold catalogue attributes a band"></a>`LLR-THR-11: only the threshold catalogue attributes a band` | `LLR-THR-11` | The claim to carry no opinion is checkable only if a reviewer can read one table rather than audit every analysis for a constant. What is checked is the citation of a band's published source; a module naming a measure it merely presents — a heading giving Martin's Instability formula, say — is a different thing and a required one. |
 | 36 | <a id="LLR-BLD-06: the graph library brings in no second XML library"></a>`LLR-BLD-06: the graph library brings in no second XML library` | `LLR-BLD-06` | What building igraph with GraphML support off is worth. Its reader and writer are unused — elc writes GraphML itself — and enabling them links libxml2, which the project has no other need for. Asserted against the link line rather than the cmake flag, because the flag is the mechanism and this is the property. |
 
-### 3.50. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.51. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -1590,7 +1611,7 @@ Role: **fixture**. **2 test(s).**
 | 1 | <a id="the fixture level is wired and elc is runnable"></a>`the fixture level is wired and elc is runnable` | — | The fixture-conformance level is wired and green before the first real fixture is written. |
 | 2 | <a id="every expected-value file has a fixture header beside it"></a>`every expected-value file has a fixture header beside it` | — | Guards the convention that expected values are hand-counted, never generated from elc's own output. |
 
-### 3.51. [test/instrumented/sanitized.bats](../test/instrumented/sanitized.bats)
+### 3.52. [test/instrumented/sanitized.bats](../test/instrumented/sanitized.bats)
 
 Role: **instrumented**. **17 test(s).**
 
@@ -1614,7 +1635,7 @@ Role: **instrumented**. **17 test(s).**
 | 16 | <a id="HLR-125: a run writing every companion releases them all"></a>`HLR-125: a run writing every companion releases them all` | `LLR-MFW-01`, `LLR-DRW-03` | A run producing the manifest, both drawings, the GraphML export and the matrix at once, followed by a second run reading back the manifest the first wrote, is free of memory errors and leaks — the shortest path through every allocation this phase adds. |
 | 17 | <a id="HLR-125: a cyclic recovery view releases the components it collected"></a>`HLR-125: a cyclic recovery view releases the components it collected` | `LLR-RCY-02` | The branch a layered tree never reaches: three graph-library vectors and a rendered string per strongly connected component, on a path with its own early returns. |
 
-### 3.52. [test/instrumented/self.bats](../test/instrumented/self.bats)
+### 3.53. [test/instrumented/self.bats](../test/instrumented/self.bats)
 
 Role: **instrumented**. **6 test(s).**
 
@@ -1812,7 +1833,7 @@ verified by code review — see
 | `LLR-ANL-45` | `analyze_file` | `HLR-131`, `HLR-032` | `the hand-counted totals match with no definitions` |
 | `LLR-ANL-46` | `analyze_file` | `HLR-121`, `HLR-138`, `HLR-013` | `a_predicate_that_does_not_hold_rejects_the_match` |
 | `LLR-ANL-47` | `analyze_file` | `HLR-121`, `HLR-138` | `LLR-ANL-47: a directive carries information and does not filter`, `LLR-ANL-47: a filter this build cannot apply discards the match` |
-| `LLR-ANL-48` | `analyze_file` | `HLR-035`, `HLR-016` | `a_partly_unparsable_file_is_measured_around_the_damage`, `damage_that_swallows_the_rest_of_a_file_is_counted_as_such`, `a_sound_file_reports_no_damage`, `damage_is_counted_in_distinct_lines`, `the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable`, `HLR-035: a file with a syntax error is measured around it` |
+| `LLR-ANL-48` | `analyze_file` | `HLR-035`, `HLR-016` | `a_partly_unparsable_file_is_measured_around_the_damage`, `damage_that_swallows_the_rest_of_a_file_is_counted_as_such`, `a_sound_file_reports_no_damage`, `damage_is_counted_in_distinct_lines`, `the_macro_concatenation_the_c_grammar_cannot_follow_is_repaired`, `HLR-035: a file with a syntax error is measured around it` |
 | `LLR-ANL-49` | `analyze_file` | `HLR-035`, `HLR-037` | `a_damaged_file_is_a_degraded_outcome_not_a_clean_one` |
 | `LLR-ANL-50` | `analyze_file` | `HLR-035`, `HLR-038` | `HLR-035: the diagnostic gives the line, the scale, and what was kept` |
 | `LLR-ANL-34` | `analyze_file` | `HLR-124`, `HLR-125` | `HLR-124: a complete run over a real target is free of memory errors` |
@@ -2175,6 +2196,12 @@ verified by code review — see
 | `LLR-DBG-03` | `diag_printf` | `HLR-194` | `HLR-194: the companion is readable while the run is still going` |
 | `LLR-DBG-04` | `diag_printf` | `HLR-195` | `HLR-195: an unparsable region is recorded with its source` |
 | `LLR-DBG-05` | `diag_printf` | `HLR-194`, `HLR-032` | `HLR-032: the timestamps stay out of the report` |
+| `LLR-RPR-01` | `repair_parse` | `HLR-196`, `HLR-076` | `LLR-RPR-01: a file with nothing to repair is untouched` |
+| `LLR-RPR-02` | `repair_parse` | `HLR-196`, `HLR-039` | `LLR-RPR-02: the source file is never modified` |
+| `LLR-RPR-03` | `repair_parse` | `HLR-197` | `HLR-197: a repaired file measures what the expanded source measures`, `LLR-RPR-03: every rule fires on the shape it is for` |
+| `LLR-RPR-04` | `repair_parse` | `HLR-198` | `LLR-RPR-04: a pass that does not help is withdrawn, not left half-done` |
+| `LLR-RPR-05` | `repair_parse` | `HLR-198`, `HLR-032`, `HLR-033` | `LLR-RPR-05: two runs over one target repair identically` |
+| `LLR-RPR-06` | `repair_parse` | `HLR-199`, `HLR-194` | `LLR-RPR-06, HLR-199: each repair is recorded with its rule`, `HLR-199: the report states how many repairs and under which rule`, `HLR-199: a report rebuilt from XML still declares its repairs`, `HLR-199: a sound file declares no repairs at all` |
 
 ## 5. Integration Test Environment
 

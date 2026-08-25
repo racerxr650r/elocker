@@ -72,3 +72,13 @@ dkms.conf
 # Python bytecode from the spec tooling
 __pycache__/
 *.pyc
+
+# Reports elc writes over its own tree. `elc -o report.md .` is the ordinary
+# way to look at a change before committing it, and the run leaves its output
+# and companions behind in the working directory.
+#
+# Anchored to the root so the patterns cannot reach a `report.md` someone
+# adds under doc/ later — the silent-swallow failure the runtime/ note above
+# describes.
+/report.md
+/report.dot
