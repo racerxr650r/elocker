@@ -289,6 +289,12 @@ typedef struct {
 	 * purified graph, so changing one of these cannot move a number
 	 * (HLR-167). */
 	PurifyThresholds purify;
+	/* Write a debug companion beside the report (HLR-194). Off unless
+	 * asked for, and silently nothing when the report goes to standard
+	 * output, by the companion rule every other artefact follows: the
+	 * name is derived from the report's and there is then none to derive
+	 * (HLR-119). */
+	bool          debug_log;
 	bool          graphml;      /* export the SDG (HLR-106); off unless
 	                             * asked for, and silently nothing when
 	                             * the report goes to stdout             */

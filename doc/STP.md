@@ -138,8 +138,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1112 test(s)** across
-**51 file(s)**.
+Snapshot: **1124 test(s)** across
+**52 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
 
@@ -1281,7 +1281,26 @@ Role: **fixture**. **25 test(s).**
 | 24 | <a id="a forward declaration is not a node"></a>`a forward declaration is not a node` | — | Three nodes and not four, which also pins that the C module's function query captures definitions rather than declarations. |
 | 25 | <a id="LLR-DOT-05: a companion that cannot be written is diagnosed, not fatal"></a>`LLR-DOT-05: a companion that cannot be written is diagnosed, not fatal` | `LLR-DOT-05` | The primary report is the deliverable and the call tree is a companion, so a companion that cannot be created leaves the report written and says so. The path is blocked with a directory rather than with permissions, which fopen refuses whatever the mode is — so the case reproduces for root, where a read-only directory would not. |
 
-### 3.40. [test/fixtures/elf.bats](../test/fixtures/elf.bats)
+### 3.40. [test/fixtures/debug.bats](../test/fixtures/debug.bats)
+
+Role: **fixture**. **12 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-194: the companion is named from the report and written beside it"></a>`HLR-194: the companion is named from the report and written beside it` | `LLR-MAIN-26` | The companion follows the rule every other companion follows: named from the report's output path, written beside it. |
+| 2 | <a id="HLR-119: no companion is written when the report goes to stdout"></a>`HLR-119: no companion is written when the report goes to stdout` | — | There is no name to derive one from, so none is written — and that is not a usage error, exactly as for the GraphML export. |
+| 3 | <a id="HLR-194: no companion is written without the option"></a>`HLR-194: no companion is written without the option` | — | Off unless asked for, like every other companion but the call-tree drawing. |
+| 4 | <a id="HLR-194: the companion records the invocation"></a>`HLR-194: the companion records the invocation` | `LLR-DBG-02` | The first question asked of a log from a machine nobody has is what was actually run. |
+| 5 | <a id="HLR-194: every message sent to standard error is in the companion"></a>`HLR-194: every message sent to standard error is in the companion` | `LLR-DBG-01` | Every line standard error received appears in the companion — asserted line by line over a run that produces several, rather than by spot-checking one. |
+| 6 | <a id="HLR-195: an unparsable region is recorded with its source"></a>`HLR-195: an unparsable region is recorded with its source` | `LLR-DBG-04` | The offending construct itself reaches the log, which is the point: a grammar that fails on a construct is debugged from the construct, and that is the one thing a maintainer holding only a bug report does not have. |
+| 7 | <a id="HLR-195: a sound file records no parse failure"></a>`HLR-195: a sound file records no parse failure` | `LLR-ANL-61` | The converse, which stops the test above passing against an implementation that records a failure for every file. |
+| 8 | <a id="HLR-194: standard error is identical with the option and without"></a>`HLR-194: standard error is identical with the option and without` | `LLR-DBG-01` | The companion records a run and is not a result of one; a diagnostic aid that altered what it observed would be worse than none. |
+| 9 | <a id="HLR-194: the report is identical with the option and without"></a>`HLR-194: the report is identical with the option and without` | — | The results stream is untouched by the option, as HLR-038 requires of everything that is not a result. |
+| 10 | <a id="HLR-194: the exit status is identical with the option and without"></a>`HLR-194: the exit status is identical with the option and without` | — | Asking for a debug log neither fails a run nor rescues one. |
+| 11 | <a id="HLR-032: the timestamps stay out of the report"></a>`HLR-032: the timestamps stay out of the report` | `LLR-DBG-05` | A log nobody watched being produced needs timestamps; a report must be byte-identical across two runs over one target. The companion is a record of a run rather than a result of one, and that is the line they sit on. |
+| 12 | <a id="HLR-194: the companion is readable while the run is still going"></a>`HLR-194: the companion is readable while the run is still going` | `LLR-DBG-03` | Observed from outside by killing the run and reading what survived. This is the property the companion exists for: a run that faults on a tree nobody can reproduce still leaves everything up to the fault on disk, where a buffered implementation would leave an empty file. |
+
+### 3.41. [test/fixtures/elf.bats](../test/fixtures/elf.bats)
 
 Role: **fixture**. **37 test(s).**
 
@@ -1332,7 +1351,7 @@ Role: **fixture**. **37 test(s).**
 | 43 | <a id="HLR-032: two filtered runs over the same tree are byte-identical"></a>`HLR-032: two filtered runs over the same tree are byte-identical` | `LLR-ELF-05`, `LLR-ANL-59` | Nothing about symbol-table order or query-match order reaches the output, which is what the sorted symbol set and the sorted absent list are for. |
 | 44 | <a id="LLR-ANL-58: a function no configuration builds is not one the image lacks"></a>`LLR-ANL-58: a function no configuration builds is not one the image lacks` | `LLR-ANL-58` | The ordering the three exclusions are gathered in. A function inside a constant condition is gone before the image is consulted, so it is not reported as one the linker discarded; a function the image genuinely lacks is reported in the same run, so the case cannot pass by reporting nothing at all. |
 
-### 3.41. [test/fixtures/conditional.bats](../test/fixtures/conditional.bats)
+### 3.42. [test/fixtures/conditional.bats](../test/fixtures/conditional.bats)
 
 Role: **fixture**. **26 test(s).**
 
@@ -1365,7 +1384,7 @@ Role: **fixture**. **26 test(s).**
 | 25 | <a id="LLR-CND-08: a language supplying no conditional query has none"></a>`LLR-CND-08: a language supplying no conditional query has none` | `LLR-CND-08`, `LLR-RFP-10` | Python ships no `conditionals.scm`, which the contract permits by omission: the file is measured normally and nothing is excluded or counted undecided. |
 | 26 | <a id="LLR-CND-08: a definition changes nothing for such a language"></a>`LLR-CND-08: a definition changes nothing for such a language` | `LLR-CND-08` | A definition supplied against a language with no conditional compilation moves nothing but the section that names it. |
 
-### 3.42. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
+### 3.43. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1391,7 +1410,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="LLR-ANL-47: a directive carries information and does not filter"></a>`LLR-ANL-47: a directive carries information and does not filter` | `LLR-ANL-47` | `#set!` attaches a property to a match rather than filtering it, and the match must survive. An evaluator treating every unrecognised predicate alike would discard it and the rule would silently find nothing. |
 | 19 | <a id="LLR-ANL-47: a filter this build cannot apply discards the match"></a>`LLR-ANL-47: a filter this build cannot apply discards the match` | `LLR-ANL-47` | The opposite direction, and the reason it is that way round: a filter the query author wrote and this build cannot honour is a condition nobody applied, and accepting the match would apply that condition's inverse. Under-reporting is the direction every capture in the contract errs in. |
 
-### 3.43. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
+### 3.44. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
 Role: **fixture**. **18 test(s).**
 
@@ -1416,7 +1435,7 @@ Role: **fixture**. **18 test(s).**
 | 17 | <a id="HLR-075: a cross-target call resolves rather than counting unresolved"></a>`HLR-075: a cross-target call resolves rather than counting unresolved` | `LLR-SDG-05` | The half the identity above cannot see alone: two runs that both resolved nothing across the boundary would still match each other. A global written in one target and read in the other must produce an edge joining nodes the two separate arguments contributed. |
 | 18 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | `LLR-MAIN-06`, `LLR-SDG-06` | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
-### 3.44. [test/fixtures/purify.bats](../test/fixtures/purify.bats)
+### 3.45. [test/fixtures/purify.bats](../test/fixtures/purify.bats)
 
 Role: **fixture**. **21 test(s).**
 
@@ -1444,7 +1463,7 @@ Role: **fixture**. **21 test(s).**
 | 20 | <a id="HLR-179: two runs over the same tree classify identically"></a>`HLR-179: two runs over the same tree classify identically` | — | HITS is iterative and its scores approximate, so the ordering read off them is the part that has to be pinned rather than assumed. |
 | 21 | <a id="HLR-179: the classification does not depend on the order of the targets"></a>`HLR-179: the classification does not depend on the order of the targets` | — | The graph is the same graph whichever way its files were reached, so the ranking read off it is too — node identifiers run in the report's sorted file order. |
 
-### 3.45. [test/fixtures/recover.bats](../test/fixtures/recover.bats)
+### 3.46. [test/fixtures/recover.bats](../test/fixtures/recover.bats)
 
 Role: **fixture**. **28 test(s).**
 
@@ -1479,7 +1498,7 @@ Role: **fixture**. **28 test(s).**
 | 27 | <a id="HLR-179: two runs over the same tree propose one layering"></a>`HLR-179: two runs over the same tree propose one layering` | — | Two runs over one tree produce byte-identical reports, so neither the ordering underneath nor the fold above it carries an enumeration order into the output. |
 | 28 | <a id="HLR-038: the recovery section goes to the results destination"></a>`HLR-038: the recovery section goes to the results destination` | — | A run redirecting its report to a file produces nothing on the terminal, the recovery section included. |
 
-### 3.46. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+### 3.47. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1505,7 +1524,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | `LLR-RPT-13` | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
 | 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | `LLR-XWR-06`, `LLR-XRD-12` | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
 
-### 3.47. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.48. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -1519,7 +1538,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | `LLR-CLI-14`, `LLR-ROP-06` | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.48. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.49. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **36 test(s).**
 
@@ -1562,7 +1581,7 @@ Role: **instrumented**. **36 test(s).**
 | 35 | <a id="LLR-THR-11: only the threshold catalogue attributes a band"></a>`LLR-THR-11: only the threshold catalogue attributes a band` | `LLR-THR-11` | The claim to carry no opinion is checkable only if a reviewer can read one table rather than audit every analysis for a constant. What is checked is the citation of a band's published source; a module naming a measure it merely presents — a heading giving Martin's Instability formula, say — is a different thing and a required one. |
 | 36 | <a id="LLR-BLD-06: the graph library brings in no second XML library"></a>`LLR-BLD-06: the graph library brings in no second XML library` | `LLR-BLD-06` | What building igraph with GraphML support off is worth. Its reader and writer are unused — elc writes GraphML itself — and enabling them links libxml2, which the project has no other need for. Asserted against the link line rather than the cmake flag, because the flag is the mechanism and this is the property. |
 
-### 3.49. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.50. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -1571,7 +1590,7 @@ Role: **fixture**. **2 test(s).**
 | 1 | <a id="the fixture level is wired and elc is runnable"></a>`the fixture level is wired and elc is runnable` | — | The fixture-conformance level is wired and green before the first real fixture is written. |
 | 2 | <a id="every expected-value file has a fixture header beside it"></a>`every expected-value file has a fixture header beside it` | — | Guards the convention that expected values are hand-counted, never generated from elc's own output. |
 
-### 3.50. [test/instrumented/sanitized.bats](../test/instrumented/sanitized.bats)
+### 3.51. [test/instrumented/sanitized.bats](../test/instrumented/sanitized.bats)
 
 Role: **instrumented**. **17 test(s).**
 
@@ -1595,7 +1614,7 @@ Role: **instrumented**. **17 test(s).**
 | 16 | <a id="HLR-125: a run writing every companion releases them all"></a>`HLR-125: a run writing every companion releases them all` | `LLR-MFW-01`, `LLR-DRW-03` | A run producing the manifest, both drawings, the GraphML export and the matrix at once, followed by a second run reading back the manifest the first wrote, is free of memory errors and leaks — the shortest path through every allocation this phase adds. |
 | 17 | <a id="HLR-125: a cyclic recovery view releases the components it collected"></a>`HLR-125: a cyclic recovery view releases the components it collected` | `LLR-RCY-02` | The branch a layered tree never reaches: three graph-library vectors and a rendered string per strongly connected component, on a path with its own early returns. |
 
-### 3.51. [test/instrumented/self.bats](../test/instrumented/self.bats)
+### 3.52. [test/instrumented/self.bats](../test/instrumented/self.bats)
 
 Role: **instrumented**. **6 test(s).**
 
@@ -1603,7 +1622,7 @@ Role: **instrumented**. **6 test(s).**
 | - | ---- | -------- | ------- |
 | 1 | <a id="LLR-BLD-23: no function in elc is at or over the complexity threshold"></a>`LLR-BLD-23: no function in elc is at or over the complexity threshold` | `LLR-BLD-23` | The self-quality check, as a catalogued test rather than as something a person remembers running. PR #45 brought the source under the threshold and six phases of feature work put 43 functions back over it with nothing saying so; the section is read from the report elc produces over its own `src/`, so the threshold asserted against is the one elc applies to everyone else. |
 | 2 | <a id="LLR-BLD-23: no critical finding against elc comes from an unexpected band"></a>`LLR-BLD-23: no critical finding against elc comes from an unexpected band` | — | The bands of HLR-185, HLR-186 and HLR-192 are applied to elc's own source like anyone else's, and three of them fire. What must never appear is a critical finding from a band not named in the test, which would be a measurement newly turned on the product without anybody deciding to. |
-| 3 | <a id="LLR-BLD-23: elc's own maintainability debt does not grow"></a>`LLR-BLD-23: elc's own maintainability debt does not grow` | — | A ratchet rather than a clean bill of health: twelve of elc's own functions score below the critical maintainability band, which is a new band meeting old code rather than new code getting worse. The figure is recorded debt and not a target, asserted so the debt cannot quietly grow — the same contract test/gap-baseline.txt holds for coverage. Warnings are not gated, here or for complexity: bringing sixty-odd functions under a band is a refactor of the source tree rather than a step in the phase that drew it. |
+| 3 | <a id="LLR-BLD-23: elc's own maintainability debt does not grow"></a>`LLR-BLD-23: elc's own maintainability debt does not grow` | — | A ratchet rather than a clean bill of health: fifteen of elc's own functions score below the critical maintainability band. The figure is recorded debt and not a target, asserted so the debt cannot quietly grow — the same contract test/gap-baseline.txt holds for coverage. It moved from twelve to fifteen when diagnostics were centralised, and the three that crossed are the metric's artefact rather than the code's: `fprintf` is a library call the graph cannot resolve and `diag_printf` is one it can, so every diagnosing function gained a point of fan-out, and `diag_printf` itself scores 51 for being called by seventy-nine functions despite being ten lines of complexity two. |
 | 4 | <a id="LLR-BLD-24: elc's own components hold no dependency cycle"></a>`LLR-BLD-24: elc's own components hold no dependency cycle` | `LLR-BLD-24` | A cycle is what elc reports at critical severity in anyone else's code, and it had one: analyze.c included report.h for a single derivation, closing a loop with the module that renders what analysis produces. |
 | 5 | <a id="LLR-BLD-25: no call in elc resolves ambiguously"></a>`LLR-BLD-25: no call in elc resolves ambiguously` | `LLR-BLD-25` | A precondition of the claim above rather than a tidiness check. elc resolves a call by name, so two file-local statics sharing one make every call to it point at whichever module was indexed first — an edge in the wrong place, in the graph the acyclicity is measured over. |
 | 6 | <a id="LLR-BLD-14: elc parses every one of its own source files"></a>`LLR-BLD-14: elc parses every one of its own source files` | `LLR-BLD-14` | The delivered grammar cannot follow every construct C admits, and the project's answer is to avoid those constructs rather than to accept a per-file failure in its own report. |
@@ -1622,6 +1641,7 @@ verified by code review — see
 | `LLR-MAIN-01` | `main` | `HLR-063` | `LLR-MAIN-01: a usage error opens no file under the target` |
 | `LLR-MAIN-02` | `main` | `HLR-117` | `--help writes the summary to stdout, not stderr` |
 | `LLR-MAIN-03` | `main` | `HLR-055` | `HLR-055: regeneration reads no source file` |
+| `LLR-MAIN-26` | `main` | `HLR-194`, `HLR-119` | `HLR-194: the companion is named from the report and written beside it` |
 | `LLR-MAIN-04` | `main` | `HLR-122` | `HLR-122: regeneration writes no .dot, default-on though it is` |
 | `LLR-MAIN-05` | `main` | `HLR-036` | `HLR-036: an absent runtime directory is fatal before any file is read` |
 | `LLR-MAIN-06` | `main` | `HLR-076` | `HLR-076: the graph is built without reopening a source file`, `HLR-076: each source file is opened exactly once` |
@@ -1750,6 +1770,7 @@ verified by code review — see
 | `LLR-ANL-03` | `analyze_file` | `HLR-076` | `HLR-076: each source file is opened exactly once` |
 | `LLR-ANL-04` | `analyze_file` | `HLR-020` | `a_zero_length_file_reports_zero_without_error`, `a_file_with_nothing_executable_reports_zero_eloc` |
 | `LLR-ANL-05` | `analyze_file` | `HLR-013` | `an_unterminated_final_line_counts` |
+| `LLR-ANL-61` | `analyze_file` | `HLR-195`, `HLR-035` | `HLR-195: a sound file records no parse failure` |
 | `LLR-ANL-06` | `analyze_file` | `HLR-019` | `physical_lines_are_counted`, `an_unterminated_final_line_counts` |
 | `LLR-ANL-07` | `analyze_file` | `HLR-014` | `a_function_is_reported_with_its_name_and_line_range`, `a_function_name_outlives_the_mapping` |
 | `LLR-ANL-08` | `analyze_file` | `HLR-014` | `a_prototype_is_not_a_function` |
@@ -2149,6 +2170,11 @@ verified by code review — see
 | `LLR-DRW-02` | `graph_write_purify_dot` | `HLR-119`, `HLR-178`, `HLR-102` | `the_companion_names_are_derived_from_the_report_path` |
 | `LLR-DRW-03` | `graph_write_purify_dot` | `HLR-178`, `HLR-174` | `a_masked_node_is_greyed_rather_than_deleted`, `HLR-125: a run writing every companion releases them all` |
 | `LLR-DRW-04` | `graph_write_purify_dot` | `HLR-178`, `HLR-167` | `the_raw_drawing_holds_every_call_edge` |
+| `LLR-DBG-01` | `diag_printf` | `HLR-194`, `HLR-038` | `HLR-194: every message sent to standard error is in the companion`, `HLR-194: standard error is identical with the option and without` |
+| `LLR-DBG-02` | `diag_printf` | `HLR-194`, `HLR-119` | `HLR-194: the companion records the invocation` |
+| `LLR-DBG-03` | `diag_printf` | `HLR-194` | `HLR-194: the companion is readable while the run is still going` |
+| `LLR-DBG-04` | `diag_printf` | `HLR-195` | `HLR-195: an unparsable region is recorded with its source` |
+| `LLR-DBG-05` | `diag_printf` | `HLR-194`, `HLR-032` | `HLR-032: the timestamps stay out of the report` |
 
 ## 5. Integration Test Environment
 

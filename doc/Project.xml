@@ -17,10 +17,10 @@
     <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.18" date="2026-08-24" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.19" date="2026-08-24" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="189"/>
-      <count name="llrs"       value="530"/>
-      <count name="tests"      value="1112"/>
-      <count name="test_files" value="51"/>
+      <count name="hlrs"       value="191"/>
+      <count name="llrs"       value="537"/>
+      <count name="tests"      value="1124"/>
+      <count name="test_files" value="52"/>
     </counts>
   </metadata>
 
@@ -50,6 +50,7 @@
       <file path="src/dwarfline.c"><![CDATA[The image's debug information: which source lines this build compiled an instruction for, which files that mapping covers at all, and which source file each function the image describes was written in.]]></file>
       <file path="src/purify.c"><![CDATA[The graph purification engine: centrality-based classification of utility sinks, god objects, and peripheral nodes, the masked recovery view built from them, and the manifest by which a user overrules a classification.]]></file>
       <file path="src/recover.c"><![CDATA[Architecture recovery: a proposed layering read off the purified recovery view, emitted in the form the stratum options accept.]]></file>
+      <file path="src/diag.c"><![CDATA[The diagnostic stream every message to standard error passes through, and the debug companion that records the run beside the report.]]></file>
       <file path="src/format_dsm.c"><![CDATA[The Dependency Structure Matrix and its CSV and Markdown renderings.]]></file>
       <file path="doc/elc.1"><![CDATA[The section-1 man page: the reference form of every option, format, and finding category.]]></file>
       <file path="doc/User_Manual.md"><![CDATA[The user manual: the same material in expository form, with worked examples.]]></file>
@@ -1327,6 +1328,41 @@ Each layer is named after the basename of the first directory in it, sanitised o
           <case name="No strata declared"><![CDATA[Not a reason to omit recovery — recovery is what a user without strata is given. It is the *conformance* analyses that stay omitted (HLR-115, HLR-173).]]></case>
           <case name="No function survives purification"><![CDATA[Not an error. The proposal is omitted with its reason stated, as an analysis short of its inputs always is, rather than reported as an empty layering (HLR-115).]]></case>
           <case name="A directory holds only excluded functions"><![CDATA[Not an error and not the bottom layer. The directory receives no layer at all, because a function `elc` did not consider is not a function `elc` placed at the edge of the architecture (HLR-170).]]></case>
+        </error_handling>
+      </module>
+
+      <module path="src/diag.c">
+        <purpose><![CDATA[carries every message `elc` writes to standard error, and records the run into the debug companion of HLR-194 where one was asked for.]]></purpose>
+        <responsibility><![CDATA[Write each diagnostic to standard error, and to the companion where one is open, so the two cannot diverge and no call site chooses between them.]]></responsibility>
+        <responsibility><![CDATA[Record the invocation at the head of the companion: the first question asked of a log from a machine nobody has is what was run.]]></responsibility>
+        <responsibility><![CDATA[Record the source of every region the grammar could not parse, bounded and saying how much it omitted (HLR-195).]]></responsibility>
+        <responsibility><![CDATA[Change nothing a run reports — not the messages standard error receives, not the report, not the exit status (HLR-194).]]></responsibility>
+        <functions>
+          <function signature="int diag_open(const char *path, int argc, char **argv)" summary="Open the companion and write the invocation, or leave the module inert where `path` is NULL. A companion that cannot be opened is a diagnostic and not a failure, by the rule the `.dot` follows (LLR-DOT-05)."/>
+          <function signature="void diag_printf(const char *fmt, ...)" summary="One diagnostic, to standard error and to the companion. The signature a caller would have passed to `fprintf(stderr, ...)`, which is what made converting a hundred and twenty call sites mechanical."/>
+          <function signature="void diag_detail(const char *fmt, ...)" summary="Detail for the companion that standard error should not carry. A no-op with no companion open, so a caller need not ask first."/>
+          <function signature="void diag_parse_failure(const char *file, const char *data, size_t length, uint32_t first, uint32_t last)" summary="One unparsable region with its source text, read out of the mapping — which is not NUL-terminated, hence the explicit length (HLR-195)."/>
+          <function signature="bool diag_active(void)" summary="Whether a companion is open, for a caller deciding whether to do work whose only purpose is to fill it."/>
+          <function signature="void diag_close(void)" summary="Close the companion. Safe with none open, and safe twice."/>
+        </functions>
+        <algorithm><![CDATA[**This module holds the one piece of global mutable state in `elc`, and the exception is deliberate, argued, and bounded.**
+
+The convention everywhere else is that everything a function needs arrives through its arguments. Seventy-nine functions across thirteen modules write diagnostics, and threading a sink to each would put a parameter on every caller between `main` and a parse error — several hundred signatures, and every unit test that calls one. Two properties make the exception safe rather than merely convenient:
+
+*   **It is write-only.** Nothing reads the log back. No measurement, no finding and no exit status depends on it, so it cannot change what a run reports — which is the thing the convention protects.
+*   **`elc` is single-threaded by requirement** (HLR-041), so the races a mutable global usually invites do not arise.
+
+The handle is `static` and file-scoped, so the exception is confined to the module that argues for it: no other translation unit can reach it, and the convention holds everywhere else unchanged.
+
+**The log is written as messages occur, and flushed at each one.** That is the property the feature exists for rather than an implementation detail: a run that faults or is killed on a tree nobody can reproduce still leaves everything up to the fault on disk, where a buffer flushed at exit would lose precisely the run worth debugging.
+
+**Timestamps go to the companion alone.** A log nobody watched being produced needs them; the report must not contain them, since HLR-032 requires two runs over one target to be byte-identical. The companion is a record *of* a run rather than a result *of* one, and that is the line the timestamps sit on.]]></algorithm>
+        <dependencies>
+          <dep><![CDATA[No third-party dependency; `stdio` and `time`.]]></dep>
+        </dependencies>
+        <error_handling>
+          <case name="The companion cannot be opened"><![CDATA[A diagnostic to standard error and a recorded failure. The user asked for a report and a debug file, and losing the second is no reason to withhold the first.]]></case>
+          <case name="No companion was asked for"><![CDATA[Every call writes to standard error alone, exactly as a direct `fprintf` did. The module is inert rather than absent, so no call site tests for it.]]></case>
         </error_handling>
       </module>
 
@@ -3720,6 +3756,36 @@ Each of those is answerable on its own and none of them answers the question a m
 
 **The substitution is what makes the bands `elc`'s own.** The formula is adapted, so the thresholds published for the unadapted one no longer describe it, and Section 24 says so where a reader sees it rather than borrowing an authority the adaptation forfeited.]]></intro>
 
+      <hlr id="HLR-194" name="The Debug Companion">
+        <text><![CDATA[`elc` shall provide a command-line option that writes a **debug companion** beside the report, carrying what is needed to diagnose a run on a source tree the reader cannot obtain: the invocation, and every message the run wrote to standard error.
+
+The companion shall follow the rule every other companion follows (HLR-119): its name is derived from the report's output path by substituting the extension, it takes no path of its own, and nothing is written where the report goes to standard output — there being no name to derive one from. A request with the report on standard output is not a usage error; it produces no companion, exactly as HLR-106 specifies for the GraphML export.
+
+Each recorded message may be accompanied by detail the terminal did not receive, where the diagnosing code has any to give. The terminal is a place to be told what went wrong; the companion is a place to be told enough to reproduce it.
+
+**The companion shall be written as the run proceeds, not assembled and flushed at the end.** A run that faults, is killed, or exhausts memory is precisely the run worth diagnosing, and a log that existed only in memory is lost exactly then.
+
+**It shall change nothing else.** The messages standard error receives, the report, the findings, and the process exit status shall be identical with the option and without it. The companion records a run; it is not a result of one, and a diagnostic aid that altered what it observed would be worse than none.]]></text>
+      <traces>
+        <trace target="SDD" ref="4"/>
+        <trace target="SDD" ref="25"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-195" name="Unparsable Source Recorded in the Debug Companion">
+        <text><![CDATA[Where the grammar cannot parse a region of a source file (HLR-035), `elc` shall record in the debug companion of HLR-194 the file, the lines the region spans, and **the source text of those lines**.
+
+The text is the point. A grammar that fails on a construct is debugged from the construct, and the construct is the one thing a maintainer holding only a bug report does not have — the tree may be proprietary, unbuildable elsewhere, or simply large. A line number without its line names a place nobody can visit.
+
+Every region shall be recorded as the grammar reported it, rather than coalesced the way the line *count* of HLR-035 coalesces overlapping regions. The count exists so a reader can judge how much of a file was measured; this exists so a defect can be reproduced, and two regions the grammar reported separately are two facts about the grammar.
+
+The recorded text shall be bounded, with the number of lines omitted stated where it is truncated. A file the grammar could follow nowhere would otherwise be copied into the log in its entirety, which serves nobody and may disclose more of a private tree than the reporter intended.]]></text>
+      <traces>
+        <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="25"/>
+      </traces>
+      </hlr>
+
       <hlr id="HLR-193" name="Image Symbols Placed by Debug Information">
         <text><![CDATA[Where a run is filtered by a linked image (HLR-140) and that image carries debug information placing a function in a source file, `elc` shall match a source function to an image symbol by **name and file** rather than by name alone.
 
@@ -3904,6 +3970,16 @@ The statement is unconditional because a section that appears only sometimes is 
         <text><![CDATA[When the parsed options select regeneration mode, `main` shall invoke `xml_read_report` and proceed directly to rendering, invoking neither `discover_targets` nor `analyze_file`.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-055" name="XML-to-Markdown Conversion Mode"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-MAIN-26">
+        <text><![CDATA[`main` shall open the debug companion immediately after the command line is parsed and before any other stage, and shall close it last.
+
+The ordering is the whole of its usefulness: a diagnostic written before the companion existed is a diagnostic the companion does not hold, and the stages that diagnose most — locating the runtime, discovering targets, loading a grammar — are the earliest ones. The name shall be derived from the report's output path by the companion rule of HLR-119, so a report on standard output produces none and that is not a usage error.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-194" name="The Debug Companion"/>
+          <trace target="HLR" ref="HLR-119"/>
         </traces>
       </llr>
 
@@ -4846,6 +4922,16 @@ Note on the division of labour, which determines where a failure lives: the requ
         <text><![CDATA[`analyze_file` shall pass the mapped length explicitly to the parser, since the mapping is not null-terminated.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-013" name="AST-Based Metric Extraction"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-ANL-61">
+        <text><![CDATA[`measure_damage` shall record every unparsable region into the debug companion, walking the tree separately from the line tally and only where a companion is open.
+
+Separately, because the two count different things: the tally coalesces overlapping regions so that a line a reader must look at is counted once, which is right for the figure and wrong for a log meant to reproduce a parser defect — two regions the grammar reported separately are two facts about the grammar. Only where a companion is open, because the walk is work whose sole purpose is to fill a file that may not exist (HLR-195).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-195" name="Unparsable Source Recorded in the Debug Companion"/>
+          <trace target="HLR" ref="HLR-035"/>
         </traces>
       </llr>
 
@@ -7947,6 +8033,55 @@ The convention stays outside because of what it says: it is the sentence that ma
         <traces>
           <trace target="HLR" ref="HLR-178" name="Raw and Purified Graph Exports"/>
           <trace target="HLR" ref="HLR-167"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="65" title="`diag_printf` ([src/diag.c](../src/diag.c))" name="diag_printf" source="src/diag.c">
+      <intro><![CDATA[The diagnostic stream, and the debug companion that records it. The one module holding global mutable state, for the reasons SDD §25 sets out and under the bounds it states.]]></intro>
+      <llr id="LLR-DBG-01">
+        <text><![CDATA[`diag_printf` shall write each diagnostic to standard error, and additionally to the debug companion where one is open, so that the two cannot diverge and no call site chooses between them. Its signature shall be the one a caller would have passed to `fprintf(stderr, ...)`, which is what makes the conversion of every existing call site mechanical rather than a rewrite of each.
+
+The bytes standard error receives shall be identical whether or not a companion is open. The companion records a run and is not a result of one; a diagnostic aid that altered what it observed would be worse than none (HLR-194).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-194" name="The Debug Companion"/>
+          <trace target="HLR" ref="HLR-038"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-DBG-02">
+        <text><![CDATA[`diag_open` shall write the invocation at the head of the companion, and shall leave the module inert where it is given no path — every later call then writing to standard error alone, so that no call site tests whether a companion exists.
+
+A companion that cannot be opened shall be a diagnostic and a recorded failure rather than a fatal one: the user asked for a report and a debug file, and losing the second is no reason to withhold the first.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-194" name="The Debug Companion"/>
+          <trace target="HLR" ref="HLR-119"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-DBG-03">
+        <text><![CDATA[Every write to the companion shall be flushed before the call returns.
+
+This is the property the companion exists for rather than an implementation detail. A run that faults, is killed, or exhausts memory is precisely the run worth diagnosing, and a log assembled in memory and written at exit is lost exactly then. The cost is a flush per diagnostic, which a run producing a diagnostic per file will not notice.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-194" name="The Debug Companion"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-DBG-04">
+        <text><![CDATA[`diag_parse_failure` shall record one unparsable region as the file, the lines it spans, and the source text of those lines, read out of the mapping with an explicit length since the mapping is not NUL-terminated.
+
+The text shall be bounded, and where it is truncated the number of lines omitted shall be stated. A file the grammar could follow nowhere would otherwise be copied into the log entire, which serves no reader and may disclose more of a private tree than whoever attached the log intended (HLR-195).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-195" name="Unparsable Source Recorded in the Debug Companion"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-DBG-05">
+        <text><![CDATA[The companion shall carry a timestamp on each entry, and the report shall carry none. A log nobody watched being produced needs to say when each thing happened; a report must be byte-identical across two runs over one target (HLR-032). The companion is a record *of* a run rather than a result *of* one, which is the line the timestamps sit on.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-194" name="The Debug Companion"/>
+          <trace target="HLR" ref="HLR-032"/>
         </traces>
       </llr>
     </function>
@@ -13919,6 +14054,57 @@ The convention stays outside because of what it says: it is the sentence that ma
     </test>
   </file>
 
+  <file path="test/fixtures/debug.bats" role="fixture" count="12">
+    <test name="HLR-194: the companion is named from the report and written beside it">
+      <purpose><![CDATA[The companion follows the rule every other companion follows: named from the report's output path, written beside it.]]></purpose>
+      <traces><trace target="HLR" ref="HLR-194"/><trace target="LLR" ref="LLR-MAIN-26"/></traces>
+    </test>
+    <test name="HLR-119: no companion is written when the report goes to stdout">
+      <purpose><![CDATA[There is no name to derive one from, so none is written — and that is not a usage error, exactly as for the GraphML export.]]></purpose>
+      <traces><trace target="HLR" ref="HLR-119"/><trace target="HLR" ref="HLR-194"/></traces>
+    </test>
+    <test name="HLR-194: no companion is written without the option">
+      <purpose><![CDATA[Off unless asked for, like every other companion but the call-tree drawing.]]></purpose>
+      <traces><trace target="HLR" ref="HLR-194"/></traces>
+    </test>
+    <test name="HLR-194: the companion records the invocation">
+      <purpose><![CDATA[The first question asked of a log from a machine nobody has is what was actually run.]]></purpose>
+      <traces><trace target="LLR" ref="LLR-DBG-02"/><trace target="HLR" ref="HLR-194"/></traces>
+    </test>
+    <test name="HLR-194: every message sent to standard error is in the companion">
+      <purpose><![CDATA[Every line standard error received appears in the companion — asserted line by line over a run that produces several, rather than by spot-checking one.]]></purpose>
+      <traces><trace target="LLR" ref="LLR-DBG-01"/><trace target="HLR" ref="HLR-194"/></traces>
+    </test>
+    <test name="HLR-195: an unparsable region is recorded with its source">
+      <purpose><![CDATA[The offending construct itself reaches the log, which is the point: a grammar that fails on a construct is debugged from the construct, and that is the one thing a maintainer holding only a bug report does not have.]]></purpose>
+      <traces><trace target="HLR" ref="HLR-195"/><trace target="LLR" ref="LLR-DBG-04"/></traces>
+    </test>
+    <test name="HLR-195: a sound file records no parse failure">
+      <purpose><![CDATA[The converse, which stops the test above passing against an implementation that records a failure for every file.]]></purpose>
+      <traces><trace target="HLR" ref="HLR-195"/><trace target="LLR" ref="LLR-ANL-61"/></traces>
+    </test>
+    <test name="HLR-194: standard error is identical with the option and without">
+      <purpose><![CDATA[The companion records a run and is not a result of one; a diagnostic aid that altered what it observed would be worse than none.]]></purpose>
+      <traces><trace target="LLR" ref="LLR-DBG-01"/><trace target="HLR" ref="HLR-194"/></traces>
+    </test>
+    <test name="HLR-194: the report is identical with the option and without">
+      <purpose><![CDATA[The results stream is untouched by the option, as HLR-038 requires of everything that is not a result.]]></purpose>
+      <traces><trace target="HLR" ref="HLR-194"/><trace target="HLR" ref="HLR-038"/></traces>
+    </test>
+    <test name="HLR-194: the exit status is identical with the option and without">
+      <purpose><![CDATA[Asking for a debug log neither fails a run nor rescues one.]]></purpose>
+      <traces><trace target="HLR" ref="HLR-194"/><trace target="HLR" ref="HLR-120"/></traces>
+    </test>
+    <test name="HLR-032: the timestamps stay out of the report">
+      <purpose><![CDATA[A log nobody watched being produced needs timestamps; a report must be byte-identical across two runs over one target. The companion is a record of a run rather than a result of one, and that is the line they sit on.]]></purpose>
+      <traces><trace target="LLR" ref="LLR-DBG-05"/><trace target="HLR" ref="HLR-032"/></traces>
+    </test>
+    <test name="HLR-194: the companion is readable while the run is still going">
+      <purpose><![CDATA[Observed from outside by killing the run and reading what survived. This is the property the companion exists for: a run that faults on a tree nobody can reproduce still leaves everything up to the fault on disk, where a buffered implementation would leave an empty file.]]></purpose>
+      <traces><trace target="LLR" ref="LLR-DBG-03"/><trace target="HLR" ref="HLR-194"/></traces>
+    </test>
+  </file>
+
   <file path="test/fixtures/elf.bats" role="fixture" count="37">
     <test name="the hand-counted totals match with no image">
       <purpose><![CDATA[Two files, 61 physical lines, five functions and 13 ELOC, against a table worked out by hand in the fixture's README. The unfiltered figures are the baseline every filtered one is read against.]]></purpose>
@@ -15649,7 +15835,7 @@ The convention stays outside because of what it says: it is the sentence that ma
     </test>
 
     <test name="LLR-BLD-23: elc's own maintainability debt does not grow">
-      <purpose><![CDATA[A ratchet rather than a clean bill of health: twelve of elc's own functions score below the critical maintainability band, which is a new band meeting old code rather than new code getting worse. The figure is recorded debt and not a target, asserted so the debt cannot quietly grow — the same contract test/gap-baseline.txt holds for coverage. Warnings are not gated, here or for complexity: bringing sixty-odd functions under a band is a refactor of the source tree rather than a step in the phase that drew it.]]></purpose>
+      <purpose><![CDATA[A ratchet rather than a clean bill of health: fifteen of elc's own functions score below the critical maintainability band. The figure is recorded debt and not a target, asserted so the debt cannot quietly grow — the same contract test/gap-baseline.txt holds for coverage. It moved from twelve to fifteen when diagnostics were centralised, and the three that crossed are the metric's artefact rather than the code's: `fprintf` is a library call the graph cannot resolve and `diag_printf` is one it can, so every diagnosing function gained a point of fan-out, and `diag_printf` itself scores 51 for being called by seventy-nine functions despite being ten lines of complexity two.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-181"/>
         <trace target="HLR" ref="HLR-192"/>

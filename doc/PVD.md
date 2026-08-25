@@ -429,7 +429,7 @@ below is an analysis over that graph.
 | **Provable dead code** | Functions reported as unreachable are unreachable by graph reachability from the declared entry points and from every address-taken function — never a heuristic guess, never fooled by dead functions that call one another, and never claiming a callback or interrupt handler is dead merely because nothing calls it directly. |
 | **Determinism** | Repeated runs over the same tree produce byte-identical output. |
 | **Coverage** | Every requirement in [HLRs.md](HLRs.md) and [LLRs.md](LLRs.md) is bound to at least one test in [STP.md](STP.md), per [Traceability.md](Traceability.md). Coverage gaps are documented, not silent. |
-| **Self-quality** | `elc` run against its own source reports no function exceeding a cyclomatic complexity of 15, and no critical finding from a band other than recursion, fan-out and maintainability. Two debts are recorded rather than gated: some sixty functions sit in §A.3's warning band between 11 and 15, and twelve fall below §A.6's critical maintainability score. The second is ratcheted — it may fall but not rise. Both are new bands meeting old code, and clearing them is a refactor of the source tree rather than a step in the phase that drew them. |
+| **Self-quality** | `elc` run against its own source reports no function exceeding a cyclomatic complexity of 15, and no critical finding from a band other than recursion, fan-out and maintainability. Two debts are recorded rather than gated: some sixty functions sit in §A.3's warning band between 11 and 15, and fifteen fall below §A.6's critical maintainability score — three of those being the artefact §A.6 describes, from routing every diagnostic through one function. The second is ratcheted — it may fall but not rise. Both are new bands meeting old code, and clearing them is a refactor of the source tree rather than a step in the phase that drew them. |
 
 ## 9. Roadmap Themes
 
@@ -693,3 +693,15 @@ one thing this appendix exists to prevent.
 
 This is also the only measurement in the appendix where the *low* value
 is the bad one.
+
+Two properties of the adapted formula are worth stating, because a
+reader who does not know them will misread a figure rather than merely
+fail to act on it. The information-flow term squares the product of the
+degrees, so **a small, simple function that many others call scores
+badly for being widely shared** — good factoring reads as fragility.
+And because a library call cannot be resolved into the call graph while
+a call to your own function can, **centralising something lowers the
+score of every caller** while leaving the code simpler than it was.
+Both are properties of the metric rather than defects to be corrected,
+and both are reasons a low score is a question worth asking rather than
+a verdict.

@@ -22,6 +22,7 @@
 
 #include <igraph.h>
 
+#include "diag.h"
 #include "calltree.h"
 #include "elc.h"
 #include "graph.h"
@@ -422,8 +423,7 @@ static int resolve_entries(const Sdg *g, const ElcOptions *opts,
 			}
 
 		if (!matched)
-			fprintf(stderr,
-			        "elc: entry point %s matches no analysed "
+			diag_printf("elc: entry point %s matches no analysed "
 			        "function\n", opts->entry_points[i]);
 	}
 

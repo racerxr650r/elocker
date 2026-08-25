@@ -27,6 +27,7 @@
 
 #include <tree_sitter/api.h>
 
+#include "diag.h"
 #include "analyze.h"
 #include "elc.h"
 #include "elfsyms.h"
@@ -302,6 +303,35 @@ static void tally_errors(TSNode node, uint32_t *first_line, uint32_t *last_line,
 
 	for (uint32_t i = 0; i < ts_node_child_count(node); i++)
 		tally_errors(ts_node_child(node, i), first_line, last_line, lines);
+}
+
+/* Every region the grammar could not follow, with the source itself, into the
+ * debug companion (HLR-195).
+ *
+ * A separate walk from `tally_errors` rather than a hook inside it, and the
+ * reason is that the two count different things: the tally coalesces regions
+ * so a line is counted once, which is right for the figure a reader sees and
+ * wrong for a log meant to reproduce a parser defect. Here every region is
+ * recorded as the grammar reported it.
+ *
+ * Guarded by `diag_active`, so a run without `--dbg` walks nothing: this is
+ * work whose only purpose is to fill a file that does not exist.
+ */
+static void log_parse_failures(TSNode node, const char *path, const char *data,
+                               size_t length)
+{
+	if (ts_node_is_error(node) || ts_node_is_missing(node)) {
+		diag_parse_failure(path, data, length,
+		                   ts_node_start_point(node).row + 1,
+		                   ts_node_end_point(node).row + 1);
+		return;
+	}
+
+	if (!ts_node_has_error(node))
+		return;
+
+	for (uint32_t i = 0; i < ts_node_child_count(node); i++)
+		log_parse_failures(ts_node_child(node, i), path, data, length);
 }
 
 static uint32_t count_unparsed_lines(TSNode root)
@@ -2018,7 +2048,7 @@ static int prepare_records(const LanguageModule *module, const char *path,
 
 	if (!metrics || !facts || !facts->path || !metrics->path ||
 	    !metrics->directory || !metrics->language) {
-		fprintf(stderr, "elc: out of memory measuring %s\n", path);
+		diag_printf("elc: out of memory measuring %s\n", path);
 		return -1;
 	}
 	return 0;
@@ -2160,21 +2190,21 @@ static int build_exclusions(const LanguageModule *module, Registry *reg,
 	if (collect_comments(module, reg, data, root, comments) != 0 ||
 	    collect_inactive_regions(module, reg, opts, data, root, comments,
 	                             &metrics->undecided_regions) != 0) {
-		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		diag_printf("elc: out of memory analysing %s\n", path);
 		return -1;
 	}
 	merge_comment_spans(comments);
 
 	if (collect_absent_functions(module, reg, image, data, root, comments,
 	                             &kept, metrics) != 0) {
-		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		diag_printf("elc: out of memory analysing %s\n", path);
 		free(kept.items);
 		return -1;
 	}
 
 	if (prune_uncompiled_lines(image, data, len, path, &kept, comments,
 	                           metrics) != 0) {
-		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		diag_printf("elc: out of memory analysing %s\n", path);
 		free(kept.items);
 		return -1;
 	}
@@ -2206,7 +2236,7 @@ static int collect_all(const LanguageModule *module, Registry *reg,
 	                      facts) != 0 ||
 	    collect_rule_matches(module, reg, data, root, comments,
 	                         facts) != 0) {
-		fprintf(stderr, "elc: out of memory analysing %s\n", path);
+		diag_printf("elc: out of memory analysing %s\n", path);
 		return -1;
 	}
 	return 0;
@@ -2231,18 +2261,25 @@ static int collect_all(const LanguageModule *module, Registry *reg,
  * unresolved-call count. A reader can see exactly how much of the file `elc`
  * could not see.
  */
-static void measure_damage(TSNode root, const char *path, FileMetrics *metrics)
+static void measure_damage(TSNode root, const char *path, const char *data,
+                           size_t length, FileMetrics *metrics)
 {
 	metrics->unparsed_lines = count_unparsed_lines(root);
 
 	if (!metrics->unparsed_lines)
 		return;
 
+	/* The source of every damaged region into the debug companion, where
+	 * one is open. The terminal gets the count and a line to look at; a
+	 * log meant to reproduce a parser defect on a tree nobody else has
+	 * gets the construct itself (HLR-195). */
+	if (diag_active())
+		log_parse_failures(root, path, data, length);
+
 	/* Names what was lost and where, rather than only that something was:
 	 * "skipped" told a reader nothing about the scale, and the scale is
 	 * usually a line or two. */
-	fprintf(stderr,
-	        "elc: %s:%" PRIu32 ": %" PRIu32 " line%s could not be "
+	diag_printf("elc: %s:%" PRIu32 ": %" PRIu32 " line%s could not be "
 	        "parsed; the rest of the file is measured\n",
 	        path, first_unparsed_line(root), metrics->unparsed_lines,
 	        metrics->unparsed_lines == 1 ? "" : "s");
@@ -2275,12 +2312,12 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		goto cleanup;
 	}
 
 	if (fstat(fd, &st) != 0) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		goto cleanup;
 	}
 
@@ -2302,7 +2339,7 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	len = (size_t)st.st_size;
 	map = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
 	if (map == MAP_FAILED) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		goto cleanup;
 	}
 
@@ -2314,13 +2351,13 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	 * (LLR-ANL-05). */
 	tree = ts_parser_parse_string(reg->parser, NULL, map, (uint32_t)len);
 	if (!tree) {
-		fprintf(stderr, "elc: %s: parse failed\n", path);
+		diag_printf("elc: %s: parse failed\n", path);
 		goto cleanup;
 	}
 
 	TSNode root = ts_tree_root_node(tree);
 
-	measure_damage(root, path, metrics);
+	measure_damage(root, path, map, len, metrics);
 
 	if (build_exclusions(module, reg, opts, image, map, len, root, path,
 	                     metrics, &comments) != 0)

@@ -65,7 +65,7 @@ release readiness — is ready to start, and is the last.
 | [21](#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
-| [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols | ✅ Complete |
+| [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols, the debug companion | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -2345,11 +2345,18 @@ nothing in them.
    define a name the image keeps, the run is refused rather than guessed at
    (HLR-193).
 
-Deliverables 7, 8 and 9 landed after the first pull request merged, and are
+10. `diag.c`: every message to standard error passes through one stream, and
+    `--dbg` writes a debug companion recording the run beside the report —
+    the invocation, every diagnostic, and the source of every region the
+    grammar could not parse (HLR-194, HLR-195). It is the one module holding
+    global mutable state, and SDD §25 argues the exception rather than
+    assuming it.
+
+Deliverables 7 through 10 landed after the first pull request merged, and are
 recorded here rather than as a phase of their own because their subject is
 this phase's: what the report presents, and on whose authority.
 
-**Requirements:** HLR-182 – HLR-193, amendments to HLR-021, HLR-031, HLR-061,
+**Requirements:** HLR-182 – HLR-195, amendments to HLR-021, HLR-031, HLR-061,
 HLR-086, HLR-098, HLR-150 and HLR-151, and the retirement of HLR-157 –
 HLR-159.
 

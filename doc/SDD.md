@@ -33,6 +33,7 @@ This document describes the design of the source modules that implement the high
 *   [src/dwarfline.c](../src/dwarfline.c): The image's debug information: which source lines this build compiled an instruction for, which files that mapping covers at all, and which source file each function the image describes was written in.
 *   [src/purify.c](../src/purify.c): The graph purification engine: centrality-based classification of utility sinks, god objects, and peripheral nodes, the masked recovery view built from them, and the manifest by which a user overrules a classification.
 *   [src/recover.c](../src/recover.c): Architecture recovery: a proposed layering read off the purified recovery view, emitted in the form the stratum options accept.
+*   [src/diag.c](../src/diag.c): The diagnostic stream every message to standard error passes through, and the debug companion that records the run beside the report.
 *   [src/format_dsm.c](../src/format_dsm.c): The Dependency Structure Matrix and its CSV and Markdown renderings.
 *   [doc/elc.1](../doc/elc.1): The section-1 man page: the reference form of every option, format, and finding category.
 *   [doc/User_Manual.md](../doc/User_Manual.md): The user manual: the same material in expository form, with worked examples.
@@ -95,9 +96,10 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   Section 19: Detailed design for [src/dwarfline.c](../src/dwarfline.c).
 *   Section 20: Detailed design for [src/purify.c](../src/purify.c).
 *   Section 21: Detailed design for [src/recover.c](../src/recover.c).
-*   Section 22: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
-*   Section 23: Data Dictionary.
-*   Section 24: Traceability.
+*   Section 22: Detailed design for [src/diag.c](../src/diag.c).
+*   Section 23: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
+*   Section 24: Data Dictionary.
+*   Section 25: Traceability.
 
 ## 2. System Overview
 
@@ -1604,9 +1606,54 @@ Each layer is named after the basename of the first directory in it, sanitised o
 *   **No function survives purification** Not an error. The proposal is omitted with its reason stated, as an analysis short of its inputs always is, rather than reported as an empty layering (HLR-115).
 *   **A directory holds only excluded functions** Not an error and not the bottom layer. The directory receives no layer at all, because a function `elc` did not consider is not a function `elc` placed at the edge of the architecture (HLR-170).
 
-## 22. Detailed Design for [src/format_dsm.c](../src/format_dsm.c)
+## 22. Detailed Design for [src/diag.c](../src/diag.c)
 
 ### 22.1 Purpose and Responsibilities
+[src/diag.c](../src/diag.c) carries every message `elc` writes to standard error, and records the run into the debug companion of HLR-194 where one was asked for.
+
+*   Write each diagnostic to standard error, and to the companion where one is open, so the two cannot diverge and no call site chooses between them.
+*   Record the invocation at the head of the companion: the first question asked of a log from a machine nobody has is what was run.
+*   Record the source of every region the grammar could not parse, bounded and saying how much it omitted (HLR-195).
+*   Change nothing a run reports — not the messages standard error receives, not the report, not the exit status (HLR-194).
+
+
+### 22.3 Internal Structure
+#### 22.3.1 Key Functions
+
+*   **`int diag_open(const char *path, int argc, char **argv)`** — Open the companion and write the invocation, or leave the module inert where `path` is NULL. A companion that cannot be opened is a diagnostic and not a failure, by the rule the `.dot` follows (LLR-DOT-05).
+*   **`void diag_printf(const char *fmt, ...)`** — One diagnostic, to standard error and to the companion. The signature a caller would have passed to `fprintf(stderr, ...)`, which is what made converting a hundred and twenty call sites mechanical.
+*   **`void diag_detail(const char *fmt, ...)`** — Detail for the companion that standard error should not carry. A no-op with no companion open, so a caller need not ask first.
+*   **`void diag_parse_failure(const char *file, const char *data, size_t length, uint32_t first, uint32_t last)`** — One unparsable region with its source text, read out of the mapping — which is not NUL-terminated, hence the explicit length (HLR-195).
+*   **`bool diag_active(void)`** — Whether a companion is open, for a caller deciding whether to do work whose only purpose is to fill it.
+*   **`void diag_close(void)`** — Close the companion. Safe with none open, and safe twice.
+
+#### 22.3.2 Parsing Strategy / Algorithm
+
+**This module holds the one piece of global mutable state in `elc`, and the exception is deliberate, argued, and bounded.**
+
+The convention everywhere else is that everything a function needs arrives through its arguments. Seventy-nine functions across thirteen modules write diagnostics, and threading a sink to each would put a parameter on every caller between `main` and a parse error — several hundred signatures, and every unit test that calls one. Two properties make the exception safe rather than merely convenient:
+
+*   **It is write-only.** Nothing reads the log back. No measurement, no finding and no exit status depends on it, so it cannot change what a run reports — which is the thing the convention protects.
+*   **`elc` is single-threaded by requirement** (HLR-041), so the races a mutable global usually invites do not arise.
+
+The handle is `static` and file-scoped, so the exception is confined to the module that argues for it: no other translation unit can reach it, and the convention holds everywhere else unchanged.
+
+**The log is written as messages occur, and flushed at each one.** That is the property the feature exists for rather than an implementation detail: a run that faults or is killed on a tree nobody can reproduce still leaves everything up to the fault on disk, where a buffer flushed at exit would lose precisely the run worth debugging.
+
+**Timestamps go to the companion alone.** A log nobody watched being produced needs them; the report must not contain them, since HLR-032 requires two runs over one target to be byte-identical. The companion is a record *of* a run rather than a result *of* one, and that is the line the timestamps sit on.
+
+### 22.4 Dependencies
+
+*   No third-party dependency; `stdio` and `time`.
+
+### 22.5 Error Handling and Logging
+
+*   **The companion cannot be opened** A diagnostic to standard error and a recorded failure. The user asked for a report and a debug file, and losing the second is no reason to withhold the first.
+*   **No companion was asked for** Every call writes to standard error alone, exactly as a direct `fprintf` did. The module is inert rather than absent, so no call site tests for it.
+
+## 23. Detailed Design for [src/format_dsm.c](../src/format_dsm.c)
+
+### 23.1 Purpose and Responsibilities
 [src/format_dsm.c](../src/format_dsm.c) renders the Dependency Structure Matrix — the square grid whose cells carry the call counts between layers or directories, and whose diagonal separates conforming dependencies from back-calls.
 
 *   Build the matrix over the declared layers, or over the analysed directories where no strata were declared (HLR-165).
@@ -1615,8 +1662,8 @@ Each layer is named after the basename of the first directory in it, sanitised o
 *   Decide whether the CSV companion is warranted for a run: on request, and only where the report has a path to derive a name from (HLR-180).
 
 
-### 22.3 Internal Structure
-#### 22.3.1 Key Functions
+### 23.3 Internal Structure
+#### 23.3.1 Key Functions
 
 *   **`int dsm_build(const Sdg *g, const Report *r, const ElcOptions *opts, Dsm *out)`** — Populate the square matrix of call counts between subjects, in their defined order.
 *   **`int format_dsm_csv(const Dsm *m, FILE *out)`** — Render the matrix as CSV, every cell through the RFC 4180 field writer.
@@ -1625,7 +1672,7 @@ Each layer is named after the basename of the first directory in it, sanitised o
 *   **`bool dsm_warranted(const ElcOptions *opts)`** — Whether the CSV companion is to be written: requested, and with a named output path to derive its own from (HLR-104, HLR-180).
 *   **`void dsm_free(Dsm *m)`** — Release the matrix and the subject labels it owns.
 
-#### 22.3.2 Parsing Strategy / Algorithm
+#### 23.3.2 Parsing Strategy / Algorithm
 
 **Rows are callers and columns are callees**, both in the same ascending order, so the diagonal has a meaning a reader can rely on: above it are dependencies running the declared way, on it are dependencies inside one subject, and below it are the back-calls of HLR-162. A matrix whose orientation the reader must infer is worse than no matrix, so the convention is printed with it (HLR-166).
 
@@ -1641,17 +1688,17 @@ Each layer is named after the basename of the first directory in it, sanitised o
 
 **The matrix is part of the report model, not a renderer's scratch space.** It is built once, in `main`, and carried on the `Report`, because the record of a run must be able to regenerate it and a record carries no call graph to rebuild it from (HLR-054). That is also why the CSV companion is the one companion available in regeneration mode.
 
-### 22.4 Dependencies
+### 23.4 Dependencies
 
 *   `src/graph.c` for the component projection, `src/arch.c` for the layer assignment, and `src/format_csv.c` for the field writer. No third-party dependency.
 
-### 22.5 Error Handling and Logging
+### 23.5 Error Handling and Logging
 
 *   **No strata declared** Not an error. The matrix is built over directories instead, so a reader with no declared architecture still receives one (HLR-165).
 *   **Write failure** Diagnostic and non-zero return, as for every other renderer.
 *   **No output path** Not an error. `dsm_warranted` is false, no companion is written, and the report itself still carries the matrix — the rule the GraphML export follows, since the companion's name is derived from the report's and there is none to derive from (HLR-104).
 *   **An empty matrix** Renders as its heading, its convention, and its column names rather than as nothing. A section that vanishes when it has no content makes the report's shape vary with its content.
-## 23. Data Dictionary
+## 24. Data Dictionary
 
 *   **`ElcOptions`** (defined in [include/elc.h](../include/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
 
@@ -2153,7 +2200,7 @@ The failure is recorded here rather than merely fixed because nothing about it i
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.
-## 24. Traceability
+## 25. Traceability
 
 The following table maps the high-level requirements in
 [doc/HLRs.md](HLRs.md) and the low-level requirements in

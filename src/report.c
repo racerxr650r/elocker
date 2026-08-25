@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "diag.h"
 #include "analyze.h"
 #include "calltree.h"
 #include "discover.h"
@@ -39,8 +40,7 @@ int metrics_add(MetricsAccumulator *acc, FileMetrics *metrics)
 		 * original is overwritten: `x = realloc(x, n)` loses the whole
 		 * accumulator on failure (HLR-125). */
 		if (!bigger) {
-			fputs("elc: out of memory assembling the report\n",
-			      stderr);
+			diag_printf("elc: out of memory assembling the report\n");
 			return -1;
 		}
 		acc->files    = bigger;
@@ -70,8 +70,7 @@ int metrics_add_skipped(MetricsAccumulator *acc, const char *path)
 		char **bigger = realloc(list->paths, next * sizeof *bigger);
 
 		if (!bigger) {
-			fputs("elc: out of memory recording a skipped file\n",
-			      stderr);
+			diag_printf("elc: out of memory recording a skipped file\n");
 			return -1;
 		}
 		list->paths    = bigger;
@@ -80,7 +79,7 @@ int metrics_add_skipped(MetricsAccumulator *acc, const char *path)
 
 	list->paths[list->count] = strdup(path);
 	if (!list->paths[list->count]) {
-		fputs("elc: out of memory recording a skipped file\n", stderr);
+		diag_printf("elc: out of memory recording a skipped file\n");
 		return -1;
 	}
 	list->count++;
@@ -130,8 +129,7 @@ static int language_add(LanguageList *list, const FileMetrics *file)
 		LanguageTotals *bigger = realloc(list->items, next * sizeof *bigger);
 
 		if (!bigger) {
-			fputs("elc: out of memory summarising by language\n",
-			      stderr);
+			diag_printf("elc: out of memory summarising by language\n");
 			return -1;
 		}
 		list->items    = bigger;
@@ -213,8 +211,7 @@ static int threshold_add(ThresholdList *list, const char *file,
 		ThresholdEntry *bigger = realloc(list->items, next * sizeof *bigger);
 
 		if (!bigger) {
-			fputs("elc: out of memory listing threshold breaches\n",
-			      stderr);
+			diag_printf("elc: out of memory listing threshold breaches\n");
 			return -1;
 		}
 		list->items    = bigger;
@@ -267,8 +264,7 @@ static int copy_routes(const RouteList *routes, Report *out)
 	for (size_t i = 0; routes && i < routes->count; i++)
 		if (routelist_add(&out->routes, routes->items[i].target,
 		                  routes->items[i].route) != 0) {
-			fputs("elc: out of memory recording a discovery route\n",
-			      stderr);
+			diag_printf("elc: out of memory recording a discovery route\n");
 			return -1;
 		}
 	return 0;
@@ -284,8 +280,7 @@ static int copy_definitions(const ElcOptions *opts, Report *out)
 
 	out->definitions = calloc(opts->define_count, sizeof *out->definitions);
 	if (!out->definitions) {
-		fputs("elc: out of memory recording the configuration\n",
-		      stderr);
+		diag_printf("elc: out of memory recording the configuration\n");
 		return -1;
 	}
 	for (size_t i = 0; i < opts->define_count; i++) {
@@ -463,8 +458,8 @@ static int collect_absent(const ElcOptions *opts, Report *out)
 
 	out->absent = calloc(total, sizeof *out->absent);
 	if (!out->absent) {
-		fputs("elc: out of memory recording the functions the image "
-		      "does not define\n", stderr);
+		diag_printf("elc: out of memory recording the functions the image "
+		      "does not define\n");
 		return -1;
 	}
 
@@ -584,8 +579,7 @@ int report_check_image_ambiguity(const Report *report, const SymbolSet *image)
 					           name) != 0)
 						continue;
 
-					fprintf(stderr,
-					        "elc: %s is defined in %s and "
+					diag_printf("elc: %s is defined in %s and "
 					        "%s, and %s carries no debug "
 					        "information placing it; "
 					        "rebuild the image with -g so "
@@ -609,7 +603,7 @@ int report_set_image(Report *report, const SymbolSet *image)
 
 	report->image = strdup(image->path);
 	if (!report->image) {
-		fputs("elc: out of memory recording the image\n", stderr);
+		diag_printf("elc: out of memory recording the image\n");
 		return -1;
 	}
 	report->image_unresolved = elfsyms_unresolved(image);
@@ -1645,7 +1639,7 @@ static int dead_row_add(Report *report, size_t *capacity, const char *file,
 		DeadRow *bigger = realloc(report->dead, next * sizeof *bigger);
 
 		if (!bigger) {
-			fputs("elc: out of memory listing dead code\n", stderr);
+			diag_printf("elc: out of memory listing dead code\n");
 			return -1;
 		}
 		report->dead = bigger;
@@ -1660,7 +1654,7 @@ static int dead_row_add(Report *report, size_t *capacity, const char *file,
 	if (!row->file || !row->function) {
 		free(row->file);
 		free(row->function);
-		fputs("elc: out of memory listing dead code\n", stderr);
+		diag_printf("elc: out of memory listing dead code\n");
 		return -1;
 	}
 	row->start_line = span->start_line;
@@ -1682,8 +1676,8 @@ static int unanalysed_add(PathList *list, const char *language)
 		char **bigger = realloc(list->paths, next * sizeof *bigger);
 
 		if (!bigger) {
-			fputs("elc: out of memory recording an unanalysed "
-			      "language\n", stderr);
+			diag_printf("elc: out of memory recording an unanalysed "
+			      "language\n");
 			return -1;
 		}
 		list->paths    = bigger;
@@ -1692,8 +1686,7 @@ static int unanalysed_add(PathList *list, const char *language)
 
 	list->paths[list->count] = strdup(language);
 	if (!list->paths[list->count]) {
-		fputs("elc: out of memory recording an unanalysed language\n",
-		      stderr);
+		diag_printf("elc: out of memory recording an unanalysed language\n");
 		return -1;
 	}
 	list->count++;

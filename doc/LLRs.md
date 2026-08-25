@@ -17,6 +17,11 @@ Orchestration and exit status. `main` performs no analysis; every requirement be
 *   <a id="LLR-MAIN-03"></a>**LLR-MAIN-03** — When the parsed options select regeneration mode, `main` shall invoke `xml_read_report` and proceed directly to rendering, invoking neither `discover_targets` nor `analyze_file`.
     *Trace:* HLR-055 (XML-to-Markdown Conversion Mode).
 
+*   <a id="LLR-MAIN-26"></a>**LLR-MAIN-26** — `main` shall open the debug companion immediately after the command line is parsed and before any other stage, and shall close it last.
+
+    The ordering is the whole of its usefulness: a diagnostic written before the companion existed is a diagnostic the companion does not hold, and the stages that diagnose most — locating the runtime, discovering targets, loading a grammar — are the earliest ones. The name shall be derived from the report's output path by the companion rule of HLR-119, so a report on standard output produces none and that is not a usage error.
+    *Trace:* HLR-194 (The Debug Companion), HLR-119.
+
 *   <a id="LLR-MAIN-04"></a>**LLR-MAIN-04** — In regeneration mode `main` shall invoke neither `graph_write_dot` nor `graph_write_graphml`, since a saved record does not carry the graph.
     *Trace:* HLR-122 (No Companion Artefacts From a Saved Record).
 
@@ -438,6 +443,11 @@ Note on the division of labour, which determines where a failure lives: the requ
 
 *   <a id="LLR-ANL-05"></a>**LLR-ANL-05** — `analyze_file` shall pass the mapped length explicitly to the parser, since the mapping is not null-terminated.
     *Trace:* HLR-013 (AST-Based Metric Extraction).
+
+*   <a id="LLR-ANL-61"></a>**LLR-ANL-61** — `measure_damage` shall record every unparsable region into the debug companion, walking the tree separately from the line tally and only where a companion is open.
+
+    Separately, because the two count different things: the tally coalesces overlapping regions so that a line a reader must look at is counted once, which is right for the figure and wrong for a log meant to reproduce a parser defect — two regions the grammar reported separately are two facts about the grammar. Only where a companion is open, because the walk is work whose sole purpose is to fill a file that may not exist (HLR-195).
+    *Trace:* HLR-195 (Unparsable Source Recorded in the Debug Companion), HLR-035.
 
 *   <a id="LLR-ANL-06"></a>**LLR-ANL-06** — `analyze_file` shall count the file's physical lines from the mapped contents, counting a final line that carries no terminating newline, and bounding every scan by the mapped length rather than by a terminator.
     *Trace:* HLR-019 (File-Level Totals).
@@ -1877,3 +1887,30 @@ The raw and purified drawings. Two of them because seeing what purification did 
 
 *   <a id="LLR-DRW-04"></a>**LLR-DRW-04** — The raw drawing shall hold every call edge of the graph as built and shall carry no classification on any node; the purified drawing shall hold the edges the recovery view retained, decided by the same predicate the view itself was built from rather than by rules restated here. The raw drawing is the graph *before* the masking — one that anticipated it would leave the pair with nothing to compare — and two answers to one question about which edges survive is how a drawing comes to show a graph the analysis never read.
     *Trace:* HLR-178 (Raw and Purified Graph Exports), HLR-167.
+
+## 65. `diag_printf` ([src/diag.c](../src/diag.c))
+
+The diagnostic stream, and the debug companion that records it. The one module holding global mutable state, for the reasons SDD §25 sets out and under the bounds it states.
+
+*   <a id="LLR-DBG-01"></a>**LLR-DBG-01** — `diag_printf` shall write each diagnostic to standard error, and additionally to the debug companion where one is open, so that the two cannot diverge and no call site chooses between them. Its signature shall be the one a caller would have passed to `fprintf(stderr, ...)`, which is what makes the conversion of every existing call site mechanical rather than a rewrite of each.
+
+    The bytes standard error receives shall be identical whether or not a companion is open. The companion records a run and is not a result of one; a diagnostic aid that altered what it observed would be worse than none (HLR-194).
+    *Trace:* HLR-194 (The Debug Companion), HLR-038.
+
+*   <a id="LLR-DBG-02"></a>**LLR-DBG-02** — `diag_open` shall write the invocation at the head of the companion, and shall leave the module inert where it is given no path — every later call then writing to standard error alone, so that no call site tests whether a companion exists.
+
+    A companion that cannot be opened shall be a diagnostic and a recorded failure rather than a fatal one: the user asked for a report and a debug file, and losing the second is no reason to withhold the first.
+    *Trace:* HLR-194 (The Debug Companion), HLR-119.
+
+*   <a id="LLR-DBG-03"></a>**LLR-DBG-03** — Every write to the companion shall be flushed before the call returns.
+
+    This is the property the companion exists for rather than an implementation detail. A run that faults, is killed, or exhausts memory is precisely the run worth diagnosing, and a log assembled in memory and written at exit is lost exactly then. The cost is a flush per diagnostic, which a run producing a diagnostic per file will not notice.
+    *Trace:* HLR-194 (The Debug Companion).
+
+*   <a id="LLR-DBG-04"></a>**LLR-DBG-04** — `diag_parse_failure` shall record one unparsable region as the file, the lines it spans, and the source text of those lines, read out of the mapping with an explicit length since the mapping is not NUL-terminated.
+
+    The text shall be bounded, and where it is truncated the number of lines omitted shall be stated. A file the grammar could follow nowhere would otherwise be copied into the log entire, which serves no reader and may disclose more of a private tree than whoever attached the log intended (HLR-195).
+    *Trace:* HLR-195 (Unparsable Source Recorded in the Debug Companion).
+
+*   <a id="LLR-DBG-05"></a>**LLR-DBG-05** — The companion shall carry a timestamp on each entry, and the report shall carry none. A log nobody watched being produced needs to say when each thing happened; a report must be byte-identical across two runs over one target (HLR-032). The companion is a record *of* a run rather than a result *of* one, which is the line the timestamps sit on.
+    *Trace:* HLR-194 (The Debug Companion), HLR-032.
