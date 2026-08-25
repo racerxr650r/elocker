@@ -931,6 +931,31 @@ than a request; see
 .B THE CALL TREE
 below.
 .TP
+.B \-\-dbg
+Also write a debug log beside the report, named from it by the companion rule:
+an
+.B \-\-output
+of
+.I report.md
+yields
+.IR report.dbg .
+.IP
+It carries the invocation, every message the run wrote to standard error, and
+the source text of every region the grammar could not parse. That last is what
+the option is for: a grammar failing on a construct is debugged from the
+construct, and a maintainer holding only a bug report has the line number and
+not the line.
+.IP
+Written
+.I as the run proceeds
+rather than assembled and saved at the end, so a run that faults or is killed
+on a tree nobody can reproduce still leaves everything up to the fault on disk.
+.IP
+It changes nothing else. The messages standard error receives, the report, and
+the exit status are identical with the option and without it. Requesting it
+with the report on standard output writes no file and is not an error, since
+there is then no name to derive one from.
+.TP
 .BR \-h ", " \-\-help
 Display a usage summary on standard output and exit successfully. Requesting
 help is not an error, so the exit status is 0 rather than a failure code.

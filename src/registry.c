@@ -23,6 +23,7 @@
 
 #include <tree_sitter/api.h>
 
+#include "diag.h"
 #include "elc.h"
 #include "registry.h"
 
@@ -281,7 +282,7 @@ static int split_map_line(char *line, const char *path, char **ext, char **lang)
 		/* An extension with no language names nothing. Say so and carry
 		 * on. */
 		*p = '\0';
-		fprintf(stderr, "elc: %s: no language for '%s'\n", path, *ext);
+		diag_printf("elc: %s: no language for '%s'\n", path, *ext);
 		return -1;
 	}
 	*p++ = '\0';
@@ -304,13 +305,13 @@ static int load_extension_map(Registry *reg)
 
 	int n = snprintf(path, sizeof path, "%s/extensions.map", reg->dir);
 	if (n < 0 || (size_t)n >= sizeof path) {
-		fprintf(stderr, "elc: runtime directory path is too long\n");
+		diag_printf("elc: runtime directory path is too long\n");
 		return -1;
 	}
 
 	fp = fopen(path, "r");
 	if (!fp) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		return -1;
 	}
 
@@ -322,8 +323,7 @@ static int load_extension_map(Registry *reg)
 			continue;
 
 		if (map_add(reg, ext, lang) != 0) {
-			fputs("elc: out of memory reading the extension map\n",
-			      stderr);
+			diag_printf("elc: out of memory reading the extension map\n");
 			status = -1;
 			break;
 		}
@@ -424,19 +424,19 @@ static int grammar_load(const Registry *reg, LanguageModule *module,
 
 	n = snprintf(path, sizeof path, "%s/parsers/%s.so", reg->dir, language);
 	if (n < 0 || (size_t)n >= sizeof path) {
-		fprintf(stderr, "elc: %s: module path is too long\n", language);
+		diag_printf("elc: %s: module path is too long\n", language);
 		return -1;
 	}
 
 	module->dl_handle = dlopen(path, RTLD_LAZY | RTLD_LOCAL);
 	if (!module->dl_handle) {
-		fprintf(stderr, "elc: %s: %s\n", language, dlerror());
+		diag_printf("elc: %s: %s\n", language, dlerror());
 		return -1;
 	}
 
 	n = snprintf(symbol, sizeof symbol, "tree_sitter_%s", language);
 	if (n < 0 || (size_t)n >= sizeof symbol) {
-		fprintf(stderr, "elc: %s: language name is too long\n",
+		diag_printf("elc: %s: language name is too long\n",
 		        language);
 		return -1;
 	}
@@ -445,18 +445,18 @@ static int grammar_load(const Registry *reg, LanguageModule *module,
 	*(void **)(&entry) = dlsym(module->dl_handle, symbol);
 	error = dlerror();
 	if (error) {
-		fprintf(stderr, "elc: %s: %s\n", language, error);
+		diag_printf("elc: %s: %s\n", language, error);
 		return -1;
 	}
 	if (!entry) {
-		fprintf(stderr, "elc: %s: %s resolved to nothing\n", language,
+		diag_printf("elc: %s: %s resolved to nothing\n", language,
 		        symbol);
 		return -1;
 	}
 
 	module->ts_lang = entry();
 	if (!module->ts_lang) {
-		fprintf(stderr, "elc: %s: grammar entry point produced no "
+		diag_printf("elc: %s: grammar entry point produced no "
 		        "language\n", language);
 		return -1;
 	}
@@ -481,7 +481,7 @@ static int query_load(const Registry *reg, LanguageModule *module,
 	n = snprintf(path, sizeof path, "%s/queries/%s/%s", reg->dir, language,
 	             QUERY_FILES[i]);
 	if (n < 0 || (size_t)n >= sizeof path) {
-		fprintf(stderr, "elc: %s: query path is too long\n", language);
+		diag_printf("elc: %s: query path is too long\n", language);
 		return -1;
 	}
 
@@ -498,7 +498,7 @@ static int query_load(const Registry *reg, LanguageModule *module,
 		/* A module is required to supply all six. One missing makes the
 		 * language unusable — reported, excluded, and survivable, never
 		 * undefined (HLR-121, HLR-070). */
-		fprintf(stderr, "elc: %s: %s: %s\n", language, QUERY_FILES[i],
+		diag_printf("elc: %s: %s: %s\n", language, QUERY_FILES[i],
 		        strerror(errno));
 		return -1;
 	}
@@ -508,7 +508,7 @@ static int query_load(const Registry *reg, LanguageModule *module,
 	free(source);
 
 	if (!module->queries[i]) {
-		fprintf(stderr, "elc: %s: %s: %s at byte %u\n", language,
+		diag_printf("elc: %s: %s: %s at byte %u\n", language,
 		        QUERY_FILES[i], query_error_text(query_error),
 		        error_offset);
 		return -1;
@@ -528,7 +528,7 @@ static int module_load(const Registry *reg, LanguageModule *module,
 {
 	module->language_name = strdup(language);
 	if (!module->language_name) {
-		fputs("elc: out of memory loading a language module\n", stderr);
+		diag_printf("elc: out of memory loading a language module\n");
 		return -1;
 	}
 
@@ -562,7 +562,7 @@ static const LanguageModule *module_for_language(Registry *reg,
 	if (reg->module_count == reg->module_capacity &&
 	    registry_grow((void **)&reg->modules, &reg->module_capacity,
 	         sizeof *reg->modules) != 0) {
-		fputs("elc: out of memory loading a language module\n", stderr);
+		diag_printf("elc: out of memory loading a language module\n");
 		return NULL;
 	}
 
@@ -628,7 +628,7 @@ static int rule_compile(Registry *reg, const LanguageModule *module,
 	char        *source        = read_file(path, &length);
 
 	if (!source) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		return -1;
 	}
 
@@ -640,7 +640,7 @@ static int rule_compile(Registry *reg, const LanguageModule *module,
 		/* The reason in words and the byte, for the reason the built-in
 		 * queries get both: the person acting on this message wrote the
 		 * file, and a numeric code tells them nothing. */
-		fprintf(stderr, "elc: %s: %s at byte %u\n", path,
+		diag_printf("elc: %s: %s at byte %u\n", path,
 		        query_error_text(query_error), error_offset);
 		return -1;
 	}
@@ -649,7 +649,7 @@ static int rule_compile(Registry *reg, const LanguageModule *module,
 	    registry_grow((void **)&reg->rules, &reg->rule_capacity,
 	         sizeof *reg->rules) != 0) {
 		ts_query_delete(query);
-		fputs("elc: out of memory loading a custom rule\n", stderr);
+		diag_printf("elc: out of memory loading a custom rule\n");
 		return -1;
 	}
 
@@ -662,7 +662,7 @@ static int rule_compile(Registry *reg, const LanguageModule *module,
 		free(rule->stem);
 		free(rule->language);
 		ts_query_delete(query);
-		fputs("elc: out of memory loading a custom rule\n", stderr);
+		diag_printf("elc: out of memory loading a custom rule\n");
 		return -1;
 	}
 	rule->query = query;
@@ -679,7 +679,7 @@ static int rule_load_named(Registry *reg, const char *argument)
 	const char *colon = strchr(argument, ':');
 
 	if (!colon || colon == argument || colon[1] == '\0') {
-		fprintf(stderr, "elc: --rules '%s': expected lang:path\n",
+		diag_printf("elc: --rules '%s': expected lang:path\n",
 		        argument);
 		return -1;
 	}
@@ -687,7 +687,7 @@ static int rule_load_named(Registry *reg, const char *argument)
 	char *language = strndup(argument, (size_t)(colon - argument));
 
 	if (!language) {
-		fputs("elc: out of memory reading a rule argument\n", stderr);
+		diag_printf("elc: out of memory reading a rule argument\n");
 		return -1;
 	}
 
@@ -710,7 +710,7 @@ static int rule_load_named(Registry *reg, const char *argument)
 		 * the rule file may be perfectly good, and what is missing is a
 		 * language module — the same absence that makes a source file a
 		 * skip rather than a failure (HLR-107, LLR-RLR-03). */
-		fprintf(stderr, "elc: --rules %s: no language module for '%s'; "
+		diag_printf("elc: --rules %s: no language module for '%s'; "
 		        "rule skipped\n", argument, language);
 		free(language);
 		return 0;
@@ -789,7 +789,7 @@ static void rules_compile_all(Registry *reg, const char *language,
 		if (!module) {
 			module = module_for_language(reg, language);
 			if (!module) {
-				fprintf(stderr, "elc: %s: no usable language "
+				diag_printf("elc: %s: no usable language "
 				        "module; its custom rules are "
 				        "skipped\n", language);
 				return;
@@ -878,28 +878,27 @@ int registry_open(const ElcOptions *opts, Registry *out)
 		 * and a message quoting a single path they never chose sends
 		 * them to the wrong place. */
 		if (tried[0])
-			fprintf(stderr,
-			        "elc: no runtime directory at %s; set %s to "
+			diag_printf("elc: no runtime directory at %s; set %s to "
 			        "name one\n", tried, ELC_RUNTIME_DIR_ENV);
 		else
-			fputs("elc: cannot locate the runtime directory; set "
-			      ELC_RUNTIME_DIR_ENV " to name one\n", stderr);
+			diag_printf("elc: cannot locate the runtime directory; "
+			            "set " ELC_RUNTIME_DIR_ENV
+			            " to name one\n");
 		return -1;
 	}
 
 	if (stat(dir, &st) != 0) {
-		fprintf(stderr, "elc: %s: %s\n", dir, strerror(errno));
+		diag_printf("elc: %s: %s\n", dir, strerror(errno));
 		return -1;
 	}
 	if (!S_ISDIR(st.st_mode)) {
-		fprintf(stderr, "elc: %s: not a directory\n", dir);
+		diag_printf("elc: %s: not a directory\n", dir);
 		return -1;
 	}
 
 	out->dir = strdup(dir);
 	if (!out->dir) {
-		fputs("elc: out of memory opening the runtime directory\n",
-		      stderr);
+		diag_printf("elc: out of memory opening the runtime directory\n");
 		return -1;
 	}
 
@@ -911,7 +910,7 @@ int registry_open(const ElcOptions *opts, Registry *out)
 	 * (HLR-011, LLR-ROP-05). An empty map, though, means no file can ever
 	 * be analysed, which is the state HLR-036 calls fatal. */
 	if (out->map_count == 0) {
-		fprintf(stderr, "elc: %s: the extension map names no "
+		diag_printf("elc: %s: the extension map names no "
 		        "language\n", out->dir);
 		goto fail;
 	}
@@ -922,7 +921,7 @@ int registry_open(const ElcOptions *opts, Registry *out)
 	out->parser = ts_parser_new();
 	out->cursor = ts_query_cursor_new();
 	if (!out->parser || !out->cursor) {
-		fputs("elc: out of memory creating the parser\n", stderr);
+		diag_printf("elc: out of memory creating the parser\n");
 		goto fail;
 	}
 

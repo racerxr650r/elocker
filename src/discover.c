@@ -38,6 +38,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+#include "diag.h"
 #include "discover.h"
 #include "elc.h"
 
@@ -77,13 +78,13 @@ static int filelist_add(FileList *list, const char *path)
 	char *canonical = realpath(path, NULL);
 
 	if (!canonical) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		return -1;
 	}
 
 	if (list->count == list->capacity &&
 	    discover_grow((void **)&list->paths, &list->capacity, sizeof *list->paths) != 0) {
-		fprintf(stderr, "elc: out of memory recording %s\n", canonical);
+		diag_printf("elc: out of memory recording %s\n", canonical);
 		free(canonical);
 		return -1;
 	}
@@ -235,21 +236,21 @@ static FILE *binary_exts_open(const char *runtime_dir)
 	int   n;
 
 	if (!runtime_dir) {
-		fputs("elc: no runtime directory; "
-		      "no extension is excluded\n", stderr);
+		diag_printf("elc: no runtime directory; "
+		      "no extension is excluded\n");
 		return NULL;
 	}
 
 	n = snprintf(path, sizeof path, "%s/binary.exts", runtime_dir);
 	if (n < 0 || (size_t)n >= sizeof path) {
-		fputs("elc: runtime directory path is too long; "
-		      "no extension is excluded\n", stderr);
+		diag_printf("elc: runtime directory path is too long; "
+		      "no extension is excluded\n");
 		return NULL;
 	}
 
 	fp = fopen(path, "r");
 	if (!fp)
-		fprintf(stderr, "elc: %s: %s; no extension is excluded\n",
+		diag_printf("elc: %s: %s; no extension is excluded\n",
 		        path, strerror(errno));
 	return fp;
 }
@@ -280,8 +281,8 @@ static int read_extension_lines(FILE *fp, ExtensionList *out)
 		*end = '\0';
 
 		if (*p && extlist_add(out, p) != 0) {
-			fputs("elc: out of memory reading the binary-extension "
-			      "list\n", stderr);
+			diag_printf("elc: out of memory reading the binary-extension "
+			      "list\n");
 			status = -1;
 			break;
 		}
@@ -599,7 +600,7 @@ static void on_fts_entry(FTS *fts, FTSENT *ent, const ExtensionList *exts,
 	case FTS_NS:
 		/* Diagnose, skip that subtree, and carry on; the caller folds
 		 * the count into the exit status (LLR-DSC-09). */
-		fprintf(stderr, "elc: %s: %s\n", ent->fts_path,
+		diag_printf("elc: %s: %s\n", ent->fts_path,
 		        strerror(ent->fts_errno));
 		(*failures)++;
 		break;
@@ -623,7 +624,7 @@ int walk_filesystem(const char *root, const ExtensionList *exts,
 	 * relative paths the caller gave stay meaningful. */
 	fts = fts_open(argv, FTS_PHYSICAL | FTS_NOCHDIR, NULL);
 	if (!fts) {
-		fprintf(stderr, "elc: %s: %s\n", root, strerror(errno));
+		diag_printf("elc: %s: %s\n", root, strerror(errno));
 		return -1;
 	}
 
@@ -634,7 +635,7 @@ int walk_filesystem(const char *root, const ExtensionList *exts,
 	}
 
 	if (errno != 0) {
-		fprintf(stderr, "elc: %s: %s\n", root, strerror(errno));
+		diag_printf("elc: %s: %s\n", root, strerror(errno));
 		(*failures)++;
 	}
 
@@ -659,7 +660,7 @@ static int classify_target(const char *path, unsigned char *kind)
 	struct stat st;
 
 	if (stat(path, &st) != 0) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		return -1;
 	}
 
@@ -668,13 +669,13 @@ static int classify_target(const char *path, unsigned char *kind)
 	} else if (S_ISDIR(st.st_mode)) {
 		*kind = TARGET_DIR;
 	} else {
-		fprintf(stderr, "elc: %s: not a regular file or directory\n",
+		diag_printf("elc: %s: not a regular file or directory\n",
 		        path);
 		return -1;
 	}
 
 	if (access(path, R_OK) != 0) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		return -1;
 	}
 	return 0;
@@ -707,8 +708,7 @@ static void walk_directory(const char *target, const ExtensionList *exts,
 	shown = realpath(target, canonical) ? canonical : target;
 
 	if (routelist_add(routes, shown, route) != 0) {
-		fputs("elc: out of memory recording a discovery route\n",
-		      stderr);
+		diag_printf("elc: out of memory recording a discovery route\n");
 		(*failures)++;
 	}
 }
@@ -730,7 +730,7 @@ int discover_targets(const ElcOptions *opts, const char *runtime_dir,
 
 	kind = malloc(opts->target_count);
 	if (!kind) {
-		fputs("elc: out of memory classifying targets\n", stderr);
+		diag_printf("elc: out of memory classifying targets\n");
 		return -1;
 	}
 

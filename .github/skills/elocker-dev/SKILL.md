@@ -58,6 +58,16 @@ Two habits are worth keeping regardless, because they cost nothing:
 
 - **No global mutable state, no static scratch buffers.** Everything a
   function needs arrives through its arguments.
+
+  **One exception exists, in `src/diag.c`, and it is argued rather than
+  assumed** (SDD §25). The debug companion's file handle is a module-static,
+  because seventy-nine functions across thirteen modules diagnose and
+  threading a sink to each would put a parameter on every caller between
+  `main` and a parse error. It is safe because it is *write-only* — nothing
+  reads it back, so no measurement, finding or exit status can depend on it,
+  which is what this rule protects — and because `elc` is single-threaded by
+  requirement. Do not take it as licence for a second: a new global needs the
+  same two properties and the same argument in the design document.
 - Use `_r`-suffixed library variants where the choice is free (`strtok_r`).
 
 That keeps the door open without paying for it today.

@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "diag.h"
 #include "elc.h"
 #include "format_graph.h"
 #include "format_xml.h"   /* write_escaped: one escaper, not two */
@@ -624,7 +625,7 @@ static int sort_call_edges(const Sdg *g, SdgEdge **sorted, size_t *calls)
 
 	*sorted = malloc(g->edge_count * sizeof **sorted);
 	if (!*sorted) {
-		fputs("elc: out of memory writing the call tree\n", stderr);
+		diag_printf("elc: out of memory writing the call tree\n");
 		return -1;
 	}
 	for (size_t i = 0; i < g->edge_count; i++)
@@ -711,7 +712,7 @@ static int prepare_annotations(const Sdg *g, const Report *r,
 
 	if (!*nodes || !*comps || !*chain ||
 	    collect(g, r, *nodes, *comps, notes) != 0) {
-		fputs("elc: out of memory writing the call tree\n", stderr);
+		diag_printf("elc: out of memory writing the call tree\n");
 		return -1;
 	}
 
@@ -771,14 +772,14 @@ int graph_write_dot(const Sdg *g, const Report *r, const char *path)
 	/* Checked after the writing rather than per call, for the reason the
 	 * GraphML writer gives: a full disk shows up on the flush. */
 	if (ferror(out)) {
-		fprintf(stderr, "elc: %s: write failed\n", path);
+		diag_printf("elc: %s: write failed\n", path);
 		goto done;
 	}
 	status = 0;
 
 done:
 	if (out && fclose(out) != 0 && status == 0) {
-		fprintf(stderr, "elc: %s: write failed\n", path);
+		diag_printf("elc: %s: write failed\n", path);
 		status = -1;
 	}
 	free(sorted);
@@ -868,7 +869,7 @@ int graph_write_purify_dot(const Sdg *g, const PurifyResults *p, bool purified,
 
 	out = fopen(path, "w");
 	if (!out) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		goto done;
 	}
 
@@ -911,14 +912,14 @@ int graph_write_purify_dot(const Sdg *g, const PurifyResults *p, bool purified,
 	fputs("}\n", out);
 
 	if (ferror(out)) {
-		fprintf(stderr, "elc: %s: write failed\n", path);
+		diag_printf("elc: %s: write failed\n", path);
 		goto done;
 	}
 	status = 0;
 
 done:
 	if (out && fclose(out) != 0 && status == 0) {
-		fprintf(stderr, "elc: %s: write failed\n", path);
+		diag_printf("elc: %s: write failed\n", path);
 		status = -1;
 	}
 	free(sorted);
@@ -993,7 +994,7 @@ int graph_write_graphml(const Sdg *g, const char *path)
 	if (g->edge_count > 0) {
 		sorted = malloc(g->edge_count * sizeof *sorted);
 		if (!sorted) {
-			fputs("elc: out of memory writing GraphML\n", stderr);
+			diag_printf("elc: out of memory writing GraphML\n");
 			goto done;
 		}
 		memcpy(sorted, g->edges, g->edge_count * sizeof *sorted);
@@ -1069,7 +1070,7 @@ int graph_write_graphml(const Sdg *g, const char *path)
 	 * on the flush, and a report claimed as written when it was truncated
 	 * is the failure worth catching. */
 	if (ferror(out)) {
-		fprintf(stderr, "elc: %s: write failed\n", path);
+		diag_printf("elc: %s: write failed\n", path);
 		goto done;
 	}
 	status = 0;
@@ -1077,7 +1078,7 @@ int graph_write_graphml(const Sdg *g, const char *path)
 done:
 	free(sorted);
 	if (fclose(out) != 0 && status == 0) {
-		fprintf(stderr, "elc: %s: write failed\n", path);
+		diag_printf("elc: %s: write failed\n", path);
 		status = -1;
 	}
 	return status;

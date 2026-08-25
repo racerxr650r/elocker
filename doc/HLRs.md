@@ -943,6 +943,28 @@ Each of those is answerable on its own and none of them answers the question a m
 
 **The substitution is what makes the bands `elc`'s own.** The formula is adapted, so the thresholds published for the unadapted one no longer describe it, and Section 24 says so where a reader sees it rather than borrowing an authority the adaptation forfeited.
 
+*   <a id="HLR-194"></a>**HLR-194: The Debug Companion.**
+    `elc` shall provide a command-line option that writes a **debug companion** beside the report, carrying what is needed to diagnose a run on a source tree the reader cannot obtain: the invocation, and every message the run wrote to standard error.
+
+    The companion shall follow the rule every other companion follows (HLR-119): its name is derived from the report's output path by substituting the extension, it takes no path of its own, and nothing is written where the report goes to standard output — there being no name to derive one from. A request with the report on standard output is not a usage error; it produces no companion, exactly as HLR-106 specifies for the GraphML export.
+
+    Each recorded message may be accompanied by detail the terminal did not receive, where the diagnosing code has any to give. The terminal is a place to be told what went wrong; the companion is a place to be told enough to reproduce it.
+
+    **The companion shall be written as the run proceeds, not assembled and flushed at the end.** A run that faults, is killed, or exhausts memory is precisely the run worth diagnosing, and a log that existed only in memory is lost exactly then.
+
+    **It shall change nothing else.** The messages standard error receives, the report, the findings, and the process exit status shall be identical with the option and without it. The companion records a run; it is not a result of one, and a diagnostic aid that altered what it observed would be worse than none.
+    *Trace:* [SDD Section 4](SDD.md), [SDD Section 25](SDD.md).
+
+*   <a id="HLR-195"></a>**HLR-195: Unparsable Source Recorded in the Debug Companion.**
+    Where the grammar cannot parse a region of a source file (HLR-035), `elc` shall record in the debug companion of HLR-194 the file, the lines the region spans, and **the source text of those lines**.
+
+    The text is the point. A grammar that fails on a construct is debugged from the construct, and the construct is the one thing a maintainer holding only a bug report does not have — the tree may be proprietary, unbuildable elsewhere, or simply large. A line number without its line names a place nobody can visit.
+
+    Every region shall be recorded as the grammar reported it, rather than coalesced the way the line *count* of HLR-035 coalesces overlapping regions. The count exists so a reader can judge how much of a file was measured; this exists so a defect can be reproduced, and two regions the grammar reported separately are two facts about the grammar.
+
+    The recorded text shall be bounded, with the number of lines omitted stated where it is truncated. A file the grammar could follow nowhere would otherwise be copied into the log in its entirety, which serves nobody and may disclose more of a private tree than the reporter intended.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 25](SDD.md).
+
 *   <a id="HLR-193"></a>**HLR-193: Image Symbols Placed by Debug Information.**
     Where a run is filtered by a linked image (HLR-140) and that image carries debug information placing a function in a source file, `elc` shall match a source function to an image symbol by **name and file** rather than by name alone.
 

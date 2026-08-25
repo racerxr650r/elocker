@@ -35,6 +35,7 @@
 #include <igraph.h>
 #include <jansson.h>
 
+#include "diag.h"
 #include "elc.h"
 #include "graph.h"
 #include "purify.h"
@@ -732,8 +733,7 @@ static int manifest_order(const PurifyResults *r, const Sdg *g,
 
 	order = calloc(g->node_count ? g->node_count : 1, sizeof *order);
 	if (!order) {
-		fputs("elc: out of memory writing the purification manifest\n",
-		      stderr);
+		diag_printf("elc: out of memory writing the purification manifest\n");
 		return -1;
 	}
 
@@ -830,18 +830,18 @@ static int manifest_emit(json_t *root, const char *path)
 	FILE *file = fopen(path, "w");
 
 	if (!file) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		return -1;
 	}
 	if (json_dumpf(root, file, JSON_INDENT(2)) != 0 ||
 	    fputc('\n', file) == EOF) {
 		fclose(file);
-		fprintf(stderr, "elc: %s: the purification manifest could not "
+		diag_printf("elc: %s: the purification manifest could not "
 		        "be written\n", path);
 		return -1;
 	}
 	if (fclose(file) != 0) {
-		fprintf(stderr, "elc: %s: the purification manifest could not "
+		diag_printf("elc: %s: the purification manifest could not "
 		        "be written\n", path);
 		return -1;
 	}
@@ -864,8 +864,7 @@ int manifest_write(const PurifyResults *r, const Sdg *g, const char *path)
 	root = manifest_document(r, order, count);
 	free(order);
 	if (!root) {
-		fputs("elc: out of memory writing the purification manifest\n",
-		      stderr);
+		diag_printf("elc: out of memory writing the purification manifest\n");
 		return -1;
 	}
 
@@ -883,7 +882,7 @@ int manifest_write(const PurifyResults *r, const Sdg *g, const char *path)
  */
 static int manifest_reject(const char *path, const char *why)
 {
-	fprintf(stderr, "elc: %s: %s\n", path, why);
+	diag_printf("elc: %s: %s\n", path, why);
 	return -1;
 }
 
@@ -991,7 +990,7 @@ int manifest_read(const char *path, Manifest *out)
 		 * the diagnostic quotes them: a person who hand-edited the file
 		 * needs to be told *where* they broke it, not merely that they
 		 * did. */
-		fprintf(stderr, "elc: %s:%d:%d: %s\n", path, error.line,
+		diag_printf("elc: %s:%d:%d: %s\n", path, error.line,
 		        error.column, error.text);
 		return -1;
 	}
@@ -1008,7 +1007,7 @@ int manifest_read(const char *path, Manifest *out)
 		goto cleanup;
 	}
 	if (json_integer_value(version) != ELC_MANIFEST_VERSION) {
-		fprintf(stderr, "elc: %s: manifest version %lld is not one this "
+		diag_printf("elc: %s: manifest version %lld is not one this "
 		        "build reads (expected %d)\n", path,
 		        (long long)json_integer_value(version),
 		        ELC_MANIFEST_VERSION);
@@ -1081,8 +1080,7 @@ static void warn_unmatched(const Manifest *m)
 	for (size_t e = 0; e < m->count; e++) {
 		if (m->entries[e].matched)
 			continue;
-		fprintf(stderr,
-		        "elc: the manifest names '%s'%s%s, which no analysed "
+		diag_printf("elc: the manifest names '%s'%s%s, which no analysed "
 		        "file defines; the statement is ignored\n",
 		        m->entries[e].function,
 		        m->entries[e].file ? " in " : "",

@@ -23,6 +23,7 @@
 
 #include <igraph.h>
 
+#include "diag.h"
 #include "analyze.h"
 #include "elc.h"
 #include "graph.h"
@@ -443,8 +444,7 @@ static int build_symbol_table(const Sdg *out, Symbol **table, size_t *count)
 		if (run - i > 1) {
 			const SdgNode *winner = &out->nodes[symbols[i].node];
 
-			fprintf(stderr,
-			        "elc: %s is defined %zu times; calls to it "
+			diag_printf("elc: %s is defined %zu times; calls to it "
 			        "resolve to %s:%u\n",
 			        symbols[i].name, run - i,
 			        winner->file, winner->line_start);

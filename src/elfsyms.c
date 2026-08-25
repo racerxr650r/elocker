@@ -29,6 +29,7 @@
 #include <gelf.h>
 #include <libelf.h>
 
+#include "diag.h"
 #include "elfsyms.h"
 
 /* The Itanium C++ ABI demangler, declared here rather than included from
@@ -360,7 +361,7 @@ static int open_image(const char *path, int *fd, Elf **elf)
 {
 	*fd  = open(path, O_RDONLY);
 	if (*fd < 0) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		return -1;
 	}
 
@@ -370,13 +371,12 @@ static int open_image(const char *path, int *fd, Elf **elf)
 		 * a source file the user meant to pass as a target. Named,
 		 * because the user named it and the failure is theirs to
 		 * correct (HLR-146, LLR-ELF-06). */
-		fprintf(stderr, "elc: %s: not an object file\n", path);
+		diag_printf("elc: %s: not an object file\n", path);
 		return -1;
 	}
 
 	if (gelf_getclass(*elf) == ELFCLASSNONE) {
-		fprintf(stderr,
-		        "elc: %s: an object file of a class this build does not "
+		diag_printf("elc: %s: an object file of a class this build does not "
 		        "read\n", path);
 		return -1;
 	}
@@ -450,7 +450,7 @@ static int take_symbol(Elf *elf, const GElf_Shdr *shdr, const GElf_Sym *sym,
 	}
 	if (names_add(out, resolved) != 0) {
 		free(resolved);
-		fputs("elc: out of memory reading the image\n", stderr);
+		diag_printf("elc: out of memory reading the image\n");
 		return -1;
 	}
 	return 1;
@@ -502,14 +502,14 @@ int elfsyms_open(const char *path, SymbolSet *out)
 	/* Required before any other libelf call, and idempotent: a second run
 	 * in one process is not an error. */
 	if (elf_version(EV_CURRENT) == EV_NONE) {
-		fprintf(stderr, "elc: %s: libelf is of an unusable version\n",
+		diag_printf("elc: %s: libelf is of an unusable version\n",
 		        path);
 		return -1;
 	}
 
 	out->path = strdup(path);
 	if (!out->path) {
-		fputs("elc: out of memory reading the image\n", stderr);
+		diag_printf("elc: out of memory reading the image\n");
 		return -1;
 	}
 
@@ -526,8 +526,7 @@ int elfsyms_open(const char *path, SymbolSet *out)
 	 * confidently wrong result no reader could tell from a correct one, so
 	 * the stripped image ends the run (HLR-146, LLR-ELF-07). */
 	if (functions == 0) {
-		fprintf(stderr,
-		        "elc: %s: no function symbols; a stripped image defines "
+		diag_printf("elc: %s: no function symbols; a stripped image defines "
 		        "nothing to filter by\n", path);
 		goto cleanup;
 	}
@@ -540,8 +539,8 @@ int elfsyms_open(const char *path, SymbolSet *out)
 	 * forbids requiring it, so its absence costs the line granularity and
 	 * nothing else (HLR-153). */
 	if (dwarfline_read(elf, &out->lines, &out->origins) != 0) {
-		fputs("elc: out of memory reading the image's line "
-		      "information\n", stderr);
+		diag_printf("elc: out of memory reading the image's line "
+		      "information\n");
 		goto cleanup;
 	}
 

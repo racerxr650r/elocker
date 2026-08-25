@@ -25,6 +25,7 @@
 
 #include <igraph.h>
 
+#include "diag.h"
 #include "arch.h"
 #include "elc.h"
 #include "graph.h"
@@ -334,8 +335,7 @@ static void warn_empty_strata(const Sdg *g, const ElcOptions *opts,
 			used = stratum[c] == sidx;
 
 		if (!used)
-			fprintf(stderr,
-			        "elc: stratum %s matches no analysed "
+			diag_printf("elc: stratum %s matches no analysed "
 			        "component\n", opts->strata.items[sidx].name);
 	}
 }

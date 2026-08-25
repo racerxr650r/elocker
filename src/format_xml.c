@@ -30,6 +30,7 @@
 
 #include <expat.h>
 
+#include "diag.h"
 #include "analyze.h"
 #include "calltree.h"
 #include "discover.h"
@@ -2176,26 +2177,26 @@ static int parse_record(const char *path, XML_Parser parser, FILE *fp,
 		size_t got;
 
 		if (!buffer) {
-			fputs("elc: out of memory reading the record\n", stderr);
+			diag_printf("elc: out of memory reading the record\n");
 			return -1;
 		}
 
 		got = fread(buffer, 1, XML_READ_CHUNK, fp);
 		if (ferror(fp)) {
-			fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+			diag_printf("elc: %s: %s\n", path, strerror(errno));
 			return -1;
 		}
 
 		if (XML_ParseBuffer(parser, (int)got, got == 0) ==
 		    XML_STATUS_ERROR) {
-			fprintf(stderr, "elc: %s:%lu: %s\n", path,
+			diag_printf("elc: %s:%lu: %s\n", path,
 			        XML_GetCurrentLineNumber(parser),
 			        XML_ErrorString(XML_GetErrorCode(parser)));
 			return -1;
 		}
 
 		if (state->failed) {
-			fprintf(stderr, "elc: %s: %s\n", path, state->reason);
+			diag_printf("elc: %s: %s\n", path, state->reason);
 			return -1;
 		}
 
@@ -2337,13 +2338,13 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 
 	fp = fopen(path, "rb");
 	if (!fp) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		goto cleanup;
 	}
 
 	parser = XML_ParserCreate(NULL);
 	if (!parser) {
-		fputs("elc: out of memory creating the XML parser\n", stderr);
+		diag_printf("elc: out of memory creating the XML parser\n");
 		goto cleanup;
 	}
 
@@ -2354,7 +2355,7 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 		goto cleanup;
 
 	if (!state.saw_root) {
-		fprintf(stderr, "elc: %s: not an elc report\n", path);
+		diag_printf("elc: %s: not an elc report\n", path);
 		goto cleanup;
 	}
 
@@ -2371,8 +2372,7 @@ int xml_read_report(const char *path, const ElcOptions *opts, Report *out)
 	 * do it — the per-file metrics it works over carry no degree until
 	 * this runs (HLR-183, HLR-187). */
 	if (report_attach_flow(out) != 0) {
-		fputs("elc: out of memory restoring the flow figures\n",
-		      stderr);
+		diag_printf("elc: out of memory restoring the flow figures\n");
 		goto cleanup;
 	}
 

@@ -18,6 +18,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "diag.h"
 #include "cli.h"
 #include "elc.h"
 
@@ -32,7 +33,7 @@ static const char *declaration_colon(const char *arg, const char *what)
 	const char *colon = strchr(arg, ':');
 
 	if (!colon || colon == arg || colon[1] == '\0') {
-		fprintf(stderr, "elc: '%s' is not %s; expected "
+		diag_printf("elc: '%s' is not %s; expected "
 		        "name:glob[,glob...]\n", arg, what);
 		return NULL;
 	}
@@ -55,22 +56,21 @@ static int append_patterns(const char *arg, const char *list, char ***patterns,
 		char      **grown;
 
 		if (len == 0) {
-			fprintf(stderr,
-			        "elc: '%s' has an empty component pattern\n",
+			diag_printf("elc: '%s' has an empty component pattern\n",
 			        arg);
 			return -1;
 		}
 
 		grown = realloc(*patterns, (*count + 1) * sizeof *grown);
 		if (!grown) {
-			fputs("elc: out of memory\n", stderr);
+			diag_printf("elc: out of memory\n");
 			return -1;
 		}
 		*patterns = grown;
 
 		(*patterns)[*count] = strndup(p, len);
 		if (!(*patterns)[*count]) {
-			fputs("elc: out of memory\n", stderr);
+			diag_printf("elc: out of memory\n");
 			return -1;
 		}
 		(*count)++;
@@ -102,7 +102,7 @@ int parse_scope(const char *arg, ElcOptions *out)
 
 	scope.name = strndup(arg, (size_t)(colon - arg));
 	if (!scope.name) {
-		fputs("elc: out of memory\n", stderr);
+		diag_printf("elc: out of memory\n");
 		goto failed;
 	}
 
@@ -117,7 +117,7 @@ int parse_scope(const char *arg, ElcOptions *out)
 		                           next * sizeof *grown);
 
 		if (!grown) {
-			fputs("elc: out of memory\n", stderr);
+			diag_printf("elc: out of memory\n");
 			goto failed;
 		}
 		out->scopes.items    = grown;
@@ -158,7 +158,7 @@ static StratumDecl *stratum_named(ElcOptions *out, char *name)
 		                             next * sizeof *grown);
 
 		if (!grown) {
-			fputs("elc: out of memory\n", stderr);
+			diag_printf("elc: out of memory\n");
 			free(name);
 			return NULL;
 		}
@@ -202,7 +202,7 @@ int parse_stratum(const char *arg, ElcOptions *out)
 
 	name = strndup(arg, (size_t)(colon - arg));
 	if (!name) {
-		fputs("elc: out of memory\n", stderr);
+		diag_printf("elc: out of memory\n");
 		return -1;
 	}
 
@@ -235,8 +235,7 @@ static int apply_stratum_order(ElcOptions *out)
 		return 0;
 
 	if (out->strata.count == 0) {
-		fputs("elc: --stratum-order was given but no --stratum was\n",
-		      stderr);
+		diag_printf("elc: --stratum-order was given but no --stratum was\n");
 		return -1;
 	}
 
@@ -246,7 +245,7 @@ static int apply_stratum_order(ElcOptions *out)
 		bool        hit = false;
 
 		if (len == 0) {
-			fprintf(stderr, "elc: '%s' names an empty stratum\n",
+			diag_printf("elc: '%s' names an empty stratum\n",
 			        out->stratum_order);
 			return -1;
 		}
@@ -261,8 +260,7 @@ static int apply_stratum_order(ElcOptions *out)
 		}
 
 		if (!hit) {
-			fprintf(stderr,
-			        "elc: --stratum-order names '%.*s', which is not a "
+			diag_printf("elc: --stratum-order names '%.*s', which is not a "
 			        "declared stratum\n", (int)len, p);
 			return -1;
 		}
@@ -271,8 +269,7 @@ static int apply_stratum_order(ElcOptions *out)
 	}
 
 	if (assigned != out->strata.count) {
-		fprintf(stderr,
-		        "elc: --stratum-order names %zu of %zu declared strata; a "
+		diag_printf("elc: --stratum-order names %zu of %zu declared strata; a "
 		        "partial order does not determine a direction\n",
 		        assigned, out->strata.count);
 		return -1;
@@ -377,6 +374,12 @@ void cli_usage(FILE *stream)
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.graphml. Requires --output,\n"
 "                     since there is otherwise no name to derive\n"
+"      --dbg          also write a debug log beside the report and named\n"
+"                     from it: an --output of report.md yields report.dbg.\n"
+"                     It carries the invocation, every diagnostic the run\n"
+"                     wrote, and the source of every region the grammar\n"
+"                     could not parse -- what is needed to debug a tree\n"
+"                     nobody else can reproduce. Requires --output\n"
 "",
 	      stream);
 
@@ -496,7 +499,7 @@ enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
        OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF,
        OPT_DSM, OPT_SINK_AUTHORITY, OPT_SINK_HUB, OPT_GOD_BETWEENNESS,
        OPT_GOD_HUB, OPT_CORE_DEPTH, OPT_MANIFEST, OPT_WRITE_MANIFEST,
-       OPT_PURIFY_DOT };
+       OPT_PURIFY_DOT, OPT_DBG };
 
 /* What reading one option needs: the options being built, and the record of
  * how the format came to be what it is. All three outlive the option that
@@ -556,7 +559,7 @@ static int parse_threshold(const char *arg, const char *what, uint32_t *slot)
 
 	if (arg[0] < '0' || arg[0] > '9' || !end || *end != '\0' ||
 	    errno == ERANGE || value > UINT32_MAX) {
-		fprintf(stderr, "elc: '%s' is not a %s threshold\n", arg, what);
+		diag_printf("elc: '%s' is not a %s threshold\n", arg, what);
 		return -1;
 	}
 	*slot = (uint32_t)value;
@@ -581,7 +584,7 @@ static int append_borrowed(const char ***items, size_t *count, size_t *capacity,
 		const char **grown = realloc(*items, next * sizeof *grown);
 
 		if (!grown) {
-			fputs("elc: out of memory\n", stderr);
+			diag_printf("elc: out of memory\n");
 			return -1;
 		}
 		*items    = grown;
@@ -616,7 +619,7 @@ static int opt_format(const char *arg, CliParse *p)
 		return CLI_OK;
 	}
 
-	fprintf(stderr, "elc: '%s' is not a format; expected table, csv, xml, "
+	diag_printf("elc: '%s' is not a format; expected table, csv, xml, "
 	        "or md\n", arg);
 	return CLI_ERROR;
 }
@@ -661,7 +664,7 @@ static int opt_percentile(const char *arg, const char *what, uint32_t *out)
 	if (parse_threshold(arg, what, out) != 0)
 		return CLI_ERROR;
 	if (*out > 100) {
-		fprintf(stderr, "elc: the %s threshold is a percentage of the "
+		diag_printf("elc: the %s threshold is a percentage of the "
 		        "other functions; %s is above 100\n", what, arg);
 		return CLI_ERROR;
 	}
@@ -748,6 +751,17 @@ static int opt_graphml(const char *arg, CliParse *p)
 	 * simply not write a file. */
 	(void)arg;
 	p->out->graphml = true;
+	return CLI_OK;
+}
+
+static int opt_dbg(const char *arg, CliParse *p)
+{
+	/* Recorded, not validated against --output, by the rule --graphml
+	 * follows: a request for the debug log with the report on standard
+	 * output produces no companion rather than a usage error, since there
+	 * is no name to derive one from (HLR-119, HLR-194). */
+	(void)arg;
+	p->out->debug_log = true;
 	return CLI_OK;
 }
 
@@ -840,7 +854,7 @@ static int opt_define(const char *arg, CliParse *p)
 	 * *means* is a question for the conditional evaluation, which is the
 	 * only place that knows what a language's conditions can test. */
 	if (arg[0] == '\0') {
-		fputs("elc: -D requires a symbol name\n", stderr);
+		diag_printf("elc: -D requires a symbol name\n");
 		return CLI_ERROR;
 	}
 	if (append_borrowed(&p->out->defines, &p->out->define_count,
@@ -857,8 +871,7 @@ static int opt_elf(const char *arg, CliParse *p)
 	 * the parser, which is the module that reads argv and not one that
 	 * reads files (HLR-140, LLR-CLI-22). */
 	if (arg[0] == '\0') {
-		fputs("elc: --elf requires the path of a linked image\n",
-		      stderr);
+		diag_printf("elc: --elf requires the path of a linked image\n");
 		return CLI_ERROR;
 	}
 	p->out->image_path = arg;
@@ -889,6 +902,7 @@ static const struct { int code; OptionFn handle; } OPTION_HANDLERS[] = {
 	{ OPT_SCOPE,         opt_scope         },
 	{ OPT_GRAPHML,       opt_graphml       },
 	{ OPT_DSM,           opt_dsm           },
+	{ OPT_DBG,           opt_dbg           },
 	{ OPT_MANIFEST,      opt_manifest      },
 	{ OPT_WRITE_MANIFEST, opt_write_manifest },
 	{ OPT_PURIFY_DOT,    opt_purify_dot    },
@@ -916,12 +930,12 @@ static OptionFn option_handler(int code)
 static int report_bad_option(int code, char *argv[])
 {
 	if (code == ':')
-		fprintf(stderr, "elc: option '%s' requires an argument\n",
+		diag_printf("elc: option '%s' requires an argument\n",
 		        argv[optind - 1]);
 	else if (optopt)
-		fprintf(stderr, "elc: unrecognised option '-%c'\n", optopt);
+		diag_printf("elc: unrecognised option '-%c'\n", optopt);
 	else
-		fprintf(stderr, "elc: unrecognised option '%s'\n",
+		diag_printf("elc: unrecognised option '%s'\n",
 		        argv[optind - 1]);
 	return CLI_ERROR;
 }
@@ -997,8 +1011,7 @@ static int resolve_format(CliParse *p)
 
 	extension = path_extension(path);
 	if (!extension) {
-		fprintf(stderr,
-		        "elc: output file '%s' has no extension to name a "
+		diag_printf("elc: output file '%s' has no extension to name a "
 		        "report format; expected %s\n",
 		        path, format_extensions(recognised, sizeof recognised));
 		return CLI_ERROR;
@@ -1013,8 +1026,7 @@ static int resolve_format(CliParse *p)
 		 * honouring one would leave the user's own command line
 		 * disagreeing with the file it produced (HLR-149). */
 		if (p->format_given && p->out->format != EXTENSIONS[i].format) {
-			fprintf(stderr,
-			        "elc: --format %s and an output file named "
+			diag_printf("elc: --format %s and an output file named "
 			        "'%s' disagree; the extension already names "
 			        "the format, so name it once or name it the "
 			        "same twice\n",
@@ -1030,8 +1042,7 @@ static int resolve_format(CliParse *p)
 	/* Guessing here would write one format under a name promising another,
 	 * and defaulting to the table would produce a `report.json` holding no
 	 * JSON (HLR-148). */
-	fprintf(stderr,
-	        "elc: '.%s' is not a report format extension; expected %s\n",
+	diag_printf("elc: '.%s' is not a report format extension; expected %s\n",
 	        extension, format_extensions(recognised, sizeof recognised));
 	return CLI_ERROR;
 }
@@ -1050,9 +1061,9 @@ static int check_regenerate(int argc, char *argv[], CliParse *p)
 	 * request is rejected, so that a user who asked for a file and got none
 	 * is told why rather than left to discover the absence (LLR-CLI-15). */
 	if (p->out->graphml) {
-		fputs("elc: --graphml cannot be combined with --from-xml: a "
+		diag_printf("elc: --graphml cannot be combined with --from-xml: a "
 		      "saved record carries the findings of a run, not the "
-		      "graph they came from\n", stderr);
+		      "graph they came from\n");
 		return CLI_ERROR;
 	}
 
@@ -1062,24 +1073,23 @@ static int check_regenerate(int argc, char *argv[], CliParse *p)
 	 * and a user who asked for a file and got none is told why rather than
 	 * left to discover the absence (HLR-122, LLR-CLI-15). */
 	if (p->out->purify_dot) {
-		fputs("elc: --purify-dot cannot be combined with --from-xml: a "
+		diag_printf("elc: --purify-dot cannot be combined with --from-xml: a "
 		      "saved record carries the findings of a run, not the "
-		      "graph they came from\n", stderr);
+		      "graph they came from\n");
 		return CLI_ERROR;
 	}
 
 	if (p->out->write_manifest) {
-		fputs("elc: --write-manifest cannot be combined with "
+		diag_printf("elc: --write-manifest cannot be combined with "
 		      "--from-xml: a saved record carries the classifications a "
-		      "run made, not the graph it made them over\n", stderr);
+		      "run made, not the graph it made them over\n");
 		return CLI_ERROR;
 	}
 
 	if (p->out->manifest_path) {
-		fputs("elc: --manifest cannot be combined with --from-xml: a "
+		diag_printf("elc: --manifest cannot be combined with --from-xml: a "
 		      "saved record already carries the classifications it was "
-		      "written with, and nothing here recomputes them\n",
-		      stderr);
+		      "written with, and nothing here recomputes them\n");
 		return CLI_ERROR;
 	}
 
@@ -1089,9 +1099,9 @@ static int check_regenerate(int argc, char *argv[], CliParse *p)
 	 * who named a configuration and got a different one is told (HLR-136,
 	 * LLR-CLI-24). */
 	if (p->out->define_count > 0) {
-		fputs("elc: -D cannot be combined with --from-xml: a saved "
+		diag_printf("elc: -D cannot be combined with --from-xml: a saved "
 		      "record already describes one configuration, chosen when "
-		      "it was written\n", stderr);
+		      "it was written\n");
 		return CLI_ERROR;
 	}
 
@@ -1100,16 +1110,16 @@ static int check_regenerate(int argc, char *argv[], CliParse *p)
 	 * rendered, so a record already describes the run that was filtered and
 	 * cannot be re-cut against another image (HLR-147, LLR-CLI-23). */
 	if (p->out->image_path) {
-		fputs("elc: --elf cannot be combined with --from-xml: a saved "
+		diag_printf("elc: --elf cannot be combined with --from-xml: a saved "
 		      "record already describes one filtered run, chosen when "
-		      "it was written\n", stderr);
+		      "it was written\n");
 		return CLI_ERROR;
 	}
 
 	/* A saved record is the input, so a target would name a second source
 	 * of truth for the same report. */
 	if (optind < argc) {
-		fprintf(stderr, "elc: --from-xml takes no target, but '%s' was "
+		diag_printf("elc: --from-xml takes no target, but '%s' was "
 		        "given\n", argv[optind]);
 		return CLI_ERROR;
 	}
@@ -1133,16 +1143,15 @@ static int check_regenerate(int argc, char *argv[], CliParse *p)
 		p->out->format = FORMAT_MARKDOWN;
 	else if (p->out->format != FORMAT_MARKDOWN) {
 		if (p->format_from_extension)
-			fprintf(stderr,
-			        "elc: --from-xml produces Markdown, but the "
+			diag_printf("elc: --from-xml produces Markdown, but the "
 			        "output file '%s' names %s; a saved record can "
 			        "be regenerated as Markdown alone\n",
 			        p->out->output_path,
 			        FORMAT_NAMES[p->out->format]);
 		else
-			fputs("elc: --from-xml produces Markdown; no other "
+			diag_printf("elc: --from-xml produces Markdown; no other "
 			      "format can be regenerated from a saved "
-			      "record\n", stderr);
+			      "record\n");
 		return CLI_ERROR;
 	}
 
@@ -1157,6 +1166,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "complexity-threshold", required_argument, NULL, 'c' },
 		{ "output",               required_argument, NULL, 'o' },
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
+		{ "dbg",                  no_argument,       NULL, OPT_DBG },
 		{ "dsm",                  no_argument,       NULL, OPT_DSM },
 		{ "manifest",             required_argument, NULL, OPT_MANIFEST },
 		{ "write-manifest",       no_argument,       NULL, OPT_WRITE_MANIFEST },
@@ -1236,7 +1246,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		return check_regenerate(argc, argv, &p);
 
 	if (optind >= argc) {
-		fputs("elc: no target given\n", stderr);
+		diag_printf("elc: no target given\n");
 		return CLI_ERROR;
 	}
 

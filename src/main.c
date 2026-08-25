@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "diag.h"
 #include "analyze.h"
 #include "arch.h"
 #include "calltree.h"
@@ -169,8 +170,7 @@ static void measure_files(Run *run)
 		                     run->filtered ? &run->image : NULL,
 		                     run->files.paths[i], &metrics, &facts)) {
 		case ANALYZE_SKIPPED:
-			fprintf(stderr,
-			        "elc: %s: no usable language module; skipped\n",
+			diag_printf("elc: %s: no usable language module; skipped\n",
 			        run->files.paths[i]);
 			if (metrics_add_skipped(&run->acc, run->files.paths[i]) != 0)
 				run->failures++;
@@ -235,8 +235,7 @@ static int assemble_report(Run *run)
 	 * match is one file's syntax, needs no whole-project resolution, and
 	 * must be copied before the facts are released (HLR-109). */
 	if (report_set_rules(&run->report, &run->facts_list) != 0) {
-		fputs("elc: out of memory collecting custom-rule matches\n",
-		      stderr);
+		diag_printf("elc: out of memory collecting custom-rule matches\n");
 		return -1;
 	}
 
@@ -264,8 +263,7 @@ static int assemble_report(Run *run)
 static int build_dependence_graph(Run *run)
 {
 	if (graph_build(&run->facts_list, &run->report, &run->sdg) != 0) {
-		fputs("elc: out of memory building the dependence graph\n",
-		      stderr);
+		diag_printf("elc: out of memory building the dependence graph\n");
 		return -1;
 	}
 
@@ -285,7 +283,7 @@ static int analyse_measurements(Run *run)
 {
 	if (calltree_analyse(&run->sdg, &run->opts, &run->tree) != 0 ||
 	    report_set_calltree(&run->report, &run->tree, &run->sdg) != 0) {
-		fputs("elc: out of memory analysing the call tree\n", stderr);
+		diag_printf("elc: out of memory analysing the call tree\n");
 		return -1;
 	}
 
@@ -296,23 +294,21 @@ static int analyse_measurements(Run *run)
 	 * would be a join one of the two paths could forget (HLR-183,
 	 * HLR-187). */
 	if (report_attach_flow(&run->report) != 0) {
-		fputs("elc: out of memory listing threshold breaches\n",
-		      stderr);
+		diag_printf("elc: out of memory listing threshold breaches\n");
 		return -1;
 	}
 
 	if (state_analyse(&run->sdg, &run->opts, &run->state) != 0 ||
 	    report_set_state(&run->report, &run->state, &run->sdg,
 	                     &run->opts) != 0) {
-		fputs("elc: out of memory analysing global state\n", stderr);
+		diag_printf("elc: out of memory analysing global state\n");
 		return -1;
 	}
 
 	if (arch_analyse(&run->sdg, &run->opts, &run->arch) != 0 ||
 	    report_set_arch(&run->report, &run->arch, &run->sdg,
 	                    &run->opts) != 0) {
-		fputs("elc: out of memory analysing component coupling\n",
-		      stderr);
+		diag_printf("elc: out of memory analysing component coupling\n");
 		return -1;
 	}
 
@@ -324,8 +320,7 @@ static int analyse_measurements(Run *run)
 	 * (HLR-165). */
 	if (dsm_build(&run->sdg, &run->report, &run->opts,
 	              &run->report.dsm) != 0) {
-		fputs("elc: out of memory building the dependency matrix\n",
-		      stderr);
+		diag_printf("elc: out of memory building the dependency matrix\n");
 		return -1;
 	}
 
@@ -364,15 +359,14 @@ static int analyse_recovery(Run *run)
 	                   &run->purify) != 0 ||
 	    report_set_purify(&run->report, &run->purify, &run->sdg,
 	                      &run->opts) != 0) {
-		fputs("elc: out of memory purifying the recovery view\n",
-		      stderr);
+		diag_printf("elc: out of memory purifying the recovery view\n");
 		return -1;
 	}
 
 	if (recover_layers(&run->purify, &run->sdg, &run->report,
 	                   &run->recovery) != 0 ||
 	    report_set_recovery(&run->report, &run->recovery) != 0) {
-		fputs("elc: out of memory recovering a layering\n", stderr);
+		diag_printf("elc: out of memory recovering a layering\n");
 		return -1;
 	}
 
@@ -397,7 +391,7 @@ static int analyse_graph(Run *run)
 	if (thresholds_apply(&run->arch, &run->tree, &run->state, &run->sdg,
 	                     &run->opts, &run->findings) != 0 ||
 	    report_set_findings(&run->report, &run->findings) != 0) {
-		fputs("elc: out of memory evaluating thresholds\n", stderr);
+		diag_printf("elc: out of memory evaluating thresholds\n");
 		return -1;
 	}
 
@@ -449,13 +443,13 @@ static int companion_dsm(Run *run, const char *path)
 	int   status;
 
 	if (!file) {
-		fprintf(stderr, "elc: %s: %s\n", path, strerror(errno));
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		return -1;
 	}
 
 	status = format_dsm_csv(&run->report.dsm, file);
 	if (fclose(file) != 0 || status != 0) {
-		fprintf(stderr, "elc: %s: the dependency matrix could not be "
+		diag_printf("elc: %s: the dependency matrix could not be "
 		        "written\n", path);
 		return -1;
 	}
@@ -476,7 +470,7 @@ static void write_companion(Run *run, const char *extension, const char *what,
 	char *companion = graph_companion_path(run->opts.output_path, extension);
 
 	if (!companion) {
-		fprintf(stderr, "elc: out of memory naming the %s file\n", what);
+		diag_printf("elc: out of memory naming the %s file\n", what);
 		run->failures++;
 		return;
 	}
@@ -537,7 +531,7 @@ static int emit(Run *run)
 	if (run->opts.output_path) {
 		run->out = fopen(run->opts.output_path, "w");
 		if (!run->out) {
-			fprintf(stderr, "elc: %s: %s\n", run->opts.output_path,
+			diag_printf("elc: %s: %s\n", run->opts.output_path,
 			        strerror(errno));
 			return -1;
 		}
@@ -546,7 +540,7 @@ static int emit(Run *run)
 	/* Results go to the selected destination and nothing else does; every
 	 * diagnostic above and below went to stderr (HLR-038, LLR-MAIN-12). */
 	if (render_to(&run->report, &run->opts, run->out) != 0) {
-		fprintf(stderr, "elc: %s: %s\n",
+		diag_printf("elc: %s: %s\n",
 		        run->opts.output_path ? run->opts.output_path
 		                              : "standard output",
 		        strerror(errno));
@@ -556,6 +550,45 @@ static int emit(Run *run)
 	write_companions(run);
 
 	return 0;
+}
+
+/* The debug companion, opened before any work is done.
+ *
+ * Before any work because that is the whole of its usefulness: a diagnostic
+ * written before the companion existed is a diagnostic it does not hold, and
+ * the stages that diagnose most — locating the runtime, discovering targets,
+ * loading a grammar — are the earliest ones (HLR-194, LLR-MAIN-26).
+ *
+ * Named by the companion rule of HLR-119, so a report going to standard output
+ * produces none: there is no name to derive one from, and that is not a usage
+ * error. A companion that cannot be opened is a recorded failure and not a
+ * reason to withhold the report the user asked for, exactly as the `.dot` is
+ * (LLR-DOT-05).
+ *
+ * A function of its own rather than four lines in `main`, because `main` is
+ * a sequencer and the four lines were enough to put it over the complexity
+ * threshold `elc` holds its own source to — which its self-analysis caught
+ * (LLR-BLD-23).
+ *
+ * Returns 0, or -1 where the companion was asked for and could not be opened.
+ */
+static int open_debug_companion(Run *run, int argc, char *argv[])
+{
+	char *path;
+	int   status;
+
+	if (!run->opts.debug_log || !run->opts.output_path)
+		return 0;
+
+	path = graph_companion_path(run->opts.output_path, "dbg");
+	if (!path) {
+		diag_printf("elc: out of memory naming the debug file\n");
+		return -1;
+	}
+
+	status = diag_open(path, argc, argv);
+	free(path);
+	return status;
 }
 
 int main(int argc, char *argv[])
@@ -587,6 +620,9 @@ int main(int argc, char *argv[])
 		break;
 	}
 
+	if (open_debug_companion(&run, argc, argv) != 0)
+		run.failures++;
+
 	/* A saved record is its own input: no source file is read, no language
 	 * module is loaded, and nothing is discovered (HLR-055, LLR-MAIN-03).
 	 * It goes straight to rendering, which is the only stage a record has
@@ -613,5 +649,6 @@ int main(int argc, char *argv[])
 		status = ELC_EXIT_FAILURE;
 
 	run_free(&run);
+	diag_close();
 	return status;
 }

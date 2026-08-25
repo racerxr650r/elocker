@@ -2662,6 +2662,56 @@ the variable:
 ELC_RUNTIME_DIR=/path/to/runtime elc src/
 ```
 
+## When something goes wrong on a tree you cannot share
+
+`--dbg` writes a debug log beside the report, named from it the way every
+companion is — an `--output` of `report.md` yields `report.dbg`:
+
+```sh
+elc --dbg -o report.md src/
+```
+
+It exists for the bug reports nobody can reproduce: a proprietary tree, a
+build that only stands up on one machine, a grammar failing on source that
+cannot be attached to an issue. Three things go in it.
+
+**What was run.** The invocation, at the head of the file, because that is the
+first question anyone asks of a log from a machine they do not have.
+
+**Everything that went to standard error.** Every diagnostic the run wrote,
+with a timestamp, plus any detail the diagnosing code had that was too long for
+a terminal.
+
+**The source that would not parse.** Not just the line number — the lines
+themselves:
+
+```text
+elc debug log
+2026-08-24T14:02:11Z  invocation: elc --dbg -o report.md src/
+
+2026-08-24T14:02:11Z  parse failure  src/odd.c:412-414
+       412 | template<> struct X<int, [](){}> {
+       413 |   auto f() -> decltype(auto) requires C<T>;
+       414 | };
+2026-08-24T14:02:11Z  elc: src/odd.c:412: 3 lines could not be parsed; the
+rest of the file is measured
+```
+
+That is the part worth having. A grammar that fails on a construct is debugged
+from the construct, and a line number without its line names a place nobody
+can visit. The recorded text is bounded and says how many lines it left out,
+so a file the grammar could follow nowhere is not copied into the log entire —
+which serves no one and may disclose more of a private tree than you meant.
+
+**It is written as the run proceeds**, not saved up and flushed at the end. If
+`elc` faults or is killed part-way through, the log still holds everything up
+to the fault — which is exactly the run you wanted it for.
+
+**It changes nothing else.** Standard error, the report, and the exit status
+are identical with the option and without it. Asking for it with the report on
+standard output writes no file and is not an error: there is no name to derive
+one from, the same rule `--graphml` and `--dsm` follow.
+
 ## Findings: where a measurement falls, and on whose authority
 
 Every section above **measures**. One section judges — and it is the first
