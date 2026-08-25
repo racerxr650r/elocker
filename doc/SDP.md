@@ -66,6 +66,7 @@ release readiness — is ready to start, and is the last.
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
 | [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols, the debug companion | ✅ Complete |
+| [25](#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes, declared in the report | 🔄 In progress |
 
 ## 0. Required Tools for Development
 
@@ -416,7 +417,7 @@ No release is cut before Phase 16. From then on:
    `develop` is the default branch until then.
 2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release is
    `v0.1.0`.** Feature completeness is not the thing the major version
-   promises — all 25 phases have shipped and the gap list is empty, and the
+   promises — all 26 phases have shipped and the gap list is empty, and the
    number still says the *command-line interface* is not yet fixed. Two
    contracts are already stable regardless, and are stable because a
    requirement says so rather than because a version number implies it:
@@ -2420,6 +2421,117 @@ discovered), step 7 (the manual and man page), step 8's gap-baseline
 update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
 before you push. No further phase is specified: in place of step 12, cut a
 release per §5.5, or open the issue for whatever is specified after this one.
+```
+
+### Phase 25 — Repairing What the Grammar Could Not Follow
+
+Tree-sitter parses source the preprocessor has not touched, so a macro standing
+where the grammar expects a keyword, a type, or a string is a parse error. Three
+shapes account for every failure observed in the field: `local int f(void)`
+where `local` expands to `static`; `printf(BOLD FG_BLUE "text" RESET, x)` where
+the leading macros expand to string literals; and `FUSES = { ... };` where the
+macro expands to a whole declarator.
+
+The grammar cannot fix these. `MACRO MACRO` is genuinely ambiguous with `Type
+var`, which is why the upstream `concatenated_string` rule requires a string
+literal within its first two tokens; relaxing it produces a cascade of conflicts
+against `type_specifier`, and the same restriction stands on `master`. Nor is
+there another grammar to move to: `tree-sitter/tree-sitter-c` is the only
+maintained one, with ten open issues on macro handling, one of them this
+phase's second shape exactly.
+
+Running a preprocessor would fix it and cost more than it is worth: a toolchain
+elc does not have, include paths it cannot know, header functions attributed to
+whichever file included them, and every reported line number moved. A
+cross-compiled tree — the case that raised this — cannot be preprocessed by a
+host compiler at all.
+
+**So elc repairs the source it could not parse, in the buffer, without knowing
+what any macro means.** It needs only enough shape to let the grammar proceed.
+
+1. `repair.c`: given a parsed tree carrying error regions, rewrite the mapped
+   buffer within **those regions only** and parse again, to a fixed point
+   (HLR-196). Repairs never touch text the grammar accepted, which is what
+   stops a repair silently altering code that was already right.
+2. Three rules, each preserving the **line count** of what it replaces
+   (HLR-197). That is the whole of why the figures stay correct: ELOC,
+   complexity and every reported line number are line-based, so a same-line
+   edit cannot move them.
+   *   An upper-case token adjacent to a string literal becomes `""` — a macro
+       expanding to a string, concatenated with the string beside it.
+   *   An unknown token in front of a declaration is blanked — a storage-class
+       or attribute macro.
+   *   `NAME =` alone at file scope is given a type — a macro expanding to a
+       declarator.
+3. **Convergence is bounded and the bound is stated** (HLR-198). Each pass must
+   strictly reduce the damaged region count or the loop stops; a repair that
+   does not help is undone rather than left in.
+4. **The report says what was repaired** (HLR-199), by rule and by count. A
+   repair is a guess the grammar could not make, and a figure that rested on
+   one must say so — the discipline the unresolved-call and undecided-region
+   counts already follow. The debug companion of HLR-194 records each repair
+   with the line before and after.
+
+Measured against a 44-file AVR project before the requirements were written:
+**64 error regions fall to 8, unparsed lines 47 to 5**, with the function count
+unchanged at 524, physical lines identical, and ELOC unchanged at 1699. The
+eight survivors are cascades inside regions an unrepaired error had already
+swallowed.
+
+**Requirements:** HLR-196 – HLR-199, and an amendment to HLR-035 stating that
+the unparsed-line count is what remains *after* repair.
+
+**Nothing here invokes a toolchain, reads a file the user did not name, or
+touches a line the grammar accepted.** HLR-135, HLR-040, HLR-039 and the
+single-parse rule of HLR-076 are unaffected — except that HLR-076's "one parse"
+becomes "one parse per repair pass", which is bounded by HLR-198 and must be
+said rather than assumed.
+
+**Acceptance:** each of the three macro shapes parses clean where it previously
+produced an error region, and measures what the expanded form would have
+measured — verified against a hand-written expanded equivalent, not against
+elc's own output. A file with no error regions is byte-identical before and
+after, and is parsed once. Repair counts appear in the report and each repair
+in the debug companion. Two runs over one target repair identically (HLR-032).
+`make test`, `make asan` and `make valgrind` are clean, `lint_project.py`
+reports 0 errors, and `test/gap-baseline.txt` is still 0.
+
+**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
+
+```text
+Implement **Phase 25 — Repairing What the Grammar Could Not Follow**, tracked
+by issue #<N>.
+
+Read first: `doc/SDD.md` §26 (`repair.c`) and §7 (`analyze.c`); HLR-196
+through HLR-199; and HLR-035, which this phase amends.
+
+Watch for:
+* **A repair is a guess, and the report must say one was made.** The whole
+  defence of this feature is that it is bounded and declared. A repaired
+  figure presented as a clean one is the confidently-wrong result elc exists
+  to avoid — worse than the parse error it replaced, because nothing on the
+  page distinguishes it.
+* **Only inside an error region.** The rules are heuristics and would do
+  damage applied to code that parsed. Drive them from the ERROR nodes, never
+  from a scan of the file.
+* **Preserve the line count, always.** Every rule replaces text with text of
+  the same number of lines. That single property is what keeps ELOC,
+  complexity and every reported location exactly what they would have been,
+  and it is worth asserting in a test of its own.
+* **Bound the loop and prove the bound.** A repair that does not reduce the
+  damage is undone; a pass that changes nothing ends the loop. Without this a
+  rule that reintroduces an error runs forever on somebody else's source.
+* **A file that parses is not touched, and is parsed once.** The repair path
+  must be unreachable for sound source, or the single-parse rule of HLR-076
+  becomes two parses for everybody.
+* **Determinism.** Rules apply in a fixed order to regions in a fixed order,
+  or two runs over one tree produce different reports (HLR-032, HLR-033).
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push.
 ```
 
 ## 9. Risks & Open Questions
