@@ -2175,6 +2175,12 @@ verified by code review — see
 | `LLR-DBG-03` | `diag_printf` | `HLR-194` | `HLR-194: the companion is readable while the run is still going` |
 | `LLR-DBG-04` | `diag_printf` | `HLR-195` | `HLR-195: an unparsable region is recorded with its source` |
 | `LLR-DBG-05` | `diag_printf` | `HLR-194`, `HLR-032` | `HLR-032: the timestamps stay out of the report` |
+| `LLR-RPR-01` | `repair_parse` | `HLR-196`, `HLR-076` | **(no direct test)** |
+| `LLR-RPR-02` | `repair_parse` | `HLR-196`, `HLR-039` | **(no direct test)** |
+| `LLR-RPR-03` | `repair_parse` | `HLR-197` | **(no direct test)** |
+| `LLR-RPR-04` | `repair_parse` | `HLR-198` | **(no direct test)** |
+| `LLR-RPR-05` | `repair_parse` | `HLR-198`, `HLR-032`, `HLR-033` | **(no direct test)** |
+| `LLR-RPR-06` | `repair_parse` | `HLR-199`, `HLR-194` | **(no direct test)** |
 
 ## 5. Integration Test Environment
 
