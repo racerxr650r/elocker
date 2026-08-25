@@ -1176,7 +1176,9 @@ The single place every reported collection is ordered. The audit point for deter
     All three conditions are required. A name the image does not define is excluded from both files whichever was linked, so the ambiguity changes nothing a reader would see; a name the debug information places needs no guess; and a name defined once has nothing to be ambiguous between.
 
     It shall run over the assembled model rather than during the parse, because it is a question about the whole project and one file's parse cannot see the other definition. The analysis already done is discarded, which is the right trade: a filtered figure resting on a guess is indistinguishable from a correct one, and that is what makes it worse than no figure at all.
-    *Trace:* HLR-193 (Image Symbols Placed by Debug Information), HLR-120.
+
+    **Which remedy the diagnostic states shall be decided by `dwarfline_any`, not by the lookup that failed.** An image holding no origins at all is missing debug information and is fixed by rebuilding it with `-g`; an image holding origins but none under this name was built with `-g`, and the remedy concerns the translation unit that defined the function, or the fact that no definition was emitted. Inferring the first from a failed lookup is how `elc` came to advise rebuilding images that already carried what it said they lacked (HLR-201).
+    *Trace:* HLR-193 (Image Symbols Placed by Debug Information), HLR-201 (A Diagnostic States the Condition It Observed), HLR-120.
 
 ## 36. `format_table` ([src/format_text.c](../src/format_text.c))
 
@@ -1538,6 +1540,8 @@ The single place every reported collection is ordered. The audit point for deter
 
 *   <a id="LLR-DWL-06"></a>**LLR-DWL-06** — `dwarfline_read` shall additionally record, for every subprogram the image's debug information describes with a code address, the function's name and the source file it was written in, as a set of **name-and-file pairs** made absolute against the compilation directory by the same rule the line table's file names are.
 
+    The name in each pair shall be the **reduced** form of LLR-SNM-01, and `dwarfline_knows` and `dwarfline_places` shall reduce the name they are given before searching. Debug information records a template instantiation under its instantiated name and an out-of-line member definition under its bare one, while the source side arrives as the declarator `elc` parsed; unreduced, `serialize_seq<int>` and `serialize_seq` are two names and the map answers that it holds no definition of a function it holds three (HLR-200).
+
     The pair is the unit of the map, not the name. Keying by name alone would collapse two translation units defining a `static helper` into one unusable entry, which is precisely the case the map exists to resolve — the debug information carries a separate subprogram for each and knows which file each was written in.
 
     Read from the subprogram DIEs rather than from the line table and a symbol address: the declaration attribute says where a function was *written*, which is the question, while an address lookup answers where its first instruction ended up — a different question that inlining and identical-code folding give a plausible wrong answer to.
@@ -1548,6 +1552,8 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-DWL-07"></a>**LLR-DWL-07** — `dwarfline_knows` shall report whether the map holds any definition of a name, and `dwarfline_places` whether it holds one in a given file. They shall be separate calls, and `dwarfline_places` shall be meaningful only where `dwarfline_knows` is true for the same name.
 
     The split is the one `dwarfline_covers` and `dwarfline_compiled` already take, for the same reason: a single call returning false would conflate "the debug information says this function is not in that file" with "there is no debug information", and a caller that made the distinction by accident would exclude every function of an image built without it.
+
+    `dwarfline_any` shall report whether the map holds any origin at all, which is the question neither of the other two can answer. A false result from `dwarfline_knows` has two causes — the image describes nothing, or it describes plenty and nothing under this name — and a caller that must state which it observed cannot infer it from the lookup that failed (HLR-201).
     *Trace:* HLR-193 (Image Symbols Placed by Debug Information).
 
 *   <a id="LLR-DWL-05"></a>**LLR-DWL-05** — Coverage and compilation shall be two queries rather than one, and the first shall govern the second. `dwarfline_covers` shall answer whether the image's line information describes a file at all; `dwarfline_compiled` shall answer whether a line of it produced an instruction, and shall answer *false* for a file that is not covered.
@@ -1950,3 +1956,21 @@ Repair of the regions the grammar rejected. Every requirement below is a restric
 
     A repair is a guess the grammar could not make. A report that presented a repaired figure as a measured one would be the confidently-wrong result `elc` exists to avoid, and worse than the parse error it replaced — the figures look ordinary, and nothing on the page distinguishes them.
     *Trace:* HLR-199 (Repairs Are Declared), HLR-194.
+
+## 67. `symname_reduce` ([src/symname.c](../src/symname.c))
+
+The one reduction every name comparison goes through. Both requirements below are about a spelling meeting another spelling of the same name, and the second is about the one family of names that must not be reduced at all.
+
+*   <a id="LLR-SNM-01"></a>**LLR-SNM-01** — `symname_reduce` shall reduce a name to its last `::`-separated component with any parameter list, trailing template argument list, leading return type, and Rust legacy hash removed, and shall be the only implementation of that reduction in `elc`.
+
+    Scope resolution and template nesting shall be tracked together: the last `::` that begins a component is the last one at angle depth zero, or the qualification inside `Copy_seq<FACE::Sequence<int> >` is read as the name's own and the result is a fragment of a type.
+
+    **One implementation, because the second copy is the defect.** Two reductions begin identical, one is corrected, and the tool resumes disagreeing with itself in a place no test looks — which is exactly how the debug-information path came to compare unreduced names while the image-symbol path reduced them (HLR-200).
+    *Trace:* HLR-200 (Names Compared in One Reduced Form), HLR-014.
+
+*   <a id="LLR-SNM-02"></a>**LLR-SNM-02** — `symname_reduce` shall step over an `operator` token whole, and shall remove a trailing template argument list **only where that list closes** — that is, only where the name ends in `>` and a matching `<` is found at depth zero before it. A name with nothing left to compare shall reduce to nothing rather than to the empty string.
+
+    Four operators end in a bracket that opens nothing: `operator>`, `operator>>`, and — through the scope and signature scans rather than this one — `operator<` and `operator<=`. A reduction that truncated at any trailing `>` would leave `operator`, and one that also stripped the scope would leave nothing. An empty key is the worse outcome of the two, because it does not fail: it matches every other name that reduced to nothing, and the map answers confidently about a function it has never seen.
+
+    `operator()` and the `(anonymous namespace)` qualifier are the same hazard in the signature scan, and are stepped over for the same reason.
+    *Trace:* HLR-200 (Names Compared in One Reduced Form).

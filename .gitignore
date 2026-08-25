@@ -66,6 +66,9 @@ dkms.conf
 # debug information files
 *.dwo
 
+# Temp files
+/tmp/
+
 # Build output
 /build/
 

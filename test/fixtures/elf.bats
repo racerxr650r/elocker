@@ -441,6 +441,76 @@ build_ambiguous() {
 	assert_output --partial "rebuild the image with -g"
 }
 
+# A tree in which a function *template* is defined in two headers. This is the
+# shape HLR-200 is about: DWARF records the instantiation under its
+# instantiated name, `serialize_seq<int>`, while the source declares the bare
+# `serialize_seq`, and before the two were reduced to one spelling the map
+# answered "no such function" for one the image describes completely.
+#
+# Built twice. `app` carries debug information for the unit that instantiated
+# the template; `mixed` carries debug information, but not for that unit — the
+# condition HLR-201 must tell apart from an image with none.
+build_templated() {
+	require_tool c++ "HLR-200 reduced name matching"
+	TPL="$BATS_TEST_TMPDIR/tpl"
+	mkdir -p "$TPL/micro" "$TPL/pro"
+	printf 'template <typename T>\nint serialize_seq(T *out, const T *in)\n{\n\tif (!out || !in)\n\t\treturn -1;\n\t*out = *in;\n\treturn 0;\n}\n' \
+		> "$TPL/micro/plugin.hpp"
+	cp "$TPL/micro/plugin.hpp" "$TPL/pro/plugin.hpp"
+	printf '#include "micro/plugin.hpp"\nint use(int *o, const int *i)\n{\n\treturn serialize_seq<int>(o, i);\n}\n' \
+		> "$TPL/unit.cpp"
+	printf 'int use(int *, const int *);\nint main(void)\n{\n\tint a = 1, b = 0;\n\treturn use(&b, &a);\n}\n' \
+		> "$TPL/main.cpp"
+
+	c++ -O0 -g -o "$TPL/app" "$TPL/unit.cpp" "$TPL/main.cpp" -I"$TPL" \
+		2>/dev/null || skip "c++ cannot link here: HLR-200 unverified"
+
+	# One unit without -g, the rest with: debug information is present and
+	# says nothing about this name.
+	c++ -O0 -g0 -c -o "$TPL/unit.o" "$TPL/unit.cpp" -I"$TPL" 2>/dev/null &&
+	c++ -O0 -g   -c -o "$TPL/main.o" "$TPL/main.cpp" 2>/dev/null &&
+	c++ -o "$TPL/mixed" "$TPL/main.o" "$TPL/unit.o" 2>/dev/null || \
+		skip "c++ cannot link here: HLR-201 unverified"
+}
+
+@test "HLR-200: a templated name is placed by the file the debug information names" {
+	# The run this reported as impossible. Both headers define
+	# serialize_seq; DWARF places the instantiation in micro/, so that is
+	# the definition kept and pro/'s is dropped.
+	build_templated
+	elc --verbose --elf "$TPL/app" "$TPL"
+	assert_success
+
+	local kept
+	kept="$(printf '%s\n' "$output" |
+		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && $2 == "serialize_seq" { print $1 }')"
+	assert_equal "$kept" "$TPL/micro/plugin.hpp"
+}
+
+@test "HLR-201: an image with no debug information at all names -g as the remedy" {
+	# The condition the old diagnostic described. It is still described,
+	# and rebuilding with -g is still what fixes it.
+	build_ambiguous
+	run bash -c '"$0" --elf "$1" "$2" "$3" "$4" 2>&1 >/dev/null' \
+		"$ELC" "$AMB/without" "$AMB/a.c" "$AMB/b.c" "$AMB/m.c"
+
+	assert_output --partial "carries no debug information at all"
+	assert_output --partial "rebuild the image with -g"
+}
+
+@test "HLR-201: debug information that does not describe the name says so" {
+	# The condition the old diagnostic misreported as the one above. The
+	# image carries debug information; it simply has no entry for this
+	# function, and rebuilding the whole image with -g is not the fix.
+	build_templated
+	run bash -c '"$0" --elf "$1" "$2" 2>&1 >/dev/null' \
+		"$ELC" "$TPL/mixed" "$TPL"
+
+	assert_output --partial "describes no definition of it"
+	refute_output --partial "carries no debug information at all"
+}
+
 @test "HLR-193: no report is produced when the run fails" {
 	# A filtered figure resting on a guess is indistinguishable from a
 	# correct one, which is what makes it worse than no figure at all.

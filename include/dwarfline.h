@@ -103,6 +103,16 @@ typedef struct {
  */
 int dwarfline_read(void *elf, LineCoverage *out, OriginMap *origins);
 
+/* Whether the image described any function's origin at all.
+ *
+ * The question `dwarfline_knows` cannot answer. A false result from that call
+ * has two causes with different remedies — the image carries no debug
+ * information, or it carries plenty and simply describes no definition of this
+ * name — and a diagnostic that names one condition while observing the other
+ * sends its reader somewhere there is nothing to find (HLR-201).
+ */
+bool dwarfline_any(const OriginMap *origins);
+
 /* Whether the debug information records this function at all, in any file.
  *
  * The question that decides whether the map can be trusted for a name. False

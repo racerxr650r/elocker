@@ -28,6 +28,7 @@
 #include <elfutils/libdw.h>
 
 #include "dwarfline.h"
+#include "symname.h"
 
 /* ------------------------------------------------------------- utilities -- */
 
@@ -325,6 +326,8 @@ static int on_subprogram(Dwarf_Die *die, void *arg)
 	const char *name = dwarf_diename(die);
 	const char *decl;
 	char       *path;
+	char       *key;
+	int         rc;
 
 	/* A declaration with no code is not a definition, and the question is
 	 * which file *defines* the function. `dwarf_getfuncs` reaches abstract
@@ -337,13 +340,27 @@ static int on_subprogram(Dwarf_Die *die, void *arg)
 	if (!decl)
 		return DWARF_CB_OK;
 
+	/* Keyed on the reduced form, because that is the form the source side
+	 * is compared in. DWARF records a template instantiation under its
+	 * instantiated name — `serialize_seq<int>` — while the source declares
+	 * `serialize_seq`, and a map keyed on the raw spelling answers "no
+	 * such function" for one the image describes completely (HLR-200). */
+	key = symname_reduce(name);
+	if (!key)
+		return DWARF_CB_OK;
+
 	path = absolute(decl, walk->comp_dir);
 	if (!path) {
+		free(key);
 		walk->status = -1;
 		return DWARF_CB_ABORT;
 	}
 
-	if (origin_add(walk->out, name, path) != 0) {
+	/* `origin_add` takes the path and copies the key, so the key is ours
+	 * to release either way. */
+	rc = origin_add(walk->out, key, path);
+	free(key);
+	if (rc != 0) {
 		walk->status = -1;
 		return DWARF_CB_ABORT;
 	}
@@ -394,31 +411,57 @@ static size_t origin_lower_bound(const OriginMap *origins, const char *name)
 	return low;
 }
 
+bool dwarfline_any(const OriginMap *origins)
+{
+	return origins && origins->count > 0;
+}
+
 bool dwarfline_knows(const OriginMap *origins, const char *function)
 {
 	size_t at;
+	char  *key;
+	bool   hit;
 
 	if (!origins || !function || origins->count == 0)
 		return false;
 
-	at = origin_lower_bound(origins, function);
-	return at < origins->count &&
-	       strcmp(origins->items[at].name, function) == 0;
+	/* Reduced on the way in, because the map is keyed reduced. The source
+	 * side reaches here as the declarator `elc` parsed — `serialize_seq`,
+	 * or `S::method` — and the map holds what DWARF recorded (HLR-200). */
+	key = symname_reduce(function);
+	if (!key)
+		return false;
+
+	at  = origin_lower_bound(origins, key);
+	hit = at < origins->count &&
+	      strcmp(origins->items[at].name, key) == 0;
+	free(key);
+	return hit;
 }
 
 bool dwarfline_places(const OriginMap *origins, const char *function,
                       const char *file)
 {
+	char *key;
+	bool  hit = false;
+
 	if (!origins || !function || !file || origins->count == 0)
 		return false;
 
-	for (size_t i = origin_lower_bound(origins, function);
-	     i < origins->count &&
-	     strcmp(origins->items[i].name, function) == 0; i++)
-		if (strcmp(origins->items[i].file, file) == 0)
-			return true;
+	key = symname_reduce(function);
+	if (!key)
+		return false;
 
-	return false;
+	for (size_t i = origin_lower_bound(origins, key);
+	     i < origins->count &&
+	     strcmp(origins->items[i].name, key) == 0; i++)
+		if (strcmp(origins->items[i].file, file) == 0) {
+			hit = true;
+			break;
+		}
+
+	free(key);
+	return hit;
 }
 
 void originmap_free(OriginMap *origins)
