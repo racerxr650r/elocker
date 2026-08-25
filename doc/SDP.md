@@ -66,7 +66,8 @@ release readiness — is ready to start, and is the last.
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
 | [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols, the debug companion | ✅ Complete |
-| [25](#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes, declared in the report | 🔄 In progress |
+| [25](#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes, declared in the report | ✅ Complete |
+| [26](#phase-26--placing-templated-names-by-debug-information) | DWARF names reduced the way image symbols are; a diagnostic that states what it observed | 🔄 In progress |
 
 ## 0. Required Tools for Development
 
@@ -417,7 +418,7 @@ No release is cut before Phase 16. From then on:
    `develop` is the default branch until then.
 2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release is
    `v0.1.0`.** Feature completeness is not the thing the major version
-   promises — all 26 phases have shipped and the gap list is empty, and the
+   promises — all 27 phases have shipped and the gap list is empty, and the
    number still says the *command-line interface* is not yet fixed. Two
    contracts are already stable regardless, and are stable because a
    requirement says so rather than because a version number implies it:
@@ -2526,6 +2527,99 @@ Watch for:
   becomes two parses for everybody.
 * **Determinism.** Rules apply in a fixed order to regions in a fixed order,
   or two runs over one tree produce different reports (HLR-032, HLR-033).
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push.
+```
+
+### Phase 26 — Placing Templated Names by Debug Information
+
+`elc --elf` refuses a run it has everything it needs to complete. Given a C++
+image built **with `-g`** and a function-template name defined in two analysed
+headers, HLR-193's ambiguity check fails the run and prints:
+
+```text
+elc: serialize_seq is defined in .../micro/plugin.hpp and .../pro/plugin.hpp,
+and .../app carries no debug information placing it; rebuild the image with -g
+so the filter can tell them apart
+```
+
+Every clause after the comma is false. Walking the image with the same `libdw`
+calls `elc` makes returns **135 compilation units and 2167 usable
+subprograms**, and the function comes back complete — `DW_AT_low_pc` set and
+`DW_AT_decl_file` naming exactly one of the two headers. DWARF holds precisely
+the answer HLR-193 asks for, and the run fails anyway.
+
+The miss is on the **spelling of the name**, not on the absence of data.
+`dwarf_diename` returns the instantiated name, `serialize_seq<int>`; the
+origin map is keyed on that, while every lookup passes the bare declarator
+parsed from the header. The comparison is `strcmp`, so `<int>` is the whole of
+the failure.
+
+**`elc` already solves this one layer away.** `elfsyms_defines` reconciles a
+source name with an image symbol through `reduce_to_identifier` (HLR-142,
+LLR-SYM-03), whose `without_template_args` strips exactly this suffix — and
+strips it safely, acting only on a name ending in `>`, so `operator<`,
+`operator<<` and `operator<=` pass through untouched. The DWARF origin map is
+the one name-matching path in the tool that does not go through that
+reduction. This phase is mostly the removal of that inconsistency.
+
+1. **One name, one spelling, on every path that compares names** (HLR-200).
+   Key the origin map and the lookups into it through the same reduction that
+   already reconciles source names with image symbols. A tool that normalises
+   names for one comparison and not for another will disagree with itself, and
+   the disagreement surfaces as a confident false statement rather than as an
+   error.
+2. **A diagnostic states the condition it observed** (HLR-201). *The image
+   carries no debug information* and *the debug information has no entry under
+   this name* are different conditions with different remedies, and only the
+   first is answered by rebuilding with `-g`. Advice that cannot work is worse
+   than none: it sends a reader to rebuild an image that was already correct,
+   and when that changes nothing there is nowhere left to look.
+
+**Requirements:** HLR-200, HLR-201, and an amendment to HLR-193 stating that
+the names it compares are the reduced forms.
+
+**Nothing here loosens the rule.** A name the debug information genuinely
+cannot place, in a tree where two files define it, still fails the run and
+still produces no report — HLR-193's reasoning is untouched. What changes is
+that the tool now reaches that conclusion only when it is true.
+
+**Acceptance:** a C++ image built with `-g`, whose templated function name is
+defined in two analysed headers, filters to the definition DWARF places rather
+than failing. `operator<`, `operator<<`, `operator>` and `operator>>` survive
+the reduction unchanged. An image genuinely built without `-g` still fails and
+still names `-g` as the remedy; an image whose debug information simply lacks
+the name fails with a diagnostic describing *that* condition. Verified against
+a fixture image built by the test, not against a recorded string.
+
+```text
+AI prompt — Phase 26
+
+Read issue #68 and HLR-193, HLR-142 and LLR-SYM-03 before touching code.
+
+The bug is a name-spelling mismatch, not a missing-data condition. Confirm
+that for yourself first: build a two-header C++ reproduction, compile it with
+-g, and watch elc claim the image carries no debug information. Then walk the
+image with libdw and find the entry it claims is absent.
+
+Two changes, and resist making a third:
+
+* Reduce DWARF names the same way image symbols are already reduced, so the
+  origin map is keyed and searched in one spelling. Reuse
+  `reduce_to_identifier` rather than writing a second reduction — a name
+  normalised two ways is the defect this phase exists to remove, and adding
+  another normaliser reintroduces it in a new place.
+* Split the diagnostic so it distinguishes an image with no DWARF from DWARF
+  with no entry for the name. Check the condition; do not infer it from the
+  failed lookup.
+
+Do not widen HLR-193. A genuinely unplaceable ambiguous name must still fail
+the run and produce no report. The `operator<` family is the trap in the
+reduction — cover it with a test whatever your reading of the code says.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

@@ -970,7 +970,9 @@ Each of those is answerable on its own and none of them answers the question a m
 
     Matching by name alone is wrong wherever a name is not unique across the analysed source. Two translation units defining a `static helper` produce two symbols, which the link may keep or discard independently; a filter keyed on the name retains both definitions or discards both, and in either case one of them is wrong. The debug information records a separate subprogram for each definition and the file it was written in, which answers the question exactly.
 
-    **Where the debug information cannot place a name and two or more analysed files define it, the run shall fail** with a diagnostic naming the function, both files, the image, and the remedy — and shall produce no report. Retaining both definitions overstates what the build contains, and retaining the first is a guess presented with the authority of a measurement; a filtered figure a reader cannot trust is worse than no figure, because nothing distinguishes it from a correct one.
+    The names compared are the **reduced** forms of HLR-200, not the spellings each side happens to record. The debug information writes a template instantiation as `f<int>` and an out-of-line member definition as plain `f` where the source writes `f` and `S::f`; compared unreduced, an image describing a function completely answers that it does not describe it at all.
+
+    **Where the debug information cannot place a name and two or more analysed files define it, the run shall fail** with a diagnostic naming the function, both files, the image, and the remedy — and shall produce no report. Which remedy is stated depends on which condition was observed (HLR-201). Retaining both definitions overstates what the build contains, and retaining the first is a guess presented with the authority of a measurement; a filtered figure a reader cannot trust is worse than no figure, because nothing distinguishes it from a correct one.
 
     The failure is confined to that case. A name defined once is unaffected, a name the image does not define is unaffected — the ambiguity changes nothing a reader would see, since both definitions are excluded whichever was linked — and a run with no image never asks the question. Debug information remains **not required** (HLR-141): an image built without it filters exactly as before wherever the source defines each name once.
     *Trace:* [SDD Section 18](SDD.md), [SDD Section 19](SDD.md), [SDD Section 13](SDD.md).
@@ -1056,6 +1058,32 @@ What is left is to repair the source enough for the grammar to proceed, which ne
 
     The unparsed-line count of HLR-035 shall be what remains **after** repair, since it exists to tell a reader how much of a file was not measured, and repaired lines were.
     *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md), [SDD Section 25](SDD.md).
+
+## 26. Placing Templated Names by Debug Information
+
+Requirements governing the spelling a name is compared in, and what a diagnostic may assert about a condition it did not observe.
+
+`elc` compares names on three paths: a source name against an image symbol, a source name against a subprogram in the debug information, and a source name against another source name. The first path reduced both sides to the identifier the report presents; the second did not. The consequence was not an error but a confident false statement — an image built with `-g`, whose debug information described a function completely, reported as carrying none, with the advice to rebuild it with `-g`.
+
+*   <a id="HLR-200"></a>**HLR-200: Names Compared in One Reduced Form.**
+    Wherever `elc` compares two spellings of a function's name, it shall reduce both to the identifier the report presents (HLR-014) before comparing them.
+
+    A name reaches the tool in several spellings. A demangled Itanium symbol is `ns::C::f(int) const`. Debug information records a template instantiation as `f<int>` and an out-of-line member definition as plain `f`. The source declares `f`, or `S::f`. These are the same function, and a comparison that treats any two of them as different names is wrong in a way that produces an answer rather than an error.
+
+    **The reduction shall be one implementation, used by every path that compares names.** A second copy is not a duplication to be tidied later but the defect itself: the two copies begin identical, one is corrected, and the tool resumes disagreeing with itself somewhere no test looks. Where the module structure will not permit both users to reach one implementation, the structure is what changes.
+
+    An `operator` token shall survive the reduction whole. Its own name may contain the characters the other rules key on — `operator<`, `operator>>`, `operator()`, `operator->` — and a reduction that read those as template brackets or scope separators would truncate an operator to nothing, which is worse than not reducing it: an empty key matches every other name that reduced to nothing.
+    *Trace:* [SDD Section 26](SDD.md), [SDD Section 19](SDD.md).
+
+*   <a id="HLR-201"></a>**HLR-201: A Diagnostic States the Condition It Observed.**
+    Where `elc` fails a run because the debug information could not place an ambiguous name, the diagnostic shall distinguish **an image carrying no debug information** from **debug information that describes no definition of that name**, and shall state the one it observed.
+
+    The two conditions look identical to a lookup that returns false and have different remedies. The first is answered by rebuilding the image with `-g`. The second is not: the image was built with `-g`, and either the translation unit defining the function was not, or the definition was never emitted. A diagnostic that names the first while observing the second sends its reader to rebuild an image that was already correct, and when that changes nothing there is nowhere left to look — the tool has spent the user's time and given them no way to spend their own.
+
+    **The condition shall be checked rather than inferred from the failed lookup.** This is the split HLR-153's queries already take, where `dwarfline_covers` governs `dwarfline_compiled` so that absence of evidence cannot be read as evidence of absence. The requirement here applies the same discipline one layer up, to what the tool then says about it.
+
+    Advising a remedy is required by HLR-193 and does not reopen HLR-101. HLR-101 forbids `elc` recommending changes to the code it measures; this concerns how the image was built, which is a fact about the tool's own inputs.
+    *Trace:* [SDD Section 26](SDD.md), [SDD Section 14](SDD.md).
 
 ## 23. Report Composition and Per-Function Banding
 

@@ -579,14 +579,31 @@ int report_check_image_ambiguity(const Report *report, const SymbolSet *image)
 					           name) != 0)
 						continue;
 
-					diag_printf("elc: %s is defined in %s and "
-					        "%s, and %s carries no debug "
-					        "information placing it; "
-					        "rebuild the image with -g so "
-					        "the filter can tell them "
-					        "apart\n",
-					        name, fi->path, fj->path,
-					        image->path);
+					/* Two conditions reach here, and they
+					 * have different remedies. Naming the
+					 * one that was not observed sends a
+					 * reader to rebuild an image that was
+					 * already correct (HLR-201). */
+					if (dwarfline_any(&image->origins))
+						diag_printf("elc: %s is defined in "
+						        "%s and %s, and the debug "
+						        "information in %s describes "
+						        "no definition of it; the "
+						        "unit defining it was "
+						        "compiled without -g, or the "
+						        "definition was never "
+						        "emitted\n",
+						        name, fi->path, fj->path,
+						        image->path);
+					else
+						diag_printf("elc: %s is defined in "
+						        "%s and %s, and %s carries "
+						        "no debug information at "
+						        "all; rebuild the image "
+						        "with -g so the filter can "
+						        "tell them apart\n",
+						        name, fi->path, fj->path,
+						        image->path);
 					return -1;
 				}
 			}

@@ -2217,16 +2217,40 @@ Functions the image does not define (2)
   used_b    /home/u/proj/src/b.c     2
 ```
 
-**Without it, `elc` refuses the run:**
+Names are compared in the form the report presents them, so the spelling each
+side happens to record does not matter. Debug information writes a C++
+template instantiation as `serialize_seq<int>` and an out-of-line member
+definition as plain `f`, where your source writes `serialize_seq` and
+`S::f` — the same functions, and `elc` treats them as such.
+
+**Where the debug information cannot answer, `elc` refuses the run.** Which of
+two reasons it gives depends on what it found, because they have different
+fixes. If the image carries no debug information at all:
 
 ```sh
 $ elc --elf build/app src/
 elc: helper is defined in src/a.c and src/b.c, and build/app carries no
-debug information placing it; rebuild the image with -g so the filter can
-tell them apart
+debug information at all; rebuild the image with -g so the filter can tell
+them apart
 $ echo $?
 2
 ```
+
+If the image carries debug information but nothing about this function —
+the usual cause being one translation unit compiled without `-g` while the
+rest of the build had it:
+
+```sh
+$ elc --elf build/app src/
+elc: helper is defined in src/a.c and src/b.c, and the debug information in
+build/app describes no definition of it; the unit defining it was compiled
+without -g, or the definition was never emitted
+$ echo $?
+2
+```
+
+Rebuilding the whole image with `-g` fixes the first and does nothing for the
+second, which is why the two are not one message.
 
 No report is written. Retaining both definitions overstates what the build
 contains, and retaining the first is a guess wearing the authority of a

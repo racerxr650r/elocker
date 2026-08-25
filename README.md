@@ -258,7 +258,7 @@ the target, an ancestor, or a dotfile. And `--purify-dot` draws the graph twice,
 before and after, with the masked functions greyed and detached rather than
 deleted, so you can see what was set aside before deciding to trust it.
 
-**Progress: 25 of 26 phases complete.**
+**Progress: 26 of 27 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -290,7 +290,8 @@ deleted, so you can see what was set aside before deciding to trust it.
 | [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
 | [24](doc/SDP.md#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols, the debug companion | ✅ Complete |
-| [25](doc/SDP.md#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes, declared in the report | 🔄 In progress |
+| [25](doc/SDP.md#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes, declared in the report | ✅ Complete |
+| [26](doc/SDP.md#phase-26--placing-templated-names-by-debug-information) | DWARF names reduced the way image symbols are; a diagnostic that states what it observed | 🔄 In progress |
 
 </details>
 
