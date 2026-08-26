@@ -138,7 +138,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1158 test(s)** across
+Snapshot: **1167 test(s)** across
 **55 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
@@ -213,7 +213,7 @@ Role: **unit**. **8 test(s).**
 
 ### 3.4. [test/fixtures/preproc.bats](../test/fixtures/preproc.bats)
 
-Role: **fixture**. **19 test(s).**
+Role: **fixture**. **26 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -231,26 +231,34 @@ Role: **fixture**. **19 test(s).**
 | 12 | <a id="HLR-206: a fallen-back file is named with its reason"></a>`HLR-206: a fallen-back file is named with its reason` | — | A count alone would say how many but not which, and the remedies differ: a missing compiler is answered by installing one and a rejected file is not. |
 | 13 | <a id="HLR-207: the C standard library a file draws on is reported"></a>`HLR-207: the C standard library a file draws on is reported` | `LLR-PRE-06` | The headers the filter already saw, reported rather than discarded. It answers the question no other measurement here does — what it would take to build this somewhere else. |
 | 14 | <a id="HLR-207: the C++ standard library is distinguished from the C one"></a>`HLR-207: the C++ standard library is distinguished from the C one` | `LLR-PRE-06` | The distinction a freestanding target makes urgent, and one the path cannot supply: a C++ implementation's headers sit in the same directories as C's. |
-| 15 | <a id="HLR-207: a file that fell back claims no dependence at all"></a>`HLR-207: a file that fell back claims no dependence at all` | `LLR-PRE-06` | Absence of an answer rather than the answer "none". A file elc could not expand was never asked, and the provenance table is what tells a reader which files were. |
-| 16 | <a id="LLR-PRE-02: comments are preserved and no flag is invented"></a>`LLR-PRE-02: comments are preserved and no flag is invented` | `LLR-PRE-02` | Asserted against the invocation itself rather than against a figure, because both halves are about what elc asks for: a preprocessor discards comments unless told not to, and an include path elc invented would read a header the user never named. A wrapper named by --cc records the arguments. |
-| 17 | <a id="LLR-PRE-02: a flag the user supplies is forwarded"></a>`LLR-PRE-02: a flag the user supplies is forwarded` | `LLR-PRE-02` | The other half of the rule. elc invents nothing and forwards what it is told, which is what lets a project whose headers are not beside its sources be expanded at all. |
-| 18 | <a id="HLR-032: two runs over one target expand identically"></a>`HLR-032: two runs over one target expand identically` | — | Expansion introduces a subprocess, and a subprocess is where non-determinism enters a tool. Two runs are compared byte for byte. |
-| 19 | <a id="HLR-043: expansion writes no intermediate file"></a>`HLR-043: expansion writes no intermediate file` | `LLR-PRE-01` | No temporary file means no path to collide on under parallel runs, nothing left behind by a killed process, and no write to a tree elc promises not to modify. |
+| 15 | <a id="HLR-207: a C library call MISRA forbids is a warning citing its rule"></a>`HLR-207: a C library call MISRA forbids is a warning citing its rule` | `LLR-THR-19` | The finding names the function and cites the rule that forbids it, attributed to MISRA C:2012 rather than to elc. A reader can look the rule up and disagree with it, which is what separates a citation from an opinion. |
+| 16 | <a id="HLR-207: the rule cited is the one that forbids that function"></a>`HLR-207: the rule cited is the one that forbids that function` | `LLR-THR-19` | Three functions, three different rules. A single rule number against everything would be a citation nobody could check. |
+| 17 | <a id="HLR-207: a function the project defines itself is not reported"></a>`HLR-207: a function the project defines itself is not reported` | `LLR-THR-19` | The rule is about the standard library's function, not about every function sharing its spelling. A project supplying its own resolves in the graph and never reaches the unresolved calls this reads. |
+| 18 | <a id="HLR-207: a permitted function in a constrained header is not reported"></a>`HLR-207: a permitted function in a constrained header is not reported` | `LLR-THR-19` | `<stdlib.h>` supplies `abs`, which MISRA permits, beside `malloc`, which it does not. A rule keyed on the include would be a false claim about code that called neither — which is why the table is keyed by function. |
+| 19 | <a id="HLR-100: a MISRA finding does not reach the exit status"></a>`HLR-100: a MISRA finding does not reach the exit status` | — | MISRA states no count at which use becomes unacceptable, and a great many programs use these facilities correctly. The finding is a figure to read, and the run succeeds. |
+| 20 | <a id="HLR-207: a file that fell back claims no dependence at all"></a>`HLR-207: a file that fell back claims no dependence at all` | `LLR-PRE-06` | Absence of an answer rather than the answer "none". A file elc could not expand was never asked, and the provenance table is what tells a reader which files were. |
+| 21 | <a id="LLR-PRE-02: comments are preserved and no flag is invented"></a>`LLR-PRE-02: comments are preserved and no flag is invented` | `LLR-PRE-02` | Asserted against the invocation itself rather than against a figure, because both halves are about what elc asks for: a preprocessor discards comments unless told not to, and an include path elc invented would read a header the user never named. A wrapper named by --cc records the arguments. |
+| 22 | <a id="LLR-PRE-02: a flag the user supplies is forwarded"></a>`LLR-PRE-02: a flag the user supplies is forwarded` | `LLR-PRE-02` | The other half of the rule. elc invents nothing and forwards what it is told, which is what lets a project whose headers are not beside its sources be expanded at all. |
+| 23 | <a id="HLR-208: a file elc could not fully decide is not expanded"></a>`HLR-208: a file elc could not fully decide is not expanded` | `LLR-PRE-07` | elc leaves an undecidable region whole and counts both branches; the preprocessor reads the undefined symbol as 0 and keeps one. Expanding such a file would replace the region's measurement with an arbitrary configuration's, under a figure the reader has been told is complete. Both branches survive and the fallback is stated. |
+| 24 | <a id="HLR-208: the run's own -D reaches the preprocessor"></a>`HLR-208: the run's own -D reaches the preprocessor` | `LLR-PRE-07` | elc deciding a condition one way while the preprocessor decides it the other would measure a build nobody asked for. With the symbol defined the two agree, the region is decided rather than counted, and only the taken branch is measured. |
+| 25 | <a id="HLR-032: two runs over one target expand identically"></a>`HLR-032: two runs over one target expand identically` | — | Expansion introduces a subprocess, and a subprocess is where non-determinism enters a tool. Two runs are compared byte for byte. |
+| 26 | <a id="HLR-043: expansion writes no intermediate file"></a>`HLR-043: expansion writes no intermediate file` | `LLR-PRE-01` | No temporary file means no path to collide on under parallel runs, nothing left behind by a killed process, and no write to a tree elc promises not to modify. |
 
 ### 3.5. [test/unit/preproc.c](../test/unit/preproc.c)
 
-Role: **unit**. **8 test(s).**
+Role: **unit**. **9 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
 | 1 | <a id="only_the_analysed_file_survives"></a>`only_the_analysed_file_survives` | `LLR-PRE-03` | Only lines the marker stream attributes to the file under analysis are kept. Without this a header contributes its functions, its lines and its complexity to whichever file included it — figures that are larger, internally consistent, and about a program nobody wrote. |
 | 2 | <a id="a_retained_line_keeps_its_line_number"></a>`a_retained_line_keeps_its_line_number` | `LLR-PRE-04` | A line the filter kept sits at the line it occupies in the source. Every figure elc reports is line-based, so a filter that concatenated what it kept would displace every function range and every finding by whatever it discarded above them. |
 | 3 | <a id="a_marker_that_rewinds_is_ignored"></a>`a_marker_that_rewinds_is_ignored` | `LLR-PRE-04` | A marker announcing a line already passed occurs where a macro expansion spans lines and the preprocessor resynchronises. Acting on it would let the filter overwrite a line already written, and a buffer that can rewind is one whose contents depend on the order the markers happened to arrive. |
-| 4 | <a id="output_naming_the_file_nowhere_is_a_failure"></a>`output_naming_the_file_nowhere_is_a_failure` | `LLR-PRE-05` | A zero-line measurement of a file that has lines is the silent wrong answer this module exists not to produce — indistinguishable in the report from a file that is genuinely empty. It is a fallback, not an empty result. |
-| 5 | <a id="program_text_resembling_a_marker_changes_nothing"></a>`program_text_resembling_a_marker_changes_nothing` | `LLR-PRE-03` | A string constant in somebody's source must not decide which of their code elc reports on. The marker stream is the only authority on state, and a line's content is never inspected. |
-| 6 | <a id="an_escaped_name_compares_equal"></a>`an_escaped_name_compares_equal` | `LLR-PRE-03` | A path holding a quote or a backslash reaches the marker escaped. Compared raw it would never equal the path elc holds, and the file would fall back for a reason nothing in the output explains. |
-| 7 | <a id="standard_headers_are_recorded_and_classified"></a>`standard_headers_are_recorded_and_classified` | `LLR-PRE-06` | The two standard libraries are told apart by name, because the path cannot do it: a C++ implementation's `cstdio` and C's `stdio.h` sit in the same directories. A project header is neither. |
-| 8 | <a id="a_header_reached_twice_is_recorded_once"></a>`a_header_reached_twice_is_recorded_once` | `LLR-PRE-06` | A translation unit re-enters a header whenever an include guard is re-evaluated. A list counting those would report a dependence proportional to the include graph rather than to the code. |
+| 4 | <a id="a_split_expansion_is_rejoined_onto_its_own_line"></a>`a_split_expansion_is_rejoined_onto_its_own_line` | `LLR-PRE-04` | A preprocessor lays one source line's replacement out across several — `return NULL;` reaches the buffer as three lines where the source had one. Without rejoining them every location below the first such expansion is displaced by however many the file accumulated, a drift that grows down the file and that no reader could detect. Asserted with the expansion still present, so the fix cannot be to discard it. |
+| 5 | <a id="output_naming_the_file_nowhere_is_a_failure"></a>`output_naming_the_file_nowhere_is_a_failure` | `LLR-PRE-05` | A zero-line measurement of a file that has lines is the silent wrong answer this module exists not to produce — indistinguishable in the report from a file that is genuinely empty. It is a fallback, not an empty result. |
+| 6 | <a id="program_text_resembling_a_marker_changes_nothing"></a>`program_text_resembling_a_marker_changes_nothing` | `LLR-PRE-03` | A string constant in somebody's source must not decide which of their code elc reports on. The marker stream is the only authority on state, and a line's content is never inspected. |
+| 7 | <a id="an_escaped_name_compares_equal"></a>`an_escaped_name_compares_equal` | `LLR-PRE-03` | A path holding a quote or a backslash reaches the marker escaped. Compared raw it would never equal the path elc holds, and the file would fall back for a reason nothing in the output explains. |
+| 8 | <a id="standard_headers_are_recorded_and_classified"></a>`standard_headers_are_recorded_and_classified` | `LLR-PRE-06` | The two standard libraries are told apart by name, because the path cannot do it: a C++ implementation's `cstdio` and C's `stdio.h` sit in the same directories. A project header is neither. |
+| 9 | <a id="a_header_reached_twice_is_recorded_once"></a>`a_header_reached_twice_is_recorded_once` | `LLR-PRE-06` | A translation unit re-enters a header whenever an include guard is re-evaluated. A list counting those would report a dependence proportional to the include graph rather than to the code. |
 
 ### 3.6. [test/unit/symname.c](../test/unit/symname.c)
 
@@ -1467,7 +1475,7 @@ Role: **fixture**. **19 test(s).**
 
 ### 3.47. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
-Role: **fixture**. **18 test(s).**
+Role: **fixture**. **19 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1488,7 +1496,8 @@ Role: **fixture**. **18 test(s).**
 | 15 | <a id="HLR-032: two runs over the same tree produce identical GraphML"></a>`HLR-032: two runs over the same tree produce identical GraphML` | — | The export is byte-identical across runs, so no container's internal enumeration reaches the output. |
 | 16 | <a id="HLR-075: the graph spans every target argument, not each one alone"></a>`HLR-075: the graph spans every target argument, not each one alone` | `LLR-SDG-05` | Naming the two sources as separate arguments builds the same graph as naming the directory holding them, byte for byte. Identity is the right assertion rather than an over-strong one, since node identifiers run in sorted file order rather than in argument order: a resolver scoping resolution to one target would drop the cross-file edges and count them unresolved instead. |
 | 17 | <a id="HLR-075: a cross-target call resolves rather than counting unresolved"></a>`HLR-075: a cross-target call resolves rather than counting unresolved` | `LLR-SDG-05` | The half the identity above cannot see alone: two runs that both resolved nothing across the boundary would still match each other. A global written in one target and read in the other must produce an edge joining nodes the two separate arguments contributed. |
-| 18 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | `LLR-MAIN-06`, `LLR-SDG-06` | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
+| 18 | <a id="HLR-076: expansion costs one more open and no others"></a>`HLR-076: expansion costs one more open and no others` | — | The bound HLR-076 was amended to allow. The preprocessor is a separate process and opens the file for itself, so an expanded run shows two opens per source: elc's own and the toolchain's. A third would mean elc had gone back to the file, which the requirement forbids and which expansion must not become an excuse for. |
+| 19 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | `LLR-MAIN-06`, `LLR-SDG-06` | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
 ### 3.48. [test/fixtures/purify.bats](../test/fixtures/purify.bats)
 
@@ -1998,6 +2007,7 @@ verified by code review — see
 | `LLR-THR-16` | `thresholds_apply` | `HLR-185`, `HLR-186`, `HLR-099`, `HLR-023` | `complexity_is_banded_on_a_published_authority`, `fan_in_is_banded_on_elcs_own_authority_and_says_so`, `exactly_three_thresholds_are_elcs_own_and_say_so` |
 | `LLR-THR-17` | `thresholds_apply` | `HLR-185`, `HLR-186`, `HLR-187`, `HLR-098` | `an_occurrence_row_bands_no_counted_value` |
 | `LLR-THR-18` | `thresholds_apply` | `HLR-192`, `HLR-099`, `HLR-101` | `maintainability_is_banded_downwards_on_elcs_own_authority` |
+| `LLR-THR-19` | `thresholds_apply` | `HLR-207`, `HLR-099`, `HLR-077` | `HLR-207: a C library call MISRA forbids is a warning citing its rule`, `HLR-207: the rule cited is the one that forbids that function`, `HLR-207: a function the project defines itself is not reported`, `HLR-207: a permitted function in a constrained header is not reported` |
 | `LLR-RPT-01` | `report_assemble` | `HLR-024` | `totals_sum_across_every_file` |
 | `LLR-RPT-02` | `report_assemble` | `HLR-025` | `HLR-025: the totals are broken down by language`, `HLR-025: the per-language totals sum to the project totals` |
 | `LLR-RPT-03` | `report_assemble` | `HLR-026` | `HLR-026: the summary names the most complex function and the largest file` |
@@ -2235,8 +2245,9 @@ verified by code review — see
 | `LLR-PRE-01` | `preproc_expand` | `HLR-202`, `HLR-043` | `HLR-202: a macro shape the grammar rejects parses once expanded`, `HLR-043: expansion writes no intermediate file` |
 | `LLR-PRE-02` | `preproc_expand` | `HLR-202`, `HLR-039` | `LLR-PRE-02: comments are preserved and no flag is invented`, `LLR-PRE-02: a flag the user supplies is forwarded` |
 | `LLR-PRE-03` | `preproc_expand` | `HLR-203` | `HLR-203: a project header contributes nothing to the file including it`, `HLR-203: a system header contributes nothing either`, `only_the_analysed_file_survives`, `program_text_resembling_a_marker_changes_nothing`, `an_escaped_name_compares_equal` |
-| `LLR-PRE-04` | `preproc_expand` | `HLR-204`, `HLR-032` | `HLR-204: expansion moves no reported location`, `a_retained_line_keeps_its_line_number`, `a_marker_that_rewinds_is_ignored` |
+| `LLR-PRE-04` | `preproc_expand` | `HLR-204`, `HLR-032` | `HLR-204: expansion moves no reported location`, `a_retained_line_keeps_its_line_number`, `a_marker_that_rewinds_is_ignored`, `a_split_expansion_is_rejoined_onto_its_own_line` |
 | `LLR-PRE-05` | `preproc_expand` | `HLR-205` | `HLR-205: a preprocessor that cannot be run falls back and completes`, `HLR-205: a header the preprocessor cannot find falls back`, `output_naming_the_file_nowhere_is_a_failure` |
+| `LLR-PRE-07` | `preproc_expand` | `HLR-208`, `HLR-076` | `HLR-208: a file elc could not fully decide is not expanded`, `HLR-208: the run's own -D reaches the preprocessor` |
 | `LLR-PRE-06` | `preproc_expand` | `HLR-207` | `HLR-207: the C standard library a file draws on is reported`, `HLR-207: the C++ standard library is distinguished from the C one`, `HLR-207: a file that fell back claims no dependence at all`, `standard_headers_are_recorded_and_classified`, `a_header_reached_twice_is_recorded_once` |
 
 ## 5. Integration Test Environment

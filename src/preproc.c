@@ -6,6 +6,7 @@
 #define _POSIX_C_SOURCE 200809L
 
 #include <ctype.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,6 +24,7 @@ const char *preproc_status_text(PreprocStatus s)
 	case PREPROC_NO_COMPILER: return "no preprocessor available";
 	case PREPROC_FAILED:      return "the preprocessor rejected the file";
 	case PREPROC_NOT_NAMED:   return "the expansion named no line of it";
+	case PREPROC_UNDECIDED:   return "a condition in it is undecidable";
 	case PREPROC_STATUS_COUNT:
 	default:                  return "";
 	}
@@ -119,6 +121,33 @@ static void buffer_rewind_to(Buffer *b, size_t line)
 		b->data[b->length] = '\0';
 }
 
+/* Join back the physical lines one source line's expansion was spread over.
+ *
+ * A macro whose replacement the preprocessor lays out across several lines —
+ * `return NULL;` becomes `return` / `((void *)0)` / `;` — puts more lines in
+ * the buffer than the source had, and every line below it would sit that much
+ * too low. The marker that follows says where the source actually is, and the
+ * excess is removed by turning the separating newlines back into spaces.
+ *
+ * Nothing is lost: those lines *were* one line, and rejoining them restores
+ * exactly the line the source holds. This is why the buffer may not simply
+ * refuse to move backwards — it must not lose a line, but a line it never had
+ * is one it must give back (HLR-204).
+ */
+static void buffer_join_to(Buffer *b, size_t line)
+{
+	size_t want = line ? line - 1 : 0;
+	size_t i    = b->length;
+
+	while (b->lines > want && i > 0) {
+		i--;
+		if (b->data[i] == '\n') {
+			b->data[i] = ' ';
+			b->lines--;
+		}
+	}
+}
+
 static void buffer_pad_to(Buffer *b, size_t line)
 {
 	if (line == 0 || line - 1 <= b->lines)
@@ -167,7 +196,7 @@ static const char *const CXX_HEADERS[] = {
 };
 
 /* The last path component, which is what a header set is keyed on. */
-static const char *basename_of(const char *path)
+static const char *header_basename(const char *path)
 {
 	const char *slash = strrchr(path, '/');
 
@@ -189,7 +218,7 @@ static bool in_set(const char *const *set, size_t n, const char *name)
  */
 static bool stdlib_classify(const char *path, StdlibKind *kind)
 {
-	const char *base = basename_of(path);
+	const char *base = header_basename(path);
 
 	if (in_set(CXX_HEADERS, sizeof CXX_HEADERS / sizeof *CXX_HEADERS,
 	           base)) {
@@ -221,7 +250,7 @@ static bool stdlib_classify(const char *path, StdlibKind *kind)
  * of standard headers and the list is rendered in the order it is built. */
 static bool headers_add(PreprocResult *out, const char *path, StdlibKind kind)
 {
-	const char   *base = basename_of(path);
+	const char   *base = header_basename(path);
 	StdlibHeader *grown;
 
 	for (size_t i = 0; i < out->header_count; i++)
@@ -256,47 +285,109 @@ static bool headers_add(PreprocResult *out, const char *path, StdlibKind kind)
  * quote or a backslash: it reaches the marker escaped and would otherwise
  * never compare equal to the path elc holds.
  */
+/* The decimal line number a marker opens with, or SIZE_MAX where it does not
+ * open with one. */
+static size_t marker_number(const char *line, size_t len, size_t *at)
+{
+	size_t i = *at;
+	size_t n = 0;
+
+	if (i >= len || !isdigit((unsigned char)line[i]))
+		return SIZE_MAX;
+	while (i < len && isdigit((unsigned char)line[i]))
+		n = n * 10 + (size_t)(line[i++] - '0');
+	*at = i;
+	return n;
+}
+
+/* The quoted name a marker carries, unescaped, or false where the quoting is
+ * not what a marker's is.
+ *
+ * Unescaped because a path holding a quote or a backslash reaches the marker
+ * escaped, and compared raw would never equal the path elc holds — so the file
+ * would fall back for a reason nothing in the output explains.
+ */
+static bool marker_name(const char *line, size_t len, size_t at,
+                        char *name, size_t cap)
+{
+	size_t out = 0;
+
+	while (at < len && line[at] == ' ')
+		at++;
+	if (at >= len || line[at] != '"')
+		return false;
+	at++;
+
+	while (at < len && line[at] != '"') {
+		char c = line[at];
+
+		if (c == '\\' && at + 1 < len)
+			c = line[++at];
+		if (out + 1 >= cap)
+			return false;
+		name[out++] = c;
+		at++;
+	}
+	if (at >= len || line[at] != '"')
+		return false;
+
+	name[out] = '\0';
+	return true;
+}
+
+/* Whether this line is a preprocessor line marker, and what it names.
+ *
+ * The grammar is `# linenum "filename" flags`. Recognised on structure alone —
+ * `#`, a space, a digit — because after expansion the only directives left are
+ * the markers the preprocessor emitted itself, and a heuristic over the text
+ * would be a guess about source elc did not write (LLR-PRE-03).
+ */
 static bool marker_parse(const char *line, size_t len, size_t *number,
                          char *name, size_t name_cap)
 {
-	size_t i = 0;
-	size_t n = 0;
-	size_t out = 0;
+	size_t at = 2;
+	size_t n;
 
 	if (len < 4 || line[0] != '#' || line[1] != ' ')
 		return false;
 
-	i = 2;
-	if (i >= len || !isdigit((unsigned char)line[i]))
+	n = marker_number(line, len, &at);
+	if (n == SIZE_MAX)
 		return false;
-	while (i < len && isdigit((unsigned char)line[i]))
-		n = n * 10 + (size_t)(line[i++] - '0');
-
-	while (i < len && line[i] == ' ')
-		i++;
-	if (i >= len || line[i] != '"')
-		return false;
-	i++;
-
-	while (i < len && line[i] != '"') {
-		char c = line[i];
-
-		if (c == '\\' && i + 1 < len)
-			c = line[++i];
-		if (out + 1 >= name_cap)
-			return false;
-		name[out++] = c;
-		i++;
-	}
-	if (i >= len || line[i] != '"')
+	if (!marker_name(line, len, at, name, name_cap))
 		return false;
 
-	name[out] = '\0';
-	*number   = n;
+	*number = n;
 	return true;
 }
 
 /* ---------------------------------------------------------------- filter -- */
+
+/* Act on one marker: realign the buffer, or record what the file drew on.
+ *
+ * The realignment is three steps because the buffer can be wrong in three
+ * ways. It can be short of the announced line, and is padded (HLR-204). It can
+ * be past it because the filter emitted padding it turns out not to need, and
+ * that padding is withdrawn. Or it can be past it because one source line's
+ * expansion was laid out across several, and those are rejoined into the one
+ * line they were.
+ */
+static int on_marker(Buffer *buf, PreprocResult *out, const char *name,
+                     size_t number, bool ours)
+{
+	StdlibKind kind;
+
+	if (ours) {
+		buffer_rewind_to(buf, number);
+		buffer_join_to(buf, number);
+		buffer_pad_to(buf, number);
+		return 0;
+	}
+
+	if (stdlib_classify(name, &kind) && headers_add(out, name, kind) != true)
+		return -1;
+	return 0;
+}
 
 int preproc_filter(const char *expanded, size_t length, const char *path,
                    PreprocResult *out)
@@ -318,18 +409,10 @@ int preproc_filter(const char *expanded, size_t length, const char *path,
 			 * copied. Nothing about a line's content changes the
 			 * state it arrives in (HLR-203). */
 			append = strcmp(name, path) == 0;
-			if (append) {
-				named = true;
-				buffer_rewind_to(&buf, number);
-				buffer_pad_to(&buf, number);
-			} else {
-				StdlibKind kind;
-
-				if (stdlib_classify(name, &kind) &&
-				    !headers_add(out, name, kind)) {
-					free(buf.data);
-					return -1;
-				}
+			named |= append;
+			if (on_marker(&buf, out, name, number, append) != 0) {
+				free(buf.data);
+				return -1;
 			}
 		} else if (append) {
 			buffer_append(&buf, p, len);
@@ -409,6 +492,47 @@ static bool shell_quote(const char *s, char *out, size_t cap)
 	return true;
 }
 
+/* The shell command the expansion runs.
+ *
+ * `-C` keeps comments. No figure depends on them today — they are excluded
+ * from effective lines rather than counted — and they are kept so the parsed
+ * buffer differs from the source only where the expansion required it
+ * (HLR-204).
+ *
+ * Standard error is discarded because the preprocessor's complaints are about
+ * a build configuration elc does not have and cannot fix; on a cross-compiled
+ * tree there would be pages of them per file, for a condition HLR-206 states
+ * once.
+ *
+ * Every flag is quoted, so one holding a space or a `$` reaches the
+ * preprocessor as one argument rather than as shell syntax (LLR-PRE-02).
+ */
+static bool build_command(char *out, size_t cap, const char *driver,
+                          const char *const *flags, size_t flag_count,
+                          const char *quoted_path)
+{
+	size_t off;
+	int    n = snprintf(out, cap, "%s -E -C", driver);
+
+	if (n < 0 || (size_t)n >= cap)
+		return false;
+	off = (size_t)n;
+
+	for (size_t i = 0; i < flag_count; i++) {
+		char q[4096];
+
+		if (!shell_quote(flags[i], q, sizeof q))
+			return false;
+		n = snprintf(out + off, cap - off, " %s", q);
+		if (n < 0 || (size_t)n >= cap - off)
+			return false;
+		off += (size_t)n;
+	}
+
+	n = snprintf(out + off, cap - off, " %s 2>/dev/null", quoted_path);
+	return n >= 0 && (size_t)n < cap - off;
+}
+
 int preproc_expand(const char *path, const char *language, const char *cc,
                    const char *const *flags, size_t flag_count,
                    PreprocResult *out)
@@ -440,35 +564,9 @@ int preproc_expand(const char *path, const char *language, const char *cc,
 	 * stderr is discarded because the preprocessor's complaints are about
 	 * a build configuration elc does not have and cannot fix, and on a
 	 * cross-compiled tree there would be pages of them per file. */
-	{
-		size_t off = 0;
-		int    n   = snprintf(command, sizeof command, "%s -E -C",
-		                      driver);
-
-		if (n < 0 || (size_t)n >= sizeof command)
-			return 0;
-		off = (size_t)n;
-
-		/* Forwarded verbatim, each quoted so a flag holding a space or
-		 * a `$` reaches the preprocessor as one argument and not as
-		 * shell syntax (LLR-PRE-02). */
-		for (size_t i = 0; i < flag_count; i++) {
-			char q[4096];
-
-			if (!shell_quote(flags[i], q, sizeof q))
-				return 0;
-			n = snprintf(command + off, sizeof command - off,
-			             " %s", q);
-			if (n < 0 || (size_t)n >= sizeof command - off)
-				return 0;
-			off += (size_t)n;
-		}
-
-		n = snprintf(command + off, sizeof command - off,
-		             " %s 2>/dev/null", quoted);
-		if (n < 0 || (size_t)n >= sizeof command - off)
-			return 0;
-	}
+	if (!build_command(command, sizeof command, driver, flags, flag_count,
+	                   quoted))
+		return 0;
 
 	pipe = popen(command, "r");
 	if (!pipe) {

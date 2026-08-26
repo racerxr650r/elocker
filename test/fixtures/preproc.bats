@@ -197,6 +197,61 @@ require_cc() {
 	assert_output --regexp "uses\.cpp +C\+\+ +[0-9]+"
 }
 
+@test "HLR-207: a C library call MISRA forbids is a warning citing its rule" {
+	require_cc
+	printf '#include <stdlib.h>\nint f(void) { int *p = malloc(4); free(p); return 0; }\n' \
+		> "$BATS_TEST_TMPDIR/m.c"
+	elc --verbose "$BATS_TEST_TMPDIR/m.c"
+	assert_success
+	assert_output --regexp "warning +misra library +malloc .*Rule 21\.3.*MISRA C:2012"
+	assert_output --regexp "warning +misra library +free .*Rule 21\.3"
+}
+
+@test "HLR-207: the rule cited is the one that forbids that function" {
+	# Four functions, four different rules. A single rule number against
+	# everything would be a citation a reader could not check.
+	require_cc
+	printf '#include <stdio.h>\n#include <stdlib.h>\nint f(void)\n{\n\tprintf("x");\n\treturn atoi("1") + system("y");\n}\n' \
+		> "$BATS_TEST_TMPDIR/r.c"
+	elc --verbose "$BATS_TEST_TMPDIR/r.c"
+	assert_success
+	assert_output --partial "printf is not available to a compliant program (Rule 21.6)"
+	assert_output --partial "atoi is not available to a compliant program (Rule 21.7)"
+	assert_output --partial "system is not available to a compliant program (Rule 21.8)"
+}
+
+@test "HLR-207: a function the project defines itself is not reported" {
+	# The rule is about the standard library's function, not about every
+	# function sharing its spelling. A project supplying its own resolves
+	# in the graph and never reaches the unresolved calls this reads.
+	require_cc
+	printf 'static int system(const char *s) { (void)s; return 0; }\nint f(void) { return system("x"); }\n' \
+		> "$BATS_TEST_TMPDIR/own.c"
+	elc --verbose "$BATS_TEST_TMPDIR/own.c"
+	assert_success
+	refute_output --partial "misra library"
+}
+
+@test "HLR-207: a permitted function in a constrained header is not reported" {
+	# <stdlib.h> supplies abs, which MISRA permits, beside malloc, which it
+	# does not. A rule keyed on the include would be a false claim about
+	# code that called neither.
+	require_cc
+	printf '#include <stdlib.h>\nint f(int x) { return abs(x); }\n' \
+		> "$BATS_TEST_TMPDIR/ok.c"
+	elc --verbose "$BATS_TEST_TMPDIR/ok.c"
+	assert_success
+	refute_output --partial "misra library"
+}
+
+@test "HLR-100: a MISRA finding does not reach the exit status" {
+	require_cc
+	printf '#include <stdlib.h>\nint f(void) { return (int)(long)malloc(4); }\n' \
+		> "$BATS_TEST_TMPDIR/e.c"
+	elc "$BATS_TEST_TMPDIR/e.c"
+	assert_success
+}
+
 @test "HLR-207: a file that fell back claims no dependence at all" {
 	# Absence of an answer, not the answer "none". The provenance table is
 	# what tells a reader which files could be asked.
@@ -245,6 +300,35 @@ require_cc() {
 	assert_line "-DWANTED=1"
 }
 
+@test "HLR-208: a file elc could not fully decide is not expanded" {
+	# elc leaves an undecidable region whole and counts both branches; the
+	# preprocessor reads the undefined symbol as 0 and keeps one. Expanding
+	# such a file would replace the region's measurement with an arbitrary
+	# configuration's, under a figure the reader has been told is complete.
+	require_cc
+	printf '#if SOMETHING_NOBODY_DEFINED\nint a(void) { return 1; }\n#else\nint b(void) { return 2; }\n#endif\n' \
+		> "$BATS_TEST_TMPDIR/undec.c"
+	elc --verbose "$BATS_TEST_TMPDIR/undec.c"
+	assert_success
+	assert_output --partial "a condition in it is undecidable"
+	assert_equal "$(summary 'Undecided regions')" "1"
+	assert_equal "$(summary Functions)" "2" "both branches are kept"
+}
+
+@test "HLR-208: the run's own -D reaches the preprocessor" {
+	# elc deciding a condition one way while the preprocessor decides it
+	# the other would measure a build nobody asked for. With the symbol
+	# defined, both agree and only the taken branch is measured.
+	require_cc
+	printf '#ifdef FEATURE\nint taken(void) { return 1; }\n#else\nint other(void) { return 2; }\n#endif\n' \
+		> "$BATS_TEST_TMPDIR/cfg.c"
+	elc --verbose -DFEATURE "$BATS_TEST_TMPDIR/cfg.c"
+	assert_success
+	assert_equal "$(summary 'Undecided regions')" "0"
+	assert_equal "$(summary Functions)" "1"
+	refute_output --partial "other"
+}
+
 @test "HLR-032: two runs over one target expand identically" {
 	require_cc
 	elc "$TREE/shapes.c" > "$BATS_TEST_TMPDIR/a"
@@ -254,6 +338,10 @@ require_cc() {
 }
 
 @test "HLR-043: expansion writes no intermediate file" {
+	# Asserted on the tree and then on the whole filesystem elc can reach.
+	# A temporary file would be a path to collide on under parallel runs,
+	# something left behind by a killed process, and a write to a tree elc
+	# promises not to modify.
 	require_cc
 	local before after
 	before="$(find "$TREE" -type f | sort)"
@@ -261,4 +349,16 @@ require_cc() {
 	assert_success
 	after="$(find "$TREE" -type f | sort)"
 	assert_equal "$before" "$after"
+
+	# environment.bats makes the same observation of elc under --no-expand;
+	# this is the half that covers the subprocess, which is where a
+	# preprocessor would naturally be told to put its output.
+	require_tool strace "HLR-043 read-only operation"
+	local log="$BATS_TEST_TMPDIR/write.log"
+	strace -f -o "$log" -e trace=openat,open,creat,unlink,rename \
+		"$ELC" "$TREE" >/dev/null 2>&1 || true
+	[ -f "$log" ] || skip "strace produced no log"
+
+	run grep -cE "(O_WRONLY|O_RDWR|O_CREAT|O_TRUNC|creat\(|unlink|rename).*$TREE" "$log"
+	assert_output "0"
 }

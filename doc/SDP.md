@@ -2596,14 +2596,24 @@ the line numbering of what it did.
 5. **The report says which run it was** (HLR-206), per file: expanded, or
    fallen back and why. A figure obtained two ways, with no way to tell which,
    is the confidently-wrong result the tool exists to avoid.
-6. **Standard-library dependence is reported** (HLR-207). The filter sees every
-   header the preprocessor opened, so it can say — per file, with the header
-   named — where a project depends on the C standard library and where on the
-   C++ STL. That is a fact about portability a reader of an embedded or
-   freestanding code base is entitled to.
+6. **C library use outside MISRA's constraints is warned about** (HLR-207).
+   MISRA C:2012 §21 names the facilities a compliant program does not use, and
+   `elc` reports each call to one — with the file, the line, and the rule
+   number. By **function** and never by header: `<stdlib.h>` supplies `abs`,
+   which MISRA permits, beside `malloc`, which it does not, so flagging the
+   include would be a false claim about code that called neither. The headers
+   each file drew on are reported alongside, as the exposure those warnings are
+   drawn from.
+7. **Conditional regions are answered before expansion** (HLR-208). A
+   preprocessor reads an undefined identifier in an `#if` as zero and discards
+   the branch it did not take — a silent guess, where HLR-133 requires the
+   guess be declared and both branches kept. So the unexpanded text answers
+   what the source *says*, the expanded text measures what it *means*, and a
+   file `elc` could not fully decide is not expanded at all.
 
-**Requirements:** HLR-202 – HLR-207, and amendments to **HLR-135** and
-**HLR-141**, which today forbid invoking a toolchain outright.
+**Requirements:** HLR-202 – HLR-208, and amendments to **HLR-135** and
+**HLR-141**, which today forbid invoking a toolchain outright, and to
+**HLR-076**, whose single parse becomes two for an expanded file.
 
 **Those two amendments are the real cost of this phase and must be argued, not
 slipped through.** `elc` promised that its output depended on the source and

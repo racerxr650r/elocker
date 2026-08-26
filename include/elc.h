@@ -574,6 +574,7 @@ typedef enum {
 	MEASURE_HIDDEN_CHANNEL,    /* per global     (HLR-093)  */
 	MEASURE_INSTABILITY,       /* per component  (HLR-082)  */
 	MEASURE_BOTTLENECK,        /* per component  (HLR-081)  */
+	MEASURE_MISRA_LIBRARY,     /* per call site  (HLR-207)  */
 	MEASURE_KIND_COUNT
 } MeasurementKind;
 

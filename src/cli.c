@@ -1325,6 +1325,7 @@ void cli_options_free(ElcOptions *opts)
 	free((void *)opts->entry_points);
 	free((void *)opts->rules);
 	free((void *)opts->defines);
+	free((void *)opts->cc_flags);
 	for (size_t i = 0; i < opts->scopes.count; i++) {
 		for (size_t p = 0; p < opts->scopes.items[i].pattern_count; p++)
 			free(opts->scopes.items[i].patterns[p]);

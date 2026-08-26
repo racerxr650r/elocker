@@ -38,6 +38,7 @@
 #include "format_dsm.h"
 #include "format_xml.h"
 #include "report.h"
+#include "preproc.h"
 #include "thresholds.h"
 
 #define XML_READ_CHUNK 8192
@@ -125,8 +126,23 @@ static void write_files(const Report *report, FILE *out)
 		write_attribute(out, "path", f->path);
 		write_attribute(out, "language", f->language ? f->language : "");
 		fprintf(out, " physical-lines=\"%" PRIu32 "\" eloc=\"%" PRIu32
-		        "\" unparsed-lines=\"%" PRIu32 "\">\n",
-		        f->physical_lines, f->eloc, f->unparsed_lines);
+		        "\" unparsed-lines=\"%" PRIu32 "\" preproc=\"%d\"",
+		        f->physical_lines, f->eloc, f->unparsed_lines,
+		        f->preproc_status);
+		/* Carried so a report re-rendered from this record still says
+		 * how each file was measured (HLR-206), and still names what
+		 * it depends on (HLR-207). A reconstruction that dropped them
+		 * would claim every file was expanded, which is the silent
+		 * wrong answer those requirements exist to prevent. */
+		for (size_t k = 0; k < f->stdlib_count; k++) {
+			fputs(" ", out);
+			fprintf(out, "stdlib%zu", k);
+			fputs("=\"", out);
+			write_escaped(f->stdlib_headers[k], out);
+			fprintf(out, "\" stdlibkind%zu=\"%u\"", k,
+			        (unsigned)f->stdlib_kinds[k]);
+		}
+		fputs(">\n", out);
 
 		for (size_t j = 0; j < f->function_count; j++) {
 			const FunctionMetric *fn = &f->functions[j];
@@ -807,6 +823,60 @@ static void on_root(ReadState *state, const XML_Char *name,
 	}
 }
 
+/* One standard-library header read back onto a reconstructed file. */
+static int stdlib_read(FileMetrics *file, const char *name, const char *kind)
+{
+	char          **names = realloc(file->stdlib_headers,
+	                                (file->stdlib_count + 1) *
+	                                sizeof *names);
+	unsigned char  *kinds;
+
+	if (!names)
+		return -1;
+	file->stdlib_headers = names;
+
+	kinds = realloc(file->stdlib_kinds,
+	                (file->stdlib_count + 1) * sizeof *kinds);
+	if (!kinds)
+		return -1;
+	file->stdlib_kinds = kinds;
+
+	file->stdlib_headers[file->stdlib_count] = strdup(name);
+	if (!file->stdlib_headers[file->stdlib_count])
+		return -1;
+	file->stdlib_kinds[file->stdlib_count] = kind
+	        ? (unsigned char)atoi(kind) : 0;
+	file->stdlib_cxx += (file->stdlib_kinds[file->stdlib_count] == 1);
+	file->stdlib_count++;
+	return 0;
+}
+
+/* Read back how a file was measured, and what it drew on (HLR-206, HLR-207). */
+static void read_provenance(FileMetrics *file, const XML_Char **atts)
+{
+	const char *pp = attribute(atts, "preproc");
+	size_t      n  = 0;
+
+	/* Absent in a record written before the field existed, which reads
+	 * back as expanded — the pre-expansion default, and the only honest
+	 * answer for a build that could not have fallen back. */
+	file->preproc_status = pp ? atoi(pp) : 0;
+
+	while (1) {
+		char        key[32];
+		const char *name;
+
+		snprintf(key, sizeof key, "stdlib%zu", n);
+		name = attribute(atts, key);
+		if (!name)
+			break;
+		snprintf(key, sizeof key, "stdlibkind%zu", n);
+		if (stdlib_read(file, name, attribute(atts, key)) != 0)
+			break;
+		n++;
+	}
+}
+
 static void on_file(ReadState *state, const XML_Char **atts)
 {
 	/* A <file> while one is already open is a nested element of
@@ -870,6 +940,7 @@ static void on_file(ReadState *state, const XML_Char **atts)
 	 * a build that could not have measured any. */
 	file->unparsed_lines = uint_attribute(state, atts,
 	                                      "unparsed-lines");
+	read_provenance(file, atts);
 
 	state->current  = file;
 	state->capacity = 0;

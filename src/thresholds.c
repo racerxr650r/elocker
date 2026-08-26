@@ -133,8 +133,91 @@ static const Threshold CATALOGUE[] = {
 	 * LLR-ARC-02). */
 	{ MEASURE_BOTTLENECK, "bottleneck", 0, 0, false,
 	  SEVERITY_WARNING, true,
-	  ELC_OWN_HEURISTIC, true }
+	  ELC_OWN_HEURISTIC, true },
+	/* The one row citing a coding standard rather than a measurement
+	 * study. MISRA C:2012 §21 names the C library facilities a compliant
+	 * program does not use, function by function, so the rule number goes
+	 * in each finding's detail and the standard in its attribution — a
+	 * reader can look up either. Occurrence is the finding: the standard
+	 * states no threshold, and inventing one would be elc's opinion wearing
+	 * MISRA's name (HLR-099, HLR-207). */
+	{ MEASURE_MISRA_LIBRARY, "misra library", 0, 0, false,
+	  SEVERITY_WARNING, true,
+	  "MISRA C:2012", false }
 };
+
+/* The C library facilities MISRA C:2012 §21 forbids, with the rule that
+ * forbids each.
+ *
+ * By **function** and not by header, because a header is not the unit the
+ * standard constrains: `<stdlib.h>` supplies `abs`, which is permitted, beside
+ * `malloc`, which is not, and flagging the include would be a false claim
+ * about code that never called one. Naming the function also gives the finding
+ * a line to point at.
+ *
+ * Detected among the calls the graph could not resolve (HLR-077), which is
+ * exactly where a call into the C library lands. A project that defines its
+ * own `malloc` resolves it, and is not reported — correctly, since the rule is
+ * about the standard library's.
+ */
+typedef struct {
+	const char *name;
+	const char *rule;
+} MisraFunction;
+
+static const MisraFunction MISRA_LIBRARY[] = {
+	/* 21.3 — the memory-allocation functions of <stdlib.h>. */
+	{ "malloc", "21.3" }, { "calloc", "21.3" }, { "realloc", "21.3" },
+	{ "free", "21.3" }, { "aligned_alloc", "21.3" },
+	/* 21.4 — <setjmp.h>. */
+	{ "setjmp", "21.4" }, { "longjmp", "21.4" },
+	/* 21.5 — <signal.h>. */
+	{ "signal", "21.5" }, { "raise", "21.5" },
+	/* 21.6 — the standard input/output functions. */
+	{ "printf", "21.6" }, { "fprintf", "21.6" }, { "sprintf", "21.6" },
+	{ "snprintf", "21.6" }, { "vprintf", "21.6" }, { "vfprintf", "21.6" },
+	{ "vsprintf", "21.6" }, { "vsnprintf", "21.6" }, { "scanf", "21.6" },
+	{ "fscanf", "21.6" }, { "sscanf", "21.6" }, { "fopen", "21.6" },
+	{ "freopen", "21.6" }, { "fclose", "21.6" }, { "fflush", "21.6" },
+	{ "fread", "21.6" }, { "fwrite", "21.6" }, { "fgets", "21.6" },
+	{ "fputs", "21.6" }, { "gets", "21.6" }, { "puts", "21.6" },
+	{ "fgetc", "21.6" }, { "fputc", "21.6" }, { "getc", "21.6" },
+	{ "putc", "21.6" }, { "getchar", "21.6" }, { "putchar", "21.6" },
+	{ "ungetc", "21.6" }, { "perror", "21.6" }, { "fseek", "21.6" },
+	{ "ftell", "21.6" }, { "rewind", "21.6" }, { "fgetpos", "21.6" },
+	{ "fsetpos", "21.6" }, { "remove", "21.6" }, { "rename", "21.6" },
+	{ "tmpfile", "21.6" }, { "tmpnam", "21.6" }, { "setbuf", "21.6" },
+	{ "setvbuf", "21.6" }, { "clearerr", "21.6" }, { "feof", "21.6" },
+	{ "ferror", "21.6" },
+	/* 21.7 — the string-to-number conversions with no error report. */
+	{ "atof", "21.7" }, { "atoi", "21.7" }, { "atol", "21.7" },
+	{ "atoll", "21.7" },
+	/* 21.8 — the process-control functions of <stdlib.h>. */
+	{ "abort", "21.8" }, { "exit", "21.8" }, { "getenv", "21.8" },
+	{ "system", "21.8" },
+	/* 21.9 — bsearch and qsort. */
+	{ "bsearch", "21.9" }, { "qsort", "21.9" },
+	/* 21.10 — the date and time functions. */
+	{ "time", "21.10" }, { "clock", "21.10" }, { "difftime", "21.10" },
+	{ "mktime", "21.10" }, { "asctime", "21.10" }, { "ctime", "21.10" },
+	{ "gmtime", "21.10" }, { "localtime", "21.10" },
+	{ "strftime", "21.10" }, { "wcsftime", "21.10" },
+	{ "timespec_get", "21.10" },
+	/* 21.12 — the exception-handling features of <fenv.h>. */
+	{ "feclearexcept", "21.12" }, { "fegetexceptflag", "21.12" },
+	{ "feraiseexcept", "21.12" }, { "fesetexceptflag", "21.12" },
+	{ "fetestexcept", "21.12" },
+};
+
+/* The rule forbidding this callee, or NULL where the standard permits it. */
+static const char *misra_rule_for(const char *callee)
+{
+	for (size_t i = 0; i < sizeof MISRA_LIBRARY / sizeof *MISRA_LIBRARY;
+	     i++)
+		if (strcmp(MISRA_LIBRARY[i].name, callee) == 0)
+			return MISRA_LIBRARY[i].rule;
+	return NULL;
+}
 
 /* ------------------------------------------------- sources without bands --
  *
@@ -688,6 +771,36 @@ static int apply_arch_rows(const ArchResults *arch, const Sdg *g,
 	        apply_bottlenecks(arch, g, opts, out) != 0) ? -1 : 0;
 }
 
+/* One finding per call site into a C library facility MISRA forbids.
+ *
+ * Per site rather than per function or per file: the standard is about uses,
+ * a reader fixing one needs the line, and a function calling `malloc` twice
+ * has two things to change (HLR-207).
+ */
+static int apply_misra_library(const Sdg *g, FindingList *out)
+{
+	for (size_t i = 0; i < g->unresolved; i++) {
+		const UnresolvedCall *c    = &g->unresolved_sites[i];
+		const char           *rule;
+		char                  detail[128];
+
+		if (!c->callee)
+			continue;
+		rule = misra_rule_for(c->callee);
+		if (!rule)
+			continue;
+
+		snprintf(detail, sizeof detail,
+		         "%s is not available to a compliant program (Rule %s)",
+		         c->callee, rule);
+		if (finding_add(out, MEASURE_MISRA_LIBRARY, SEVERITY_WARNING,
+		                c->callee, c->file ? c->file : "", c->line,
+		                detail) != 0)
+			return -1;
+	}
+	return 0;
+}
+
 int thresholds_apply(const ArchResults *arch, const TreeResults *tree,
                      const StateResults *state, const Sdg *g,
                      const ElcOptions *opts, FindingList *out)
@@ -702,6 +815,7 @@ int thresholds_apply(const ArchResults *arch, const TreeResults *tree,
 	 * needs none of them. It is applied here so that a run with no
 	 * call-tree results still bands it (HLR-185). */
 	if (apply_complexity(g, out) != 0 ||
+	    apply_misra_library(g, out) != 0 ||
 	    (tree && apply_calltree_rows(tree, g, out) != 0) ||
 	    (state && apply_globals(state, out) != 0) ||
 	    (arch && apply_arch_rows(arch, g, opts, out) != 0)) {

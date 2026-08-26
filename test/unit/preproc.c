@@ -107,6 +107,39 @@ Test(preproc, a_marker_that_rewinds_is_ignored)
 	preproc_result_free(&r);
 }
 
+/* Verifies LLR-PRE-04: the physical lines one source line's expansion was
+ * spread across are given back as one. `return NULL;` reaches the buffer as
+ * three lines where the source had one, and without this every location below
+ * the first such expansion is displaced by however many the file accumulated —
+ * a drift that grows down the file and that no reader could detect. */
+Test(preproc, a_split_expansion_is_rejoined_onto_its_own_line)
+{
+	static const char in[] =
+		"# 1 \"app.c\"\n"
+		"int first(void) { return 1; }\n"
+		"int second(void) { return\n"
+		"       ((void *)0)\n"
+		"            ; }\n"
+		"# 4 \"app.c\"\n"
+		"int third(void) { return 3; }\n";
+	PreprocResult r = { 0 };
+
+	cr_assert_eq(preproc_filter(in, sizeof in - 1, "app.c", &r), 0);
+	cr_assert_not_null(r.text);
+
+	/* third() is line 4 of the source and must be line 4 of the buffer. */
+	size_t before = (size_t)(strstr(r.text, "third") - r.text);
+	size_t nl     = 0;
+
+	for (size_t i = 0; i < before; i++)
+		nl += (r.text[i] == '\n');
+	cr_assert_eq(nl, 3, "third should sit on line 4, sits on %zu", nl + 1);
+
+	/* And nothing was thrown away to get there. */
+	cr_assert_not_null(strstr(r.text, "((void *)0)"));
+	preproc_result_free(&r);
+}
+
 /* Verifies LLR-PRE-05: output naming the file nowhere is a failure, not an
  * empty file. A zero-line measurement of a file that has lines is the silent
  * wrong answer this module exists not to produce — and in the report it is

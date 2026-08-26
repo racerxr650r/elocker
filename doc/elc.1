@@ -1054,6 +1054,36 @@ measured it.
 .B elc
 proposes no fix, ranks no design beyond what a cited standard states, and
 applies no style opinion of its own.
+.SS C library use MISRA constrains
+MISRA C:2012 \(sc21 names the C library facilities a compliant program does not
+use.
+.B elc
+reports each call to one as a
+.BR warning ,
+naming the function, the file and the line, and citing the rule that forbids it
+\(em
+.B malloc
+against Rule 21.3,
+.B printf
+against 21.6,
+.B system
+against 21.8.
+.PP
+The citation is there to be checked. This is somebody else's published position
+and not
+.BR elc 's:
+a great many programs use these facilities correctly and owe MISRA nothing. No
+advice accompanies the finding and it reaches no exit status.
+.PP
+Reported by
+.I function
+and never by header. \fB<stdlib.h>\fR supplies
+.BR abs ,
+which MISRA permits, beside
+.BR malloc ,
+which it does not, so including it is not the finding \(em calling one is. A
+function the project defines itself is never reported, even where it shares a
+name with a constrained one: the rule is about the standard library's.
 .SS Partly unparsable files
 .B elc
 parses source as written and runs no preprocessor, so a grammar occasionally

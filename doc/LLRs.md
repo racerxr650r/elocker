@@ -1047,6 +1047,17 @@ Evaluation of every measurement against the published threshold catalogue, and a
     `thresholds_apply` shall emit a finding for every function whose index falls in a band, stating the score and the scale it is out of and nothing further — no recommendation, no remediation, no ranking of one design above another (HLR-101).
     *Trace:* HLR-192 (Maintainability Index Threshold Classification), HLR-099 (Threshold Source Attribution), HLR-101 (No Remediation Advice).
 
+*   <a id="LLR-THR-19"></a>**LLR-THR-19** — The catalogue shall hold a row for MISRA library use, occurrence-governed at warning severity and attributed to `MISRA C:2012`; and `thresholds_apply` shall emit one finding per unresolved call site whose callee names a facility MISRA C:2012 §21 forbids, stating the function and the rule number.
+
+    **The table shall be keyed by function, and shall be readable as a table.** MISRA constrains functions, not headers: `<stdlib.h>` supplies `abs`, which is permitted, beside `malloc`, which is not, so a rule keyed on the include would be a false claim about code that called neither. Each entry carries its rule number so a reviewer can check the table against the standard by reading it — the property the whole of this module is arranged around (HLR-099).
+
+    **Per site, not per function or per file.** A reader fixing one needs the line, and a function calling `malloc` twice has two things to change.
+
+    Read from the unresolved calls of HLR-077 because that is where a call into the C library lands. A project supplying its own definition of a constrained name resolves it and is not reported, which is correct: the rule is about the standard library's function and not about every function sharing its spelling.
+
+    No bound shall be invented. MISRA states no count at which use becomes unacceptable, and one `elc` chose would be its own opinion wearing MISRA's name — so occurrence governs, the severity is warning throughout, and no finding reaches the exit status (HLR-100, HLR-101).
+    *Trace:* HLR-207 (C Library Use Outside MISRA Constraints Reported), HLR-099 (Threshold Source Attribution), HLR-077.
+
 ## 35. `report_assemble` ([src/report.c](../src/report.c))
 
 The single place every reported collection is ordered. The audit point for determinism.
@@ -1970,7 +1981,9 @@ Expansion and filtering of one file. The first requirement is the subprocess; th
 
     This is what makes the expanded buffer measurable rather than merely parseable. Every location `elc` reports and every line-based figure it computes would otherwise be displaced by however much the filter discarded above it, and a reader cannot detect the displacement to discount it (HLR-204).
 
-    Padding shall never move backwards. A marker announcing an earlier line occurs where a macro expansion spans lines and the preprocessor resynchronises; acting on it would let the filter overwrite a line already written, and a buffer that can rewind is one whose contents depend on the order the markers happened to arrive.
+    **A buffer that is *ahead* of the marker shall be brought back, and only in the two ways that lose nothing.** Trailing blank lines the filter emitted as padding are withdrawn. Beyond that, the newlines separating the physical lines one source line's expansion was spread across are turned back into spaces — `return NULL;` reaches the buffer as `return` / `((void *)0)` / `;`, three lines where the source had one, and every line below it would otherwise sit two too low.
+
+    Neither loses a token. Those lines *were* one line, and rejoining them restores the line the source holds. The rule is not "never move backwards" but "never lose a line": a line the buffer never had is one it must give back, or the drift accumulates over the whole file and every location below the first multi-line expansion is wrong.
     *Trace:* HLR-204 (Expansion Preserves Every Reported Location), HLR-032.
 
 *   <a id="LLR-PRE-05"></a>**LLR-PRE-05** — `preproc_expand` shall return a null buffer, and a status naming the reason, where the child could not be started, exited non-zero, or produced output holding no marker for the file under analysis. It shall return non-zero only on allocation failure.
@@ -1979,6 +1992,15 @@ Expansion and filtering of one file. The first requirement is the subprocess; th
 
     No failure here shall fail a run or emit a per-file diagnostic. Falling back is the ordinary condition of a tree analysed away from its build environment (HLR-205), and one message per file teaches a reader nothing after the first.
     *Trace:* HLR-205 (Expansion Failure Falls Back to the Source as Written).
+
+*   <a id="LLR-PRE-07"></a>**LLR-PRE-07** — `analyze_file` shall parse the file as written and run the conditional-region pass over that tree before expanding it, shall expand only where that pass left nothing undecided, and shall forward the run's `-D` definitions to the preprocessor.
+
+    The order is the requirement. Running the conditional pass after expansion would run it over a tree with no directives in it, and it would report nothing undecided about a file full of conditions the preprocessor guessed at (HLR-208).
+
+    Refusing to expand a file with an undecided region is what keeps the effective-line count honest. `elc` leaves such a region whole and counts both branches; the preprocessor keeps one. Expanding it would replace the region's measurement with an arbitrary configuration's, under a figure the reader has been told is complete.
+
+    The definitions must reach the preprocessor or the two disagree, and the report would name one configuration while measuring another.
+    *Trace:* HLR-208 (Conditional Regions Answered Before Expansion), HLR-076.
 
 *   <a id="LLR-PRE-06"></a>**LLR-PRE-06** — The filter shall record each standard-library header the marker stream names, de-duplicated, classifying it as belonging to the C or the C++ standard library, and shall leave the list empty for a file that fell back.
 

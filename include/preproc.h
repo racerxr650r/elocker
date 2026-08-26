@@ -41,6 +41,7 @@ typedef enum {
 	PREPROC_NO_COMPILER,    /* the child could not be started            */
 	PREPROC_FAILED,         /* the preprocessor exited non-zero          */
 	PREPROC_NOT_NAMED,      /* output held no marker for this file       */
+	PREPROC_UNDECIDED,      /* elc could not decide a condition in it    */
 	PREPROC_STATUS_COUNT
 } PreprocStatus;
 

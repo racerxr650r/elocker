@@ -3017,6 +3017,36 @@ Measured as written (macros not expanded)
 agree: an expansion depends on the headers installed where it runs, and
 unexpanded source does not.
 
+### C library use MISRA constrains
+
+MISRA C:2012 §21 names the C library facilities a compliant program does not
+use. `elc` reports each call to one as a **warning**, citing the rule:
+
+```text
+Findings
+  Severity  Measurement    Subject  Detail                                                    Source
+  --------  -------------  -------  --------------------------------------------------------  ------------
+  warning   misra library  malloc   malloc is not available to a compliant program (Rule 21.3) MISRA C:2012
+  warning   misra library  printf   printf is not available to a compliant program (Rule 21.6) MISRA C:2012
+  warning   misra library  atoi     atoi is not available to a compliant program (Rule 21.7)   MISRA C:2012
+```
+
+The rule number is there so you can look it up and disagree with it. `elc` is
+citing somebody else's published position, not offering one of its own — a
+great many programs use these facilities correctly and have no obligation to
+MISRA at all. No advice comes with the finding, and it does not affect the exit
+status.
+
+**Reported by function, never by header.** `<stdlib.h>` supplies `abs`, which
+MISRA permits, beside `malloc`, which it does not — so including it is not the
+finding, calling one is. You get the file and the line, because a reader fixing
+one needs to find it and a function calling `malloc` twice has two things to
+change.
+
+Functions your own project defines are not reported, even where they share a
+name with a constrained one: the rule is about the standard library's `system`,
+not about yours.
+
 ### What your code depends on
 
 The filter sees every header the preprocessor opened, so it can tell you what
