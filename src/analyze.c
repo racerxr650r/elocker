@@ -28,6 +28,7 @@
 #include <tree_sitter/api.h>
 
 #include "diag.h"
+#include "preproc.h"
 #include "analyze.h"
 #include "elc.h"
 #include "elfsyms.h"
@@ -89,6 +90,10 @@ void filemetrics_free(FileMetrics *metrics)
 	for (size_t i = 0; i < metrics->absent_count; i++)
 		free(metrics->absent[i].name);
 	free(metrics->absent);
+	for (size_t i = 0; i < metrics->stdlib_count; i++)
+		free(metrics->stdlib_headers[i]);
+	free(metrics->stdlib_headers);
+	free(metrics->stdlib_kinds);
 	free(metrics->language);
 	free(metrics->directory);
 	free(metrics->path);
@@ -2285,6 +2290,32 @@ static void measure_damage(TSNode root, const char *path, const char *data,
 	        metrics->unparsed_lines == 1 ? "" : "s");
 }
 
+/* Carry the expansion's header list onto the file's metrics.
+ *
+ * Copied rather than borrowed because the PreprocResult dies with this
+ * function and the metrics outlive the run that made them (HLR-207).
+ */
+static int record_stdlib(FileMetrics *m, const PreprocResult *p)
+{
+	if (p->header_count == 0)
+		return 0;
+
+	m->stdlib_headers = calloc(p->header_count, sizeof *m->stdlib_headers);
+	m->stdlib_kinds   = calloc(p->header_count, sizeof *m->stdlib_kinds);
+	if (!m->stdlib_headers || !m->stdlib_kinds)
+		return -1;
+
+	for (size_t i = 0; i < p->header_count; i++) {
+		m->stdlib_headers[i] = strdup(p->headers[i].name);
+		if (!m->stdlib_headers[i])
+			return -1;
+		m->stdlib_kinds[i] = (unsigned char)p->headers[i].kind;
+	}
+	m->stdlib_count = p->header_count;
+	m->stdlib_cxx   = p->cxx_count;
+	return 0;
+}
+
 int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
                  const char *path, FileMetrics **out, FileFacts **facts_out)
 {
@@ -2295,8 +2326,18 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	SpanList              comments = { 0 };
 	SiteList              sites    = { 0 };
 	struct stat           st;
-	void                 *map    = MAP_FAILED;
-	size_t                len    = 0;
+	/* The mapping, kept apart from the text that is parsed: expansion
+	 * hands back its own buffer, and `munmap` must still receive what
+	 * `mmap` returned. */
+	void                 *mapping = MAP_FAILED;
+	size_t                maplen  = 0;
+	const char           *map     = NULL;
+	size_t                len     = 0;
+	/* Explicitly not-attempted, because a zeroed struct would read as
+	 * PREPROC_EXPANDED and a run with --no-expand would report every file
+	 * as expanded — the provenance of HLR-206 saying the opposite of what
+	 * happened. */
+	PreprocResult         expanded = { .status = PREPROC_OFF };
 	TSTree               *tree   = NULL;
 	int                   fd     = -1;
 	int                   status = ANALYZE_FAILED;
@@ -2336,14 +2377,36 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 		goto cleanup;
 	}
 
-	len = (size_t)st.st_size;
-	map = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
-	if (map == MAP_FAILED) {
+	maplen  = (size_t)st.st_size;
+	mapping = mmap(NULL, maplen, PROT_READ, MAP_PRIVATE, fd, 0);
+	if (mapping == MAP_FAILED) {
 		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		goto cleanup;
 	}
+	map = mapping;
+	len = maplen;
 
+	/* The physical-line count comes from the file, never from the parsed
+	 * buffer. Expansion pads with blank lines to hold every location in
+	 * place (HLR-204), and those are lines the file does not have. */
 	metrics->physical_lines = count_lines(map, len);
+
+	/* Macros expanded by the compiler, and the result filtered back down
+	 * to this file at its own line numbers (HLR-202, HLR-203). Where that
+	 * does not happen — no toolchain, a header the host cannot find, a
+	 * cross-compiled tree — the file is parsed as written and measured
+	 * exactly as it was before expansion existed (HLR-205). */
+	if (!opts->no_expand) {
+		if (preproc_expand(path, module->language_name, opts->cc,
+		                   opts->cc_flags, opts->cc_flag_count,
+		                   &expanded) == 0 && expanded.text) {
+			map = expanded.text;
+			len = expanded.length;
+		}
+	}
+	metrics->preproc_status = (int)expanded.status;
+	if (record_stdlib(metrics, &expanded) != 0)
+		goto cleanup;
 
 	ts_parser_set_language(reg->parser, module->ts_lang);
 
@@ -2384,8 +2447,9 @@ cleanup:
 	free(ranges.items);
 	if (tree)
 		ts_tree_delete(tree);
-	if (map != MAP_FAILED)
-		munmap(map, len);
+	preproc_result_free(&expanded);
+	if (mapping != MAP_FAILED)
+		munmap(mapping, maplen);
 	filemetrics_free(metrics);
 	filefacts_free(facts);
 	if (fd >= 0)

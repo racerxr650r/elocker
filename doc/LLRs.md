@@ -1938,3 +1938,51 @@ The one reduction every name comparison goes through. Both requirements below ar
 
     `operator()` and the `(anonymous namespace)` qualifier are the same hazard in the signature scan, and are stepped over for the same reason.
     *Trace:* HLR-200 (Names Compared in One Reduced Form).
+
+## 66. `preproc_expand` ([src/preproc.c](../src/preproc.c))
+
+Expansion and filtering of one file. The first requirement is the subprocess; the rest are all about not letting the subprocess's output become the measurement.
+
+*   <a id="LLR-PRE-01"></a>**LLR-PRE-01** — `preproc_expand` shall run the preprocessor as a child process with its standard output on a pipe and its standard error discarded, shall read that pipe to end-of-file **before** collecting the child's exit status, and shall write no file.
+
+    Draining before waiting is the requirement rather than the natural order. A file whose expansion exceeds the pipe capacity — which is every C++ file that includes anything — would otherwise deadlock: the child blocked writing to a full pipe, the parent blocked waiting for a child that cannot exit.
+
+    Standard error is discarded because the preprocessor's complaints are about a build configuration `elc` does not have and cannot fix. A missing header on a cross-compiled tree would otherwise produce pages of diagnostics per file for a condition HLR-206 states once.
+    *Trace:* HLR-202 (Macros Expanded by the Compiler's Preprocessor), HLR-043.
+
+*   <a id="LLR-PRE-02"></a>**LLR-PRE-02** — `preproc_expand` shall invoke the preprocessor so that **comments are preserved** (`-C`) and line markers are emitted, and shall pass no include path, define, or flag it invented.
+
+    A preprocessor discards comments by default. No figure depends on them today — they are excluded from effective lines rather than counted (HLR-016) — and they are kept anyway, because the parsed buffer should differ from the source only where the expansion required it. A difference nothing needs is one a reader of a finding must still account for.
+
+    An invented `-I` would read a header the user did not name, which HLR-039 forbids, and would be worse than reading none: reaching the *wrong* header makes the expansion succeed and be wrong, where reaching no header makes it fail and fall back.
+    *Trace:* HLR-202 (Macros Expanded by the Compiler's Preprocessor), HLR-039.
+
+*   <a id="LLR-PRE-03"></a>**LLR-PRE-03** — The filter shall recognise a line marker as `#` in the first column followed by a space and a decimal line number, then a quoted file name, and shall change state on nothing else. A marker naming the file under analysis shall select the appending state; every other marker, including one naming a project header, `<built-in>` or `<command-line>`, shall select the ignoring state.
+
+    Only the appending state copies. That is what keeps the cost of a fifty-thousand-line C++ expansion proportional to what is kept rather than to what was produced.
+
+    The quoted name shall be unescaped before comparison and compared as a canonical path. A path holding a quote or a backslash reaches the marker escaped and would otherwise never compare equal; a build reaching its sources through a symbolic link compares unequal, never enters the appending state, and falls back — the safe direction, and the one `dwarfline.c` already takes for the same reason.
+
+    A project header is discarded like a system one. It is a file in its own right, analysed on its own account when the target reaches it, and counting it once per file that includes it would inflate every figure by its inclusion count.
+    *Trace:* HLR-203 (Expanded Output Filtered to the File Under Analysis).
+
+*   <a id="LLR-PRE-04"></a>**LLR-PRE-04** — Before appending the lines following a marker that announces line *N*, the filter shall emit newlines until the buffer holds *N* − 1 lines. A marker announcing a line the buffer has already passed shall be ignored.
+
+    This is what makes the expanded buffer measurable rather than merely parseable. Every location `elc` reports and every line-based figure it computes would otherwise be displaced by however much the filter discarded above it, and a reader cannot detect the displacement to discount it (HLR-204).
+
+    Padding shall never move backwards. A marker announcing an earlier line occurs where a macro expansion spans lines and the preprocessor resynchronises; acting on it would let the filter overwrite a line already written, and a buffer that can rewind is one whose contents depend on the order the markers happened to arrive.
+    *Trace:* HLR-204 (Expansion Preserves Every Reported Location), HLR-032.
+
+*   <a id="LLR-PRE-05"></a>**LLR-PRE-05** — `preproc_expand` shall return a null buffer, and a status naming the reason, where the child could not be started, exited non-zero, or produced output holding no marker for the file under analysis. It shall return non-zero only on allocation failure.
+
+    **Output naming the file nowhere is a failure and not an empty file.** A zero-line measurement of a file that has lines is the silent wrong answer this module exists not to produce, and it is indistinguishable in the report from a file that is genuinely empty.
+
+    No failure here shall fail a run or emit a per-file diagnostic. Falling back is the ordinary condition of a tree analysed away from its build environment (HLR-205), and one message per file teaches a reader nothing after the first.
+    *Trace:* HLR-205 (Expansion Failure Falls Back to the Source as Written).
+
+*   <a id="LLR-PRE-06"></a>**LLR-PRE-06** — The filter shall record each standard-library header the marker stream names, de-duplicated, classifying it as belonging to the C or the C++ standard library, and shall leave the list empty for a file that fell back.
+
+    The markers name every file the preprocessor opened, so the list is a by-product of the filter rather than a second analysis. Classification is by name against the two standards' header sets, because the path alone cannot distinguish them — both live under the same system directories, and a C++ implementation's `<cstdio>` and C's `<stdio.h>` sit side by side.
+
+    An empty list on a fallen-back file is not a claim that the file uses no standard library. It is the absence of an answer, which HLR-206's provenance is what lets a reader tell apart from the answer "none".
+    *Trace:* HLR-207 (Standard-Library Dependence Reported).

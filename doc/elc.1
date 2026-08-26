@@ -931,6 +931,44 @@ than a request; see
 .B THE CALL TREE
 below.
 .TP
+.B \-\-no\-expand
+Measure the source as written, without expanding its macros.
+.IP
+By default
+.B elc
+runs the language's preprocessor over each file and parses the result, keeping
+only that file's own lines and restoring their line numbers \(em which is what
+lets a macro standing in for a keyword, a type, or a string be measured at all.
+This switch declines that, and produces the report a build with no toolchain
+produces. Use it when two machines must agree: an expansion depends on the
+headers installed where it runs, and unexpanded source does not.
+.TP
+.BI \-\-cc " PROGRAM"
+Preprocessor to expand with, in place of
+.B gcc
+for C and
+.B g++
+for C++. A program that cannot be run falls back per file, exactly as a missing
+one does.
+.TP
+.BI \-\-cc\-flag " ARG"
+Pass
+.I ARG
+to the preprocessor. Repeatable.
+.IP
+.B elc
+does not know how the project is built and will not guess: an include path it
+invented would read a header nobody named, and reaching the
+.I wrong
+header is worse than reaching none, because the expansion would then succeed
+and be wrong. So the flags a build needs are the ones you give it \(em
+.B \-\-cc\-flag
+.IR \-Iinclude ,
+.B \-\-cc\-flag
+.IR \-DNDEBUG .
+Without them a project whose headers are not beside its sources falls back to
+being measured as written, which the report states per file.
+.TP
 .B \-\-dbg
 Also write a debug log beside the report, named from it by the companion rule:
 an

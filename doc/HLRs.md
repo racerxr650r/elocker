@@ -689,8 +689,12 @@ Requirements governing how `elc` reports a code base whose source is conditional
     The constructs that introduce a conditionally compiled region, the location of the condition governing it, and the branches it selects between, shall be identified by the language's runtime query configuration (HLR-009) rather than by logic compiled into the executable, so that a language whose conditional compilation differs in form — a C preprocessor conditional, a Rust `cfg` attribute — is supported by the same mechanism and requires no change to the executable (HLR-010).
     *Trace:* [SDD Section 6](SDD.md), [SDD Section 7](SDD.md).
 
-*   <a id="HLR-135"></a>**HLR-135: No External Preprocessor.**
-    `elc` shall determine which regions are active from the syntax tree it has already parsed, and shall not invoke a language toolchain's preprocessor, compiler, or build system, nor read any file the analysed source refers to for the purpose of resolving a condition. Requiring a toolchain would make the result depend on which one is installed and on a build environment `elc` cannot reproduce, would breach the runtime-dependency exclusions of HLR-040, and would re-read a file the single-parse rule (HLR-076) says is read once. It follows that a condition whose value depends on definitions `elc` was not given is undecidable rather than false (HLR-133).
+*   <a id="HLR-135"></a>**HLR-135: Conditional Regions Decided Without a Preprocessor.**
+    `elc` shall determine which regions are active from the syntax tree it has parsed, and shall not read any file the analysed source refers to for the purpose of resolving a condition. A condition whose value depends on definitions `elc` was not given is undecidable rather than false (HLR-133).
+
+    **This requirement previously forbade invoking a toolchain preprocessor at all.** That prohibition is withdrawn and replaced by the bounded permission of HLR-202: `elc` may run the compiler's preprocessor over a source file to expand its macros before parsing it. The two are not in conflict, because they answer different questions. Expansion asks *what does this text mean*, and the compiler is the only authority on that. Conditional-region reporting asks *which branches did this build take, and which could not be decided* — and a preprocessor answers that by silently discarding the branches it did not take, which is the opposite of reporting them (HLR-133, HLR-134).
+
+    So the undecided-region count is computed from the tree as before, and is unaffected by whether the buffer that produced the tree was expanded. What the reasoning behind the old prohibition got right is preserved elsewhere: the dependence on an installed toolchain is real, is bounded by the fallback of HLR-205, and is declared per file by HLR-206 rather than left to be discovered.
     *Trace:* [SDD Section 7](SDD.md).
 
 *   <a id="HLR-136"></a>**HLR-136: Configuration Recorded and Reported.**
@@ -710,7 +714,7 @@ The image answers that question at two granularities, and which of them is avail
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 7](SDD.md), [SDD Section 18](SDD.md).
 
 *   <a id="HLR-141"></a>**HLR-141: Image Read Without a Toolchain.**
-    `elc` shall obtain the function set from the named image alone: it shall not invoke a toolchain utility — `nm`, `objdump`, `readelf`, a compiler, a linker, or a build system — shall not search for an image the user did not name, and shall not require the image to carry debugging information. Requiring a toolchain would make the result depend on which one is installed and would breach the runtime-dependency exclusions of HLR-040; searching for an image would breach the zero-configuration guarantee of HLR-039, under which nothing is read that the user did not name. The symbol table a linker writes by default is sufficient, and requiring more would restrict the option to builds made for debugging.
+    `elc` shall obtain the function set from the named image alone: it shall not invoke a toolchain utility — `nm`, `objdump`, `readelf`, a compiler, a linker, or a build system — shall not search for an image the user did not name, and shall not require the image to carry debugging information. Requiring a toolchain *to read an image* would make a filtered run depend on which one is installed, for no gain: the symbol table is a documented format and `elc` reads it directly. Searching for an image would breach the zero-configuration guarantee of HLR-039, under which nothing is read that the user did not name. This requirement governs the image alone, and is untouched by the preprocessor permission of HLR-202 — which concerns source text, runs before any parse, and cannot affect what an image contains. The symbol table a linker writes by default is sufficient, and requiring more would restrict the option to builds made for debugging.
 
     "Shall not require" is not "shall not read". Where the image happens to carry debug line information, `elc` reads it to prune at line granularity (HLR-153), and reads it from the image directly under this requirement's own terms — no toolchain utility, and no file the user did not name. What this requirement forbids is *depending* on debug information: an image without it remains fully usable for everything Section 19 describes at function granularity.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 18](SDD.md).
@@ -1032,6 +1036,74 @@ Requirements governing the spelling a name is compared in, and what a diagnostic
 
     Advising a remedy is required by HLR-193 and does not reopen HLR-101. HLR-101 forbids `elc` recommending changes to the code it measures; this concerns how the image was built, which is a fact about the tool's own inputs.
     *Trace:* [SDD Section 26](SDD.md), [SDD Section 14](SDD.md).
+
+## 27. Preprocessor Macro Expansion and AST Sanitization
+
+Requirements governing the expansion of macros before parsing, the filtering that makes the expanded text measurable, and what `elc` gives up by depending on a toolchain.
+
+A macro standing where the grammar expects a keyword, a type, or a string is a parse error, and no grammar can fix it: `MACRO MACRO` is genuinely ambiguous with `Type var`. The compiler's preprocessor resolves it exactly, and its output is unusable as it stands — 19 lines of C measured 829 after expansion, with the functions of every header included appearing as functions of the file under analysis and every line number moved. The `#line` markers the preprocessor emits are what turn that output into something a measurement can be taken from.
+
+*   <a id="HLR-202"></a>**HLR-202: Macros Expanded by the Compiler's Preprocessor.**
+    Before parsing a source file, `elc` shall run the language's preprocessor over it — `gcc -E` for C, `g++ -E` for C++, or the equivalent named on the command line — and shall parse the filtered result of HLR-203 in place of the file's own text.
+
+    **Expansion is the only way to be right about a macro rather than lucky.** A grammar-based tool can recognise the shapes a macro failure commonly takes and rewrite them, which is what the withdrawn Phase 25 did; it cannot know that `local` means `static`, and the shapes it does not recognise stay broken. The compiler knows, and asking it costs one subprocess per file.
+
+    The output shall be captured into memory and **no intermediate file shall be written**. A temporary file would be a path to collide on under parallel runs, a file to leave behind when the process is killed, and a write to a filesystem HLR-043 promises is not modified.
+
+    The preprocessor is invoked on the file named, with no include paths, defines, or flags beyond those the user gave. `elc` does not have the build's configuration and shall not guess at it: a `-I` it invented would read a header the user did not name (HLR-039), and reaching the wrong header is worse than reaching none, because the expansion would succeed and be wrong.
+    *Trace:* [SDD Section 27](SDD.md).
+
+*   <a id="HLR-203"></a>**HLR-203: Expanded Output Filtered to the File Under Analysis.**
+    `elc` shall filter the preprocessor's output by the `# linenum "filename" flags` markers it emits, retaining only the lines the marker attributes to the file being analysed and discarding every line attributed to any other file.
+
+    **Without this the expansion is not an improvement but a corruption.** A header contributes its own functions, its own lines, and its own complexity, and every one of them would be attributed to whichever file included it. One `#include <iostream>` contributes upwards of fifty thousand lines. The figures would be larger, internally consistent, and about a program nobody wrote — which is the one failure mode this tool exists to avoid.
+
+    The filter shall be a state machine over the marker stream rather than a heuristic over the text. A marker naming the analysed file switches it to **appending**; a marker naming anything else — a system path, a project header, `<built-in>`, `<command-line>` — switches it to **ignoring**. Nothing but the markers decides, so a line of source that happens to look like a marker cannot change what is measured.
+
+    A project's own headers are discarded along with the system's. They are files in their own right, analysed on their own account when the target includes them, and counting a header once per file that includes it would inflate every figure by its inclusion count.
+    *Trace:* [SDD Section 27](SDD.md).
+
+*   <a id="HLR-204"></a>**HLR-204: Expansion Preserves Every Reported Location.**
+    The buffer `elc` parses shall place every retained line at the line number it occupies in the unexpanded file, padding with blank lines where the filter discarded a region.
+
+    **Every figure `elc` reports is line-based.** Effective lines (HLR-015), cyclomatic complexity (HLR-017), a function's reported range, a finding's location, the debug-line pruning of HLR-153 and the dead-code spans of HLR-137 are all counted or located by line. A filtered buffer that simply concatenated what it kept would place every one of them somewhere the reader cannot find, and the report would carry right-looking figures against wrong locations — undetectable to a reader and therefore impossible to discount.
+
+    Padding is free in every measurement that matters: a blank line is not an effective line, contributes no complexity, and adds nothing to any table. It costs a physical-line count, which shall therefore be taken from the file itself rather than from the parsed buffer.
+
+    **Comments shall survive expansion.** A preprocessor discards them by default and the invocation shall preserve them (`-C`).
+
+    No figure `elc` reports today depends on this: comments are excluded from effective lines (HLR-016) and stripping them removes nothing that was being counted. It is required because the buffer handed to the parser should differ from the source as little as the expansion allows. Every difference is one a reader of a finding has to account for, every future measurement over comments would otherwise read zero without anything to indicate why, and preserving them costs a flag.
+    *Trace:* [SDD Section 27](SDD.md), [SDD Section 7](SDD.md).
+
+*   <a id="HLR-205"></a>**HLR-205: Expansion Failure Falls Back to the Source as Written.**
+    Where the preprocessor cannot be run, exits non-zero, or produces nothing usable, `elc` shall parse the file's own text and shall complete the run.
+
+    **Falling back is the ordinary case, not the error case.** A cross-compiled tree cannot be preprocessed by a host toolchain at all — the AVR project that prompted this work fails on `avr/io.h` before it reaches a macro — and a source tree analysed without its build environment is the normal condition of a code-metrics tool. A file that falls back is measured exactly as this tool measured it before expansion existed: the grammar's gaps return with it, and the unparsed-line count of HLR-035 reports them as it always has.
+
+    The fallback shall not be a diagnostic on standard error for each file. On a tree the host cannot preprocess, that is one message per file for a condition the reader learns nothing further from after the first. It is recorded per file and summarised once, under HLR-206.
+
+    `elc` shall remain usable with no compiler installed at all, which is what keeps HLR-040's exclusions honest: a toolchain improves the result where it is present and is not required for one.
+    *Trace:* [SDD Section 27](SDD.md).
+
+*   <a id="HLR-206"></a>**HLR-206: Expansion Provenance Declared Per File.**
+    A report over a run in which any file fell back shall state, for each such file, that it was measured from its own text and why the expansion did not happen; and the project summary shall state how many files were expanded and how many were not.
+
+    **Two files in one report may have been measured two different ways, and a reader cannot tell them apart from the figures.** An expanded file's macros are resolved and its parse is clean; a fallen-back file's are not, and its unparsed-line count may be non-zero for a reason that has nothing to do with the code. This is the discipline the unresolved-call count of HLR-077, the undecided-region count of HLR-133 and the unparsed-line count of HLR-035 already follow.
+
+    It also bounds the honesty cost of HLR-202. `elc` no longer promises that one source tree yields one report on every machine; it promises that one source tree preprocessed by one toolchain does. That is a real narrowing, and the per-file provenance is what makes it visible on the page instead of a surprise.
+
+    The count carries no severity and does not reach the exit status (HLR-100). It is a figure to read.
+    *Trace:* [SDD Section 27](SDD.md), [SDD Section 14](SDD.md).
+
+*   <a id="HLR-207"></a>**HLR-207: Standard-Library Dependence Reported.**
+    Where a file's expansion succeeded, `elc` shall report which standard-library headers it drew on, distinguishing the **C standard library** from the **C++ standard library**, naming each header and the file that included it.
+
+    The filter of HLR-203 already sees every file the preprocessor opened, so this is a fact `elc` holds and would otherwise discard. It is worth reporting because it answers a question no other measurement in the tool does: **what would it take to build this somewhere else.** A freestanding or embedded target has no `<iostream>` and often no `malloc`; a project intending to be portable to one, or believing itself already portable, is told exactly where it is not.
+
+    Reported as a fact and not a finding. It carries no severity, reaches no exit status, and is accompanied by no advice — depending on the standard library is the ordinary case for most programs, and HLR-101 forbids `elc` recommending changes to the code it measures. What the tool supplies is the list; what it means is the reader's to judge.
+
+    A file that fell back reports nothing here, and shall not be listed as depending on nothing. Absence of evidence is not evidence of absence, and the provenance of HLR-206 is what tells a reader which files could be asked.
+    *Trace:* [SDD Section 27](SDD.md), [SDD Section 14](SDD.md).
 
 ## 23. Report Composition and Per-Function Banding
 

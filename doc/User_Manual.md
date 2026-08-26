@@ -2471,6 +2471,9 @@ comparable.
 | `--write-manifest` | — | off | Also write the purification manifest as JSON, named from `--output` |
 | `--purify-dot` | — | off | Also write the raw and purified graphs as two Graphviz files, named from `--output` |
 | `--no-dot` | — | `.dot` written | Do not write the annotated Graphviz call tree, which is otherwise written beside the report |
+| `--no-expand` | — | expansion on | Measure the source as written, without expanding its macros |
+| `--cc` | `PROGRAM` | `gcc` / `g++` | Preprocessor to expand with |
+| `--cc-flag` | `ARG` | none | Pass `ARG` to the preprocessor; repeatable, for the include paths and defines the build needs |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 
 ```sh
@@ -2940,6 +2943,102 @@ source already says.
 **They do not replace the measurements.** A value inside its band is still
 reported in the table that measured it. The findings list is the subset that
 crossed a line; the tables above it are the whole picture.
+
+## Macro expansion
+
+A macro standing where the grammar expects a keyword, a type, or a string is a
+parse error, and no grammar can fix it — `MACRO MACRO` is genuinely ambiguous
+with `Type var`. So before parsing a file, `elc` runs the language's own
+preprocessor over it and parses the result:
+
+```c
+#define local      static
+#define BOLD       "\033[1m"
+
+local int branchy(int n) { ... }
+printf(BOLD "value: %d\n", n);
+```
+
+Unexpanded, both lines defeat the parser. Expanded, they are ordinary C.
+
+**Only your file survives the expansion.** Raw preprocessor output is not
+something you would want measured: nineteen lines of C came back as 829, with
+the functions of every header pulled in appearing as functions of the file, and
+every line number moved. `elc` filters the output by the `# linenum "file"`
+markers the preprocessor emits, keeping only the lines attributed to the file
+being analysed — a system header, a project header, `<built-in>` — everything
+else is discarded. One `#include <iostream>` costs you nothing: 68,468 lines of
+expansion filtered back down to the file's own 21.
+
+**Your line numbers do not move.** The filter pads with blank lines so every
+retained line sits where it sits in your file. A function reported at 21–70 is
+at 21–70 in the file you wrote, expansion or not.
+
+### Telling `elc` how your project builds
+
+`elc` does not know your build and will not guess. An include path it invented
+would read a header you never named, and reaching the *wrong* header is worse
+than reaching none — the expansion would succeed and be wrong. So you supply
+what the build needs:
+
+```sh
+elc --cc-flag -Iinclude --cc-flag -DNDEBUG src/
+```
+
+Without them, a project whose headers are not beside its sources simply falls
+back, which brings us to:
+
+### When expansion does not happen
+
+It often does not, and that is fine. A cross-compiled tree cannot be
+preprocessed by a host compiler at all — an AVR project fails on `avr/io.h`
+before it reaches a macro. A machine with no compiler installed cannot expand
+anything. In every such case `elc` parses the file as written and completes the
+run, giving you exactly the report it would have given before expansion
+existed.
+
+Because two files in one report may then have been measured two different ways,
+and nothing in the figures says which, `elc` tells you:
+
+```text
+Project summary
+  ...
+  Files expanded        16
+  Measured as written    6
+
+Measured as written (macros not expanded)
+  File            Why
+  --------------  ----------------------------------
+  src/arch.c      the preprocessor rejected the file
+  src/graph.c     the preprocessor rejected the file
+```
+
+`--no-expand` turns expansion off entirely. Reach for it when two machines must
+agree: an expansion depends on the headers installed where it runs, and
+unexpanded source does not.
+
+### What your code depends on
+
+The filter sees every header the preprocessor opened, so it can tell you what
+it would take to build this somewhere else:
+
+```text
+Standard-library dependence
+  File       Library  Headers  Which
+  ---------  -------  -------  ---------------------------------
+  app.cpp    C             11  wchar.h stddef.h stdarg.h locale.h ...
+  app.cpp    C++           25  iostream ostream ios iosfwd cwchar ...
+```
+
+A fact, not a finding: it carries no severity, reaches no exit status, and
+comes with no advice. Depending on the standard library is the ordinary case
+for most programs. If you are heading for a freestanding or embedded target
+that has no `<iostream>` and often no `malloc`, this is the list of what stands
+in the way. If you are not, skip it.
+
+A file that fell back reports nothing here — that is the absence of an answer,
+not the answer "none". The provenance table above says which files could be
+asked.
 
 ## When the parser cannot follow your code
 
