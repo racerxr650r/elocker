@@ -258,7 +258,7 @@ the target, an ancestor, or a dotfile. And `--purify-dot` draws the graph twice,
 before and after, with the masked functions greyed and detached rather than
 deleted, so you can see what was set aside before deciding to trust it.
 
-**Progress: 26 of 28 phases complete.**
+**Progress: 28 of 29 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -290,9 +290,10 @@ deleted, so you can see what was set aside before deciding to trust it.
 | [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
 | [24](doc/SDP.md#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols, the debug companion | ✅ Complete |
-| [25](doc/SDP.md#phase-25--repairing-what-the-grammar-could-not-follow-withdrawn) | In-buffer repair of unparsable macro shapes | ⛔ Withdrawn, superseded by 27 |
+| [25](doc/SDP.md#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes | ✅ Complete |
 | [26](doc/SDP.md#phase-26--placing-templated-names-by-debug-information) | DWARF names reduced the way image symbols are; a diagnostic that states what it observed | ✅ Complete |
-| [27](doc/SDP.md#phase-27--preprocessor-macro-expansion--ast-sanitization) | Macro expansion through `gcc -E`, filtered to project source and reported per file | 🔄 In progress |
+| [27](doc/SDP.md#phase-27--preprocessor-macro-expansion--ast-sanitization) | Macro expansion through `gcc -E`, filtered to project source and reported per file | ✅ Complete |
+| [28](doc/SDP.md#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | 🔄 In progress |
 
 </details>
 
