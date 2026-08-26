@@ -66,8 +66,9 @@ release readiness — is ready to start, and is the last.
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
 | [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols, the debug companion | ✅ Complete |
-| [25](#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes, declared in the report | ✅ Complete |
-| [26](#phase-26--placing-templated-names-by-debug-information) | DWARF names reduced the way image symbols are; a diagnostic that states what it observed | 🔄 In progress |
+| [25](#phase-25--repairing-what-the-grammar-could-not-follow-withdrawn) | In-buffer repair of unparsable macro shapes | ⛔ Withdrawn, superseded by 27 |
+| [26](#phase-26--placing-templated-names-by-debug-information) | DWARF names reduced the way image symbols are; a diagnostic that states what it observed | ✅ Complete |
+| [27](#phase-27--preprocessor-macro-expansion--ast-sanitization) | Macro expansion through `gcc -E`, filtered to project source and reported per file | 🔄 In progress |
 
 ## 0. Required Tools for Development
 
@@ -418,7 +419,7 @@ No release is cut before Phase 16. From then on:
    `develop` is the default branch until then.
 2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release is
    `v0.1.0`.** Feature completeness is not the thing the major version
-   promises — all 27 phases have shipped and the gap list is empty, and the
+   promises — all 28 phases have shipped and the gap list is empty, and the
    number still says the *command-line interface* is not yet fixed. Two
    contracts are already stable regardless, and are stable because a
    requirement says so rather than because a version number implies it:
@@ -2424,116 +2425,28 @@ before you push. No further phase is specified: in place of step 12, cut a
 release per §5.5, or open the issue for whatever is specified after this one.
 ```
 
-### Phase 25 — Repairing What the Grammar Could Not Follow
+### Phase 25 — Repairing What the Grammar Could Not Follow (withdrawn)
 
-Tree-sitter parses source the preprocessor has not touched, so a macro standing
-where the grammar expects a keyword, a type, or a string is a parse error. Three
-shapes account for every failure observed in the field: `local int f(void)`
-where `local` expands to `static`; `printf(BOLD FG_BLUE "text" RESET, x)` where
-the leading macros expand to string literals; and `FUSES = { ... };` where the
-macro expands to a whole declarator.
+**Implemented, shipped, and removed.** The phase repaired source the grammar
+rejected by rewriting the rejected regions in `elc`'s own buffer — an
+upper-case token beside a string literal became `""`, one in front of a
+declaration was blanked, one standing where a declarator belongs was given a
+type — and it worked: on a 44-file AVR project, 64 error regions fell to 8 and
+unparsed lines 47 to 5, with the file count, function count, physical lines and
+ELOC every one unchanged.
 
-The grammar cannot fix these. `MACRO MACRO` is genuinely ambiguous with `Type
-var`, which is why the upstream `concatenated_string` rule requires a string
-literal within its first two tokens; relaxing it produces a cascade of conflicts
-against `type_specifier`, and the same restriction stands on `master`. Nor is
-there another grammar to move to: `tree-sitter/tree-sitter-c` is the only
-maintained one, with ten open issues on macro handling, one of them this
-phase's second shape exactly.
+It was withdrawn in favour of [Phase 27](#phase-27--preprocessor-macro-expansion--ast-sanitization), which expands macros
+properly rather than guessing at their shape. Repair never knew what a macro
+meant; it knew only what the failure looked like, and three shapes were enough
+for the failures observed rather than for the failures that exist. A
+preprocessor answers the question instead of pattern-matching around it, and
+the `#line` markers it emits turn out to solve the problem that made
+preprocessing look unaffordable in the first place — attributing header
+content to the file that included it.
 
-Running a preprocessor would fix it and cost more than it is worth: a toolchain
-elc does not have, include paths it cannot know, header functions attributed to
-whichever file included them, and every reported line number moved. A
-cross-compiled tree — the case that raised this — cannot be preprocessed by a
-host compiler at all.
+The requirements it introduced, HLR-196 – HLR-199, are retired. Their numbers
+are not reused.
 
-**So elc repairs the source it could not parse, in the buffer, without knowing
-what any macro means.** It needs only enough shape to let the grammar proceed.
-
-1. `repair.c`: given a parsed tree carrying error regions, rewrite the mapped
-   buffer within **those regions only** and parse again, to a fixed point
-   (HLR-196). Repairs never touch text the grammar accepted, which is what
-   stops a repair silently altering code that was already right.
-2. Three rules, each preserving the **line count** of what it replaces
-   (HLR-197). That is the whole of why the figures stay correct: ELOC,
-   complexity and every reported line number are line-based, so a same-line
-   edit cannot move them.
-   *   An upper-case token adjacent to a string literal becomes `""` — a macro
-       expanding to a string, concatenated with the string beside it.
-   *   An unknown token in front of a declaration is blanked — a storage-class
-       or attribute macro.
-   *   `NAME =` alone at file scope is given a type — a macro expanding to a
-       declarator.
-3. **Convergence is bounded and the bound is stated** (HLR-198). Each pass must
-   strictly reduce the damaged region count or the loop stops; a repair that
-   does not help is undone rather than left in.
-4. **The report says what was repaired** (HLR-199), by rule and by count. A
-   repair is a guess the grammar could not make, and a figure that rested on
-   one must say so — the discipline the unresolved-call and undecided-region
-   counts already follow. The debug companion of HLR-194 records each repair
-   with the line before and after.
-
-Measured against a 44-file AVR project before the requirements were written:
-**64 error regions fall to 8, unparsed lines 47 to 5**, with the function count
-unchanged at 524, physical lines identical, and ELOC unchanged at 1699. The
-eight survivors are cascades inside regions an unrepaired error had already
-swallowed.
-
-**Requirements:** HLR-196 – HLR-199, and an amendment to HLR-035 stating that
-the unparsed-line count is what remains *after* repair.
-
-**Nothing here invokes a toolchain, reads a file the user did not name, or
-touches a line the grammar accepted.** HLR-135, HLR-040, HLR-039 and the
-single-parse rule of HLR-076 are unaffected — except that HLR-076's "one parse"
-becomes "one parse per repair pass", which is bounded by HLR-198 and must be
-said rather than assumed.
-
-**Acceptance:** each of the three macro shapes parses clean where it previously
-produced an error region, and measures what the expanded form would have
-measured — verified against a hand-written expanded equivalent, not against
-elc's own output. A file with no error regions is byte-identical before and
-after, and is parsed once. Repair counts appear in the report and each repair
-in the debug companion. Two runs over one target repair identically (HLR-032).
-`make test`, `make asan` and `make valgrind` are clean, `lint_project.py`
-reports 0 errors, and `test/gap-baseline.txt` is still 0.
-
-**AI prompt.** Run after issue #<N> exists; `<N>` is its number.
-
-```text
-Implement **Phase 25 — Repairing What the Grammar Could Not Follow**, tracked
-by issue #<N>.
-
-Read first: `doc/SDD.md` §26 (`repair.c`) and §7 (`analyze.c`); HLR-196
-through HLR-199; and HLR-035, which this phase amends.
-
-Watch for:
-* **A repair is a guess, and the report must say one was made.** The whole
-  defence of this feature is that it is bounded and declared. A repaired
-  figure presented as a clean one is the confidently-wrong result elc exists
-  to avoid — worse than the parse error it replaced, because nothing on the
-  page distinguishes it.
-* **Only inside an error region.** The rules are heuristics and would do
-  damage applied to code that parsed. Drive them from the ERROR nodes, never
-  from a scan of the file.
-* **Preserve the line count, always.** Every rule replaces text with text of
-  the same number of lines. That single property is what keeps ELOC,
-  complexity and every reported location exactly what they would have been,
-  and it is worth asserting in a test of its own.
-* **Bound the loop and prove the bound.** A repair that does not reduce the
-  damage is undone; a pass that changes nothing ends the loop. Without this a
-  rule that reintroduces an error runs forever on somebody else's source.
-* **A file that parses is not touched, and is parsed once.** The repair path
-  must be unreachable for sound source, or the single-parse rule of HLR-076
-  becomes two parses for everybody.
-* **Determinism.** Rules apply in a fixed order to regions in a fixed order,
-  or two runs over one tree produce different reports (HLR-032, HLR-033).
-
-When the work is done, follow the Phase Execution Protocol in §5.4 —
-including step 6 (updating `doc/Project.xml` with everything this phase
-discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
-before you push.
-```
 
 ### Phase 26 — Placing Templated Names by Debug Information
 
@@ -2620,6 +2533,122 @@ Two changes, and resist making a third:
 Do not widen HLR-193. A genuinely unplaceable ambiguous name must still fail
 the run and produce no report. The `operator<` family is the trap in the
 reduction — cover it with a test whatever your reading of the code says.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push.
+```
+
+### Phase 27 — Preprocessor Macro Expansion & AST Sanitization
+
+Tree-sitter parses source the preprocessor has not touched, so a macro standing
+where the grammar expects a keyword, a type, or a string is a parse error.
+[Phase 25](#phase-25--repairing-what-the-grammar-could-not-follow-withdrawn)
+guessed at the shape of those failures and repaired them in place. It worked on
+the shapes it knew and could never work on the ones it did not, because it
+never knew what a macro expanded to.
+
+**This phase asks the compiler.** `gcc -E` (or `g++ -E`) expands the macros and
+`elc` parses the result — which is the only way to be right about a macro
+rather than lucky.
+
+The reason this was not done years ago is that raw preprocessor output is
+unusable. Measured on a 19-line C file: `gcc -E` returned **829 lines**, and the
+functions of every header it pulled in — `clamp`, `scale` — appeared as
+functions of the file under analysis. Every reported line number moved. A tool
+that measured that output would report confident figures about a program nobody
+wrote.
+
+**The `#line` markers are what make it affordable.** The preprocessor states,
+for every run of lines it emits, which file and which line they came from:
+
+```text
+# 1 "app.c"
+# 1 "/usr/include/stdio.h" 1 3 4
+```
+
+That is enough to discard everything the project did not write and to restore
+the line numbering of what it did.
+
+1. `preproc.c`: run the preprocessor on one file, capture `stdout` into memory
+   (never to disk), and return the filtered buffer (HLR-202). No intermediate
+   file means nothing to clean up, nothing to collide under parallel runs, and
+   nothing left behind by a killed process — which HLR-043 requires.
+2. **A `#line` state machine over the output** (HLR-203). Each marker switches
+   the filter between `APPENDING` and `IGNORING` by the file it names: the
+   target file appends, `/usr/include/...`, `<built-in>`, `<command-line>` and
+   every path outside the project ignore. This is what keeps `<iostream>`'s
+   50,000 lines out of the buffer, and what stops a header's functions being
+   attributed to whichever file included it.
+3. **Line numbering is restored, not merely preserved** (HLR-204). Where a
+   marker says the next line is line 400 of the target and the filter has
+   emitted 120, it emits 280 newlines before continuing. Every figure `elc`
+   reports is line-based, so without this the whole report points at the wrong
+   places — and blank lines cost nothing, since ELOC counts neither them nor
+   the comments `-C` preserves.
+4. **A failure falls back to the raw file** (HLR-205). No compiler installed, a
+   header that cannot be found, a cross-compiled tree the host toolchain cannot
+   preprocess at all — each yields the unexpanded source and the parse `elc`
+   would have done anyway. The tool gets better where a toolchain is available
+   and no worse where it is not.
+5. **The report says which run it was** (HLR-206), per file: expanded, or
+   fallen back and why. A figure obtained two ways, with no way to tell which,
+   is the confidently-wrong result the tool exists to avoid.
+6. **Standard-library dependence is reported** (HLR-207). The filter sees every
+   header the preprocessor opened, so it can say — per file, with the header
+   named — where a project depends on the C standard library and where on the
+   C++ STL. That is a fact about portability a reader of an embedded or
+   freestanding code base is entitled to.
+
+**Requirements:** HLR-202 – HLR-207, and amendments to **HLR-135** and
+**HLR-141**, which today forbid invoking a toolchain outright.
+
+**Those two amendments are the real cost of this phase and must be argued, not
+slipped through.** `elc` promised that its output depended on the source and
+the command line and on nothing else. After this phase, a file that includes a
+system header can measure differently on two machines with different libc
+versions. The promise narrows to: *the same source, preprocessed by the same
+toolchain, yields the same report* — and the per-file provenance of HLR-206 is
+what keeps the narrowing visible rather than silent. HLR-039 (zero
+configuration) is untouched: no file is discovered, and the compiler is chosen
+by the command line or by a fixed default.
+
+**Acceptance:** a macro standing in for a storage class, a string literal, or a
+whole declarator parses and measures what the hand-expanded equivalent
+measures. A file including `<stdio.h>` or `<iostream>` gains no function,
+no line, and no ELOC from it, and reports the dependence. Every function's
+reported line range is identical to its range in the unexpanded file. A run
+with the preprocessor disabled, absent, or failing produces exactly the report
+this build produces today. Two runs over one target agree (HLR-032, HLR-033),
+and no intermediate file is written (HLR-043).
+
+```text
+AI prompt — Phase 27
+
+Read issue #70, then HLR-135 and HLR-141 before writing a line of code: this
+phase contradicts both as they stand, and amending them is part of the work
+rather than a consequence of it.
+
+Build the filter before the subprocess. The state machine over `#line` markers
+is the whole phase — the `popen` call is a dozen lines and the filter is what
+decides whether the output is measurable. Test it against captured
+preprocessor output as a string, not by running gcc.
+
+Three things that will be wrong if you do not plan for them:
+
+* **Line numbering.** Filtering alone leaves every line number wrong. Pad with
+  newlines to the line the marker names. Assert a function's reported range
+  against the unexpanded file, or this ships broken and looks fine.
+* **Comments.** `gcc -E` strips them and elc measures them. Pass `-C`.
+* **The fallback is the common case, not the error case.** Cross-compiled
+  trees cannot be preprocessed by a host compiler at all — the AVR project
+  that prompted Phase 25 fails on `avr/io.h` before it reaches a macro. Make
+  falling back ordinary, quiet, and recorded per file.
+
+Do not let a header's content reach the report. A function attributed to the
+file that included it is worse than the parse error this phase removes.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

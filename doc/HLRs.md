@@ -1007,58 +1007,6 @@ Each of those is answerable on its own and none of them answers the question a m
     Every function a band names shall appear in the threshold listing of HLR-187 alongside the functions the other bands name.
     *Trace:* [SDD Section 12](SDD.md), [SDD Section 13](SDD.md).
 
-## 25. Repairing What the Grammar Could Not Follow
-
-Requirements governing what `elc` does with source the grammar rejects, and the bounds that keep doing anything at all defensible.
-
-Tree-sitter parses source the preprocessor has not touched. A macro standing where the grammar expects a keyword, a type, or a string is therefore a parse error, and three shapes account for every failure observed in the field: a macro expanding to a storage class in front of a declaration, one or more expanding to string literals at the head of a concatenation, and one expanding to a whole declarator at file scope.
-
-None of the three is fixable in the grammar. `MACRO MACRO` is genuinely ambiguous with `Type var`, which is why the upstream `concatenated_string` rule requires a string literal within its first two tokens, and relaxing it cascades conflicts against `type_specifier`. Nor is another grammar available: one C grammar is maintained, and its macro handling is a known, open problem. Running a preprocessor would resolve all three and cost a toolchain `elc` refuses to require (HLR-135, HLR-040), include paths it cannot know, header definitions attributed to whichever file included them, and the correctness of every reported line number.
-
-What is left is to repair the source enough for the grammar to proceed, which needs no knowledge of what any macro means — only of the shape the failure takes. The requirements below are mostly restrictions, and each one is what separates a bounded repair from a tool quietly inventing the code it measures.
-
-*   <a id="HLR-196"></a>**HLR-196: Repair Confined to Rejected Regions.**
-    Where the grammar reports an error region in a source file, `elc` may rewrite the contents of **that region** in the buffer it parses, and shall parse the result again.
-
-    No text the grammar accepted shall be rewritten. The rules of HLR-197 are heuristics about the shape of a failure, and a heuristic applied to code that parsed correctly is a tool editing a measurement it had already taken. Confining them to the regions the grammar itself rejected is what makes them safe: the worst a wrong repair can do is fail to fix a region that was already broken.
-
-    A file the grammar parses without error shall not be rewritten and shall be parsed **once**, so the single-parse rule of HLR-076 is unchanged for sound source, and the repair path is unreachable for it.
-
-    The buffer is `elc`'s own copy. No source file is modified, which HLR-039's zero-configuration guarantee and the read-only contract of the analysis both require.
-    *Trace:* [SDD Section 7](SDD.md), [SDD Section 25](SDD.md).
-
-*   <a id="HLR-197"></a>**HLR-197: Repairs Preserve the Line Count.**
-    Every repair shall replace text with text spanning the **same number of lines**.
-
-    This single property is what keeps a repaired measurement correct. Effective lines (HLR-015), cyclomatic complexity (HLR-017) and every location `elc` reports are line-based, so a replacement confined to the lines it replaces cannot move any of them. A repair free to add or remove a line would shift every function beneath it, and the resulting report would carry right-looking figures against wrong locations — which a reader cannot detect and therefore cannot discount.
-
-    Three rules are defined, and each meets that constraint within a single line:
-
-    *   An identifier in upper case adjacent to a string literal shall be replaced by an empty string literal. Such a token is a macro expanding to a string, and an empty literal concatenated with the literal beside it has the same shape and the same effect on every measurement.
-    *   An identifier standing in front of a declaration shall be replaced by blanks. Such a token is a storage-class or attribute macro, and the declaration is what carries the function.
-    *   An identifier alone before `=` at file scope shall be given a type. Such a token is a macro expanding to a declarator, and what remains is the object it declares.
-
-    A rule shall be applied only where its shape matches within a rejected region. `elc` shall not infer what a macro expands to, and none of the three requires it to.
-    *Trace:* [SDD Section 25](SDD.md).
-
-*   <a id="HLR-198"></a>**HLR-198: Repair Terminates.**
-    Repair shall proceed in passes, and shall stop when a pass rewrites nothing or fails to reduce the number of rejected regions. A repair that does not reduce them shall be withdrawn, leaving the buffer as the pass found it.
-
-    Termination is a requirement rather than an expectation because the rules operate on source `elc` did not write and cannot anticipate. A rule that repairs one region into a shape another rule rejects would otherwise run until the process was killed, on somebody else's code and for reasons nothing in the report would explain.
-
-    Rules shall be applied in a fixed order, and regions in a fixed order, so that two runs over one target repair identically as HLR-032 and HLR-033 require of every other output.
-    *Trace:* [SDD Section 25](SDD.md).
-
-*   <a id="HLR-199"></a>**HLR-199: Repairs Are Declared.**
-    A report over source that was repaired shall state how many repairs were made and under which rule, and the debug companion of HLR-194 shall record each one with the text before and after.
-
-    **A repair is a guess the grammar could not make**, and a figure resting on one shall say so. This is the discipline the unresolved-call count of HLR-077 and the undecided-region count of HLR-133 already follow: a measurement whose completeness is unstated cannot be acted on, and one silently reconstructed is worse than the failure it replaced — the figures look ordinary and nothing distinguishes them from measured ones.
-
-    The count is a figure to read rather than a gate to pass. It carries no severity and does not reach the exit status, for the reason no other measurement does (HLR-100).
-
-    The unparsed-line count of HLR-035 shall be what remains **after** repair, since it exists to tell a reader how much of a file was not measured, and repaired lines were.
-    *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md), [SDD Section 25](SDD.md).
-
 ## 26. Placing Templated Names by Debug Information
 
 Requirements governing the spelling a name is compared in, and what a diagnostic may assert about a condition it did not observe.

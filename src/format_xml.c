@@ -38,7 +38,6 @@
 #include "format_dsm.h"
 #include "format_xml.h"
 #include "report.h"
-#include "repair.h"
 #include "thresholds.h"
 
 #define XML_READ_CHUNK 8192
@@ -126,15 +125,8 @@ static void write_files(const Report *report, FILE *out)
 		write_attribute(out, "path", f->path);
 		write_attribute(out, "language", f->language ? f->language : "");
 		fprintf(out, " physical-lines=\"%" PRIu32 "\" eloc=\"%" PRIu32
-		        "\" unparsed-lines=\"%" PRIu32 "\"",
+		        "\" unparsed-lines=\"%" PRIu32 "\">\n",
 		        f->physical_lines, f->eloc, f->unparsed_lines);
-		/* Carried so a report re-rendered from this record still
-		 * declares its repairs (HLR-199); a reconstruction that
-		 * dropped them would read as measured source. */
-		for (size_t k = 0; k < REPAIR_RULE_COUNT; k++)
-			fprintf(out, " repairs-%zu=\"%zu\"", k,
-			        f->repair_counts[k]);
-		fputs(">\n", out);
 
 		for (size_t j = 0; j < f->function_count; j++) {
 			const FunctionMetric *fn = &f->functions[j];
@@ -878,13 +870,6 @@ static void on_file(ReadState *state, const XML_Char **atts)
 	 * a build that could not have measured any. */
 	file->unparsed_lines = uint_attribute(state, atts,
 	                                      "unparsed-lines");
-	for (size_t k = 0; k < REPAIR_RULE_COUNT; k++) {
-		char name[32];
-
-		snprintf(name, sizeof name, "repairs-%zu", k);
-		file->repair_counts[k] = uint_attribute(state, atts, name);
-		file->repairs         += file->repair_counts[k];
-	}
 
 	state->current  = file;
 	state->capacity = 0;
