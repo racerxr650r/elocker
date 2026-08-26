@@ -350,6 +350,22 @@ typedef struct {
 	 * constructs. The complete-record formats ignore it outright
 	 * (HLR-152). */
 	bool          verbose;
+	/* Expansion is on by default and this is the request to turn it off,
+	 * so a zeroed ElcOptions expands — the same convention `verbose`
+	 * takes. `cc` overrides the driver, and is the only way a user tells
+	 * `elc` which toolchain to ask; nothing is read from the environment,
+	 * which would breach HLR-039. */
+	bool          no_expand;
+	const char   *cc;           /* borrowed from argv; not owned          */
+	/* Flags passed to the preprocessor verbatim — `-I`, `-D`, `-std=`.
+	 * Supplied rather than invented, which is the whole difference: a
+	 * path elc guessed at would read a header the user did not name
+	 * (HLR-039), while one they typed is an argument like any other, and
+	 * without a way to give one, expansion falls back on every project
+	 * whose headers are not beside its sources. */
+	const char  **cc_flags;     /* borrowed from argv; not owned          */
+	size_t        cc_flag_count;
+	size_t        cc_flag_capacity;
 	const char  **targets;      /* borrowed from argv; not owned          */
 	size_t        target_count;
 } ElcOptions;
@@ -436,6 +452,19 @@ typedef struct {
 	 * is a fact about the graph — a figure whose accuracy is unstated
 	 * cannot be acted on. */
 	uint32_t        undecided_regions;
+	/* How this file's text reached the parser: expanded by the
+	 * preprocessor, or measured as written and why (HLR-206). Two files in
+	 * one report may have been measured two different ways, and nothing in
+	 * the figures says which. Stored as an int rather than the enum so
+	 * that elc.h stays free of preproc.h, which nothing else here needs. */
+	int             preproc_status;
+	/* Standard-library headers this file's expansion drew on, and how many
+	 * of them are C++ rather than C (HLR-207). Empty for a file that fell
+	 * back, which is the absence of an answer and not the answer "none". */
+	char          **stdlib_headers;
+	unsigned char  *stdlib_kinds;
+	size_t          stdlib_count;
+	size_t          stdlib_cxx;
 	uint32_t        eloc;           /* file-level ELOC, including code
 	                                 * outside any function (HLR-019)    */
 	/* The part of that total belonging to no function — an initialised
@@ -464,12 +493,6 @@ typedef struct {
 	 * False on every run with no image, where the question does not arise
 	 * and nothing is pruned either way. */
 	bool            coverage_unestablished;
-	/* Repairs made to the regions the grammar rejected in this file, in
-	 * total and by rule (HLR-199). Carried so the report can declare that a
-	 * figure rested on a guess the grammar could not make — the discipline
-	 * the unresolved-call and undecided-region counts already follow. */
-	size_t          repairs;
-	size_t          repair_counts[3];
 	FunctionMetric *functions;      /* dynamic array, grown by doubling  */
 	size_t          function_count;
 	/* The functions this file defines that the image does not, in the order
@@ -551,6 +574,7 @@ typedef enum {
 	MEASURE_HIDDEN_CHANNEL,    /* per global     (HLR-093)  */
 	MEASURE_INSTABILITY,       /* per component  (HLR-082)  */
 	MEASURE_BOTTLENECK,        /* per component  (HLR-081)  */
+	MEASURE_MISRA_LIBRARY,     /* per call site  (HLR-207)  */
 	MEASURE_KIND_COUNT
 } MeasurementKind;
 

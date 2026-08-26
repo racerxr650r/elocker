@@ -448,6 +448,24 @@ void cli_usage(FILE *stream)
 "                     it, an --output of report.md yielding report.dot, and\n"
 "                     is never written when the report goes to standard\n"
 "                     output, since there is then no name to derive\n"
+"      --no-expand    measure the source as written, without expanding its\n",
+	      stream);
+
+	/* Split again, for the reason the break below records: the option list
+	 * has outgrown what one literal may portably hold. */
+	fputs(
+"                     macros. Expansion runs the language's preprocessor\n"
+"                     over each file and keeps only that file's own lines,\n"
+"                     at their own line numbers; declining it returns the\n"
+"                     figures a build with no toolchain would produce\n"
+"      --cc PROGRAM   preprocessor to expand with, in place of gcc for C\n"
+"                     and g++ for C++. A program that cannot be run falls\n"
+"                     back per file, exactly as a missing one does\n"
+"      --cc-flag ARG  pass ARG to the preprocessor, repeatable. Use it for\n"
+"                     the include paths and defines the build needs, as in\n"
+"                     --cc-flag -Iinclude; elc never invents one, so a\n"
+"                     project whose headers are not beside its sources\n"
+"                     expands only when told where they are\n"
 "  -h, --help         display this help and exit\n",
 	      stream);
 
@@ -499,7 +517,7 @@ enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
        OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF,
        OPT_DSM, OPT_SINK_AUTHORITY, OPT_SINK_HUB, OPT_GOD_BETWEENNESS,
        OPT_GOD_HUB, OPT_CORE_DEPTH, OPT_MANIFEST, OPT_WRITE_MANIFEST,
-       OPT_PURIFY_DOT, OPT_DBG };
+       OPT_PURIFY_DOT, OPT_DBG, OPT_NO_EXPAND, OPT_CC, OPT_CC_FLAG };
 
 /* What reading one option needs: the options being built, and the record of
  * how the format came to be what it is. All three outlive the option that
@@ -824,6 +842,41 @@ static int opt_no_dot(const char *arg, CliParse *p)
 	return CLI_OK;
 }
 
+static int opt_no_expand(const char *arg, CliParse *p)
+{
+	/* A refusal, like --no-dot. Expansion is on by default (HLR-202), and
+	 * declining it returns the tool to measuring source exactly as
+	 * written — which is what every fallback already does per file, and
+	 * what a reader wanting one machine's answer to match another's
+	 * should reach for. */
+	(void)arg;
+	p->out->no_expand = true;
+	return CLI_OK;
+}
+
+static int opt_cc(const char *arg, CliParse *p)
+{
+	/* Borrowed from argv, and taken unvalidated: whether the named driver
+	 * exists is answered by trying to run it, and a run that cannot start
+	 * one falls back per file exactly as a missing compiler does
+	 * (HLR-205). Naming it on the command line rather than reading an
+	 * environment variable is what keeps HLR-039 intact — behaviour is
+	 * determined by the arguments and nothing else. */
+	p->out->cc = arg;
+	return CLI_OK;
+}
+
+static int opt_cc_flag(const char *arg, CliParse *p)
+{
+	/* Passed to the preprocessor unexamined. elc does not know what the
+	 * build needs and will not guess (LLR-PRE-02); what a user states, it
+	 * forwards. Repeatable, because one `-I` is rarely enough. */
+	if (append_borrowed(&p->out->cc_flags, &p->out->cc_flag_count,
+	                    &p->out->cc_flag_capacity, arg) != 0)
+		return ELC_EXIT_FATAL;
+	return CLI_OK;
+}
+
 static int opt_verbose(const char *arg, CliParse *p)
 {
 	/* Recorded and validated against nothing. Asking a complete-record
@@ -907,6 +960,9 @@ static const struct { int code; OptionFn handle; } OPTION_HANDLERS[] = {
 	{ OPT_WRITE_MANIFEST, opt_write_manifest },
 	{ OPT_PURIFY_DOT,    opt_purify_dot    },
 	{ OPT_NO_DOT,        opt_no_dot        },
+	{ OPT_NO_EXPAND,     opt_no_expand     },
+	{ OPT_CC,            opt_cc            },
+	{ OPT_CC_FLAG,       opt_cc_flag       },
 	{ 'v',               opt_verbose       },
 	{ OPT_RULES,         opt_rules         },
 	{ 'D',               opt_define        },
@@ -1172,6 +1228,9 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "write-manifest",       no_argument,       NULL, OPT_WRITE_MANIFEST },
 		{ "purify-dot",           no_argument,       NULL, OPT_PURIFY_DOT },
 		{ "no-dot",               no_argument,       NULL, OPT_NO_DOT },
+		{ "no-expand",            no_argument,       NULL, OPT_NO_EXPAND },
+		{ "cc",                   required_argument, NULL, OPT_CC },
+		{ "cc-flag",              required_argument, NULL, OPT_CC_FLAG },
 		{ "verbose",              no_argument,       NULL, 'v' },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },
 		{ "rules",                required_argument, NULL, OPT_RULES },
@@ -1266,6 +1325,7 @@ void cli_options_free(ElcOptions *opts)
 	free((void *)opts->entry_points);
 	free((void *)opts->rules);
 	free((void *)opts->defines);
+	free((void *)opts->cc_flags);
 	for (size_t i = 0; i < opts->scopes.count; i++) {
 		for (size_t p = 0; p < opts->scopes.items[i].pattern_count; p++)
 			free(opts->scopes.items[i].patterns[p]);

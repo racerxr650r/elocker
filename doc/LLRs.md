@@ -1047,6 +1047,17 @@ Evaluation of every measurement against the published threshold catalogue, and a
     `thresholds_apply` shall emit a finding for every function whose index falls in a band, stating the score and the scale it is out of and nothing further — no recommendation, no remediation, no ranking of one design above another (HLR-101).
     *Trace:* HLR-192 (Maintainability Index Threshold Classification), HLR-099 (Threshold Source Attribution), HLR-101 (No Remediation Advice).
 
+*   <a id="LLR-THR-19"></a>**LLR-THR-19** — The catalogue shall hold a row for MISRA library use, occurrence-governed at warning severity and attributed to `MISRA C:2012`; and `thresholds_apply` shall emit one finding per unresolved call site whose callee names a facility MISRA C:2012 §21 forbids, stating the function and the rule number.
+
+    **The table shall be keyed by function, and shall be readable as a table.** MISRA constrains functions, not headers: `<stdlib.h>` supplies `abs`, which is permitted, beside `malloc`, which is not, so a rule keyed on the include would be a false claim about code that called neither. Each entry carries its rule number so a reviewer can check the table against the standard by reading it — the property the whole of this module is arranged around (HLR-099).
+
+    **Per site, not per function or per file.** A reader fixing one needs the line, and a function calling `malloc` twice has two things to change.
+
+    Read from the unresolved calls of HLR-077 because that is where a call into the C library lands. A project supplying its own definition of a constrained name resolves it and is not reported, which is correct: the rule is about the standard library's function and not about every function sharing its spelling.
+
+    No bound shall be invented. MISRA states no count at which use becomes unacceptable, and one `elc` chose would be its own opinion wearing MISRA's name — so occurrence governs, the severity is warning throughout, and no finding reaches the exit status (HLR-100, HLR-101).
+    *Trace:* HLR-207 (C Library Use Outside MISRA Constraints Reported), HLR-099 (Threshold Source Attribution), HLR-077.
+
 ## 35. `report_assemble` ([src/report.c](../src/report.c))
 
 The single place every reported collection is ordered. The audit point for determinism.
@@ -1921,42 +1932,6 @@ The diagnostic stream, and the debug companion that records it. The one module h
 *   <a id="LLR-DBG-05"></a>**LLR-DBG-05** — The companion shall carry a timestamp on each entry, and the report shall carry none. A log nobody watched being produced needs to say when each thing happened; a report must be byte-identical across two runs over one target (HLR-032). The companion is a record *of* a run rather than a result *of* one, which is the line the timestamps sit on.
     *Trace:* HLR-194 (The Debug Companion), HLR-032.
 
-## 66. `repair_parse` ([src/repair.c](../src/repair.c))
-
-Repair of the regions the grammar rejected. Every requirement below is a restriction, and each is what separates a bounded repair from a tool inventing the code it measures.
-
-*   <a id="LLR-RPR-01"></a>**LLR-RPR-01** — `repair_parse` shall parse the buffer as given, and where the root node carries no error shall return that tree and the caller's own buffer, having copied nothing and parsed once.
-
-    The early return is the requirement rather than an optimisation. It is what leaves the single-parse rule of HLR-076 exactly as it was for source that needs no repair, and what makes the cost of this feature to such a code base one test of the root node.
-    *Trace:* HLR-196 (Repair Confined to Rejected Regions), HLR-076.
-
-*   <a id="LLR-RPR-02"></a>**LLR-RPR-02** — Where the grammar rejects anything, `repair_parse` shall copy the buffer before rewriting it, and shall rewrite only bytes lying within a rejected region.
-
-    The copy is required because the buffer is a read-only mapping of a file `elc` does not own. Confinement to the rejected regions is required because the rules are heuristics about the shape of a failure: applied to text the grammar accepted, a heuristic is a tool editing a measurement it had already taken correctly.
-    *Trace:* HLR-196 (Repair Confined to Rejected Regions), HLR-039.
-
-*   <a id="LLR-RPR-03"></a>**LLR-RPR-03** — Every rule shall replace text with text of the **same width in bytes**, within a single line.
-
-    Same width rather than merely the same line count, because it costs nothing and buys the byte offsets too: a region's extent stays valid across a repair, so the regions collected before a pass need not be recollected during it. The line count is what HLR-197 requires and what keeps every line-based measurement and every reported location correct; the width is how this implementation obtains it.
-
-    An upper-case identifier adjacent to a string literal shall become an empty string literal padded to the width it replaced; an identifier in front of a declaration shall become blanks; an identifier alone before `=` at file scope shall be given a type by consuming the blanks around it. A rule whose replacement would not fit the width it replaces shall decline to fire.
-    *Trace:* HLR-197 (Repairs Preserve the Line Count).
-
-*   <a id="LLR-RPR-04"></a>**LLR-RPR-04** — `repair_parse` shall re-parse after each pass and compare the number of rejected regions with the number before it. Where the number did not fall, it shall restore the buffer to its state before the pass and stop.
-
-    This is what makes a wrong rule cheap rather than dangerous. A rule matching a shape it should not produces a buffer the grammar rejects in the same places or in worse ones; the comparison notices, the restore undoes it, and the file is measured unrepaired — which is where it started. Without the comparison a rule that repairs one region into a shape another rule rejects would run until the process was killed, on source `elc`'s authors never saw.
-    *Trace:* HLR-198 (Repair Terminates).
-
-*   <a id="LLR-RPR-05"></a>**LLR-RPR-05** — Rules shall be tried in a fixed order against regions taken in document order, and the first rule whose shape matches a region shall be the one applied.
-
-    Two runs over one target must repair identically, or every figure downstream of a repair varies between runs and HLR-032's byte-identical guarantee fails in the one place hardest to notice — a report that is *nearly* the same.
-    *Trace:* HLR-198 (Repair Terminates), HLR-032, HLR-033.
-
-*   <a id="LLR-RPR-06"></a>**LLR-RPR-06** — `repair_parse` shall count the repairs it made, by rule, and `analyze.c` shall carry that tally onto the file's metrics so the report can declare it and the debug companion can record each repair with the text before and after.
-
-    A repair is a guess the grammar could not make. A report that presented a repaired figure as a measured one would be the confidently-wrong result `elc` exists to avoid, and worse than the parse error it replaced — the figures look ordinary, and nothing on the page distinguishes them.
-    *Trace:* HLR-199 (Repairs Are Declared), HLR-194.
-
 ## 67. `symname_reduce` ([src/symname.c](../src/symname.c))
 
 The one reduction every name comparison goes through. Both requirements below are about a spelling meeting another spelling of the same name, and the second is about the one family of names that must not be reduced at all.
@@ -1974,3 +1949,62 @@ The one reduction every name comparison goes through. Both requirements below ar
 
     `operator()` and the `(anonymous namespace)` qualifier are the same hazard in the signature scan, and are stepped over for the same reason.
     *Trace:* HLR-200 (Names Compared in One Reduced Form).
+
+## 66. `preproc_expand` ([src/preproc.c](../src/preproc.c))
+
+Expansion and filtering of one file. The first requirement is the subprocess; the rest are all about not letting the subprocess's output become the measurement.
+
+*   <a id="LLR-PRE-01"></a>**LLR-PRE-01** — `preproc_expand` shall run the preprocessor as a child process with its standard output on a pipe and its standard error discarded, shall read that pipe to end-of-file **before** collecting the child's exit status, and shall write no file.
+
+    Draining before waiting is the requirement rather than the natural order. A file whose expansion exceeds the pipe capacity — which is every C++ file that includes anything — would otherwise deadlock: the child blocked writing to a full pipe, the parent blocked waiting for a child that cannot exit.
+
+    Standard error is discarded because the preprocessor's complaints are about a build configuration `elc` does not have and cannot fix. A missing header on a cross-compiled tree would otherwise produce pages of diagnostics per file for a condition HLR-206 states once.
+    *Trace:* HLR-202 (Macros Expanded by the Compiler's Preprocessor), HLR-043.
+
+*   <a id="LLR-PRE-02"></a>**LLR-PRE-02** — `preproc_expand` shall invoke the preprocessor so that **comments are preserved** (`-C`) and line markers are emitted, and shall pass no include path, define, or flag it invented.
+
+    A preprocessor discards comments by default. No figure depends on them today — they are excluded from effective lines rather than counted (HLR-016) — and they are kept anyway, because the parsed buffer should differ from the source only where the expansion required it. A difference nothing needs is one a reader of a finding must still account for.
+
+    An invented `-I` would read a header the user did not name, which HLR-039 forbids, and would be worse than reading none: reaching the *wrong* header makes the expansion succeed and be wrong, where reaching no header makes it fail and fall back.
+    *Trace:* HLR-202 (Macros Expanded by the Compiler's Preprocessor), HLR-039.
+
+*   <a id="LLR-PRE-03"></a>**LLR-PRE-03** — The filter shall recognise a line marker as `#` in the first column followed by a space and a decimal line number, then a quoted file name, and shall change state on nothing else. A marker naming the file under analysis shall select the appending state; every other marker, including one naming a project header, `<built-in>` or `<command-line>`, shall select the ignoring state.
+
+    Only the appending state copies. That is what keeps the cost of a fifty-thousand-line C++ expansion proportional to what is kept rather than to what was produced.
+
+    The quoted name shall be unescaped before comparison and compared as a canonical path. A path holding a quote or a backslash reaches the marker escaped and would otherwise never compare equal; a build reaching its sources through a symbolic link compares unequal, never enters the appending state, and falls back — the safe direction, and the one `dwarfline.c` already takes for the same reason.
+
+    A project header is discarded like a system one. It is a file in its own right, analysed on its own account when the target reaches it, and counting it once per file that includes it would inflate every figure by its inclusion count.
+    *Trace:* HLR-203 (Expanded Output Filtered to the File Under Analysis).
+
+*   <a id="LLR-PRE-04"></a>**LLR-PRE-04** — Before appending the lines following a marker that announces line *N*, the filter shall emit newlines until the buffer holds *N* − 1 lines. A marker announcing a line the buffer has already passed shall be ignored.
+
+    This is what makes the expanded buffer measurable rather than merely parseable. Every location `elc` reports and every line-based figure it computes would otherwise be displaced by however much the filter discarded above it, and a reader cannot detect the displacement to discount it (HLR-204).
+
+    **A buffer that is *ahead* of the marker shall be brought back, and only in the two ways that lose nothing.** Trailing blank lines the filter emitted as padding are withdrawn. Beyond that, the newlines separating the physical lines one source line's expansion was spread across are turned back into spaces — `return NULL;` reaches the buffer as `return` / `((void *)0)` / `;`, three lines where the source had one, and every line below it would otherwise sit two too low.
+
+    Neither loses a token. Those lines *were* one line, and rejoining them restores the line the source holds. The rule is not "never move backwards" but "never lose a line": a line the buffer never had is one it must give back, or the drift accumulates over the whole file and every location below the first multi-line expansion is wrong.
+    *Trace:* HLR-204 (Expansion Preserves Every Reported Location), HLR-032.
+
+*   <a id="LLR-PRE-05"></a>**LLR-PRE-05** — `preproc_expand` shall return a null buffer, and a status naming the reason, where the child could not be started, exited non-zero, or produced output holding no marker for the file under analysis. It shall return non-zero only on allocation failure.
+
+    **Output naming the file nowhere is a failure and not an empty file.** A zero-line measurement of a file that has lines is the silent wrong answer this module exists not to produce, and it is indistinguishable in the report from a file that is genuinely empty.
+
+    No failure here shall fail a run or emit a per-file diagnostic. Falling back is the ordinary condition of a tree analysed away from its build environment (HLR-205), and one message per file teaches a reader nothing after the first.
+    *Trace:* HLR-205 (Expansion Failure Falls Back to the Source as Written).
+
+*   <a id="LLR-PRE-07"></a>**LLR-PRE-07** — `analyze_file` shall parse the file as written and run the conditional-region pass over that tree before expanding it, shall expand only where that pass left nothing undecided, and shall forward the run's `-D` definitions to the preprocessor.
+
+    The order is the requirement. Running the conditional pass after expansion would run it over a tree with no directives in it, and it would report nothing undecided about a file full of conditions the preprocessor guessed at (HLR-208).
+
+    Refusing to expand a file with an undecided region is what keeps the effective-line count honest. `elc` leaves such a region whole and counts both branches; the preprocessor keeps one. Expanding it would replace the region's measurement with an arbitrary configuration's, under a figure the reader has been told is complete.
+
+    The definitions must reach the preprocessor or the two disagree, and the report would name one configuration while measuring another.
+    *Trace:* HLR-208 (Conditional Regions Answered Before Expansion), HLR-076.
+
+*   <a id="LLR-PRE-06"></a>**LLR-PRE-06** — The filter shall record each standard-library header the marker stream names, de-duplicated, classifying it as belonging to the C or the C++ standard library, and shall leave the list empty for a file that fell back.
+
+    The markers name every file the preprocessor opened, so the list is a by-product of the filter rather than a second analysis. Classification is by name against the two standards' header sets, because the path alone cannot distinguish them — both live under the same system directories, and a C++ implementation's `<cstdio>` and C's `<stdio.h>` sit side by side.
+
+    An empty list on a fallen-back file is not a claim that the file uses no standard library. It is the absence of an answer, which HLR-206's provenance is what lets a reader tell apart from the answer "none".
+    *Trace:* HLR-207 (Standard-Library Dependence Reported).

@@ -1,4 +1,4 @@
-/* The hand-expanded equivalent of shapes.c, which is what the repaired file
+/* The hand-expanded equivalent of shapes.c, which is what the expanded file
  * must measure. Written out by hand rather than generated, so the two are
  * independent statements of the same expectation.
  */
@@ -15,5 +15,3 @@ void report2(int n)
 {
 	printf("\033[1m" "\033[34m" "value: %d" "\033[0m" "\n", branchy2(n));
 }
-
-int table2[3] = { 1, 2, 3 };

@@ -34,7 +34,7 @@
 #include "thresholds.h"
 #include "format_text.h"
 #include "report.h"
-#include "repair.h"
+#include "preproc.h"
 
 #define GRID_MAX_COLUMNS 8
 
@@ -412,6 +412,16 @@ static uint64_t unparsed_total(const Report *report)
 	return total;
 }
 
+/* How many files reached the parser through the preprocessor. */
+static uint64_t expanded_total(const Report *report)
+{
+	uint64_t n = 0;
+
+	for (size_t i = 0; i < report->file_count; i++)
+		n += (report->files[i]->preproc_status == PREPROC_EXPANDED);
+	return n;
+}
+
 /* Findings carrying one severity. */
 static uint64_t severity_total(const Report *report, const char *severity)
 {
@@ -469,6 +479,15 @@ static void summary_section(const Report *report, Style style, FILE *out)
 		 * configuration that was cut cleanly from one that mostly was
 		 * not (HLR-133). */
 		{ "Undecided regions", report->undecided_regions },
+		/* How this run's files reached the parser. Two files in one
+		 * report may have been measured two different ways and nothing
+		 * in the figures above says which: an expanded file's macros
+		 * are resolved, a fallen-back file's are not, and its unparsed
+		 * count may be non-zero for a reason that has nothing to do
+		 * with the code (HLR-206). */
+		{ "Files expanded",    expanded_total(report) },
+		{ "Measured as written", (uint64_t)report->file_count -
+		                         expanded_total(report) },
 	};
 	const size_t row_count = sizeof rows / sizeof *rows;
 
@@ -1530,38 +1549,87 @@ static int partially_parsed_section(const Report *report, Style style,
 	return 0;
 }
 
-static int repaired_files_section(const Report *report, Style style,
+static int expansion_section(const Report *report, Style style,
+                             FILE *out, EmptyTables *empty)
+{
+	Grid grid;
+
+	/* The files measured from their own text, and why the expansion did
+	 * not happen (HLR-206).
+	 *
+	 * Only the fallbacks are listed. On a tree the host toolchain cannot
+	 * preprocess at all every file falls back, and a row per file would
+	 * be a table the length of the project saying one thing — but the
+	 * summary counts both, so "all of them" is still legible.
+	 *
+	 * A figure to read, not a gate: no severity, and no reach into the
+	 * exit status (HLR-100). */
+	static const char *const names[] = { "File", "Why" };
+
+	grid_begin(&grid, "Measured as written (macros not expanded)", 2,
+	           names, NULL);
+	for (size_t i = 0; i < report->file_count; i++) {
+		const FileMetrics *f = report->files[i];
+
+		if (f->preproc_status == PREPROC_EXPANDED)
+			continue;
+		grid_row(&grid, f->path,
+		         preproc_status_text((PreprocStatus)f->preproc_status));
+	}
+	if (grid_render(&grid, style, out, empty) != 0)
+		return -1;
+
+	return 0;
+}
+
+static int stdlib_section(const Report *report, Style style,
                              FILE *out, EmptyTables *empty)
 {
 	Grid grid;
 	char a[32];
 
-	/* What the grammar could not follow and `elc` rewrote in its own
-	 * copy before measuring (HLR-199).
+	/* Which standard library each file draws on, and how much of it
+	 * (HLR-207).
 	 *
-	 * A repair is a guess the grammar could not make, so a figure
-	 * resting on one says so. Naming the rule is what makes the guess
-	 * checkable: a reader who knows *which* shape was rewritten knows
-	 * what the repair assumed, and can go and look. A bare total would
-	 * say only that something was guessed.
+	 * A fact rather than a finding. Depending on the standard library is
+	 * the ordinary case for most programs, and elc recommends nothing
+	 * about it (HLR-101). What it answers is the question no other
+	 * measurement here does — what it would take to build this somewhere
+	 * else — which a freestanding or embedded target makes urgent and
+	 * everyone else can skip.
 	 *
-	 * The count carries no severity and does not reach the exit status
-	 * (HLR-100). It is a figure to read, not a gate to pass. */
-	static const char *const names[]   = { "File", "Rule", "Repairs" };
-	static const bool        numeric[] = { false, false, true };
+	 * A file that fell back contributes no row, and that is not a claim
+	 * that it uses none: the provenance table above is what says which
+	 * files could be asked. */
+	static const char *const names[]   = { "File", "Library", "Headers",
+	                                       "Which" };
+	static const bool        numeric[] = { false, false, true, false };
+	char                     list[512];
 
-	grid_begin(&grid,
-	           "Repaired regions (rewritten in elc's buffer to be "
-	           "measured; the files are untouched)", 3, names, numeric);
+	grid_begin(&grid, "Standard-library dependence", 4, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
-		for (size_t k = 0; k < REPAIR_RULE_COUNT; k++) {
-			if (!f->repair_counts[k])
+		for (int k = 0; k < STDLIB_KIND_COUNT; k++) {
+			size_t n   = 0;
+			size_t off = 0;
+
+			list[0] = '\0';
+			for (size_t j = 0; j < f->stdlib_count; j++) {
+				if (f->stdlib_kinds[j] != (unsigned char)k)
+					continue;
+				n++;
+				if (off < sizeof list - 1)
+					off += (size_t)snprintf(
+						list + off, sizeof list - off,
+						"%s%s", off ? " " : "",
+						f->stdlib_headers[j]);
+			}
+			if (!n)
 				continue;
-			snprintf(a, sizeof a, "%zu", f->repair_counts[k]);
+			snprintf(a, sizeof a, "%zu", n);
 			grid_row(&grid, f->path,
-			         repair_rule_name((RepairRule)k), a);
+			         stdlib_kind_name((StdlibKind)k), a, list);
 		}
 	}
 	if (grid_render(&grid, style, out, empty) != 0)
@@ -1832,7 +1900,8 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		{ image_filter_section,          TIER_SUMMARY, NULL            },
 		{ rule_matches_section,          TIER_DETAIL,  NULL            },
 		{ partially_parsed_section,      TIER_SUMMARY, NULL            },
-		{ repaired_files_section,        TIER_SUMMARY, NULL            },
+		{ expansion_section,             TIER_SUMMARY, NULL            },
+		{ stdlib_section,                TIER_SUMMARY, NULL            },
 		{ skipped_files_section,         TIER_SUMMARY, NULL            },
 		/* Last, and the only section after the files the run could not
 		 * measure. It is the longest table a filtered run produces —

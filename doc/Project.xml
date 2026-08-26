@@ -17,10 +17,10 @@
     <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.18" date="2026-08-24" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.19" date="2026-08-24" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="197"/>
-      <count name="llrs"       value="545"/>
-      <count name="tests"      value="1145"/>
-      <count name="test_files" value="54"/>
+      <count name="hlrs"       value="200"/>
+      <count name="llrs"       value="547"/>
+      <count name="tests"      value="1167"/>
+      <count name="test_files" value="55"/>
     </counts>
   </metadata>
 
@@ -51,7 +51,7 @@
       <file path="src/dwarfline.c"><![CDATA[The image's debug information: which source lines this build compiled an instruction for, which files that mapping covers at all, and which source file each function the image describes was written in.]]></file>
       <file path="src/purify.c"><![CDATA[The graph purification engine: centrality-based classification of utility sinks, god objects, and peripheral nodes, the masked recovery view built from them, and the manifest by which a user overrules a classification.]]></file>
       <file path="src/recover.c"><![CDATA[Architecture recovery: a proposed layering read off the purified recovery view, emitted in the form the stratum options accept.]]></file>
-      <file path="src/repair.c"><![CDATA[Repair of source the grammar rejected: the rules, the bounded pass loop, and the tally the report declares.]]></file>
+      <file path="src/preproc.c"><![CDATA[Macro expansion through the language's own preprocessor, and the `#line` filter that reduces its output to the file under analysis.]]></file>
       <file path="src/diag.c"><![CDATA[The diagnostic stream every message to standard error passes through, and the debug companion that records the run beside the report.]]></file>
       <file path="src/format_dsm.c"><![CDATA[The Dependency Structure Matrix and its CSV and Markdown renderings.]]></file>
       <file path="doc/elc.1"><![CDATA[The section-1 man page: the reference form of every option, format, and finding category.]]></file>
@@ -114,6 +114,7 @@
       <component path="src/elfsyms.c"><![CDATA[Reads the function symbols of a linked image and resolves each linkage name to the source name the report presents, so that a filtered run measures the program the build produced.]]></component>
       <component path="src/symname.c"><![CDATA[Reduces a name to the identifier the report presents, so that the spellings a demangler, the debug information, and the source each use meet in one form. Depended upon by `elfsyms.c` and `dwarfline.c` and by nothing else; a leaf, because `elfsyms.h` already includes `dwarfline.h` and a reduction living in either would put the other in a cycle.]]></component>
       <component path="src/dwarfline.c"><![CDATA[Reads the debug line information the same image carries, where it carries any, so that a filtered run can narrow to the lines the build compiled rather than to the functions alone.]]></component>
+      <component path="src/preproc.c"><![CDATA[Runs the compiler's preprocessor over one source file and filters the result back down to that file's own lines, at their own line numbers. Depended upon by `analyze.c` alone, and on failure returns nothing rather than an error, so that the caller's fallback is the ordinary path rather than a recovery.]]></component>
       <component path="src/purify.c"><![CDATA[Classifies the functions that fuse unrelated domains — utility sinks, god objects, peripheral nodes — and builds the masked recovery view. Reads and writes the manifest that lets a user overrule a classification. Alters no graph any other stage reads.]]></component>
       <component path="src/recover.c"><![CDATA[Proposes a layering from the purified view, for a user who declared none. Depended upon by the report and by nothing in `arch.c`, which is what keeps a proposal from becoming the baseline it would be measured against.]]></component>
       <component path="src/format_dsm.c"><![CDATA[Renders the Dependency Structure Matrix as CSV and as Markdown.]]></component>
@@ -1201,6 +1202,48 @@ Each file's lines are then sorted and de-duplicated, because a line programme na
         </error_handling>
       </module>
 
+      <module path="src/preproc.c">
+        <purpose><![CDATA[expands a source file's macros with the language's own preprocessor and filters the output back down to that file, so the parser sees resolved text at unchanged line numbers (HLR-202, HLR-203, HLR-204).]]></purpose>
+        <responsibility><![CDATA[Run `gcc -E -C` (or the C++ or user-named equivalent) over one file, capturing standard output into memory and writing no intermediate file.]]></responsibility>
+        <responsibility><![CDATA[Drive a two-state machine over the `# linenum "filename" flags` markers, appending only the lines attributed to the file under analysis.]]></responsibility>
+        <responsibility><![CDATA[Emit padding so every retained line sits at its own line number, and report the physical line count from the file rather than from the buffer.]]></responsibility>
+        <responsibility><![CDATA[Record which standard-library headers the preprocessor opened, and whether each is the C or the C++ library (HLR-207).]]></responsibility>
+        <responsibility><![CDATA[Return nothing on any failure, leaving the caller to parse the file as written (HLR-205). No failure here fails a run.]]></responsibility>
+        <interfaces>
+          <interface title="The Marker Stream Is the Only Authority"><![CDATA[The filter switches state on `#` markers and on nothing else. A line of program text is copied or discarded by the state it arrives in; it is never inspected.
+
+That matters because the alternative — deciding per line whether it "looks like" library code — is a heuristic over text the tool did not write, and would be wrong on exactly the projects that most need the expansion. A marker is the compiler's own statement of where a line came from, and there is nothing better to be had.
+
+The one text a line's content can affect is whether it *is* a marker, which is decided by `#` in the first column followed by a space and a digit. `#` in the first column is a preprocessing directive, and after expansion the only directives left are the markers the preprocessor emitted itself.]]></interface>
+          <interface title="Padding Rather Than Concatenation"><![CDATA[When a marker announces line *N* of the analysed file and the buffer holds *M* lines, *N − M − 1* newlines are emitted before appending. Everything `elc` measures is line-based, so a buffer that merely concatenated what it kept would misplace every function range, every finding, and every dead-code span in the file (HLR-204).
+
+Padding cannot go backwards. A marker announcing a line already passed is ignored rather than acted on — it happens where a macro expansion spans lines and the preprocessor resynchronises — and the buffer stays monotone, since a filter that could rewind would be a filter that could overwrite a measured line.]]></interface>
+          <interface title="Failure Is Not an Error"><![CDATA[`preproc_expand` returns a null buffer for every failure it meets: no compiler, a non-zero exit, a header that cannot be found, output that names no marker at all. The caller parses the file as written and the run completes.
+
+**The fallback is the common case rather than the exceptional one.** A cross-compiled tree cannot be preprocessed by a host toolchain — the AVR project that prompted this work fails on `avr/io.h` before reaching a macro — and a source tree analysed away from its build environment is the normal condition of a metrics tool. Treating that as an error would make `elc` unusable on the code that most needs it, which is why the outcome is recorded per file (HLR-206) and not reported per file to standard error.]]></interface>
+        </interfaces>
+        <functions>
+          <function signature="int preproc_expand(const char *path, const char *language, const ElcOptions *opts, PreprocResult *out)">
+            <purpose><![CDATA[Expand and filter one file, or report that it could not be.]]></purpose>
+            <post><![CDATA[`out` carries the filtered buffer and the headers it saw, or `status` naming why expansion did not happen and a null buffer. Zero is returned in both cases; non-zero is allocation failure alone.]]></post>
+          </function>
+          <function signature="void preproc_result_free(PreprocResult *r)" summary="Release the buffer and the header list. Safe on NULL and safe twice."/>
+        </functions>
+        <algorithm><![CDATA[The child is run with its standard output on a pipe and its standard error discarded, and the pipe is drained to completion before the exit status is collected — draining second on a file whose expansion exceeds the pipe buffer would deadlock, with the child blocked writing and the parent blocked waiting.
+
+**The marker grammar is `# linenum "filename" flags`.** The line number and the quoted name are what the filter reads; the flags say whether a file is being entered, returned to, or is a system header, and are used only to classify the header for HLR-207. A quoted name is unescaped before comparison, because a path containing a quote or a backslash reaches the marker escaped and would otherwise never compare equal to the path `elc` holds.
+
+The comparison against the file under analysis is by canonical path, the same form every other path in `elc` takes. A build reaching its sources through a symbolic link therefore compares unequal, the filter never enters the appending state, the buffer comes back empty, and the file falls back to being parsed as written — the safe direction, and the same one `dwarfline.c` takes for the same reason.
+
+**Nothing here parses C.** The filter is a line-oriented pass over text whose structure the preprocessor guaranteed, and its cost is one scan of the expanded output. What makes that affordable on a C++ file whose expansion is fifty thousand lines is that discarded lines are never copied — the appending state is the only one that writes.]]></algorithm>
+        <error_handling>
+          <case name="A file the preprocessor cannot open"><![CDATA[Non-zero exit, null buffer, and the file is parsed as written. The `elc` diagnostic is the one the parse itself produces, if any.]]></case>
+          <case name="Output holding no marker for the analysed file"><![CDATA[An empty buffer, treated as a failure rather than as a file of no content. A zero-line measurement of a file that has lines is the silent wrong answer this module must not produce.]]></case>
+          <case name="A macro expansion spanning several lines"><![CDATA[The preprocessor emits it on the invocation's line and resynchronises with a marker. The line count of the region is preserved by padding, so the function containing it keeps its range.]]></case>
+          <case name="Allocation failure"><![CDATA[The partial buffer is released and non-zero returned. The caller falls back, as it does for every other failure.]]></case>
+        </error_handling>
+      </module>
+
       <module path="src/purify.c">
         <purpose><![CDATA[builds the *recovery view* of the graph: a masked copy in which the utility sinks, god objects, and peripheral nodes that fuse unrelated domains are set aside, so that a layering can be read off what remains. It also owns the manifest by which a user overrules its classifications.]]></purpose>
         <responsibility><![CDATA[Compute the hub-and-authority and betweenness centralities, and the coreness, of the call view.]]></responsibility>
@@ -1352,50 +1395,6 @@ Each layer is named after the basename of the first directory in it, sanitised o
           <case name="No strata declared"><![CDATA[Not a reason to omit recovery — recovery is what a user without strata is given. It is the *conformance* analyses that stay omitted (HLR-115, HLR-173).]]></case>
           <case name="No function survives purification"><![CDATA[Not an error. The proposal is omitted with its reason stated, as an analysis short of its inputs always is, rather than reported as an empty layering (HLR-115).]]></case>
           <case name="A directory holds only excluded functions"><![CDATA[Not an error and not the bottom layer. The directory receives no layer at all, because a function `elc` did not consider is not a function `elc` placed at the edge of the architecture (HLR-170).]]></case>
-        </error_handling>
-      </module>
-
-      <module path="src/repair.c">
-        <purpose><![CDATA[rewrites the regions of a parse buffer the grammar rejected, so that a macro standing where a keyword, a type or a string was expected does not cost the whole surrounding function.]]></purpose>
-        <responsibility><![CDATA[Rewrite only within regions the grammar rejected, never text it accepted (HLR-196).]]></responsibility>
-        <responsibility><![CDATA[Preserve the line count of every replacement, which is what keeps every line-based measurement and every reported location correct (HLR-197).]]></responsibility>
-        <responsibility><![CDATA[Terminate: withdraw a repair that does not reduce the damage, and stop when a pass achieves nothing (HLR-198).]]></responsibility>
-        <responsibility><![CDATA[Count what it did, by rule, so the report can declare it (HLR-199).]]></responsibility>
-        <responsibility><![CDATA[Leave the source file untouched. The buffer is elc's own copy of the mapping.]]></responsibility>
-        <functions>
-          <function signature="int repair_parse(TSParser *parser, const TSLanguage *lang, const char *data, size_t length, RepairResult *out)">
-            <purpose><![CDATA[Parse, and where the grammar rejects anything, repair and parse again until it stops helping.]]></purpose>
-            <post><![CDATA[`out` carries the tree to measure, the buffer it was parsed from, and the tally of repairs. Where nothing was rejected the buffer is the caller's own and the tree is from a single parse.]]></post>
-            <returns><![CDATA[0 on success, -1 on allocation failure with nothing owned.]]></returns>
-            <logic>
-              <step><![CDATA[Parse the buffer as given. If the root carries no error, return that tree and the caller's buffer untouched — a sound file is parsed once and never copied, which is what leaves HLR-076 unchanged for it.]]></step>
-              <step><![CDATA[Copy the buffer, since the mapping is read-only and the source file is not ours to modify.]]></step>
-              <step><![CDATA[Collect the rejected regions by walking the tree from the root, descending only where `ts_node_has_error` holds — the same traversal the damage tally uses, and for the same reason: it walks to the damage and skips the sound majority.]]></step>
-              <step><![CDATA[For each region in document order, try each rule in a fixed order and take the first whose shape matches. The two orders together are what make the result a property of the source rather than of the traversal (HLR-032, HLR-033).]]></step>
-              <step><![CDATA[Re-parse. If the count of rejected regions did not fall, restore the buffer from before the pass and stop: the pass achieved nothing, and keeping its edits would leave the measured text further from the source for no gain (HLR-198).]]></step>
-              <step><![CDATA[Repeat until a pass rewrites nothing or fails to reduce the damage.]]></step>
-            </logic>
-            <notes><![CDATA[The rules are heuristics about the shape of a failure, not knowledge of what a macro expands to, and the module is written so that being wrong is cheap: a rule that does not match leaves the region alone, and a rule that matches but does not help is withdrawn by the pass loop. What it cannot do is be wrong *invisibly*, which is why HLR-199 has the report declare the tally.]]></notes>
-          </function>
-          <function signature="static bool rule_string_macro(char *line, size_t length)" summary="An upper-case token adjacent to a string literal becomes an empty literal, padded to the width it replaced. The commonest shape by an order of magnitude, and the one a colour-macro idiom produces on every logging line."/>
-          <function signature="static bool rule_leading_macro(char *line, size_t length)" summary="An unknown token in front of a declaration is blanked. `local int f(void)` measures as the `static int f(void)` it expands to."/>
-          <function signature="static bool rule_declarator_macro(char *line, size_t length)" summary="`NAME =` alone at file scope is given a type, so the initialiser attaches to an object rather than to nothing."/>
-          <function signature="void repair_result_free(RepairResult *r)" summary="Release the tree and, where one was made, the copied buffer. Safe on NULL and safe twice."/>
-        </functions>
-        <algorithm><![CDATA[**Every rule replaces text with text of the same width, in place, within one line.** Same width rather than merely the same line count, because it costs nothing here and buys the byte offsets as well: a region's extent stays valid across a repair, so the regions collected before a pass do not have to be recollected during it.
-
-That constraint is what makes the replacements look the way they do. `BOLD` becomes `""` followed by two spaces rather than `""` alone; `local` becomes five blanks rather than nothing. A shorter replacement would have been easier to write and would have moved every subsequent column, and — for a rule that ever spanned a line boundary — every subsequent line.
-
-**The pass loop is where being wrong is made cheap.** A rule matching the wrong shape produces a buffer the grammar rejects in the same places or worse; the loop notices the count did not fall, restores, and stops. So the failure mode of a bad rule is a file that stays unrepaired, which is where it started, rather than a file quietly measured as something else.
-
-**A sound file never reaches any of this.** The first parse is the only parse, the buffer is never copied, and the module returns the caller's own pointer. The cost of the feature to a code base that does not need it is one test of the root node.]]></algorithm>
-        <dependencies>
-          <dep><![CDATA[`libtree-sitter`, for the parse and the error nodes. No third-party dependency beyond it, and no toolchain: HLR-135 and HLR-040 are untouched.]]></dep>
-        </dependencies>
-        <error_handling>
-          <case name="A region no rule matches"><![CDATA[Left alone, and counted by HLR-035 as unparsed exactly as before. Repair is an improvement on the failure, not a promise to eliminate it.]]></case>
-          <case name="A pass that does not reduce the damage"><![CDATA[Withdrawn, and the loop stops. The buffer returns to what the pass found (HLR-198).]]></case>
-          <case name="Allocation failure"><![CDATA[The copy is released and the caller receives -1, having been given nothing to free. A file that could not be repaired for want of memory is a file measured unrepaired, not a failed run.]]></case>
         </error_handling>
       </module>
 
@@ -1555,6 +1554,14 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
         <field name="line" type="uint32_t" desc="1-based, where the definition starts"/>
       </type>
 
+      <type name="PreprocResult" header="include/preproc.h" summary="The outcome of expanding one file: the filtered buffer to parse, the standard-library headers the expansion drew on, and — where it did not happen — why (HLR-202, HLR-206, HLR-207).">
+        <field name="text" type="char *" desc="The filtered, line-padded buffer; owned. NULL where expansion did not happen, which is the signal to parse the file as written"/>
+        <field name="length" type="size_t" desc="Bytes in `text`"/>
+        <field name="status" type="PreprocStatus" desc="Expanded, or the reason it was not: no compiler, a non-zero exit, output naming the file nowhere, or expansion not attempted"/>
+        <field name="headers" type="char **" desc="Standard-library headers the preprocessor opened, sorted and unique; owned. Empty for a file that fell back, which is not the same claim as a file that used none (HLR-207)"/>
+        <field name="header_count" type="size_t" desc="Entries in `headers`"/>
+        <field name="cxx_headers" type="size_t" desc="How many of those are C++ standard-library headers rather than C. The distinction is what a reader porting to a freestanding target needs, and it cannot be recovered from the name alone"/>
+      </type>
       <type name="LineCoverage" header="include/dwarfline.h" summary="Every source file the image's debug line information covers, and the lines within each that produced at least one instruction (HLR-153).">
         <field name="files" type="CoveredFile *" desc="Sorted by path; owned. Each holds the file's path as the image records it, normalised lexically, and an ascending de-duplicated line list — a line programme names one line once per instruction sequence, so the raw list is long and heavily repeated"/>
         <field name="count" type="size_t" desc="Files covered"/>
@@ -2977,7 +2984,11 @@ Verbosity joins the threshold as a property of the *rendering* rather than of th
       </hlr>
 
       <hlr id="HLR-076" name="Graph Built From the Single Parse">
-        <text><![CDATA[`elc` shall construct the SDG entirely from the data produced by the single parse of each file required by HLR-013; it shall not re-read or re-parse any source file in order to resolve cross-file references or to perform any graph analysis.]]></text>
+        <text><![CDATA[`elc` shall construct the SDG entirely from the data produced by the parse of each file required by HLR-013; it shall not re-read or re-parse any source file in order to resolve cross-file references or to perform any graph analysis.
+
+**A file that is macro-expanded is parsed twice, and only twice** (HLR-208): once as written, to answer the conditional-region questions of HLR-133 that expansion would destroy, and once expanded, for every measurement and every graph edge. Neither parse resolves a cross-file reference, which is what this requirement is about — the second reads the same file's own expanded text, not another file's.
+
+A file that is not expanded is parsed once, as it always was, so the cost falls only where the benefit does.]]></text>
       <traces>
         <trace target="SDD" ref="3"/>
         <trace target="SDD" ref="7"/>
@@ -3427,8 +3438,12 @@ Every companion artefact `elc` adds shall follow this same rule, including the r
       </traces>
       </hlr>
 
-      <hlr id="HLR-135" name="No External Preprocessor">
-        <text><![CDATA[`elc` shall determine which regions are active from the syntax tree it has already parsed, and shall not invoke a language toolchain's preprocessor, compiler, or build system, nor read any file the analysed source refers to for the purpose of resolving a condition. Requiring a toolchain would make the result depend on which one is installed and on a build environment `elc` cannot reproduce, would breach the runtime-dependency exclusions of HLR-040, and would re-read a file the single-parse rule (HLR-076) says is read once. It follows that a condition whose value depends on definitions `elc` was not given is undecidable rather than false (HLR-133).]]></text>
+      <hlr id="HLR-135" name="Conditional Regions Decided Without a Preprocessor">
+        <text><![CDATA[`elc` shall determine which regions are active from the syntax tree it has parsed, and shall not read any file the analysed source refers to for the purpose of resolving a condition. A condition whose value depends on definitions `elc` was not given is undecidable rather than false (HLR-133).
+
+**This requirement previously forbade invoking a toolchain preprocessor at all.** That prohibition is withdrawn and replaced by the bounded permission of HLR-202: `elc` may run the compiler's preprocessor over a source file to expand its macros before parsing it. The two are not in conflict, because they answer different questions. Expansion asks *what does this text mean*, and the compiler is the only authority on that. Conditional-region reporting asks *which branches did this build take, and which could not be decided* — and a preprocessor answers that by silently discarding the branches it did not take, which is the opposite of reporting them (HLR-133, HLR-134).
+
+So the undecided-region count is computed from the tree as before, and is unaffected by whether the buffer that produced the tree was expanded. What the reasoning behind the old prohibition got right is preserved elsewhere: the dependence on an installed toolchain is real, is bounded by the fallback of HLR-205, and is declared per file by HLR-206 rather than left to be discovered.]]></text>
       <traces>
         <trace target="SDD" ref="7"/>
       </traces>
@@ -3462,7 +3477,7 @@ The image answers that question at two granularities, and which of them is avail
       </hlr>
 
       <hlr id="HLR-141" name="Image Read Without a Toolchain">
-        <text><![CDATA[`elc` shall obtain the function set from the named image alone: it shall not invoke a toolchain utility — `nm`, `objdump`, `readelf`, a compiler, a linker, or a build system — shall not search for an image the user did not name, and shall not require the image to carry debugging information. Requiring a toolchain would make the result depend on which one is installed and would breach the runtime-dependency exclusions of HLR-040; searching for an image would breach the zero-configuration guarantee of HLR-039, under which nothing is read that the user did not name. The symbol table a linker writes by default is sufficient, and requiring more would restrict the option to builds made for debugging.
+        <text><![CDATA[`elc` shall obtain the function set from the named image alone: it shall not invoke a toolchain utility — `nm`, `objdump`, `readelf`, a compiler, a linker, or a build system — shall not search for an image the user did not name, and shall not require the image to carry debugging information. Requiring a toolchain *to read an image* would make a filtered run depend on which one is installed, for no gain: the symbol table is a documented format and `elc` reads it directly. Searching for an image would breach the zero-configuration guarantee of HLR-039, under which nothing is read that the user did not name. This requirement governs the image alone, and is untouched by the preprocessor permission of HLR-202 — which concerns source text, runs before any parse, and cannot affect what an image contains. The symbol table a linker writes by default is sufficient, and requiring more would restrict the option to builds made for debugging.
 
 "Shall not require" is not "shall not read". Where the image happens to carry debug line information, `elc` reads it to prune at line granularity (HLR-153), and reads it from the image directly under this requirement's own terms — no toolchain utility, and no file the user did not name. What this requirement forbids is *depending* on debug information: an image without it remains fully usable for everything Section 19 describes at function granularity.]]></text>
       <traces>
@@ -3911,73 +3926,6 @@ Every function a band names shall appear in the threshold listing of HLR-187 alo
       </hlr>
     </section>
 
-    <section number="25" title="Repairing What the Grammar Could Not Follow">
-      <intro><![CDATA[Requirements governing what `elc` does with source the grammar rejects, and the bounds that keep doing anything at all defensible.
-
-Tree-sitter parses source the preprocessor has not touched. A macro standing where the grammar expects a keyword, a type, or a string is therefore a parse error, and three shapes account for every failure observed in the field: a macro expanding to a storage class in front of a declaration, one or more expanding to string literals at the head of a concatenation, and one expanding to a whole declarator at file scope.
-
-None of the three is fixable in the grammar. `MACRO MACRO` is genuinely ambiguous with `Type var`, which is why the upstream `concatenated_string` rule requires a string literal within its first two tokens, and relaxing it cascades conflicts against `type_specifier`. Nor is another grammar available: one C grammar is maintained, and its macro handling is a known, open problem. Running a preprocessor would resolve all three and cost a toolchain `elc` refuses to require (HLR-135, HLR-040), include paths it cannot know, header definitions attributed to whichever file included them, and the correctness of every reported line number.
-
-What is left is to repair the source enough for the grammar to proceed, which needs no knowledge of what any macro means — only of the shape the failure takes. The requirements below are mostly restrictions, and each one is what separates a bounded repair from a tool quietly inventing the code it measures.]]></intro>
-
-      <hlr id="HLR-196" name="Repair Confined to Rejected Regions">
-        <text><![CDATA[Where the grammar reports an error region in a source file, `elc` may rewrite the contents of **that region** in the buffer it parses, and shall parse the result again.
-
-No text the grammar accepted shall be rewritten. The rules of HLR-197 are heuristics about the shape of a failure, and a heuristic applied to code that parsed correctly is a tool editing a measurement it had already taken. Confining them to the regions the grammar itself rejected is what makes them safe: the worst a wrong repair can do is fail to fix a region that was already broken.
-
-A file the grammar parses without error shall not be rewritten and shall be parsed **once**, so the single-parse rule of HLR-076 is unchanged for sound source, and the repair path is unreachable for it.
-
-The buffer is `elc`'s own copy. No source file is modified, which HLR-039's zero-configuration guarantee and the read-only contract of the analysis both require.]]></text>
-      <traces>
-        <trace target="SDD" ref="7"/>
-        <trace target="SDD" ref="25"/>
-      </traces>
-      </hlr>
-
-      <hlr id="HLR-197" name="Repairs Preserve the Line Count">
-        <text><![CDATA[Every repair shall replace text with text spanning the **same number of lines**.
-
-This single property is what keeps a repaired measurement correct. Effective lines (HLR-015), cyclomatic complexity (HLR-017) and every location `elc` reports are line-based, so a replacement confined to the lines it replaces cannot move any of them. A repair free to add or remove a line would shift every function beneath it, and the resulting report would carry right-looking figures against wrong locations — which a reader cannot detect and therefore cannot discount.
-
-Three rules are defined, and each meets that constraint within a single line:
-
-*   An identifier in upper case adjacent to a string literal shall be replaced by an empty string literal. Such a token is a macro expanding to a string, and an empty literal concatenated with the literal beside it has the same shape and the same effect on every measurement.
-*   An identifier standing in front of a declaration shall be replaced by blanks. Such a token is a storage-class or attribute macro, and the declaration is what carries the function.
-*   An identifier alone before `=` at file scope shall be given a type. Such a token is a macro expanding to a declarator, and what remains is the object it declares.
-
-A rule shall be applied only where its shape matches within a rejected region. `elc` shall not infer what a macro expands to, and none of the three requires it to.]]></text>
-      <traces>
-        <trace target="SDD" ref="25"/>
-      </traces>
-      </hlr>
-
-      <hlr id="HLR-198" name="Repair Terminates">
-        <text><![CDATA[Repair shall proceed in passes, and shall stop when a pass rewrites nothing or fails to reduce the number of rejected regions. A repair that does not reduce them shall be withdrawn, leaving the buffer as the pass found it.
-
-Termination is a requirement rather than an expectation because the rules operate on source `elc` did not write and cannot anticipate. A rule that repairs one region into a shape another rule rejects would otherwise run until the process was killed, on somebody else's code and for reasons nothing in the report would explain.
-
-Rules shall be applied in a fixed order, and regions in a fixed order, so that two runs over one target repair identically as HLR-032 and HLR-033 require of every other output.]]></text>
-      <traces>
-        <trace target="SDD" ref="25"/>
-      </traces>
-      </hlr>
-
-      <hlr id="HLR-199" name="Repairs Are Declared">
-        <text><![CDATA[A report over source that was repaired shall state how many repairs were made and under which rule, and the debug companion of HLR-194 shall record each one with the text before and after.
-
-**A repair is a guess the grammar could not make**, and a figure resting on one shall say so. This is the discipline the unresolved-call count of HLR-077 and the undecided-region count of HLR-133 already follow: a measurement whose completeness is unstated cannot be acted on, and one silently reconstructed is worse than the failure it replaced — the figures look ordinary and nothing distinguishes them from measured ones.
-
-The count is a figure to read rather than a gate to pass. It carries no severity and does not reach the exit status, for the reason no other measurement does (HLR-100).
-
-The unparsed-line count of HLR-035 shall be what remains **after** repair, since it exists to tell a reader how much of a file was not measured, and repaired lines were.]]></text>
-      <traces>
-        <trace target="SDD" ref="13"/>
-        <trace target="SDD" ref="14"/>
-        <trace target="SDD" ref="25"/>
-      </traces>
-      </hlr>
-    </section>
-
     <section number="26" title="Placing Templated Names by Debug Information">
       <intro><![CDATA[Requirements governing the spelling a name is compared in, and what a diagnostic may assert about a condition it did not observe.
 
@@ -4007,6 +3955,120 @@ The two conditions look identical to a lookup that returns false and have differ
 Advising a remedy is required by HLR-193 and does not reopen HLR-101. HLR-101 forbids `elc` recommending changes to the code it measures; this concerns how the image was built, which is a fact about the tool's own inputs.]]></text>
       <traces>
         <trace target="SDD" ref="26"/>
+        <trace target="SDD" ref="14"/>
+      </traces>
+      </hlr>
+    </section>
+
+    <section number="27" title="Preprocessor Macro Expansion and AST Sanitization">
+      <intro><![CDATA[Requirements governing the expansion of macros before parsing, the filtering that makes the expanded text measurable, and what `elc` gives up by depending on a toolchain.
+
+A macro standing where the grammar expects a keyword, a type, or a string is a parse error, and no grammar can fix it: `MACRO MACRO` is genuinely ambiguous with `Type var`. The compiler's preprocessor resolves it exactly, and its output is unusable as it stands — 19 lines of C measured 829 after expansion, with the functions of every header included appearing as functions of the file under analysis and every line number moved. The `#line` markers the preprocessor emits are what turn that output into something a measurement can be taken from.]]></intro>
+
+      <hlr id="HLR-202" name="Macros Expanded by the Compiler's Preprocessor">
+        <text><![CDATA[Before parsing a source file, `elc` shall run the language's preprocessor over it — `gcc -E` for C, `g++ -E` for C++, or the equivalent named on the command line — and shall parse the filtered result of HLR-203 in place of the file's own text.
+
+**Expansion is the only way to be right about a macro rather than lucky.** A grammar-based tool can recognise the shapes a macro failure commonly takes and rewrite them, which is what the withdrawn Phase 25 did; it cannot know that `local` means `static`, and the shapes it does not recognise stay broken. The compiler knows, and asking it costs one subprocess per file.
+
+The output shall be captured into memory and **no intermediate file shall be written**. A temporary file would be a path to collide on under parallel runs, a file to leave behind when the process is killed, and a write to a filesystem HLR-043 promises is not modified.
+
+The preprocessor is invoked on the file named, with no include paths, defines, or flags beyond those the user gave. `elc` does not have the build's configuration and shall not guess at it: a `-I` it invented would read a header the user did not name (HLR-039), and reaching the wrong header is worse than reaching none, because the expansion would succeed and be wrong.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-203" name="Expanded Output Filtered to the File Under Analysis">
+        <text><![CDATA[`elc` shall filter the preprocessor's output by the `# linenum "filename" flags` markers it emits, retaining only the lines the marker attributes to the file being analysed and discarding every line attributed to any other file.
+
+**Without this the expansion is not an improvement but a corruption.** A header contributes its own functions, its own lines, and its own complexity, and every one of them would be attributed to whichever file included it. One `#include <iostream>` contributes upwards of fifty thousand lines. The figures would be larger, internally consistent, and about a program nobody wrote — which is the one failure mode this tool exists to avoid.
+
+The filter shall be a state machine over the marker stream rather than a heuristic over the text. A marker naming the analysed file switches it to **appending**; a marker naming anything else — a system path, a project header, `<built-in>`, `<command-line>` — switches it to **ignoring**. Nothing but the markers decides, so a line of source that happens to look like a marker cannot change what is measured.
+
+A project's own headers are discarded along with the system's. They are files in their own right, analysed on their own account when the target includes them, and counting a header once per file that includes it would inflate every figure by its inclusion count.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-204" name="Expansion Preserves Every Reported Location">
+        <text><![CDATA[The buffer `elc` parses shall place every retained line at the line number it occupies in the unexpanded file, padding with blank lines where the filter discarded a region.
+
+**Every figure `elc` reports is line-based.** Effective lines (HLR-015), cyclomatic complexity (HLR-017), a function's reported range, a finding's location, the debug-line pruning of HLR-153 and the dead-code spans of HLR-137 are all counted or located by line. A filtered buffer that simply concatenated what it kept would place every one of them somewhere the reader cannot find, and the report would carry right-looking figures against wrong locations — undetectable to a reader and therefore impossible to discount.
+
+Padding is free in every measurement that matters: a blank line is not an effective line, contributes no complexity, and adds nothing to any table. It costs a physical-line count, which shall therefore be taken from the file itself rather than from the parsed buffer.
+
+Restoring a location is not only a matter of adding lines. A preprocessor lays one source line's replacement out across several — `return NULL;` becomes three — and the buffer must give those back as one, or every location below the first such expansion is displaced by however many the file accumulated.
+
+**Comments shall survive expansion.** A preprocessor discards them by default and the invocation shall preserve them (`-C`).
+
+No figure `elc` reports today depends on this: comments are excluded from effective lines (HLR-016) and stripping them removes nothing that was being counted. It is required because the buffer handed to the parser should differ from the source as little as the expansion allows. Every difference is one a reader of a finding has to account for, every future measurement over comments would otherwise read zero without anything to indicate why, and preserving them costs a flag.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="7"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-205" name="Expansion Failure Falls Back to the Source as Written">
+        <text><![CDATA[Where the preprocessor cannot be run, exits non-zero, or produces nothing usable, `elc` shall parse the file's own text and shall complete the run.
+
+**Falling back is the ordinary case, not the error case.** A cross-compiled tree cannot be preprocessed by a host toolchain at all — the AVR project that prompted this work fails on `avr/io.h` before it reaches a macro — and a source tree analysed without its build environment is the normal condition of a code-metrics tool. A file that falls back is measured exactly as this tool measured it before expansion existed: the grammar's gaps return with it, and the unparsed-line count of HLR-035 reports them as it always has.
+
+The fallback shall not be a diagnostic on standard error for each file. On a tree the host cannot preprocess, that is one message per file for a condition the reader learns nothing further from after the first. It is recorded per file and summarised once, under HLR-206.
+
+`elc` shall remain usable with no compiler installed at all, which is what keeps HLR-040's exclusions honest: a toolchain improves the result where it is present and is not required for one.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-206" name="Expansion Provenance Declared Per File">
+        <text><![CDATA[A report over a run in which any file fell back shall state, for each such file, that it was measured from its own text and why the expansion did not happen; and the project summary shall state how many files were expanded and how many were not.
+
+**Two files in one report may have been measured two different ways, and a reader cannot tell them apart from the figures.** An expanded file's macros are resolved and its parse is clean; a fallen-back file's are not, and its unparsed-line count may be non-zero for a reason that has nothing to do with the code. This is the discipline the unresolved-call count of HLR-077, the undecided-region count of HLR-133 and the unparsed-line count of HLR-035 already follow.
+
+It also bounds the honesty cost of HLR-202. `elc` no longer promises that one source tree yields one report on every machine; it promises that one source tree preprocessed by one toolchain does. That is a real narrowing, and the per-file provenance is what makes it visible on the page instead of a surprise.
+
+The count carries no severity and does not reach the exit status (HLR-100). It is a figure to read.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="14"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-208" name="Conditional Regions Answered Before Expansion">
+        <text><![CDATA[The conditional-region figures of HLR-132, HLR-133 and HLR-134 shall be computed from the source **as written**, before any expansion, and a file whose conditions `elc` could not all decide shall not be expanded.
+
+**A preprocessor destroys the evidence these requirements report on.** `gcc -E` reads an undefined identifier in an `#if` as zero and discards the branch it did not take. That is a guess, made silently, where HLR-133 requires the guess be declared and both branches kept — so an expanded tree carries no directive to count and no branch to have kept. Measuring it would report *nothing undecided* about a file full of conditions nobody resolved, which is worse than the parse failure expansion was introduced to remove.
+
+Hence the two parses of HLR-076. The unexpanded parse answers what the source *says*; the expanded parse measures what it *means*.
+
+**And a file with an undecided region shall not be expanded at all.** Where `elc` has just declared a condition unresolvable, letting the preprocessor resolve it would silently substitute one branch's measurement for the whole region's — the effective-line count of an arbitrary configuration, reported as the file's. Such a file is measured as written and recorded among the fallbacks of HLR-206 with that as its reason.
+
+The definitions the run was given (`-D`) shall be forwarded to the preprocessor. `elc` deciding a condition one way while the preprocessor decides it the other would measure a build the user never asked for, and the configuration a report names must be the configuration it measured (HLR-132).]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="7"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-207" name="C Library Use Outside MISRA Constraints Reported">
+        <text><![CDATA[`elc` shall report, as a **warning** citing the rule that forbids it, every call to a C library facility that MISRA C:2012 §21 states a compliant program does not use.
+
+The finding shall name the function, the file and the line, and shall cite the rule number — `malloc` against Rule 21.3, `printf` against 21.6, `system` against 21.8. This is the discipline of HLR-099 applied to a coding standard rather than to a measurement study: the band is somebody else's published position, `elc` reports what that position says about this code, and the reader can look the rule up and disagree with it.
+
+**Constrained by function and never by header.** `<stdlib.h>` supplies `abs`, which MISRA permits, beside `malloc`, which it does not; flagging the include would be a false claim about code that called neither. The unit the standard constrains is the call, and the call is what gets reported — with the line, because a reader fixing one needs to find it, and a function calling `malloc` twice has two things to change.
+
+Detection shall be from the calls the graph could not resolve (HLR-077), which is where a call into the C library lands. A project supplying its own definition of a constrained name resolves it and shall not be reported: the rule is about the standard library's function, not about every function that shares its spelling.
+
+**Occurrence is the finding, and no threshold shall be invented.** MISRA states no count at which use becomes unacceptable, and a bound `elc` chose would be its own opinion wearing MISRA's name. The severity is warning throughout, and it reaches no exit status (HLR-100).
+
+`elc` shall recommend nothing. A great many programs use these facilities correctly and have no obligation to MISRA at all; what the tool supplies is the fact that a rule speaks to this line, and what that is worth is the reader's to judge (HLR-101).
+
+Where a file's expansion succeeded, `elc` shall additionally report which standard-library headers it drew on, distinguishing the C library from the C++ library. That is the exposure the warnings above are drawn from — a fact rather than a finding, carrying no severity — and it answers what it would take to build the code somewhere else, which a freestanding or embedded target makes urgent. A file that fell back reports nothing here, and shall not be listed as depending on nothing: absence of evidence is not evidence of absence, and the provenance of HLR-206 is what tells a reader which files could be asked.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="12"/>
         <trace target="SDD" ref="14"/>
       </traces>
       </hlr>
@@ -6393,6 +6455,23 @@ The flag shall be a property of the row rather than a second pair of fields or a
           <trace target="HLR" ref="HLR-101" name="No Remediation Advice"/>
         </traces>
       </llr>
+
+      <llr id="LLR-THR-19">
+        <text><![CDATA[The catalogue shall hold a row for MISRA library use, occurrence-governed at warning severity and attributed to `MISRA C:2012`; and `thresholds_apply` shall emit one finding per unresolved call site whose callee names a facility MISRA C:2012 §21 forbids, stating the function and the rule number.
+
+**The table shall be keyed by function, and shall be readable as a table.** MISRA constrains functions, not headers: `<stdlib.h>` supplies `abs`, which is permitted, beside `malloc`, which is not, so a rule keyed on the include would be a false claim about code that called neither. Each entry carries its rule number so a reviewer can check the table against the standard by reading it — the property the whole of this module is arranged around (HLR-099).
+
+**Per site, not per function or per file.** A reader fixing one needs the line, and a function calling `malloc` twice has two things to change.
+
+Read from the unresolved calls of HLR-077 because that is where a call into the C library lands. A project supplying its own definition of a constrained name resolves it and is not reported, which is correct: the rule is about the standard library's function and not about every function sharing its spelling.
+
+No bound shall be invented. MISRA states no count at which use becomes unacceptable, and one `elc` chose would be its own opinion wearing MISRA's name — so occurrence governs, the severity is warning throughout, and no finding reaches the exit status (HLR-100, HLR-101).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-207" name="C Library Use Outside MISRA Constraints Reported"/>
+          <trace target="HLR" ref="HLR-099" name="Threshold Source Attribution"/>
+          <trace target="HLR" ref="HLR-077"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="35" title="`report_assemble` ([src/report.c](../src/report.c))" name="report_assemble" source="src/report.c">
@@ -8264,70 +8343,6 @@ The text shall be bounded, and where it is truncated the number of lines omitted
       </llr>
     </function>
 
-    <function number="66" title="`repair_parse` ([src/repair.c](../src/repair.c))" name="repair_parse" source="src/repair.c">
-      <intro><![CDATA[Repair of the regions the grammar rejected. Every requirement below is a restriction, and each is what separates a bounded repair from a tool inventing the code it measures.]]></intro>
-      <llr id="LLR-RPR-01">
-        <text><![CDATA[`repair_parse` shall parse the buffer as given, and where the root node carries no error shall return that tree and the caller's own buffer, having copied nothing and parsed once.
-
-The early return is the requirement rather than an optimisation. It is what leaves the single-parse rule of HLR-076 exactly as it was for source that needs no repair, and what makes the cost of this feature to such a code base one test of the root node.]]></text>
-        <traces>
-          <trace target="HLR" ref="HLR-196" name="Repair Confined to Rejected Regions"/>
-          <trace target="HLR" ref="HLR-076"/>
-        </traces>
-      </llr>
-
-      <llr id="LLR-RPR-02">
-        <text><![CDATA[Where the grammar rejects anything, `repair_parse` shall copy the buffer before rewriting it, and shall rewrite only bytes lying within a rejected region.
-
-The copy is required because the buffer is a read-only mapping of a file `elc` does not own. Confinement to the rejected regions is required because the rules are heuristics about the shape of a failure: applied to text the grammar accepted, a heuristic is a tool editing a measurement it had already taken correctly.]]></text>
-        <traces>
-          <trace target="HLR" ref="HLR-196" name="Repair Confined to Rejected Regions"/>
-          <trace target="HLR" ref="HLR-039"/>
-        </traces>
-      </llr>
-
-      <llr id="LLR-RPR-03">
-        <text><![CDATA[Every rule shall replace text with text of the **same width in bytes**, within a single line.
-
-Same width rather than merely the same line count, because it costs nothing and buys the byte offsets too: a region's extent stays valid across a repair, so the regions collected before a pass need not be recollected during it. The line count is what HLR-197 requires and what keeps every line-based measurement and every reported location correct; the width is how this implementation obtains it.
-
-An upper-case identifier adjacent to a string literal shall become an empty string literal padded to the width it replaced; an identifier in front of a declaration shall become blanks; an identifier alone before `=` at file scope shall be given a type by consuming the blanks around it. A rule whose replacement would not fit the width it replaces shall decline to fire.]]></text>
-        <traces>
-          <trace target="HLR" ref="HLR-197" name="Repairs Preserve the Line Count"/>
-        </traces>
-      </llr>
-
-      <llr id="LLR-RPR-04">
-        <text><![CDATA[`repair_parse` shall re-parse after each pass and compare the number of rejected regions with the number before it. Where the number did not fall, it shall restore the buffer to its state before the pass and stop.
-
-This is what makes a wrong rule cheap rather than dangerous. A rule matching a shape it should not produces a buffer the grammar rejects in the same places or in worse ones; the comparison notices, the restore undoes it, and the file is measured unrepaired — which is where it started. Without the comparison a rule that repairs one region into a shape another rule rejects would run until the process was killed, on source `elc`'s authors never saw.]]></text>
-        <traces>
-          <trace target="HLR" ref="HLR-198" name="Repair Terminates"/>
-        </traces>
-      </llr>
-
-      <llr id="LLR-RPR-05">
-        <text><![CDATA[Rules shall be tried in a fixed order against regions taken in document order, and the first rule whose shape matches a region shall be the one applied.
-
-Two runs over one target must repair identically, or every figure downstream of a repair varies between runs and HLR-032's byte-identical guarantee fails in the one place hardest to notice — a report that is *nearly* the same.]]></text>
-        <traces>
-          <trace target="HLR" ref="HLR-198" name="Repair Terminates"/>
-          <trace target="HLR" ref="HLR-032"/>
-          <trace target="HLR" ref="HLR-033"/>
-        </traces>
-      </llr>
-
-      <llr id="LLR-RPR-06">
-        <text><![CDATA[`repair_parse` shall count the repairs it made, by rule, and `analyze.c` shall carry that tally onto the file's metrics so the report can declare it and the debug companion can record each repair with the text before and after.
-
-A repair is a guess the grammar could not make. A report that presented a repaired figure as a measured one would be the confidently-wrong result `elc` exists to avoid, and worse than the parse error it replaced — the figures look ordinary, and nothing on the page distinguishes them.]]></text>
-        <traces>
-          <trace target="HLR" ref="HLR-199" name="Repairs Are Declared"/>
-          <trace target="HLR" ref="HLR-194"/>
-        </traces>
-      </llr>
-    </function>
-
     <function number="67" title="`symname_reduce` ([src/symname.c](../src/symname.c))" name="symname_reduce" source="src/symname.c">
       <intro><![CDATA[The one reduction every name comparison goes through. Both requirements below are about a spelling meeting another spelling of the same name, and the second is about the one family of names that must not be reduced at all.]]></intro>
 
@@ -8351,6 +8366,97 @@ Four operators end in a bracket that opens nothing: `operator>`, `operator>>`, a
 `operator()` and the `(anonymous namespace)` qualifier are the same hazard in the signature scan, and are stepped over for the same reason.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-200" name="Names Compared in One Reduced Form"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="66" title="`preproc_expand` ([src/preproc.c](../src/preproc.c))" name="preproc_expand" source="src/preproc.c">
+      <intro><![CDATA[Expansion and filtering of one file. The first requirement is the subprocess; the rest are all about not letting the subprocess's output become the measurement.]]></intro>
+
+      <llr id="LLR-PRE-01">
+        <text><![CDATA[`preproc_expand` shall run the preprocessor as a child process with its standard output on a pipe and its standard error discarded, shall read that pipe to end-of-file **before** collecting the child's exit status, and shall write no file.
+
+Draining before waiting is the requirement rather than the natural order. A file whose expansion exceeds the pipe capacity — which is every C++ file that includes anything — would otherwise deadlock: the child blocked writing to a full pipe, the parent blocked waiting for a child that cannot exit.
+
+Standard error is discarded because the preprocessor's complaints are about a build configuration `elc` does not have and cannot fix. A missing header on a cross-compiled tree would otherwise produce pages of diagnostics per file for a condition HLR-206 states once.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-202" name="Macros Expanded by the Compiler's Preprocessor"/>
+          <trace target="HLR" ref="HLR-043"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-PRE-02">
+        <text><![CDATA[`preproc_expand` shall invoke the preprocessor so that **comments are preserved** (`-C`) and line markers are emitted, and shall pass no include path, define, or flag it invented.
+
+A preprocessor discards comments by default. No figure depends on them today — they are excluded from effective lines rather than counted (HLR-016) — and they are kept anyway, because the parsed buffer should differ from the source only where the expansion required it. A difference nothing needs is one a reader of a finding must still account for.
+
+An invented `-I` would read a header the user did not name, which HLR-039 forbids, and would be worse than reading none: reaching the *wrong* header makes the expansion succeed and be wrong, where reaching no header makes it fail and fall back.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-202" name="Macros Expanded by the Compiler's Preprocessor"/>
+          <trace target="HLR" ref="HLR-039"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-PRE-03">
+        <text><![CDATA[The filter shall recognise a line marker as `#` in the first column followed by a space and a decimal line number, then a quoted file name, and shall change state on nothing else. A marker naming the file under analysis shall select the appending state; every other marker, including one naming a project header, `<built-in>` or `<command-line>`, shall select the ignoring state.
+
+Only the appending state copies. That is what keeps the cost of a fifty-thousand-line C++ expansion proportional to what is kept rather than to what was produced.
+
+The quoted name shall be unescaped before comparison and compared as a canonical path. A path holding a quote or a backslash reaches the marker escaped and would otherwise never compare equal; a build reaching its sources through a symbolic link compares unequal, never enters the appending state, and falls back — the safe direction, and the one `dwarfline.c` already takes for the same reason.
+
+A project header is discarded like a system one. It is a file in its own right, analysed on its own account when the target reaches it, and counting it once per file that includes it would inflate every figure by its inclusion count.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-203" name="Expanded Output Filtered to the File Under Analysis"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-PRE-04">
+        <text><![CDATA[Before appending the lines following a marker that announces line *N*, the filter shall emit newlines until the buffer holds *N* − 1 lines. A marker announcing a line the buffer has already passed shall be ignored.
+
+This is what makes the expanded buffer measurable rather than merely parseable. Every location `elc` reports and every line-based figure it computes would otherwise be displaced by however much the filter discarded above it, and a reader cannot detect the displacement to discount it (HLR-204).
+
+**A buffer that is *ahead* of the marker shall be brought back, and only in the two ways that lose nothing.** Trailing blank lines the filter emitted as padding are withdrawn. Beyond that, the newlines separating the physical lines one source line's expansion was spread across are turned back into spaces — `return NULL;` reaches the buffer as `return` / `((void *)0)` / `;`, three lines where the source had one, and every line below it would otherwise sit two too low.
+
+Neither loses a token. Those lines *were* one line, and rejoining them restores the line the source holds. The rule is not "never move backwards" but "never lose a line": a line the buffer never had is one it must give back, or the drift accumulates over the whole file and every location below the first multi-line expansion is wrong.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-204" name="Expansion Preserves Every Reported Location"/>
+          <trace target="HLR" ref="HLR-032"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-PRE-05">
+        <text><![CDATA[`preproc_expand` shall return a null buffer, and a status naming the reason, where the child could not be started, exited non-zero, or produced output holding no marker for the file under analysis. It shall return non-zero only on allocation failure.
+
+**Output naming the file nowhere is a failure and not an empty file.** A zero-line measurement of a file that has lines is the silent wrong answer this module exists not to produce, and it is indistinguishable in the report from a file that is genuinely empty.
+
+No failure here shall fail a run or emit a per-file diagnostic. Falling back is the ordinary condition of a tree analysed away from its build environment (HLR-205), and one message per file teaches a reader nothing after the first.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-205" name="Expansion Failure Falls Back to the Source as Written"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-PRE-07">
+        <text><![CDATA[`analyze_file` shall parse the file as written and run the conditional-region pass over that tree before expanding it, shall expand only where that pass left nothing undecided, and shall forward the run's `-D` definitions to the preprocessor.
+
+The order is the requirement. Running the conditional pass after expansion would run it over a tree with no directives in it, and it would report nothing undecided about a file full of conditions the preprocessor guessed at (HLR-208).
+
+Refusing to expand a file with an undecided region is what keeps the effective-line count honest. `elc` leaves such a region whole and counts both branches; the preprocessor keeps one. Expanding it would replace the region's measurement with an arbitrary configuration's, under a figure the reader has been told is complete.
+
+The definitions must reach the preprocessor or the two disagree, and the report would name one configuration while measuring another.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-208" name="Conditional Regions Answered Before Expansion"/>
+          <trace target="HLR" ref="HLR-076"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-PRE-06">
+        <text><![CDATA[The filter shall record each standard-library header the marker stream names, de-duplicated, classifying it as belonging to the C or the C++ standard library, and shall leave the list empty for a file that fell back.
+
+The markers name every file the preprocessor opened, so the list is a by-product of the filter rather than a second analysis. Classification is by name against the two standards' header sets, because the path alone cannot distinguish them — both live under the same system directories, and a C++ implementation's `<cstdio>` and C's `<stdio.h>` sit side by side.
+
+An empty list on a fallen-back file is not a claim that the file uses no standard library. It is the absence of an answer, which HLR-206's provenance is what lets a reader tell apart from the answer "none".]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-207" name="Standard-Library Dependence Reported"/>
         </traces>
       </llr>
     </function>
@@ -8682,6 +8788,244 @@ Four operators end in a bracket that opens nothing: `operator>`, `operator>>`, a
       <traces>
         <trace target="LLR" ref="LLR-DWL-04"/>
         <trace target="HLR" ref="HLR-141"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/preproc.bats" role="fixture" count="26">
+    <test name="HLR-202: a macro shape the grammar rejects parses once expanded">
+      <purpose><![CDATA[The shapes that prompted this work: a storage-class macro in front of a declaration and two string macros at the head of a concatenation. Expanded, the file parses whole and the unparsed count is zero.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-202"/>
+        <trace target="LLR" ref="LLR-PRE-01"/>
+      </traces>
+    </test>
+    <test name="HLR-202: an expanded file measures what the expanded source measures">
+      <purpose><![CDATA[The conformance check. `branchy` is `local int` in one file and `static int` in the other; `report` concatenates through macros in one and directly in the other. An expansion that measured something other than what the source means fails here whatever elc reports.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-202"/>
+      </traces>
+    </test>
+    <test name="HLR-204: expansion moves no reported location">
+      <purpose><![CDATA[The property that makes an expanded measurement usable rather than merely obtainable, asserted against the unexpanded run of the same file. That run exits 1 because the file is partly unparsed, which is the condition this phase removes and what makes it an independent statement of where the functions are.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-204"/>
+        <trace target="LLR" ref="LLR-PRE-04"/>
+      </traces>
+    </test>
+    <test name="HLR-203: a project header contributes nothing to the file including it">
+      <purpose><![CDATA[A header is a file in its own right, measured on its own account. Counting it once per file that includes it would inflate every figure by the inclusion count.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-203"/>
+        <trace target="LLR" ref="LLR-PRE-03"/>
+      </traces>
+    </test>
+    <test name="HLR-203: a system header contributes nothing either">
+      <purpose><![CDATA[One `#include <stdio.h>` expands to hundreds of declarations. The file gains no function, no line and no ELOC from it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-203"/>
+        <trace target="LLR" ref="LLR-PRE-03"/>
+      </traces>
+    </test>
+    <test name="HLR-204: expansion changes no figure on source that already parsed">
+      <purpose><![CDATA[The invariant that makes expansion safe to leave on: for a file needing none, every summary figure is what it was without it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-204"/>
+      </traces>
+    </test>
+    <test name="HLR-202: source the grammar accepts measures the same either way">
+      <purpose><![CDATA[The same claim at function granularity, so a change to one function's ELOC or complexity cannot hide inside an unchanged project total.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-202"/>
+      </traces>
+    </test>
+    <test name="HLR-205: a preprocessor that cannot be run falls back and completes">
+      <purpose><![CDATA[The failure elc must survive to remain usable where no toolchain exists. The run completes, the report is produced, and the reason is stated.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-205"/>
+        <trace target="LLR" ref="LLR-PRE-05"/>
+      </traces>
+    </test>
+    <test name="HLR-205: a header the preprocessor cannot find falls back">
+      <purpose><![CDATA[The cross-compiled case — the AVR project that prompted this work fails on `avr/io.h` before reaching a macro. It is the ordinary condition of a tree analysed away from its build environment, not an error.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-205"/>
+        <trace target="LLR" ref="LLR-PRE-05"/>
+      </traces>
+    </test>
+    <test name="HLR-205: --no-expand produces the report a build with no toolchain does">
+      <purpose><![CDATA[Declining expansion is available as an option and not only as a consequence of a missing compiler, so a reader wanting one machine's answer to match another's has a way to ask for it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-205"/>
+      </traces>
+    </test>
+    <test name="HLR-206: the summary counts both ways a file may have been measured">
+      <purpose><![CDATA[Two files in one report may have been measured two different ways and nothing in the figures says which. The summary counts both.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-206"/>
+      </traces>
+    </test>
+    <test name="HLR-206: a fallen-back file is named with its reason">
+      <purpose><![CDATA[A count alone would say how many but not which, and the remedies differ: a missing compiler is answered by installing one and a rejected file is not.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-206"/>
+      </traces>
+    </test>
+    <test name="HLR-207: the C standard library a file draws on is reported">
+      <purpose><![CDATA[The headers the filter already saw, reported rather than discarded. It answers the question no other measurement here does — what it would take to build this somewhere else.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-207"/>
+        <trace target="LLR" ref="LLR-PRE-06"/>
+      </traces>
+    </test>
+    <test name="HLR-207: the C++ standard library is distinguished from the C one">
+      <purpose><![CDATA[The distinction a freestanding target makes urgent, and one the path cannot supply: a C++ implementation's headers sit in the same directories as C's.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-207"/>
+        <trace target="LLR" ref="LLR-PRE-06"/>
+      </traces>
+    </test>
+    <test name="HLR-207: a C library call MISRA forbids is a warning citing its rule">
+      <purpose><![CDATA[The finding names the function and cites the rule that forbids it, attributed to MISRA C:2012 rather than to elc. A reader can look the rule up and disagree with it, which is what separates a citation from an opinion.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-207"/>
+        <trace target="LLR" ref="LLR-THR-19"/>
+      </traces>
+    </test>
+    <test name="HLR-207: the rule cited is the one that forbids that function">
+      <purpose><![CDATA[Three functions, three different rules. A single rule number against everything would be a citation nobody could check.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-207"/>
+        <trace target="HLR" ref="HLR-099"/>
+        <trace target="LLR" ref="LLR-THR-19"/>
+      </traces>
+    </test>
+    <test name="HLR-207: a function the project defines itself is not reported">
+      <purpose><![CDATA[The rule is about the standard library's function, not about every function sharing its spelling. A project supplying its own resolves in the graph and never reaches the unresolved calls this reads.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-207"/>
+        <trace target="LLR" ref="LLR-THR-19"/>
+      </traces>
+    </test>
+    <test name="HLR-207: a permitted function in a constrained header is not reported">
+      <purpose><![CDATA[`<stdlib.h>` supplies `abs`, which MISRA permits, beside `malloc`, which it does not. A rule keyed on the include would be a false claim about code that called neither — which is why the table is keyed by function.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-207"/>
+        <trace target="LLR" ref="LLR-THR-19"/>
+      </traces>
+    </test>
+    <test name="HLR-100: a MISRA finding does not reach the exit status">
+      <purpose><![CDATA[MISRA states no count at which use becomes unacceptable, and a great many programs use these facilities correctly. The finding is a figure to read, and the run succeeds.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-100"/>
+        <trace target="HLR" ref="HLR-207"/>
+      </traces>
+    </test>
+    <test name="HLR-207: a file that fell back claims no dependence at all">
+      <purpose><![CDATA[Absence of an answer rather than the answer "none". A file elc could not expand was never asked, and the provenance table is what tells a reader which files were.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-207"/>
+        <trace target="LLR" ref="LLR-PRE-06"/>
+      </traces>
+    </test>
+    <test name="LLR-PRE-02: comments are preserved and no flag is invented">
+      <purpose><![CDATA[Asserted against the invocation itself rather than against a figure, because both halves are about what elc asks for: a preprocessor discards comments unless told not to, and an include path elc invented would read a header the user never named. A wrapper named by --cc records the arguments.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-02"/>
+        <trace target="HLR" ref="HLR-039"/>
+      </traces>
+    </test>
+    <test name="LLR-PRE-02: a flag the user supplies is forwarded">
+      <purpose><![CDATA[The other half of the rule. elc invents nothing and forwards what it is told, which is what lets a project whose headers are not beside its sources be expanded at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-02"/>
+      </traces>
+    </test>
+    <test name="HLR-208: a file elc could not fully decide is not expanded">
+      <purpose><![CDATA[elc leaves an undecidable region whole and counts both branches; the preprocessor reads the undefined symbol as 0 and keeps one. Expanding such a file would replace the region's measurement with an arbitrary configuration's, under a figure the reader has been told is complete. Both branches survive and the fallback is stated.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-208"/>
+        <trace target="LLR" ref="LLR-PRE-07"/>
+      </traces>
+    </test>
+    <test name="HLR-208: the run's own -D reaches the preprocessor">
+      <purpose><![CDATA[elc deciding a condition one way while the preprocessor decides it the other would measure a build nobody asked for. With the symbol defined the two agree, the region is decided rather than counted, and only the taken branch is measured.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-208"/>
+        <trace target="HLR" ref="HLR-132"/>
+        <trace target="LLR" ref="LLR-PRE-07"/>
+      </traces>
+    </test>
+    <test name="HLR-032: two runs over one target expand identically">
+      <purpose><![CDATA[Expansion introduces a subprocess, and a subprocess is where non-determinism enters a tool. Two runs are compared byte for byte.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+        <trace target="HLR" ref="HLR-033"/>
+      </traces>
+    </test>
+    <test name="HLR-043: expansion writes no intermediate file">
+      <purpose><![CDATA[No temporary file means no path to collide on under parallel runs, nothing left behind by a killed process, and no write to a tree elc promises not to modify.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-043"/>
+        <trace target="HLR" ref="HLR-202"/>
+        <trace target="LLR" ref="LLR-PRE-01"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/preproc.c" role="unit" count="9">
+    <test name="only_the_analysed_file_survives">
+      <purpose><![CDATA[Only lines the marker stream attributes to the file under analysis are kept. Without this a header contributes its functions, its lines and its complexity to whichever file included it — figures that are larger, internally consistent, and about a program nobody wrote.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-03"/>
+      </traces>
+    </test>
+    <test name="a_retained_line_keeps_its_line_number">
+      <purpose><![CDATA[A line the filter kept sits at the line it occupies in the source. Every figure elc reports is line-based, so a filter that concatenated what it kept would displace every function range and every finding by whatever it discarded above them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-04"/>
+      </traces>
+    </test>
+    <test name="a_marker_that_rewinds_is_ignored">
+      <purpose><![CDATA[A marker announcing a line already passed occurs where a macro expansion spans lines and the preprocessor resynchronises. Acting on it would let the filter overwrite a line already written, and a buffer that can rewind is one whose contents depend on the order the markers happened to arrive.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-04"/>
+      </traces>
+    </test>
+    <test name="a_split_expansion_is_rejoined_onto_its_own_line">
+      <purpose><![CDATA[A preprocessor lays one source line's replacement out across several — `return NULL;` reaches the buffer as three lines where the source had one. Without rejoining them every location below the first such expansion is displaced by however many the file accumulated, a drift that grows down the file and that no reader could detect. Asserted with the expansion still present, so the fix cannot be to discard it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-04"/>
+      </traces>
+    </test>
+    <test name="output_naming_the_file_nowhere_is_a_failure">
+      <purpose><![CDATA[A zero-line measurement of a file that has lines is the silent wrong answer this module exists not to produce — indistinguishable in the report from a file that is genuinely empty. It is a fallback, not an empty result.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-05"/>
+      </traces>
+    </test>
+    <test name="program_text_resembling_a_marker_changes_nothing">
+      <purpose><![CDATA[A string constant in somebody's source must not decide which of their code elc reports on. The marker stream is the only authority on state, and a line's content is never inspected.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-03"/>
+      </traces>
+    </test>
+    <test name="an_escaped_name_compares_equal">
+      <purpose><![CDATA[A path holding a quote or a backslash reaches the marker escaped. Compared raw it would never equal the path elc holds, and the file would fall back for a reason nothing in the output explains.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-03"/>
+      </traces>
+    </test>
+    <test name="standard_headers_are_recorded_and_classified">
+      <purpose><![CDATA[The two standard libraries are told apart by name, because the path cannot do it: a C++ implementation's `cstdio` and C's `stdio.h` sit in the same directories. A project header is neither.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-06"/>
+      </traces>
+    </test>
+    <test name="a_header_reached_twice_is_recorded_once">
+      <purpose><![CDATA[A translation unit re-enters a header whenever an include guard is re-evaluated. A list counting those would report a dependence proportional to the include graph rather than to the code.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-PRE-06"/>
       </traces>
     </test>
   </file>
@@ -9727,7 +10071,6 @@ Four operators end in a bracket that opens nothing: `operator>`, `operator>>`, a
       <traces>
         <trace target="LLR" ref="LLR-ANL-48"/>
         <trace target="HLR" ref="HLR-035"/>
-        <trace target="HLR" ref="HLR-196"/>
       </traces>
     </test>
     <test name="a_damaged_file_is_a_degraded_outcome_not_a_clean_one">
@@ -9751,8 +10094,8 @@ Four operators end in a bracket that opens nothing: `operator>`, `operator>>`, a
         <trace target="HLR" ref="HLR-016"/>
       </traces>
     </test>
-    <test name="the_macro_concatenation_the_c_grammar_cannot_follow_is_repaired">
-      <purpose><![CDATA[The ANSI-colour macro convention common in embedded C, which tree-sitter-c cannot follow because it accepts one identifier before a concatenation's first literal and not two. Until Phase 25 this pinned the damage as survivable — the neighbours measured, one line lost; repair changes that outcome, so the line is repaired within itself and the function on it is measured too. The original claim about the neighbours is kept, because a repair that measured them wrongly would be a worse defect than the parse error it removed.]]></purpose>
+    <test name="the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable">
+      <purpose><![CDATA[The exact idiom that prompted the change: tree-sitter-c accepts one identifier before the first string literal of a concatenation and not two, so the ANSI-colour macro convention common in embedded C does not parse. One line of damage, and the functions around it measured.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-ANL-48"/>
         <trace target="HLR" ref="HLR-035"/>
@@ -14402,117 +14745,6 @@ Four operators end in a bracket that opens nothing: `operator>`, `operator>>`, a
     </test>
   </file>
 
-  <file path="test/fixtures/repair.bats" role="fixture" count="14">
-    <test name="HLR-196: each macro shape parses where it did not before">
-      <purpose><![CDATA[The three shapes a macro takes where the grammar expects a keyword, a type or a string all parse once repaired.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-196"/>
-      </traces>
-    </test>
-
-    <test name="HLR-197: a repaired file measures what the expanded source measures">
-      <purpose><![CDATA[The oracle is a hand-written expanded equivalent beside the fixture, not elc's own output: a repaired function must report the ELOC and complexity the expansion would, or the repair changed the meaning of the code it repaired.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-197"/>
-        <trace target="LLR" ref="LLR-RPR-03"/>
-      </traces>
-    </test>
-
-    <test name="HLR-197: a repair does not move the lines beneath it">
-      <purpose><![CDATA[The whole defence of the approach. Every rule replaces text within the line it sits on, so a function below a repair keeps its reported range — a report whose figures are right and whose locations are wrong is the one failure a reader cannot detect.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-197"/>
-      </traces>
-    </test>
-
-    <test name="LLR-RPR-01: a file with nothing to repair is untouched">
-      <purpose><![CDATA[Source the grammar accepts is parsed once and never copied, which is what leaves the single-parse rule unchanged for code bases that need none of this.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-RPR-01"/>
-        <trace target="HLR" ref="HLR-076"/>
-      </traces>
-    </test>
-
-    <test name="LLR-RPR-02: the source file is never modified">
-      <purpose><![CDATA[Repair happens in elc's own copy. The analysis is read-only, and a tool that edited the tree it measured would be measuring its own output.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-RPR-02"/>
-        <trace target="HLR" ref="HLR-039"/>
-      </traces>
-    </test>
-
-    <test name="LLR-RPR-03: every rule fires on the shape it is for">
-      <purpose><![CDATA[Each rule is exercised by the fixture rather than only the commonest one, so a rule that stopped matching is caught by this suite rather than by a user's report.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-RPR-03"/>
-      </traces>
-    </test>
-
-    <test name="LLR-RPR-05: two runs over one target repair identically">
-      <purpose><![CDATA[Rules in a fixed order over regions in a fixed order. Without it every figure downstream of a repair varies between runs, and the byte-identical guarantee fails in the place hardest to notice — a report that is nearly the same.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-RPR-05"/>
-        <trace target="HLR" ref="HLR-032"/>
-      </traces>
-    </test>
-
-    <test name="LLR-RPR-06, HLR-199: each repair is recorded with its rule">
-      <purpose><![CDATA[A repair is a guess the grammar could not make, and the debug companion records each one with its rule and location so a figure resting on one can be traced to it.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-RPR-06"/>
-        <trace target="HLR" ref="HLR-199"/>
-      </traces>
-    </test>
-
-    <test name="HLR-199: the report states how many repairs and under which rule">
-      <purpose><![CDATA[The report itself names each rule that fired and how many regions it rewrote. The debug companion serves a maintainer holding the file; this serves the reader of the figures, who is the one deciding whether to act on them.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-RPR-06"/>
-        <trace target="HLR" ref="HLR-199"/>
-      </traces>
-    </test>
-
-    <test name="HLR-199: a report rebuilt from XML still declares its repairs">
-      <purpose><![CDATA[A saved record carries the tally, so a report regenerated from it declares the same repairs. A reconstruction that dropped the declaration would read as measured source — the silent reconstruction HLR-199 exists to prevent.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-RPR-06"/>
-        <trace target="HLR" ref="HLR-199"/>
-      </traces>
-    </test>
-
-    <test name="HLR-199: a sound file declares no repairs at all">
-      <purpose><![CDATA[Source the grammar accepted renders no repair rows, and the table is named among those omitted as empty. "None found" and "not looked for" are different claims, and the report distinguishes them.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-RPR-06"/>
-        <trace target="HLR" ref="HLR-199"/>
-      </traces>
-    </test>
-
-    <test name="HLR-198: repair terminates on source it cannot fix">
-      <purpose><![CDATA[A file of shapes no rule matches completes rather than looping: the pass that fails to reduce the damage ends the loop. Asserted with a timeout, because the failure this guards against is a run that never returns on somebody else's source.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-198"/>
-      </traces>
-    </test>
-    <test name="LLR-RPR-04: a pass that does not help is withdrawn, not left half-done">
-      <purpose><![CDATA[The mechanism termination rests on, and the one that makes a wrong rule cheap: a file no rule can fix is measured unrepaired, which is where it started. Observed from outside — the sound function reports the same figures whether or not damage sits beside it, and no repair is recorded.]]></purpose>
-      <traces>
-        <trace target="LLR" ref="LLR-RPR-04"/>
-        <trace target="HLR" ref="HLR-198"/>
-      </traces>
-    </test>
-
-
-    <test name="HLR-035: the unparsed count is what remains after repair">
-      <purpose><![CDATA[The count exists to tell a reader how much of a file was not measured, and repaired lines were.]]></purpose>
-      <traces>
-        <trace target="HLR" ref="HLR-035"/>
-        <trace target="HLR" ref="HLR-199"/>
-      </traces>
-    </test>
-
-  </file>
-
   <file path="test/fixtures/elf.bats" role="fixture" count="40">
     <test name="the hand-counted totals match with no image">
       <purpose><![CDATA[Two files, 61 physical lines, five functions and 13 ELOC, against a table worked out by hand in the fixture's README. The unfiltered figures are the baseline every filtered one is read against.]]></purpose>
@@ -15197,7 +15429,7 @@ Four operators end in a bracket that opens nothing: `operator>`, `operator>>`, a
     </test>
   </file>
 
-  <file path="test/fixtures/graph.bats" role="fixture" count="18">
+  <file path="test/fixtures/graph.bats" role="fixture" count="19">
     <test name="HLR-106: the exported graph matches the expected topology exactly">
       <purpose><![CDATA[The emitted GraphML is compared node for node and edge for edge against a file written from the source, so a change in what elc believes about the code appears as a diff rather than as a number nobody questions.]]></purpose>
       <traces>
@@ -15315,6 +15547,13 @@ Four operators end in a bracket that opens nothing: `operator>`, `operator>>`, a
         <trace target="HLR" ref="HLR-075" name="Whole-Project Graph Scope"/>
         <trace target="HLR" ref="HLR-074" name="Global State Edges"/>
         <trace target="LLR" ref="LLR-SDG-05"/>
+      </traces>
+    </test>
+    <test name="HLR-076: expansion costs one more open and no others">
+      <purpose><![CDATA[The bound HLR-076 was amended to allow. The preprocessor is a separate process and opens the file for itself, so an expanded run shows two opens per source: elc's own and the toolchain's. A third would mean elc had gone back to the file, which the requirement forbids and which expansion must not become an excuse for.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-076"/>
+        <trace target="HLR" ref="HLR-202"/>
       </traces>
     </test>
     <test name="HLR-076: the graph is built without reopening a source file">

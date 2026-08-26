@@ -28,7 +28,7 @@
 #include <tree_sitter/api.h>
 
 #include "diag.h"
-#include "repair.h"
+#include "preproc.h"
 #include "analyze.h"
 #include "elc.h"
 #include "elfsyms.h"
@@ -90,6 +90,10 @@ void filemetrics_free(FileMetrics *metrics)
 	for (size_t i = 0; i < metrics->absent_count; i++)
 		free(metrics->absent[i].name);
 	free(metrics->absent);
+	for (size_t i = 0; i < metrics->stdlib_count; i++)
+		free(metrics->stdlib_headers[i]);
+	free(metrics->stdlib_headers);
+	free(metrics->stdlib_kinds);
 	free(metrics->language);
 	free(metrics->directory);
 	free(metrics->path);
@@ -2286,6 +2290,216 @@ static void measure_damage(TSNode root, const char *path, const char *data,
 	        metrics->unparsed_lines == 1 ? "" : "s");
 }
 
+/* Expand with the run's configuration: the flags the user gave the
+ * preprocessor, and the -D definitions they gave `elc` itself.
+ *
+ * The two must agree. `elc` decides a condition from its own definitions and
+ * the preprocessor from the ones it was given, and a file expanded under a
+ * different configuration from the one reported is measured in a build nobody
+ * asked for (HLR-132).
+ */
+static int preproc_expand_configured(const char *path, const char *language,
+                                     const ElcOptions *opts,
+                                     PreprocResult *out)
+{
+	const char **flags;
+	size_t       n = 0;
+	int          rc;
+
+	if (opts->define_count == 0)
+		return preproc_expand(path, language, opts->cc,
+		                      opts->cc_flags, opts->cc_flag_count,
+		                      out);
+
+	flags = calloc(opts->cc_flag_count + opts->define_count,
+	               sizeof *flags);
+	if (!flags)
+		return -1;
+
+	for (size_t i = 0; i < opts->cc_flag_count; i++)
+		flags[n++] = opts->cc_flags[i];
+
+	/* `elc` records a definition as the user wrote it — `NAME` or
+	 * `NAME=VALUE` — and the preprocessor wants it prefixed. Built here
+	 * rather than stored prefixed, because the bare form is what the
+	 * conditional evaluation compares against. */
+	for (size_t i = 0; i < opts->define_count; i++) {
+		size_t want = strlen(opts->defines[i]) + 3;
+		char  *flag = malloc(want);
+
+		if (!flag) {
+			for (size_t k = opts->cc_flag_count; k < n; k++)
+				free((char *)flags[k]);
+			free(flags);
+			return -1;
+		}
+		snprintf(flag, want, "-D%s", opts->defines[i]);
+		flags[n++] = flag;
+	}
+
+	rc = preproc_expand(path, language, opts->cc, flags, n, out);
+	for (size_t i = opts->cc_flag_count; i < n; i++)
+		free((char *)flags[i]);
+	free(flags);
+	return rc;
+}
+
+/* How many conditional regions the source as written leaves undecided.
+ *
+ * A parse of its own, and the second one an expanded file costs. The figure
+ * cannot be taken from the expanded tree — the preprocessor has already
+ * removed the directives it would be read from — and it cannot be skipped,
+ * because it is what decides whether expanding this file is honest at all
+ * (HLR-133, HLR-208).
+ */
+static uint32_t undecided_in(const LanguageModule *module, Registry *reg,
+                             const ElcOptions *opts, const char *data,
+                             size_t len, TSParser *parser)
+{
+	TSTree   *raw = ts_parser_parse_string(parser, NULL, data,
+	                                       (uint32_t)len);
+	SpanList  comments = { 0 };
+	uint32_t  undecided = 0;
+
+	if (!raw)
+		return 0;
+
+	if (collect_comments(module, reg, data, ts_tree_root_node(raw),
+	                     &comments) == 0)
+		collect_inactive_regions(module, reg, opts, data,
+		                         ts_tree_root_node(raw), &comments,
+		                         &undecided);
+
+	free(comments.items);
+	ts_tree_delete(raw);
+	return undecided;
+}
+
+/* Everything taken from one parsed tree, in the order the later steps need.
+ *
+ * Damage first, because a figure qualified by it must be recorded before
+ * anything is counted; then the exclusions, since what is comment or inactive
+ * decides what the collection sees; then the collection; then the effective
+ * lines the collection's sites imply.
+ */
+static int measure_tree(const LanguageModule *module, Registry *reg,
+                        const ElcOptions *opts, const SymbolSet *image,
+                        const char *map, size_t len, TSTree *tree,
+                        const char *path, FileMetrics *metrics,
+                        FileFacts *facts, SpanList *comments,
+                        FnRangeIndex *ranges, SiteList *sites)
+{
+	TSNode root = ts_tree_root_node(tree);
+
+	measure_damage(root, path, map, len, metrics);
+
+	if (build_exclusions(module, reg, opts, image, map, len, root, path,
+	                     metrics, comments) != 0)
+		return -1;
+
+	if (collect_all(module, reg, map, root, path, comments, ranges,
+	                sites, metrics, facts) != 0)
+		return -1;
+
+	apply_eloc(metrics, sites);
+	return 0;
+}
+
+/* Give the caller the records and give up the cleanup path's claim on them.
+ *
+ * Both at once, because the two are handed over together or not at all: a
+ * `cleanup` that freed one of a matched pair would leave the report holding
+ * metrics whose facts had been released.
+ */
+static void hand_over(FileMetrics **out, FileFacts **facts_out,
+                      FileMetrics **metrics, FileFacts **facts)
+{
+	*out       = *metrics;
+	*facts_out = *facts;
+	*metrics   = NULL;
+	*facts     = NULL;
+}
+
+/* Open a file and learn its size, or diagnose why neither happened.
+ *
+ * The two together because a caller needs both or neither, and the diagnostic
+ * is the same either way: the file was named and could not be read (HLR-035).
+ */
+static int open_and_stat(const char *path, struct stat *st)
+{
+	int fd = open(path, O_RDONLY);
+
+	if (fd < 0) {
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+	if (fstat(fd, st) != 0) {
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
+		close(fd);
+		return -1;
+	}
+	return fd;
+}
+
+/* Expand this file, and hand back the buffer to measure.
+ *
+ * The conditional analysis is answered from the source as written, before
+ * anything is expanded, because a preprocessor destroys the very thing it
+ * reports: `gcc -E` reads an undefined identifier in an `#if` as 0 and
+ * discards the branch it did not take — a guess, made silently, where HLR-133
+ * requires the guess be declared and both branches kept.
+ *
+ * So the raw text decides the conditional figures, and the expansion supplies
+ * the rest. A file the raw pass could not decide is not expanded at all:
+ * expanding it would let the preprocessor resolve what elc had just declared
+ * unresolvable, and the effective-line count would silently become that of one
+ * branch (HLR-208).
+ */
+static void expand_for_metrics(const LanguageModule *module, Registry *reg,
+                               const ElcOptions *opts, const char *path,
+                               const char *raw, size_t raw_len,
+                               PreprocResult *out, const char **map,
+                               size_t *len)
+{
+	if (preproc_expand_configured(path, module->language_name, opts,
+	                              out) != 0 || !out->text)
+		return;
+
+	if (undecided_in(module, reg, opts, raw, raw_len, reg->parser) != 0) {
+		out->status = PREPROC_UNDECIDED;
+		return;
+	}
+
+	*map = out->text;
+	*len = out->length;
+}
+
+/* Carry the expansion's header list onto the file's metrics.
+ *
+ * Copied rather than borrowed because the PreprocResult dies with this
+ * function and the metrics outlive the run that made them (HLR-207).
+ */
+static int record_stdlib(FileMetrics *m, const PreprocResult *p)
+{
+	if (p->header_count == 0)
+		return 0;
+
+	m->stdlib_headers = calloc(p->header_count, sizeof *m->stdlib_headers);
+	m->stdlib_kinds   = calloc(p->header_count, sizeof *m->stdlib_kinds);
+	if (!m->stdlib_headers || !m->stdlib_kinds)
+		return -1;
+
+	for (size_t i = 0; i < p->header_count; i++) {
+		m->stdlib_headers[i] = strdup(p->headers[i].name);
+		if (!m->stdlib_headers[i])
+			return -1;
+		m->stdlib_kinds[i] = (unsigned char)p->headers[i].kind;
+	}
+	m->stdlib_count = p->header_count;
+	m->stdlib_cxx   = p->cxx_count;
+	return 0;
+}
+
 int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
                  const char *path, FileMetrics **out, FileFacts **facts_out)
 {
@@ -2296,13 +2510,18 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	SpanList              comments = { 0 };
 	SiteList              sites    = { 0 };
 	struct stat           st;
-	/* The mapping, kept apart from the text that is parsed: repair may hand
-	 * back a copy, and `munmap` must still receive what `mmap` returned. */
+	/* The mapping, kept apart from the text that is parsed: expansion
+	 * hands back its own buffer, and `munmap` must still receive what
+	 * `mmap` returned. */
 	void                 *mapping = MAP_FAILED;
 	size_t                maplen  = 0;
-	const char           *map    = NULL;
-	size_t                len    = 0;
-	RepairResult          repaired = { 0 };
+	const char           *map     = NULL;
+	size_t                len     = 0;
+	/* Explicitly not-attempted, because a zeroed struct would read as
+	 * PREPROC_EXPANDED and a run with --no-expand would report every file
+	 * as expanded — the provenance of HLR-206 saying the opposite of what
+	 * happened. */
+	PreprocResult         expanded = { .status = PREPROC_OFF };
 	TSTree               *tree   = NULL;
 	int                   fd     = -1;
 	int                   status = ANALYZE_FAILED;
@@ -2316,16 +2535,9 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	if (!module)
 		return ANALYZE_SKIPPED;
 
-	fd = open(path, O_RDONLY);
-	if (fd < 0) {
-		diag_printf("elc: %s: %s\n", path, strerror(errno));
+	fd = open_and_stat(path, &st);
+	if (fd < 0)
 		goto cleanup;
-	}
-
-	if (fstat(fd, &st) != 0) {
-		diag_printf("elc: %s: %s\n", path, strerror(errno));
-		goto cleanup;
-	}
 
 	if (prepare_records(module, path, &metrics, &facts) != 0)
 		goto cleanup;
@@ -2334,64 +2546,54 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	 * empty file fails with EINVAL, and an empty file is not an error
 	 * (LLR-ANL-04). */
 	if (st.st_size == 0) {
-		*out       = metrics;
-		*facts_out = facts;
-		metrics    = NULL;
-		facts      = NULL;
-		status     = ANALYZE_OK;
+		hand_over(out, facts_out, &metrics, &facts);
+		status = ANALYZE_OK;
 		goto cleanup;
 	}
 
 	maplen  = (size_t)st.st_size;
 	mapping = mmap(NULL, maplen, PROT_READ, MAP_PRIVATE, fd, 0);
-	map     = mapping;
-	len     = maplen;
 	if (mapping == MAP_FAILED) {
 		diag_printf("elc: %s: %s\n", path, strerror(errno));
 		goto cleanup;
 	}
+	map = mapping;
+	len = maplen;
 
+	/* The physical-line count comes from the file, never from the parsed
+	 * buffer. Expansion pads with blank lines to hold every location in
+	 * place (HLR-204), and those are lines the file does not have. */
 	metrics->physical_lines = count_lines(map, len);
 
+	/* Macros expanded by the compiler, and the result filtered back down
+	 * to this file at its own line numbers (HLR-202, HLR-203). Where that
+	 * does not happen — no toolchain, a header the host cannot find, a
+	 * cross-compiled tree — the file is parsed as written and measured
+	 * exactly as it was before expansion existed (HLR-205). */
 	ts_parser_set_language(reg->parser, module->ts_lang);
+
+	if (!opts->no_expand)
+		expand_for_metrics(module, reg, opts, path, map, len,
+		                   &expanded, &map, &len);
+
+	metrics->preproc_status = (int)expanded.status;
+	if (record_stdlib(metrics, &expanded) != 0)
+		goto cleanup;
 
 	/* The length is explicit because the mapping is not NUL-terminated
 	 * (LLR-ANL-05). */
-	/* Parsed through the repair path, which for source the grammar accepts
-	 * is one parse of the caller's own buffer and nothing else (HLR-196,
-	 * LLR-RPR-01). Where it does not, the regions it rejected are repaired
-	 * in a copy and the tally is carried onto the file's metrics, so the
-	 * report can declare that a figure rested on a guess (HLR-199). */
-	if (repair_parse(reg->parser, map, len, path, &repaired) != 0) {
+	tree = ts_parser_parse_string(reg->parser, NULL, map, (uint32_t)len);
+	if (!tree) {
 		diag_printf("elc: %s: parse failed\n", path);
 		goto cleanup;
 	}
-	tree = repaired.tree;
-	map  = repaired.buffer;
-	len  = repaired.length;
-	metrics->repairs = repaired.total;
-	for (size_t k = 0; k < REPAIR_RULE_COUNT; k++)
-		metrics->repair_counts[k] = repaired.counts[k];
 
-	TSNode root = ts_tree_root_node(tree);
-
-	measure_damage(root, path, map, len, metrics);
-
-	if (build_exclusions(module, reg, opts, image, map, len, root, path,
-	                     metrics, &comments) != 0)
+	if (measure_tree(module, reg, opts, image, map, len, tree, path,
+	                 metrics, facts, &comments, &ranges, &sites) != 0)
 		goto cleanup;
 
-	if (collect_all(module, reg, map, root, path, &comments, &ranges,
-	                &sites, metrics, facts) != 0)
-		goto cleanup;
-
-	apply_eloc(metrics, &sites);
-
-	*out       = metrics;
-	*facts_out = facts;
-	status     = metrics->unparsed_lines ? ANALYZE_DAMAGED : ANALYZE_OK;
-	metrics    = NULL;
-	facts      = NULL;
+	status = metrics->unparsed_lines ? ANALYZE_DAMAGED : ANALYZE_OK;
+	hand_over(out, facts_out, &metrics, &facts);
 
 cleanup:
 	/* Every acquired resource released on every path, in order: the tree
@@ -2400,10 +2602,9 @@ cleanup:
 	free(sites.items);
 	free(comments.items);
 	free(ranges.items);
-	/* The tree is released through the repair result, which owns it and the
-	 * copied buffer together; the mapping is released here, by the function
-	 * that made it. */
-	repair_result_free(&repaired);
+	if (tree)
+		ts_tree_delete(tree);
+	preproc_result_free(&expanded);
 	if (mapping != MAP_FAILED)
 		munmap(mapping, maplen);
 	filemetrics_free(metrics);

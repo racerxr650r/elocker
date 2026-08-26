@@ -250,7 +250,7 @@ normalised() {
 
 	local log="$BATS_TEST_TMPDIR/trace.log"
 
-	strace_elc "$log" "openat" --graphml -o "$OUT" "$TREE"
+	strace_elc "$log" "openat" --no-expand --graphml -o "$OUT" "$TREE"
 
 	# Each of the three sources is opened exactly once, with the graph
 	# built from what that one parse produced. A resolver that re-read a
@@ -258,5 +258,27 @@ normalised() {
 	for f in core.c reader.c; do
 		run bash -c 'grep -c "openat(.*/'"$f"'\"" "$0" || true' "$log"
 		assert_output "1"
+	done
+}
+
+@test "HLR-076: expansion costs one more open and no others" {
+	# The bound HLR-076 was amended to allow. The preprocessor is a
+	# separate process and opens the file for itself, so an expanded run
+	# shows two opens per source: elc's own, and the toolchain's. A third
+	# would mean elc had gone back to the file, which is what the
+	# requirement forbids and what expansion must not become an excuse for.
+	require_tool strace "HLR-076 single parse"
+	require_tool gcc "HLR-202 macro expansion"
+
+	local log="$BATS_TEST_TMPDIR/trace-expanded.log"
+
+	strace_elc "$log" "openat" --graphml -o "$OUT" "$TREE"
+
+	for f in core.c reader.c; do
+		run bash -c 'grep -c "openat(.*/'"$f"'\"" "$0" || true' "$log"
+		[ "$output" -le 2 ] || {
+			echo "$f opened $output times, expected at most 2" >&2
+			false
+		}
 	done
 }

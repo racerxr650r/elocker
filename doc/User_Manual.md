@@ -2471,6 +2471,9 @@ comparable.
 | `--write-manifest` | — | off | Also write the purification manifest as JSON, named from `--output` |
 | `--purify-dot` | — | off | Also write the raw and purified graphs as two Graphviz files, named from `--output` |
 | `--no-dot` | — | `.dot` written | Do not write the annotated Graphviz call tree, which is otherwise written beside the report |
+| `--no-expand` | — | expansion on | Measure the source as written, without expanding its macros |
+| `--cc` | `PROGRAM` | `gcc` / `g++` | Preprocessor to expand with |
+| `--cc-flag` | `ARG` | none | Pass `ARG` to the preprocessor; repeatable, for the include paths and defines the build needs |
 | `-h`, `--help` | — | — | Print the usage summary to standard output and exit 0 |
 
 ```sh
@@ -2941,12 +2944,137 @@ source already says.
 reported in the table that measured it. The findings list is the subset that
 crossed a line; the tables above it are the whole picture.
 
+## Macro expansion
+
+A macro standing where the grammar expects a keyword, a type, or a string is a
+parse error, and no grammar can fix it — `MACRO MACRO` is genuinely ambiguous
+with `Type var`. So before parsing a file, `elc` runs the language's own
+preprocessor over it and parses the result:
+
+```c
+#define local      static
+#define BOLD       "\033[1m"
+
+local int branchy(int n) { ... }
+printf(BOLD "value: %d\n", n);
+```
+
+Unexpanded, both lines defeat the parser. Expanded, they are ordinary C.
+
+**Only your file survives the expansion.** Raw preprocessor output is not
+something you would want measured: nineteen lines of C came back as 829, with
+the functions of every header pulled in appearing as functions of the file, and
+every line number moved. `elc` filters the output by the `# linenum "file"`
+markers the preprocessor emits, keeping only the lines attributed to the file
+being analysed — a system header, a project header, `<built-in>` — everything
+else is discarded. One `#include <iostream>` costs you nothing: 68,468 lines of
+expansion filtered back down to the file's own 21.
+
+**Your line numbers do not move.** The filter pads with blank lines so every
+retained line sits where it sits in your file. A function reported at 21–70 is
+at 21–70 in the file you wrote, expansion or not.
+
+### Telling `elc` how your project builds
+
+`elc` does not know your build and will not guess. An include path it invented
+would read a header you never named, and reaching the *wrong* header is worse
+than reaching none — the expansion would succeed and be wrong. So you supply
+what the build needs:
+
+```sh
+elc --cc-flag -Iinclude --cc-flag -DNDEBUG src/
+```
+
+Without them, a project whose headers are not beside its sources simply falls
+back, which brings us to:
+
+### When expansion does not happen
+
+It often does not, and that is fine. A cross-compiled tree cannot be
+preprocessed by a host compiler at all — an AVR project fails on `avr/io.h`
+before it reaches a macro. A machine with no compiler installed cannot expand
+anything. In every such case `elc` parses the file as written and completes the
+run, giving you exactly the report it would have given before expansion
+existed.
+
+Because two files in one report may then have been measured two different ways,
+and nothing in the figures says which, `elc` tells you:
+
+```text
+Project summary
+  ...
+  Files expanded        16
+  Measured as written    6
+
+Measured as written (macros not expanded)
+  File            Why
+  --------------  ----------------------------------
+  src/arch.c      the preprocessor rejected the file
+  src/graph.c     the preprocessor rejected the file
+```
+
+`--no-expand` turns expansion off entirely. Reach for it when two machines must
+agree: an expansion depends on the headers installed where it runs, and
+unexpanded source does not.
+
+### C library use MISRA constrains
+
+MISRA C:2012 §21 names the C library facilities a compliant program does not
+use. `elc` reports each call to one as a **warning**, citing the rule:
+
+```text
+Findings
+  Severity  Measurement    Subject  Detail                                                    Source
+  --------  -------------  -------  --------------------------------------------------------  ------------
+  warning   misra library  malloc   malloc is not available to a compliant program (Rule 21.3) MISRA C:2012
+  warning   misra library  printf   printf is not available to a compliant program (Rule 21.6) MISRA C:2012
+  warning   misra library  atoi     atoi is not available to a compliant program (Rule 21.7)   MISRA C:2012
+```
+
+The rule number is there so you can look it up and disagree with it. `elc` is
+citing somebody else's published position, not offering one of its own — a
+great many programs use these facilities correctly and have no obligation to
+MISRA at all. No advice comes with the finding, and it does not affect the exit
+status.
+
+**Reported by function, never by header.** `<stdlib.h>` supplies `abs`, which
+MISRA permits, beside `malloc`, which it does not — so including it is not the
+finding, calling one is. You get the file and the line, because a reader fixing
+one needs to find it and a function calling `malloc` twice has two things to
+change.
+
+Functions your own project defines are not reported, even where they share a
+name with a constrained one: the rule is about the standard library's `system`,
+not about yours.
+
+### What your code depends on
+
+The filter sees every header the preprocessor opened, so it can tell you what
+it would take to build this somewhere else:
+
+```text
+Standard-library dependence
+  File       Library  Headers  Which
+  ---------  -------  -------  ---------------------------------
+  app.cpp    C             11  wchar.h stddef.h stdarg.h locale.h ...
+  app.cpp    C++           25  iostream ostream ios iosfwd cwchar ...
+```
+
+A fact, not a finding: it carries no severity, reaches no exit status, and
+comes with no advice. Depending on the standard library is the ordinary case
+for most programs. If you are heading for a freestanding or embedded target
+that has no `<iostream>` and often no `malloc`, this is the list of what stands
+in the way. If you are not, skip it.
+
+A file that fell back reports nothing here — that is the absence of an answer,
+not the answer "none". The provenance table above says which files could be
+asked.
+
 ## When the parser cannot follow your code
 
 `elc` parses source as written and runs no preprocessor (that is deliberate —
-see below). A grammar occasionally meets something it cannot follow. When that
-happens `elc` first **tries to repair it**, and only what repair cannot reach
-is lost:
+see below). A grammar occasionally meets something it cannot follow, and when
+that happens **only the lines it could not read are lost**:
 
 ```text
 Project summary
@@ -2963,56 +3091,7 @@ Partially parsed files (measured except for these lines)
 
 Every function around the damage is measured normally and appears in the usual
 tables. The count is what tells you how far to trust the figures: 35 unparsed
-lines in 5151 is noise, and 35 in 60 is not. It is what remains **after**
-repair, so it is the damage nothing could reach.
-
-### What repair does
-
-The commonest reason a C grammar stops is a macro standing where the grammar
-expects something else — a name that expands to a string literal, to a storage
-class, or to a whole declarator. `elc` cannot expand it, because expanding
-means running a preprocessor over your build's include paths and defines, and
-that changes the code being measured. What it can do is recognise the *shape*
-and put something the grammar accepts in its place, in its own copy of the
-buffer:
-
-| The shape | What replaces it |
-|---|---|
-| An upper-case name beside a string literal — `printf(BOLD "%d" RESET, n)` | an empty string literal, which concatenates to the same string |
-| An upper-case name in front of a declaration — `local int f(void)` | nothing; the declaration beneath it parses |
-| An upper-case name where a declarator belongs — `ARR = { 1, 2, 3 };` | `int` before it, making it a definition |
-
-Three properties make this safe to trust:
-
-- **Only rejected regions are rewritten.** Text the grammar accepted is never
-  touched, so the worst a wrong guess can do is fail to fix something that was
-  already broken.
-- **Every repair spans the same number of lines it replaced.** Nothing beneath
-  it moves, so every line number in the report still points where it did.
-- **Your files are never modified.** The rewriting happens in memory, in a
-  copy `elc` made to parse.
-
-A repair is a guess the grammar could not make, so the report says it made
-one:
-
-```text
-Repaired regions (rewritten in elc's buffer to be measured; the files are untouched)
-  File        Rule                        Repairs
-  ----------  --------------------------  -------
-  drv/uart.c  macro adjacent to a string       29
-  drv/uart.c  macro before a declaration        3
-```
-
-That count is a figure to read, not a threshold to pass: it carries no
-severity and does not affect the exit status. It tells you how much of the
-measurement rests on shape-matching rather than on the grammar. Where no
-repair was made the table is absent, and named among the empty ones at the end
-of the report — *none needed* and *not attempted* are different claims.
-
-Repair runs in passes and stops when a pass rewrites nothing or fails to
-reduce the damage; a pass that does not help is withdrawn whole. So `elc`
-terminates on source no rule fits, which is most of the source it will ever
-meet.
+lines in 5151 is noise, and 35 in 60 is not.
 
 **Why not simply reject the file?** `elc` used to, and it was badly wrong. A
 single unparsable macro damages one line; discarding the whole file over it

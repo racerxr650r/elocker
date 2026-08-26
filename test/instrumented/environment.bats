@@ -195,7 +195,10 @@ setup() {
 	require_tool strace "HLR-041 single-threaded execution"
 	local log="$BATS_TEST_TMPDIR/clone.log"
 
-	strace_elc "$log" "clone,clone3" "$REPO_ROOT/src"
+	# --no-expand, because the claim is about elc's own execution. Macro
+	# expansion runs the toolchain in a separate process, which is a fork
+	# and not a thread, and is bounded by HLR-202 rather than by this.
+	strace_elc "$log" "clone,clone3" --no-expand "$REPO_ROOT/src"
 	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
 
 	# Everything but process bookkeeping lines would be a clone.
@@ -231,7 +234,10 @@ setup() {
 
 	# execve alone: a fork that never execs cannot have run Graphviz, and
 	# clone is already asserted at zero by the single-thread test above.
-	strace_elc "$log" "execve,execveat" \
+	# --no-expand, so the one execve counted is the kernel's. The claim is
+	# that elc renders the call tree itself rather than shelling out to
+	# Graphviz, and expansion's own subprocess would mask it.
+	strace_elc "$log" "execve,execveat" --no-expand \
 		-o "$BATS_TEST_TMPDIR/report.md" "$REPO_ROOT/src"
 	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
 	[ -f "$BATS_TEST_TMPDIR/report.dot" ] || {
@@ -254,7 +260,11 @@ setup() {
 	require_tool strace "HLR-135 no external preprocessor"
 	local log="$BATS_TEST_TMPDIR/exec.log"
 
-	strace_elc "$log" "execve,execveat" -DFEATURE -DLEAN \
+	# --no-expand isolates the claim HLR-135 still makes. Expansion does
+	# spawn a preprocessor (HLR-202); what it may never do is *decide a
+	# conditional region* with one, and the undecided figures come from the
+	# unexpanded parse for exactly that reason (HLR-208).
+	strace_elc "$log" "execve,execveat" --no-expand -DFEATURE -DLEAN \
 		"$REPO_ROOT/test/fixtures/conditional/tree"
 	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
 
@@ -270,7 +280,7 @@ setup() {
 	require_tool strace "HLR-135 no external preprocessor"
 	local log="$BATS_TEST_TMPDIR/open.log"
 
-	strace_elc "$log" "openat" -DFEATURE \
+	strace_elc "$log" "openat" --no-expand -DFEATURE \
 		"$REPO_ROOT/test/fixtures/conditional/tree"
 	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
 
@@ -295,7 +305,11 @@ setup() {
 	cc -O0 -fPIC -shared -o "$image" "$tree/kept.c" 2>/dev/null || \
 		skip "cc cannot link here: HLR-141 unverified"
 
-	strace_elc "$log" "execve,execveat" --elf "$image" "$tree"
+	# --no-expand: the claim is about reading an *image*, which HLR-141
+	# governs and which the preprocessor permission of HLR-202 does not
+	# touch. Expansion would spawn one for the source and prove nothing
+	# either way about the image.
+	strace_elc "$log" "execve,execveat" --no-expand --elf "$image" "$tree"
 	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
 
 	run bash -c 'grep -cE "execve(at)?\(" "$0" || true' "$log"
@@ -692,9 +706,12 @@ setup() {
 	mkdir -p "$tree"
 	printf 'int main(void){return 0;}\n' > "$tree/a.c"
 
+	# --no-expand keeps the observation on elc itself. The preprocessor is
+	# a separate process, and HLR-202 requires it write nothing either —
+	# asserted where the expansion is, in preproc.bats.
 	strace_elc "$log" \
 		"openat,open,creat,unlink,unlinkat,truncate,ftruncate,rename" \
-		"$tree"
+		--no-expand "$tree"
 	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
 
 	# Read-only operation is a structural property here — analyze.c is the
@@ -714,7 +731,10 @@ setup() {
 	printf 'int a(void) { return 0; }\n' > "$tree/one.c"
 	printf 'int b(void) { return 0; }\n' > "$tree/two.c"
 
-	strace_elc "$log" "openat,open" "$tree"
+	# --no-expand, because this counts elc's own opens. An expanded file is
+	# opened once more by the preprocessor, which is a separate process and
+	# a bound HLR-076 was amended to allow; graph.bats asserts that bound.
+	strace_elc "$log" "openat,open" --no-expand "$tree"
 	[ -f "$log" ] || skip "strace produced no log; cannot observe syscalls"
 
 	# The single-parse rule is what makes the graph and the metrics come

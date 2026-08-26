@@ -931,6 +931,44 @@ than a request; see
 .B THE CALL TREE
 below.
 .TP
+.B \-\-no\-expand
+Measure the source as written, without expanding its macros.
+.IP
+By default
+.B elc
+runs the language's preprocessor over each file and parses the result, keeping
+only that file's own lines and restoring their line numbers \(em which is what
+lets a macro standing in for a keyword, a type, or a string be measured at all.
+This switch declines that, and produces the report a build with no toolchain
+produces. Use it when two machines must agree: an expansion depends on the
+headers installed where it runs, and unexpanded source does not.
+.TP
+.BI \-\-cc " PROGRAM"
+Preprocessor to expand with, in place of
+.B gcc
+for C and
+.B g++
+for C++. A program that cannot be run falls back per file, exactly as a missing
+one does.
+.TP
+.BI \-\-cc\-flag " ARG"
+Pass
+.I ARG
+to the preprocessor. Repeatable.
+.IP
+.B elc
+does not know how the project is built and will not guess: an include path it
+invented would read a header nobody named, and reaching the
+.I wrong
+header is worse than reaching none, because the expansion would then succeed
+and be wrong. So the flags a build needs are the ones you give it \(em
+.B \-\-cc\-flag
+.IR \-Iinclude ,
+.B \-\-cc\-flag
+.IR \-DNDEBUG .
+Without them a project whose headers are not beside its sources falls back to
+being measured as written, which the report states per file.
+.TP
 .B \-\-dbg
 Also write a debug log beside the report, named from it by the companion rule:
 an
@@ -1016,36 +1054,42 @@ measured it.
 .B elc
 proposes no fix, ranks no design beyond what a cited standard states, and
 applies no style opinion of its own.
+.SS C library use MISRA constrains
+MISRA C:2012 \(sc21 names the C library facilities a compliant program does not
+use.
+.B elc
+reports each call to one as a
+.BR warning ,
+naming the function, the file and the line, and citing the rule that forbids it
+\(em
+.B malloc
+against Rule 21.3,
+.B printf
+against 21.6,
+.B system
+against 21.8.
+.PP
+The citation is there to be checked. This is somebody else's published position
+and not
+.BR elc 's:
+a great many programs use these facilities correctly and owe MISRA nothing. No
+advice accompanies the finding and it reaches no exit status.
+.PP
+Reported by
+.I function
+and never by header. \fB<stdlib.h>\fR supplies
+.BR abs ,
+which MISRA permits, beside
+.BR malloc ,
+which it does not, so including it is not the finding \(em calling one is. A
+function the project defines itself is never reported, even where it shares a
+name with a constrained one: the rule is about the standard library's.
 .SS Partly unparsable files
 .B elc
 parses source as written and runs no preprocessor, so a grammar occasionally
 meets a construct it cannot follow \(em a macro standing in for a string
 literal is the usual cause in embedded C.
-.PP
-Such a region is first
-.IR repaired :
-in its own copy of the buffer,
-.B elc
-replaces the rejected text with something the grammar accepts and parses again.
-An upper-case name beside a string literal becomes an empty literal, one in
-front of a declaration is removed, and one standing where a declarator belongs
-gains an
-.B int
-before it. Only regions the grammar itself rejected are rewritten, every
-replacement spans the number of lines it replaced so nothing beneath it moves,
-and the source files are never modified. Repair proceeds in passes and stops
-when a pass rewrites nothing or fails to reduce the damage; a pass that does
-not help is withdrawn whole.
-.PP
-A repair is a guess the grammar could not make, so a report resting on one
-says so: a
-.B Repaired regions
-table names each rule that fired and how many regions it rewrote, and
-.B \-\-dbg
-records each repair with the text before and after. The count carries no
-severity and does not reach the exit status.
-.PP
-Only what repair could not reach is lost. The file is measured from the parts
+Only the lines it could not read are lost. The file is measured from the parts
 the grammar understood, the lines it could not are counted, and the figure is
 reported per file and in the project summary, so a partial measurement is
 never mistaken for a complete one.
