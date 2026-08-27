@@ -103,7 +103,11 @@ Requirements governing how `elc` computes Effective Lines of Code and cyclomatic
     *Trace:* [SDD Section 7](SDD.md).
 
 *   <a id="HLR-014"></a>**HLR-014: Per-Function Identity.**
-    For each function discovered in a source file, `elc` shall report the function's name and its start and end line numbers. For the purposes of this and every other requirement in this document, "function" means any named callable unit the source language defines — including a method, a constructor, a destructor, and a nested subprogram — as identified by that language's runtime query configuration.
+    For each function discovered in a source file, `elc` shall report the function's name, where it begins, and how far it extends.
+
+    **In a human-readable report (HLR-027, HLR-029) the extent shall be a line count** — the number of lines the function occupies — and the start shall be carried by the navigable location of HLR-210. A count is the figure a reader compares between two functions; a range is a fact about the file that they must subtract before they can use it, and once the start line is in the location column the range would state it twice.
+
+    The complete-record formats shall continue to report **start and end line numbers** as separate fields. They are parsed by their consumers rather than read, a consumer cannot subtract a column it was not given, and the record must remain the thing a report can be rebuilt from (HLR-056). For the purposes of this and every other requirement in this document, "function" means any named callable unit the source language defines — including a method, a constructor, a destructor, and a nested subprogram — as identified by that language's runtime query configuration.
     *Trace:* [SDD Section 7](SDD.md).
 
 *   <a id="HLR-015"></a>**HLR-015: Per-Function Effective Lines of Code.**
@@ -1182,6 +1186,34 @@ A macro standing where the grammar expects a keyword, a type, or a string is a p
 
     Where a file's expansion succeeded, `elc` shall additionally report which standard-library headers it drew on, distinguishing the C library from the C++ library. That is the exposure the warnings above are drawn from — a fact rather than a finding, carrying no severity — and it answers what it would take to build the code somewhere else, which a freestanding or embedded target makes urgent. A file that fell back reports nothing here, and shall not be listed as depending on nothing: absence of evidence is not evidence of absence, and the provenance of HLR-206 is what tells a reader which files could be asked.
     *Trace:* [SDD Section 27](SDD.md), [SDD Section 12](SDD.md), [SDD Section 14](SDD.md).
+
+## 29. Function Visibility and Editor-Navigable Locations
+
+Requirements governing what the Functions table says about a function's place in its program, and how a reader gets from the table to the code.
+
+Two questions a reader asks of an unfamiliar module are answered by the source and were not answered by the report: **which of these functions are the interface**, and **where is this one**. The first is stated plainly in every language `elc` reads — `static`, `pub`, a leading underscore — and the second was split across two columns in a form no editor would act on.
+
+*   <a id="HLR-209"></a>**HLR-209: Function Visibility Reported.**
+    For each function, `elc` shall report whether the language exposes it outside the file or module that defines it, as **public** or **private**, in a column immediately following the function's name.
+
+    **The rule is the language's own and belongs to that language's module**, supplied as a query in the runtime location like every other language-specific decision (HLR-107). C and C++ report linkage — a `static` definition, or one inside an anonymous namespace, is private. Rust reports its own visibility keyword. Python reports the leading-underscore convention. These are not the same kind of fact, and the requirement does not pretend they are: what is common is the question, not the mechanism that answers it.
+
+    Where two patterns of a language's visibility query match one function, **the earliest shall decide**. That is the rule `elc` already applies to conditional regions (HLR-133), and it lets a query state the specific case before the general one — `static` before "every function", `pub` before "every function" — without either language needing a different convention from the other.
+
+    **A language whose module supplies no visibility query shall report neither.** This is the asymmetry HLR-138 draws for a language with no dead-code query and HLR-133 for an undecidable condition, applied to a third kind of absence: *not analysed* and *public* are different claims, and a reader who cannot tell them apart has been told something false rather than nothing.
+
+    Access control within a class — C++'s `private:` and `public:` sections — is a different axis from linkage and is not what this reports. A private method of an externally visible class has external linkage, and conflating the two would make the column answer neither question.
+    *Trace:* [SDD Section 29](SDD.md), [SDD Section 7](SDD.md), [SDD Section 14](SDD.md).
+
+*   <a id="HLR-210"></a>**HLR-210: Function Location Reported Navigably.**
+    In a human-readable report, `elc` shall report each function's location as `path:line`, where `line` is the line the function begins on, in the column that today carries the path alone.
+
+    **A location a reader cannot act on is a location they have to retype.** `path:line` is the form editors and terminals already parse — VS Code turns it into a jump to that line of that file — and it costs nothing: the column held the path already, and the line number was in the next column over.
+
+    The path shall remain the canonical absolute path every other path in a report takes (HLR-042). A relative path would be shorter and would resolve against whatever directory the reader's terminal happens to be in, which is the one thing a navigable reference must not depend on.
+
+    This governs the human-readable report alone. A complete-record format shall keep the path and the line as separate fields, because a consumer that has to split a string to recover a number has been handed a worse record than it was given before.
+    *Trace:* [SDD Section 14](SDD.md).
 
 ## 23. Report Composition and Per-Function Banding
 
