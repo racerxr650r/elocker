@@ -1986,7 +1986,11 @@ Expansion and filtering of one file. The first requirement is the subprocess; th
     Neither loses a token. Those lines *were* one line, and rejoining them restores the line the source holds. The rule is not "never move backwards" but "never lose a line": a line the buffer never had is one it must give back, or the drift accumulates over the whole file and every location below the first multi-line expansion is wrong.
     *Trace:* HLR-204 (Expansion Preserves Every Reported Location), HLR-032.
 
-*   <a id="LLR-PRE-05"></a>**LLR-PRE-05** — `preproc_expand` shall return a null buffer, and a status naming the reason, where the child could not be started, exited non-zero, or produced output holding no marker for the file under analysis. It shall return non-zero only on allocation failure.
+*   <a id="LLR-PRE-05"></a>**LLR-PRE-05** — `preproc_expand` shall return a null buffer, and a status naming the reason, where the child could not be started, exited non-zero, or produced output holding no marker for the file under analysis. **A caller that declines an expansion it did obtain shall release the buffer with the decision**, so that a null `text` is the single meaning of "this file was not expanded" everywhere it is read.
+
+    That is not tidiness. The pointer selects the parse *and* suppresses the repair of HLR-196, so a file left holding a buffer nobody used is parsed as written and denied the repair — neither of the two paths, and worse than either. **A caller that declines an expansion it did obtain shall release the buffer with the decision**, so that a null `text` is the single meaning of "this file was not expanded" everywhere it is read.
+
+    That is not tidiness. The pointer selects the parse *and* suppresses the repair of HLR-196, so a file left holding a buffer nobody used is parsed as written and denied the repair — neither of the two paths, and worse than either. It shall return non-zero only on allocation failure.
 
     **Output naming the file nowhere is a failure and not an empty file.** A zero-line measurement of a file that has lines is the silent wrong answer this module exists not to produce, and it is indistinguishable in the report from a file that is genuinely empty.
 
@@ -2044,33 +2048,3 @@ Repair of the regions the grammar rejected. Every requirement below is a restric
 
     A repair is a guess the grammar could not make. A report that presented a repaired figure as a measured one would be the confidently-wrong result `elc` exists to avoid, and worse than the parse error it replaced — the figures look ordinary, and nothing on the page distinguishes them.
     *Trace:* HLR-199 (Repairs Are Declared), HLR-194.
-
-## 69. `collect_visibility` ([src/analyze.c](../src/analyze.c))
-
-What the language says about a function's reach, and the one rule that lets four languages express it in the same file format.
-
-*   <a id="LLR-VIS-01"></a>**LLR-VIS-01** — `collect_visibility` shall run the language's `visibility.scm` where the module supplies one, and shall record, for each `@function.public` or `@function.private` capture, the **byte offset of the captured node** and which of the two it was. A capture whose name begins `_` shall be ignored.
-
-    The byte offset is the key because it is the same node `functions.scm` captures as `@function.name`. Matching on it means the two queries agree on the identity of a function without either knowing how the other finds one — where matching on a name would collapse two same-named statics, and matching on a line would collapse a nested function with its host.
-
-    The `@_` captures are how a pattern binds a node for a predicate to test — the C query compares a storage-class specifier against `static` that way — and are not functions.
-    *Trace:* HLR-209 (Function Visibility Reported), HLR-107.
-
-*   <a id="LLR-VIS-02"></a>**LLR-VIS-02** — Where more than one pattern captures the same node, `collect_visibility` shall keep the **first** recorded and discard the rest.
-
-    Since a query cursor reports matches in pattern order, this is "the earliest pattern in the file decides", and it is the whole of what makes one file format serve four languages. C's default is external linkage, so its query states `static` first and a catch-all claims everything else public; Rust's default is private, so its query states `pub` first and the catch-all claims everything else private. A rule such as "private wins" would serve C and invert Rust.
-
-    `collect_inactive_regions` already resolves overlapping conditional patterns this way, and a second convention for the same problem would be one too many.
-    *Trace:* HLR-209 (Function Visibility Reported).
-
-*   <a id="LLR-VIS-03"></a>**LLR-VIS-03** — A function whose name node no capture claimed shall be reported as **unknown**, and a module supplying no `visibility.scm` shall leave every function unknown. The renderer shall present that state as a dash and never as `public`.
-
-    *Not analysed* and *public* are different claims, and the second is the one that misleads: a reader scanning for a module's interface would take every function of an unanalysed language for part of it. This is the asymmetry HLR-138 draws for a language with no dead-code query, applied to a third kind of absence.
-    *Trace:* HLR-209 (Function Visibility Reported), HLR-138.
-
-*   <a id="LLR-VIS-04"></a>**LLR-VIS-04** — `functions_section` shall render the location as `path:line` in the File column, the visibility immediately after the name, and the extent as `end - start + 1`.
-
-    The column order is the requirement rather than a presentation choice: the visibility answers a question about the function just named, so it belongs beside the name and not at the end of eight numeric columns (HLR-209).
-
-    The complete-record writers shall be unchanged in their line fields and shall carry the visibility as its own attribute, so that a report regenerated from a record says what the direct run said (HLR-056) without a consumer having to split a string to recover a number (HLR-014).
-    *Trace:* HLR-210 (Function Location Reported Navigably), HLR-014 (Per-Function Identity), HLR-056.

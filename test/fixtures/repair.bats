@@ -20,6 +20,11 @@ setup() {
 	DBG="$BATS_TEST_TMPDIR/report.dbg"
 }
 
+summary() {
+	printf '%s\n' "$output" | awk -v want="$1" \
+		'$0 ~ "^  " want "  *[0-9]+$" { print $NF }'
+}
+
 # One function's ELOC and complexity from the one function table.
 figures() {
 	printf '%s\n' "$output" |
@@ -165,6 +170,32 @@ figures() {
 	elc --verbose --no-expand "$TREE/shapes.c"
 	assert_success
 	assert_equal "$expanded" "$(figures branchy) $(figures report)"
+}
+
+@test "HLR-196: a file elc declined to expand is still repaired" {
+	# The gap between the two paths, and the one place a file could fall
+	# into neither. When the preprocessor *succeeds* but elc declines the
+	# result — because a condition in the file is undecidable (HLR-208) —
+	# the file must take the repair path, exactly as one the preprocessor
+	# could not process at all does.
+	#
+	# It once did neither: the expansion was declined but its buffer was
+	# left in place, which every caller reads as "this file was expanded",
+	# so the file was parsed as written *and* denied the repair. On an AVR
+	# project that turned 5 unparsed lines into 47.
+	require_tool gcc "HLR-196 repair after a declined expansion"
+	gcc -E -C "$TREE/sound.c" >/dev/null 2>&1 || skip "gcc cannot preprocess here"
+
+	# Expands cleanly, holds a condition elc cannot decide, and holds a
+	# macro shape the grammar cannot follow.
+	printf '#define local static\n#ifdef NOBODY_DEFINED_THIS\nint off(void) { return 0; }\n#endif\nlocal int helper(int n)\n{\n\treturn n;\n}\n' \
+		> "$BATS_TEST_TMPDIR/declined.c"
+
+	elc --verbose "$BATS_TEST_TMPDIR/declined.c"
+	assert_success
+	assert_output --partial "a condition in it is undecidable"
+	assert_output --partial "Repaired regions"
+	assert_equal "$(summary 'Unparsed lines')" "0" "the declined file was repaired"
 }
 
 @test "HLR-198: repair terminates on source it cannot fix" {
