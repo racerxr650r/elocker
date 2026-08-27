@@ -47,8 +47,8 @@ function_of() {
 		     f { seen = 1; if ($2 == want) print $col }'
 }
 
-fan_in_of()  { function_of "$1" 6; }
-fan_out_of() { function_of "$1" 7; }
+fan_in_of()  { function_of "$1" 7; }
+fan_out_of() { function_of "$1" 8; }
 
 # The Functions section's rows, for assertions about the table as a whole
 # rather than about one cell.
@@ -173,7 +173,7 @@ chain() {
 	elc --verbose --entry flow_entry "$TREE/flow.c"
 	assert_success
 
-	assert_output --regexp "Function +Lines +ELOC +Complexity +Fan-in +Fan-out"
+	assert_output --regexp "Function +Visibility +Lines +ELOC +Complexity +Fan-in +Fan-out"
 	refute_output --partial "Fan-out (distinct callees)"
 	refute_output --partial "Information flow"
 }

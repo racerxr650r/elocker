@@ -22,14 +22,14 @@ totals() {
 subject_row() {
 	elc --verbose "$1"
 	awk -v want="$2" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	                  f && $2 == want { print $4, $5 }' <<<"$output"
+	                  f && $2 == want { print $5, $6 }' <<<"$output"
 }
 
 # The ELOC figure elc reports for a named function.
 function_eloc() {
 	elc --verbose "$SUBJECT"
 	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	                  f && $2 == want { print $4 }' <<<"$output"
+	                  f && $2 == want { print $5 }' <<<"$output"
 }
 
 @test "the hand-counted category totals match" {
@@ -62,7 +62,7 @@ function_eloc() {
 	assert_success
 	# 1 + for + if + else-if's if + while + case 0 = 6. The switch itself,
 	# the default label, and the goto are not decisions.
-	assert_output --regexp "categories +11-40 +18 +6"
+	assert_output --regexp "categories +public +30 +18 +6"
 }
 
 @test "HLR-017: a straight-line function is one" {
@@ -71,7 +71,7 @@ function_eloc() {
 	elc --verbose "$f"
 	assert_success
 	# Capturing the function itself as a decision point would report 2.
-	assert_output --regexp "f +1-5 +2 +1"
+	assert_output --regexp "f +public +5 +2 +1"
 }
 
 @test "HLR-017: a short-circuit operator is a decision point" {
@@ -80,7 +80,7 @@ function_eloc() {
 	elc --verbose "$f"
 	assert_success
 	# 1 + the if + the && = 3.
-	assert_output --regexp "f +1-6 +3 +3"
+	assert_output --regexp "f +public +6 +3 +3"
 }
 
 @test "HLR-017: a default label and a goto are not decisions" {
@@ -90,7 +90,7 @@ function_eloc() {
 	assert_success
 	# 1 + the single `case` = 2. The switch, the default, and the goto add
 	# nothing.
-	assert_output --regexp "f +1-11 +[0-9]+ +2"
+	assert_output --regexp "f +public +11 +[0-9]+ +2"
 }
 
 @test "HLR-044: an assignment or operation counts" {
@@ -178,7 +178,7 @@ function_eloc() {
 	elc --verbose "$f"
 	assert_success
 	# 1 + the catch. `try` and `throw` choose nothing.
-	assert_output --regexp "f +1-9 +5 +2"
+	assert_output --regexp "f +public +9 +5 +2"
 }
 
 @test "HLR-011: a language with no exception construct still reports" {

@@ -305,7 +305,7 @@ report() {
 	local complexity
 	complexity="$(awk '/^Functions$/ {s=1; next}
 	                   s && /^$/ {exit}
-	                   s && $2 == "caller" {print $5}' "$OUT")"
+	                   s && $2 == "caller" {print $6}' "$OUT")"
 	assert_equal "$complexity" "1"
 }
 

@@ -156,10 +156,17 @@ static void write_files(const Report *report, FILE *out)
 
 			fputs("      <function", out);
 			write_attribute(out, "name", fn->name);
+			/* Start and end as separate fields, never the count and
+			 * location the human-readable report renders: a
+			 * consumer cannot subtract a column it was not given
+			 * (HLR-014). Visibility rides along so a report
+			 * regenerated from this record says what the direct
+			 * run said (HLR-056, HLR-209). */
 			fprintf(out, " start-line=\"%" PRIu32 "\" end-line=\"%"
 			        PRIu32 "\" eloc=\"%" PRIu32 "\" complexity=\"%"
-			        PRIu32 "\"/>\n", fn->start_line, fn->end_line,
-			        fn->eloc, fn->complexity);
+			        PRIu32 "\" visibility=\"%d\"/>\n",
+			        fn->start_line, fn->end_line,
+			        fn->eloc, fn->complexity, (int)fn->visibility);
 		}
 
 		fputs("    </file>\n", out);
@@ -2014,6 +2021,10 @@ static void on_function(ReadState *state, const XML_Char **atts)
 	fn->end_line   = uint_attribute(state, atts, "end-line");
 	fn->eloc       = uint_attribute(state, atts, "eloc");
 	fn->complexity = uint_attribute(state, atts, "complexity");
+	/* Absent in a record written before the field existed, which reads back
+	 * as unknown — the honest answer for a run that could not have
+	 * determined one (HLR-209). */
+	fn->visibility = (Visibility)uint_attribute(state, atts, "visibility");
 
 	state->current->function_count++;
 	return;

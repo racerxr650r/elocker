@@ -18,14 +18,17 @@ setup() {
 figures() {
 	printf '%s\n' "$output" |
 		awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && $2 == want { print $4, $5 }'
+		                  f && $2 == want { print $5, $6 }'
 }
 
-# One function's reported line range.
+# One function's reported location — `path:line`, the navigable reference the
+# File column carries (HLR-210). Stronger than the old line range for this
+# suite's purpose: it is the thing a reader clicks, so it is the thing that
+# must not move when the buffer is expanded.
 range_of() {
 	printf '%s\n' "$output" |
 		awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && $2 == want { print $3 }'
+		                  f && $2 == want { print $1 }'
 }
 
 summary() {

@@ -38,7 +38,8 @@ static const char *const QUERY_FILES[QUERY_COUNT] = {
 	[QUERY_CALLS]      = "calls.scm",
 	[QUERY_GLOBALS]    = "globals.scm",
 	[QUERY_DEADCODE]   = "deadcode.scm",
-	[QUERY_CONDITIONALS] = "conditionals.scm"
+	[QUERY_CONDITIONALS] = "conditionals.scm",
+	[QUERY_VISIBILITY] = "visibility.scm"
 };
 
 /* What ts_query_new() reported, in words. The numeric code alone tells the

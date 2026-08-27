@@ -95,7 +95,7 @@ build_debugline() {
 eloc_of() {
 	awk -v want="$2" '/^Functions$/ {s=1; next}
 	                  s && /^$/ {exit}
-	                  s && $2 == want {print $4}' "$1"
+	                  s && $2 == want {print $5}' "$1"
 }
 
 # ------------------------------------------------------- the hand counts --
@@ -414,7 +414,7 @@ build_ambiguous() {
 	local kept
 	kept="$(printf '%s\n' "$output" |
 		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $2 == "helper" { print $1 }')"
+		     f && $2 == "helper" { sub(/:[0-9]+$/, "", $1); print $1 }')"
 	assert_equal "$kept" "$AMB/a.c"
 
 	# And b.c's is reported absent, beside the function that called it.
@@ -484,7 +484,7 @@ build_templated() {
 	local kept
 	kept="$(printf '%s\n' "$output" |
 		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $2 == "serialize_seq" { print $1 }')"
+		     f && $2 == "serialize_seq" { sub(/:[0-9]+$/, "", $1); print $1 }')"
 	assert_equal "$kept" "$TPL/micro/plugin.hpp"
 }
 

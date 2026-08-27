@@ -58,7 +58,7 @@ flow_of() {
 	printf '%s\n' "$output" |
 		awk -v want="$1" '/^Functions$/ { f = 1; next }
 		                  f && /^$/ { f = 0 }
-		                  f && $2 == want { print $4, $6, $7 }'
+		                  f && $2 == want { print $5, $7, $8 }'
 }
 
 # ------------------------------------------------- the classifications --

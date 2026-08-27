@@ -2433,10 +2433,12 @@ runs to the end of the file.
 
 Drop a grammar and its query files into `runtime/` and add one line to
 `runtime/extensions.map`. No rebuild, no patch, no upstream release to wait
-for. Six query files are required and two are optional — a module that omits
-`conditionals.scm` has no conditional compilation, and one that omits
+for. Six query files are required and three are optional — a module that omits
+`conditionals.scm` has no conditional compilation, one that omits
 `deadcode.scm` is analysed for everything else while the report states that
-dead-code analysis was not performed for that language. The contract a module
+dead-code analysis was not performed for that language, and one that omits
+`visibility.scm` reports every function's visibility as unknown rather than
+guessing that it is public. The contract a module
 must satisfy — the file names, the capture names, and what each means — is
 `runtime/queries/README.md` in the distribution.
 
@@ -3127,6 +3129,54 @@ in the way. If you are not, skip it.
 A file that fell back reports nothing here — that is the absence of an answer,
 not the answer "none". The provenance table above says which files could be
 asked.
+
+## Reading the Functions table
+
+```text
+Functions
+  File                     Function          Visibility  Lines  ELOC  Complexity  Fan-in  Fan-out   MI
+  -----------------------  ----------------  ----------  -----  ----  ----------  ------  -------  ---
+  /home/u/proj/src/a.c:21  parse             public         50    31           9       3        7   62
+  /home/u/proj/src/a.c:88  parse_one_header  private        14     9           3       1        2   81
+```
+
+**The File column is a location you can act on.** `path:line` is the form
+editors and terminals already understand — ctrl-click it in VS Code's terminal
+and you land on that line of that file. The path is absolute, deliberately: a
+relative one would resolve against whatever directory your terminal happens to
+be in, which is the one thing a navigable reference must not depend on.
+
+**Visibility says whether the language exposes the function** outside the file
+or module that defines it. It is the first thing anyone asks of an unfamiliar
+module — which of these are the interface, and which are its internals — and
+the source already states it:
+
+| language | `private` when | basis |
+|---|---|---|
+| C | `static` at file scope | linkage |
+| C++ | `static`, or an anonymous namespace | linkage |
+| Rust | no `pub` | the language's own rule |
+| Python | a leading underscore (but not a dunder) | PEP 8 convention |
+
+These are not the same kind of fact and `elc` does not pretend they are. C and
+C++ report **linkage** — whether the linker can see the name — which is a
+harder guarantee than Python's naming convention, and a different question
+from C++ class access control. A `private:` method of an exported class is
+reported **public** here, because it has external linkage and the linker does
+see it; the access specifier answers a question about callers, not about the
+program's interface.
+
+A language whose module supplies no `visibility.scm` reports `—` for every
+function. That is *not analysed*, which is a different claim from *public*.
+
+**Lines is a count**, not a range: how many lines the function occupies. Its
+first line is in the location beside it, so the range is the two read
+together — and a count is the figure you compare between two functions, where
+a range is something you have to subtract first.
+
+The complete-record formats do not follow this. CSV and XML carry separate
+`start-line` and `end-line` fields, because a consumer that has to split a
+string to recover a number has been handed a worse record.
 
 ## When the parser cannot follow your code
 
