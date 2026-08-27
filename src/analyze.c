@@ -860,6 +860,188 @@ cleanup:
 /* Run functions.scm over the tree and record every match that supplies both
  * halves of the contract.
  */
+/* The visibility each function's name node was captured with.
+ *
+ * Keyed on the name node's byte offset, which is exactly the node
+ * `functions.scm` captures — so the two queries agree on what a function *is*
+ * without either needing to know how the other identifies one.
+ */
+typedef struct {
+	uint32_t   offset;
+	Visibility visibility;
+} VisibilityMark;
+
+typedef struct {
+	VisibilityMark *items;
+	size_t          count;
+	size_t          capacity;
+} VisibilitySet;
+
+static int by_visibility_offset(const void *a, const void *b)
+{
+	uint32_t x = ((const VisibilityMark *)a)->offset;
+	uint32_t y = ((const VisibilityMark *)b)->offset;
+
+	return x < y ? -1 : x > y ? 1 : 0;
+}
+
+/* Record one capture, keeping the **earliest pattern** that claimed this node.
+ *
+ * That rule is what lets a language state the specific case before the general
+ * one — `static` before "every function" in C, `pub` before "every function"
+ * in Rust — and it is why the two languages need opposite orderings and no
+ * other difference (HLR-209). It is the rule `collect_inactive_regions`
+ * already applies to overlapping conditional patterns.
+ */
+static int visibility_add(VisibilitySet *set, uint32_t offset, Visibility v)
+{
+	for (size_t i = 0; i < set->count; i++)
+		if (set->items[i].offset == offset)
+			return 0;   /* an earlier pattern already decided */
+
+	if (set->count == set->capacity &&
+	    analyze_grow((void **)&set->items, &set->capacity,
+	                 sizeof *set->items) != 0)
+		return -1;
+
+	set->items[set->count].offset     = offset;
+	set->items[set->count].visibility = v;
+	set->count++;
+	return 0;
+}
+
+/* Run the language's visibility query, where it has one.
+ *
+ * A module supplying none leaves the set empty, and every function then reports
+ * unknown — which is a different claim from public and is rendered as one
+ * (HLR-209, HLR-138).
+ */
+static int collect_visibility(const LanguageModule *module, Registry *reg,
+                              const char *data, TSNode root,
+                              VisibilitySet *out)
+{
+	TSQuery      *query = module->queries[QUERY_VISIBILITY];
+	TSQueryMatch  match;
+
+	if (!query)
+		return 0;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		if (!predicates_hold(query, &match, data))
+			continue;
+
+		for (uint16_t i = 0; i < match.capture_count; i++) {
+			uint32_t    len;
+			const char *cap = ts_query_capture_name_for_id(
+				query, match.captures[i].index, &len);
+			Visibility  v;
+
+			if (len == sizeof "function.public" - 1 &&
+			    memcmp(cap, "function.public", len) == 0)
+				v = VISIBILITY_PUBLIC;
+			else if (len == sizeof "function.private" - 1 &&
+			         memcmp(cap, "function.private", len) == 0)
+				v = VISIBILITY_PRIVATE;
+			else
+				continue;   /* an internal `@_` capture */
+
+			if (visibility_add(out, ts_node_start_byte(
+					match.captures[i].node), v) != 0)
+				return -1;
+		}
+	}
+
+	if (out->count > 1)
+		qsort(out->items, out->count, sizeof *out->items,
+		      by_visibility_offset);
+	return 0;
+}
+
+/* What the query said about the function whose name starts here. */
+static Visibility visibility_of(const VisibilitySet *set, uint32_t offset)
+{
+	size_t lo = 0;
+	size_t hi = set->count;
+
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo) / 2;
+
+		if (set->items[mid].offset < offset)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+	return lo < set->count && set->items[lo].offset == offset
+	               ? set->items[lo].visibility : VISIBILITY_UNKNOWN;
+}
+
+/* Build one function's record and its attribution range.
+ *
+ * The two together, because the range must be the reported one: a statement is
+ * attributed to the narrowest range containing it, and attributing by a
+ * different extent from the one shown would let a statement count for a
+ * function whose printed location does not contain it.
+ */
+static int record_function(FileMetrics *metrics, FnRangeIndex *ranges,
+                           const char *data, TSNode name_node,
+                           TSNode body_node, const VisibilitySet *visible)
+{
+	FunctionMetric *fn = &metrics->functions[metrics->function_count];
+
+	memset(fn, 0, sizeof *fn);
+
+	fn->name = name_from(data, name_node);
+	if (!fn->name)
+		return -1;
+
+	fn->visibility = visibility_of(visible,
+	                               ts_node_start_byte(name_node));
+
+	/* The reported span runs from the name to the end of the body,
+	 * not from the body's opening brace. A reader asked where
+	 * `foo` starts points at its signature, and a fixture that had
+	 * to hand-count from the brace would be encoding an artefact
+	 * of the query rather than a property of the code.
+	 *
+	 * The minimum guards a language whose query captures the name
+	 * after the body; the span is then the body's alone rather
+	 * than inverted.
+	 *
+	 * TSPoint.row is 0-based; start_line and end_line are what a
+	 * user reads in an editor. Converted here, once, and never
+	 * again (LLR-ANL-07). */
+	uint32_t name_row = ts_node_start_point(name_node).row;
+	uint32_t body_row = ts_node_start_point(body_node).row;
+
+	fn->start_line = (name_row < body_row ? name_row : body_row) + 1;
+	fn->end_line   = ts_node_end_point(body_node).row + 1;
+
+	/* The same extent in bytes, for attribution. A statement is
+	 * attributed to the narrowest range containing it, so the range
+	 * must be the reported one: attributing by a different extent
+	 * from the one shown would let a statement count for a function
+	 * whose printed line range does not contain it. */
+	if (ranges->count == ranges->capacity &&
+	    analyze_grow((void **)&ranges->items, &ranges->capacity,
+	                 sizeof *ranges->items) != 0)
+		return -1;
+
+	uint32_t name_start = ts_node_start_byte(name_node);
+	uint32_t body_start = ts_node_start_byte(body_node);
+
+	ranges->items[ranges->count].start_byte =
+		name_start < body_start ? name_start : body_start;
+	ranges->items[ranges->count].end_byte =
+		ts_node_end_byte(body_node);
+	ranges->items[ranges->count].index = metrics->function_count;
+	ranges->count++;
+
+	metrics->function_count++;
+	return 0;
+}
+
 static int collect_functions(const LanguageModule *module, Registry *reg,
                              const char *data, TSNode root,
                              const SpanList *excluded, FileMetrics *metrics,
@@ -868,6 +1050,11 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 	TSQuery      *query    = module->queries[QUERY_FUNCTIONS];
 	size_t        capacity = 0;
 	TSQueryMatch  match;
+	VisibilitySet visible  = { 0 };
+	int           status   = -1;
+
+	if (collect_visibility(module, reg, data, root, &visible) != 0)
+		goto done;
 
 	ts_query_cursor_exec(reg->cursor, query, root);
 
@@ -892,58 +1079,18 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 
 		if (metrics->function_count == capacity &&
 		    functions_grow(metrics, &capacity) != 0)
-			return -1;
+			goto done;
 
-		FunctionMetric *fn = &metrics->functions[metrics->function_count];
-		memset(fn, 0, sizeof *fn);
-
-		fn->name = name_from(data, name_node);
-		if (!fn->name)
-			return -1;
-
-		/* The reported span runs from the name to the end of the body,
-		 * not from the body's opening brace. A reader asked where
-		 * `foo` starts points at its signature, and a fixture that had
-		 * to hand-count from the brace would be encoding an artefact
-		 * of the query rather than a property of the code.
-		 *
-		 * The minimum guards a language whose query captures the name
-		 * after the body; the span is then the body's alone rather
-		 * than inverted.
-		 *
-		 * TSPoint.row is 0-based; start_line and end_line are what a
-		 * user reads in an editor. Converted here, once, and never
-		 * again (LLR-ANL-07). */
-		uint32_t name_row = ts_node_start_point(name_node).row;
-		uint32_t body_row = ts_node_start_point(body_node).row;
-
-		fn->start_line = (name_row < body_row ? name_row : body_row) + 1;
-		fn->end_line   = ts_node_end_point(body_node).row + 1;
-
-		/* The same extent in bytes, for attribution. A statement is
-		 * attributed to the narrowest range containing it, so the range
-		 * must be the reported one: attributing by a different extent
-		 * from the one shown would let a statement count for a function
-		 * whose printed line range does not contain it. */
-		if (ranges->count == ranges->capacity &&
-		    analyze_grow((void **)&ranges->items, &ranges->capacity,
-		         sizeof *ranges->items) != 0)
-			return -1;
-
-		uint32_t name_start = ts_node_start_byte(name_node);
-		uint32_t body_start = ts_node_start_byte(body_node);
-
-		ranges->items[ranges->count].start_byte =
-			name_start < body_start ? name_start : body_start;
-		ranges->items[ranges->count].end_byte =
-			ts_node_end_byte(body_node);
-		ranges->items[ranges->count].index = metrics->function_count;
-		ranges->count++;
-
-		metrics->function_count++;
+		if (record_function(metrics, ranges, data, name_node,
+		                    body_node, &visible) != 0)
+			goto done;
 	}
 
-	return 0;
+	status = 0;
+
+done:
+	free(visible.items);
+	return status;
 }
 
 /* Collect every comment span, then sort and coalesce them. */

@@ -1054,6 +1054,46 @@ measured it.
 .B elc
 proposes no fix, ranks no design beyond what a cited standard states, and
 applies no style opinion of its own.
+.SS The function table
+Each function is reported with its location, its name, its visibility, and the
+number of lines it occupies.
+.PP
+The location is
+.IR path:line ,
+the form editors and terminals parse into a jump to that line of that file. The
+path is absolute: a relative one would resolve against whatever directory the
+reader's terminal happens to be in, which is the one thing a navigable
+reference must not depend on.
+.PP
+.B Visibility
+is
+.B public
+or
+.BR private ,
+and says whether the language exposes the function outside the file or module
+that defines it \(em
+.B static
+in C and C++,
+.B pub
+in Rust, a leading underscore in Python. These are not the same kind of fact.
+C and C++ report
+.IR linkage ,
+which is a harder guarantee than Python's convention and a different question
+from C++ class access control: a
+.B private:
+method of an exported class is reported
+.B public
+here, because it has external linkage and the linker does see it.
+.PP
+A language whose module supplies no
+.I visibility.scm
+reports neither. Not analysed and public are different claims.
+.PP
+.B Lines
+is a count and not a range. The first line is in the location beside it, so the
+range is the two read together, and a count is what a reader compares between
+two functions. The complete-record formats keep separate start and end fields,
+because a consumer cannot subtract a column it was not given.
 .SS C library use MISRA constrains
 MISRA C:2012 \(sc21 names the C library facilities a compliant program does not
 use.

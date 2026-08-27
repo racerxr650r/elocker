@@ -37,7 +37,7 @@
 #include "preproc.h"
 #include "repair.h"
 
-#define GRID_MAX_COLUMNS 8
+#define GRID_MAX_COLUMNS 9
 
 /* The type of one cell argument.
  *
@@ -666,6 +666,23 @@ static int files_section(const Report *report, Style style,
  * a severity repeated in three places is a severity that can differ between
  * them.
  */
+/* What the report calls a visibility.
+ *
+ * The unknown state is rendered as an em dash rather than left blank or
+ * resolved to "public": a language whose module supplies no visibility query
+ * has not been asked, and that is a different claim from having answered
+ * (HLR-209).
+ */
+static const char *visibility_name(Visibility v)
+{
+	switch (v) {
+	case VISIBILITY_PUBLIC:  return "public";
+	case VISIBILITY_PRIVATE: return "private";
+	case VISIBILITY_UNKNOWN:
+	default:                 return "\u2014";
+	}
+}
+
 static int functions_section(const Report *report, Style style,
                              FILE *out, EmptyTables *empty)
 {
@@ -677,29 +694,43 @@ static int functions_section(const Report *report, Style style,
 	char e[32];
 	char f2[32];
 
+	char where[4096];
+
+	/* `Visibility` sits immediately after the name because that is where a
+	 * reader's eye is when they ask which of these functions are the
+	 * interface (HLR-209).
+	 *
+	 * `File` carries `path:line`, which an editor turns into a jump
+	 * (HLR-210), and `Lines` is therefore a count rather than a range: the
+	 * start is in the location beside it, and a count is the figure a
+	 * reader compares between two functions (HLR-014). */
 	static const char *const names[]   = { "File", "Function",
-	                                       "Lines", "ELOC",
+	                                       "Visibility", "Lines", "ELOC",
 	                                       "Complexity", "Fan-in",
 	                                       "Fan-out", "MI" };
-	static const bool        numeric[] = { false, false, true,
+	static const bool        numeric[] = { false, false, false, true,
 	                                       true, true, true, true,
 	                                       true };
 
-	grid_begin(&grid, "Functions", 8, names, numeric);
+	grid_begin(&grid, "Functions", 9, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
 		for (size_t j = 0; j < f->function_count; j++) {
 			const FunctionMetric *fn = &f->functions[j];
 
-			snprintf(a, sizeof a, "%" PRIu32 "-%" PRIu32,
-			         fn->start_line, fn->end_line);
+			snprintf(where, sizeof where, "%s:%" PRIu32,
+			         f->path, fn->start_line);
+			snprintf(a, sizeof a, "%" PRIu32,
+			         fn->end_line - fn->start_line + 1);
 			snprintf(b, sizeof b, "%" PRIu32, fn->eloc);
 			snprintf(c, sizeof c, "%" PRIu32, fn->complexity);
 			snprintf(d, sizeof d, "%" PRIu32, fn->fan_in);
 			snprintf(e, sizeof e, "%" PRIu32, fn->fan_out);
 			snprintf(f2, sizeof f2, "%" PRIu32, fn->mi);
-			grid_row(&grid, f->path, fn->name, a, b, c, d, e, f2);
+			grid_row(&grid, where, fn->name,
+			         visibility_name(fn->visibility),
+			         a, b, c, d, e, f2);
 		}
 	}
 	if (grid_render(&grid, style, out, empty) != 0)

@@ -69,7 +69,8 @@ release readiness — is ready to start, and is the last.
 | [25](#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes | ✅ Complete |
 | [26](#phase-26--placing-templated-names-by-debug-information) | DWARF names reduced the way image symbols are; a diagnostic that states what it observed | ✅ Complete |
 | [27](#phase-27--preprocessor-macro-expansion--ast-sanitization) | Macro expansion through `gcc -E`, filtered to project source and reported per file | ✅ Complete |
-| [28](#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | 🔄 In progress |
+| [28](#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | ✅ Complete |
+| [29](#phase-29--function-visibility-and-editor-navigable-locations) | Public/private visibility, `path:line` locations, and a line count | 🔄 In progress |
 
 ## 0. Required Tools for Development
 
@@ -420,7 +421,7 @@ No release is cut before Phase 16. From then on:
    `develop` is the default branch until then.
 2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release is
    `v0.1.0`.** Feature completeness is not the thing the major version
-   promises — all 29 phases have shipped and the gap list is empty, and the
+   promises — all 30 phases have shipped and the gap list is empty, and the
    number still says the *command-line interface* is not yet fixed. Two
    contracts are already stable regardless, and are stable because a
    requirement says so rather than because a version number implies it:
@@ -2725,6 +2726,82 @@ expands happily, so a test that let expansion run would be testing expansion.
 Assert the two paths agree. One file measured both ways must report the same
 functions with the same figures; without that the fallback is merely better
 than nothing rather than trustworthy.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push.
+```
+
+### Phase 29 — Function Visibility and Editor-Navigable Locations
+
+Three changes to one table, and the third pays for the second.
+
+**A reader of the Functions table cannot tell a file's interface from its
+internals.** Every function is listed the same way, so a header's three exported
+entry points sit indistinguishable among forty file-local helpers. That
+distinction is the first thing anyone asks of an unfamiliar module, and the
+source states it plainly — `static`, `pub`, a leading underscore — so `elc`
+reads it rather than leaving the reader to.
+
+**And a reader who wants to look at one cannot get there.** The path is in one
+column and the line range in another, and neither is something an editor will
+act on. `path:line` is, and VS Code's terminal turns it into a jump.
+
+That leaves the line range with nothing to do, since its start has moved into
+the location. It becomes the figure a reader actually compares between
+functions: **how many lines this one occupies**.
+
+1. **Visibility, from the language's own rule** (HLR-209). An optional
+   per-language `visibility.scm`, resolved by the first pattern that matches —
+   the rule `collect_inactive_regions` already follows for conditional regions.
+   The basis differs by language and is stated rather than assumed uniform: C
+   and C++ report linkage, Rust reports its `pub` keyword, Python reports the
+   leading-underscore convention. **A language whose module supplies no rule
+   reports neither**, in the way HLR-138 already refuses to claim "no dead code"
+   for a language it cannot analyse.
+2. **The location as an editor-navigable reference** (HLR-210). `path:line` in
+   the File column, where `line` is the function's first line. Nothing is lost:
+   the range is the start plus the count beside it.
+3. **The Lines column as a count** (HLR-014 amended). `end − start + 1`, which
+   is the figure a reader compares between two functions — where a range is a
+   fact about the file that they had to subtract to use.
+
+**The complete-record formats are unaffected.** CSV and XML keep separate start
+and end fields: they are parsed by consumers rather than read, a consumer
+cannot subtract a column it was not given, and the XML round-trip of HLR-056
+would break. This phase is about the human-readable report (HLR-027, HLR-029)
+and about nothing else.
+
+**Acceptance:** a `static` C function reports `private` and a non-static one
+`public`; the same for C++ `static` and anonymous namespaces, Rust `pub`, and
+Python's leading underscore. A language with no visibility query reports
+neither and says so. The File column reads `path:line` with the function's
+first line, and the Lines column equals `end − start + 1`, both hand-checked
+against a fixture. The XML round-trip is byte-identical to today's.
+
+```text
+AI prompt — Phase 29
+
+Read issue #74 and HLR-014 before writing code.
+
+The visibility rule is language-specific and belongs in a query file, not in
+C. Put it in runtime/queries/<lang>/visibility.scm and resolve overlapping
+matches by the earliest pattern — `collect_inactive_regions` already does
+this, for the same reason, and a second convention would be one too many.
+
+Three states, not two. A language with no visibility query must report
+neither public nor private: "not analysed" and "public" are different claims,
+and HLR-138 already draws that line for dead code.
+
+The table is parsed positionally by about seventeen test helpers. Inserting a
+column shifts every field after it. Fix them; do not add the column at the end
+to avoid the work, because the requirement is about where a reader's eye
+lands.
+
+Leave CSV and XML alone. They are complete records for consumers, not
+tables for readers, and the round-trip test will tell you if you forget.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

@@ -26,6 +26,7 @@ runtime/
     ├── eloc.scm       calls.scm     globals.scm
     ├── conditionals.scm        # optional                         (HLR-134)
     ├── deadcode.scm            # optional                         (HLR-139)
+    ├── visibility.scm          # optional                         (HLR-209)
     └── rules/*.scm             # optional custom rules            (HLR-107)
 ```
 
@@ -33,7 +34,7 @@ All six query files are **required**. A module that omits one is reported as
 unusable, excluded from the run, and does not stop it (HLR-070) — it is not
 undefined behaviour, and it is not fatal.
 
-Two further files are **optional**, and deliberately so: making either
+Three further files are **optional**, and deliberately so: making any
 required would invalidate every language module already shipped, which is the
 thing this contract exists to prevent.
 
@@ -46,6 +47,24 @@ analysed for everything else, and `elc` reports that dead-code analysis was
 *not performed* for that language — never that none was found (HLR-139). The
 distinction matters: they are different claims, and a reader who cannot tell
 them apart has been told nothing.
+
+`visibility.scm` gains the language a public/private column. A module without
+it is analysed for everything else, and every function reports its visibility
+as unknown — never as public (HLR-209). The same distinction as above, for the
+same reason.
+
+**Where two patterns match one function, the earliest decides.** That is what
+lets a language state the specific case before the general one, and it is why
+C and Rust need opposite orderings and no other difference: C's default is
+external linkage, so `static` is stated first and a catch-all claims the rest
+as public; Rust's default is private, so `pub` is stated first and the
+catch-all claims the rest as private. A rule like "private wins" would serve
+one language and break the other.
+
+A capture named `@_something` is internal to the pattern — used to bind a node
+a predicate tests — and is ignored here. That is how the C query compares a
+storage-class specifier against `static` without that node being mistaken for a
+function's name.
 
 Every module shipped today supplies one, and the file stays optional all the
 same, because a language can be unable to supply one honestly. Consider a
@@ -92,6 +111,8 @@ a language name, a file extension, or a grammar node type — if you are typing
 | `deadcode.scm` | `@dead.terminator` | A statement after which control does not continue in this block |
 | | `@dead.reentry` | A construct that can be entered *without* falling into it |
 | | `@dead.branch` | A branch a literal condition excludes |
+| `visibility.scm` | `@function.public` | The language exposes this function outside its file or module |
+| | `@function.private` | It does not. Captured on the same node `functions.scm` captures as `@function.name` |
 
 ## Predicates
 

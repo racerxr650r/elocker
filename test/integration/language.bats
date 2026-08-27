@@ -44,19 +44,31 @@ setup() {
 
 # --- function identity (HLR-014) -------------------------------------------
 
-@test "HLR-014: each function is reported with its name and line range" {
+@test "HLR-014: each function is reported with its name, where it starts, and how far it runs" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	# first() spans lines 1-4, second() lines 6-9.
-	assert_output --regexp "first +1-4"
-	assert_output --regexp "second +6-9"
+	# first() spans lines 1-4, second() lines 6-9: the start is in the
+	# navigable location and the extent is the count beside the name.
+	assert_output --regexp "pair\.c:1 +first +public +4"
+	assert_output --regexp "pair\.c:6 +second +public +4"
 }
 
-@test "HLR-014: the line range starts at the signature, not the brace" {
+@test "HLR-210: the location is one an editor can act on" {
+	# `path:line`, which VS Code's terminal turns into a jump. The path
+	# stays absolute, because a relative one would resolve against whatever
+	# directory the reader's terminal happens to be in.
+	elc --verbose "$TREE/pair.c"
+	assert_success
+	assert_output --partial "$TREE/pair.c:1"
+	# and absolute, not relative to wherever the reader happens to be
+	refute_output --regexp "[^/]pair\.c:1 +first"
+}
+
+@test "HLR-014: the reported start is the signature, not the brace" {
 	printf 'int sig(void)\n{\n\treturn 0;\n}\n' > "$TREE/sig.c"
 	elc --verbose "$TREE/sig.c"
 	assert_success
-	assert_output --regexp "sig +1-4"
+	assert_output --regexp "sig\.c:1 +sig +public +4"
 }
 
 @test "HLR-033: functions are presented in start-line order" {
@@ -210,7 +222,7 @@ alpha"
 	printf 'int f(void)\n{\n\tint n = 1;\n\treturn n;\n}\n' > "$TREE/one.c"
 	elc --verbose "$TREE/one.c"
 	assert_success
-	assert_output --regexp "f +1-5 +2"
+	assert_output --regexp "f +public +5 +2"
 }
 
 @test "HLR-024: the project summary carries a combined ELOC total" {
@@ -317,4 +329,67 @@ alpha"
 	elc "$tree"
 	assert_success
 	assert_output --regexp "Functions +1"
+}
+
+# --- visibility (HLR-209) --------------------------------------------------
+
+@test "HLR-209: a static C function is private and a plain one is public" {
+	printf 'static int hidden(void) { return 0; }\nint shown(void) { return 0; }\n' \
+		> "$TREE/vis.c"
+	elc --verbose "$TREE/vis.c"
+	assert_success
+	assert_output --regexp "hidden +private"
+	assert_output --regexp "shown +public"
+}
+
+@test "HLR-209: the specific pattern decides, not the catch-all" {
+	# Both patterns of the C query match a static function: the static one
+	# and the every-function one beneath it. The earliest wins, or every
+	# function in every C file would report public.
+	printf 'static char *dup2(char *p) { return p; }\n' > "$TREE/ptr.c"
+	elc --verbose "$TREE/ptr.c"
+	assert_success
+	assert_output --regexp "dup2 +private"
+}
+
+@test "HLR-209: visibility reports linkage, not class access control" {
+	# A private method of an exported C++ class still has external linkage,
+	# and the linker still sees it. Reporting the access specifier would
+	# answer neither question the column asks.
+	printf 'class W {\npublic:\n\tint pub(void) { return 1; }\nprivate:\n\tint priv(void) { return 2; }\n};\n' \
+		> "$TREE/w.cpp"
+	elc --verbose "$TREE/w.cpp"
+	assert_success
+	assert_output --regexp "pub +public"
+	assert_output --regexp "priv +public"
+}
+
+@test "HLR-209: a C++ anonymous namespace is private, a named one is not" {
+	printf 'namespace {\nint tu_local(void) { return 1; }\n}\nnamespace api {\nint exported(void) { return 2; }\n}\n' \
+		> "$TREE/ns.cpp"
+	elc --verbose "$TREE/ns.cpp"
+	assert_success
+	assert_output --regexp "tu_local +private"
+	assert_output --regexp "exported +public"
+}
+
+@test "HLR-209: Rust reports its own pub keyword" {
+	printf 'pub fn open() -> i32 { 1 }\nfn helper() -> i32 { 2 }\n' > "$TREE/v.rs"
+	elc --verbose "$TREE/v.rs"
+	assert_success
+	assert_output --regexp "open +public"
+	assert_output --regexp "helper +private"
+}
+
+@test "HLR-209: Python reports the leading-underscore convention" {
+	# A convention rather than a rule the language enforces, which is the
+	# one place this differs in kind from C's linkage or Rust's keyword.
+	# A dunder is an interface Python itself calls, so it is not swallowed.
+	printf 'def api():\n    return 1\n\ndef _helper():\n    return 2\n\ndef __init__(self):\n    return 3\n' \
+		> "$TREE/v.py"
+	elc --verbose "$TREE/v.py"
+	assert_success
+	assert_output --regexp "api +public"
+	assert_output --regexp "_helper +private"
+	assert_output --regexp "__init__ +public"
 }

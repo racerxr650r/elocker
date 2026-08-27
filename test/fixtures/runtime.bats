@@ -231,3 +231,29 @@ staged_install() {
 	assert_output --partial "share/elc/runtime"
 	assert_output --partial "ELC_RUNTIME_DIR"
 }
+
+# --- an optional query a module does not supply (HLR-209) -------------------
+
+@test "LLR-VIS-03: a module with no visibility query reports neither" {
+	# Every module shipped today supplies one, so the state is reached by
+	# taking one away. What must not happen is the column reading `public`:
+	# a reader scanning for a module's interface would take every function
+	# of an unanalysed language for part of it, which is a false claim
+	# where the dash is merely an absent one.
+	rm -f "$RT/queries/c/visibility.scm"
+	elc_with_runtime "$RT" --verbose "$SUBJECT"
+	assert_success
+	refute_output --regexp "only +public"
+	refute_output --regexp "only +private"
+	assert_output --regexp "only +—"
+}
+
+@test "LLR-VIS-03: losing the visibility query costs nothing else" {
+	# Optional means the rest of the analysis is unaffected, in the way
+	# HLR-139 requires of a module with no dead-code query.
+	rm -f "$RT/queries/c/visibility.scm"
+	elc_with_runtime "$RT" --verbose "$SUBJECT"
+	assert_success
+	assert_output --partial "only"
+	assert_output --partial "Functions"
+}

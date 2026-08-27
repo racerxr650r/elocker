@@ -375,12 +375,30 @@ typedef struct {
  * Phase 2 carries identity. `eloc` arrives in Phase 3, `complexity` in
  * Phase 4, and `node_id` with the graph in Phase 8 (doc/SDD.md §18).
  */
+/* Whether the language exposes a function outside the file or module that
+ * defines it (HLR-209).
+ *
+ * Three states and not two. A language whose module supplies no visibility
+ * query answers neither, and that is a different claim from "public" — the
+ * asymmetry HLR-138 draws for a language with no dead-code query, applied to a
+ * third kind of absence.
+ */
+typedef enum {
+	VISIBILITY_UNKNOWN = 0,
+	VISIBILITY_PUBLIC,
+	VISIBILITY_PRIVATE
+} Visibility;
+
 typedef struct {
 	char     *name;       /* copied out of the mapping before it is
 	                       * released, since the name outlives it        */
 	uint32_t  start_line; /* 1-based; TSPoint.row is 0-based and
 	                       * converted exactly once                      */
 	uint32_t  end_line;   /* 1-based                                     */
+	/* What the language says about this function's reach, from that
+	 * language's own visibility query. Unknown where the module supplies
+	 * none, which the report states rather than resolving (HLR-209). */
+	Visibility visibility;
 	uint32_t  eloc;       /* statements attributed to this function
 	                       * alone, never to one enclosing it (HLR-068)  */
 	uint32_t  complexity; /* 1 + the decision points attributed to it    */

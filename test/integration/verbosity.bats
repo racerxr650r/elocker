@@ -158,7 +158,7 @@ reaches() {
 	elc --verbose "$TREE"
 	assert_success
 	has_heading "Functions"
-	assert_output --regexp "Function +Lines +ELOC +Complexity +Fan-in +Fan-out +MI"
+	assert_output --regexp "Function +Visibility +Lines +ELOC +Complexity +Fan-in +Fan-out +MI"
 	! has_heading "Fan-out \\(distinct callees\\)"
 	! has_heading "Information flow"
 	refute_output --partial "Henry-Kafura;"

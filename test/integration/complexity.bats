@@ -22,8 +22,8 @@ setup() {
 @test "HLR-017: complexity is reported per function" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --regexp "simple +1-4 +1 +1"
-	assert_output --regexp "branchy +6-13 +5 +4"
+	assert_output --regexp "simple +public +4 +1 +1"
+	assert_output --regexp "branchy +public +8 +5 +4"
 }
 
 @test "HLR-026: the summary names the most complex function and the largest file" {
@@ -202,10 +202,10 @@ setup() {
 @test "HLR-191: the function table carries a maintainability score" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --regexp "Function +Lines +ELOC +Complexity +Fan-in +Fan-out +MI"
+	assert_output --regexp "Function +Visibility +Lines +ELOC +Complexity +Fan-in +Fan-out +MI"
 	# simple() is four lines, complexity 1, and joined to nothing: the flow
 	# and length terms are small, so it sits at the top of the scale.
-	assert_output --regexp "simple +1-4 +1 +1 +0 +0 +100"
+	assert_output --regexp "simple +public +4 +1 +1 +0 +0 +100"
 }
 
 @test "HLR-192: a low score is banded downwards and says whose line it is" {
