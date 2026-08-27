@@ -2683,6 +2683,17 @@ static void expand_for_metrics(const LanguageModule *module, Registry *reg,
 		return;
 
 	if (undecided_in(module, reg, opts, raw, raw_len, reg->parser) != 0) {
+		/* Declined, and the buffer goes with the decision.
+		 *
+		 * A non-NULL `text` is what every caller reads as "this file
+		 * was expanded" — it selects the parse and it suppresses the
+		 * repair that would otherwise run (HLR-196). Leaving it set on
+		 * a file elc has just refused to expand meant the file was
+		 * parsed as written *and* denied the repair, which is neither
+		 * of the two paths and worse than both. */
+		free(out->text);
+		out->text   = NULL;
+		out->length = 0;
 		out->status = PREPROC_UNDECIDED;
 		return;
 	}
