@@ -458,6 +458,11 @@ typedef struct {
 	 * the figures says which. Stored as an int rather than the enum so
 	 * that elc.h stays free of preproc.h, which nothing else here needs. */
 	int             preproc_status;
+	/* Repairs made where expansion did not happen, in total and by rule
+	 * (HLR-199). Zero for an expanded file, which needed none: the two
+	 * paths are exclusive and the report says which each file took. */
+	size_t          repairs;
+	size_t          repair_counts[3];
 	/* Standard-library headers this file's expansion drew on, and how many
 	 * of them are C++ rather than C (HLR-207). Empty for a file that fell
 	 * back, which is the absence of an answer and not the answer "none". */

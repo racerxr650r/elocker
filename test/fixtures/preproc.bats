@@ -69,11 +69,11 @@ require_cc() {
 	# file, which is the only independent statement of where these
 	# functions are.
 	require_cc
-	# The unexpanded run exits 1 because the file is partly unparsed —
-	# which is the condition this phase removes, and is what makes this
-	# run an independent statement of where the functions are.
+	# The unexpanded run reaches the same functions by the other path —
+	# repair (HLR-196) — which makes it an independent statement of where
+	# they are, arrived at without the preprocessor.
 	elc --verbose --no-expand "$TREE/shapes.c"
-	assert_failure 1
+	assert_success
 	local raw_branchy raw_report
 	raw_branchy="$(range_of branchy)"
 	raw_report="$(range_of report)"

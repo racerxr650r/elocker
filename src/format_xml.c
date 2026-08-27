@@ -39,6 +39,7 @@
 #include "format_xml.h"
 #include "report.h"
 #include "preproc.h"
+#include "repair.h"
 #include "thresholds.h"
 
 #define XML_READ_CHUNK 8192
@@ -142,6 +143,12 @@ static void write_files(const Report *report, FILE *out)
 			fprintf(out, "\" stdlibkind%zu=\"%u\"", k,
 			        (unsigned)f->stdlib_kinds[k]);
 		}
+		/* Carried so a report re-rendered from this record still
+		 * declares its repairs (HLR-199); a reconstruction that
+		 * dropped them would read as measured source. */
+		for (size_t k = 0; k < REPAIR_RULE_COUNT; k++)
+			fprintf(out, " repairs-%zu=\"%zu\"", k,
+			        f->repair_counts[k]);
 		fputs(">\n", out);
 
 		for (size_t j = 0; j < f->function_count; j++) {
@@ -941,6 +948,13 @@ static void on_file(ReadState *state, const XML_Char **atts)
 	file->unparsed_lines = uint_attribute(state, atts,
 	                                      "unparsed-lines");
 	read_provenance(file, atts);
+	for (size_t k = 0; k < REPAIR_RULE_COUNT; k++) {
+		char name[32];
+
+		snprintf(name, sizeof name, "repairs-%zu", k);
+		file->repair_counts[k] = uint_attribute(state, atts, name);
+		file->repairs         += file->repair_counts[k];
+	}
 
 	state->current  = file;
 	state->capacity = 0;

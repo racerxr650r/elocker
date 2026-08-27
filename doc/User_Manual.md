@@ -3017,6 +3017,64 @@ Measured as written (macros not expanded)
 agree: an expansion depends on the headers installed where it runs, and
 unexpanded source does not.
 
+**A file that falls back is repaired instead**, which is the next section.
+
+## Repairing what neither the grammar nor the preprocessor could follow
+
+Falling back used to mean losing the lines a macro made unparsable. It no
+longer does. Where a file was not expanded and the grammar still cannot follow
+part of it, `elc` rewrites the rejected region in its own copy of the buffer
+and parses again:
+
+| The shape | What replaces it |
+|---|---|
+| An upper-case name beside a string literal — `printf(BOLD "%d" RESET, n)` | an empty string literal, which concatenates to the same string |
+| An upper-case name in front of a declaration — `local int f(void)` | nothing; the declaration beneath it parses |
+| An upper-case name where a declarator belongs — `ARR = { 1, 2, 3 };` | `int` before it, making it a definition |
+
+This is a **guess about the shape of a failure**, where expansion is an exact
+answer — which is why it runs only where expansion did not. A file whose macros
+the preprocessor resolved is never guessed at.
+
+It matters because expansion reaches less than you might expect. On a 49-file
+AVR project, three files expand; the rest cannot, because a host compiler
+cannot find `avr/io.h` and because `elc` will not expand a file whose `#if` it
+could not decide. Repair covers those:
+
+| | unparsed lines |
+|---|---|
+| neither | 54 |
+| expansion alone | 50 |
+| repair alone | 9 |
+| both | **8** |
+
+Three properties make it safe to trust:
+
+- **Only rejected regions are rewritten.** Text the grammar accepted is never
+  touched, so the worst a wrong guess can do is fail to fix something that was
+  already broken.
+- **Every repair spans the same number of lines it replaced.** Nothing beneath
+  it moves, so every line number in the report still points where it did.
+- **Your files are never modified.** The rewriting happens in memory.
+
+And because a repair is a guess, the report says it made one:
+
+```text
+Repaired regions (rewritten in elc's buffer to be measured; the files are untouched)
+  File        Rule                        Repairs
+  ----------  --------------------------  -------
+  drv/uart.c  macro adjacent to a string       29
+  drv/uart.c  macro before a declaration        3
+```
+
+That count carries no severity and does not affect the exit status. Read
+alongside the provenance table above, it tells you which files were answered
+exactly and which were guessed at.
+
+Repair runs in passes and stops when a pass rewrites nothing or fails to reduce
+the damage; a pass that does not help is withdrawn whole. So it terminates on
+source no rule fits, which is most of the source it will ever meet.
+
 ### C library use MISRA constrains
 
 MISRA C:2012 §21 names the C library facilities a compliant program does not

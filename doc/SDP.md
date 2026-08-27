@@ -66,9 +66,10 @@ release readiness — is ready to start, and is the last.
 | [22](#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
 | [23](#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
 | [24](#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols, the debug companion | ✅ Complete |
-| [25](#phase-25--repairing-what-the-grammar-could-not-follow-withdrawn) | In-buffer repair of unparsable macro shapes | ⛔ Withdrawn, superseded by 27 |
+| [25](#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes | ✅ Complete |
 | [26](#phase-26--placing-templated-names-by-debug-information) | DWARF names reduced the way image symbols are; a diagnostic that states what it observed | ✅ Complete |
-| [27](#phase-27--preprocessor-macro-expansion--ast-sanitization) | Macro expansion through `gcc -E`, filtered to project source and reported per file | 🔄 In progress |
+| [27](#phase-27--preprocessor-macro-expansion--ast-sanitization) | Macro expansion through `gcc -E`, filtered to project source and reported per file | ✅ Complete |
+| [28](#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | 🔄 In progress |
 
 ## 0. Required Tools for Development
 
@@ -419,7 +420,7 @@ No release is cut before Phase 16. From then on:
    `develop` is the default branch until then.
 2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release is
    `v0.1.0`.** Feature completeness is not the thing the major version
-   promises — all 28 phases have shipped and the gap list is empty, and the
+   promises — all 29 phases have shipped and the gap list is empty, and the
    number still says the *command-line interface* is not yet fixed. Two
    contracts are already stable regardless, and are stable because a
    requirement says so rather than because a version number implies it:
@@ -2425,28 +2426,20 @@ before you push. No further phase is specified: in place of step 12, cut a
 release per §5.5, or open the issue for whatever is specified after this one.
 ```
 
-### Phase 25 — Repairing What the Grammar Could Not Follow (withdrawn)
+### Phase 25 — Repairing What the Grammar Could Not Follow
 
-**Implemented, shipped, and removed.** The phase repaired source the grammar
-rejected by rewriting the rejected regions in `elc`'s own buffer — an
-upper-case token beside a string literal became `""`, one in front of a
-declaration was blanked, one standing where a declarator belongs was given a
-type — and it worked: on a 44-file AVR project, 64 error regions fell to 8 and
-unparsed lines 47 to 5, with the file count, function count, physical lines and
-ELOC every one unchanged.
+Repairs source the grammar rejected by rewriting the rejected regions in
+`elc`'s own buffer — an upper-case token beside a string literal becomes `""`,
+one in front of a declaration is blanked, one standing where a declarator
+belongs is given a type. On a 44-file AVR project, 64 error regions fell to 8
+and unparsed lines 47 to 5, with the file count, function count, physical lines
+and ELOC every one unchanged.
 
-It was withdrawn in favour of [Phase 27](#phase-27--preprocessor-macro-expansion--ast-sanitization), which expands macros
-properly rather than guessing at their shape. Repair never knew what a macro
-meant; it knew only what the failure looked like, and three shapes were enough
-for the failures observed rather than for the failures that exist. A
-preprocessor answers the question instead of pattern-matching around it, and
-the `#line` markers it emits turn out to solve the problem that made
-preprocessing look unaffordable in the first place — attributing header
-content to the file that included it.
-
-The requirements it introduced, HLR-196 – HLR-199, are retired. Their numbers
-are not reused.
-
+**Withdrawn in favour of [Phase 27](#phase-27--preprocessor-macro-expansion--ast-sanitization), and restored beneath it by
+[Phase 28](#phase-28--repair-where-expansion-cannot-reach).** The withdrawal
+reasoned that a tool which can expand a macro properly has no business guessing
+at its shape. That was right about the two mechanisms and wrong about the
+choice between them — see Phase 28 for the measurements that settled it.
 
 ### Phase 26 — Placing Templated Names by Debug Information
 
@@ -2659,6 +2652,79 @@ Three things that will be wrong if you do not plan for them:
 
 Do not let a header's content reach the report. A function attributed to the
 file that included it is worse than the parse error this phase removes.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push.
+```
+
+### Phase 28 — Repair Where Expansion Cannot Reach
+
+[Phase 27](#phase-27--preprocessor-macro-expansion--ast-sanitization) replaced
+[Phase 25](#phase-25--repairing-what-the-grammar-could-not-follow) on the
+reasoning that a tool which can expand a macro properly has no business
+guessing at its shape. Measured against the project both were built for, that
+reasoning does not survive:
+
+| build | unparsed lines | functions |
+|---|---|---|
+| Phase 25 — repair only | 9 | 541 |
+| Phase 27 — expansion, host `gcc` | **50** | 541 |
+| Phase 27 — expansion, `avr-gcc` + every `-I` + `-mmcu` | **50** | 541 |
+| Phase 27 — with the undecidable guard lifted | 45 | **531** |
+| Phase 28 — both | **8** | 541 |
+
+Expansion is exact and it is *conditional*. It needs a toolchain, the build's
+include paths, and conditions `elc` can decide — and on a 49-file AVR project
+those hold for **three files**. Of the remaining 46, every one falls back:
+under a host compiler because `avr/io.h` cannot be found, and under `avr-gcc`
+with every flag supplied because HLR-208 refuses to expand a file whose `#if`
+`elc` could not decide. Lifting that guard does not rescue it either — the
+preprocessor then resolves the conditions itself and **ten functions
+disappear** with the branches it discarded.
+
+So the two are not rivals. Expansion answers exactly and reaches little;
+repair guesses and reaches everything. Where the first applies the second is
+unnecessary; where it does not, the second is all there is.
+
+1. Restore `repair.c`, its requirements HLR-196 – HLR-199, its design and its
+   tests, unchanged but for their scope.
+2. **Repair runs only where expansion did not** (HLR-196 as amended). A file
+   whose macros were resolved exactly is not then guessed at, and the two
+   paths are exclusive per file rather than layered.
+3. The report already says which path each file took (HLR-206); the repair
+   tally of HLR-199 says what was done about it.
+
+**Requirements:** HLR-196 – HLR-199 restored, HLR-196 amended to name the
+condition, and no new requirement. The withdrawal was a mistake about scope,
+not about the requirements themselves.
+
+**Acceptance:** on the AVR project, unparsed lines fall from 50 to single
+figures with the function count unchanged. A file the preprocessor expanded
+carries no repairs. One file measured both ways — expanded, and repaired under
+`--no-expand` — reports the same functions with the same figures.
+
+```text
+AI prompt — Phase 28
+
+The withdrawal of Phase 25 was a scope error, so this is a restoration and not
+a redesign. Take src/repair.c and its tests back from the merge that removed
+them and change only what the new position requires.
+
+The one thing to get right is that repair is the *fallback*: it runs where
+`preproc_expand` produced nothing, and never on text the preprocessor already
+resolved. Guessing at the shape of a failure that no longer exists could only
+make it worse.
+
+The repair fixtures must run under --no-expand, and that is the point rather
+than a convenience — the fixture tree is ordinary C that a host compiler
+expands happily, so a test that let expansion run would be testing expansion.
+
+Assert the two paths agree. One file measured both ways must report the same
+functions with the same figures; without that the fallback is merely better
+than nothing rather than trustworthy.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

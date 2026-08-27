@@ -34,6 +34,7 @@ This document describes the design of the source modules that implement the high
 *   [src/dwarfline.c](../src/dwarfline.c): The image's debug information: which source lines this build compiled an instruction for, which files that mapping covers at all, and which source file each function the image describes was written in.
 *   [src/purify.c](../src/purify.c): The graph purification engine: centrality-based classification of utility sinks, god objects, and peripheral nodes, the masked recovery view built from them, and the manifest by which a user overrules a classification.
 *   [src/recover.c](../src/recover.c): Architecture recovery: a proposed layering read off the purified recovery view, emitted in the form the stratum options accept.
+*   [src/repair.c](../src/repair.c): Repair of source the grammar rejected: the rules, the bounded pass loop, and the tally the report declares.
 *   [src/preproc.c](../src/preproc.c): Macro expansion through the language's own preprocessor, and the `#line` filter that reduces its output to the file under analysis.
 *   [src/diag.c](../src/diag.c): The diagnostic stream every message to standard error passes through, and the debug companion that records the run beside the report.
 *   [src/format_dsm.c](../src/format_dsm.c): The Dependency Structure Matrix and its CSV and Markdown renderings.
@@ -97,13 +98,14 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   Section 18: Detailed design for [src/elfsyms.c](../src/elfsyms.c).
 *   Section 19: Detailed design for [src/symname.c](../src/symname.c).
 *   Section 20: Detailed design for [src/dwarfline.c](../src/dwarfline.c).
-*   Section 21: Detailed design for [src/preproc.c](../src/preproc.c).
-*   Section 22: Detailed design for [src/purify.c](../src/purify.c).
-*   Section 23: Detailed design for [src/recover.c](../src/recover.c).
-*   Section 24: Detailed design for [src/diag.c](../src/diag.c).
-*   Section 25: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
-*   Section 26: Data Dictionary.
-*   Section 27: Traceability.
+*   Section 21: Detailed design for [src/repair.c](../src/repair.c).
+*   Section 22: Detailed design for [src/preproc.c](../src/preproc.c).
+*   Section 23: Detailed design for [src/purify.c](../src/purify.c).
+*   Section 24: Detailed design for [src/recover.c](../src/recover.c).
+*   Section 25: Detailed design for [src/diag.c](../src/diag.c).
+*   Section 26: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
+*   Section 27: Data Dictionary.
+*   Section 28: Traceability.
 
 ## 2. System Overview
 
@@ -128,6 +130,7 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   **[src/elfsyms.c](../src/elfsyms.c)** — Reads the function symbols of a linked image and resolves each linkage name to the source name the report presents, so that a filtered run measures the program the build produced.
 *   **[src/symname.c](../src/symname.c)** — Reduces a name to the identifier the report presents, so that the spellings a demangler, the debug information, and the source each use meet in one form. Depended upon by `elfsyms.c` and `dwarfline.c` and by nothing else; a leaf, because `elfsyms.h` already includes `dwarfline.h` and a reduction living in either would put the other in a cycle.
 *   **[src/dwarfline.c](../src/dwarfline.c)** — Reads the debug line information the same image carries, where it carries any, so that a filtered run can narrow to the lines the build compiled rather than to the functions alone.
+*   **[src/repair.c](../src/repair.c)** — Repairs the regions the grammar rejected, in a copy of the buffer, for files the preprocessor could not reach. The fallback beneath `preproc.c` rather than an alternative to it: expansion is exact and needs a toolchain, repair needs nothing and is a guess, and a file takes one path or the other.
 *   **[src/preproc.c](../src/preproc.c)** — Runs the compiler's preprocessor over one source file and filters the result back down to that file's own lines, at their own line numbers. Depended upon by `analyze.c` alone, and on failure returns nothing rather than an error, so that the caller's fallback is the ordinary path rather than a recovery.
 *   **[src/purify.c](../src/purify.c)** — Classifies the functions that fuse unrelated domains — utility sinks, god objects, peripheral nodes — and builds the masked recovery view. Reads and writes the manifest that lets a user overrule a classification. Alters no graph any other stage reads.
 *   **[src/recover.c](../src/recover.c)** — Proposes a layering from the purified view, for a user who declared none. Depended upon by the report and by nothing in `arch.c`, which is what keeps a proposal from becoming the baseline it would be measured against.
@@ -1461,9 +1464,62 @@ Each file's lines are then sorted and de-duplicated, because a line programme na
 *   **A compilation unit with no line programme** Contributes nothing and is not an error. Its files stay uncovered and are counted under HLR-155, which is the whole of what HLR-154 asks for.
 *   **Allocation failure** The only failure this module reports. The partially built set is released and the caller turns it into a fatal exit, since a coverage set built halfway would prune on evidence it does not have.
 
-## 21. Detailed Design for [src/preproc.c](../src/preproc.c)
+## 21. Detailed Design for [src/repair.c](../src/repair.c)
 
 ### 21.1 Purpose and Responsibilities
+[src/repair.c](../src/repair.c) rewrites the regions of a parse buffer the grammar rejected, so that a macro standing where a keyword, a type or a string was expected does not cost the whole surrounding function.
+
+*   Rewrite only within regions the grammar rejected, never text it accepted (HLR-196).
+*   Preserve the line count of every replacement, which is what keeps every line-based measurement and every reported location correct (HLR-197).
+*   Terminate: withdraw a repair that does not reduce the damage, and stop when a pass achieves nothing (HLR-198).
+*   Count what it did, by rule, so the report can declare it (HLR-199).
+*   Leave the source file untouched. The buffer is elc's own copy of the mapping.
+
+
+### 21.3 Internal Structure
+#### 21.3.1 Key Functions
+
+*   **`int repair_parse(TSParser *parser, const TSLanguage *lang, const char *data, size_t length, RepairResult *out)`**
+    *   Purpose: Parse, and where the grammar rejects anything, repair and parse again until it stops helping.
+    *   Post-condition: `out` carries the tree to measure, the buffer it was parsed from, and the tally of repairs. Where nothing was rejected the buffer is the caller's own and the tree is from a single parse.
+    *   Return Value: 0 on success, -1 on allocation failure with nothing owned.
+    *   Logic:
+        1.  Parse the buffer as given. If the root carries no error, return that tree and the caller's buffer untouched — a sound file is parsed once and never copied, which is what leaves HLR-076 unchanged for it.
+        2.  Copy the buffer, since the mapping is read-only and the source file is not ours to modify.
+        3.  Collect the rejected regions by walking the tree from the root, descending only where `ts_node_has_error` holds — the same traversal the damage tally uses, and for the same reason: it walks to the damage and skips the sound majority.
+        4.  For each region in document order, try each rule in a fixed order and take the first whose shape matches. The two orders together are what make the result a property of the source rather than of the traversal (HLR-032, HLR-033).
+        5.  Re-parse. If the count of rejected regions did not fall, restore the buffer from before the pass and stop: the pass achieved nothing, and keeping its edits would leave the measured text further from the source for no gain (HLR-198).
+        6.  Repeat until a pass rewrites nothing or fails to reduce the damage.
+    *   Notes: The rules are heuristics about the shape of a failure, not knowledge of what a macro expands to, and the module is written so that being wrong is cheap: a rule that does not match leaves the region alone, and a rule that matches but does not help is withdrawn by the pass loop. What it cannot do is be wrong *invisibly*, which is why HLR-199 has the report declare the tally.
+
+*   **`static bool rule_string_macro(char *line, size_t length)`** — An upper-case token adjacent to a string literal becomes an empty literal, padded to the width it replaced. The commonest shape by an order of magnitude, and the one a colour-macro idiom produces on every logging line.
+*   **`static bool rule_leading_macro(char *line, size_t length)`** — An unknown token in front of a declaration is blanked. `local int f(void)` measures as the `static int f(void)` it expands to.
+*   **`static bool rule_declarator_macro(char *line, size_t length)`** — `NAME =` alone at file scope is given a type, so the initialiser attaches to an object rather than to nothing.
+*   **`void repair_result_free(RepairResult *r)`** — Release the tree and, where one was made, the copied buffer. Safe on NULL and safe twice.
+
+#### 21.3.2 Parsing Strategy / Algorithm
+
+**Every rule replaces text with text of the same width, in place, within one line.** Same width rather than merely the same line count, because it costs nothing here and buys the byte offsets as well: a region's extent stays valid across a repair, so the regions collected before a pass do not have to be recollected during it.
+
+That constraint is what makes the replacements look the way they do. `BOLD` becomes `""` followed by two spaces rather than `""` alone; `local` becomes five blanks rather than nothing. A shorter replacement would have been easier to write and would have moved every subsequent column, and — for a rule that ever spanned a line boundary — every subsequent line.
+
+**The pass loop is where being wrong is made cheap.** A rule matching the wrong shape produces a buffer the grammar rejects in the same places or worse; the loop notices the count did not fall, restores, and stops. So the failure mode of a bad rule is a file that stays unrepaired, which is where it started, rather than a file quietly measured as something else.
+
+**A sound file never reaches any of this.** The first parse is the only parse, the buffer is never copied, and the module returns the caller's own pointer. The cost of the feature to a code base that does not need it is one test of the root node.
+
+### 21.4 Dependencies
+
+*   `libtree-sitter`, for the parse and the error nodes. No third-party dependency beyond it, and no toolchain: HLR-135 and HLR-040 are untouched.
+
+### 21.5 Error Handling and Logging
+
+*   **A region no rule matches** Left alone, and counted by HLR-035 as unparsed exactly as before. Repair is an improvement on the failure, not a promise to eliminate it.
+*   **A pass that does not reduce the damage** Withdrawn, and the loop stops. The buffer returns to what the pass found (HLR-198).
+*   **Allocation failure** The copy is released and the caller receives -1, having been given nothing to free. A file that could not be repaired for want of memory is a file measured unrepaired, not a failed run.
+
+## 22. Detailed Design for [src/preproc.c](../src/preproc.c)
+
+### 22.1 Purpose and Responsibilities
 [src/preproc.c](../src/preproc.c) expands a source file's macros with the language's own preprocessor and filters the output back down to that file, so the parser sees resolved text at unchanged line numbers (HLR-202, HLR-203, HLR-204).
 
 *   Run `gcc -E -C` (or the C++ or user-named equivalent) over one file, capturing standard output into memory and writing no intermediate file.
@@ -1472,8 +1528,8 @@ Each file's lines are then sorted and de-duplicated, because a line programme na
 *   Record which standard-library headers the preprocessor opened, and whether each is the C or the C++ library (HLR-207).
 *   Return nothing on any failure, leaving the caller to parse the file as written (HLR-205). No failure here fails a run.
 
-### 21.2 External Interfaces
-#### 21.2.1 The Marker Stream Is the Only Authority
+### 22.2 External Interfaces
+#### 22.2.1 The Marker Stream Is the Only Authority
 
 The filter switches state on `#` markers and on nothing else. A line of program text is copied or discarded by the state it arrives in; it is never inspected.
 
@@ -1481,21 +1537,21 @@ That matters because the alternative — deciding per line whether it "looks lik
 
 The one text a line's content can affect is whether it *is* a marker, which is decided by `#` in the first column followed by a space and a digit. `#` in the first column is a preprocessing directive, and after expansion the only directives left are the markers the preprocessor emitted itself.
 
-#### 21.2.2 Padding Rather Than Concatenation
+#### 22.2.2 Padding Rather Than Concatenation
 
 When a marker announces line *N* of the analysed file and the buffer holds *M* lines, *N − M − 1* newlines are emitted before appending. Everything `elc` measures is line-based, so a buffer that merely concatenated what it kept would misplace every function range, every finding, and every dead-code span in the file (HLR-204).
 
 Padding cannot go backwards. A marker announcing a line already passed is ignored rather than acted on — it happens where a macro expansion spans lines and the preprocessor resynchronises — and the buffer stays monotone, since a filter that could rewind would be a filter that could overwrite a measured line.
 
-#### 21.2.3 Failure Is Not an Error
+#### 22.2.3 Failure Is Not an Error
 
 `preproc_expand` returns a null buffer for every failure it meets: no compiler, a non-zero exit, a header that cannot be found, output that names no marker at all. The caller parses the file as written and the run completes.
 
 **The fallback is the common case rather than the exceptional one.** A cross-compiled tree cannot be preprocessed by a host toolchain — the AVR project that prompted this work fails on `avr/io.h` before reaching a macro — and a source tree analysed away from its build environment is the normal condition of a metrics tool. Treating that as an error would make `elc` unusable on the code that most needs it, which is why the outcome is recorded per file (HLR-206) and not reported per file to standard error.
 
 
-### 21.3 Internal Structure
-#### 21.3.1 Key Functions
+### 22.3 Internal Structure
+#### 22.3.1 Key Functions
 
 *   **`int preproc_expand(const char *path, const char *language, const ElcOptions *opts, PreprocResult *out)`**
     *   Purpose: Expand and filter one file, or report that it could not be.
@@ -1503,7 +1559,7 @@ Padding cannot go backwards. A marker announcing a line already passed is ignore
 
 *   **`void preproc_result_free(PreprocResult *r)`** — Release the buffer and the header list. Safe on NULL and safe twice.
 
-#### 21.3.2 Parsing Strategy / Algorithm
+#### 22.3.2 Parsing Strategy / Algorithm
 
 The child is run with its standard output on a pipe and its standard error discarded, and the pipe is drained to completion before the exit status is collected — draining second on a file whose expansion exceeds the pipe buffer would deadlock, with the child blocked writing and the parent blocked waiting.
 
@@ -1514,16 +1570,16 @@ The comparison against the file under analysis is by canonical path, the same fo
 **Nothing here parses C.** The filter is a line-oriented pass over text whose structure the preprocessor guaranteed, and its cost is one scan of the expanded output. What makes that affordable on a C++ file whose expansion is fifty thousand lines is that discarded lines are never copied — the appending state is the only one that writes.
 
 
-### 21.5 Error Handling and Logging
+### 22.5 Error Handling and Logging
 
 *   **A file the preprocessor cannot open** Non-zero exit, null buffer, and the file is parsed as written. The `elc` diagnostic is the one the parse itself produces, if any.
 *   **Output holding no marker for the analysed file** An empty buffer, treated as a failure rather than as a file of no content. A zero-line measurement of a file that has lines is the silent wrong answer this module must not produce.
 *   **A macro expansion spanning several lines** The preprocessor emits it on the invocation's line and resynchronises with a marker. The line count of the region is preserved by padding, so the function containing it keeps its range.
 *   **Allocation failure** The partial buffer is released and non-zero returned. The caller falls back, as it does for every other failure.
 
-## 22. Detailed Design for [src/purify.c](../src/purify.c)
+## 23. Detailed Design for [src/purify.c](../src/purify.c)
 
-### 22.1 Purpose and Responsibilities
+### 23.1 Purpose and Responsibilities
 [src/purify.c](../src/purify.c) builds the *recovery view* of the graph: a masked copy in which the utility sinks, god objects, and peripheral nodes that fuse unrelated domains are set aside, so that a layering can be read off what remains. It also owns the manifest by which a user overrules its classifications.
 
 *   Compute the hub-and-authority and betweenness centralities, and the coreness, of the call view.
@@ -1532,14 +1588,14 @@ The comparison against the file under analysis is by canonical path, the same fo
 *   Read a manifest where one was named, letting its statements overrule the computed classification, and write one on request (HLR-175 – HLR-177).
 *   Record every classification, with the metric and value that produced it, for the report of HLR-174.
 
-### 22.2 External Interfaces
-#### 22.2.1 The Recovery View Is a Second Graph, Not an Edit
+### 23.2 External Interfaces
+#### 23.2.1 The Recovery View Is a Second Graph, Not an Edit
 
 Masking produces a **copy** of the call view with edges removed; the `Sdg` every other stage reads is not modified. This is HLR-167 made structural rather than remembered: a stage that cannot reach a masked graph cannot accidentally measure one, and the alternative — masking in place and unmasking afterwards — makes every analysis order-dependent and one early return away from reporting a fan-out that omits real calls.
 
 The copy is of the **call view** alone. Global-state edges take no part in a layering: writing an object another function reads is coupling and not invocation (LLR-CTR-07), and including them would join every pair of functions sharing a variable into the layer structure.
 
-#### 22.2.2 What Each Classification Masks
+#### 23.2.2 What Each Classification Masks
 
 | Class | Trigger | Masked |
 | ----- | ------- | ------ |
@@ -1549,7 +1605,7 @@ The copy is of the **call view** alone. Global-state edges take no part in a lay
 
 A utility sink keeps its outgoing edges because the fusion it causes is between its *callers*; a god object loses both directions because it short-circuits in both. A function meeting both tests is a god object, the stronger and more useful claim (HLR-169).
 
-#### 22.2.3 The Manifest Format, and What It Costs
+#### 23.2.3 The Manifest Format, and What It Costs
 
 The manifest is **JSON**: an object carrying a format version and one array of statements, each naming a function, its file, its class, and whether that class is masked. Two properties of the requirement decide the format between them: HLR-175 requires a user be able to edit it by hand, and HLR-176 requires `elc` read it back.
 
@@ -1580,8 +1636,8 @@ What the module owes the library is bounded. Jansson parses and validates; `puri
 The format is versioned in the manner of the XML record (HLR-061), so that a manifest written by a later build is rejected by an earlier one rather than half-understood. Jansson's `json_error_t` carries the line, column, and byte offset of a syntax fault, and the diagnostic quotes them: a person who hand-edited the file needs to be told where they broke it, not merely that they did.
 
 
-### 22.3 Internal Structure
-#### 22.3.1 Key Functions
+### 23.3 Internal Structure
+#### 23.3.1 Key Functions
 
 *   **`int purify_analyse(const Sdg *g, const ElcOptions *opts, Manifest *manifest, PurifyResults *out)`** — Classify every function and build the masked recovery view. `g` is taken by const pointer, which is where HLR-167 is enforced rather than remembered; the manifest of HLR-175 – HLR-177 enters as a further argument, non-const because a statement records whether it named anything.
 *   **`int classify_nodes(const Sdg *g, const PurifyThresholds *t, Manifest *manifest, Classification *out)`** — Assign each node its class against the thresholds in force, applying the manifest last so that a statement overrules a computed class rather than competing with one.
@@ -1595,7 +1651,7 @@ The format is versioned in the manner of the XML record (HLR-061), so that a man
 *   **`void manifest_free(Manifest *m)`** — Release a manifest's statements.
 *   **`void purify_results_free(PurifyResults *r)`** — Release the classifications and the recovery view.
 
-#### 22.3.2 Parsing Strategy / Algorithm
+#### 23.3.2 Parsing Strategy / Algorithm
 
 **The thresholds are compared against a ranking, not against a raw score.** A betweenness value means nothing on its own — it scales with the size of the graph, so a fixed number would classify every function in a large project and none in a small one. Classification is therefore made against a node's position in the ordered distribution of the score, which is comparable across projects and is what makes one default threshold serviceable for both.
 
@@ -1617,13 +1673,13 @@ The two are applied in that order and not the other way about. The ordering is b
 
 **A cyclic recovery view has no layering, and that is reported rather than worked around** (HLR-172). Purification often breaks the cycles that a god object created, which is much of its purpose — but where cycles remain, the cycles are the finding.
 
-### 22.4 Dependencies
+### 23.4 Dependencies
 
 *   The graph library, for `igraph_hub_and_authority_scores`, `igraph_betweenness`, and `igraph_coreness` (HLR-113).
 *   **Jansson**, for the manifest in both directions — `json_load_file` and `json_error_t` on the read path, `json_dumpf` on the write path. The only third-party writer in the project, for the round-trip reason argued beside the dependency-selection table in the data dictionary. The write goes through a stream of `elc`'s own rather than `json_dump_file`, for one byte: a text file this project writes ends with a newline and Jansson's file writer does not add one, and a manifest is meant to be hand-edited and kept under version control.
 *   `src/graph.c` for the SDG and its call view. Depended upon by `src/recover.c`.
 
-### 22.5 Error Handling and Logging
+### 23.5 Error Handling and Logging
 
 *   **Manifest cannot be read or parsed** Diagnostic naming the path, and a fatal exit. The user named the file, so the failure is theirs to correct (HLR-176).
 *   **Manifest names an unknown function** Diagnostic, the statement ignored, the run continues. Analysing one directory of a project whose manifest covers all of it is ordinary use (HLR-177).
@@ -1633,9 +1689,9 @@ The two are applied in that order and not the other way about. The ordering is b
 *   **A graph with fewer than two nodes** Not an error, and nothing is classified by centrality. There is no distribution to hold a position in, and a rank over zero other nodes is met by every threshold at once — which would classify the single function as all three at the boundary. The coreness test still applies, since it is absolute.
 *   **A call view with no edges** The hub-and-authority decomposition is not asked for. It is undefined there — every score is zero — and the library reports the fact on standard error, which would put a diagnostic naming one of its own source files into the stream HLR-038 reserves for `elc`'s. A program whose functions call nothing has no hub-and-authority structure to find, and leaving the scores at their zero says exactly that.
 
-## 23. Detailed Design for [src/recover.c](../src/recover.c)
+## 24. Detailed Design for [src/recover.c](../src/recover.c)
 
-### 23.1 Purpose and Responsibilities
+### 24.1 Purpose and Responsibilities
 [src/recover.c](../src/recover.c) reads a proposed layering off the purified recovery view, for a user who has declared no architecture and wants to know what one their code already has.
 
 *   Order the recovery view topologically, and report the cycles instead where no ordering exists (HLR-172).
@@ -1643,8 +1699,8 @@ The two are applied in that order and not the other way about. The ordering is b
 *   Present the proposal in a form a user can adopt as a declaration without transcribing it (HLR-173).
 *   State which functions were masked or excluded in producing the proposal.
 
-### 23.2 External Interfaces
-#### 23.2.1 The Boundary Is the Dependency Direction
+### 24.2 External Interfaces
+#### 24.2.1 The Boundary Is the Dependency Direction
 
 `arch.c` includes no header of this module, holds no `RecoveryResults`, and is handed no path to one. That is HLR-173 made structural rather than remembered, by the same construction that makes HLR-167 structural one section above: a module that cannot reach a proposal cannot accidentally measure against it, and a rule kept by remembering is a rule one refactor away from being forgotten.
 
@@ -1652,7 +1708,7 @@ The results travel to the report and stop there. Renderers and the saved record 
 
 The corollary is the one a reader is most likely to find surprising, and it is deliberate: a run over a plainly layered tree recovers that layering with complete confidence **and** still reports the conformance analyses as omitted for want of a declaration (HLR-115). Recovery is what a user without strata is *given*; it is not a substitute baseline.
 
-#### 23.2.2 The Proposal Is an Argument List
+#### 24.2.2 The Proposal Is an Argument List
 
 What this module emits is the command line that would declare the layering, in the form `--stratum` and `--stratum-order` accept:
 
@@ -1669,15 +1725,15 @@ Two properties of that line are load-bearing rather than cosmetic.
 Each layer is named after the basename of the first directory in it, sanitised of anything a shell or the option syntax would take for punctuation, and suffixed on a collision — two layers sharing a name would silently become one, since repeating a name adds patterns to the layer already declared.
 
 
-### 23.3 Internal Structure
-#### 23.3.1 Key Functions
+### 24.3 Internal Structure
+#### 24.3.1 Key Functions
 
 *   **`int recover_layers(const PurifyResults *p, const Sdg *g, const Report *r, RecoveryResults *out)`** — Propose a layering, or report why none could be. The `Sdg` supplies each function's component and the `Report` supplies that component's directory, recorded once at discovery rather than re-derived here (HLR-160).
 *   **`int layer_by_directory(const PurifyResults *p, const Sdg *g, const Report *r, const size_t *order, RecoveryResults *out)`** — Fold a topological order of the view into per-directory layers by edge density. Exposed because the fold — and not the ordering — is the whole of what this module decides.
 *   **`int report_set_recovery(Report *report, const RecoveryResults *rec)`** — Copy the proposal onto an assembled report. Declared in `recover.h` rather than `report.h`, exactly as `report_set_purify` is, so the report model need not know what a `RecoveryResults` is to be included.
 *   **`void recovery_results_free(RecoveryResults *r)`** — Release the proposal, its cycles, and its argument list.
 
-#### 23.3.2 Parsing Strategy / Algorithm
+#### 24.3.2 Parsing Strategy / Algorithm
 
 **A topological order is not yet a layering.** It orders functions; an architecture orders *directories*. The order is therefore folded by component directory, and a directory's layer is fixed by where the bulk of its edges point rather than by its earliest or latest member — one function reaching far down the order should not drag its whole directory with it.
 
@@ -1695,12 +1751,12 @@ Each layer is named after the basename of the first directory in it, sanitised o
 
 **Nothing here feeds the conformance analyses** (HLR-173). `recover.c` is depended upon by the report and by nothing in `arch.c`; the dependency direction is what keeps a recovered layering from becoming the baseline it is measured against.
 
-### 23.4 Dependencies
+### 24.4 Dependencies
 
 *   The graph library, for the acyclicity test, the topological ordering, and the strongly connected components where no ordering exists. `src/purify.c` for the recovery view and the classifications behind it.
 *   `src/graph.c` for each function's component, and `src/report.c` for that component's directory — read from the report's own record of it rather than sliced off the path here, since more than one analysis groups by directory and two consumers each slicing a path for themselves is how two of them come to disagree (HLR-160).
 
-### 23.5 Error Handling and Logging
+### 24.5 Error Handling and Logging
 
 *   **Recovery view is cyclic** Not an error. The mutually reachable groups are reported in place of a proposed layering, as HLR-090 does for call depth over a cyclic graph (HLR-172).
 *   **A function calls itself** Not a cycle for this purpose, and not reported here. The edge orders nothing, the recursion analysis of HLR-089 already states the fact, and treating it as blocking would cost every project holding one recursive function the whole of this analysis.
@@ -1708,9 +1764,9 @@ Each layer is named after the basename of the first directory in it, sanitised o
 *   **No function survives purification** Not an error. The proposal is omitted with its reason stated, as an analysis short of its inputs always is, rather than reported as an empty layering (HLR-115).
 *   **A directory holds only excluded functions** Not an error and not the bottom layer. The directory receives no layer at all, because a function `elc` did not consider is not a function `elc` placed at the edge of the architecture (HLR-170).
 
-## 24. Detailed Design for [src/diag.c](../src/diag.c)
+## 25. Detailed Design for [src/diag.c](../src/diag.c)
 
-### 24.1 Purpose and Responsibilities
+### 25.1 Purpose and Responsibilities
 [src/diag.c](../src/diag.c) carries every message `elc` writes to standard error, and records the run into the debug companion of HLR-194 where one was asked for.
 
 *   Write each diagnostic to standard error, and to the companion where one is open, so the two cannot diverge and no call site chooses between them.
@@ -1719,8 +1775,8 @@ Each layer is named after the basename of the first directory in it, sanitised o
 *   Change nothing a run reports — not the messages standard error receives, not the report, not the exit status (HLR-194).
 
 
-### 24.3 Internal Structure
-#### 24.3.1 Key Functions
+### 25.3 Internal Structure
+#### 25.3.1 Key Functions
 
 *   **`int diag_open(const char *path, int argc, char **argv)`** — Open the companion and write the invocation, or leave the module inert where `path` is NULL. A companion that cannot be opened is a diagnostic and not a failure, by the rule the `.dot` follows (LLR-DOT-05).
 *   **`void diag_printf(const char *fmt, ...)`** — One diagnostic, to standard error and to the companion. The signature a caller would have passed to `fprintf(stderr, ...)`, which is what made converting a hundred and twenty call sites mechanical.
@@ -1729,7 +1785,7 @@ Each layer is named after the basename of the first directory in it, sanitised o
 *   **`bool diag_active(void)`** — Whether a companion is open, for a caller deciding whether to do work whose only purpose is to fill it.
 *   **`void diag_close(void)`** — Close the companion. Safe with none open, and safe twice.
 
-#### 24.3.2 Parsing Strategy / Algorithm
+#### 25.3.2 Parsing Strategy / Algorithm
 
 **This module holds the one piece of global mutable state in `elc`, and the exception is deliberate, argued, and bounded.**
 
@@ -1744,18 +1800,18 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
 
 **Timestamps go to the companion alone.** A log nobody watched being produced needs them; the report must not contain them, since HLR-032 requires two runs over one target to be byte-identical. The companion is a record *of* a run rather than a result *of* one, and that is the line the timestamps sit on.
 
-### 24.4 Dependencies
+### 25.4 Dependencies
 
 *   No third-party dependency; `stdio` and `time`.
 
-### 24.5 Error Handling and Logging
+### 25.5 Error Handling and Logging
 
 *   **The companion cannot be opened** A diagnostic to standard error and a recorded failure. The user asked for a report and a debug file, and losing the second is no reason to withhold the first.
 *   **No companion was asked for** Every call writes to standard error alone, exactly as a direct `fprintf` did. The module is inert rather than absent, so no call site tests for it.
 
-## 25. Detailed Design for [src/format_dsm.c](../src/format_dsm.c)
+## 26. Detailed Design for [src/format_dsm.c](../src/format_dsm.c)
 
-### 25.1 Purpose and Responsibilities
+### 26.1 Purpose and Responsibilities
 [src/format_dsm.c](../src/format_dsm.c) renders the Dependency Structure Matrix — the square grid whose cells carry the call counts between layers or directories, and whose diagonal separates conforming dependencies from back-calls.
 
 *   Build the matrix over the declared layers, or over the analysed directories where no strata were declared (HLR-165).
@@ -1764,8 +1820,8 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
 *   Decide whether the CSV companion is warranted for a run: on request, and only where the report has a path to derive a name from (HLR-180).
 
 
-### 25.3 Internal Structure
-#### 25.3.1 Key Functions
+### 26.3 Internal Structure
+#### 26.3.1 Key Functions
 
 *   **`int dsm_build(const Sdg *g, const Report *r, const ElcOptions *opts, Dsm *out)`** — Populate the square matrix of call counts between subjects, in their defined order.
 *   **`int format_dsm_csv(const Dsm *m, FILE *out)`** — Render the matrix as CSV, every cell through the RFC 4180 field writer.
@@ -1774,7 +1830,7 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
 *   **`bool dsm_warranted(const ElcOptions *opts)`** — Whether the CSV companion is to be written: requested, and with a named output path to derive its own from (HLR-104, HLR-180).
 *   **`void dsm_free(Dsm *m)`** — Release the matrix and the subject labels it owns.
 
-#### 25.3.2 Parsing Strategy / Algorithm
+#### 26.3.2 Parsing Strategy / Algorithm
 
 **Rows are callers and columns are callees**, both in the same ascending order, so the diagonal has a meaning a reader can rely on: above it are dependencies running the declared way, on it are dependencies inside one subject, and below it are the back-calls of HLR-162. A matrix whose orientation the reader must infer is worse than no matrix, so the convention is printed with it (HLR-166).
 
@@ -1790,17 +1846,17 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
 
 **The matrix is part of the report model, not a renderer's scratch space.** It is built once, in `main`, and carried on the `Report`, because the record of a run must be able to regenerate it and a record carries no call graph to rebuild it from (HLR-054). That is also why the CSV companion is the one companion available in regeneration mode.
 
-### 25.4 Dependencies
+### 26.4 Dependencies
 
 *   `src/graph.c` for the component projection, `src/arch.c` for the layer assignment, and `src/format_csv.c` for the field writer. No third-party dependency.
 
-### 25.5 Error Handling and Logging
+### 26.5 Error Handling and Logging
 
 *   **No strata declared** Not an error. The matrix is built over directories instead, so a reader with no declared architecture still receives one (HLR-165).
 *   **Write failure** Diagnostic and non-zero return, as for every other renderer.
 *   **No output path** Not an error. `dsm_warranted` is false, no companion is written, and the report itself still carries the matrix — the rule the GraphML export follows, since the companion's name is derived from the report's and there is none to derive from (HLR-104).
 *   **An empty matrix** Renders as its heading, its convention, and its column names rather than as nothing. A section that vanishes when it has no content makes the report's shape vary with its content.
-## 26. Data Dictionary
+## 27. Data Dictionary
 
 *   **`ElcOptions`** (defined in [include/elc.h](../include/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
 
@@ -2312,7 +2368,7 @@ The failure is recorded here rather than merely fixed because nothing about it i
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.
-## 27. Traceability
+## 28. Traceability
 
 The following table maps the high-level requirements in
 [doc/HLRs.md](HLRs.md) and the low-level requirements in

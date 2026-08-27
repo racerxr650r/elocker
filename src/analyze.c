@@ -29,6 +29,7 @@
 
 #include "diag.h"
 #include "preproc.h"
+#include "repair.h"
 #include "analyze.h"
 #include "elc.h"
 #include "elfsyms.h"
@@ -2441,6 +2442,75 @@ static int open_and_stat(const char *path, struct stat *st)
 	return fd;
 }
 
+/* Release every buffer this file's analysis acquired, in the order that keeps
+ * each pointer valid until the last thing pointing into it has gone.
+ *
+ * The tree is released through whichever owns it: a repaired file's result
+ * holds both the tree and the buffer it was parsed from, and freeing the tree
+ * separately would free it twice.
+ */
+static void release_buffers(RepairResult *repaired, PreprocResult *expanded,
+                            TSTree *tree, void *mapping, size_t maplen)
+{
+	if (repaired->tree)
+		repair_result_free(repaired);
+	else if (tree)
+		ts_tree_delete(tree);
+
+	preproc_result_free(expanded);
+	if (mapping != MAP_FAILED)
+		munmap(mapping, maplen);
+}
+
+/* Map a file for reading, or diagnose why it could not be.
+ *
+ * Private and read-only: nothing elc does to the buffer may reach the file,
+ * and both the repair path and the expansion path work in copies of their own
+ * (HLR-043).
+ */
+static int map_file(const char *path, int fd, size_t len, void **out)
+{
+	*out = mmap(NULL, len, PROT_READ, MAP_PRIVATE, fd, 0);
+	if (*out == MAP_FAILED) {
+		diag_printf("elc: %s: %s\n", path, strerror(errno));
+		return -1;
+	}
+	return 0;
+}
+
+/* The tree to measure, from whichever path this file took.
+ *
+ * Expanded text is parsed as it stands; text that could not be expanded is
+ * repaired first. The two are not alternatives, which is what the withdrawal
+ * of Phase 25 got wrong. Expansion is exact and needs a toolchain, the build's
+ * include paths, and conditions `elc` can decide — on a cross-compiled tree it
+ * reaches almost nothing. Repair needs none of those and is a guess about the
+ * shape of a failure. Where the first applies the second is unnecessary; where
+ * it does not, the second is all there is (HLR-196).
+ *
+ * The length is explicit throughout because the mapping is not NUL-terminated
+ * (LLR-ANL-05).
+ */
+static TSTree *parse_for_metrics(TSParser *parser, const char *path,
+                                 const PreprocResult *expanded,
+                                 RepairResult *repaired, FileMetrics *metrics,
+                                 const char **map, size_t *len)
+{
+	if (expanded->text)
+		return ts_parser_parse_string(parser, NULL, *map,
+		                              (uint32_t)*len);
+
+	if (repair_parse(parser, *map, *len, path, repaired) != 0)
+		return NULL;
+
+	*map = repaired->buffer;
+	*len = repaired->length;
+	metrics->repairs = repaired->total;
+	for (size_t k = 0; k < REPAIR_RULE_COUNT; k++)
+		metrics->repair_counts[k] = repaired->counts[k];
+	return repaired->tree;
+}
+
 /* Expand this file, and hand back the buffer to measure.
  *
  * The conditional analysis is answered from the source as written, before
@@ -2522,6 +2592,7 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	 * as expanded — the provenance of HLR-206 saying the opposite of what
 	 * happened. */
 	PreprocResult         expanded = { .status = PREPROC_OFF };
+	RepairResult          repaired = { 0 };
 	TSTree               *tree   = NULL;
 	int                   fd     = -1;
 	int                   status = ANALYZE_FAILED;
@@ -2551,12 +2622,9 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 		goto cleanup;
 	}
 
-	maplen  = (size_t)st.st_size;
-	mapping = mmap(NULL, maplen, PROT_READ, MAP_PRIVATE, fd, 0);
-	if (mapping == MAP_FAILED) {
-		diag_printf("elc: %s: %s\n", path, strerror(errno));
+	maplen = (size_t)st.st_size;
+	if (map_file(path, fd, maplen, &mapping) != 0)
 		goto cleanup;
-	}
 	map = mapping;
 	len = maplen;
 
@@ -2580,9 +2648,21 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	if (record_stdlib(metrics, &expanded) != 0)
 		goto cleanup;
 
-	/* The length is explicit because the mapping is not NUL-terminated
+	/* Expanded text is parsed as it stands; text that could not be
+	 * expanded is repaired first.
+	 *
+	 * The two are not alternatives, which is what the withdrawal of Phase
+	 * 25 got wrong. Expansion is exact and needs a toolchain, the build's
+	 * include paths, and conditions `elc` can decide — on a cross-compiled
+	 * tree it reaches almost nothing. Repair needs none of those and is a
+	 * guess about the shape of a failure. Where the first applies the
+	 * second is unnecessary; where it does not, the second is all there is
+	 * (HLR-196).
+	 *
+	 * The length is explicit because the mapping is not NUL-terminated
 	 * (LLR-ANL-05). */
-	tree = ts_parser_parse_string(reg->parser, NULL, map, (uint32_t)len);
+	tree = parse_for_metrics(reg->parser, path, &expanded, &repaired,
+	                         metrics, &map, &len);
 	if (!tree) {
 		diag_printf("elc: %s: parse failed\n", path);
 		goto cleanup;
@@ -2602,11 +2682,7 @@ cleanup:
 	free(sites.items);
 	free(comments.items);
 	free(ranges.items);
-	if (tree)
-		ts_tree_delete(tree);
-	preproc_result_free(&expanded);
-	if (mapping != MAP_FAILED)
-		munmap(mapping, maplen);
+	release_buffers(&repaired, &expanded, tree, mapping, maplen);
 	filemetrics_free(metrics);
 	filefacts_free(facts);
 	if (fd >= 0)

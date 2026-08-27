@@ -2008,3 +2008,39 @@ Expansion and filtering of one file. The first requirement is the subprocess; th
 
     An empty list on a fallen-back file is not a claim that the file uses no standard library. It is the absence of an answer, which HLR-206's provenance is what lets a reader tell apart from the answer "none".
     *Trace:* HLR-207 (Standard-Library Dependence Reported).
+
+## 68. `repair_parse` ([src/repair.c](../src/repair.c))
+
+Repair of the regions the grammar rejected. Every requirement below is a restriction, and each is what separates a bounded repair from a tool inventing the code it measures.
+
+*   <a id="LLR-RPR-01"></a>**LLR-RPR-01** — `repair_parse` shall parse the buffer as given, and where the root node carries no error shall return that tree and the caller's own buffer, having copied nothing and parsed once.
+
+    The early return is the requirement rather than an optimisation. It is what leaves the single-parse rule of HLR-076 exactly as it was for source that needs no repair, and what makes the cost of this feature to such a code base one test of the root node.
+    *Trace:* HLR-196 (Repair Confined to Rejected Regions), HLR-076.
+
+*   <a id="LLR-RPR-02"></a>**LLR-RPR-02** — Where the grammar rejects anything, `repair_parse` shall copy the buffer before rewriting it, and shall rewrite only bytes lying within a rejected region.
+
+    The copy is required because the buffer is a read-only mapping of a file `elc` does not own. Confinement to the rejected regions is required because the rules are heuristics about the shape of a failure: applied to text the grammar accepted, a heuristic is a tool editing a measurement it had already taken correctly.
+    *Trace:* HLR-196 (Repair Confined to Rejected Regions), HLR-039.
+
+*   <a id="LLR-RPR-03"></a>**LLR-RPR-03** — Every rule shall replace text with text of the **same width in bytes**, within a single line.
+
+    Same width rather than merely the same line count, because it costs nothing and buys the byte offsets too: a region's extent stays valid across a repair, so the regions collected before a pass need not be recollected during it. The line count is what HLR-197 requires and what keeps every line-based measurement and every reported location correct; the width is how this implementation obtains it.
+
+    An upper-case identifier adjacent to a string literal shall become an empty string literal padded to the width it replaced; an identifier in front of a declaration shall become blanks; an identifier alone before `=` at file scope shall be given a type by consuming the blanks around it. A rule whose replacement would not fit the width it replaces shall decline to fire.
+    *Trace:* HLR-197 (Repairs Preserve the Line Count).
+
+*   <a id="LLR-RPR-04"></a>**LLR-RPR-04** — `repair_parse` shall re-parse after each pass and compare the number of rejected regions with the number before it. Where the number did not fall, it shall restore the buffer to its state before the pass and stop.
+
+    This is what makes a wrong rule cheap rather than dangerous. A rule matching a shape it should not produces a buffer the grammar rejects in the same places or in worse ones; the comparison notices, the restore undoes it, and the file is measured unrepaired — which is where it started. Without the comparison a rule that repairs one region into a shape another rule rejects would run until the process was killed, on source `elc`'s authors never saw.
+    *Trace:* HLR-198 (Repair Terminates).
+
+*   <a id="LLR-RPR-05"></a>**LLR-RPR-05** — Rules shall be tried in a fixed order against regions taken in document order, and the first rule whose shape matches a region shall be the one applied.
+
+    Two runs over one target must repair identically, or every figure downstream of a repair varies between runs and HLR-032's byte-identical guarantee fails in the one place hardest to notice — a report that is *nearly* the same.
+    *Trace:* HLR-198 (Repair Terminates), HLR-032, HLR-033.
+
+*   <a id="LLR-RPR-06"></a>**LLR-RPR-06** — `repair_parse` shall count the repairs it made, by rule, and `analyze.c` shall carry that tally onto the file's metrics so the report can declare it and the debug companion can record each repair with the text before and after.
+
+    A repair is a guess the grammar could not make. A report that presented a repaired figure as a measured one would be the confidently-wrong result `elc` exists to avoid, and worse than the parse error it replaced — the figures look ordinary, and nothing on the page distinguishes them.
+    *Trace:* HLR-199 (Repairs Are Declared), HLR-194.
