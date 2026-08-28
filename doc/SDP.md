@@ -3006,7 +3006,7 @@ or breaking the parse.
 ```text
 AI prompt — Phase 31
 
-Read issue #<N>, HLR-112, HLR-119, HLR-040 and HLR-114 before writing code.
+Read issue #81, HLR-112, HLR-119, HLR-040 and HLR-114 before writing code.
 
 Do not add a second JSON library. `libjansson` is already linked for the
 purification manifest, and §9's igraph entry is the same objection: a

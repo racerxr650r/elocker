@@ -880,6 +880,41 @@ on standard output no file is written at all \(em there is no path to derive a
 name from. A companion that cannot be written is a diagnostic and a failed
 exit status, never a reason to withhold the report itself.
 .TP
+.B \-\-html
+Also write an interactive drawing of the System Dependence Graph. The file is
+named from the report's own output path by extension substitution, so an
+.B \-\-output
+of
+.I report.md
+yields
+.IR report.html ;
+the option takes no path of its own. Off unless requested, and with the report
+on standard output no file is written at all, by the rule
+.B \-\-graphml
+follows.
+.IP
+The page opens in a browser directly from the filesystem \(em no local web
+server and no build step \(em and opens showing the architectural layers
+declared with
+.BR \-\-stratum ,
+each of which opens to the files it holds and each of those to their functions.
+Where no stratum was declared it opens at the file level instead: a layer
+nobody declared is not invented, and a file matching no stratum is drawn
+alongside the layers rather than inside one.
+.IP
+Only calls between functions are drawn. A line between two collapsed boxes is
+derived by the viewer from the calls crossing between them; it is not a second
+coupling figure, and the measured ones are in the report's own tables.
+.IP
+The drawing library is fetched from the network the first time the page is
+opened, so
+.B standalone
+here means that the file needs no server and no build step and not that it
+needs nothing:
+.B elc
+itself never uses the network, but a browser on a disconnected machine renders
+the page without its diagram.
+.TP
 .B \-\-dsm
 Also write the dependency structure matrix as CSV. The file is named from the
 report's own output path by extension substitution, so an

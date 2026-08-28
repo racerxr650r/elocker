@@ -1766,6 +1766,47 @@ whatever it wants from them exactly; carrying a derived value as well would
 put a second computation of it beside the one in the report, and two places
 computing a figure are two places it can be computed differently.
 
+### Looking at it
+
+```sh
+elc --html -o report.md \
+    --stratum app:'*/app/*' --stratum hal:'*/hal/*' src/
+# writes report.md and report.html
+```
+
+The `.dot` and GraphML companions are exports: something else draws or loads
+them. `--html` writes the drawing itself — one file that opens in a browser
+when you double-click it, with no server to start and nothing to build.
+
+**It opens at the architectural level.** What you see first is one box per
+layer you declared with `--stratum`. Double-click a layer and it opens to the
+files it holds; double-click a file and it opens to the functions in it. That
+default is the point of the artefact rather than a preference: a call graph of
+a real project drawn at function level is a picture nobody can read, which is
+the failing the `.dot` and GraphML companions have in common. You descend into
+the part you care about instead of starting at maximum density.
+
+With no `--stratum` declared, it opens at the file level instead. `elc` does
+not invent a layer to sit above them — a layering is something you state, never
+something read off the directory tree (see [Declaring the
+architecture](#declaring-the-architecture)) — and for the same reason a file
+matching none of your stratum patterns is drawn beside the layers rather than
+tucked inside one.
+
+**Only calls between functions are drawn.** When you collapse a file, the lines
+between the collapsed boxes are drawn by the viewer from the calls crossing
+between them. `elc` does not emit them: a coupling figure drawn here by a rule
+of its own could disagree with the Ca/Ce figures in the report's own tables,
+and those are the measured ones.
+
+**What "standalone" means here.** The file needs no web server and no build
+step. It does need the network the first time you open it, because the drawing
+library is fetched from a CDN — so a browser on a disconnected machine shows
+the page and no diagram. `elc` itself never touches the network; this is a
+property of viewing the artefact, not of producing it. If you need the page to
+work offline, keep it beside a cached copy of the two scripts named in its
+`<head>`, or open it once while connected and let the browser cache them.
+
 ### Where the graph is imprecise, and in which direction
 
 `elc` resolves calls by matching names across the files you gave it, without
@@ -2587,6 +2628,7 @@ comparable.
 | `--elf` | `FILE` | none | Restrict every measurement to the functions the linked image `FILE` defines |
 | `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
+| `--html` | — | off | Also write an interactive drawing of the dependence graph, named from `--output` |
 | `--dsm` | — | off | Also write the dependency structure matrix as CSV, named from `--output` |
 | `--manifest` | `FILE` | none | Read the purification manifest `FILE`, whose statements overrule what `elc` concluded |
 | `--write-manifest` | — | off | Also write the purification manifest as JSON, named from `--output` |
