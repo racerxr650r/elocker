@@ -38,17 +38,17 @@ undecorated() {
 # next.
 #
 #   $1  function name
-#   $2  column: 3 lines, 4 ELOC, 5 complexity, 6 fan-in, 7 fan-out
+#   $2  column: 5 lines, 6 ELOC, 7 complexity, 8 fan-in, 9 fan-out
 function_of() {
 	undecorated |
 		awk -v want="$1" -v col="$2" \
 		    '/^ *Functions$/ { f = 1; next }
 		     f && /^ *$/ { if (seen) f = 0; next }
-		     f { seen = 1; if ($2 == want) print $col }'
+		     f { seen = 1; if ($3 == want) print $col }'
 }
 
-fan_in_of()  { function_of "$1" 7; }
-fan_out_of() { function_of "$1" 8; }
+fan_in_of()  { function_of "$1" 8; }
+fan_out_of() { function_of "$1" 9; }
 
 # The Functions section's rows, for assertions about the table as a whole
 # rather than about one cell.
