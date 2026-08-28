@@ -341,8 +341,28 @@ whole cycle runs from the working copy.
 4.  **Implement**, following the [`elocker-dev`](../.github/skills/elocker-dev/SKILL.md)
     skill's conventions. New behaviour needs an HLR, an LLR, and a test; no
     test seam enters `src/`.
-5.  **Test** — `make test`, then `make asan`, then `make valgrind`. All three
-    must be clean before the phase is considered done (§6).
+5.  **Test** — `make test`, then `make asan`. Both must be clean before the
+    phase is considered done (§6).
+
+    **Do not run `make valgrind` locally.** It re-runs the integration and
+    fixture levels under instrumentation and takes the better part of an hour,
+    which is an unreasonable price for a small change and a price paid on every
+    iteration of one. It runs in CI on the pull request instead, where it costs
+    waiting rather than working, and where it runs against the merge result
+    rather than the working copy — which is the thing that has to be clean.
+
+    **What that gives up, stated rather than glossed.** ASan and LSan catch
+    invalid accesses and leaks, so those still fail locally and fail fast.
+    `valgrind`'s memcheck additionally catches **reads of uninitialised
+    memory**, which ASan does not detect at all; a defect of that one class now
+    surfaces on the PR rather than before the push. That is the trade, it is
+    accepted deliberately, and it is not a licence to push untested work — the
+    two local gates above are not optional.
+
+    Run it locally only when CI has reported a `valgrind` failure and you are
+    reproducing it, or when a change is specifically about memory handling and
+    you would rather know now. `ELC_VALGRIND=1` on a single suite is the cheap
+    form; the full target is rarely what you want.
 6.  **Feed discoveries back into the specification — before pushing.** This is
     the step that keeps the documents true, and it is not optional. During
     implementation you will find requirements that were ambiguous, designs
@@ -454,7 +474,7 @@ the SDP-local summary of what each phase must satisfy.
 | Integration | `build/elc` over its command line | Bats, `bats-assert` | Every HLR the phase delivers |
 | Fixture conformance | Hand-counted expected values per language | Bats | Every metric the phase computes |
 | Instrumented | Process, syscall, and link observation | Bats + `strace`/`ldd`/`unshare` | The non-functional HLRs |
-| Sanitized | The whole suite re-run instrumented | ASan, UBSan, LSan, valgrind | HLR-124, HLR-125 |
+| Sanitized | The whole suite re-run instrumented | ASan, UBSan, LSan locally and in CI; valgrind in CI only (§5.4 step 5) | HLR-124, HLR-125 |
 
 Tests are traced to Low-Level Requirements in [Project.xml](Project.xml) and
 reported in the [STP](STP.md) and the [Traceability Matrix](Traceability.md).
@@ -3109,14 +3129,27 @@ before you push.
     values from `elc`, which would assert nothing. *Mitigation:* budget for
     it explicitly in Phases 3, 6, and 8.
 
-*   **The `valgrind` job will become the long pole.** It re-runs the
-    integration and fixture levels under instrumentation, and the fixture
-    corpus grows fivefold at Phase 6 and again at Phase 8. No performance
-    target is committed, so a slow gate is acceptable rather than a defect —
-    but expect PR turnaround to lengthen noticeably from Phase 6, and decide
-    then whether to keep `valgrind` on every PR or move it to a merge-queue
-    or nightly job. *Mitigation:* the choice is a CI configuration change, not
-    a plan change; ASan remains on every PR either way.
+*   **~~The `valgrind` job will become the long pole.~~ It did. Settled
+    2026-08-28 by taking it out of the local loop and leaving it on the PR.**
+    The prediction was right and the remedy was the other one: the question
+    posed here was whether to move the *job* off every PR, and what actually
+    hurt was running the same target *locally* before pushing. At roughly an
+    hour a pass it was being paid on every iteration of a change, by a
+    developer sitting still, to re-verify a working copy that CI would verify
+    again as a merge result.
+
+    So `make valgrind` leaves the phase protocol (§5.4 step 5) and stays a
+    required CI job. Waiting is cheaper than working, and the PR checks the
+    merge result rather than one copy of it. **The cost is one class of defect
+    moving later:** memcheck catches reads of uninitialised memory and ASan
+    does not, so that class is now found on the PR instead of before the push.
+    Everything ASan and LSan cover — invalid accesses and leaks — still fails
+    locally and still fails fast.
+
+    *Residual risk:* a developer who ignores a red `valgrind` job merges a
+    defect the local gates were never going to catch. That is a review
+    obligation now rather than a mechanical one, which is a real weakening and
+    is recorded here as such.
 
 **Settled: Git support is kept** (decided 2026-08-14). libgit2 buys
 `.gitignore` compliance, which is load-bearing for the estimation and

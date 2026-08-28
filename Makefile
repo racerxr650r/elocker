@@ -32,7 +32,8 @@
 #>  fixtures        Run the fixture-conformance suites
 #>  instrumented    Run the environment-observing suites
 #>  asan            Rebuild with ASan and UBSan and re-run the whole suite
-#>  valgrind        Re-run integration and fixtures under valgrind
+#>  valgrind        Re-run integration and fixtures under valgrind. CI runs this
+#>                  on the PR; it takes about an hour, so do not run it locally
 #>
 #>Specification:
 #>  spec            Validate Project.xml and check the rendered documents are current
