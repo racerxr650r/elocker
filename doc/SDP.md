@@ -71,6 +71,7 @@ release readiness — is ready to start, and is the last.
 | [27](#phase-27--preprocessor-macro-expansion--ast-sanitization) | Macro expansion through `gcc -E`, filtered to project source and reported per file | ✅ Complete |
 | [28](#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | ✅ Complete |
 | [29](#phase-29--function-visibility-and-editor-navigable-locations) | Public/private visibility, `path:line` locations, and a line count | ✅ Complete |
+| [30](#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -2802,6 +2803,121 @@ lands.
 
 Leave CSV and XML alone. They are complete records for consumers, not
 tables for readers, and the round-trip test will tell you if you forget.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push.
+```
+
+### Phase 30 — Deciding Conditionals from the Build, and Recovering Macro-Generated Functions
+
+`elc` already reads the debug line table (HLR-153) and already builds a
+subprogram origin map keyed on `DW_AT_decl_file` (HLR-193). It then throws away
+two answers that information contains, and both are answers to questions the
+report currently declines to answer.
+
+**A conditional region `elc` cannot decide, the image can.** Today an `#ifdef`
+whose symbol no `-D` mentions is undecidable (HLR-133): the region is kept
+whole, counted, and — since HLR-208 — the file is refused expansion on account
+of it. On a filtered run the image says outright what the build compiled.
+Measured on `avrOS`, `drv/uart.c`:
+
+| Lines | Instructions |
+| ----- | ------------ |
+| 105–120, the only ones with any | 108, 119 |
+| 111–118, the whole `#ifdef UART_STATS` block | none |
+
+That build did not compile it — `avrOSConfig.h` `#undef`s `UART_STATS` in the
+`#else` of `#ifdef CLI`, and `CLI` is not set in this build. `elc` has the
+evidence in hand and reports the region undecided anyway.
+
+**A function a macro defines, the grammar cannot see.** `ISR(USART0_DRE_vect)`
+expands to a whole function definition. Tree-sitter finds no function there, and
+repair cannot help, because repair does not know the macro *defines* one. On the
+same image the debug information places **11** `__vector_*` subprograms in the
+analysed sources — `__vector_12` at `sys.c:44`, which is
+`ISR(SYS_TICK_INT_VECT)` — and `elc` reports none of them, out of 524 functions.
+
+1. **Conditional regions decided from the image** (HLR-211). Where the image's
+   line information covers a file, a region none of whose lines produced an
+   instruction, and which is bracketed by lines that did, is **inactive** for
+   that build; one with instructions is **active**. Everything else stays
+   undecidable, and the count says how many regions each of the three
+   dispositions claimed — a figure decided from evidence is not the same claim
+   as one decided from a `-D`.
+2. **Functions the image places and the parse did not reach** (HLR-212). A
+   subprogram the debug information places in an analysed file, at a line no
+   parsed function covers, is reported in a table of its own: name and location,
+   and nothing else. `elc` has no body for it, so it has no ELOC, no
+   complexity, and no edges, and it enters neither the metrics nor the call
+   graph — reporting a fan-out of 0 for a function whose body was never read
+   would be a measurement rather than an absence (HLR-133, HLR-138).
+3. **CSV carries the columns the Functions table carries** (HLR-014 amended).
+   They had drifted apart: the table gained a visibility, a navigable location
+   and the flow degrees in Phase 29 and before, and CSV still wrote
+   `file,language,function,start_line,end_line,eloc,complexity`. The two are the
+   same view of the same rows and are now spelled the same way. XML is
+   untouched — HLR-056's round-trip depends on its fields.
+
+**This reverses a decision Phase 29 wrote down.** HLR-014 said the
+complete-record formats keep `start_line` and `end_line` separately "because a
+consumer cannot subtract a column it was not given". That reasoning still holds
+for XML, which must rebuild a report; it did not survive contact with CSV, whose
+whole purpose is to be the Functions table a consumer can load. The requirement
+is amended rather than quietly contradicted.
+
+**Debug information is never required** (HLR-141). A run without `--elf`, or
+with an image carrying no DWARF, behaves exactly as it does today: both
+deliverables are additions to what a filtered run answers, and neither is a
+change to what an unfiltered one does. Coverage governs per file, exactly as
+HLR-154 requires.
+
+**Acceptance:** the `debugline` fixture's guarded region, undecidable from the
+source and decided by no `-D`, is reported inactive from the image, and the
+region counts distinguish it from a region a `-D` settled and from one still
+undecided. The same file with no image, and the same file in an image built
+without `-g` for its unit, is unchanged. A file whose only undecidable region is
+one the image decides is expanded, where today HLR-208 refuses it. A macro that
+expands to a function definition is reported with its name and line and with no
+figures beside it, and does not appear in the call graph, the fan-out column, or
+the project's function count. The CSV header equals the Functions table's
+columns, and the XML round-trip is byte-identical to today's.
+
+```text
+AI prompt — Phase 30
+
+Read issue #<N>, HLR-133, HLR-141, HLR-154 and HLR-208 before writing code.
+
+The image is evidence, not proof, and the requirement has to say so. HLR-154
+already warns that an optimiser folds one line into a neighbour; a single
+absent line proves nothing, and an entire region absent between two present
+neighbours is strong evidence and still not proof. Report it as evidence: the
+region counts must let a reader tell "decided from the image" from "decided
+from -D" from "not decided".
+
+Coverage governs, per file. A file the line information never described loses
+nothing, at any optimisation level — that is the invariant `debugline/`
+exists to hold, and it is the one this phase is unsafe without.
+
+A recovered function has no parsed body. Do not give it a fan-out of 0, an
+ELOC of 0, or a complexity of 1; do not put it in the graph, where every
+degree it acquired would be a measurement of something nobody measured.
+
+The Functions table is parsed positionally by about twenty bats helpers across
+twelve files, and the Graph purification and Dead code tables use the same
+`$2 == want` idiom over different tables. Do not bulk-edit `$N` fields with a
+regex: Phase 29 broke `class_of` in purify.bats that way.
+
+Verify against the real target and not only the fixtures:
+
+    cd ~/Projects/avrOS/app/avrOS_example
+    elc --entry main -o report.md --elf build/main.elf . ../../drv ../../sys \
+        ../../srv -v --dbg
+
+Today it reports 44 files, 5 unparsed lines, 82 functions and 0 files
+expanded. The 11 ISRs are what deliverable 2 should recover.
 
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase

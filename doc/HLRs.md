@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.9
-**Date:** 2026-08-24
+**Version:** 3.10
+**Date:** 2026-08-27
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -107,8 +107,14 @@ Requirements governing how `elc` computes Effective Lines of Code and cyclomatic
 
     **In a human-readable report (HLR-027, HLR-029) the extent shall be a line count** — the number of lines the function occupies — and the start shall be carried by the navigable location of HLR-210. A count is the figure a reader compares between two functions; a range is a fact about the file that they must subtract before they can use it, and once the start line is in the location column the range would state it twice.
 
-    The complete-record formats shall continue to report **start and end line numbers** as separate fields. They are parsed by their consumers rather than read, a consumer cannot subtract a column it was not given, and the record must remain the thing a report can be rebuilt from (HLR-056). For the purposes of this and every other requirement in this document, "function" means any named callable unit the source language defines — including a method, a constructor, a destructor, and a nested subprogram — as identified by that language's runtime query configuration.
-    *Trace:* [SDD Section 7](SDD.md).
+    **The XML record shall continue to report start and end line numbers as separate fields**, because it must remain the thing a report can be rebuilt from and a regenerated report needs both numbers as numbers (HLR-056).
+
+    **The CSV record shall carry the same columns as the human-readable function table, in its order and with its meanings** — the location as `path:line`, the extent as a count, and the visibility and flow degrees the table reports. CSV is that table for a consumer that loads it rather than reads it, and one view of one set of rows must be spelled one way. The `language` column, which no other view of a function reports, goes with the change: the file's language is a property of the file and is reported where the files are.
+
+    *This reverses what this requirement said between Phase 29 and Phase 30* — that every complete-record format keeps a separate start and end line "because a consumer cannot subtract a column it was not given". That reasoning survived contact with XML, which rebuilds a report, and did not survive contact with CSV, where the record *is* the table: the two drifted apart column by column, and a consumer loading the CSV got a different set of figures from the one reading the report.
+
+    For the purposes of this and every other requirement in this document, "function" means any named callable unit the source language defines — including a method, a constructor, a destructor, and a nested subprogram — as identified by that language's runtime query configuration.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 15](SDD.md).
 
 *   <a id="HLR-015"></a>**HLR-015: Per-Function Effective Lines of Code.**
     For each function discovered in a source file, `elc` shall compute and report the function's Effective Lines of Code (ELOC): the count of executable statements within the function's line span — a statement that assigns or operates on data, directs control flow, invokes a function, returns from the function, or performs exception handling — as distinct from a line that serves only a structural, declarative, blank, or documentary purpose. HLR-044 through HLR-052 enumerate the specific categories counted toward, and excluded from, ELOC; HLR-053 governs how a statement spanning multiple physical lines is counted.
@@ -1214,6 +1220,48 @@ Two questions a reader asks of an unfamiliar module are answered by the source a
 
     This governs the human-readable report alone. A complete-record format shall keep the path and the line as separate fields, because a consumer that has to split a string to recover a number has been handed a worse record than it was given before.
     *Trace:* [SDD Section 14](SDD.md).
+
+## 30. The Image as Evidence
+
+Requirements governing two answers the debug information in a linked image already contains and `elc` used to discard.
+
+`elc` reads the line table (HLR-153) and builds a subprogram origin map keyed on the file each function was written in (HLR-193). Both were built for one question each — which lines a build compiled, and which of two same-named statics an image kept — and both answer a second question the source cannot answer at all: **which branch of an undecidable `#ifdef` this build took**, and **where the functions the grammar cannot see are**.
+
+**Everything here is evidence and not proof, and every requirement in this section says so.** HLR-154 already states the limit: an optimiser folds one line into a neighbour, so absence of a line proves nothing on its own. What is added is the observation that an *entire region* absent between two present neighbours, or absent while its own `#else` is present, is a different quality of evidence — strong enough to act on, and still reported as its own figure rather than folded in with what a `-D` settled.
+
+*   <a id="HLR-211"></a>**HLR-211: Conditional Regions Decided from the Image.**
+    Where the image's line information covers a file, `elc` shall decide a conditional region that region's condition left undecidable (HLR-133) from what the build compiled: a region none of whose lines produced an instruction is **inactive** for that build, and one whose lines produced an instruction is **active**.
+
+    **Absence is evidence only against a presence.** A region carrying an alternative shall be decided against that alternative, and only where exactly one of the two branches produced an instruction: both, or neither, is a condition this rule cannot read — a function the build never emitted reads as "neither" — and the region stays undecidable. A region with no alternative shall be decided inactive only where a line before it and a line after it, in the same file, were both compiled; that bracketing is what separates a gap in the middle of compiled code from the edge of what the build described.
+
+    **Coverage governs, per file, exactly as HLR-154 requires.** A translation unit compiled without debug information contributes no line entries at all, so a rule keyed on absence alone would find every region of it inactive and delete each one. No region of a file the line information does not cover may be decided this way.
+
+    **A definition the user gave is consulted first and is never overruled.** A `-D` is what the user says this configuration is; this is evidence about one build that was made. Where both have an answer the definition governs, and the region is not counted among those the image decided (HLR-132).
+
+    **The three dispositions shall be counted apart.** A region settled from the source or a `-D`, a region settled from the image, and a region nothing settled are different claims, and a reader who cannot tell the second from the first has been handed evidence wearing the authority of a definition. The count of regions decided from the image shall be reported with the image's other provenance, beside the count of lines the same evidence excluded at the finer grain (HLR-155).
+
+    **And this is evidence, with two bounds worth stating.** The first is HLR-154's: what an optimiser removed and what a condition excluded are indistinguishable in the line table, so the more optimised the build the more this rule will call inactive. The second is narrower and belongs to this rule alone: a region holding only declarations or data produces no line entries whether or not it was compiled, so one sitting between two compiled functions can be judged inactive on evidence that was never about it. Neither is silent — both are visible in the figure this requirement requires be reported — and the direction of both errors is the same as pruning's, which is why the count is read the way the pruned-line count is.
+
+    **A region decided this way is decided**, and where that leaves a file with nothing undecided the file becomes eligible for expansion, which HLR-208 refuses to a file holding an undecidable region. That is the intended consequence rather than an accident of the implementation: what HLR-208 guards against is the preprocessor silently resolving what `elc` declared unresolvable, and here an answer is available, read off the build the image records, and the preprocessor is run under the flags and definitions describing that same build.
+
+    Debug information remains never required (HLR-141). A run with no image, or with an image carrying none, shall behave exactly as it did before this requirement existed.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 20](SDD.md), [SDD Section 14](SDD.md).
+
+*   <a id="HLR-212"></a>**HLR-212: Functions the Image Places and the Parse Did Not Reach.**
+    On a run filtered by an image, `elc` shall report each function the image's debug information places in an analysed file, at a line no reported function covers, and the link kept.
+
+    **This is the fourth direction of mismatch and the mirror of HLR-143.** That one names a function the source defines and the build dropped; this names a function the build defines and the grammar never saw. A macro expanding to a whole function definition is the case that produces it — `ISR(USART0_DRE_vect)` is a function to the compiler and an expression to tree-sitter — and the repair of HLR-196 cannot reach it, because repair does not know the macro *defines* one.
+
+    **The symbol table governs which functions these are, and the debug information governs only where they are.** The two disagree, ordinarily rather than exceptionally: a link that discards unused sections removes the code while the compiler's subprogram entry for it stays behind. A function shall be reported here only where the image's symbol table defines it, which is the same authority HLR-140's filter asks. The debug information then supplies the location, which is the one thing the symbol table cannot.
+
+    **Its name and its location shall be reported, and no figure shall be reported for it.** `elc` has no body for such a function: it has no ELOC, no complexity, no maintainability index, and no call sites. Reporting zero for any of those would state an absence as a measurement — precisely what HLR-133 refuses for an undecidable condition and HLR-138 for a language with no dead-code query.
+
+    **It shall enter neither the call graph nor any figure computed over one.** It has no parsed body and therefore no outgoing edges, so a fan-out of zero for it would be a measurement of something nobody measured; a call *to* it is counted unresolved, where every call the graph cannot represent is counted (HLR-077). For the same reason it is not counted among the functions the project reports, is not banded, and is not named by a threshold: every one of those figures is derived from a measurement this function does not have.
+
+    Its visibility is likewise not reported. The rule is the language's own and is answered by that language's query (HLR-209), and no query ran over a function the parse did not reach.
+
+    A run with no image reports nothing here, in the way HLR-140 requires of every part of the filter.
+    *Trace:* [SDD Section 13](SDD.md), [SDD Section 20](SDD.md), [SDD Section 14](SDD.md).
 
 ## 23. Report Composition and Per-Function Banding
 

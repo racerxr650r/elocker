@@ -1735,6 +1735,7 @@ static int image_filter_section(const Report *report, Style style,
 	char b[32];
 	char c[32];
 	char d[32];
+	char e[32];
 
 	/* The linked image these figures describe.
 	 *
@@ -1773,6 +1774,70 @@ static int image_filter_section(const Report *report, Style style,
 	grid_row(&grid, "Lines not compiled by this build", c);
 	snprintf(d, sizeof d, "%" PRIu64, report->uncovered_files);
 	grid_row(&grid, "Files with no debug coverage", d);
+	/* The same evidence read at a coarser grain, and reported apart from
+	 * the undecided count in the project summary because the two are
+	 * different claims. A region counted here was settled by what the
+	 * build compiled rather than by a `-D`, which is strong evidence and
+	 * not a definition — HLR-154's limit on what an absent line means
+	 * applies to it, and a reader can only weigh that if they can see how
+	 * many regions it decided (HLR-211). */
+	snprintf(e, sizeof e, "%" PRIu64, report->image_decided_regions);
+	grid_row(&grid, "Regions decided by this build", e);
+	if (grid_render(&grid, style, out, empty) != 0)
+		return -1;
+
+	return 0;
+}
+
+/* The functions the image places that the parse did not reach.
+ *
+ * The other direction of the mismatch the section below reports, and beside it
+ * for that reason: one names a function the source defines and the build
+ * dropped, this one a function the build defines and the grammar never saw. A
+ * macro expanding to a whole definition is the case — `ISR(USART0_DRE_vect)`
+ * is a function to the compiler and an expression statement to tree-sitter —
+ * and repair cannot reach it, because repair does not know the macro *defines*
+ * one (HLR-212).
+ *
+ * **Three columns, and the absence of the other six is the requirement.** The
+ * Functions table carries a visibility, a line count, an ELOC, a complexity,
+ * two degrees and a maintainability index, and `elc` has none of them here: it
+ * has a name and a line, from the image, and no body at all. A row with zeroes
+ * in those columns would report an absence as a measurement, which is what
+ * HLR-133 refuses for an undecidable condition and HLR-138 for a language with
+ * no dead-code query. The table has no columns for them, so no later change
+ * can fill them in by accident.
+ *
+ * The same reasoning keeps these functions out of the call graph, out of the
+ * project's function count, and out of every band and threshold: a fan-out of
+ * zero for a body nobody read is not a fan-out of zero.
+ */
+static int placed_functions_section(const Report *report, Style style,
+                                    FILE *out, EmptyTables *empty)
+{
+	Grid grid;
+	char a[32];
+
+	if (!report->image)
+		return 0;
+
+	static const char *const names[] = { "Function", "File", "Line" };
+	char                     heading[128];
+
+	/* The shape of the section below, deliberately: the two are read
+	 * together, and a reader comparing them should not have to reconcile
+	 * two column orders to do it. */
+	snprintf(heading, sizeof heading,
+	         "Functions the image places that the parse did not reach "
+	         "(%zu; no figures are measured for them)",
+	         report->placed_count);
+	grid_begin(&grid, heading, 3, names, NULL);
+	for (size_t i = 0; i < report->placed_count; i++) {
+		const PlacedRow *r = &report->placed[i];
+
+		snprintf(a, sizeof a, "%" PRIu32, r->line);
+		grid_row(&grid, r->function, r->file, a);
+	}
 	if (grid_render(&grid, style, out, empty) != 0)
 		return -1;
 
@@ -1981,6 +2046,7 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		 * one row per function the build dropped — and it answers a
 		 * question a reader asks after reading the report rather than
 		 * one they read the report to answer (HLR-184). */
+		{ placed_functions_section,      TIER_DETAIL,  NULL            },
 		{ absent_functions_section,      TIER_DETAIL,  NULL            },
 	};
 	EmptyTables empty;

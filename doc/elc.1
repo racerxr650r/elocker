@@ -541,6 +541,42 @@ One record per function, RFC 4180, with the complete dataset: the complexity
 threshold does not filter it. The architectural findings are absent, not
 omitted — they are not expressible as a single flat record set. Every field
 that contains a comma, a quotation mark, or a line break is quoted.
+.IP
+The columns are the ones the
+.B Functions
+table of a human\-readable report carries, in its order:
+.IP
+.EX
+file,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
+/src/a.c:12,measure,public,9,4,2,3,1,84
+.EE
+.IP
+.B file
+is
+.IR path : line
+\(em the function's first line, in the same navigable form the report prints
+\(em and
+.B lines
+is the number of lines the function occupies rather than a range. An unknown
+visibility is the empty field and never
+.BR public :
+a language whose module supplies no visibility rule has not been asked, and
+that is a different claim from having answered.
+.IP
+The record is that table for a consumer that loads it rather than reads it, so
+the two carry the same columns. Before elc 0.30 this format wrote
+.BR file,language,function,start_line,end_line,eloc,complexity .
+A consumer reading the old shape takes the start line from the
+.B file
+field, reads
+.B lines
+where it computed
+.BR "end_line \- start_line" ,
+and finds the file's language in the
+.B Files
+table of a report or in the
+.B xml
+record, which is unchanged and still carries a separate start and end line.
 .TP
 .B xml
 The complete record of a run, carrying every element any report may present
@@ -1694,6 +1730,45 @@ A call whose target the filter removed is counted
 .I unresolved
 rather than resolved to a function that is not in the image, so the
 reachability analysis stays sound.
+.SS Functions only the image can place
+The mirror of the section above, and the fourth direction the two views can
+disagree in.
+.B ISR(USART0_DRE_vect)
+is a macro that expands to a whole function definition: a function to the
+compiler, and an expression to the grammar
+.B elc
+parses with. No repair reaches it, because a repair does not know the macro
+.I defines
+a function. The image's debug information does, and says which file and which
+line.
+.PP
+Such a function is reported, on a filtered run, under
+.B Functions the image places that the parse did not reach
+\(em with its name and its location, and with no figure of any kind beside it.
+.B elc
+has no body for it, so it has no ELOC, no complexity, no maintainability index
+and no call sites, and reporting a zero for any of those would state an absence
+as a measurement. For the same reason such a function enters no call graph, is
+counted in no total, and is named by no threshold; a call
+.I to
+one is counted among the
+.B Unresolved calls
+where every call the graph cannot represent is counted.
+.PP
+The symbol table decides which functions these are and the debug information
+only decides where they are. The two disagree ordinarily rather than
+exceptionally: a link that discards unused sections removes the code while the
+compiler's entry describing it stays behind, so a function the link dropped is
+reported under
+.B Functions the image does not define
+and never here.
+.PP
+Where
+.B elc
+can run the preprocessor over a file, the definition is expanded into place at
+its own line and measured like any other function, and nothing is reported
+here. This section is what a cross\-compiled tree gets, where the host
+toolchain cannot reach the target's headers.
 .SS Lines the build did not compile
 An image answers "what did this build keep?" at two granularities. Everything
 above is the first: the symbol table names the
@@ -1719,10 +1794,46 @@ This is where an image outreaches
 .BR \-D .
 A region guarded by a symbol you did not restate is one
 .B elc
-cannot decide, so it is left whole and counted among the
+cannot decide from the source, so it is left whole and counted among the
 .BR "Undecided regions" .
 The image settles it: the build compiled nothing there, and the mapping says
 so.
+.PP
+.B The region is settled whole, and the count says how often that happened.
+A conditional region none of whose lines produced an instruction is inactive
+for that build; one whose lines did is active. A region carrying an
+.B #else
+is judged against that alternative \(em exactly one of the two branches was
+compiled, and the mapping says which \(em and one without is judged inactive
+only where a line before it and a line after it were both compiled, so that a
+gap in the middle of compiled code is not confused with the edge of what the
+build described. Anything else stays undecidable.
+.PP
+Regions settled this way are counted as
+.B Regions decided by this build
+in the
+.B Linked\-image filter
+section, apart from the ones a
+.B \-D
+settled and apart from the ones nothing settled. The three are different
+claims. A
+.B \-D
+is what
+.I you
+say the configuration is and is consulted first; this is evidence about the
+build in front of
+.BR elc ,
+strong enough to act on and not a proof \(em so the figure is there to be
+weighed rather than folded into a total.
+.PP
+A file whose only undecidable regions the image settles becomes eligible for
+macro expansion, which
+.B elc
+refuses to a file holding a region it could not decide. That is the intended
+consequence: the objection to expanding such a file is that the preprocessor
+would silently resolve what
+.B elc
+had declared unresolvable, and here an answer is available.
 .PP
 .B Absence of a line is evidence only where coverage was established.
 A translation unit compiled without
@@ -1740,6 +1851,12 @@ What the finer filter removed.
 Where it could not look. A large figure here beside a small one above says the
 report describes your source more nearly than your image, whatever image you
 named.
+.TP
+.B Regions decided by this build
+How many conditional regions the same evidence settled at the coarser grain.
+A region excluded whole is not pruned again line by line, so a run reporting
+regions here will report fewer lines above; the two figures divide one
+mechanism's work rather than counting it twice.
 .PP
 Read them as you read
 .B Unresolved calls
@@ -2286,7 +2403,7 @@ unchanged by what the list contains.
 .B elc \-f md src/ > report.md
 Produce a Markdown report.
 .TP
-.B elc \-f csv src/ | cut \-d, \-f3,7
+.B elc \-f csv src/ | cut \-d, \-f2,6
 Take the function names and their complexities into another tool.
 .TP
 .B elc \-f xml \-o run.xml src/ && elc \-\-from\-xml run.xml \-c 8

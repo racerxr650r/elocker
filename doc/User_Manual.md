@@ -335,7 +335,7 @@ summarising, so they are worth reading precisely:
 | `Unparsed lines` | Lines the grammar could not follow; every other figure covers the rest of the file — see [When the parser cannot follow your code](#when-the-parser-cannot-follow-your-code) |
 | `Critical findings`, `Warnings` | How many rows the **Findings** section holds at each severity. Neither reaches the exit status |
 | `Unresolved calls` | Call sites with no definition in what you analysed — a measure of how complete the graph is, not a defect |
-| `Undecided regions` | Conditional regions left counted because their condition could not be decided from the `-D` symbols you gave |
+| `Undecided regions` | Conditional regions left counted because their condition could not be decided from the `-D` symbols you gave — nor, on a filtered run, from what the image shows the build compiled |
 
 Two of those state the *completeness* of a measurement rather than measuring
 anything: `Unresolved calls` and `Undecided regions`. They are printed beside
@@ -519,8 +519,32 @@ elc -f xml src/          # the complete record of the run
 | ------ | --------- | --- | ----- |
 | `table` | `.txt` | reading | The default on standard output |
 | `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order; each table folded behind a click-to-expand |
-| `csv` | `.csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it |
+| `csv` | `.csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it. The same columns the Functions table carries |
 | `xml` | `.xml` | keeping | Complete record; what `--from-xml` reads back |
+
+### The CSV record is the Functions table, loaded rather than read
+
+They carry the same columns, in the same order:
+
+```console
+$ elc -f csv src/ | head -3
+file,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
+/home/you/src/measure.c:12,measure,public,9,4,2,3,1,84
+/home/you/src/measure.c:24,scale,private,6,3,1,1,0,91
+```
+
+`file` is `path:line` — the function's first line, in the navigable form the
+report prints — and `lines` is the number of lines the function occupies
+rather than a range. An unknown visibility is the empty field and never
+`public`: a language whose module supplies no visibility rule has not been
+asked, and that is a different claim from having answered.
+
+**If you are reading a CSV written by elc 0.29 or earlier**, the shape was
+`file,language,function,start_line,end_line,eloc,complexity`. To move: take the
+start line from the `file` field, read `lines` where you computed
+`end_line - start_line`, and take the file's language from the `Files` table of
+a report — or from the `xml` record, which is unchanged and still carries a
+separate start and end line.
 
 ### The Markdown report folds its tables away
 
@@ -648,6 +672,7 @@ match — is a detail tier.
 | Unreachable functions, Dead code within functions | — | ✅ |
 | Cross-scope access | — | ✅ |
 | Custom rule matches | — | ✅ |
+| Functions the image places that the parse did not reach | — | ✅ |
 | Functions the image does not define (**last**) | — | ✅ |
 
 **The last row is last on purpose.** The functions a linked image does not
@@ -2066,7 +2091,7 @@ give both at once.
 
 ### What the report looks like
 
-Two new sections appear, and only when you supply an image — a run without
+New sections appear, and only when you supply an image — a run without
 `--elf` reports exactly what it reported before the option existed:
 
 ```
@@ -2078,6 +2103,12 @@ Linked-image filter
   ELOC outside any function         2
   Lines not compiled by this build  14
   Files with no debug coverage      1
+  Regions decided by this build     3
+
+Functions the image places that the parse did not reach (1; no figures are measured for them)
+  Function     File            Line
+  -----------  --------------  ----
+  __vector_12  /src/sys.c        44
 
 Functions the image does not define (2)
   Function      File                Line
@@ -2140,6 +2171,45 @@ counts it among the **Undecided regions** — the honest answer from the source
 alone. The image settles it. Your build compiled nothing there, the line
 mapping says so, and those two lines leave the count.
 
+#### The region is settled whole, and the count says how often
+
+`elc` does not take the lines out one at a time here. It asks whether the
+*region* produced any instruction at all:
+
+*   **No line of it did, and it has an `#else` whose lines did** → inactive.
+    Exactly one of two branches was compiled and the mapping says which. This
+    is the strongest form the evidence takes, because nothing outside the
+    region is consulted.
+*   **No line of it did, and a line before it and a line after it both did**
+    → inactive. The bracketing is what makes the absence mean something: the
+    mapping was being written across this stretch of the file, so the gap is a
+    gap and not the edge of what the build described.
+*   **Some line of it did** → active, and an `#else` it has goes instead.
+*   **Anything else** → still undecidable, and still counted so.
+
+Regions settled this way are reported as **Regions decided by this build**,
+separately from the ones a `-D` settled and from the ones nothing settled. The
+three are different claims, and the separation is the point:
+
+> A `-D` is what **you** say the configuration is, and it is consulted first —
+> supply the defining `-D` and no region is decided from the image at all. The
+> image is evidence about the build in front of `elc`: strong enough to act on,
+> and not a proof. Two things can mislead it. An optimiser removing code makes
+> a region look uncompiled (the same limit the line count carries), and a
+> region holding only declarations or data produces no line entries whether or
+> not it was compiled. Both err in the direction of excluding, both are visible
+> in this figure, and neither is silent.
+
+A region excluded whole is not pruned again line by line, so a run reporting
+regions here reports fewer lines under **Lines not compiled by this build**.
+The two figures divide one mechanism's work; they do not count it twice.
+
+**One more thing follows.** `elc` refuses to expand the macros of a file
+holding a region it could not decide, because the preprocessor would silently
+resolve what `elc` had just declared unresolvable. A file whose only such
+regions the image settles is no longer in that position, so it is expanded —
+which is why supplying an image can raise the **Files expanded** count.
+
 #### Absence of a line proves nothing where coverage was never established
 
 A translation unit compiled **without** `-g` contributes no line entries at
@@ -2186,6 +2256,55 @@ the function's body, so that whole body is pruned and the function reports an
 ELOC of 0. That is a true statement about what shipped — the code really did
 contribute no instructions — and it is why the two counts exist rather than
 being left to be inferred. Neither is a defect to correct.
+
+### Functions only the image can place
+
+`ISR(USART0_DRE_vect)` is a macro that expands to a whole function definition.
+To the compiler it is a function; to the grammar `elc` parses with, it is an
+expression. No repair helps, because a repair does not know that the macro
+*defines* a function. The image's debug information does, and says which file
+and which line:
+
+```text
+Functions the image places that the parse did not reach (11; no figures are measured for them)
+  Function     File                        Line
+  -----------  --------------------------  ----
+  __vector_12  /home/u/avrOS/sys/sys.c       44
+  __vector_19  /home/u/avrOS/drv/uart.c      54
+  ...
+```
+
+**Three columns, and the absence of the other six is deliberate.** `elc` has a
+name and a location, from the image, and no body at all — so it has no ELOC, no
+complexity, no maintainability index and no fan-in or fan-out. A row carrying
+zeroes for those would state an absence as a measurement, which is the one
+thing `elc` will not do. For the same reason such a function:
+
+*   is **not** in the Functions table and **not** in the project's function
+    count — every figure there is a measurement, and none of these was
+    measured;
+*   is **not** in the call graph. It has no parsed body, so it has no outgoing
+    edges, and a fan-out of 0 for it would be a measurement of something nobody
+    measured;
+*   is **not** banded and **not** named by a threshold, for the same reason.
+
+A call *to* one is counted among the **Unresolved calls** — where every call
+the graph cannot represent is counted, a call into libc among them.
+
+**The symbol table decides which functions these are.** The debug information
+only decides *where* they are. The two disagree ordinarily rather than
+exceptionally: a link that discards unused sections removes the code while the
+compiler's entry describing it stays behind. A function the link dropped is
+reported under **Functions the image does not define** and never here — on a
+real AVR build, trusting the debug information alone would have listed 82
+functions where 11 were real, and the other 71 were already named, rightly, in
+the other table.
+
+**Where `elc` can run the preprocessor, there is nothing to recover.** The
+definition is expanded into place at its own line and measured like any other
+function. This section is what a cross-compiled tree gets, where the host
+toolchain cannot reach the target's headers — see
+[macro expansion](#macro-expansion) for when that happens.
 
 ### Code outside a function is kept, and counted on its own
 

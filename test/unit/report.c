@@ -12,6 +12,7 @@
 
 #include "analyze.h"
 #include "elc.h"
+#include "elfsyms.h"
 #include "report.h"
 
 /* --------------------------------------------------------------- --wrap ---
@@ -355,6 +356,157 @@ Test(report, a_failed_growth_leaves_the_accumulator_intact)
 	/* The caller still owns the metrics on the failure path. */
 	filemetrics_free(m);
 	metrics_free(&acc);
+}
+
+/* ---------------------------------------------- functions only the image places */
+
+/* An image described by hand: the symbol table the link produced, and the
+ * debug information describing what the compiler saw. The two are given
+ * separately because the whole point of the tests below is that they can
+ * disagree.
+ *
+ * Both arrays are allocated here and released by `elfsyms_free`, which owns
+ * everything a real image's read produced. `names` is given sorted, which is
+ * what `elfsyms_defines` binary-searches.
+ */
+static void image_of(SymbolSet *image, const char *const *names,
+                     size_t name_count,
+                     const char *const *functions, const char *const *files,
+                     const uint32_t *lines, size_t origin_count)
+{
+	memset(image, 0, sizeof *image);
+	image->path = strdup("/image");
+	cr_assert_not_null(image->path);
+
+	image->names = calloc(name_count ? name_count : 1, sizeof *image->names);
+	cr_assert_not_null(image->names);
+	for (size_t i = 0; i < name_count; i++) {
+		image->names[i] = strdup(names[i]);
+		cr_assert_not_null(image->names[i]);
+	}
+	image->count    = name_count;
+	image->capacity = name_count;
+
+	image->origins.items = calloc(origin_count ? origin_count : 1,
+	                              sizeof *image->origins.items);
+	cr_assert_not_null(image->origins.items);
+	for (size_t i = 0; i < origin_count; i++) {
+		image->origins.items[i].name = strdup(functions[i]);
+		image->origins.items[i].file = strdup(files[i]);
+		cr_assert_not_null(image->origins.items[i].name);
+		cr_assert_not_null(image->origins.items[i].file);
+		image->origins.items[i].line = lines[i];
+	}
+	image->origins.count    = origin_count;
+	image->origins.capacity = origin_count;
+	image->origins.present  = true;
+}
+
+/* Verifies LLR-PLC-01 and LLR-PLC-02: a definition the debug information
+ * places at a line no parsed function covers is reported, and one it places
+ * inside a parsed function is not.
+ */
+Test(report, a_definition_no_parsed_function_covers_is_reported)
+{
+	MetricsAccumulator acc    = { 0 };
+	Report             report = { 0 };
+	ElcOptions         opts   = { 0 };
+	SymbolSet          image;
+	FileMetrics       *a      = metrics_for("/a.c", 40);
+	/* Sorted, which is what the symbol lookup binary-searches. */
+	const char *const  names[]     = { "from_macro", "parsed" };
+	const char *const  functions[] = { "from_macro", "parsed" };
+	/* The second is placed inside the parsed extent; the first is not. */
+	const char *const  files[]     = { "/a.c", "/a.c" };
+	const uint32_t     lines[]     = { 20, 10 };
+
+	a->functions = calloc(1, sizeof *a->functions);
+	cr_assert_not_null(a->functions);
+	a->function_count          = 1;
+	a->functions[0].name       = strdup("parsed");
+	a->functions[0].start_line = 10;
+	a->functions[0].end_line   = 14;
+
+	image_of(&image, names, 2, functions, files, lines, 2);
+
+	cr_assert_eq(metrics_add(&acc, a), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
+	cr_assert_eq(report_set_image(&report, &image), 0);
+
+	cr_assert_eq(report.placed_count, 1,
+	             "only the definition no function covers");
+	cr_assert_str_eq(report.placed[0].function, "from_macro");
+	cr_assert_str_eq(report.placed[0].file, "/a.c");
+	cr_assert_eq(report.placed[0].line, 20);
+
+	report_free(&report);
+	metrics_free(&acc);
+	elfsyms_free(&image);
+}
+
+/* Verifies LLR-PLC-02: the symbol table governs, not the debug information.
+ *
+ * They disagree, and ordinarily: a link that discards unused sections removes
+ * the code while the compiler's subprogram entry for it stays behind,
+ * describing a function that is no longer in the image. Measured on an AVR
+ * build of `avrOS`, believing the debug information alone reported 82 such
+ * functions where 11 were real — and the other 71 were already named, rightly,
+ * among the functions the image does *not* define.
+ */
+Test(report, a_definition_the_link_dropped_is_not_placed)
+{
+	MetricsAccumulator acc    = { 0 };
+	Report             report = { 0 };
+	ElcOptions         opts   = { 0 };
+	SymbolSet          image;
+	FileMetrics       *a      = metrics_for("/a.c", 40);
+	const char *const  names[]     = { "kept" };
+	const char *const  functions[] = { "discarded" };
+	const char *const  files[]     = { "/a.c" };
+	const uint32_t     lines[]     = { 20 };
+
+	image_of(&image, names, 1, functions, files, lines, 1);
+
+	cr_assert_eq(metrics_add(&acc, a), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
+	cr_assert_eq(report_set_image(&report, &image), 0);
+
+	cr_assert_eq(report.placed_count, 0,
+	             "the debug information outlived the code it described");
+
+	report_free(&report);
+	metrics_free(&acc);
+	elfsyms_free(&image);
+}
+
+/* Verifies LLR-PLC-01: a definition with no recorded line is not placed at
+ * line zero, and one written in a file this run did not analyse is not placed
+ * at all — the map holds every definition in the image, most of them written
+ * somewhere `elc` was never pointed at. */
+Test(report, a_definition_with_no_location_or_no_file_here_is_not_placed)
+{
+	MetricsAccumulator acc    = { 0 };
+	Report             report = { 0 };
+	ElcOptions         opts   = { 0 };
+	SymbolSet          image;
+	FileMetrics       *a      = metrics_for("/a.c", 40);
+	const char *const  names[]     = { "elsewhere", "nowhere" };
+	const char *const  functions[] = { "elsewhere", "nowhere" };
+	/* One written in a file this run did not analyse, one with no line. */
+	const char *const  files[]     = { "/other.c", "/a.c" };
+	const uint32_t     lines[]     = { 5, 0 };
+
+	image_of(&image, names, 2, functions, files, lines, 2);
+
+	cr_assert_eq(metrics_add(&acc, a), 0);
+	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
+	cr_assert_eq(report_set_image(&report, &image), 0);
+
+	cr_assert_eq(report.placed_count, 0);
+
+	report_free(&report);
+	metrics_free(&acc);
+	elfsyms_free(&image);
 }
 
 Test(report, free_is_safe_on_null)

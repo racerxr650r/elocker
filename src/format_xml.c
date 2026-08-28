@@ -367,12 +367,27 @@ static void write_image(const Report *report, FILE *out)
 	 * them from (HLR-155, LLR-XWR-14). */
 	fprintf(out, " unresolved=\"%" PRIu64 "\" file-scope-eloc=\"%" PRIu64
 	        "\" pruned-lines=\"%" PRIu64 "\" uncovered-files=\"%" PRIu64
-	        "\">\n", report->image_unresolved, report->file_scope_eloc,
-	        report->pruned_lines, report->uncovered_files);
+	        "\" image-decided-regions=\"%" PRIu64 "\">\n",
+	        report->image_unresolved, report->file_scope_eloc,
+	        report->pruned_lines, report->uncovered_files,
+	        report->image_decided_regions);
 	for (size_t i = 0; i < report->absent_count; i++) {
 		const AbsentRow *r = &report->absent[i];
 
 		fputs("    <absent", out);
+		write_attribute(out, "function", r->function);
+		write_attribute(out, "file", r->file);
+		fprintf(out, " line=\"%" PRIu32 "\"/>\n", r->line);
+	}
+	/* Written out rather than re-derived, for the reason the absent rows
+	 * are: a regenerated report has no image to read them off, and a table
+	 * present in a direct run and missing from the record's report would
+	 * make the two disagree about what the build contains (HLR-056,
+	 * HLR-212). */
+	for (size_t i = 0; i < report->placed_count; i++) {
+		const PlacedRow *r = &report->placed[i];
+
+		fputs("    <placed", out);
 		write_attribute(out, "function", r->function);
 		write_attribute(out, "file", r->file);
 		fprintf(out, " line=\"%" PRIu32 "\"/>\n", r->line);
@@ -736,6 +751,9 @@ typedef struct {
 	uint64_t            file_scope_eloc;
 	uint64_t            pruned_lines;
 	uint64_t            uncovered_files;
+	uint64_t            image_decided_regions;
+	PlacedRow          *placed;
+	size_t              placed_count;
 	AbsentRow          *absent;
 	size_t              absent_count;
 	PathList            dead_unanalysed;
@@ -1364,7 +1382,47 @@ static void on_image(ReadState *state, const XML_Char **atts)
 	state->pruned_lines     = uint_attribute(state, atts, "pruned-lines");
 	state->uncovered_files  = uint_attribute(state, atts,
 	                                         "uncovered-files");
+	state->image_decided_regions = uint_attribute(state, atts,
+	                                         "image-decided-regions");
 	return;
+}
+
+/* One function the image places that the parse did not reach.
+ *
+ * `on_absent` for the other direction of the same mismatch, and read the same
+ * way. Absent from a record written before this existed, which costs nothing:
+ * no element means no rows, and the regenerated report says the run found none
+ * — which is what that run reported (HLR-212). */
+static void on_placed(ReadState *state, const XML_Char **atts)
+{
+	const char *function = attribute(atts, "function");
+	const char *file     = attribute(atts, "file");
+
+	if (!function || !file) {
+		fail(state, "a placed element is incomplete");
+		return;
+	}
+
+	PlacedRow *grown = realloc(state->placed,
+	                           (state->placed_count + 1) * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->placed = grown;
+
+	PlacedRow *row = &state->placed[state->placed_count];
+
+	memset(row, 0, sizeof *row);
+	row->function = strdup(function);
+	row->file     = strdup(file);
+	if (!row->function || !row->file) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->line = uint_attribute(state, atts, "line");
+	state->placed_count++;
 }
 
 static void on_absent(ReadState *state, const XML_Char **atts)
@@ -2051,6 +2109,7 @@ static const struct {
 	{ "span",                on_span },
 	{ "image",               on_image },
 	{ "absent",              on_absent },
+	{ "placed",              on_placed },
 	{ "configuration",       on_configuration },
 	{ "define",              on_define },
 	{ "match",               on_match },
@@ -2243,6 +2302,11 @@ static void free_source_state(ReadState *state)
 		free(state->absent[i].file);
 	}
 	free(state->absent);
+	for (size_t i = 0; i < state->placed_count; i++) {
+		free(state->placed[i].function);
+		free(state->placed[i].file);
+	}
+	free(state->placed);
 	free(state->image);
 	for (size_t i = 0; i < state->dead_unanalysed.count; i++)
 		free(state->dead_unanalysed.paths[i]);
@@ -2385,6 +2449,9 @@ static void move_to_report(ReadState *state, Report *out)
 	out->uncovered_files            = state->uncovered_files;
 	out->absent                     = state->absent;
 	out->absent_count               = state->absent_count;
+	out->image_decided_regions      = state->image_decided_regions;
+	out->placed                     = state->placed;
+	out->placed_count               = state->placed_count;
 	out->dead_unanalysed            = state->dead_unanalysed;
 	state->global_state             = NULL;
 	state->global_state_count       = 0;
@@ -2416,6 +2483,8 @@ static void move_to_report(ReadState *state, Report *out)
 	state->image                    = NULL;
 	state->absent                   = NULL;
 	state->absent_count             = 0;
+	state->placed                   = NULL;
+	state->placed_count             = 0;
 	memset(&state->dead_unanalysed, 0, sizeof state->dead_unanalysed);
 }
 

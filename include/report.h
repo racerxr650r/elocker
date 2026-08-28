@@ -89,6 +89,27 @@ typedef struct {
 	uint32_t  line;
 } AbsentRow;
 
+/* One function the image's debug information places in an analysed file, at a
+ * line the parse found no function on (HLR-212).
+ *
+ * The mirror of an `AbsentRow`, and the two are the two directions of one
+ * mismatch: that one is a function the source defines and the build dropped,
+ * this one a function the build defines and the grammar never saw — because a
+ * macro expanded into a whole definition, and tree-sitter is looking at the
+ * macro.
+ *
+ * **Name and location, and deliberately nothing else.** `elc` has no body for
+ * it, so it has no ELOC, no complexity, no maintainability index and no edges,
+ * and a row carrying zeroes for those would report an absence as a
+ * measurement — which is the thing HLR-133 and HLR-138 both exist to refuse.
+ * The record has no fields for them, so none can be invented later.
+ */
+typedef struct {
+	char     *function;  /* as the debug information records it; owned  */
+	char     *file;      /* owned                                       */
+	uint32_t  line;      /* `DW_AT_decl_line`, 1-based                  */
+} PlacedRow;
+
 /* One function no path reaches from any root (HLR-096). */
 typedef struct {
 	char     *function;  /* owned */
@@ -549,6 +570,21 @@ typedef struct {
 	 * reader cannot infer from the metrics themselves. */
 	uint64_t       pruned_lines;
 	uint64_t       uncovered_files;
+	/* Conditional regions no `-D` decided and the image's line information
+	 * did, summed over every file (HLR-211).
+	 *
+	 * Beside the pruned-line count because it is the same evidence read at
+	 * a coarser grain, and apart from `undecided_regions` because it is a
+	 * different claim: that figure says where the pruning could not look,
+	 * and this one says where the build answered instead. A reader who
+	 * could not tell them apart would take evidence for a definition. */
+	uint64_t       image_decided_regions;
+	/* The fourth direction: functions the image defines that the parse did
+	 * not reach, in file then line order (HLR-212). Empty on a run with no
+	 * image, and empty where every subprogram the image places falls on a
+	 * line some parsed function covers — which is every ordinary file. */
+	PlacedRow     *placed;           /* owned                            */
+	size_t         placed_count;
 
 	PathList       skipped_files; /* sorted by path; owned (HLR-012)  */
 } Report;

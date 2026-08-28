@@ -258,7 +258,7 @@ the target, an ancestor, or a dotfile. And `--purify-dot` draws the graph twice,
 before and after, with the masked functions greyed and detached rather than
 deleted, so you can see what was set aside before deciding to trust it.
 
-**Progress: 30 of 30 phases complete.**
+**Progress: 31 of 31 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -295,6 +295,7 @@ deleted, so you can see what was set aside before deciding to trust it.
 | [27](doc/SDP.md#phase-27--preprocessor-macro-expansion--ast-sanitization) | Macro expansion through `gcc -E`, filtered to project source and reported per file | ✅ Complete |
 | [28](doc/SDP.md#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | ✅ Complete |
 | [29](doc/SDP.md#phase-29--function-visibility-and-editor-navigable-locations) | Public/private visibility, `path:line` locations, and a line count | ✅ Complete |
+| [30](doc/SDP.md#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
 
 </details>
 
@@ -322,7 +323,12 @@ actually get, and which functions are provably unreachable.
 
 **Which of it your build actually keeps.** Name a configuration with `-D` or a
 linked image with `--elf`, and the figures describe the program that ships
-rather than the source it was drawn from.
+rather than the source it was drawn from. An image carrying debug information
+answers two more questions the source cannot: which branch of an `#ifdef` you
+never restated the build actually took, and where the functions a macro defines
+are — an `ISR(...)` is a function to the compiler and an expression to a
+grammar, and the image is what knows better. Both are reported as evidence,
+counted apart from what you declared, and neither is ever required.
 
 ## Why another metrics tool
 

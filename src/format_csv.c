@@ -6,6 +6,19 @@
  * by omission — they are not expressible as a single flat record set, and
  * XML is the format that carries a complete run (LLR-CSV-02).
  *
+ * **The columns are the Functions table's columns, in its order.** CSV is that
+ * table for a consumer that loads it rather than reads it, and the two had
+ * drifted: the table gained a visibility, a navigable location and the flow
+ * degrees, and this still wrote a language and a line range nothing else
+ * reported. One view of one set of rows, spelled two ways, is two views nobody
+ * reconciles (HLR-014).
+ *
+ * That reverses what HLR-014 said of the complete-record formats — that they
+ * keep a start and an end line because a consumer cannot subtract a column it
+ * was not given. The reasoning holds for XML, which must rebuild a report from
+ * its record and needs both numbers as numbers (HLR-056). It did not hold
+ * here, where the record is the table.
+ *
  * Every field goes through `write_field`. Not most fields: every one. A C++
  * template signature such as `foo<int, long>` contains a comma, and one
  * field emitted without quoting splits a record in two — which no consumer
@@ -56,11 +69,29 @@ static void write_record(FILE *out, size_t count, const char *const *fields)
 	fputs("\r\n", out);
 }
 
+/* What the record calls a visibility.
+ *
+ * The three states `format_text.c` renders, spelled for a consumer rather than
+ * for a reader: the unknown state is the empty field, which is what a loader
+ * reads as "no value" and what an em dash would not be. It is never written as
+ * `public` — a language whose module supplies no visibility query has not been
+ * asked, and that is a different claim from having answered (HLR-209).
+ */
+static const char *csv_visibility(Visibility v)
+{
+	switch (v) {
+	case VISIBILITY_PUBLIC:  return "public";
+	case VISIBILITY_PRIVATE: return "private";
+	case VISIBILITY_UNKNOWN:
+	default:                 return "";
+	}
+}
+
 int format_csv(const Report *report, FILE *out)
 {
 	static const char *const header[] = {
-		"file", "language", "function", "start_line", "end_line",
-		"eloc", "complexity"
+		"file", "function", "visibility", "lines", "eloc",
+		"complexity", "fan_in", "fan_out", "mi"
 	};
 	const size_t columns = sizeof header / sizeof *header;
 
@@ -73,19 +104,30 @@ int format_csv(const Report *report, FILE *out)
 
 		for (size_t j = 0; j < f->function_count; j++) {
 			const FunctionMetric *fn = &f->functions[j];
-			char start[16], end[16], eloc[16], complexity[16];
+			char where[4096];
+			char lines[16], eloc[16], complexity[16];
+			char fan_in[16], fan_out[16], mi[16];
 			const char *fields[] = {
-				f->path,
-				f->language ? f->language : "",
-				fn->name,
-				start, end, eloc, complexity
+				where, fn->name,
+				csv_visibility(fn->visibility),
+				lines, eloc, complexity, fan_in, fan_out, mi
 			};
 
-			snprintf(start, sizeof start, "%" PRIu32, fn->start_line);
-			snprintf(end, sizeof end, "%" PRIu32, fn->end_line);
+			/* `path:line`, the same field the table carries. The
+			 * start line is in it rather than in a column of its
+			 * own, which is what makes the extent a count here as
+			 * it is there (HLR-014, HLR-210). */
+			snprintf(where, sizeof where, "%s:%" PRIu32,
+			         f->path, fn->start_line);
+			snprintf(lines, sizeof lines, "%" PRIu32,
+			         fn->end_line - fn->start_line + 1);
 			snprintf(eloc, sizeof eloc, "%" PRIu32, fn->eloc);
 			snprintf(complexity, sizeof complexity, "%" PRIu32,
 			         fn->complexity);
+			snprintf(fan_in, sizeof fan_in, "%" PRIu32, fn->fan_in);
+			snprintf(fan_out, sizeof fan_out, "%" PRIu32,
+			         fn->fan_out);
+			snprintf(mi, sizeof mi, "%" PRIu32, fn->mi);
 
 			write_record(out, columns, fields);
 		}

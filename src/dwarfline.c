@@ -290,7 +290,8 @@ static int origin_grow(OriginMap *out)
  * a header included by twenty units names its inline functions twenty times —
  * and each is the same fact stated again.
  */
-static int origin_add(OriginMap *out, const char *name, char *file)
+static int origin_add(OriginMap *out, const char *name, char *file,
+                      uint32_t line)
 {
 	for (size_t i = 0; i < out->count; i++)
 		if (strcmp(out->items[i].name, name) == 0 &&
@@ -310,6 +311,7 @@ static int origin_add(OriginMap *out, const char *name, char *file)
 		return -1;
 	}
 	out->items[out->count].file = file;
+	out->items[out->count].line = line;
 	out->count++;
 	return 0;
 }
@@ -327,6 +329,7 @@ static int on_subprogram(Dwarf_Die *die, void *arg)
 	const char *decl;
 	char       *path;
 	char       *key;
+	int         decl_line = 0;
 	int         rc;
 
 	/* A declaration with no code is not a definition, and the question is
@@ -339,6 +342,20 @@ static int on_subprogram(Dwarf_Die *die, void *arg)
 	decl = dwarf_decl_file(die);
 	if (!decl)
 		return DWARF_CB_OK;
+
+	/* The line the definition was written on, kept beside the file it was
+	 * written in. A subprogram a macro expanded into place is recorded at
+	 * the macro's own line, which is the only thing that says where in the
+	 * source it is — the parse found nothing there to say it (HLR-212).
+	 *
+	 * Recorded as zero where the producer wrote none, rather than making
+	 * the entry conditional on it: the file placement is what HLR-193 asks
+	 * of this map and it does not depend on a line, and dropping the entry
+	 * would answer "not defined here" for a function the image plainly
+	 * defines. Zero is read as "no location" by the one caller that wants
+	 * one. */
+	if (dwarf_decl_line(die, &decl_line) != 0 || decl_line < 0)
+		decl_line = 0;
 
 	/* Keyed on the reduced form, because that is the form the source side
 	 * is compared in. DWARF records a template instantiation under its
@@ -358,7 +375,7 @@ static int on_subprogram(Dwarf_Die *die, void *arg)
 
 	/* `origin_add` takes the path and copies the key, so the key is ours
 	 * to release either way. */
-	rc = origin_add(walk->out, key, path);
+	rc = origin_add(walk->out, key, path, (uint32_t)decl_line);
 	free(key);
 	if (rc != 0) {
 		walk->status = -1;
@@ -622,12 +639,34 @@ bool dwarfline_covers(const LineCoverage *coverage, const char *path)
 	return lookup(coverage, path) != NULL;
 }
 
+/* The first entry at or after `line`, or the list's end.
+ *
+ * One search serving both queries below. The list is ascending and
+ * de-duplicated, so "is this line compiled" is "does the entry found here equal
+ * it", and "is any line in this range compiled" is "does the entry found here
+ * fall within it" — the same lookup asked two different questions.
+ */
+static size_t line_lower_bound(const CoveredFile *file, uint32_t line)
+{
+	size_t low  = 0;
+	size_t high = file->count;
+
+	while (low < high) {
+		size_t mid = low + (high - low) / 2;
+
+		if (file->lines[mid] < line)
+			low = mid + 1;
+		else
+			high = mid;
+	}
+	return low;
+}
+
 bool dwarfline_compiled(const LineCoverage *coverage, const char *path,
                         uint32_t line)
 {
 	const CoveredFile *file;
-	size_t             low;
-	size_t             high;
+	size_t             at;
 
 	if (!coverage || !path)
 		return false;
@@ -636,20 +675,38 @@ bool dwarfline_compiled(const LineCoverage *coverage, const char *path,
 	if (!file)
 		return false;   /* uncovered; the caller must have asked first */
 
-	low  = 0;
-	high = file->count;
-	while (low < high) {
-		size_t mid = low + (high - low) / 2;
+	at = line_lower_bound(file, line);
+	return at < file->count && file->lines[at] == line;
+}
 
-		if (file->lines[mid] == line)
-			return true;
-		if (file->lines[mid] < line)
-			low = mid + 1;
-		else
-			high = mid;
-	}
+bool dwarfline_compiled_between(const LineCoverage *coverage, const char *path,
+                                uint32_t from, uint32_t to)
+{
+	const CoveredFile *file;
+	size_t             at;
 
-	return false;
+	if (!coverage || !path || from > to)
+		return false;
+
+	file = lookup(coverage, path);
+	if (!file)
+		return false;   /* uncovered; the caller must have asked first */
+
+	at = line_lower_bound(file, from);
+	return at < file->count && file->lines[at] <= to;
+}
+
+size_t dwarfline_origin_count(const OriginMap *origins)
+{
+	return origins ? origins->count : 0;
+}
+
+const FunctionOrigin *dwarfline_origin_at(const OriginMap *origins, size_t at)
+{
+	if (!origins || at >= origins->count)
+		return NULL;
+
+	return &origins->items[at];
 }
 
 void dwarfline_free(LineCoverage *coverage)
