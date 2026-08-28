@@ -1907,12 +1907,16 @@ A JavaScript `const graphData` holding a Cytoscape elements array. Its shape is 
 *   **`static int append_layers(json_t *elements, const ElcOptions *opts)`** — Tier 1 — one node per declared stratum, at its declared ordinal.
 *   **`static int append_files(json_t *elements, const Sdg *g, const size_t *stratum)`** — Tier 2 — one node per component, parented on its layer where it has one.
 *   **`static int append_functions(json_t *elements, const Sdg *g)`** — Tier 3 — one node per graph node, parented on its component.
+*   **`static int function_fields(json_t *data, const SdgNode *n, size_t index, size_t component_count)`** — One function node's fields, split out of the loop and accumulating its failures rather than branching on them: a chain of `set_new(...) != 0 ||` per field is one decision point per field, and the two together put the caller over the complexity threshold elc holds its own source to (LLR-BLD-23).
 *   **`static int append_edges(json_t *elements, const Sdg *g)`** — The call edges, function to function, in ascending source-then-target order.
+*   **`static int html_edges_by_source_then_target(const void *a, const void *b)`** — The edge ordering. Named apart from `format_graph.c`'s identical comparison deliberately: two file-local functions sharing a name are a call elc cannot resolve, in its own source as in anyone's (HLR-075, LLR-BLD-25).
 *   **`static int write_payload(FILE *out, const char *json)`** — Write the serialised payload into the script element, escaping what JSON escaping does not.
 
 #### 27.3.2 Parsing Strategy / Algorithm
 
 **The hierarchy is read, not derived.** A function's component is `SdgNode.component` and a component's layer is `stratum_of_components`'s answer — the same call `format_dsm.c` makes, for the same reason it makes it. Two matchers over one set of stratum patterns would eventually disagree about which layer a file is in, and this drawing would then contradict the matrix printed beside it (HLR-164).
+
+**Two shapes here are owed to elc's own self-analysis gate, and are not stylistic.** The per-field population is split out of its loop and accumulates failures rather than branching on them, because a chain of `set_new(...) != 0 ||` is one decision point per field and the two together carried the caller over the complexity threshold elc holds its own source to (LLR-BLD-23). And the edge comparator is named apart from `format_graph.c`'s identical one, because elc resolves calls by matching names without a compiler's type information, so two file-local functions sharing a name are a call it cannot resolve — in its own source as in anyone's (HLR-075, LLR-BLD-25). Copying the name along with the comparison would have put an ambiguity into the very graph this artefact draws.
 
 **Identifiers are positional and stable.** `layer_<ordinal>`, `file_<component index>`, `func_<node index>`. The node index is the SDG's, which is the report's sorted file order (LLR-SDG-09), so the payload is byte-identical across runs without this module sorting anything — the property HLR-032 asks of every artefact, obtained here by inheriting an order rather than imposing one.
 

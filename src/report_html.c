@@ -188,49 +188,73 @@ static int append_files(json_t *elements, const Sdg *g, const size_t *stratum)
  * opinion about a function's complexity and it is the one with a threshold
  * behind it (HLR-099).
  */
+/* One function node's fields.
+ *
+ * Split out of the loop below, and the failures accumulated rather than
+ * branched on, because a chain of `set_new(...) != 0 || set_new(...) != 0 ||`
+ * is one decision point per field: the two together put this function over the
+ * complexity threshold `elc` holds its own source to (LLR-BLD-23). `set_new`
+ * returns 0 or -1 and never leaks on either, so OR-ing the results is
+ * equivalent to short-circuiting on the one path where they differ — an
+ * allocation failure, after which the whole document is discarded anyway.
+ */
+static int function_fields(json_t *data, const SdgNode *n, size_t index,
+                           size_t component_count)
+{
+	char id[64], parent[64];
+	int  rc = 0;
+
+	if (snprintf(id, sizeof id, "func_%zu", index) >= (int)sizeof id)
+		return -1;
+
+	rc |= set_new(data, "id", json_string(id));
+	rc |= set_new(data, "label", json_string(n->name));
+	rc |= set_new(data, "tier", json_string("function"));
+	rc |= set_new(data, "file", json_string(n->file ? n->file : ""));
+	rc |= set_new(data, "line", json_integer((json_int_t)n->line_start));
+	rc |= set_new(data, "eloc", json_integer((json_int_t)n->eloc));
+	rc |= set_new(data, "complexity",
+	              json_integer((json_int_t)n->complexity));
+
+	/* Unreachable by construction, and handled rather than asserted: the
+	 * failure it would otherwise produce is a `parent` naming a node that
+	 * does not exist, which a viewer reports as a corrupt document rather
+	 * than as the bug it is. */
+	if (n->component < component_count) {
+		if (snprintf(parent, sizeof parent, "file_%zu",
+		             n->component) >= (int)sizeof parent)
+			return -1;
+		rc |= set_new(data, "parent", json_string(parent));
+	}
+
+	return rc;
+}
+
 static int append_functions(json_t *elements, const Sdg *g)
 {
 	for (size_t i = 0; i < g->node_count; i++) {
-		const SdgNode *n    = &g->nodes[i];
-		json_t        *data = append_element(elements);
-		char           id[64], parent[64];
+		json_t *data = append_element(elements);
 
 		if (!data)
 			return -1;
-		if (snprintf(id, sizeof id, "func_%zu", i) >= (int)sizeof id)
+		if (function_fields(data, &g->nodes[i], i,
+		                    g->component_count) != 0)
 			return -1;
-
-		if (set_new(data, "id", json_string(id)) != 0 ||
-		    set_new(data, "label", json_string(n->name)) != 0 ||
-		    set_new(data, "tier", json_string("function")) != 0 ||
-		    set_new(data, "file",
-		            json_string(n->file ? n->file : "")) != 0 ||
-		    set_new(data, "line",
-		            json_integer((json_int_t)n->line_start)) != 0 ||
-		    set_new(data, "eloc",
-		            json_integer((json_int_t)n->eloc)) != 0 ||
-		    set_new(data, "complexity",
-		            json_integer((json_int_t)n->complexity)) != 0)
-			return -1;
-
-		/* Unreachable by construction, and handled rather than
-		 * asserted: the failure it would otherwise produce is a
-		 * `parent` naming a node that does not exist, which a viewer
-		 * reports as a corrupt document rather than as the bug it is. */
-		if (n->component < g->component_count) {
-			if (snprintf(parent, sizeof parent, "file_%zu",
-			             n->component) >= (int)sizeof parent)
-				return -1;
-			if (set_new(data, "parent", json_string(parent)) != 0)
-				return -1;
-		}
 	}
 	return 0;
 }
 
 /* Ascending source, then target — `format_graph.c`'s comparison, for the same
- * reason it has one (LLR-DOT-04). */
-static int by_source_then_target(const void *a, const void *b)
+ * reason it has one (LLR-DOT-04).
+ *
+ * **Named apart from that one deliberately.** `elc` resolves calls by matching
+ * names across the files it was given, without a compiler's type information,
+ * so two file-local functions sharing a name are a call it cannot resolve —
+ * in its own source as in anyone's (HLR-075, LLR-BLD-25). Copying the name
+ * along with the comparison would put an ambiguity into the graph this very
+ * artefact draws.
+ */
+static int html_edges_by_source_then_target(const void *a, const void *b)
 {
 	const SdgEdge *x = a, *y = b;
 
@@ -263,7 +287,7 @@ static int append_edges(json_t *elements, const Sdg *g)
 			return -1;
 		memcpy(sorted, g->edges, g->edge_count * sizeof *sorted);
 		qsort(sorted, g->edge_count, sizeof *sorted,
-		      by_source_then_target);
+		      html_edges_by_source_then_target);
 	}
 
 	for (size_t i = 0; i < g->edge_count; i++) {
