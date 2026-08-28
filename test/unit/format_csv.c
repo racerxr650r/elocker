@@ -138,8 +138,8 @@ Test(format_csv, the_header_row_is_written)
 	cr_assert_not_null(fgets(line, sizeof line, fp));
 
 	cr_assert_str_eq(line,
-	                 "file,function,visibility,lines,eloc,complexity,"
-	                 "fan_in,fan_out,mi\r\n");
+	                 "file,language,function,visibility,lines,eloc,"
+	                 "complexity,fan_in,fan_out,mi\r\n");
 	fclose(fp);
 }
 
@@ -221,7 +221,7 @@ Test(format_csv, a_record_carries_the_function_tables_fields)
 	char  *out    = rendered(&report);
 
 	cr_assert_not_null(strstr(out,
-	        "/tree/a.c:10,f,public,5,3,2,4,5,87\r\n"),
+	        "/tree/a.c:10,c,f,public,5,3,2,4,5,87\r\n"),
 	        "the record was: %s", out);
 
 	free(out);
@@ -240,7 +240,7 @@ Test(format_csv, an_unknown_visibility_is_an_empty_field)
 	Report report = one_function(VISIBILITY_UNKNOWN);
 	char  *out    = rendered(&report);
 
-	cr_assert_not_null(strstr(out, "/tree/a.c:10,f,,5,3,2,4,5,87\r\n"),
+	cr_assert_not_null(strstr(out, "/tree/a.c:10,c,f,,5,3,2,4,5,87\r\n"),
 	        "the record was: %s", out);
 
 	free(out);

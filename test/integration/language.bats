@@ -49,8 +49,8 @@ setup() {
 	assert_success
 	# first() spans lines 1-4, second() lines 6-9: the start is in the
 	# navigable location and the extent is the count beside the name.
-	assert_output --regexp "pair\.c:1 +first +public +4"
-	assert_output --regexp "pair\.c:6 +second +public +4"
+	assert_output --regexp "pair\.c:1 +c +first +public +4"
+	assert_output --regexp "pair\.c:6 +c +second +public +4"
 }
 
 @test "HLR-210: the location is one an editor can act on" {
@@ -61,14 +61,44 @@ setup() {
 	assert_success
 	assert_output --partial "$TREE/pair.c:1"
 	# and absolute, not relative to wherever the reader happens to be
-	refute_output --regexp "[^/]pair\.c:1 +first"
+	refute_output --regexp "[^/]pair\.c:1 +c +first"
 }
 
 @test "HLR-014: the reported start is the signature, not the brace" {
 	printf 'int sig(void)\n{\n\treturn 0;\n}\n' > "$TREE/sig.c"
 	elc --verbose "$TREE/sig.c"
 	assert_success
-	assert_output --regexp "sig\.c:1 +sig +public +4"
+	assert_output --regexp "sig\.c:1 +c +sig +public +4"
+}
+
+@test "HLR-014: the function table names each function's language" {
+	# The question a reader of a polyglot project asks of this table, and
+	# the table they are already looking at when they ask it. Answering it
+	# by sending them to the Files table costs more than the column does.
+	printf 'def only(n):\n    return n + 1\n' > "$TREE/one.py"
+	elc --verbose "$TREE"
+	assert_success
+
+	local langs
+	langs="$(awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+	              f && /^  \// { print $2 }' <<<"$output" | sort -u |
+	         tr '\n' ' ')"
+	assert_equal "$langs" "c python "
+}
+
+@test "HLR-014: the language stands between the location and the name" {
+	# Where the Files table has put it since that table existed, and where
+	# the CSV record carries it. Asserted as an order rather than as a
+	# presence, because a column in the wrong place is the defect the two
+	# views drifting apart produced the first time.
+	elc --verbose "$TREE/pair.c"
+	assert_success
+
+	local header
+	header="$(awk '/^Functions$/ { f = 1; next }
+	               f && $1 == "File" { print $1, $2, $3, $4; exit }' \
+	          <<<"$output")"
+	assert_equal "$header" "File Language Function Visibility"
 }
 
 @test "HLR-033: functions are presented in start-line order" {
@@ -79,7 +109,7 @@ setup() {
 
 	local names
 	names="$(awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	              f && /^  \// { print $2 }' <<<"$output")"
+	              f && /^  \// { print $3 }' <<<"$output")"
 	assert_equal "$names" "zeta
 alpha"
 }
