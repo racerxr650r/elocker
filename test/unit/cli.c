@@ -662,47 +662,55 @@ Test(cli, the_graphml_export_is_a_flag_taking_no_path)
 	cli_options_free(&o);
 }
 
-/* Verifies LLR-HTM-01: the interactive page is off unless asked for, is a flag
-   rather than a path, and is not validated against `--output` at parse time.
-
-   The absence of that validation is the requirement rather than an omission:
-   asking for the page with the report on standard output writes no file and is
-   not a usage error — the rule `--graphml` and `--dsm` already follow. The
-   predicate that decides whether it is written lives in `report_html.c`, so
-   this asserts only what the parser recorded (HLR-104, HLR-119, HLR-215). */
-Test(cli, the_interactive_page_is_off_unless_requested)
+/* Verifies LLR-HTM-01: the `.html` extension selects the format, exactly as
+   every other extension selects one (HLR-148). */
+Test(cli, the_html_extension_selects_the_html_format)
 {
-	char      *off[] = { "elc", "a.c", NULL };
-	char      *on[]  = { "elc", "--html", "a.c", NULL };
+	char      *argv[] = { "elc", "-o", "report.html", "a.c", NULL };
 	ElcOptions o;
 
-	cr_assert_eq(cli_parse(2, off, &o), CLI_OK);
-	cr_assert_not(o.html);
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_eq(o.format, FORMAT_HTML);
 	cli_options_free(&o);
+}
 
-	cr_assert_eq(cli_parse(3, on, &o), CLI_OK);
-	cr_assert(o.html);
-	cr_assert_eq(o.target_count, 1,
-	             "the argument after --html is the target; a flag that "
-	             "took a path would have swallowed it (HLR-119: the "
-	             "companion is named from the report, never given)");
-	cr_assert_str_eq(o.targets[0], "a.c");
-	/* Recorded with no --output, and that is not an error. */
+/* Verifies LLR-HTM-01: there is no option requesting the format. The filename
+   has already said what it is, and a flag saying it again is the disagreement
+   HLR-149 exists to prevent, arriving as a third spelling (HLR-215). */
+Test(cli, there_is_no_option_requesting_the_html_format)
+{
+	char      *argv[] = { "elc", "--html", "-o", "report.html", "a.c",
+	                      NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(5, argv, &o), CLI_ERROR);
+	cli_options_free(&o);
+}
+
+/* Verifies LLR-HTM-01: standard output has no extension, so the option is the
+   means there — the rule every other format follows (HLR-149). */
+Test(cli, the_format_option_spells_html)
+{
+	char      *argv[] = { "elc", "-f", "html", "a.c", NULL };
+	ElcOptions o;
+
+	cr_assert_eq(cli_parse(4, argv, &o), CLI_OK);
+	cr_assert_eq(o.format, FORMAT_HTML);
 	cr_assert_null(o.output_path);
 	cli_options_free(&o);
 }
 
-/* Verifies LLR-CLI-15 for the interactive page: a saved record carries the
-   findings of a run and not the graph they came from, so there is no topology
-   to draw. An *explicit* request is refused rather than silently ignored, so a
-   user who asked for a file and got none is told why (HLR-122, HLR-215). */
-Test(cli, the_interactive_page_is_refused_with_from_xml)
+/* Verifies LLR-CLI-15 for the html format: a saved record carries the findings
+   of a run and not the graph they came from, so there is no topology to draw.
+   The request is refused rather than answered with an empty drawing (HLR-122,
+   HLR-215). */
+Test(cli, the_html_format_is_refused_with_from_xml)
 {
-	char      *argv[] = { "elc", "--html", "--from-xml", "r.xml",
-	                      "-o", "r.md", NULL };
+	char      *argv[] = { "elc", "--from-xml", "r.xml", "-o", "r.html",
+	                      NULL };
 	ElcOptions o;
 
-	cr_assert_eq(cli_parse(6, argv, &o), CLI_ERROR);
+	cr_assert_eq(cli_parse(5, argv, &o), CLI_ERROR);
 	cli_options_free(&o);
 }
 

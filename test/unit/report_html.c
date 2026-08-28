@@ -122,22 +122,20 @@ static void scene_free(Scene *s)
 /* Write the page to a temporary file and read it back. Assertions are about
  * the bytes a reader's browser would receive, which is the only level at which
  * the embedding escape of LLR-HTM-03 is observable at all. The caller frees. */
-static char *page_of(const Sdg *g, const ElcOptions *opts)
+static char *page_of(const Report *report, const Sdg *g,
+                     const ElcOptions *opts)
 {
-	char  path[] = "/tmp/elc-html-XXXXXX";
-	int   fd     = mkstemp(path);
-	FILE *fp;
+	FILE *fp = tmpfile();
 	char *buffer;
 	long  length;
 
-	cr_assert_geq(fd, 0, "could not create a temporary file");
-	close(fd);
+	cr_assert_not_null(fp, "could not open a temporary stream");
 
-	cr_assert_eq(report_html_write(g, opts, path), 0);
+	/* Rendered to a stream the test owns, because that is what the format
+	 * does: `emit` opens the destination and this renderer never does
+	 * (LLR-HTM-05). */
+	cr_assert_eq(format_html(report, g, opts, fp), 0);
 
-	fp = fopen(path, "r");
-	cr_assert_not_null(fp);
-	cr_assert_eq(fseek(fp, 0, SEEK_END), 0);
 	length = ftell(fp);
 	cr_assert_geq(length, 0);
 	rewind(fp);
@@ -146,7 +144,6 @@ static char *page_of(const Sdg *g, const ElcOptions *opts)
 	cr_assert_not_null(buffer);
 	cr_assert_eq(fread(buffer, 1, (size_t)length, fp), (size_t)length);
 	fclose(fp);
-	remove(path);
 	return buffer;
 }
 
@@ -173,8 +170,6 @@ static ElcOptions two_layers(void)
 
 	cr_assert_eq(parse_stratum("app:/p/app/*", &opts), 0);
 	cr_assert_eq(parse_stratum("hal:/p/hal/*", &opts), 0);
-	opts.html        = true;
-	opts.output_path = "report.md";
 	return opts;
 }
 
@@ -197,7 +192,7 @@ Test(report_html, a_node_is_emitted_for_each_declared_layer)
 	char       *page;
 
 	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
-	page = page_of(&s.graph, &opts);
+	page = page_of(&s.report, &s.graph, &opts);
 
 	cr_assert_not_null(strstr(page, "\"id\":\"layer_0\""));
 	cr_assert_not_null(strstr(page, "\"id\":\"layer_1\""));
@@ -222,7 +217,7 @@ Test(report_html, a_file_names_the_layer_arch_assigned_it)
 	char       *page, *payload;
 
 	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
-	page    = page_of(&s.graph, &opts);
+	page    = page_of(&s.report, &s.graph, &opts);
 	payload = payload_of(page);
 
 	/* `/p/app/a.c` is component 0 by the report's sorted file order, and
@@ -251,7 +246,7 @@ Test(report_html, a_file_in_no_declared_layer_has_no_parent)
 	char       *page, *payload, *node;
 
 	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
-	page    = page_of(&s.graph, &opts);
+	page    = page_of(&s.report, &s.graph, &opts);
 	payload = payload_of(page);
 
 	node = strstr(payload, "\"label\":\"/p/vendor/c.c\"");
@@ -282,11 +277,8 @@ Test(report_html, with_no_strata_the_document_has_two_tiers)
 	ElcOptions  opts = { 0 };
 	char       *page;
 
-	opts.html        = true;
-	opts.output_path = "report.md";
-
 	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
-	page = page_of(&s.graph, &opts);
+	page = page_of(&s.report, &s.graph, &opts);
 
 	cr_assert_null(strstr(page, "\"tier\":\"layer\""),
 	               "a layer was emitted for a run that declared none");
@@ -308,7 +300,7 @@ Test(report_html, a_function_names_the_file_that_defines_it)
 	char       *page, *payload, *node, *end;
 
 	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
-	page    = page_of(&s.graph, &opts);
+	page    = page_of(&s.report, &s.graph, &opts);
 	payload = payload_of(page);
 
 	node = strstr(payload, "\"label\":\"app_fn\"");
@@ -342,7 +334,7 @@ Test(report_html, edges_join_functions_and_never_containers)
 	char       *page, *payload, *scan;
 
 	scene_build(&s, PATHS, FUNCTIONS, 3, from, to, 2);
-	page    = page_of(&s.graph, &opts);
+	page    = page_of(&s.report, &s.graph, &opts);
 	payload = payload_of(page);
 
 	cr_assert_null(strstr(payload, "\"source\":\"file_"),
@@ -380,7 +372,7 @@ Test(report_html, no_raw_angle_bracket_or_ampersand_reaches_the_payload)
 	                                       "plain" };
 
 	scene_build(&s, HOSTILE, NAMES, 3, NULL, NULL, 0);
-	page    = page_of(&s.graph, &opts);
+	page    = page_of(&s.report, &s.graph, &opts);
 	payload = payload_of(page);
 
 	cr_assert_null(strchr(payload, '<'),
@@ -424,7 +416,7 @@ Test(report_html, the_javascript_line_terminators_are_escaped)
 	scene_free(&s);
 	scene_build(&s, PS, NAMES, 3, NULL, NULL, 0);
 
-	page    = page_of(&s.graph, &opts);
+	page    = page_of(&s.report, &s.graph, &opts);
 	payload = payload_of(page);
 
 	cr_assert_null(strstr(payload, "\xE2\x80\xA8"),
@@ -451,7 +443,7 @@ Test(report_html, the_page_loads_the_viewer_and_opens_collapsed)
 	char       *page;
 
 	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
-	page = page_of(&s.graph, &opts);
+	page = page_of(&s.report, &s.graph, &opts);
 
 	cr_assert_not_null(strstr(page,
 	        "https://unpkg.com/cytoscape/dist/cytoscape.min.js"));
@@ -484,49 +476,37 @@ Test(report_html, the_page_loads_the_viewer_and_opens_collapsed)
  * empty matrix (LLR-HTM-02). */
 Test(report_html, an_empty_graph_still_produces_a_page)
 {
-	Sdg        empty = { 0 };
-	ElcOptions opts  = { 0 };
+	Sdg        empty  = { 0 };
+	Report     report = { 0 };
+	ElcOptions opts   = { 0 };
 	char      *page;
 
-	opts.html        = true;
-	opts.output_path = "report.md";
-
-	page = page_of(&empty, &opts);
+	page = page_of(&report, &empty, &opts);
 	cr_assert_not_null(strstr(page, "const graphData = []"));
 	cr_assert_not_null(strstr(page, "api.collapseAll();"));
 	free(page);
 }
 
-/* ------------------------------------------------------- the companion --- */
+/* ------------------------------------------------------------ the stream -- */
 
-/* Requested, and with a name to derive — the rule every companion follows. A
- * request made with the report on standard output writes no file and is not a
- * usage error (LLR-HTM-01, HLR-104, HLR-119). */
-Test(report_html, the_companion_needs_both_the_request_and_an_output_path)
+/* The renderer writes to the stream it is given and does not close it: `emit`
+ * owns the destination here as it does for every other format, which is what
+ * makes this a format rather than a companion (LLR-HTM-05). */
+Test(report_html, the_stream_is_left_open_for_the_caller)
 {
-	ElcOptions opts = { 0 };
+	Scene       s;
+	ElcOptions  opts = two_layers();
+	FILE       *fp   = tmpfile();
 
-	cr_assert_not(report_html_warranted(&opts));
+	cr_assert_not_null(fp);
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
 
-	opts.html = true;
-	cr_assert_not(report_html_warranted(&opts),
-	              "a companion was warranted with no path to name it from");
+	cr_assert_eq(format_html(&s.report, &s.graph, &opts, fp), 0);
+	/* Still writable, and still positioned where the renderer left it. */
+	cr_assert_gt(ftell(fp), 0);
+	cr_assert_eq(fputc('x', fp), 'x');
 
-	opts.output_path = "report.md";
-	cr_assert(report_html_warranted(&opts));
-
-	opts.html = false;
-	cr_assert_not(report_html_warranted(&opts),
-	              "a companion was warranted without being asked for");
-}
-
-/* A destination that cannot be opened is a diagnosed failure, never a silent
- * one and never a partial file (LLR-HTM-05). */
-Test(report_html, an_unopenable_destination_is_a_failure)
-{
-	Sdg        empty = { 0 };
-	ElcOptions opts  = { 0 };
-
-	cr_assert_eq(report_html_write(&empty, &opts,
-	                               "/nonexistent-dir/report.html"), -1);
+	fclose(fp);
+	cli_options_free(&opts);
+	scene_free(&s);
 }

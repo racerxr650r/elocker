@@ -72,7 +72,7 @@ release readiness — is ready to start, and is the last.
 | [28](#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | ✅ Complete |
 | [29](#phase-29--function-visibility-and-editor-navigable-locations) | Public/private visibility, `path:line` locations, and a line count | ✅ Complete |
 | [30](#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
-| [31](#phase-31--interactive-html-reporting--semantic-zooming) | The hierarchical HTML companion: layers containing files containing functions, opened collapsed | ✅ Complete |
+| [31](#phase-31--interactive-html-reporting--semantic-zooming) | The `.html` report format: layers containing files containing functions, opened collapsed | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -2959,11 +2959,15 @@ structure. This phase emits the containment it already knows.
     opinion about coupling in the artefact — and it would be a worse one, since
     it could not be reconciled with the Ca/Ce figures the report states beside
     it (HLR-081).
-3.  **A single file, opened from the filesystem** (HLR-215). One `.html`
-    companion, named from the report's path by the rule every companion follows
-    (HLR-119), that renders when double-clicked. No build step, no bundler, and
-    **no local web server** — the constraint that decides the shape, because a
-    reader who has to start a server to look at a report does not look at it.
+3.  **An output format, selected by its extension** (HLR-215). Not a
+    companion and not an option: `-o report.html` writes the page, exactly as
+    `-o report.md` writes Markdown (HLR-148). A flag asking for it would make
+    this the one artefact chosen by a means nothing else uses, and would be a
+    second spelling of what the filename already said — the disagreement
+    HLR-149 exists to prevent. It renders when double-clicked: no build step,
+    no bundler, and **no local web server** — the constraint that decides the
+    shape, because a reader who has to start a server to look at a report does
+    not look at it.
 4.  **It opens collapsed** (HLR-216). The view loads at the layer level and the
     reader descends. A view that opens at function level and offers collapsing
     has answered the wrong question first: the reason the flat drawings fail is
@@ -2990,6 +2994,19 @@ two-tier file/function hierarchy rather than an invented top. Inferring layers
 from the directory tree here would be the filesystem-derived architecture
 HLR-078 refuses.
 
+**HLR-031's uniformity rule is softened, and the softening is the honest
+reading rather than an exception carved for this phase.** That requirement said
+every human-readable format but CSV, the record and `.dot` presents the same
+tiers in the same order. Those three were never awkward cases: CSV is one table
+to load, the record is every element for a machine to read back, and `.dot` is
+a drawing — no reading of the requirement ever asked them to match the aligned
+table. HTML joins them on the same ground. It presents its information **in the
+context of the drawing** — a figure reached by opening the box that holds it —
+rather than as tables beside it, and holding it to the tier list would be
+requiring it to be the Markdown report with a diagram attached. The exemption
+is about *arrangement* and never about content: wherever this format shows a
+measurement, it is the report's.
+
 **Acceptance:** a target with two declared strata produces exactly one node per
 stratum, one per file carrying the correct `parent`, and one per function
 carrying its file as `parent`, hand-checked against a fixture. Every edge in the
@@ -2998,8 +3015,10 @@ matching no stratum emits a node with no `parent` key. The emitted document
 parses as JSON, and the parsed node set equals the SDG's. The page contains both
 CDN `<script>` tags, one `cytoscape({...})` initialisation, an `expandCollapse`
 call carrying `fisheye: true` and `animate: true`, and a `collapseAll()` after
-it. `--html` with the report on standard output writes nothing and is not an
-error, as every other companion behaves. Names containing `<`, `&`, `"`, and a
+it. `-o report.html` selects the format with no option
+asking, `-f html` selects it for a report on standard output, `--format md`
+against an `.html` output is refused as a disagreement, and `--from-xml` with
+an `.html` output is refused because a record carries no topology. Names containing `<`, `&`, `"`, and a
 Unicode line separator survive into the page without closing the script element
 or breaking the parse.
 
@@ -3029,15 +3048,19 @@ one in the report is the one with a threshold behind it.
 That is not an error and not a layer named "other" — omit the `parent` key.
 Read the comment above it before deciding otherwise.
 
-This is a companion, so it obeys the companion rule in `write_companion`:
-named from --output, absent when the report goes to stdout, and a failure to
-write it is recorded and never withheld from the report (LLR-DOT-05).
+This is a *format*, not a companion. It renders to the stream `emit` opened,
+is selected by the output filename's extension, and has no option of its own —
+a flag would be a second spelling of what `report.html` already says, which is
+the disagreement HLR-149 refuses between the two spellings there already are.
+Add it to both tables in cli.c: the extension map and the format-name list.
+The diagnostics are built from those tables, so a format added to one and not
+the other produces an error message naming a set the parser will not accept.
 
 Verify against the real target and not only the fixtures:
 
     cd ~/Projects/avrOS/app/avrOS_example
-    elc --entry main -o report.md --elf build/main.elf . ../../drv ../../sys \
-        ../../srv -v --dbg --html \
+    elc --entry main -o report.html --elf build/main.elf . ../../drv ../../sys \
+        ../../srv -v \
         --stratum app:'*/app/*' --stratum drv:'*/drv/*' \
         --stratum sys:'*/sys/*' --stratum srv:'*/srv/*'
 

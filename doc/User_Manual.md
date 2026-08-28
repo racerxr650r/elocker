@@ -521,6 +521,7 @@ elc -f xml src/          # the complete record of the run
 | `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order; each table folded behind a click-to-expand |
 | `csv` | `.csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it. The same columns the Functions table carries |
 | `xml` | `.xml` | keeping | Complete record; what `--from-xml` reads back |
+| `html` | `.html` | looking at the shape of it | One page drawing the graph as layers holding files holding functions, opened collapsed. Presents its information in the context of the drawing rather than as the same tiers; not available from `--from-xml` |
 
 ### The CSV record is the Functions table, loaded rather than read
 
@@ -1769,14 +1770,20 @@ computing a figure are two places it can be computed differently.
 ### Looking at it
 
 ```sh
-elc --html -o report.md \
+elc -o report.html \
     --stratum app:'*/app/*' --stratum hal:'*/hal/*' src/
-# writes report.md and report.html
 ```
 
 The `.dot` and GraphML companions are exports: something else draws or loads
-them. `--html` writes the drawing itself — one file that opens in a browser
+them. The `html` format *is* the drawing — one file that opens in a browser
 when you double-click it, with no server to start and nothing to build.
+
+**It is chosen the way every format is chosen: by the extension.** There is no
+`--html` option, because `report.html` has already said what the format is, and
+a flag saying it again is exactly the disagreement `elc` refuses when
+`--format` and a filename contradict each other. For a report going to standard
+output, where there is no filename to read an extension from, `-f html` names it
+like any other format.
 
 **It opens at the architectural level.** What you see first is one box per
 layer you declared with `--stratum`. Double-click a layer and it opens to the
@@ -1793,6 +1800,14 @@ architecture](#declaring-the-architecture)) — and for the same reason a file
 matching none of your stratum patterns is drawn beside the layers rather than
 tucked inside one.
 
+**It is not the Markdown report with a picture attached.** The other
+human-readable formats present the same tiers in the same order as each other;
+this one presents its information *in the context of the drawing* — a figure
+reached by opening the box that holds it, at the level you are looking at — so
+it is not held to that uniformity, in the way `csv` and `xml` are not. Where it
+shows you a measurement it is the measurement the report states; what differs is
+the arrangement, never the content.
+
 **Only calls between functions are drawn.** When you collapse a file, the lines
 between the collapsed boxes are drawn by the viewer from the calls crossing
 between them. `elc` does not emit them: a coupling figure drawn here by a rule
@@ -1806,6 +1821,11 @@ the page and no diagram. `elc` itself never touches the network; this is a
 property of viewing the artefact, not of producing it. If you need the page to
 work offline, keep it beside a cached copy of the two scripts named in its
 `<head>`, or open it once while connected and let the browser cache them.
+
+**A regenerated report cannot be written in this format.** A saved record
+carries the findings of a run and not the graph they came from, so
+`--from-xml` with an `.html` output is refused rather than answered with an
+empty drawing.
 
 ### Where the graph is imprecise, and in which direction
 
@@ -2610,7 +2630,7 @@ comparable.
 
 | Option | Argument | Default | Effect |
 | ------ | -------- | ------- | ------ |
-| `-f`, `--format` | `table\|csv\|xml\|md` | `table` | Render the report as `FORMAT` |
+| `-f`, `--format` | `table\|csv\|xml\|md\|html` | `table` | Render the report as `FORMAT` |
 | `--from-xml` | `FILE` | — | Rebuild a report from a saved record; takes no `TARGET` |
 | `-c`, `--complexity-threshold` | `N` | `15` | List functions whose complexity is `N` or greater |
 | `-o`, `--output` | `FILE` | standard output | Write the report to `FILE` |
@@ -2628,7 +2648,6 @@ comparable.
 | `--elf` | `FILE` | none | Restrict every measurement to the functions the linked image `FILE` defines |
 | `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
-| `--html` | — | off | Also write an interactive drawing of the dependence graph, named from `--output` |
 | `--dsm` | — | off | Also write the dependency structure matrix as CSV, named from `--output` |
 | `--manifest` | `FILE` | none | Read the purification manifest `FILE`, whose statements overrule what `elc` concluded |
 | `--write-manifest` | — | off | Also write the purification manifest as JSON, named from `--output` |

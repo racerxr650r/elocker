@@ -11,15 +11,15 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.19" date="2026-08-27" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.11" date="2026-08-27" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.14" date="2026-08-27" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.20" date="2026-08-27" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.21" date="2026-08-27" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.20" date="2026-08-28" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.12" date="2026-08-28" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.15" date="2026-08-28" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.21" date="2026-08-28" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.22" date="2026-08-28" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="212"/>
       <count name="llrs"       value="578"/>
-      <count name="tests"      value="1246"/>
+      <count name="tests"      value="1249"/>
       <count name="test_files" value="58"/>
     </counts>
   </metadata>
@@ -1534,8 +1534,8 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
       </module>
 
       <module path="src/report_html.c">
-        <purpose><![CDATA[writes the interactive HTML companion. It serialises the System Dependence Graph as a hierarchical Cytoscape *compound-node* payload — layers containing files containing functions — and emits one self-contained page that renders it, so that a graph too dense to read at function level can be read at the level the reader chooses.]]></purpose>
-        <responsibility><![CDATA[Decide whether the companion is warranted for a run: on request, and only where the report has a path to derive a name from (HLR-119, HLR-215).]]></responsibility>
+        <purpose><![CDATA[renders the interactive HTML report format. It serialises the System Dependence Graph as a hierarchical Cytoscape *compound-node* payload — layers containing files containing functions — and emits one self-contained page that renders it, so that a graph too dense to read at function level can be read at the level the reader chooses.]]></purpose>
+        <responsibility><![CDATA[Render to the stream the caller opened, as every other renderer does, leaving the destination's lifetime to `emit` (HLR-215).]]></responsibility>
         <responsibility><![CDATA[Emit a node for each declared architectural stratum, taking the assignment from `arch.c` rather than matching the stratum patterns again (HLR-213).]]></responsibility>
         <responsibility><![CDATA[Emit a node for each component carrying its layer as `parent`, and no `parent` at all for a component in no declared layer (HLR-213).]]></responsibility>
         <responsibility><![CDATA[Emit a node for each graph node carrying its component as `parent`, with the figures the report already computed (HLR-213).]]></responsibility>
@@ -1543,12 +1543,11 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
         <responsibility><![CDATA[Escape the serialised payload for the HTML script element it is embedded in — which is not the escaping the JSON writer performs (HLR-215).]]></responsibility>
         <responsibility><![CDATA[Write the page's shell and its initialisation script, configured to open at the highest architectural level (HLR-216).]]></responsibility>
         <interfaces>
-          <interface title="The Companion Artefact"><![CDATA[One file beside the report, named from it by extension substitution: an `--output` of `report.md` yields `report.html`. The rule is `graph_companion_path`'s, shared with every other companion (HLR-119).]]></interface>
+          <interface title="The Output Format"><![CDATA[One of the formats `--output`'s extension selects (HLR-148): an `--output` of `report.html` is written by this module, and `--format html` names the same format for a report going to standard output. The page *is* the report in this format, not a file beside one — nothing here derives a filename, and no option requests it.]]></interface>
           <interface title="The Embedded Payload"><![CDATA[A JavaScript `const graphData` holding a Cytoscape elements array. Its shape is the plugin's, not `elc`'s: each entry is `{ data: { id, ... } }`, and containment is expressed by a `parent` key naming an enclosing node's `id`.]]></interface>
         </interfaces>
         <functions>
-          <function signature="bool report_html_warranted(const ElcOptions *opts)" summary="Whether the companion is to be written: requested, and with a named output path to derive its own from (HLR-104, HLR-215)."/>
-          <function signature="int report_html_write(const Sdg *g, const ElcOptions *opts, const char *path)" summary="Serialise the graph and write the page. Returns 0, or -1 with the diagnostic already on stderr."/>
+          <function signature="int format_html(const Report *report, const Sdg *g, const ElcOptions *opts, FILE *out)" summary="Render the graph as one self-contained page on a stream the caller opened — a renderer like every other, selected by the output filename's extension (HLR-148). The one renderer taking the graph as well as the model, because the topology is what it presents rather than a figure derived from it."/>
           <function signature="static json_t *html_elements(const Sdg *g, const ElcOptions *opts)" summary="The complete Cytoscape elements array: the three node tiers in that order, then the call edges."/>
           <function signature="static int append_layers(json_t *elements, const ElcOptions *opts)" summary="Tier 1 — one node per declared stratum, at its declared ordinal."/>
           <function signature="static int append_files(json_t *elements, const Sdg *g, const size_t *stratum)" summary="Tier 2 — one node per component, parented on its layer where it has one."/>
@@ -1574,13 +1573,14 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
 
 **The view opens collapsed** (HLR-216). `api.collapseAll()` runs immediately after `expandCollapse` is initialised, so the page loads showing the declared layers and the reader descends. The default is the requirement rather than a preference: the reason the `.dot` and GraphML companions fail on a real project is that they begin at maximum density, and a view that opens at function level and offers collapsing has reproduced that failure with an extra step.]]></algorithm>
         <dependencies>
-          <dep><![CDATA[`src/graph.c` for the topology and the component projection, `src/arch.c` for the layer assignment, `src/format_graph.c` for the companion naming rule, and `src/diag.c` for diagnostics. `libjansson`, already linked for the purification manifest (HLR-175) — the one JSON library, not a second (HLR-112).]]></dep>
+          <dep><![CDATA[`src/graph.c` for the topology and the component projection, `src/arch.c` for the layer assignment, and `src/diag.c` for diagnostics. Nothing from `src/format_graph.c`: this is a format and derives no filename. `libjansson`, already linked for the purification manifest (HLR-175) — the one JSON library, not a second (HLR-112).]]></dep>
         </dependencies>
         <error_handling>
-          <case name="No output path"><![CDATA[Not an error. `report_html_warranted` is false and no companion is written, the rule every other companion follows (HLR-104, HLR-119).]]></case>
+          <case name="Report written to standard output"><![CDATA[Not an error and not a special case. The page is written to the stream like any other format; `--format html` selects it there, exactly as it selects CSV or the record (HLR-149).]]></case>
+          <case name="Regeneration mode"><![CDATA[Refused at parse time with a diagnostic naming the reason. A saved record carries the findings of a run and not the graph they came from, so there is no topology to draw, and an empty drawing would be a confidently wrong answer where a refusal is the honest one (HLR-122).]]></case>
           <case name="No strata declared"><![CDATA[Not an error and not an invention. No layer nodes are emitted, and the payload is a two-tier file/function hierarchy — which is the whole of the structure the user declared.]]></case>
           <case name="Serialisation or allocation failure"><![CDATA[Diagnostic naming the file, nothing written, and -1. A partially written page is worse than none: it would open and render a truncated graph, which is a wrong answer wearing the shape of a right one.]]></case>
-          <case name="Write failure"><![CDATA[Checked on `ferror` after the writing and on `fclose`, the way `graph_write_graphml` checks it — a full disk shows up on the flush, and a companion claimed as written when it was truncated is the failure worth catching. Recorded as a failure by the caller; the report itself is never withheld (LLR-DOT-05).]]></case>
+          <case name="Write failure"><![CDATA[Checked on `ferror` after the writing — a full disk shows up on the flush, and a report claimed as written when it was truncated is the failure worth catching. The stream is closed by `emit`, which owns it here as it does for every other format, so the close error is caught in one place rather than in each renderer.]]></case>
         </error_handling>
       </module>
 
@@ -2235,9 +2235,9 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="verifies" label="Verifies" path="HLR-032, HLR-100, HLR-102 – HLR-105, HLR-119"/>
       </fixture>
       <fixture name="`html/`" source="[test/fixtures/html/](../test/fixtures/html/)">
-        <artefact key="inputs" label="Inputs" path="One tree of three directories with one file each, deliberately unequal: two are named by a `--stratum` and the third by none, so that both branches of the layer assignment are present in one run. Five functions across them, and four calls chosen to separate the cases — one inside a single file and one layer, two crossing into the layer below, and one reaching the *undeclared* directory. Run twice, once with the two strata declared and once with none"/>
+        <artefact key="inputs" label="Inputs" path="One tree of three directories with one file each, deliberately unequal: two are named by a `--stratum` and the third by none, so that both branches of the layer assignment are present in one run. Five functions across them, and four calls chosen to separate the cases — one inside a single file and one layer, two crossing into the layer below, and one reaching the *undeclared* directory. Run with the two strata declared and again with none, selected each time by the output filename's extension; and run through the selection cases the format shares with every other — the option spelling for standard output, a disagreeing `--format`, a rejected option that does not exist, and regeneration mode"/>
         <artefact key="expected" label="Expected" path="That the embedded payload is well-formed is settled by extracting it and handing it to a JSON parser, never by matching text that looks like JSON — the distinction is load-bearing rather than stylistic here, since the failure the embedding escape guards against produces text that is *valid JSON* and a syntax error once inside a script element. That the hierarchy says what the analyses found is asserted against the hand-worked node and edge tables in `README.md`: two layer nodes, three file nodes of which one carries no container, five function nodes, and four edges each joining two functions. And that no meta-edge exists — three of the four calls cross a container boundary and none of them produces an edge naming a file or a layer"/>
-        <artefact key="verifies" label="Verifies" path="HLR-032, HLR-078, HLR-104, HLR-119, HLR-122, HLR-213 – HLR-216"/>
+        <artefact key="verifies" label="Verifies" path="HLR-032, HLR-078, HLR-122, HLR-148, HLR-149, HLR-213 – HLR-216"/>
       </fixture>
       <fixture name="`arch/`" source="[test/fixtures/arch/](../test/fixtures/arch/)">
         <artefact key="inputs" label="Inputs" path="A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all; a run declaring one layer over every component, so that calls exist and no inter-layer call does; a run reversing the declared direction with `--stratum-order`; and a directory whose name carries a comma, built in the test's own temporary directory"/>
@@ -2782,11 +2782,15 @@ For the purposes of this and every other requirement in this document, "function
       </hlr>
 
       <hlr id="HLR-031" name="Uniform Report Composition Across Formats">
-        <text><![CDATA[Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), and Graphviz `.dot` (HLR-102) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
+        <text><![CDATA[Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), Graphviz `.dot` (HLR-102), and HTML (HLR-215) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
 
 The enumeration above is the **verbose** composition of HLR-151. Verbosity selects how much of it a given run presents (HLR-150), and this requirement governs the axis it does not touch: whichever verbosity is in force, every affected format shall present the same tiers as every other. Uniformity is across formats at a fixed verbosity, never across verbosities — a table and a Markdown report of the same run must not differ, and a summary report is not required to match a verbose one.
 
-The tiers a format **reaches** are what must match, rather than the headings it prints: a tier with no rows is presented in no human format and named in the closing statement of every one of them (HLR-188, HLR-189). The order those tiers are presented in is HLR-182's and HLR-184's, and is likewise the same in every affected format.]]></text>
+The tiers a format **reaches** are what must match, rather than the headings it prints: a tier with no rows is presented in no human format and named in the closing statement of every one of them (HLR-188, HLR-189). The order those tiers are presented in is HLR-182's and HLR-184's, and is likewise the same in every affected format.
+
+**This rule governs formats that present the report as a sequence of tables, and only those.** The exemptions above are not a list of awkward cases: CSV is one table for a consumer to load, the record is every element of the run for a machine to read back, and `.dot` is a drawing — none of them was ever expected to carry the same tiers as the aligned table, and no reading of this requirement has ever asked them to. HTML is exempt on the same ground rather than a new one. It presents its information **in the context of the drawing** — a figure reached by opening the box that holds it, at the tier the reader is looking at — rather than as a sequence of tables beside it, so requiring it to present the same tiers in the same order would be requiring it to be the Markdown report with a diagram attached.
+
+What the exemption does *not* license is a format that answers a question differently from the others. Wherever HTML presents a measurement, it is the measurement the report states, taken from the same model (HLR-213). The exemption is about **arrangement**, never about content.]]></text>
 
       <traces>
         <trace target="SDD" ref="13"/>
@@ -2796,7 +2800,7 @@ The tiers a format **reaches** are what must match, rather than the headings it 
       </hlr>
 
       <hlr id="HLR-148" name="Output Format Determined by Filename Extension">
-        <text><![CDATA[Where the user names an output file (HLR-030), the extension of that filename shall determine the report format, and no separate format option shall be required to state what the filename has already said. `elc` shall recognise `.txt` as the aligned table (HLR-027), `.md` as Markdown (HLR-029), `.csv` as CSV (HLR-028), and `.xml` as the complete record (HLR-054).
+        <text><![CDATA[Where the user names an output file (HLR-030), the extension of that filename shall determine the report format, and no separate format option shall be required to state what the filename has already said. `elc` shall recognise `.txt` as the aligned table (HLR-027), `.md` as Markdown (HLR-029), `.csv` as CSV (HLR-028), `.xml` as the complete record (HLR-054), and `.html` as the interactive drawing (HLR-215).
 
 An output filename carrying an extension `elc` does not recognise, or carrying none at all, shall be rejected as a usage error (HLR-063) naming the extension found and listing those that are recognised. Guessing a format for an unrecognised extension would write one format under a name promising another, and defaulting silently to the table would produce a file called `report.json` holding no JSON — each of which is a confidently wrong result of exactly the kind this document forbids elsewhere.
 
@@ -4513,8 +4517,10 @@ The statement is unconditional because a section that appears only sometimes is 
       </traces>
       </hlr>
 
-      <hlr id="HLR-215" name="A Single File That Opens Without a Server">
-        <text><![CDATA[`elc` shall write the interactive companion as one file, named from the report's own output path by the rule every companion follows (HLR-119), which renders when opened directly from the filesystem — requiring no build step, no bundler, and **no local web server**.
+      <hlr id="HLR-215" name="The Interactive Drawing as an Output Format">
+        <text><![CDATA[`elc` shall write the interactive drawing as an **output format, selected by the output filename's extension** exactly as every other format is (HLR-148), rendering to the destination the report itself is written to. It shall be one file, which renders when opened directly from the filesystem — requiring no build step, no bundler, and **no local web server**.
+
+**No option shall ask for it.** The extension has already said what the format is, and an option saying it again is the disagreement HLR-149 exists to prevent between the two spellings there are: a flag would make this the one artefact selected by a means nothing else uses, and a reader would have to learn a second rule for one format. Where a report goes to standard output, `--format html` selects it by the same rule that selects every other format there (HLR-149).
 
 **The no-server constraint decides the artefact's shape**, and it is a usability requirement rather than a technical one: a reader who must start a server to look at a report does not look at the report. It forbids splitting the payload into a sibling file the page fetches, which is what a browser's local-file security policy blocks and what would otherwise be the natural structure.
 
@@ -4522,7 +4528,9 @@ The statement is unconditional because a section that appears only sometimes is 
 
 **The payload shall be embedded such that no content of the graph can terminate its container.** A function name is arbitrary text from the user's source — a C++ template signature contains angle brackets, and `elc` places no restriction on what a name may hold. Serialisation escaping alone is not sufficient here: a name may be perfectly well-formed in the serialisation and still close the element embedding it, or be a line terminator to the embedding language and not to the serialisation. The requirement is on the result — a name containing any character whatsoever renders as that name — and not on the mechanism.
 
-**Absent an output path, no companion is written and that is not an error.** The name is derived from the report's, so a report on standard output has none to derive from — the rule the GraphML export, the debug log, the matrix, and the manifest all follow (HLR-104, HLR-106, HLR-119).]]></text>
+**This format presents its information in the context of the drawing**, which is why HLR-031's uniformity rule exempts it as it already exempts CSV, the record, and `.dot`. A figure is reached by opening the box that holds it, at the tier the reader is looking at, rather than printed in a table beside it. The exemption is about arrangement and never about content: wherever this format presents a measurement it is the measurement the report states, taken from the same model (HLR-213).
+
+**A regenerated report shall not be written in this format.** A saved record carries the findings of a run and not the graph they came from (HLR-122), so there is no topology to draw; the request shall be refused with a diagnostic naming the reason rather than answered with an empty drawing.]]></text>
       <traces>
         <trace target="SDD" ref="27"/>
         <trace target="SDD" ref="4"/>
@@ -9163,21 +9171,24 @@ Edges shall be emitted in ascending source-then-target order, which is `format_g
       </llr>
     </function>
 
-    <function number="73" title="`report_html_write` ([src/report_html.c](../src/report_html.c))" name="report_html_write" source="src/report_html.c">
+    <function number="73" title="`format_html` ([src/report_html.c](../src/report_html.c))" name="format_html" source="src/report_html.c">
       <intro>The page itself: when it is written, what its shell contains, how the payload survives being embedded in it, and what the viewer is told to do with it.</intro>
 
       <llr id="LLR-HTM-01">
-        <text><![CDATA[`report_html_warranted` shall return true only where the companion was requested and `opts->output_path` is non-NULL.
+        <text><![CDATA[`cli.c`'s extension table shall map `html` to `FORMAT_HTML`, and its format-name table shall spell that format `html`, so that `--output report.html` selects it and `--format html` names it.
 
-Recorded rather than validated at parse time, exactly as `--graphml`, `--dsm`, `--dbg`, `--write-manifest` and `--purify-dot` are: a request made with the report on standard output writes no companion and is not a usage error, because there is no name to derive one from and refusing the run would fail a command the requirement says should simply produce no file (HLR-104, HLR-119, HLR-215).]]></text>
+**Both tables are the single statement of their fact.** `format_extensions()` builds the "not a report format extension" diagnostic from the first, so the new extension is named in that message without a second list to keep in step; the second is indexed by the enumerator, so the disagreement diagnostic of HLR-149 names `html` for free. Adding a format to either without the other is what makes an error message name a set the parser does not accept.
+
+**No option shall request this format.** A flag would be a second way of saying what the filename has already said — the disagreement HLR-149 exists to prevent, arriving as a third spelling rather than a second (HLR-215).]]></text>
         <traces>
-          <trace target="HLR" ref="HLR-215" name="A Single File That Opens Without a Server" />
-          <trace target="HLR" ref="HLR-119" />
+          <trace target="HLR" ref="HLR-215" name="The Interactive Drawing as an Output Format" />
+          <trace target="HLR" ref="HLR-148" />
+          <trace target="HLR" ref="HLR-149" />
         </traces>
       </llr>
 
       <llr id="LLR-HTM-02">
-        <text><![CDATA[`report_html_write` shall emit a complete HTML document whose head references the rendering library and its expand-collapse extension, and whose body carries one container element for the drawing.
+        <text><![CDATA[`format_html` shall emit a complete HTML document whose head references the rendering library and its expand-collapse extension, and whose body carries one container element for the drawing.
 
 The two references are the only external content in the file, and their being fetched at view time is the bound HLR-215 places on the word "standalone". Nothing is fetched by `elc`: this function writes text and returns, so the run remains free of the network, the interpreter and the virtual machine HLR-040 excludes.
 
@@ -9203,7 +9214,7 @@ The escape is applied to the serialised text and not to each name before seriali
       </llr>
 
       <llr id="LLR-HTM-04">
-        <text><![CDATA[`report_html_write` shall emit an initialisation script that constructs the viewer over the embedded payload with a force-directed layout, initialises the expand-collapse extension with its fisheye and animation behaviours enabled, and collapses every container immediately afterwards.
+        <text><![CDATA[`format_html` shall emit an initialisation script that constructs the viewer over the embedded payload with a force-directed layout, initialises the expand-collapse extension with its fisheye and animation behaviours enabled, and collapses every container immediately afterwards.
 
 **The collapse is not a default this script chooses; it is HLR-216.** The page opens showing the declared layers and the reader descends. Initialising without it would reproduce, with an extra step, the density failure the existing graph companions have.
 
@@ -9218,15 +9229,15 @@ A force-directed layout is chosen because it is the family that keeps a cluster'
       </llr>
 
       <llr id="LLR-HTM-05">
-        <text><![CDATA[`report_html_write` shall return -1 with a diagnostic naming the file on standard error where the destination cannot be opened, where serialisation or allocation fails, or where an error is observed on the stream after writing; and shall return 0 otherwise.
+        <text><![CDATA[`format_html` shall return -1 where serialisation or allocation fails, or where an error is observed on the stream after writing, and 0 otherwise.
 
-Nothing shall be written where serialisation failed. A partially written page is worse than an absent one: it opens, renders a truncated graph, and states a structure that is wrong while looking exactly like one that is right.
+**Nothing shall be written where serialisation failed.** The document is built and serialised before the first byte reaches the stream, so a failure leaves an empty destination rather than half a page. A partially written page is worse than an absent one: it opens, renders a truncated graph, and states a structure that is wrong while looking exactly like one that is right.
 
-The stream is checked once after the writing rather than per call, and again on the close — a full disk shows up on the flush, and a companion claimed as written when it was truncated is the failure worth catching. That is `graph_write_graphml`'s rule.
+**The stream is the caller's and is neither flushed nor closed here**, exactly as it is for every other renderer: `emit` opens the destination, dispatches, and reports a write failure naming it. That is what makes this a format rather than a companion — a companion owns its file, and this one owns none.
 
-The caller records the failure and still writes the report. A companion that cannot be written is a recorded failure, never a reason to withhold the results the user asked for (LLR-DOT-05).]]></text>
+The error is checked once after the writing rather than per call, because a full disk shows up on the flush and a report claimed as written when it was truncated is the failure worth catching.]]></text>
         <traces>
-          <trace target="HLR" ref="HLR-215" name="A Single File That Opens Without a Server" />
+          <trace target="HLR" ref="HLR-215" name="The Interactive Drawing as an Output Format" />
           <trace target="HLR" ref="HLR-030" />
           <trace target="HLR" ref="HLR-038" />
         </traces>
@@ -10060,7 +10071,7 @@ The caller records the failure and still writes the report. A companion that can
       </traces>
     </test>
   </file>
-  <file path="test/unit/cli.c" role="unit" count="82">
+  <file path="test/unit/cli.c" role="unit" count="84">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -17708,7 +17719,7 @@ The caller records the failure and still writes the report. A companion that can
     </test>
   </file>
 
-    <file path="test/unit/report_html.c" role="unit" count="12">
+    <file path="test/unit/report_html.c" role="unit" count="11">
       <test name="a_node_is_emitted_for_each_declared_layer">
         <purpose><![CDATA[Verifies that one node is emitted per declared stratum, identified by its ordinal, and that no layer is emitted for a directory nobody declared.]]></purpose>
         <traces>
@@ -17771,53 +17782,39 @@ The caller records the failure and still writes the report. A companion that can
           <trace target="LLR" ref="LLR-HTM-02"/>
         </traces>
       </test>
-      <test name="the_companion_needs_both_the_request_and_an_output_path">
-        <purpose><![CDATA[Verifies that the companion is warranted only when requested and given a report path to derive its name from, the rule every other companion follows.]]></purpose>
-        <traces>
-          <trace target="LLR" ref="LLR-HTM-01"/>
-        </traces>
-      </test>
-      <test name="an_unopenable_destination_is_a_failure">
-        <purpose><![CDATA[Verifies that a destination that cannot be opened is a diagnosed failure rather than a silent one.]]></purpose>
+      <test name="the_stream_is_left_open_for_the_caller">
+        <purpose><![CDATA[Verifies that the renderer writes to the stream it is given and neither flushes nor closes it: `emit` owns the destination here as it does for every other format, which is what makes this a format rather than a companion.]]></purpose>
         <traces>
           <trace target="LLR" ref="LLR-HTM-05"/>
         </traces>
       </test>
-      <test name="the_interactive_page_is_off_unless_requested">
-        <purpose><![CDATA[Verifies that the interactive page is off by default, that the option is a flag rather than a path, and that it is recorded without being validated against --output at parse time.]]></purpose>
+      <test name="the_html_extension_selects_the_html_format">
+        <purpose><![CDATA[Verifies that `.html` maps to the html format in the extension table, the way every recognised extension maps to one.]]></purpose>
         <traces>
           <trace target="LLR" ref="LLR-HTM-01"/>
         </traces>
       </test>
-      <test name="the_interactive_page_is_refused_with_from_xml">
-        <purpose><![CDATA[Verifies that an explicit request for the page in regeneration mode is refused rather than silently ignored, so a user who asked for a file and got none is told why.]]></purpose>
+      <test name="there_is_no_option_requesting_the_html_format">
+        <purpose><![CDATA[Verifies that `--html` is not an option: the filename has already named the format, and a flag naming it again is a third spelling of one fact.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-01"/>
+        </traces>
+      </test>
+      <test name="the_format_option_spells_html">
+        <purpose><![CDATA[Verifies that `--format html` selects the format for a report on standard output, where there is no extension to read.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-01"/>
+        </traces>
+      </test>
+      <test name="the_html_format_is_refused_with_from_xml">
+        <purpose><![CDATA[Verifies that regeneration into the html format is refused: a record carries findings and not the graph they came from.]]></purpose>
         <traces>
           <trace target="LLR" ref="LLR-CLI-15"/>
         </traces>
       </test>
     </file>
 
-    <file path="test/fixtures/html.bats" role="fixture" count="15">
-      <test name="html: the companion is written beside the report and named from it">
-        <purpose><![CDATA[Verifies that the page is written beside the report and takes its name from it by extension substitution.]]></purpose>
-        <traces>
-          <trace target="HLR" ref="HLR-215"/>
-        </traces>
-      </test>
-      <test name="html: no companion is written when the report goes to standard output">
-        <purpose><![CDATA[Verifies that a request made with the report on standard output writes no file at all and is not an error, there being no path to derive a name from.]]></purpose>
-        <traces>
-          <trace target="HLR" ref="HLR-215"/>
-          <trace target="HLR" ref="HLR-119"/>
-        </traces>
-      </test>
-      <test name="html: an explicit request with --from-xml is refused, not ignored">
-        <purpose><![CDATA[Verifies that an explicit request in regeneration mode is refused with a diagnostic: a saved record carries findings and not the topology the page draws.]]></purpose>
-        <traces>
-          <trace target="HLR" ref="HLR-122"/>
-          <trace target="HLR" ref="HLR-215"/>
-        </traces>
-      </test>
+    <file path="test/fixtures/html.bats" role="fixture" count="17">
       <test name="html: the embedded payload parses as JSON">
         <purpose><![CDATA[Verifies the payload against a real parser rather than by pattern-matching, which is the only level at which the embedding escape is observable.]]></purpose>
         <traces>
@@ -17890,6 +17887,40 @@ The caller records the failure and still writes the report. A companion that can
         <purpose><![CDATA[Verifies that a run declaring no strata draws every file as a root container rather than acquiring an invented top.]]></purpose>
         <traces>
           <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </test>
+      <test name="html: the .html extension selects the format, with no option asking">
+        <purpose><![CDATA[Verifies that the format is chosen by the output filename's extension, the way every other format is chosen.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-148"/>
+          <trace target="HLR" ref="HLR-215"/>
+        </traces>
+      </test>
+      <test name="html: there is no --html option">
+        <purpose><![CDATA[Verifies that no option requests the format: the filename has already said what it is, and a flag saying it again is the disagreement HLR-149 exists to prevent.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-215"/>
+          <trace target="HLR" ref="HLR-149"/>
+        </traces>
+      </test>
+      <test name="html: --format html selects it for a report on standard output">
+        <purpose><![CDATA[Verifies that the option names the format where there is no filename to read an extension from, the rule every other format follows.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-149"/>
+          <trace target="HLR" ref="HLR-215"/>
+        </traces>
+      </test>
+      <test name="html: --format and a disagreeing extension are refused">
+        <purpose><![CDATA[Verifies that an explicit format contradicting the output filename is a usage error naming both rather than a silent preference for either.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-149"/>
+        </traces>
+      </test>
+      <test name="html: the format is refused with --from-xml, not ignored">
+        <purpose><![CDATA[Verifies that regeneration into this format is refused with a diagnostic: a saved record carries findings and not the topology the page draws, and an empty drawing would be a confidently wrong answer.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-122"/>
+          <trace target="HLR" ref="HLR-215"/>
         </traces>
       </test>
     </file>

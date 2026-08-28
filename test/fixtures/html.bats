@@ -14,14 +14,15 @@
 setup() {
 	load "../helpers/common"
 	TREE="$BATS_TEST_DIRNAME/html/tree"
-	OUT="$BATS_TEST_TMPDIR/report.md"
 	HTML="$BATS_TEST_TMPDIR/report.html"
 }
 
+# The format is selected by the extension and by nothing else — there is no
+# option asking for it, which is the whole of HLR-215's selection rule.
 run_elc() {
-	run bash -c '"$0" -o "$1" --html \
+	run bash -c '"$0" -o "$1" \
 		--stratum "app:*/app/*" --stratum "hal:*/hal/*" "$2" \
-		2>/dev/null' "$ELC" "$OUT" "$TREE"
+		2>/dev/null' "$ELC" "$HTML" "$TREE"
 }
 
 # The embedded document, extracted the way a browser reaches it: everything
@@ -50,31 +51,46 @@ for e in json.load(sys.stdin):
 
 # ------------------------------------------------------------- the artefact
 
-@test "html: the companion is written beside the report and named from it" {
+@test "html: the .html extension selects the format, with no option asking" {
 	run_elc
 	assert_success
 	[ -f "$HTML" ]
+	run head -c 15 "$HTML"
+	assert_output --partial "<!DOCTYPE html>"
 }
 
-@test "html: no companion is written when the report goes to standard output" {
-	cd "$BATS_TEST_TMPDIR"
-	run bash -c '"$0" --html --stratum "app:*/app/*" "$1" >/dev/null 2>&1' \
-		"$ELC" "$TREE"
-	assert_success
-	[ ! -f "$BATS_TEST_TMPDIR/report.html" ]
-	# And nothing else was written either: the name is derived from the
-	# report's path, and there is none (HLR-104, HLR-119).
-	run bash -c 'ls "$BATS_TEST_TMPDIR"/*.html 2>/dev/null | wc -l'
-	assert_output "0"
-}
-
-@test "html: an explicit request with --from-xml is refused, not ignored" {
-	# A record carries findings, not topology, so there is nothing to draw.
-	# The user is told why rather than left to discover the absence
-	# (HLR-122, LLR-CLI-15).
-	run "$ELC" --html --from-xml /dev/null -o "$OUT"
+@test "html: there is no --html option" {
+	# The extension has already said what the format is. A flag saying it
+	# again is the disagreement HLR-149 exists to prevent, arriving as a
+	# third spelling (HLR-215).
+	run "$ELC" --html -o "$HTML" "$TREE"
 	assert_failure
-	assert_output --partial "--html cannot be combined with --from-xml"
+	assert_output --partial "unrecognised option '--html'"
+}
+
+@test "html: --format html selects it for a report on standard output" {
+	# Standard output has no filename and therefore no extension, so the
+	# option is the means there — the rule every other format follows
+	# (HLR-149).
+	run bash -c '"$0" -f html "$1" 2>/dev/null' "$ELC" "$TREE"
+	assert_success
+	assert_output --partial "<!DOCTYPE html>"
+	assert_output --partial "const graphData = "
+}
+
+@test "html: --format and a disagreeing extension are refused" {
+	run "$ELC" -f md -o "$HTML" "$TREE"
+	assert_failure
+	assert_output --partial "disagree"
+}
+
+@test "html: the format is refused with --from-xml, not ignored" {
+	# A record carries findings, not topology, so there is nothing to draw.
+	# The user is told why rather than left to discover an empty drawing
+	# (HLR-122, LLR-CLI-15).
+	run "$ELC" --from-xml /dev/null -o "$HTML"
+	assert_failure
+	assert_output --partial "html format cannot be combined with --from-xml"
 }
 
 # -------------------------------------------------------------- the payload
@@ -215,8 +231,8 @@ for e in json.load(sys.stdin):
 }
 
 @test "html: with no strata declared the hierarchy has two tiers" {
-	run bash -c '"$0" -o "$1" --html "$2" 2>/dev/null' \
-		"$ELC" "$OUT" "$TREE"
+	run bash -c '"$0" -o "$1" "$2" 2>/dev/null' \
+		"$ELC" "$HTML" "$TREE"
 	assert_success
 	run elements
 	assert_success

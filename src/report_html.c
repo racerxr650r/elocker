@@ -1,8 +1,13 @@
-/* report_html.c — the interactive HTML companion.
+/* report_html.c — the interactive HTML report format.
  *
  * The System Dependence Graph serialised as a *containment hierarchy* —
  * layers holding files holding functions — and one page that renders it at
  * whichever of those three levels the reader asks for (doc/SDD.md §27).
+ *
+ * **Selected by the output filename's extension**, exactly as `.md`, `.csv`
+ * and `.xml` are (HLR-148). There is no option asking for it: an option would
+ * be a second way of saying what `report.html` has already said, and two
+ * spellings of one fact is the disagreement HLR-149 exists to prevent.
  *
  * **Nothing here measures anything.** Every figure the payload carries was
  * computed upstream and is copied; every edge it carries is an edge of the
@@ -512,25 +517,25 @@ static void write_glue(FILE *out)
 
 /* ------------------------------------------------------------------ public */
 
-bool report_html_warranted(const ElcOptions *opts)
-{
-	/* Requested, and with a name to derive — the rule every companion
-	 * follows. A request made with the report on standard output writes no
-	 * file and is not a usage error (HLR-104, HLR-119, LLR-HTM-01). */
-	return opts->html && opts->output_path != NULL;
-}
-
-int report_html_write(const Sdg *g, const ElcOptions *opts, const char *path)
+int format_html(const Report *report, const Sdg *g, const ElcOptions *opts,
+                FILE *out)
 {
 	json_t *elements = NULL;
 	char   *payload  = NULL;
-	FILE   *out      = NULL;
 	int     status   = -1;
 
-	/* Serialised before the file is opened, so that a failure here leaves
-	 * nothing behind. A partially written page is worse than an absent
-	 * one: it opens, renders a truncated graph, and states a structure that
-	 * is wrong while looking exactly like one that is right (LLR-HTM-05). */
+	/* The report is not read here yet: the page presents the graph, and
+	 * every figure it draws is already on the graph's nodes. It is taken
+	 * so that the tiers this format will grow — presented in the context
+	 * of the drawing rather than as tables beside it (HLR-031) — arrive
+	 * without changing every caller. */
+	(void)report;
+
+	/* Serialised before anything is written, so a failure leaves a stream
+	 * the caller can still report on rather than a half-page. A partially
+	 * written page is worse than none: it opens, renders a truncated
+	 * graph, and states a structure that is wrong while looking exactly
+	 * like one that is right (LLR-HTM-05). */
 	elements = html_elements(g, opts);
 	if (!elements) {
 		diag_printf("elc: out of memory building the HTML graph\n");
@@ -543,38 +548,20 @@ int report_html_write(const Sdg *g, const ElcOptions *opts, const char *path)
 		goto done;
 	}
 
-	out = fopen(path, "w");
-	if (!out) {
-		diag_printf("elc: %s: %s\n", path, strerror(errno));
-		goto done;
-	}
-
 	write_head(out);
 	fputs("<script>\nconst graphData = ", out);
 	write_payload(out, payload);
 	fputs(";\n</script>\n", out);
 	write_glue(out);
 
-	/* Checked after the writing rather than per call, and again on the
-	 * close: a full disk shows up on the flush, and a companion claimed as
-	 * written when it was truncated is the failure worth catching. */
-	if (ferror(out)) {
-		diag_printf("elc: %s: write failed\n", path);
-		fclose(out);
-		out = NULL;
-		goto done;
-	}
-	if (fclose(out) != 0) {
-		out = NULL;
-		diag_printf("elc: %s: %s\n", path, strerror(errno));
-		goto done;
-	}
-	out = NULL;
-	status = 0;
+	/* Checked after the writing rather than per call: a full disk shows up
+	 * on the flush, and a report claimed as written when it was truncated
+	 * is the failure worth catching. The stream is the caller's, so it is
+	 * neither flushed nor closed here — `emit` owns both, as it does for
+	 * every other renderer. */
+	status = ferror(out) ? -1 : 0;
 
 done:
-	if (out)
-		fclose(out);
 	free(payload);
 	json_decref(elements);
 	return status;

@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.11
-**Date:** 2026-08-27
+**Version:** 3.12
+**Date:** 2026-08-28
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -253,15 +253,19 @@ Requirements governing how `elc` renders its computed results for human and mach
     *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md).
 
 *   <a id="HLR-031"></a>**HLR-031: Uniform Report Composition Across Formats.**
-    Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), and Graphviz `.dot` (HLR-102) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
+    Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), Graphviz `.dot` (HLR-102), and HTML (HLR-215) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
 
     The enumeration above is the **verbose** composition of HLR-151. Verbosity selects how much of it a given run presents (HLR-150), and this requirement governs the axis it does not touch: whichever verbosity is in force, every affected format shall present the same tiers as every other. Uniformity is across formats at a fixed verbosity, never across verbosities — a table and a Markdown report of the same run must not differ, and a summary report is not required to match a verbose one.
 
     The tiers a format **reaches** are what must match, rather than the headings it prints: a tier with no rows is presented in no human format and named in the closing statement of every one of them (HLR-188, HLR-189). The order those tiers are presented in is HLR-182's and HLR-184's, and is likewise the same in every affected format.
+
+    **This rule governs formats that present the report as a sequence of tables, and only those.** The exemptions above are not a list of awkward cases: CSV is one table for a consumer to load, the record is every element of the run for a machine to read back, and `.dot` is a drawing — none of them was ever expected to carry the same tiers as the aligned table, and no reading of this requirement has ever asked them to. HTML is exempt on the same ground rather than a new one. It presents its information **in the context of the drawing** — a figure reached by opening the box that holds it, at the tier the reader is looking at — rather than as a sequence of tables beside it, so requiring it to present the same tiers in the same order would be requiring it to be the Markdown report with a diagram attached.
+
+    What the exemption does *not* license is a format that answers a question differently from the others. Wherever HTML presents a measurement, it is the measurement the report states, taken from the same model (HLR-213). The exemption is about **arrangement**, never about content.
     *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md), [SDD Section 15](SDD.md).
 
 *   <a id="HLR-148"></a>**HLR-148: Output Format Determined by Filename Extension.**
-    Where the user names an output file (HLR-030), the extension of that filename shall determine the report format, and no separate format option shall be required to state what the filename has already said. `elc` shall recognise `.txt` as the aligned table (HLR-027), `.md` as Markdown (HLR-029), `.csv` as CSV (HLR-028), and `.xml` as the complete record (HLR-054).
+    Where the user names an output file (HLR-030), the extension of that filename shall determine the report format, and no separate format option shall be required to state what the filename has already said. `elc` shall recognise `.txt` as the aligned table (HLR-027), `.md` as Markdown (HLR-029), `.csv` as CSV (HLR-028), `.xml` as the complete record (HLR-054), and `.html` as the interactive drawing (HLR-215).
 
     An output filename carrying an extension `elc` does not recognise, or carrying none at all, shall be rejected as a usage error (HLR-063) naming the extension found and listing those that are recognised. Guessing a format for an unrecognised extension would write one format under a name promising another, and defaulting silently to the table would produce a file called `report.json` holding no JSON — each of which is a confidently wrong result of exactly the kind this document forbids elsewhere.
 
@@ -1371,8 +1375,10 @@ Requirements governing the interactive companion: the graph `elc` already builds
     **Global-access edges are not call edges and are not emitted here** (HLR-074). Coupling through shared state is a different fact about a design from coupling through calls, and the graph carries the two separately precisely so that an analysis cannot report one as the other. A drawing of the call structure that silently included the global edges would do exactly that.
     *Trace:* [SDD Section 27](SDD.md), [SDD Section 8](SDD.md).
 
-*   <a id="HLR-215"></a>**HLR-215: A Single File That Opens Without a Server.**
-    `elc` shall write the interactive companion as one file, named from the report's own output path by the rule every companion follows (HLR-119), which renders when opened directly from the filesystem — requiring no build step, no bundler, and **no local web server**.
+*   <a id="HLR-215"></a>**HLR-215: The Interactive Drawing as an Output Format.**
+    `elc` shall write the interactive drawing as an **output format, selected by the output filename's extension** exactly as every other format is (HLR-148), rendering to the destination the report itself is written to. It shall be one file, which renders when opened directly from the filesystem — requiring no build step, no bundler, and **no local web server**.
+
+    **No option shall ask for it.** The extension has already said what the format is, and an option saying it again is the disagreement HLR-149 exists to prevent between the two spellings there are: a flag would make this the one artefact selected by a means nothing else uses, and a reader would have to learn a second rule for one format. Where a report goes to standard output, `--format html` selects it by the same rule that selects every other format there (HLR-149).
 
     **The no-server constraint decides the artefact's shape**, and it is a usability requirement rather than a technical one: a reader who must start a server to look at a report does not look at the report. It forbids splitting the payload into a sibling file the page fetches, which is what a browser's local-file security policy blocks and what would otherwise be the natural structure.
 
@@ -1380,7 +1386,9 @@ Requirements governing the interactive companion: the graph `elc` already builds
 
     **The payload shall be embedded such that no content of the graph can terminate its container.** A function name is arbitrary text from the user's source — a C++ template signature contains angle brackets, and `elc` places no restriction on what a name may hold. Serialisation escaping alone is not sufficient here: a name may be perfectly well-formed in the serialisation and still close the element embedding it, or be a line terminator to the embedding language and not to the serialisation. The requirement is on the result — a name containing any character whatsoever renders as that name — and not on the mechanism.
 
-    **Absent an output path, no companion is written and that is not an error.** The name is derived from the report's, so a report on standard output has none to derive from — the rule the GraphML export, the debug log, the matrix, and the manifest all follow (HLR-104, HLR-106, HLR-119).
+    **This format presents its information in the context of the drawing**, which is why HLR-031's uniformity rule exempts it as it already exempts CSV, the record, and `.dot`. A figure is reached by opening the box that holds it, at the tier the reader is looking at, rather than printed in a table beside it. The exemption is about arrangement and never about content: wherever this format presents a measurement it is the measurement the report states, taken from the same model (HLR-213).
+
+    **A regenerated report shall not be written in this format.** A saved record carries the findings of a run and not the graph they came from (HLR-122), so there is no topology to draw; the request shall be refused with a diagnostic naming the reason rather than answered with an empty drawing.
     *Trace:* [SDD Section 27](SDD.md), [SDD Section 4](SDD.md).
 
 *   <a id="HLR-216"></a>**HLR-216: The View Opens at the Architectural Level.**

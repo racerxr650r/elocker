@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.19
-**Date:** 2026-08-27
+**Version:** 2.20
+**Date:** 2026-08-28
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -1878,9 +1878,9 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
 ## 27. Detailed Design for [src/report_html.c](../src/report_html.c)
 
 ### 27.1 Purpose and Responsibilities
-[src/report_html.c](../src/report_html.c) writes the interactive HTML companion. It serialises the System Dependence Graph as a hierarchical Cytoscape *compound-node* payload — layers containing files containing functions — and emits one self-contained page that renders it, so that a graph too dense to read at function level can be read at the level the reader chooses.
+[src/report_html.c](../src/report_html.c) renders the interactive HTML report format. It serialises the System Dependence Graph as a hierarchical Cytoscape *compound-node* payload — layers containing files containing functions — and emits one self-contained page that renders it, so that a graph too dense to read at function level can be read at the level the reader chooses.
 
-*   Decide whether the companion is warranted for a run: on request, and only where the report has a path to derive a name from (HLR-119, HLR-215).
+*   Render to the stream the caller opened, as every other renderer does, leaving the destination's lifetime to `emit` (HLR-215).
 *   Emit a node for each declared architectural stratum, taking the assignment from `arch.c` rather than matching the stratum patterns again (HLR-213).
 *   Emit a node for each component carrying its layer as `parent`, and no `parent` at all for a component in no declared layer (HLR-213).
 *   Emit a node for each graph node carrying its component as `parent`, with the figures the report already computed (HLR-213).
@@ -1889,9 +1889,9 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
 *   Write the page's shell and its initialisation script, configured to open at the highest architectural level (HLR-216).
 
 ### 27.2 External Interfaces
-#### 27.2.1 The Companion Artefact
+#### 27.2.1 The Output Format
 
-One file beside the report, named from it by extension substitution: an `--output` of `report.md` yields `report.html`. The rule is `graph_companion_path`'s, shared with every other companion (HLR-119).
+One of the formats `--output`'s extension selects (HLR-148): an `--output` of `report.html` is written by this module, and `--format html` names the same format for a report going to standard output. The page *is* the report in this format, not a file beside one — nothing here derives a filename, and no option requests it.
 
 #### 27.2.2 The Embedded Payload
 
@@ -1901,8 +1901,7 @@ A JavaScript `const graphData` holding a Cytoscape elements array. Its shape is 
 ### 27.3 Internal Structure
 #### 27.3.1 Key Functions
 
-*   **`bool report_html_warranted(const ElcOptions *opts)`** — Whether the companion is to be written: requested, and with a named output path to derive its own from (HLR-104, HLR-215).
-*   **`int report_html_write(const Sdg *g, const ElcOptions *opts, const char *path)`** — Serialise the graph and write the page. Returns 0, or -1 with the diagnostic already on stderr.
+*   **`int format_html(const Report *report, const Sdg *g, const ElcOptions *opts, FILE *out)`** — Render the graph as one self-contained page on a stream the caller opened — a renderer like every other, selected by the output filename's extension (HLR-148). The one renderer taking the graph as well as the model, because the topology is what it presents rather than a figure derived from it.
 *   **`static json_t *html_elements(const Sdg *g, const ElcOptions *opts)`** — The complete Cytoscape elements array: the three node tiers in that order, then the call edges.
 *   **`static int append_layers(json_t *elements, const ElcOptions *opts)`** — Tier 1 — one node per declared stratum, at its declared ordinal.
 *   **`static int append_files(json_t *elements, const Sdg *g, const size_t *stratum)`** — Tier 2 — one node per component, parented on its layer where it has one.
@@ -1932,14 +1931,15 @@ A JavaScript `const graphData` holding a Cytoscape elements array. Its shape is 
 
 ### 27.4 Dependencies
 
-*   `src/graph.c` for the topology and the component projection, `src/arch.c` for the layer assignment, `src/format_graph.c` for the companion naming rule, and `src/diag.c` for diagnostics. `libjansson`, already linked for the purification manifest (HLR-175) — the one JSON library, not a second (HLR-112).
+*   `src/graph.c` for the topology and the component projection, `src/arch.c` for the layer assignment, and `src/diag.c` for diagnostics. Nothing from `src/format_graph.c`: this is a format and derives no filename. `libjansson`, already linked for the purification manifest (HLR-175) — the one JSON library, not a second (HLR-112).
 
 ### 27.5 Error Handling and Logging
 
-*   **No output path** Not an error. `report_html_warranted` is false and no companion is written, the rule every other companion follows (HLR-104, HLR-119).
+*   **Report written to standard output** Not an error and not a special case. The page is written to the stream like any other format; `--format html` selects it there, exactly as it selects CSV or the record (HLR-149).
+*   **Regeneration mode** Refused at parse time with a diagnostic naming the reason. A saved record carries the findings of a run and not the graph they came from, so there is no topology to draw, and an empty drawing would be a confidently wrong answer where a refusal is the honest one (HLR-122).
 *   **No strata declared** Not an error and not an invention. No layer nodes are emitted, and the payload is a two-tier file/function hierarchy — which is the whole of the structure the user declared.
 *   **Serialisation or allocation failure** Diagnostic naming the file, nothing written, and -1. A partially written page is worse than none: it would open and render a truncated graph, which is a wrong answer wearing the shape of a right one.
-*   **Write failure** Checked on `ferror` after the writing and on `fclose`, the way `graph_write_graphml` checks it — a full disk shows up on the flush, and a companion claimed as written when it was truncated is the failure worth catching. Recorded as a failure by the caller; the report itself is never withheld (LLR-DOT-05).
+*   **Write failure** Checked on `ferror` after the writing — a full disk shows up on the flush, and a report claimed as written when it was truncated is the failure worth catching. The stream is closed by `emit`, which owns it here as it does for every other format, so the close error is caught in one place rather than in each renderer.
 ## 28. Data Dictionary
 
 *   **`ElcOptions`** (defined in [include/elc.h](../include/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.

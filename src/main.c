@@ -49,7 +49,8 @@
  * and a verbose request against either is honoured by changing nothing rather
  * than rejected (HLR-152, LLR-MAIN-21).
  */
-static int render_to(const Report *report, const ElcOptions *opts, FILE *out)
+static int render_to(const Report *report, const Sdg *g,
+                     const ElcOptions *opts, FILE *out)
 {
 	Verbosity verbosity = opts->verbose ? VERBOSITY_VERBOSE
 	                                    : VERBOSITY_SUMMARY;
@@ -58,6 +59,12 @@ static int render_to(const Report *report, const ElcOptions *opts, FILE *out)
 	case FORMAT_CSV:      return format_csv(report, out);
 	case FORMAT_XML:      return xml_write_report(report, out);
 	case FORMAT_MARKDOWN: return format_markdown(report, verbosity, out);
+	/* The one renderer that takes the graph as well as the model: the
+	 * topology is the thing it presents rather than a figure derived from
+	 * it. Reachable only outside regeneration mode, where there is no
+	 * graph to hand it and the format is refused at parse time
+	 * (HLR-122). */
+	case FORMAT_HTML:     return format_html(report, g, opts, out);
 	case FORMAT_TABLE:
 	default:              return format_table(report, verbosity, out);
 	}
@@ -409,15 +416,6 @@ static int companion_graphml(Run *run, const char *path)
 	return graph_write_graphml(&run->sdg, path);
 }
 
-/* The interactive page, written from the graph like the other two drawings
- * and unlike the matrix — it draws topology, which a saved record does not
- * carry (HLR-122, HLR-215).
- */
-static int companion_html(Run *run, const char *path)
-{
-	return report_html_write(&run->sdg, &run->opts, path);
-}
-
 static int companion_raw_dot(Run *run, const char *path)
 {
 	return graph_write_purify_dot(&run->sdg, &run->purify, false, path);
@@ -507,13 +505,6 @@ static void write_companions(Run *run)
 	if (run->graph_built && graph_graphml_warranted(&run->opts))
 		write_companion(run, "graphml", "GraphML", companion_graphml);
 
-	/* The interactive drawing, on the same terms as the GraphML export:
-	 * off unless asked for, named from the report, and nothing at all when
-	 * the report goes to standard output (HLR-215). */
-	if (run->graph_built && report_html_warranted(&run->opts))
-		write_companion(run, "html", "interactive graph",
-		                companion_html);
-
 	/* The third companion, and the only one a regenerated report can also
 	 * produce: it is written from the model rather than from the graph
 	 * (HLR-180). Off unless asked for, like the GraphML export. */
@@ -556,7 +547,7 @@ static int emit(Run *run)
 
 	/* Results go to the selected destination and nothing else does; every
 	 * diagnostic above and below went to stderr (HLR-038, LLR-MAIN-12). */
-	if (render_to(&run->report, &run->opts, run->out) != 0) {
+	if (render_to(&run->report, &run->sdg, &run->opts, run->out) != 0) {
 		diag_printf("elc: %s: %s\n",
 		        run->opts.output_path ? run->opts.output_path
 		                              : "standard output",

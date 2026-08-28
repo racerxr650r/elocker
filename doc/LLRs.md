@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.14
-**Date:** 2026-08-27
+**Version:** 2.15
+**Date:** 2026-08-28
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -2213,16 +2213,18 @@ The compound-node data model: three tiers of nodes joined by a `parent` referenc
     Edges shall be emitted in ascending source-then-target order, which is `format_graph.c`'s ordering for the same artefact-level reason: the order is a property of this document rather than of a collection the model holds, so it is imposed here — the second of the two exceptions to `report.c` owning every sort (LLR-DOT-04, LLR-RPT-10).
     *Trace:* HLR-214 (Edges Between Functions Only), HLR-074, HLR-032.
 
-## 73. `report_html_write` ([src/report_html.c](../src/report_html.c))
+## 73. `format_html` ([src/report_html.c](../src/report_html.c))
 
 The page itself: when it is written, what its shell contains, how the payload survives being embedded in it, and what the viewer is told to do with it.
 
-*   <a id="LLR-HTM-01"></a>**LLR-HTM-01** — `report_html_warranted` shall return true only where the companion was requested and `opts->output_path` is non-NULL.
+*   <a id="LLR-HTM-01"></a>**LLR-HTM-01** — `cli.c`'s extension table shall map `html` to `FORMAT_HTML`, and its format-name table shall spell that format `html`, so that `--output report.html` selects it and `--format html` names it.
 
-    Recorded rather than validated at parse time, exactly as `--graphml`, `--dsm`, `--dbg`, `--write-manifest` and `--purify-dot` are: a request made with the report on standard output writes no companion and is not a usage error, because there is no name to derive one from and refusing the run would fail a command the requirement says should simply produce no file (HLR-104, HLR-119, HLR-215).
-    *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-119.
+    **Both tables are the single statement of their fact.** `format_extensions()` builds the "not a report format extension" diagnostic from the first, so the new extension is named in that message without a second list to keep in step; the second is indexed by the enumerator, so the disagreement diagnostic of HLR-149 names `html` for free. Adding a format to either without the other is what makes an error message name a set the parser does not accept.
 
-*   <a id="LLR-HTM-02"></a>**LLR-HTM-02** — `report_html_write` shall emit a complete HTML document whose head references the rendering library and its expand-collapse extension, and whose body carries one container element for the drawing.
+    **No option shall request this format.** A flag would be a second way of saying what the filename has already said — the disagreement HLR-149 exists to prevent, arriving as a third spelling rather than a second (HLR-215).
+    *Trace:* HLR-215 (The Interactive Drawing as an Output Format), HLR-148, HLR-149.
+
+*   <a id="LLR-HTM-02"></a>**LLR-HTM-02** — `format_html` shall emit a complete HTML document whose head references the rendering library and its expand-collapse extension, and whose body carries one container element for the drawing.
 
     The two references are the only external content in the file, and their being fetched at view time is the bound HLR-215 places on the word "standalone". Nothing is fetched by `elc`: this function writes text and returns, so the run remains free of the network, the interpreter and the virtual machine HLR-040 excludes.
 
@@ -2238,7 +2240,7 @@ The page itself: when it is written, what its shell contains, how the payload su
     The escape is applied to the serialised text and not to each name before serialisation: applying it earlier would put the escape sequence in the data, and a viewer would render the literal characters `\u003c` in a function's label.
     *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-064.
 
-*   <a id="LLR-HTM-04"></a>**LLR-HTM-04** — `report_html_write` shall emit an initialisation script that constructs the viewer over the embedded payload with a force-directed layout, initialises the expand-collapse extension with its fisheye and animation behaviours enabled, and collapses every container immediately afterwards.
+*   <a id="LLR-HTM-04"></a>**LLR-HTM-04** — `format_html` shall emit an initialisation script that constructs the viewer over the embedded payload with a force-directed layout, initialises the expand-collapse extension with its fisheye and animation behaviours enabled, and collapses every container immediately afterwards.
 
     **The collapse is not a default this script chooses; it is HLR-216.** The page opens showing the declared layers and the reader descends. Initialising without it would reproduce, with an extra step, the density failure the existing graph companions have.
 
@@ -2249,11 +2251,11 @@ The page itself: when it is written, what its shell contains, how the payload su
     A force-directed layout is chosen because it is the family that keeps a cluster's members near one another, so a collapsed container occupies the space its contents did.
     *Trace:* HLR-216 (The View Opens at the Architectural Level).
 
-*   <a id="LLR-HTM-05"></a>**LLR-HTM-05** — `report_html_write` shall return -1 with a diagnostic naming the file on standard error where the destination cannot be opened, where serialisation or allocation fails, or where an error is observed on the stream after writing; and shall return 0 otherwise.
+*   <a id="LLR-HTM-05"></a>**LLR-HTM-05** — `format_html` shall return -1 where serialisation or allocation fails, or where an error is observed on the stream after writing, and 0 otherwise.
 
-    Nothing shall be written where serialisation failed. A partially written page is worse than an absent one: it opens, renders a truncated graph, and states a structure that is wrong while looking exactly like one that is right.
+    **Nothing shall be written where serialisation failed.** The document is built and serialised before the first byte reaches the stream, so a failure leaves an empty destination rather than half a page. A partially written page is worse than an absent one: it opens, renders a truncated graph, and states a structure that is wrong while looking exactly like one that is right.
 
-    The stream is checked once after the writing rather than per call, and again on the close — a full disk shows up on the flush, and a companion claimed as written when it was truncated is the failure worth catching. That is `graph_write_graphml`'s rule.
+    **The stream is the caller's and is neither flushed nor closed here**, exactly as it is for every other renderer: `emit` opens the destination, dispatches, and reports a write failure naming it. That is what makes this a format rather than a companion — a companion owns its file, and this one owns none.
 
-    The caller records the failure and still writes the report. A companion that cannot be written is a recorded failure, never a reason to withhold the results the user asked for (LLR-DOT-05).
-    *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-030, HLR-038.
+    The error is checked once after the writing rather than per call, because a full disk shows up on the flush and a report claimed as written when it was truncated is the failure worth catching.
+    *Trace:* HLR-215 (The Interactive Drawing as an Output Format), HLR-030, HLR-038.

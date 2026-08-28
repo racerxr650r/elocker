@@ -288,7 +288,7 @@ void cli_usage(FILE *stream)
 "\n"
 "Options:\n"
 "  -f, --format FORMAT\n"
-"                     table, csv, xml, or md, for a report written to\n"
+"                     table, csv, xml, md, or html, for a report written to\n"
 "                     standard output (default table). With --output the\n"
 "                     filename extension names the format instead, and this\n"
 "                     option is accepted only where it agrees with it. In\n"
@@ -304,9 +304,10 @@ void cli_usage(FILE *stream)
 "                     threshold affects the exit status\n"
 "  -o, --output FILE  write the report to FILE instead of standard output.\n"
 "                     The extension of FILE names the format: .txt for the\n"
-"                     aligned table, .md for Markdown, .csv for CSV, and\n"
-"                     .xml for the complete record. Any other extension, or\n"
-"                     none, is a usage error rather than a guess\n"
+"                     aligned table, .md for Markdown, .csv for CSV, .xml\n"
+"                     for the complete record, and .html for an interactive\n"
+"                     drawing of the dependence graph. Any other extension,\n"
+"                     or none, is a usage error rather than a guess\n"
 "  -v, --verbose      present the verbose report: every per-function,\n"
 "                     per-object, per-edge, and per-match table, in addition\n"
 "                     to the summary tiers a report presents by default.\n"
@@ -374,14 +375,6 @@ void cli_usage(FILE *stream)
 "                     beside the report and named from it: an --output of\n"
 "                     report.md yields report.graphml. Requires --output,\n"
 "                     since there is otherwise no name to derive\n"
-"      --html         also write an interactive drawing of the graph beside\n"
-"                     the report and named from it: an --output of\n"
-"                     report.md yields report.html. It opens in a browser\n"
-"                     from the filesystem -- no server and no build step --\n"
-"                     showing the declared layers, and each box opens to the\n"
-"                     files it holds and then to their functions. The\n"
-"                     drawing library is fetched from the network the first\n"
-"                     time the page is opened. Requires --output\n"
 "      --dbg          also write a debug log beside the report and named\n"
 "                     from it: an --output of report.md yields report.dbg.\n"
 "                     It carries the invocation, every diagnostic the run\n"
@@ -521,7 +514,7 @@ void cli_usage(FILE *stream)
 
 /* A value above any printable character, so a long-only option cannot
  * collide with a short one. */
-enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_HTML, OPT_NO_DOT, OPT_ENTRY,
+enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
        OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF,
        OPT_DSM, OPT_SINK_AUTHORITY, OPT_SINK_HUB, OPT_GOD_BETWEENNESS,
        OPT_GOD_HUB, OPT_CORE_DEPTH, OPT_MANIFEST, OPT_WRITE_MANIFEST,
@@ -558,13 +551,15 @@ EXTENSIONS[] = {
 	{ "txt", FORMAT_TABLE    },
 	{ "md",  FORMAT_MARKDOWN },
 	{ "csv", FORMAT_CSV      },
-	{ "xml", FORMAT_XML      }
+	{ "xml", FORMAT_XML      },
+	{ "html", FORMAT_HTML    }
 };
 
 /* How the `--format` option spells each format, for a diagnostic that names
  * what the user would have had to write. Ordered by the enumerator so the
  * lookup is an index rather than a search. */
-static const char *const FORMAT_NAMES[] = { "table", "csv", "xml", "md" };
+static const char *const FORMAT_NAMES[] = { "table", "csv", "xml", "md",
+                                            "html" };
 
 /* Read a threshold: digits and nothing else.
  *
@@ -634,7 +629,8 @@ static int opt_format(const char *arg, CliParse *p)
 		{ "table", FORMAT_TABLE },
 		{ "csv",   FORMAT_CSV   },
 		{ "xml",   FORMAT_XML   },
-		{ "md",    FORMAT_MARKDOWN }
+		{ "md",    FORMAT_MARKDOWN },
+		{ "html",  FORMAT_HTML }
 	};
 
 	for (size_t i = 0; i < sizeof formats / sizeof *formats; i++) {
@@ -646,7 +642,7 @@ static int opt_format(const char *arg, CliParse *p)
 	}
 
 	diag_printf("elc: '%s' is not a format; expected table, csv, xml, "
-	        "or md\n", arg);
+	        "md, or html\n", arg);
 	return CLI_ERROR;
 }
 
@@ -777,18 +773,6 @@ static int opt_graphml(const char *arg, CliParse *p)
 	 * simply not write a file. */
 	(void)arg;
 	p->out->graphml = true;
-	return CLI_OK;
-}
-
-static int opt_html(const char *arg, CliParse *p)
-{
-	/* Recorded, not validated against --output, by the rule --graphml
-	 * follows: a request for the interactive page with the report on
-	 * standard output produces no companion rather than a usage error,
-	 * since there is no name to derive one from (HLR-104, HLR-119,
-	 * HLR-215, LLR-HTM-01). */
-	(void)arg;
-	p->out->html = true;
 	return CLI_OK;
 }
 
@@ -974,7 +958,6 @@ static const struct { int code; OptionFn handle; } OPTION_HANDLERS[] = {
 	{ OPT_STRATUM_ORDER, opt_stratum_order },
 	{ OPT_SCOPE,         opt_scope         },
 	{ OPT_GRAPHML,       opt_graphml       },
-	{ OPT_HTML,          opt_html          },
 	{ OPT_DSM,           opt_dsm           },
 	{ OPT_DBG,           opt_dbg           },
 	{ OPT_MANIFEST,      opt_manifest      },
@@ -1144,12 +1127,14 @@ static int check_regenerate(int argc, char *argv[], CliParse *p)
 		return CLI_ERROR;
 	}
 
-	/* The same rule, and the same reason. The page draws the graph's
-	 * topology, which a record does not carry (HLR-122, HLR-215). */
-	if (p->out->html) {
-		diag_printf("elc: --html cannot be combined with --from-xml: a "
-		      "saved record carries the findings of a run, not the "
-		      "graph they came from\n");
+	/* The same rule reaching a format rather than an option. The page
+	 * draws the graph's topology, which a record does not carry, so there
+	 * is nothing to draw — and the request is refused rather than answered
+	 * with an empty drawing (HLR-122, HLR-215). */
+	if (p->out->format == FORMAT_HTML) {
+		diag_printf("elc: the html format cannot be combined with "
+		      "--from-xml: a saved record carries the findings of a "
+		      "run, not the graph they came from\n");
 		return CLI_ERROR;
 	}
 
@@ -1252,7 +1237,6 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "complexity-threshold", required_argument, NULL, 'c' },
 		{ "output",               required_argument, NULL, 'o' },
 		{ "graphml",              no_argument,       NULL, OPT_GRAPHML },
-		{ "html",                 no_argument,       NULL, OPT_HTML },
 		{ "dbg",                  no_argument,       NULL, OPT_DBG },
 		{ "dsm",                  no_argument,       NULL, OPT_DSM },
 		{ "manifest",             required_argument, NULL, OPT_MANIFEST },
