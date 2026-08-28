@@ -298,6 +298,17 @@ typedef struct {
 	bool          graphml;      /* export the SDG (HLR-106); off unless
 	                             * asked for, and silently nothing when
 	                             * the report goes to stdout             */
+	/* Write the interactive HTML companion beside the report (HLR-215).
+	 *
+	 * Off unless asked for, and silently nothing when the report goes to
+	 * standard output, exactly as the GraphML export is: the companion's
+	 * name is derived from the report's, and there is then no name to
+	 * derive (HLR-104, HLR-119).
+	 *
+	 * Like the GraphML export and unlike the matrix, it is unavailable in
+	 * regeneration mode: the page draws the graph's *topology*, and a saved
+	 * record carries findings rather than topology (HLR-122). */
+	bool          html;
 	/* Write the Dependency Structure Matrix as a CSV companion beside the
 	 * report (HLR-180). Off unless asked for, and silently nothing when
 	 * the report goes to standard output, exactly as the GraphML export

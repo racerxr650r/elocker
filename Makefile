@@ -128,6 +128,14 @@ DW_LIBS      ?= $(shell $(PKG_CONFIG) --libs libdw 2>/dev/null || echo -ldw)
 # the only artefact elc must also parse, and a hand-rolled writer paired with a
 # library reader would be two implementations of one format with elc on both
 # ends of the disagreement (doc/SDD.md §20.2.3).
+#
+# It now serialises the interactive companion's payload too (HLR-213), and
+# **that is a reuse rather than a second choice.** A JSON library was already
+# linked; adding another for the new writer would be the risk §9 of the SDP
+# raises against igraph's GraphML support — a second library for a job the
+# project already has one for — arriving through a different door. HLR-112
+# makes the selection a design matter, which is what permits making it once.
+# No new package is required by Phase 31 for this reason.
 JANSSON_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags jansson 2>/dev/null)
 JANSSON_LIBS   ?= $(shell $(PKG_CONFIG) --libs jansson 2>/dev/null || echo -ljansson)
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
@@ -442,7 +450,7 @@ check-prereqs:
 	@$(MAKE) --no-print-directory _check-min LIB=criterion   MIN=2.4  PHASE=0
 	@$(MAKE) --no-print-directory _check-min LIB=libelf      MIN=0.18 PHASE=16
 	@$(MAKE) --no-print-directory _check-min LIB=libdw       MIN=0.18 PHASE=20
-	@$(MAKE) --no-print-directory _check-min LIB=jansson     MIN=2.14 PHASE=23
+	@$(MAKE) --no-print-directory _check-min LIB=jansson     MIN=2.14 PHASE=23,31
 	@echo "== grammars =="
 	@$(MAKE) --no-print-directory _check-grammar LANG=c \
 		REPO=tree-sitter/tree-sitter-c KIND=tag PIN=$(GRAMMAR_C_VER)

@@ -35,6 +35,7 @@
 #include "recover.h"
 #include "registry.h"
 #include "report.h"
+#include "report_html.h"
 #include "state.h"
 #include "thresholds.h"
 
@@ -408,6 +409,15 @@ static int companion_graphml(Run *run, const char *path)
 	return graph_write_graphml(&run->sdg, path);
 }
 
+/* The interactive page, written from the graph like the other two drawings
+ * and unlike the matrix — it draws topology, which a saved record does not
+ * carry (HLR-122, HLR-215).
+ */
+static int companion_html(Run *run, const char *path)
+{
+	return report_html_write(&run->sdg, &run->opts, path);
+}
+
 static int companion_raw_dot(Run *run, const char *path)
 {
 	return graph_write_purify_dot(&run->sdg, &run->purify, false, path);
@@ -496,6 +506,13 @@ static void write_companions(Run *run)
 
 	if (run->graph_built && graph_graphml_warranted(&run->opts))
 		write_companion(run, "graphml", "GraphML", companion_graphml);
+
+	/* The interactive drawing, on the same terms as the GraphML export:
+	 * off unless asked for, named from the report, and nothing at all when
+	 * the report goes to standard output (HLR-215). */
+	if (run->graph_built && report_html_warranted(&run->opts))
+		write_companion(run, "html", "interactive graph",
+		                companion_html);
 
 	/* The third companion, and the only one a regenerated report can also
 	 * produce: it is written from the model rather than from the graph
