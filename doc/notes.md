@@ -194,8 +194,8 @@ graph analysis and ELOC classification were added.
 
 ### 1.4 What the spec toolchain does and does not enforce
 
-Three behaviours of TraceR that Phase 0 established by running into
-them. None is documented where you would look for it.
+Behaviours of TraceR established by running into them. None is
+documented where you would look for it; the last was found in Phase 31.
 
 *   **`lint_project.py` does not fail on uncovered requirements.** A
     requirement with no verifying test is reported as a *warning* and
@@ -212,6 +212,36 @@ them. None is documented where you would look for it.
     Every change goes into [`Project.xml`](Project.xml), and the
     documents are regenerated with
     `python3 tools/render_doc.py tools/templates/<D>.md.j2 <D> --out doc/<D>.md`.
+*   **An SDD trace ref is a *position*, and it drifts when a module is
+    inserted.** The renderer numbers SDD sections by the order of the
+    `<module>` elements — module *i* renders as section *i+3* — so adding a
+    module renumbers every section after it and silently repoints every
+    `<traces target="SDD" ref="N">` aimed past the insertion. Nothing catches
+    it: the refs stay valid, the linter reports no error, and the matrix goes
+    on looking complete while naming the wrong module.
+
+    It has already happened more than once. On `develop` at 7752b7f, HLR-175
+    (the purification manifest) pointed at `src/dwarfline.c`, HLR-180 (the
+    dependency matrix) at `src/preproc.c`, HLR-200 and HLR-201 (templated
+    names from debug information) at `src/format_dsm.c`, and HLR-202 – HLR-208
+    (macro expansion) at the *Data Dictionary*.
+
+    **Phase 31 corrected exactly one of those and left the rest deliberately.**
+    Appending `src/report_html.c` as §27 would have moved the seven expansion
+    requirements off the Data Dictionary and onto the new module — a matrix
+    claiming the HTML writer implements macro expansion, which is worse than
+    the wrong answer they already carried. Those seven were repointed to §22,
+    the section they describe. The others were wrong before and are no more
+    wrong now; correcting them is a sweep of its own rather than something to
+    bury in a feature branch.
+
+    **The fix worth making is to the mechanism.** While the target is a
+    position this recurs on every phase that adds a module, invisibly. Either
+    `<module>` carries a stable id that `ref` names, or `lint_project.py`
+    grows a check that a requirement's SDD sections are among the modules its
+    LLRs' `source` attributes name. The second is cheaper and would have caught
+    all four cases above.
+
 *   **An empty `<traces>` element is schema-invalid.** A catalogued test
     that verifies no requirement — harness self-checks, mostly — must
     omit the element entirely. Emitting it empty to mean "none" fails

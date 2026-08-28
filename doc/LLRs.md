@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.13
+**Version:** 2.14
 **Date:** 2026-08-27
 **Author(s):** John Anderson
 
@@ -2174,3 +2174,86 @@ The functions the image defines that the parse never reached, and the one rule t
 
     Neither can be recomputed from a record: a regenerated report has no image, and no debug information to read either off. A row the record did not carry would vanish and a count it did not carry would come back as zero, and in both cases the regenerated report would disagree with the one it came from about what the build contains (HLR-056).
     *Trace:* HLR-212 (Functions the Image Places and the Parse Did Not Reach), HLR-211, HLR-056.
+
+## 72. `html_elements` ([src/report_html.c](../src/report_html.c))
+
+The compound-node data model: three tiers of nodes joined by a `parent` reference, and the edges that are allowed to exist between them.
+
+*   <a id="LLR-CYT-01"></a>**LLR-CYT-01** — `html_elements` shall append one node object per declared stratum, before any other node, with `id` set to `layer_` followed by the stratum's ordinal and `label` set to its declared name.
+
+    The ordinal rather than the name, because the name is user text: two strata may be declared with names differing only in characters an identifier cannot carry, and a collision would silently reparent every file of one layer into the other. The ordinal is already the stratum's identity everywhere else in the program — it is what makes a direction out of a set of names (HLR-078) — so using it here keeps one notion of which layer is which.
+
+    Layers are emitted first so that a consumer reading the sequence forward never meets a `parent` naming a node it has not yet seen. Nothing requires that, but a document whose containment resolves in one forward pass is one a reader can check by eye.
+
+    Where no stratum was declared this appends nothing, and the document has two tiers rather than three.
+    *Trace:* HLR-213 (The Graph Serialised as a Containment Hierarchy), HLR-078.
+
+*   <a id="LLR-CYT-02"></a>**LLR-CYT-02** — `html_elements` shall append one node object per component of the graph, with `id` set to `file_` followed by the component's index, `label` set to the component's path, and `parent` set to `layer_` followed by that component's stratum ordinal.
+
+    **The stratum comes from `stratum_of_components` and is not matched here.** That is `format_dsm.c`'s rule and it is this module's for the same reason: two matchers over one set of patterns eventually disagree about which layer a file is in, and this drawing would then place a file in one layer while the matrix beside it placed the file in another (HLR-164).
+
+    **Where that function returns `SIZE_MAX` the `parent` key shall be omitted entirely**, not set to empty and not set to a synthesised layer. A file matching no stratum lies outside the declared architecture — the judgement is argued where it is computed and this renderer follows it rather than reversing it. A layer named `other` would be a structure nobody declared, and would arrive on every run that declares no strata at all, wrapping the whole project in a fiction.
+    *Trace:* HLR-213 (The Graph Serialised as a Containment Hierarchy), HLR-114.
+
+*   <a id="LLR-CYT-03"></a>**LLR-CYT-03** — `html_elements` shall append one node object per node of the graph, with `id` set to `func_` followed by the node's index, `parent` set to `file_` followed by `SdgNode.component`, and `label` set to the function's name; and shall carry on it the file, the first line, the ELOC, and the cyclomatic complexity the node already holds.
+
+    The index is the SDG's own, which is the report's sorted file order (LLR-SDG-09). Taking it rather than assigning one here is what makes the document byte-identical across runs without this module sorting anything (HLR-032), and it is what lets a reader match a node in the drawing to a row in the GraphML export, whose identifiers are the same indices.
+
+    The figures are copied, never recomputed. A drawing that derived a complexity of its own would be a second opinion in a program that keeps exactly one, and the one with a threshold behind it is the report's (HLR-099).
+
+    A node whose `component` is not a valid component index carries no `parent`. That is unreachable by construction and is handled rather than asserted, because the failure it would otherwise produce is a `parent` naming a node that does not exist — which a viewer reports as a corrupt document rather than as the bug it is.
+    *Trace:* HLR-213 (The Graph Serialised as a Containment Hierarchy), HLR-032.
+
+*   <a id="LLR-CYT-04"></a>**LLR-CYT-04** — `html_elements` shall append one edge object for each edge of the graph whose kind is `EDGE_CALL`, with `source` and `target` naming the two function nodes it joins and `weight` carrying the collapsed call-site count; and shall append no edge whose `source` or `target` names a file node or a layer node.
+
+    **No meta-edges** (HLR-214). The connection between two collapsed containers is synthesised by the viewer from the edges crossing between them, so an emitted one would state the same fact twice from two rules — and the emitted one would be the statement with no threshold behind it, unreconcilable with the Ca/Ce figures the report prints (HLR-081).
+
+    **Global edges are excluded** (HLR-074). A global edge joins a writer to a reader and is not a call; including it in a drawing of the call structure would report one kind of coupling as the other, which is the distinction the graph carries two views to preserve.
+
+    Edges shall be emitted in ascending source-then-target order, which is `format_graph.c`'s ordering for the same artefact-level reason: the order is a property of this document rather than of a collection the model holds, so it is imposed here — the second of the two exceptions to `report.c` owning every sort (LLR-DOT-04, LLR-RPT-10).
+    *Trace:* HLR-214 (Edges Between Functions Only), HLR-074, HLR-032.
+
+## 73. `report_html_write` ([src/report_html.c](../src/report_html.c))
+
+The page itself: when it is written, what its shell contains, how the payload survives being embedded in it, and what the viewer is told to do with it.
+
+*   <a id="LLR-HTM-01"></a>**LLR-HTM-01** — `report_html_warranted` shall return true only where the companion was requested and `opts->output_path` is non-NULL.
+
+    Recorded rather than validated at parse time, exactly as `--graphml`, `--dsm`, `--dbg`, `--write-manifest` and `--purify-dot` are: a request made with the report on standard output writes no companion and is not a usage error, because there is no name to derive one from and refusing the run would fail a command the requirement says should simply produce no file (HLR-104, HLR-119, HLR-215).
+    *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-119.
+
+*   <a id="LLR-HTM-02"></a>**LLR-HTM-02** — `report_html_write` shall emit a complete HTML document whose head references the rendering library and its expand-collapse extension, and whose body carries one container element for the drawing.
+
+    The two references are the only external content in the file, and their being fetched at view time is the bound HLR-215 places on the word "standalone". Nothing is fetched by `elc`: this function writes text and returns, so the run remains free of the network, the interpreter and the virtual machine HLR-040 excludes.
+
+    The document shall be written even where the graph holds no nodes. A page that is absent when the project has no call structure makes the artefact's existence vary with its content, which is the rule `format_dsm.c` follows for an empty matrix and the report follows for an empty section.
+    *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-040.
+
+*   <a id="LLR-HTM-03"></a>**LLR-HTM-03** — `write_payload` shall emit the serialised document into the script element with `<` escaped as `\u003c`, `&` escaped as `\u0026`, and U+2028 and U+2029 escaped as `\u2028` and `\u2029`.
+
+    **This is not the serialisation's escaping and cannot be delegated to it.** A C++ template signature containing `</script>` is *well-formed* JSON; the serialiser emits it verbatim and is right to, and the HTML parser then ends the script element at it, turning the remainder of the graph into body text and rendering an empty page. Escaping `<` closes that case, and escaping `&` closes the second half of it — an entity reference in the text would otherwise be decoded before the script ever ran.
+
+    **U+2028 and U+2029 are the case that is invisible in review.** They are line terminators to a JavaScript parser and ordinary characters to a JSON one, so a name containing either is valid in the document and a syntax error the moment it is embedded. A `\u`-escape is chosen for all four because it is legal inside a JSON string literal and inside a JavaScript one, so the escaped text remains parseable by either.
+
+    The escape is applied to the serialised text and not to each name before serialisation: applying it earlier would put the escape sequence in the data, and a viewer would render the literal characters `\u003c` in a function's label.
+    *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-064.
+
+*   <a id="LLR-HTM-04"></a>**LLR-HTM-04** — `report_html_write` shall emit an initialisation script that constructs the viewer over the embedded payload with a force-directed layout, initialises the expand-collapse extension with its fisheye and animation behaviours enabled, and collapses every container immediately afterwards.
+
+    **The collapse is not a default this script chooses; it is HLR-216.** The page opens showing the declared layers and the reader descends. Initialising without it would reproduce, with an extra step, the density failure the existing graph companions have.
+
+    **Fisheye and animation are what make the descent navigable**, which HLR-216 also requires: expanding a container in place, and moving to the new arrangement rather than cutting to it, is what keeps the reader's bearings across an expansion. Without them each expansion presents a freshly laid-out drawing and the reader is navigating a new picture every time.
+
+    **The descent gesture shall be bound by this script rather than inherited.** HLR-216 requires that the reader can descend and return; a requirement met only by whatever gesture the extension's current release happens to bind is one that can stop being met without this file changing, and the extension is fetched from a CDN at view time rather than pinned. The binding uses the viewer's own event, so it holds whatever the extension's defaults are.
+
+    A force-directed layout is chosen because it is the family that keeps a cluster's members near one another, so a collapsed container occupies the space its contents did.
+    *Trace:* HLR-216 (The View Opens at the Architectural Level).
+
+*   <a id="LLR-HTM-05"></a>**LLR-HTM-05** — `report_html_write` shall return -1 with a diagnostic naming the file on standard error where the destination cannot be opened, where serialisation or allocation fails, or where an error is observed on the stream after writing; and shall return 0 otherwise.
+
+    Nothing shall be written where serialisation failed. A partially written page is worse than an absent one: it opens, renders a truncated graph, and states a structure that is wrong while looking exactly like one that is right.
+
+    The stream is checked once after the writing rather than per call, and again on the close — a full disk shows up on the flush, and a companion claimed as written when it was truncated is the failure worth catching. That is `graph_write_graphml`'s rule.
+
+    The caller records the failure and still writes the report. A companion that cannot be written is a recorded failure, never a reason to withhold the results the user asked for (LLR-DOT-05).
+    *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-030, HLR-038.

@@ -1,6 +1,6 @@
 # High-Level Requirements
 
-**Version:** 3.10
+**Version:** 3.11
 **Date:** 2026-08-27
 **Author(s):** John Anderson
 
@@ -1119,7 +1119,7 @@ A macro standing where the grammar expects a keyword, a type, or a string is a p
     The output shall be captured into memory and **no intermediate file shall be written**. A temporary file would be a path to collide on under parallel runs, a file to leave behind when the process is killed, and a write to a filesystem HLR-043 promises is not modified.
 
     The preprocessor is invoked on the file named, with no include paths, defines, or flags beyond those the user gave. `elc` does not have the build's configuration and shall not guess at it: a `-I` it invented would read a header the user did not name (HLR-039), and reaching the wrong header is worse than reaching none, because the expansion would succeed and be wrong.
-    *Trace:* [SDD Section 27](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md).
 
 *   <a id="HLR-203"></a>**HLR-203: Expanded Output Filtered to the File Under Analysis.**
     `elc` shall filter the preprocessor's output by the `# linenum "filename" flags` markers it emits, retaining only the lines the marker attributes to the file being analysed and discarding every line attributed to any other file.
@@ -1129,7 +1129,7 @@ A macro standing where the grammar expects a keyword, a type, or a string is a p
     The filter shall be a state machine over the marker stream rather than a heuristic over the text. A marker naming the analysed file switches it to **appending**; a marker naming anything else — a system path, a project header, `<built-in>`, `<command-line>` — switches it to **ignoring**. Nothing but the markers decides, so a line of source that happens to look like a marker cannot change what is measured.
 
     A project's own headers are discarded along with the system's. They are files in their own right, analysed on their own account when the target includes them, and counting a header once per file that includes it would inflate every figure by its inclusion count.
-    *Trace:* [SDD Section 27](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md).
 
 *   <a id="HLR-204"></a>**HLR-204: Expansion Preserves Every Reported Location.**
     The buffer `elc` parses shall place every retained line at the line number it occupies in the unexpanded file, padding with blank lines where the filter discarded a region.
@@ -1143,7 +1143,7 @@ A macro standing where the grammar expects a keyword, a type, or a string is a p
     **Comments shall survive expansion.** A preprocessor discards them by default and the invocation shall preserve them (`-C`).
 
     No figure `elc` reports today depends on this: comments are excluded from effective lines (HLR-016) and stripping them removes nothing that was being counted. It is required because the buffer handed to the parser should differ from the source as little as the expansion allows. Every difference is one a reader of a finding has to account for, every future measurement over comments would otherwise read zero without anything to indicate why, and preserving them costs a flag.
-    *Trace:* [SDD Section 27](SDD.md), [SDD Section 7](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md), [SDD Section 7](SDD.md).
 
 *   <a id="HLR-205"></a>**HLR-205: Expansion Failure Falls Back to the Source as Written.**
     Where the preprocessor cannot be run, exits non-zero, or produces nothing usable, `elc` shall parse the file's own text and shall complete the run.
@@ -1153,7 +1153,7 @@ A macro standing where the grammar expects a keyword, a type, or a string is a p
     The fallback shall not be a diagnostic on standard error for each file. On a tree the host cannot preprocess, that is one message per file for a condition the reader learns nothing further from after the first. It is recorded per file and summarised once, under HLR-206.
 
     `elc` shall remain usable with no compiler installed at all, which is what keeps HLR-040's exclusions honest: a toolchain improves the result where it is present and is not required for one.
-    *Trace:* [SDD Section 27](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md).
 
 *   <a id="HLR-206"></a>**HLR-206: Expansion Provenance Declared Per File.**
     A report over a run in which any file fell back shall state, for each such file, that it was measured from its own text and why the expansion did not happen; and the project summary shall state how many files were expanded and how many were not.
@@ -1163,7 +1163,7 @@ A macro standing where the grammar expects a keyword, a type, or a string is a p
     It also bounds the honesty cost of HLR-202. `elc` no longer promises that one source tree yields one report on every machine; it promises that one source tree preprocessed by one toolchain does. That is a real narrowing, and the per-file provenance is what makes it visible on the page instead of a surprise.
 
     The count carries no severity and does not reach the exit status (HLR-100). It is a figure to read.
-    *Trace:* [SDD Section 27](SDD.md), [SDD Section 14](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md), [SDD Section 14](SDD.md).
 
 *   <a id="HLR-208"></a>**HLR-208: Conditional Regions Answered Before Expansion.**
     The conditional-region figures of HLR-132, HLR-133 and HLR-134 shall be computed from the source **as written**, before any expansion, and a file whose conditions `elc` could not all decide shall not be expanded.
@@ -1175,7 +1175,7 @@ A macro standing where the grammar expects a keyword, a type, or a string is a p
     **And a file with an undecided region shall not be expanded at all.** Where `elc` has just declared a condition unresolvable, letting the preprocessor resolve it would silently substitute one branch's measurement for the whole region's — the effective-line count of an arbitrary configuration, reported as the file's. Such a file is measured as written and recorded among the fallbacks of HLR-206 with that as its reason.
 
     The definitions the run was given (`-D`) shall be forwarded to the preprocessor. `elc` deciding a condition one way while the preprocessor decides it the other would measure a build the user never asked for, and the configuration a report names must be the configuration it measured (HLR-132).
-    *Trace:* [SDD Section 27](SDD.md), [SDD Section 7](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md), [SDD Section 7](SDD.md).
 
 *   <a id="HLR-207"></a>**HLR-207: C Library Use Outside MISRA Constraints Reported.**
     `elc` shall report, as a **warning** citing the rule that forbids it, every call to a C library facility that MISRA C:2012 §21 states a compliant program does not use.
@@ -1191,7 +1191,7 @@ A macro standing where the grammar expects a keyword, a type, or a string is a p
     `elc` shall recommend nothing. A great many programs use these facilities correctly and have no obligation to MISRA at all; what the tool supplies is the fact that a rule speaks to this line, and what that is worth is the reader's to judge (HLR-101).
 
     Where a file's expansion succeeded, `elc` shall additionally report which standard-library headers it drew on, distinguishing the C library from the C++ library. That is the exposure the warnings above are drawn from — a fact rather than a finding, carrying no severity — and it answers what it would take to build the code somewhere else, which a freestanding or embedded target makes urgent. A file that fell back reports nothing here, and shall not be listed as depending on nothing: absence of evidence is not evidence of absence, and the provenance of HLR-206 is what tells a reader which files could be asked.
-    *Trace:* [SDD Section 27](SDD.md), [SDD Section 12](SDD.md), [SDD Section 14](SDD.md).
+    *Trace:* [SDD Section 22](SDD.md), [SDD Section 12](SDD.md), [SDD Section 14](SDD.md).
 
 ## 29. Function Visibility and Editor-Navigable Locations
 
@@ -1338,3 +1338,55 @@ Every section before this one added a measurement and, with it, a section of the
 
     The statement is unconditional because a section that appears only sometimes is the problem it exists to solve: a reader must be able to tell "this run found no recursion" from "this build does not look for recursion", and the difference has to be legible on the page rather than inferred from an absence.
     *Trace:* [SDD Section 14](SDD.md).
+
+## 31. Interactive HTML Reporting and Semantic Zooming
+
+Requirements governing the interactive companion: the graph `elc` already builds, drawn at the level the reader chooses rather than at the one level it has always been drawn at.
+
+`elc` writes the graph twice already — as `.dot` for Graphviz to lay out (HLR-103) and as GraphML for a tool to load (HLR-106). Both are exports, and both scale by getting denser: a project of a few thousand functions produces a drawing nobody looks at twice. The requirements here do not add a measurement. They emit a structure `elc` computes on every run and discards at the point of emission — a function belongs to a file (HLR-114), a file belongs to a declared layer (HLR-078) — so that the same graph can be read as four boxes or as four thousand nodes, at the reader's choice.
+
+**Nothing here is a second opinion about anything.** Every figure the payload carries was computed elsewhere and is copied; every edge it carries is an edge of the SDG. Where the drawing needs a number the report also states, it takes the report's.
+
+*   <a id="HLR-213"></a>**HLR-213: The Graph Serialised as a Containment Hierarchy.**
+    `elc` shall serialise the System Dependence Graph as a hierarchical node document in which each function is contained by the file that defines it and each file is contained by the architectural layer it was declared in.
+
+    **Three tiers, and each is an existing answer rather than a new one.** The layer of a component is the one `stratum_of_components` assigns (HLR-078), the component of a function is `SdgNode.component` (HLR-114), and the figures carried on a function node are the ones the report already states for it. This requirement is about *emission*, not measurement: a drawing that recomputed any of the three could disagree with the tables printed beside it, which is the failure HLR-164 forbids for the conformance indices and forbids here for the same reason.
+
+    **Containment is expressed by reference, not by nesting.** Each node names its container, so the document is a flat sequence a consumer may read without recursion and the three tiers may be emitted in one pass. That is the form the rendering library specifies; adopting it is a design choice under HLR-112 rather than a requirement, and what this requirement fixes is that the containment be *stated* rather than left for a viewer to infer from path prefixes.
+
+    **A component in no declared layer shall be contained by nothing.** `stratum_of_components` places a file matching no stratum outside the declared architecture rather than in a layer of its own, because the user said nothing about it and placing it would report a structure nobody drew. The serialisation shall follow that judgement rather than reverse it: such a component is emitted with no container, and a run declaring no strata at all therefore yields a two-tier file-and-function document rather than one rooted in an invented layer. Inferring a layer from the directory tree here would be the filesystem-derived architecture HLR-078 refuses.
+
+    **Identifiers shall be stable across runs.** The document is a companion artefact and is subject to HLR-032 like every other: two runs over unchanged input produce byte-identical output.
+
+    **One serialisation library, not two.** `elc` already links one for the purification manifest (HLR-175). HLR-112 makes the choice a design matter, and the choice is made once: a second library would add a dependency the project already has an answer for.
+    *Trace:* [SDD Section 27](SDD.md), [SDD Section 8](SDD.md), [SDD Section 9](SDD.md).
+
+*   <a id="HLR-214"></a>**HLR-214: Edges Between Functions Only.**
+    The serialised document shall carry an edge for each call edge of the System Dependence Graph, joining two function nodes, and shall carry no edge joining two containers.
+
+    **A dependency between two files is derived, and derived by the viewer.** A rendering that collapses a file to a single shape synthesises the connections between collapsed shapes from the edges they contain, at the moment of collapsing. An emitted file-to-file edge would therefore be a second and independent statement of the same fact in one artefact.
+
+    **And it would be the weaker statement.** `elc` already reports coupling between components, with a threshold behind it and an attribution beside it (HLR-081, HLR-099). A figure drawn in this document by a rule of its own could not be reconciled with that one, and a reader who found the two disagreeing would have no way to tell which was the measurement.
+
+    **Global-access edges are not call edges and are not emitted here** (HLR-074). Coupling through shared state is a different fact about a design from coupling through calls, and the graph carries the two separately precisely so that an analysis cannot report one as the other. A drawing of the call structure that silently included the global edges would do exactly that.
+    *Trace:* [SDD Section 27](SDD.md), [SDD Section 8](SDD.md).
+
+*   <a id="HLR-215"></a>**HLR-215: A Single File That Opens Without a Server.**
+    `elc` shall write the interactive companion as one file, named from the report's own output path by the rule every companion follows (HLR-119), which renders when opened directly from the filesystem — requiring no build step, no bundler, and **no local web server**.
+
+    **The no-server constraint decides the artefact's shape**, and it is a usability requirement rather than a technical one: a reader who must start a server to look at a report does not look at the report. It forbids splitting the payload into a sibling file the page fetches, which is what a browser's local-file security policy blocks and what would otherwise be the natural structure.
+
+    **"Standalone" is bounded, and the bound shall be stated rather than discovered.** The rendering library is fetched by the *browser*, at the time the page is viewed. That is not an HLR-040 matter — that requirement governs what a *run* of `elc` needs, and this run writes text and exits, requiring no interpreter, no virtual machine and no network of its own. What it does oblige is precision about the claim: the file needs no server and no build step, and it does need the network the first time it is opened. `elc` shall document that plainly (HLR-128 – HLR-130) rather than let a reader on a disconnected machine discover it as a blank page.
+
+    **The payload shall be embedded such that no content of the graph can terminate its container.** A function name is arbitrary text from the user's source — a C++ template signature contains angle brackets, and `elc` places no restriction on what a name may hold. Serialisation escaping alone is not sufficient here: a name may be perfectly well-formed in the serialisation and still close the element embedding it, or be a line terminator to the embedding language and not to the serialisation. The requirement is on the result — a name containing any character whatsoever renders as that name — and not on the mechanism.
+
+    **Absent an output path, no companion is written and that is not an error.** The name is derived from the report's, so a report on standard output has none to derive from — the rule the GraphML export, the debug log, the matrix, and the manifest all follow (HLR-104, HLR-106, HLR-119).
+    *Trace:* [SDD Section 27](SDD.md), [SDD Section 4](SDD.md).
+
+*   <a id="HLR-216"></a>**HLR-216: The View Opens at the Architectural Level.**
+    The companion shall open showing the outermost tier the run produced — the declared layers, or the files where no layer was declared — with every container collapsed, and shall let the reader descend to any tier and return.
+
+    **The default is the requirement, not a preference.** What makes the existing graph companions unreadable on a real project is not that they lack a collapsing facility; it is that they begin at maximum density. A view that opened at function level and offered collapsing would reproduce that failure and add a step to recovering from it. The reader is shown the architecture and descends into what interests them, which is the order the question is actually asked in.
+
+    **Descent shall preserve the reader's place.** Expanding a container shall not re-lay-out the whole drawing from nothing: a reader who loses their bearings on every expansion is navigating a new drawing each time rather than one drawing at a new depth.
+    *Trace:* [SDD Section 27](SDD.md).

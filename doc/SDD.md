@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.18
+**Version:** 2.19
 **Date:** 2026-08-27
 **Author(s):** John Anderson
 
@@ -38,6 +38,7 @@ This document describes the design of the source modules that implement the high
 *   [src/preproc.c](../src/preproc.c): Macro expansion through the language's own preprocessor, and the `#line` filter that reduces its output to the file under analysis.
 *   [src/diag.c](../src/diag.c): The diagnostic stream every message to standard error passes through, and the debug companion that records the run beside the report.
 *   [src/format_dsm.c](../src/format_dsm.c): The Dependency Structure Matrix and its CSV and Markdown renderings.
+*   [src/report_html.c](../src/report_html.c): The interactive HTML companion: the System Dependence Graph serialised as a three-tier Cytoscape compound-node payload, and the single-file page that renders it.
 *   [doc/elc.1](../doc/elc.1): The section-1 man page: the reference form of every option, format, and finding category.
 *   [doc/User_Manual.md](../doc/User_Manual.md): The user manual: the same material in expository form, with worked examples.
 
@@ -104,8 +105,9 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   Section 24: Detailed design for [src/recover.c](../src/recover.c).
 *   Section 25: Detailed design for [src/diag.c](../src/diag.c).
 *   Section 26: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
-*   Section 27: Data Dictionary.
-*   Section 28: Traceability.
+*   Section 27: Detailed design for [src/report_html.c](../src/report_html.c).
+*   Section 28: Data Dictionary.
+*   Section 29: Traceability.
 
 ## 2. System Overview
 
@@ -1872,7 +1874,69 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
 *   **Write failure** Diagnostic and non-zero return, as for every other renderer.
 *   **No output path** Not an error. `dsm_warranted` is false, no companion is written, and the report itself still carries the matrix — the rule the GraphML export follows, since the companion's name is derived from the report's and there is none to derive from (HLR-104).
 *   **An empty matrix** Renders as its heading, its convention, and its column names rather than as nothing. A section that vanishes when it has no content makes the report's shape vary with its content.
-## 27. Data Dictionary
+
+## 27. Detailed Design for [src/report_html.c](../src/report_html.c)
+
+### 27.1 Purpose and Responsibilities
+[src/report_html.c](../src/report_html.c) writes the interactive HTML companion. It serialises the System Dependence Graph as a hierarchical Cytoscape *compound-node* payload — layers containing files containing functions — and emits one self-contained page that renders it, so that a graph too dense to read at function level can be read at the level the reader chooses.
+
+*   Decide whether the companion is warranted for a run: on request, and only where the report has a path to derive a name from (HLR-119, HLR-215).
+*   Emit a node for each declared architectural stratum, taking the assignment from `arch.c` rather than matching the stratum patterns again (HLR-213).
+*   Emit a node for each component carrying its layer as `parent`, and no `parent` at all for a component in no declared layer (HLR-213).
+*   Emit a node for each graph node carrying its component as `parent`, with the figures the report already computed (HLR-213).
+*   Emit edges between function nodes only, and never a meta-edge between two containers (HLR-214).
+*   Escape the serialised payload for the HTML script element it is embedded in — which is not the escaping the JSON writer performs (HLR-215).
+*   Write the page's shell and its initialisation script, configured to open at the highest architectural level (HLR-216).
+
+### 27.2 External Interfaces
+#### 27.2.1 The Companion Artefact
+
+One file beside the report, named from it by extension substitution: an `--output` of `report.md` yields `report.html`. The rule is `graph_companion_path`'s, shared with every other companion (HLR-119).
+
+#### 27.2.2 The Embedded Payload
+
+A JavaScript `const graphData` holding a Cytoscape elements array. Its shape is the plugin's, not `elc`'s: each entry is `{ data: { id, ... } }`, and containment is expressed by a `parent` key naming an enclosing node's `id`.
+
+
+### 27.3 Internal Structure
+#### 27.3.1 Key Functions
+
+*   **`bool report_html_warranted(const ElcOptions *opts)`** — Whether the companion is to be written: requested, and with a named output path to derive its own from (HLR-104, HLR-215).
+*   **`int report_html_write(const Sdg *g, const ElcOptions *opts, const char *path)`** — Serialise the graph and write the page. Returns 0, or -1 with the diagnostic already on stderr.
+*   **`static json_t *html_elements(const Sdg *g, const ElcOptions *opts)`** — The complete Cytoscape elements array: the three node tiers in that order, then the call edges.
+*   **`static int append_layers(json_t *elements, const ElcOptions *opts)`** — Tier 1 — one node per declared stratum, at its declared ordinal.
+*   **`static int append_files(json_t *elements, const Sdg *g, const size_t *stratum)`** — Tier 2 — one node per component, parented on its layer where it has one.
+*   **`static int append_functions(json_t *elements, const Sdg *g)`** — Tier 3 — one node per graph node, parented on its component.
+*   **`static int append_edges(json_t *elements, const Sdg *g)`** — The call edges, function to function, in ascending source-then-target order.
+*   **`static int write_payload(FILE *out, const char *json)`** — Write the serialised payload into the script element, escaping what JSON escaping does not.
+
+#### 27.3.2 Parsing Strategy / Algorithm
+
+**The hierarchy is read, not derived.** A function's component is `SdgNode.component` and a component's layer is `stratum_of_components`'s answer — the same call `format_dsm.c` makes, for the same reason it makes it. Two matchers over one set of stratum patterns would eventually disagree about which layer a file is in, and this drawing would then contradict the matrix printed beside it (HLR-164).
+
+**Identifiers are positional and stable.** `layer_<ordinal>`, `file_<component index>`, `func_<node index>`. The node index is the SDG's, which is the report's sorted file order (LLR-SDG-09), so the payload is byte-identical across runs without this module sorting anything — the property HLR-032 asks of every artefact, obtained here by inheriting an order rather than imposing one.
+
+**A component in no declared layer has no `parent` key.** `stratum_of_components` returns `SIZE_MAX` for a file matching no stratum, and the comment above it argues why: the user said nothing about that file, and placing it would report a structure nobody drew. A layer named "other" would be exactly that invention, and a run with no `--stratum` would acquire a single fictional root containing everything. Omitting the key renders the file as a top-level container, which is what it is.
+
+**Only function-to-function edges are emitted, and the plugin derives the rest.** `cytoscape-expand-collapse` synthesises a meta-edge between two collapsed containers from the edges crossing between them, so an emitted file-to-file edge would be a second, independent statement about coupling in the same artefact. It would also be the weaker statement: the report's Ca/Ce figures have a threshold and an attribution behind them (HLR-081, HLR-099), and a number drawn here by a different rule could not be reconciled with them.
+
+**The escaping is the correctness core, and it is not JSON escaping.** The payload is embedded in an HTML `<script>` element, where the parser looks for `</script` before it looks for anything else. A C++ template signature such as `basic_ostream</script>` is well-formed JSON that Jansson will emit verbatim, and it ends the element — the remainder of the graph becomes body text and the page renders empty. So the serialised text is post-processed: `<` becomes `\u003c` and `&` becomes `\u0026`, which closes both the element-termination case and the `&lt;` entity case at once. U+2028 and U+2029 are escaped for a second reason — they are line terminators to a JavaScript parser and ordinary characters to a JSON one, so a name containing either is valid JSON that is a syntax error once embedded.
+
+**The libraries are fetched by the browser, not by `elc`.** Two `<script src>` tags in the head. This is not an HLR-040 exception: that requirement governs what the *run* needs, and the run writes text and exits. What the artefact promises is that it needs no server and no build step (HLR-215) — the file opens from the filesystem — and the manual states plainly that the diagram needs the network the first time, which is the honest reading of "standalone" here.
+
+**The view opens collapsed** (HLR-216). `api.collapseAll()` runs immediately after `expandCollapse` is initialised, so the page loads showing the declared layers and the reader descends. The default is the requirement rather than a preference: the reason the `.dot` and GraphML companions fail on a real project is that they begin at maximum density, and a view that opens at function level and offers collapsing has reproduced that failure with an extra step.
+
+### 27.4 Dependencies
+
+*   `src/graph.c` for the topology and the component projection, `src/arch.c` for the layer assignment, `src/format_graph.c` for the companion naming rule, and `src/diag.c` for diagnostics. `libjansson`, already linked for the purification manifest (HLR-175) — the one JSON library, not a second (HLR-112).
+
+### 27.5 Error Handling and Logging
+
+*   **No output path** Not an error. `report_html_warranted` is false and no companion is written, the rule every other companion follows (HLR-104, HLR-119).
+*   **No strata declared** Not an error and not an invention. No layer nodes are emitted, and the payload is a two-tier file/function hierarchy — which is the whole of the structure the user declared.
+*   **Serialisation or allocation failure** Diagnostic naming the file, nothing written, and -1. A partially written page is worse than none: it would open and render a truncated graph, which is a wrong answer wearing the shape of a right one.
+*   **Write failure** Checked on `ferror` after the writing and on `fclose`, the way `graph_write_graphml` checks it — a full disk shows up on the flush, and a companion claimed as written when it was truncated is the failure worth catching. Recorded as a failure by the caller; the report itself is never withheld (LLR-DOT-05).
+## 28. Data Dictionary
 
 *   **`ElcOptions`** (defined in [include/elc.h](../include/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
 
@@ -2394,7 +2458,7 @@ The failure is recorded here rather than merely fixed because nothing about it i
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.
-## 28. Traceability
+## 29. Traceability
 
 The following table maps the high-level requirements in
 [doc/HLRs.md](HLRs.md) and the low-level requirements in

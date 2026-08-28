@@ -72,6 +72,7 @@ release readiness — is ready to start, and is the last.
 | [28](#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | ✅ Complete |
 | [29](#phase-29--function-visibility-and-editor-navigable-locations) | Public/private visibility, `path:line` locations, and a line count | ✅ Complete |
 | [30](#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
+| [31](#phase-31--interactive-html-reporting--semantic-zooming) | The hierarchical HTML companion: layers containing files containing functions, opened collapsed | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -493,6 +494,8 @@ requirements and no others.
 | `libgit2` | Phase 7 | Isolated to one discovery route |
 | `igraph` | Phase 8 | With GraphML and OpenMP off, and its GMP choice pinned |
 | `libelf` | Phase 16 | The image container only; the demangler it needs is already linked, the C++ runtime arriving with `igraph` |
+| `jansson` | Phase 23 | The purification manifest, and from Phase 31 the HTML companion's payload. One JSON library, not two |
+| Cytoscape.js + `expand-collapse` | Phase 31 | Fetched by the *browser* at view time, not linked and not required by the run (HLR-040) |
 
 **Ordering constraints beyond the obvious:**
 
@@ -2926,6 +2929,128 @@ update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
 before you push.
 ```
 
+### Phase 31 — Interactive HTML Reporting & Semantic Zooming
+
+`elc` already writes the graph twice: as `.dot` for Graphviz to lay out
+(HLR-103) and as GraphML for a tool to load (HLR-106). Both are exports.
+Neither is something a reader can *open*, and on a real target neither is
+something a reader can read: `avrOS` renders as 82 nodes and the projects this
+tool exists for render as thousands. A drawing that cannot be navigated is a
+drawing nobody looks at twice, and the two existing companions have that
+failure in common — they scale by getting denser.
+
+**The graph is already hierarchical; only the drawing is flat.** A function
+belongs to a file (`SdgNode.component`, HLR-114) and a file belongs to a
+declared layer (`stratum_of_components`, HLR-078). That is a three-level
+containment `elc` computes on every run and then discards at the point of
+emission, drawing every function at one altitude as though the project had no
+structure. This phase emits the containment it already knows.
+
+1.  **The hierarchy as data** (HLR-213). One JSON document in Cytoscape's
+    compound-node form: a node per declared layer, a node per source file
+    carrying its layer as `parent`, and a node per function carrying its file
+    as `parent`. Serialised with the JSON library already linked for the
+    purification manifest (HLR-175) — a second JSON library would be the
+    `igraph`-and-GraphML risk in §9 arriving through a different door, and
+    HLR-112 makes the choice a design one rather than a requirement.
+2.  **Edges stay function-to-function** (HLR-214). Only the call edges the SDG
+    holds are emitted. A meta-edge between two collapsed files is *derived* by
+    the viewer from the edges it contains, so emitting one would put a second
+    opinion about coupling in the artefact — and it would be a worse one, since
+    it could not be reconciled with the Ca/Ce figures the report states beside
+    it (HLR-081).
+3.  **A single file, opened from the filesystem** (HLR-215). One `.html`
+    companion, named from the report's path by the rule every companion follows
+    (HLR-119), that renders when double-clicked. No build step, no bundler, and
+    **no local web server** — the constraint that decides the shape, because a
+    reader who has to start a server to look at a report does not look at it.
+4.  **It opens collapsed** (HLR-216). The view loads at the layer level and the
+    reader descends. A view that opens at function level and offers collapsing
+    has answered the wrong question first: the reason the flat drawings fail is
+    that they begin at maximum density, and a default is not a preference.
+
+**The viewing libraries are fetched, and that is not an HLR-040 violation.**
+Cytoscape.js and its `expand-collapse` extension are loaded from a CDN by the
+browser, at view time. HLR-040 governs *`elc`'s execution* — it forbids the
+analysis needing an interpreter, a VM, or the network, and this phase adds
+nothing to what the run does: `elc` writes text and exits. What the requirement
+does oblige is honesty about the word: the artefact is **standalone in the sense
+that it needs no server or build step**, not in the sense that it needs nothing.
+A reader on a disconnected machine gets the page and no diagram. That is stated
+in the manual rather than discovered, and vendoring the libraries into the file
+instead is a change to HLR-215 alone should the offline case ever be the one
+that matters.
+
+**A component in no declared layer gets no parent.** `stratum_of_components`
+returns `SIZE_MAX` for a file matching no stratum, and the reason is argued
+where it is computed: the user said nothing about that file, and placing it
+would report a structure nobody drew. The drawing follows the analysis — such a
+file is a root-level container, and a run with no `--stratum` at all produces a
+two-tier file/function hierarchy rather than an invented top. Inferring layers
+from the directory tree here would be the filesystem-derived architecture
+HLR-078 refuses.
+
+**Acceptance:** a target with two declared strata produces exactly one node per
+stratum, one per file carrying the correct `parent`, and one per function
+carrying its file as `parent`, hand-checked against a fixture. Every edge in the
+payload joins two function nodes and no edge names a file or a layer. A file
+matching no stratum emits a node with no `parent` key. The emitted document
+parses as JSON, and the parsed node set equals the SDG's. The page contains both
+CDN `<script>` tags, one `cytoscape({...})` initialisation, an `expandCollapse`
+call carrying `fisheye: true` and `animate: true`, and a `collapseAll()` after
+it. `--html` with the report on standard output writes nothing and is not an
+error, as every other companion behaves. Names containing `<`, `&`, `"`, and a
+Unicode line separator survive into the page without closing the script element
+or breaking the parse.
+
+```text
+AI prompt — Phase 31
+
+Read issue #<N>, HLR-112, HLR-119, HLR-040 and HLR-114 before writing code.
+
+Do not add a second JSON library. `libjansson` is already linked for the
+purification manifest, and §9's igraph entry is the same objection: a
+dependency the project has an existing answer for is a cost with no
+purchase. HLR-112 says the library is a design choice, so making it is
+allowed; making it twice is not.
+
+The escaping is the correctness core, and it is not JSON escaping. The
+payload sits inside an HTML `<script>` element, where a `</script>` in a C++
+template signature ends the element and the rest of the graph becomes body
+text. Jansson will not escape it for you — it is well-formed JSON. Escape
+`<` and `&` after serialising, and escape U+2028 and U+2029, which are
+newlines to a JavaScript parser and not to a JSON one.
+
+Emit no meta-edges. The plugin derives them. An edge between two file nodes
+in the payload is a coupling figure elc computed twice by two rules, and the
+one in the report is the one with a threshold behind it.
+
+`stratum_of_components` returns SIZE_MAX for a file in no declared layer.
+That is not an error and not a layer named "other" — omit the `parent` key.
+Read the comment above it before deciding otherwise.
+
+This is a companion, so it obeys the companion rule in `write_companion`:
+named from --output, absent when the report goes to stdout, and a failure to
+write it is recorded and never withheld from the report (LLR-DOT-05).
+
+Verify against the real target and not only the fixtures:
+
+    cd ~/Projects/avrOS/app/avrOS_example
+    elc --entry main -o report.md --elf build/main.elf . ../../drv ../../sys \
+        ../../srv -v --dbg --html \
+        --stratum app:'*/app/*' --stratum drv:'*/drv/*' \
+        --stratum sys:'*/sys/*' --stratum srv:'*/srv/*'
+
+Open the result. Four layer nodes, 44 file nodes, 82 function nodes, and it
+opens showing four boxes.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push.
+```
+
 ## 9. Risks & Open Questions
 
 *   **~~The Ada grammar is community-maintained.~~ Closed 2026-08-17 by
@@ -3012,6 +3137,7 @@ T-shirt sizes; no calendar commitment implied.
 | 15 | M | Conditional-region pruning; the evaluator and its fixtures |
 | 16 | M | libelf and the demangler are libraries; the name reduction is the work |
 | 17 | M | Sweeping and closing, plus whatever Phase 16 uncovers |
+| 31 | M | The serialisation is small; the escaping and the fixture are the work |
 
 Phase 8 is the one worth splitting if it proves oversized: symbol resolution
 and graph construction could ship separately from the GraphML writer, though
