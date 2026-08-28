@@ -18,7 +18,7 @@ setup() {
 figures() {
 	printf '%s\n' "$output" |
 		awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && $2 == want { print $5, $6 }'
+		                  f && $3 == want { print $6, $7 }'
 }
 
 # One function's reported location — `path:line`, the navigable reference the
@@ -28,7 +28,7 @@ figures() {
 range_of() {
 	printf '%s\n' "$output" |
 		awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && $2 == want { print $1 }'
+		                  f && $3 == want { print $1 }'
 }
 
 summary() {

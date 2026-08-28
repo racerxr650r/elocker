@@ -11,15 +11,15 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.18" date="2026-08-27" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.10" date="2026-08-27" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.13" date="2026-08-27" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.19" date="2026-08-27" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.20" date="2026-08-27" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.19" date="2026-08-27" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.11" date="2026-08-27" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.14" date="2026-08-27" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.20" date="2026-08-27" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.21" date="2026-08-27" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="208"/>
       <count name="llrs"       value="569"/>
-      <count name="tests"      value="1217"/>
+      <count name="tests"      value="1219"/>
       <count name="test_files" value="56"/>
     </counts>
   </metadata>
@@ -935,18 +935,21 @@ Both renderers walk the identical model in the identical order and emit the iden
       <module path="src/format_csv.c">
         <purpose><![CDATA[renders the per-function dataset as RFC 4180 CSV — the flat, unfiltered, machine-facing view.]]></purpose>
         <responsibility><![CDATA[Emit one record per function, unaffected by the complexity threshold.]]></responsibility>
-        <responsibility><![CDATA[Carry the same columns as the human-readable function table, in its order and with its meanings, since this is that table for a consumer that loads it rather than reads it (HLR-014).]]></responsibility>
+        <responsibility><![CDATA[Carry the same columns as the human-readable function table, in its order and with its meanings — the language among them — since this is that table for a consumer that loads it rather than reads it (HLR-014).]]></responsibility>
         <responsibility><![CDATA[Quote and escape any field containing a comma, a double quote, or a line break.]]></responsibility>
         <functions>
           <function signature="int format_csv(const Report *r, FILE *out)" summary="Write the header row and one record per function."/>
           <function signature="const char *csv_visibility(Visibility v)" summary="The visibility as a loader reads it: `public`, `private`, or the empty field. Never `public` for the unknown state, which is the absence of a claim rather than one (HLR-209)."/>
+          <function signature="#define GRID_MAX_COLUMNS" summary="The widest table `format_text.c` renders, which is the Functions tier. It bounds three fixed-size arrays `grid_begin` writes one entry of per column, so a tier declaring more columns than it holds runs past all three — and the compiler says so, which is how the Functions tier gaining its tenth column was caught."/>
           <function signature="void write_field(const char *value, FILE *out)" summary="Emit one field, quoting and doubling embedded quotes per RFC 4180."/>
         </functions>
         <algorithm><![CDATA[Every field passes through `write_field()` without exception. A C++ template signature such as `foo<int, long>` contains a comma that would otherwise split one logical field across two columns and silently corrupt every downstream consumer (HLR-064).
 
-**The column list is the Functions table's, and keeping it so is the module's second responsibility.** The two are one view of one set of rows, and they drifted: the table gained a visibility, a navigable `path:line` location and the flow degrees, while this still wrote a `language` and a separate start and end line that nothing else reported. A consumer loading the record got a different set of figures from a reader of the report.
+**The column list is the Functions table's, and keeping it so is the module's second responsibility.** The two are one view of one set of rows, and they drifted: the table gained a visibility, a navigable `path:line` location and the flow degrees, while this still wrote a separate start and end line that nothing else reported. A consumer loading the record got a different set of figures from a reader of the report.
 
-That reverses what HLR-014 said of the complete-record formats between Phase 29 and Phase 30 — that they keep a separate start and end line because a consumer cannot subtract a column it was not given. The reasoning holds for `format_xml.c`, which must rebuild a report from its record and needs both numbers as numbers (HLR-056). It did not hold here, where the record *is* the table. The `language` column goes with the change: it is a property of the file, reported where the files are.]]></algorithm>
+That reverses what HLR-014 said of the complete-record formats between Phase 29 and Phase 30 — that they keep a separate start and end line because a consumer cannot subtract a column it was not given. The reasoning holds for `format_xml.c`, which must rebuild a report from its record and needs both numbers as numbers (HLR-056). It did not hold here, where the record *is* the table.
+
+**The `language` field is that rule read the other way.** It was dropped when the two were first matched, because the table carried no such column, and it came back when the table gained one. Both directions are the same requirement: the two views move together, and a column added to one and not the other is how they drifted apart to begin with.]]></algorithm>
         <dependencies>
           <dep><![CDATA[`src/report.c`. No third-party dependency.]]></dep>
         </dependencies>
@@ -2468,19 +2471,24 @@ In a human-readable format the guarantee is over the set of sections the report 
       </hlr>
 
       <hlr id="HLR-014" name="Per-Function Identity">
-        <text><![CDATA[For each function discovered in a source file, `elc` shall report the function's name, where it begins, and how far it extends.
+        <text><![CDATA[For each function discovered in a source file, `elc` shall report the function's name, where it begins, how far it extends, and **the language of the file that defines it** (HLR-007).
+
+The language is a property of the file and repeats down every row belonging to one, and it is reported here anyway. The function table is where a reader of a polyglot project asks what language a function is written in — it is the table they are already looking at — and answering it by sending them to the Files table costs them more than the repetition costs the page. It is reported immediately after the location, which is where the Files table has put it since that table existed.
 
 **In a human-readable report (HLR-027, HLR-029) the extent shall be a line count** — the number of lines the function occupies — and the start shall be carried by the navigable location of HLR-210. A count is the figure a reader compares between two functions; a range is a fact about the file that they must subtract before they can use it, and once the start line is in the location column the range would state it twice.
 
 **The XML record shall continue to report start and end line numbers as separate fields**, because it must remain the thing a report can be rebuilt from and a regenerated report needs both numbers as numbers (HLR-056).
 
-**The CSV record shall carry the same columns as the human-readable function table, in its order and with its meanings** — the location as `path:line`, the extent as a count, and the visibility and flow degrees the table reports. CSV is that table for a consumer that loads it rather than reads it, and one view of one set of rows must be spelled one way. The `language` column, which no other view of a function reports, goes with the change: the file's language is a property of the file and is reported where the files are.
+**The CSV record shall carry the same columns as the human-readable function table, in its order and with its meanings** — the language, the location as `path:line`, the extent as a count, and the visibility and flow degrees the table reports. CSV is that table for a consumer that loads it rather than reads it, and one view of one set of rows must be spelled one way. The two move together or they do not move: a column added to one and not the other is how they drifted apart in the first place.
+
+**The XML record needs no language field of its own.** Its function elements are nested inside the file element that states it, so the fact is already there, recorded once for the file rather than once per function — and a second copy would be a second place for one fact to be written down and a second place for it to disagree.
 
 *This reverses what this requirement said between Phase 29 and Phase 30* — that every complete-record format keeps a separate start and end line "because a consumer cannot subtract a column it was not given". That reasoning survived contact with XML, which rebuilds a report, and did not survive contact with CSV, where the record *is* the table: the two drifted apart column by column, and a consumer loading the CSV got a different set of figures from the one reading the report.
 
 For the purposes of this and every other requirement in this document, "function" means any named callable unit the source language defines — including a method, a constructor, a destructor, and a nested subprogram — as identified by that language's runtime query configuration.]]></text>
       <traces>
         <trace target="SDD" ref="7"/>
+        <trace target="SDD" ref="14"/>
         <trace target="SDD" ref="15"/>
       </traces>
       </hlr>
@@ -7265,13 +7273,13 @@ The count shall be taken from the rows about to be emitted. The project summary 
       </llr>
     
       <llr id="LLR-CSV-03">
-        <text><![CDATA[`format_csv` shall write the columns `file`, `function`, `visibility`, `lines`, `eloc`, `complexity`, `fan_in`, `fan_out`, `mi`, in that order; `file` shall carry `path:line`, `lines` shall be `end - start + 1`, and an unknown visibility shall be the empty field.
+        <text><![CDATA[`format_csv` shall write the columns `file`, `language`, `function`, `visibility`, `lines`, `eloc`, `complexity`, `fan_in`, `fan_out`, `mi`, in that order; `file` shall carry `path:line`, `lines` shall be `end - start + 1`, and an unknown visibility shall be the empty field.
 
 **These are the Functions table's columns, and that is the requirement rather than a choice.** CSV is that table for a consumer that loads it rather than reads it, and the two had drifted column by column — the table gained a visibility, a navigable location and the flow degrees, and this still wrote a `language` and a start and end line nothing else reported (HLR-014).
 
 The empty field is the unknown visibility because that is what a loader reads as "no value"; the em dash the report prints is a typographic answer to a human and would be a value here. It is never written as `public`, which is a claim, where the absence is the absence of one (HLR-209).
 
-The `language` column goes with the change. It is a property of the file, not of the function, and it is reported where the files are.]]></text>
+The `language` field is the same rule read the other way. It was dropped when the two were first matched, because the table carried no such column; the table carries one now, so this does too (HLR-014).]]></text>
         <traces>
           <trace target="HLR" ref="HLR-014" name="Per-Function Identity"/>
           <trace target="HLR" ref="HLR-028"/>
@@ -8855,7 +8863,7 @@ Since a query cursor reports matches in pattern order, this is "the earliest pat
       </llr>
 
       <llr id="LLR-VIS-04">
-        <text><![CDATA[`functions_section` shall render the location as `path:line` in the File column, the visibility immediately after the name, and the extent as `end - start + 1`.
+        <text><![CDATA[`functions_section` shall render the location as `path:line` in the File column, the file's language immediately after it, the visibility immediately after the name, and the extent as `end - start + 1`.
 
 The column order is the requirement rather than a presentation choice: the visibility answers a question about the function just named, so it belongs beside the name and not at the end of eight numeric columns (HLR-209).
 
@@ -12480,7 +12488,7 @@ Neither can be recomputed from a record: a regenerated report has no image, and 
     </test>
   </file>
 
-  <file path="test/integration/language.bats" role="integration" count="37">
+  <file path="test/integration/language.bats" role="integration" count="39">
     <test name="HLR-209: a static C function is private and a plain one is public">
       <purpose><![CDATA[The base case in the language whose default is external linkage: `static` is the exception and everything else is part of the program's interface.]]></purpose>
       <traces>
@@ -12561,6 +12569,22 @@ Neither can be recomputed from a record: a regenerated report has no image, and 
       <purpose><![CDATA[Several files are analysed in a single invocation and a single pass, with no per-language re-invocation.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-008"/>
+      </traces>
+    </test>
+    <test name="HLR-014: the function table names each function's language">
+      <purpose><![CDATA[The question a reader of a polyglot project asks of this table, and the table they are already looking at when they ask it. A C file and a Python file in one run report their own languages against their own functions.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-014"/>
+        <trace target="HLR" ref="HLR-007"/>
+        <trace target="LLR" ref="LLR-VIS-04"/>
+      </traces>
+    </test>
+    <test name="HLR-014: the language stands between the location and the name">
+      <purpose><![CDATA[Asserted as an order rather than as a presence, and against the header row rather than a data row. Where the Files table has put the language since that table existed, and where the CSV record carries it — a column in the wrong place is the defect the two views drifting apart produced the first time.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-014"/>
+        <trace target="LLR" ref="LLR-VIS-04"/>
+        <trace target="LLR" ref="LLR-CSV-03"/>
       </traces>
     </test>
     <test name="HLR-033: functions are presented in start-line order">

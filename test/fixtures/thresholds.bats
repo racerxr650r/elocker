@@ -123,7 +123,7 @@ finding_rows() {
 	local fanout
 	fanout="$(printf '%s\n' "$output" |
 		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $2 == "band_acceptable_high" { print $(NF-1) }')"
+		     f && $3 == "band_acceptable_high" { print $(NF-1) }')"
 	assert_equal "$fanout" "10"
 }
 

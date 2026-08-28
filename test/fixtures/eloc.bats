@@ -22,14 +22,14 @@ totals() {
 subject_row() {
 	elc --verbose "$1"
 	awk -v want="$2" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	                  f && $2 == want { print $5, $6 }' <<<"$output"
+	                  f && $3 == want { print $6, $7 }' <<<"$output"
 }
 
 # The ELOC figure elc reports for a named function.
 function_eloc() {
 	elc --verbose "$SUBJECT"
 	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	                  f && $2 == want { print $5 }' <<<"$output"
+	                  f && $3 == want { print $6 }' <<<"$output"
 }
 
 @test "the hand-counted category totals match" {

@@ -1,6 +1,6 @@
 # Software Test Plan
 
-**Version:** 0.19
+**Version:** 0.20
 **Date:** 2026-08-27
 **Author(s):** John Anderson
 
@@ -138,7 +138,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1217 test(s)** across
+Snapshot: **1219 test(s)** across
 **56 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
@@ -828,7 +828,7 @@ Role: **integration**. **21 test(s).**
 
 ### 3.25. [test/integration/language.bats](../test/integration/language.bats)
 
-Role: **integration**. **37 test(s).**
+Role: **integration**. **39 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -844,31 +844,33 @@ Role: **integration**. **37 test(s).**
 | 10 | <a id="HLR-007: the language is determined from the extension, unprompted"></a>`HLR-007: the language is determined from the extension, unprompted` | — | A file's language is detected from its extension with no user declaration, and is shown in the report. |
 | 11 | <a id="HLR-007: a header is detected as well as a source file"></a>`HLR-007: a header is detected as well as a source file` | — | A header maps to a language and its definitions are reported, so a project's headers are not silently uncovered. |
 | 12 | <a id="HLR-008: files sharing a language are analysed in one invocation"></a>`HLR-008: files sharing a language are analysed in one invocation` | — | Several files are analysed in a single invocation and a single pass, with no per-language re-invocation. |
-| 13 | <a id="HLR-033: functions are presented in start-line order"></a>`HLR-033: functions are presented in start-line order` | — | Functions appear in start-line order rather than in the order the query happened to match them. |
-| 14 | <a id="HLR-012: a file with no language module is listed as skipped"></a>`HLR-012: a file with no language module is listed as skipped` | `LLR-MAIN-18`, `LLR-RPT-07` | A file whose extension maps to no language appears in the report's skipped list, so the report accounts for every discovered file. |
-| 15 | <a id="HLR-012: a skipped file is also reported on stderr"></a>`HLR-012: a skipped file is also reported on stderr` | — | The skip is reported through both observables the requirement names: the list and a diagnostic. |
-| 16 | <a id="HLR-037: a skip does not make the exit status non-zero"></a>`HLR-037: a skip does not make the exit status non-zero` | `LLR-MAIN-08` | A skipped file is not a failure and does not by itself make the status non-zero. |
-| 17 | <a id="HLR-012: a skipped file does not contribute to the totals"></a>`HLR-012: a skipped file does not contribute to the totals` | — | A skipped file is accounted for without being counted: the project totals are unchanged by its presence. |
-| 18 | <a id="HLR-035: a file that fails to parse does not abort the run"></a>`HLR-035: a file that fails to parse does not abort the run` | `LLR-MAIN-07` | A file that fails to parse leaves the rest of the run intact and the report covers the files that succeeded. |
-| 19 | <a id="HLR-120: a parse failure degrades the run to 1"></a>`HLR-120: a parse failure degrades the run to 1` | `LLR-MAIN-09` | A parse failure produces the status reserved for a run that completed but did not process every file. |
-| 20 | <a id="HLR-035: a parse failure names the file on stderr"></a>`HLR-035: a parse failure names the file on stderr` | `LLR-ANL-28` | The diagnostic identifies the file that failed and reaches the diagnostic stream. |
-| 21 | <a id="HLR-019: each file reports its own line and function counts"></a>`HLR-019: each file reports its own line and function counts` | — | Each file's row carries its own physical line count and the number of functions it defines. |
-| 22 | <a id="HLR-066: a target of only skipped files still reports zero totals"></a>`HLR-066: a target of only skipped files still reports zero totals` | — | A run in which nothing could be analysed still emits a well-formed report with zero totals, and names what it skipped. |
-| 23 | <a id="HLR-006: the report reaches the same sections whatever the target type"></a>`HLR-006: the report reaches the same sections whatever the target type` | — | A file target and a directory target reach the same set of sections, presented where they found rows and named in the closing statement where they did not — which is the shape guarantee once an empty table is no longer printed. |
-| 24 | <a id="HLR-015: each function reports its own ELOC"></a>`HLR-015: each function reports its own ELOC` | — | A function's own ELOC appears beside its line range. |
-| 25 | <a id="HLR-024: the project summary carries a combined ELOC total"></a>`HLR-024: the project summary carries a combined ELOC total` | — | The summary reports the combined ELOC across every analysed file. |
-| 26 | <a id="HLR-025: the totals are broken down by language"></a>`HLR-025: the totals are broken down by language` | `LLR-RPT-02`, `LLR-RPT-19` | The report carries a per-language section, so each language's contribution is separately visible. |
-| 27 | <a id="HLR-025: the per-language totals sum to the project totals"></a>`HLR-025: the per-language totals sum to the project totals` | `LLR-RPT-02` | With one language present, its row equals the summary exactly — the breakdown is a partition of the totals, not a second count of them. |
-| 28 | <a id="HLR-019: a header of declarations only reports zero ELOC"></a>`HLR-019: a header of declarations only reports zero ELOC` | — | A file's own line and ELOC counts are reported per file, and a header whose only statement is one return reports one. |
-| 29 | <a id="HLR-032: two runs over a parsed tree are byte-identical"></a>`HLR-032: two runs over a parsed tree are byte-identical` | — | Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones. |
-| 30 | <a id="HLR-011: every delivered language is detected from its extension"></a>`HLR-011: every delivered language is detected from its extension` | `LLR-BLD-07` | One target holding a file of each delivered language yields all five in the per-language breakdown. |
-| 31 | <a id="HLR-008: a mixed-language target is analysed in one invocation"></a>`HLR-008: a mixed-language target is analysed in one invocation` | — | Four languages are analysed in a single pass, with every function found — no invocation per language. |
-| 32 | <a id="HLR-025: each language's contribution is separately visible"></a>`HLR-025: each language's contribution is separately visible` | `LLR-RPT-19` | A two-language target reports both languages, in name order. |
-| 33 | <a id="HLR-011: elc requires no particular language to be present"></a>`HLR-011: elc requires no particular language to be present` | — | A target of one language runs exactly as a mixed one does; nothing verifies that the other four are installed. |
-| 34 | <a id="HLR-035: a file with a syntax error is measured around it"></a>`HLR-035: a file with a syntax error is measured around it` | `LLR-ANL-48` | The report covers the functions the grammar could follow in a damaged file. This asserted the opposite until a real project showed that the discard-everything rule cost half its metrics. |
-| 35 | <a id="HLR-035: the damage is reported beside the figures it qualifies"></a>`HLR-035: the damage is reported beside the figures it qualifies` | `LLR-RPT-30` | The safety property that makes measuring a damaged file acceptable: the file is named in a section of its own and the unparsed total appears in the summary, so a partial measurement never reads as a complete one. |
-| 36 | <a id="HLR-035: an undamaged run says so, with nothing in the section"></a>`HLR-035: an undamaged run says so, with nothing in the section` | `LLR-RPT-30` | The summary reports zero unparsed lines and the section is empty for a sound run, so the damage reporting has to be earned. |
-| 37 | <a id="HLR-035: the diagnostic gives the line, the scale, and what was kept"></a>`HLR-035: the diagnostic gives the line, the scale, and what was kept` | `LLR-ANL-50` | The stderr diagnostic names the line the damage begins at, how many lines it spans, and that the remainder was measured. "Parse error; file skipped" withheld the scale, which on a file damaged in one line reads far worse than it is. |
+| 13 | <a id="HLR-014: the function table names each function's language"></a>`HLR-014: the function table names each function's language` | `LLR-VIS-04` | The question a reader of a polyglot project asks of this table, and the table they are already looking at when they ask it. A C file and a Python file in one run report their own languages against their own functions. |
+| 14 | <a id="HLR-014: the language stands between the location and the name"></a>`HLR-014: the language stands between the location and the name` | `LLR-VIS-04`, `LLR-CSV-03` | Asserted as an order rather than as a presence, and against the header row rather than a data row. Where the Files table has put the language since that table existed, and where the CSV record carries it — a column in the wrong place is the defect the two views drifting apart produced the first time. |
+| 15 | <a id="HLR-033: functions are presented in start-line order"></a>`HLR-033: functions are presented in start-line order` | — | Functions appear in start-line order rather than in the order the query happened to match them. |
+| 16 | <a id="HLR-012: a file with no language module is listed as skipped"></a>`HLR-012: a file with no language module is listed as skipped` | `LLR-MAIN-18`, `LLR-RPT-07` | A file whose extension maps to no language appears in the report's skipped list, so the report accounts for every discovered file. |
+| 17 | <a id="HLR-012: a skipped file is also reported on stderr"></a>`HLR-012: a skipped file is also reported on stderr` | — | The skip is reported through both observables the requirement names: the list and a diagnostic. |
+| 18 | <a id="HLR-037: a skip does not make the exit status non-zero"></a>`HLR-037: a skip does not make the exit status non-zero` | `LLR-MAIN-08` | A skipped file is not a failure and does not by itself make the status non-zero. |
+| 19 | <a id="HLR-012: a skipped file does not contribute to the totals"></a>`HLR-012: a skipped file does not contribute to the totals` | — | A skipped file is accounted for without being counted: the project totals are unchanged by its presence. |
+| 20 | <a id="HLR-035: a file that fails to parse does not abort the run"></a>`HLR-035: a file that fails to parse does not abort the run` | `LLR-MAIN-07` | A file that fails to parse leaves the rest of the run intact and the report covers the files that succeeded. |
+| 21 | <a id="HLR-120: a parse failure degrades the run to 1"></a>`HLR-120: a parse failure degrades the run to 1` | `LLR-MAIN-09` | A parse failure produces the status reserved for a run that completed but did not process every file. |
+| 22 | <a id="HLR-035: a parse failure names the file on stderr"></a>`HLR-035: a parse failure names the file on stderr` | `LLR-ANL-28` | The diagnostic identifies the file that failed and reaches the diagnostic stream. |
+| 23 | <a id="HLR-019: each file reports its own line and function counts"></a>`HLR-019: each file reports its own line and function counts` | — | Each file's row carries its own physical line count and the number of functions it defines. |
+| 24 | <a id="HLR-066: a target of only skipped files still reports zero totals"></a>`HLR-066: a target of only skipped files still reports zero totals` | — | A run in which nothing could be analysed still emits a well-formed report with zero totals, and names what it skipped. |
+| 25 | <a id="HLR-006: the report reaches the same sections whatever the target type"></a>`HLR-006: the report reaches the same sections whatever the target type` | — | A file target and a directory target reach the same set of sections, presented where they found rows and named in the closing statement where they did not — which is the shape guarantee once an empty table is no longer printed. |
+| 26 | <a id="HLR-015: each function reports its own ELOC"></a>`HLR-015: each function reports its own ELOC` | — | A function's own ELOC appears beside its line range. |
+| 27 | <a id="HLR-024: the project summary carries a combined ELOC total"></a>`HLR-024: the project summary carries a combined ELOC total` | — | The summary reports the combined ELOC across every analysed file. |
+| 28 | <a id="HLR-025: the totals are broken down by language"></a>`HLR-025: the totals are broken down by language` | `LLR-RPT-02`, `LLR-RPT-19` | The report carries a per-language section, so each language's contribution is separately visible. |
+| 29 | <a id="HLR-025: the per-language totals sum to the project totals"></a>`HLR-025: the per-language totals sum to the project totals` | `LLR-RPT-02` | With one language present, its row equals the summary exactly — the breakdown is a partition of the totals, not a second count of them. |
+| 30 | <a id="HLR-019: a header of declarations only reports zero ELOC"></a>`HLR-019: a header of declarations only reports zero ELOC` | — | A file's own line and ELOC counts are reported per file, and a header whose only statement is one return reports one. |
+| 31 | <a id="HLR-032: two runs over a parsed tree are byte-identical"></a>`HLR-032: two runs over a parsed tree are byte-identical` | — | Repeating a run that parses produces identical bytes, so the new sections are as deterministic as the old ones. |
+| 32 | <a id="HLR-011: every delivered language is detected from its extension"></a>`HLR-011: every delivered language is detected from its extension` | `LLR-BLD-07` | One target holding a file of each delivered language yields all five in the per-language breakdown. |
+| 33 | <a id="HLR-008: a mixed-language target is analysed in one invocation"></a>`HLR-008: a mixed-language target is analysed in one invocation` | — | Four languages are analysed in a single pass, with every function found — no invocation per language. |
+| 34 | <a id="HLR-025: each language's contribution is separately visible"></a>`HLR-025: each language's contribution is separately visible` | `LLR-RPT-19` | A two-language target reports both languages, in name order. |
+| 35 | <a id="HLR-011: elc requires no particular language to be present"></a>`HLR-011: elc requires no particular language to be present` | — | A target of one language runs exactly as a mixed one does; nothing verifies that the other four are installed. |
+| 36 | <a id="HLR-035: a file with a syntax error is measured around it"></a>`HLR-035: a file with a syntax error is measured around it` | `LLR-ANL-48` | The report covers the functions the grammar could follow in a damaged file. This asserted the opposite until a real project showed that the discard-everything rule cost half its metrics. |
+| 37 | <a id="HLR-035: the damage is reported beside the figures it qualifies"></a>`HLR-035: the damage is reported beside the figures it qualifies` | `LLR-RPT-30` | The safety property that makes measuring a damaged file acceptable: the file is named in a section of its own and the unparsed total appears in the summary, so a partial measurement never reads as a complete one. |
+| 38 | <a id="HLR-035: an undamaged run says so, with nothing in the section"></a>`HLR-035: an undamaged run says so, with nothing in the section` | `LLR-RPT-30` | The summary reports zero unparsed lines and the section is empty for a sound run, so the damage reporting has to be earned. |
+| 39 | <a id="HLR-035: the diagnostic gives the line, the scale, and what was kept"></a>`HLR-035: the diagnostic gives the line, the scale, and what was kept` | `LLR-ANL-50` | The stderr diagnostic names the line the damage begins at, how many lines it spans, and that the remainder was measured. "Parse error; file skipped" withheld the scale, which on a file damaged in one line reads far worse than it is. |
 
 ### 3.26. [test/integration/complexity.bats](../test/integration/complexity.bats)
 
@@ -2128,7 +2130,7 @@ verified by code review — see
 | `LLR-SUM-18` | `render_summary` | `HLR-191`, `HLR-183`, `HLR-187` | `HLR-191: the function table carries a maintainability score` |
 | `LLR-CSV-01` | `format_csv` | `HLR-028` | `the_header_row_is_written`, `an_empty_report_is_a_header_alone`, `a_write_failure_is_reported` |
 | `LLR-CSV-02` | `format_csv` | `HLR-028`, `HLR-031` | `HLR-028: csv produces one record per function`, `HLR-028: csv is unfiltered by the threshold` |
-| `LLR-CSV-03` | `format_csv` | `HLR-014`, `HLR-028`, `HLR-210` | `a record carries the function tables fields`, `an unknown visibility is an empty field`, `HLR-014: the csv columns are the Functions table's columns` |
+| `LLR-CSV-03` | `format_csv` | `HLR-014`, `HLR-028`, `HLR-210` | `HLR-014: the language stands between the location and the name`, `a record carries the function tables fields`, `an unknown visibility is an empty field`, `HLR-014: the csv columns are the Functions table's columns` |
 | `LLR-FLD-01` | `write_field` | `HLR-064` | `an_ordinary_field_is_not_quoted`, `a_field_containing_a_comma_is_quoted`, `a_quote_is_doubled_not_backslashed`, `a_field_containing_a_newline_is_quoted`, `a_field_containing_a_carriage_return_is_quoted`, `a_field_needing_every_escape_survives`, `an_empty_field_is_emitted_empty`, `a_null_field_is_emitted_empty` |
 | `LLR-FLD-02` | `write_field` | `HLR-064` | `the_header_row_is_written` |
 | `LLR-XWR-01` | `xml_write_report` | `HLR-054` | `an_empty_report_is_still_a_complete_record` |
@@ -2319,7 +2321,7 @@ verified by code review — see
 | `LLR-VIS-01` | `collect_visibility` | `HLR-209`, `HLR-107` | `HLR-209: a static C function is private and a plain one is public`, `HLR-209: visibility reports linkage, not class access control` |
 | `LLR-VIS-02` | `collect_visibility` | `HLR-209` | `HLR-209: the specific pattern decides, not the catch-all`, `HLR-209: a C++ anonymous namespace is private, a named one is not`, `HLR-209: Rust reports its own pub keyword`, `HLR-209: Python reports the leading-underscore convention` |
 | `LLR-VIS-03` | `collect_visibility` | `HLR-209`, `HLR-138` | `LLR-VIS-03: a module with no visibility query reports neither`, `LLR-VIS-03: losing the visibility query costs nothing else` |
-| `LLR-VIS-04` | `collect_visibility` | `HLR-210`, `HLR-014`, `HLR-056` | `HLR-014: each function is reported with its name, where it starts, and how far it runs`, `HLR-210: the location is one an editor can act on`, `HLR-014: the reported start is the signature, not the brace` |
+| `LLR-VIS-04` | `collect_visibility` | `HLR-210`, `HLR-014`, `HLR-056` | `HLR-014: each function is reported with its name, where it starts, and how far it runs`, `HLR-210: the location is one an editor can act on`, `HLR-014: the reported start is the signature, not the brace`, `HLR-014: the function table names each function's language`, `HLR-014: the language stands between the location and the name` |
 | `LLR-EVD-01` | `region_evidence` | `HLR-211`, `HLR-154`, `HLR-141` | `HLR-211: with no image the region is undecided exactly as before`, `HLR-211: with no image the same regions are undecidable`, `HLR-154: a region in a file the line information never described stands` |
 | `LLR-EVD-02` | `region_evidence` | `HLR-211` | `HLR-211: a region with an alternative is decided against its alternative` |
 | `LLR-EVD-03` | `region_evidence` | `HLR-211`, `HLR-154` | `HLR-211: the image decides the region the source cannot` |

@@ -21,7 +21,7 @@ functions_of() {
 	awk '/^Functions/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "File" {next}
-	     s && /^  [^ -]/ {print $2}' "$1" | sort | tr '\n' ' '
+	     s && /^  [^ -]/ {print $3}' "$1" | sort | tr '\n' ' '
 }
 
 summary_of() {
@@ -294,7 +294,7 @@ report() {
 	local fanout
 	fanout="$(awk '/^Functions$/ {s=1; next}
 	               s && /^$/ {exit}
-	               s && $2 == "caller" {print $(NF-1)}' "$OUT")"
+	               s && $3 == "caller" {print $(NF-1)}' "$OUT")"
 	assert_equal "$fanout" "0"
 }
 
@@ -305,7 +305,7 @@ report() {
 	local complexity
 	complexity="$(awk '/^Functions$/ {s=1; next}
 	                   s && /^$/ {exit}
-	                   s && $2 == "caller" {print $6}' "$OUT")"
+	                   s && $3 == "caller" {print $7}' "$OUT")"
 	assert_equal "$complexity" "1"
 }
 

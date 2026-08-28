@@ -37,7 +37,10 @@
 #include "preproc.h"
 #include "repair.h"
 
-#define GRID_MAX_COLUMNS 9
+/* The widest table this file renders, which is the Functions tier. Raised
+ * with it: `grid_begin` writes one entry per column, so a tier declaring more
+ * columns than this holds runs past three fixed-size arrays. */
+#define GRID_MAX_COLUMNS 10
 
 /* The type of one cell argument.
  *
@@ -703,16 +706,23 @@ static int functions_section(const Report *report, Style style,
 	 * `File` carries `path:line`, which an editor turns into a jump
 	 * (HLR-210), and `Lines` is therefore a count rather than a range: the
 	 * start is in the location beside it, and a count is the figure a
-	 * reader compares between two functions (HLR-014). */
-	static const char *const names[]   = { "File", "Function",
+	 * reader compares between two functions (HLR-014).
+	 *
+	 * `Language` sits between them, which is where the Files table has put
+	 * it since the table existed. It is a property of the file rather than
+	 * of the function and it repeats down every row of one — and it is here
+	 * anyway, because this is the table a reader of a polyglot project asks
+	 * the question in, and sending them to another table to answer it costs
+	 * more than the repetition does (HLR-007, HLR-014). */
+	static const char *const names[]   = { "File", "Language", "Function",
 	                                       "Visibility", "Lines", "ELOC",
 	                                       "Complexity", "Fan-in",
 	                                       "Fan-out", "MI" };
-	static const bool        numeric[] = { false, false, false, true,
-	                                       true, true, true, true,
+	static const bool        numeric[] = { false, false, false, false,
+	                                       true, true, true, true, true,
 	                                       true };
 
-	grid_begin(&grid, "Functions", 9, names, numeric);
+	grid_begin(&grid, "Functions", 10, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -728,8 +738,12 @@ static int functions_section(const Report *report, Style style,
 			snprintf(d, sizeof d, "%" PRIu32, fn->fan_in);
 			snprintf(e, sizeof e, "%" PRIu32, fn->fan_out);
 			snprintf(f2, sizeof f2, "%" PRIu32, fn->mi);
-			grid_row(&grid, where, fn->name,
-			         visibility_name(fn->visibility),
+			/* The absence is rendered as the Files table renders
+			 * it, because the two say the same thing about the
+			 * same file and a reader comparing them should not
+			 * meet two spellings of one blank. */
+			grid_row(&grid, where, f->language ? f->language : "",
+			         fn->name, visibility_name(fn->visibility),
 			         a, b, c, d, e, f2);
 		}
 	}

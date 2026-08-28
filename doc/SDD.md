@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.18
+**Version:** 2.19
 **Date:** 2026-08-27
 **Author(s):** John Anderson
 
@@ -1105,7 +1105,7 @@ Both renderers walk the identical model in the identical order and emit the iden
 [src/format_csv.c](../src/format_csv.c) renders the per-function dataset as RFC 4180 CSV — the flat, unfiltered, machine-facing view.
 
 *   Emit one record per function, unaffected by the complexity threshold.
-*   Carry the same columns as the human-readable function table, in its order and with its meanings, since this is that table for a consumer that loads it rather than reads it (HLR-014).
+*   Carry the same columns as the human-readable function table, in its order and with its meanings — the language among them — since this is that table for a consumer that loads it rather than reads it (HLR-014).
 *   Quote and escape any field containing a comma, a double quote, or a line break.
 
 
@@ -1114,15 +1114,18 @@ Both renderers walk the identical model in the identical order and emit the iden
 
 *   **`int format_csv(const Report *r, FILE *out)`** — Write the header row and one record per function.
 *   **`const char *csv_visibility(Visibility v)`** — The visibility as a loader reads it: `public`, `private`, or the empty field. Never `public` for the unknown state, which is the absence of a claim rather than one (HLR-209).
+*   **`#define GRID_MAX_COLUMNS`** — The widest table `format_text.c` renders, which is the Functions tier. It bounds three fixed-size arrays `grid_begin` writes one entry of per column, so a tier declaring more columns than it holds runs past all three — and the compiler says so, which is how the Functions tier gaining its tenth column was caught.
 *   **`void write_field(const char *value, FILE *out)`** — Emit one field, quoting and doubling embedded quotes per RFC 4180.
 
 #### 15.3.2 Parsing Strategy / Algorithm
 
 Every field passes through `write_field()` without exception. A C++ template signature such as `foo<int, long>` contains a comma that would otherwise split one logical field across two columns and silently corrupt every downstream consumer (HLR-064).
 
-**The column list is the Functions table's, and keeping it so is the module's second responsibility.** The two are one view of one set of rows, and they drifted: the table gained a visibility, a navigable `path:line` location and the flow degrees, while this still wrote a `language` and a separate start and end line that nothing else reported. A consumer loading the record got a different set of figures from a reader of the report.
+**The column list is the Functions table's, and keeping it so is the module's second responsibility.** The two are one view of one set of rows, and they drifted: the table gained a visibility, a navigable `path:line` location and the flow degrees, while this still wrote a separate start and end line that nothing else reported. A consumer loading the record got a different set of figures from a reader of the report.
 
-That reverses what HLR-014 said of the complete-record formats between Phase 29 and Phase 30 — that they keep a separate start and end line because a consumer cannot subtract a column it was not given. The reasoning holds for `format_xml.c`, which must rebuild a report from its record and needs both numbers as numbers (HLR-056). It did not hold here, where the record *is* the table. The `language` column goes with the change: it is a property of the file, reported where the files are.
+That reverses what HLR-014 said of the complete-record formats between Phase 29 and Phase 30 — that they keep a separate start and end line because a consumer cannot subtract a column it was not given. The reasoning holds for `format_xml.c`, which must rebuild a report from its record and needs both numbers as numbers (HLR-056). It did not hold here, where the record *is* the table.
+
+**The `language` field is that rule read the other way.** It was dropped when the two were first matched, because the table carried no such column, and it came back when the table gained one. Both directions are the same requirement: the two views move together, and a column added to one and not the other is how they drifted apart to begin with.
 
 ### 15.4 Dependencies
 

@@ -311,9 +311,10 @@ through Phase 9 is already in place.
 kinds of thing:
 
 **Which functions carry the code and the complexity.** Effective Lines of Code
-and cyclomatic complexity, reported **per function** — name, line range, ELOC,
-complexity — rather than aggregated per file where the problem function hides
-inside a large one.
+and cyclomatic complexity, reported **per function** — an editor-navigable
+`path:line`, the language, the name, whether it is public or private, its
+length, ELOC and complexity — rather than aggregated per file where the problem
+function hides inside a large one.
 
 **How the system hangs together.** By stitching the per-file syntax trees into
 a project-wide **System Dependence Graph**, it answers the questions that

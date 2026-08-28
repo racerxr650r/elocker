@@ -30,7 +30,7 @@ functions_of() {
 	awk '/^Functions$/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "File" {next}
-	     s && /^  [^ -]/ {print $2}' "$1" | sort | tr '\n' ' '
+	     s && /^  [^ -]/ {print $3}' "$1" | sort | tr '\n' ' '
 }
 
 # The functions the image does not define, from the section of that name.
@@ -124,14 +124,14 @@ build_evidence() {
 eloc_of() {
 	awk -v want="$2" '/^Functions$/ {s=1; next}
 	                  s && /^$/ {exit}
-	                  s && $2 == want {print $5}' "$1"
+	                  s && $3 == want {print $6}' "$1"
 }
 
 # One function's fan-out, from the same tier and the same row.
 fanout_of() {
 	awk -v want="$2" '/^Functions$/ {s=1; next}
 	                  s && /^$/ {exit}
-	                  s && $2 == want {print $8}' "$1"
+	                  s && $3 == want {print $9}' "$1"
 }
 
 # ------------------------------------------------------- the hand counts --
@@ -680,7 +680,7 @@ build_ambiguous() {
 	local kept
 	kept="$(printf '%s\n' "$output" |
 		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $2 == "helper" { sub(/:[0-9]+$/, "", $1); print $1 }')"
+		     f && $3 == "helper" { sub(/:[0-9]+$/, "", $1); print $1 }')"
 	assert_equal "$kept" "$AMB/a.c"
 
 	# And b.c's is reported absent, beside the function that called it.
@@ -750,7 +750,7 @@ build_templated() {
 	local kept
 	kept="$(printf '%s\n' "$output" |
 		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $2 == "serialize_seq" { sub(/:[0-9]+$/, "", $1); print $1 }')"
+		     f && $3 == "serialize_seq" { sub(/:[0-9]+$/, "", $1); print $1 }')"
 	assert_equal "$kept" "$TPL/micro/plugin.hpp"
 }
 
