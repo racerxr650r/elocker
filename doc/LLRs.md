@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.12
-**Date:** 2026-08-24
+**Version:** 2.13
+**Date:** 2026-08-27
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -621,6 +621,13 @@ Note on the division of labour, which determines where a failure lives: the requ
 
 *   <a id="LLR-ANL-57"></a>**LLR-ANL-57** — `analyze_file` shall report results identical to those it produces with the option absent when no definition is supplied, save for regions a constant condition excludes, which are the same in every configuration.
     *Trace:* HLR-131 (Conditional-Compilation Configuration).
+
+*   <a id="LLR-ANL-62"></a>**LLR-ANL-62** — `build_exclusions` shall not run the conditional query on a buffer the preprocessor expanded. The conditional figures for such a file are the ones the raw pass recorded before it was expanded.
+
+    The pass that decides whether to expand at all already answers the question, on the source as written, because a preprocessor destroys the directives the answer is read from (HLR-208). Running the query again on the expanded text finds no region, counts none of the three dispositions, and overwrites a measurement with a zero.
+
+    That was harmless while the only figure was the undecided count, which had to be zero for the file to have been expanded at all. It stopped being harmless when a region could be decided *from the image*: such a file expands, and the count saying so is the only record that a region was settled by evidence rather than by the source (HLR-211).
+    *Trace:* HLR-211 (Conditional Regions Decided from the Image), HLR-208, HLR-133.
 
 ## 15. `collect_dead_code` ([src/analyze.c](../src/analyze.c))
 
@@ -1296,6 +1303,15 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-CSV-02"></a>**LLR-CSV-02** — `format_csv` shall emit per-function metrics only, excluding the architectural findings.
     *Trace:* HLR-028 (CSV Output), HLR-031 (Uniform Report Composition Across Formats).
 
+*   <a id="LLR-CSV-03"></a>**LLR-CSV-03** — `format_csv` shall write the columns `file`, `function`, `visibility`, `lines`, `eloc`, `complexity`, `fan_in`, `fan_out`, `mi`, in that order; `file` shall carry `path:line`, `lines` shall be `end - start + 1`, and an unknown visibility shall be the empty field.
+
+    **These are the Functions table's columns, and that is the requirement rather than a choice.** CSV is that table for a consumer that loads it rather than reads it, and the two had drifted column by column — the table gained a visibility, a navigable location and the flow degrees, and this still wrote a `language` and a start and end line nothing else reported (HLR-014).
+
+    The empty field is the unknown visibility because that is what a loader reads as "no value"; the em dash the report prints is a typographic answer to a human and would be a value here. It is never written as `public`, which is a claim, where the absence is the absence of one (HLR-209).
+
+    The `language` column goes with the change. It is a property of the file, not of the function, and it is reported where the files are.
+    *Trace:* HLR-014 (Per-Function Identity), HLR-028, HLR-210.
+
 ## 40. `write_field` ([src/format_csv.c](../src/format_csv.c))
 
 *   <a id="LLR-FLD-01"></a>**LLR-FLD-01** — `write_field` shall quote and escape every field whose value contains a comma, a double-quote character, or a line break, in accordance with RFC 4180.
@@ -1571,6 +1587,22 @@ The single place every reported collection is ordered. The audit point for deter
 
     That answer is deliberately the unsafe one, and separating the calls is what makes asking it safe. A caller that skipped the coverage test would find every line of a file compiled without debug information uncompiled and would delete the file — absence from a mapping that never described it read as evidence about it, which is the one failure in this phase that is silent (HLR-154).
     *Trace:* HLR-154 (Pruning Confined to Established Coverage).
+
+*   <a id="LLR-DWL-08"></a>**LLR-DWL-08** — `dwarfline_compiled_between` shall answer whether any line in the inclusive range `from`..`to` of a covered file produced an instruction, and shall answer false for an uncovered file and for a range whose `from` exceeds its `to`.
+
+    The question a conditional region asks, and one a caller cannot build out of the per-line call: a region is judged **whole**, because a single absent line is the optimiser folding it into a neighbour and an entire absent region is evidence about the build (HLR-154, HLR-211).
+
+    The empty range answers false rather than true, which is the direction that leaves a region undecidable rather than deciding it on nothing.
+
+    It shares the lower-bound search with `dwarfline_compiled`: on an ascending, de-duplicated list, "is this line present" and "is any line of this range present" are the same lookup asked two questions, and two searches would be two places for the ordering assumption to be got wrong.
+    *Trace:* HLR-211 (Conditional Regions Decided from the Image), HLR-154.
+
+*   <a id="LLR-DWL-09"></a>**LLR-DWL-09** — Each `FunctionOrigin` shall carry the line `DW_AT_decl_line` records, and zero where the producer recorded none. `dwarfline_origin_count` and `dwarfline_origin_at` shall expose the map for walking, the latter answering NULL past the end.
+
+    `dwarfline_knows` and `dwarfline_places` answer "where is this function", which is a lookup on a key. "Which functions does the image place in this file" is the opposite question and has no key to search on, so it is answered by walking — and the walk is bounded by the accessor rather than by the caller's arithmetic (HLR-212).
+
+    **A subprogram with no recorded line keeps its entry.** The entry is a *placement*, which is what HLR-193 asks of this map and which does not depend on a line; dropping it would answer "not defined here" for a function the image plainly defines. Zero is read as "no location" by the one caller that wants one.
+    *Trace:* HLR-212 (Functions the Image Places and the Parse Did Not Reach), HLR-193.
 
 ## 50. Build and Link Configuration ([Makefile](../Makefile))
 
@@ -1986,11 +2018,9 @@ Expansion and filtering of one file. The first requirement is the subprocess; th
     Neither loses a token. Those lines *were* one line, and rejoining them restores the line the source holds. The rule is not "never move backwards" but "never lose a line": a line the buffer never had is one it must give back, or the drift accumulates over the whole file and every location below the first multi-line expansion is wrong.
     *Trace:* HLR-204 (Expansion Preserves Every Reported Location), HLR-032.
 
-*   <a id="LLR-PRE-05"></a>**LLR-PRE-05** — `preproc_expand` shall return a null buffer, and a status naming the reason, where the child could not be started, exited non-zero, or produced output holding no marker for the file under analysis. **A caller that declines an expansion it did obtain shall release the buffer with the decision**, so that a null `text` is the single meaning of "this file was not expanded" everywhere it is read.
+*   <a id="LLR-PRE-05"></a>**LLR-PRE-05** — `preproc_expand` shall return a null buffer, and a status naming the reason, where the child could not be started, exited non-zero, or produced output holding no marker for the file under analysis. It shall return non-zero only on allocation failure.
 
-    That is not tidiness. The pointer selects the parse *and* suppresses the repair of HLR-196, so a file left holding a buffer nobody used is parsed as written and denied the repair — neither of the two paths, and worse than either. **A caller that declines an expansion it did obtain shall release the buffer with the decision**, so that a null `text` is the single meaning of "this file was not expanded" everywhere it is read.
-
-    That is not tidiness. The pointer selects the parse *and* suppresses the repair of HLR-196, so a file left holding a buffer nobody used is parsed as written and denied the repair — neither of the two paths, and worse than either. It shall return non-zero only on allocation failure.
+    **A caller that declines an expansion it did obtain shall release the buffer with the decision**, so that a null `text` is the single meaning of "this file was not expanded" everywhere it is read. That is not tidiness: the pointer selects the parse *and* suppresses the repair of HLR-196, so a file left holding a buffer nobody used is parsed as written and denied the repair — neither of the two paths, and worse than either.
 
     **Output naming the file nowhere is a failure and not an empty file.** A zero-line measurement of a file that has lines is the silent wrong answer this module exists not to produce, and it is indistinguishable in the report from a file that is genuinely empty.
 
@@ -2048,3 +2078,99 @@ Repair of the regions the grammar rejected. Every requirement below is a restric
 
     A repair is a guess the grammar could not make. A report that presented a repaired figure as a measured one would be the confidently-wrong result `elc` exists to avoid, and worse than the parse error it replaced — the figures look ordinary, and nothing on the page distinguishes them.
     *Trace:* HLR-199 (Repairs Are Declared), HLR-194.
+
+## 69. `collect_visibility` ([src/analyze.c](../src/analyze.c))
+
+What the language says about a function's reach, and the one rule that lets four languages express it in the same file format.
+
+*   <a id="LLR-VIS-01"></a>**LLR-VIS-01** — `collect_visibility` shall run the language's `visibility.scm` where the module supplies one, and shall record, for each `@function.public` or `@function.private` capture, the **byte offset of the captured node** and which of the two it was. A capture whose name begins `_` shall be ignored.
+
+    The byte offset is the key because it is the same node `functions.scm` captures as `@function.name`. Matching on it means the two queries agree on the identity of a function without either knowing how the other finds one — where matching on a name would collapse two same-named statics, and matching on a line would collapse a nested function with its host.
+
+    The `@_` captures are how a pattern binds a node for a predicate to test — the C query compares a storage-class specifier against `static` that way — and are not functions.
+    *Trace:* HLR-209 (Function Visibility Reported), HLR-107.
+
+*   <a id="LLR-VIS-02"></a>**LLR-VIS-02** — Where more than one pattern captures the same node, `collect_visibility` shall keep the **first** recorded and discard the rest.
+
+    Since a query cursor reports matches in pattern order, this is "the earliest pattern in the file decides", and it is the whole of what makes one file format serve four languages. C's default is external linkage, so its query states `static` first and a catch-all claims everything else public; Rust's default is private, so its query states `pub` first and the catch-all claims everything else private. A rule such as "private wins" would serve C and invert Rust.
+
+    `collect_inactive_regions` already resolves overlapping conditional patterns this way, and a second convention for the same problem would be one too many.
+    *Trace:* HLR-209 (Function Visibility Reported).
+
+*   <a id="LLR-VIS-03"></a>**LLR-VIS-03** — A function whose name node no capture claimed shall be reported as **unknown**, and a module supplying no `visibility.scm` shall leave every function unknown. The renderer shall present that state as a dash and never as `public`.
+
+    *Not analysed* and *public* are different claims, and the second is the one that misleads: a reader scanning for a module's interface would take every function of an unanalysed language for part of it. This is the asymmetry HLR-138 draws for a language with no dead-code query, applied to a third kind of absence.
+    *Trace:* HLR-209 (Function Visibility Reported), HLR-138.
+
+*   <a id="LLR-VIS-04"></a>**LLR-VIS-04** — `functions_section` shall render the location as `path:line` in the File column, the visibility immediately after the name, and the extent as `end - start + 1`.
+
+    The column order is the requirement rather than a presentation choice: the visibility answers a question about the function just named, so it belongs beside the name and not at the end of eight numeric columns (HLR-209).
+
+    The complete-record writers shall be unchanged in their line fields and shall carry the visibility as its own attribute, so that a report regenerated from a record says what the direct run said (HLR-056) without a consumer having to split a string to recover a number (HLR-014).
+    *Trace:* HLR-210 (Function Location Reported Navigably), HLR-014 (Per-Function Identity), HLR-056.
+
+## 70. `region_evidence` ([src/analyze.c](../src/analyze.c))
+
+What the image's line information says about a conditional region the source could not decide, and the two shapes the evidence takes.
+
+*   <a id="LLR-EVD-01"></a>**LLR-EVD-01** — `region_evidence` shall answer `EVIDENCE_NONE` where no image was supplied and where `dwarfline_covers` is false for the file under analysis.
+
+    **The coverage test comes first, and it governs.** A translation unit compiled without debug information contributes no line entries at all, so a rule keyed on absence alone would find every region of it inactive and delete each one — evidence of nothing at all read as evidence of everything. This is the same two-part contract `prune_uncompiled_lines` follows at the finer grain, and it is followed here for the same reason (HLR-154).
+
+    A run with no image reaches the first test and stops, which is what makes HLR-141's promise hold without a special case: the answer is "no evidence", the region stays undecidable, and the figures are the ones the run reported before this function existed.
+    *Trace:* HLR-211 (Conditional Regions Decided from the Image), HLR-154, HLR-141.
+
+*   <a id="LLR-EVD-02"></a>**LLR-EVD-02** — Where the region carries an alternative, `region_evidence` shall answer `EVIDENCE_ACTIVE` where the region's own lines produced an instruction and the alternative's did not, `EVIDENCE_INACTIVE` where the alternative's did and the region's did not, and `EVIDENCE_NONE` otherwise. The region's own lines are those from its first line to the line the alternative begins on.
+
+    **The strongest form the evidence takes, and self-contained**: exactly one of two branches was compiled, and the image says which. Nothing outside the region is consulted, so nothing outside it can mislead.
+
+    `EVIDENCE_NONE` for both and for neither is the requirement rather than a gap. *Neither* is what a function the build never emitted looks like, and deciding a region from it would prune half of a function that is already absent for a different reason. *Both* is a contradiction the line table can produce under inlining, and a rule that resolved it would be picking one of two answers by the order they were tested in.
+    *Trace:* HLR-211 (Conditional Regions Decided from the Image).
+
+*   <a id="LLR-EVD-03"></a>**LLR-EVD-03** — Where the region carries no alternative, `region_evidence` shall answer `EVIDENCE_ACTIVE` where its lines produced an instruction, and `EVIDENCE_INACTIVE` where they did not **and** a line before the region and a line after it, in the same file, both did. Otherwise it shall answer `EVIDENCE_NONE`.
+
+    The bracketing is what makes the absence mean anything: code before the region and code after it were compiled, so the line table was being written across this stretch of the file, and the gap is a gap rather than the edge of what the build described. Without it a region past the last line the build emitted — or in a file whose only compiled code lies elsewhere — would be judged inactive on the strength of a mapping that stops short of it.
+
+    Measured on `avrOS`, the bracket is what refuses the case this rule reads worst: a file-scope `#ifdef CPU_CLI` holding one `ADD_COMMAND(...)` near the top of `cpu.c`, above every function, has no compiled line before it and stays undecidable — where a rule without the bracket would have judged it from evidence that was never about it, since a data definition produces no line entry whether or not it was compiled.
+
+    The active answer needs no bracket, because a region with no alternative that holds excludes nothing: the decision is real but it removes no code, and the only thing it changes is that the region is no longer counted undecided.
+    *Trace:* HLR-211 (Conditional Regions Decided from the Image), HLR-154.
+
+*   <a id="LLR-EVD-04"></a>**LLR-EVD-04** — `apply_cond_region` shall consult the evidence only after the query's own constants and the `-D` set have both failed to settle the region, and shall count each region it settles this way in a figure separate from the undecided count.
+
+    **Order of authority.** A `-D` is what the user says this configuration is; the evidence is about one build that was made. Asking the definitions first is what stops a measurement overruling a declaration (HLR-132), and it is why a run that supplies the defining `-D` reports no region decided from the image at all.
+
+    The separate count is the requirement's own: a region settled from evidence and a region settled from a definition are different claims, and a reader who cannot tell them apart has been handed evidence wearing the authority of a definition (HLR-211). It is reported with the image's other provenance, beside the line count the same evidence produced at the finer grain (HLR-155).
+    *Trace:* HLR-211 (Conditional Regions Decided from the Image), HLR-132, HLR-133.
+
+## 71. `collect_placed` ([src/report.c](../src/report.c))
+
+The functions the image defines that the parse never reached, and the one rule that keeps this table from contradicting the table beside it.
+
+*   <a id="LLR-PLC-01"></a>**LLR-PLC-01** — `collect_placed` shall record one row — the function's name, the analysed file, and the line — for each entry of the image's origin map whose file is an analysed file, whose recorded line is non-zero, and whose line lies within no reported function's extent. Rows shall be ordered by file, then line, then name.
+
+    The map holds every definition the image describes, most of them written in files this run was never pointed at, so the file comparison is what makes the answer per file. A definition with no recorded line is skipped rather than placed at line zero: the entry is still a placement for HLR-193's purposes and a location is the whole of what this table adds.
+
+    The extent test is a linear scan over the file's functions rather than a search, because their ranges are not disjoint — a nested named function lies inside its host (HLR-067) — and a binary search over start lines would answer for whichever run it landed in.
+
+    The ordering is the absent list's, because the two are the two directions of one mismatch and a reader consults them together (HLR-032, HLR-143).
+    *Trace:* HLR-212 (Functions the Image Places and the Parse Did Not Reach), HLR-032.
+
+*   <a id="LLR-PLC-02"></a>**LLR-PLC-02** — A row shall be recorded only where `elfsyms_defines` is true for the same name: the symbol table decides *which* functions these are, and the debug information decides only *where* they are.
+
+    **The two disagree, and ordinarily.** A link that discards unused sections removes the code while the compiler's subprogram entry for it stays in `.debug_info`, describing a function the image no longer contains. Measured on an AVR build of `avrOS`, believing the debug information alone reported **82** such functions where **11** were real — and every one of the other 71 was already named, rightly, in the list of functions the image does *not* define (HLR-143). The two tables would have contradicted each other on the same page.
+
+    So this asks the question HLR-140's filter asks, of the same authority. The debug information then supplies the location, which is the one thing the symbol table cannot.
+    *Trace:* HLR-212 (Functions the Image Places and the Parse Did Not Reach), HLR-143, HLR-140.
+
+*   <a id="LLR-PLC-03"></a>**LLR-PLC-03** — The rows shall be held on the report beside the per-file metrics and never appended to a file's function list, and shall be rendered as three columns — function, file, line — with no figure beside them.
+
+    **Where they are kept is the requirement, not an implementation preference.** `graph.c` builds one node per entry of every file's function list, indexed by a running offset over the counts; a row added there would acquire a node, a fan-out of nought, an ELOC of nought and a complexity of one, and would be banded and counted with the rest. Every one of those figures would be a measurement of something nobody measured (HLR-133, HLR-138), and a call to such a function is counted unresolved instead, where every call the graph cannot represent is counted (HLR-077).
+
+    The renderer has no columns for the figures, so no later change can fill them in by accident. `collect_placed` runs from `report_set_image`, which is the one entry point holding both the image and an assembled report, and runs after `order_collections` so that the function lists it compares against are the ones the report presents.
+    *Trace:* HLR-212 (Functions the Image Places and the Parse Did Not Reach), HLR-133, HLR-138.
+
+*   <a id="LLR-PLC-04"></a>**LLR-PLC-04** — The rows and the count of regions decided from the image shall be written into the XML record and read back from it, the rows as `placed` elements within the `image` element and the count as an attribute of it. A record written before either existed shall read back as no rows and a count of zero.
+
+    Neither can be recomputed from a record: a regenerated report has no image, and no debug information to read either off. A row the record did not carry would vanish and a count it did not carry would come back as zero, and in both cases the regenerated report would disagree with the one it came from about what the build contains (HLR-056).
+    *Trace:* HLR-212 (Functions the Image Places and the Parse Did Not Reach), HLR-211, HLR-056.

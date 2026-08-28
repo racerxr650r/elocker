@@ -67,8 +67,18 @@ typedef struct {
  * which file each was written in (HLR-193).
  */
 typedef struct {
-	char *name;   /* as the debug information records it; owned */
-	char *file;   /* absolute and normalised; owned             */
+	char    *name;   /* as the debug information records it; owned */
+	char    *file;   /* absolute and normalised; owned             */
+	/* The line the definition was written on, from `DW_AT_decl_line`, and
+	 * zero where the producer recorded none.
+	 *
+	 * The only thing that says where in the source a macro-generated
+	 * function is: the parse found nothing at that line to say it, which
+	 * is the whole of what HLR-212 exists to answer. Zero is "no
+	 * location" and never line zero — the entry is still a placement, and
+	 * dropping it would answer "not defined here" for a function the image
+	 * plainly defines (HLR-193). */
+	uint32_t line;
 } FunctionOrigin;
 
 /* Every function definition the image's debug information places.
@@ -134,6 +144,20 @@ bool dwarfline_knows(const OriginMap *origins, const char *function);
 bool dwarfline_places(const OriginMap *origins, const char *function,
                       const char *file);
 
+/* How many definitions the map holds, and the one at an index.
+ *
+ * The map is keyed on the name, which answers "where is this function"; these
+ * answer the opposite question — "which functions does the image place here" —
+ * and that one has no key to search on. A caller asking it walks the map and
+ * compares the file, which is what HLR-212 needs and what no lookup above
+ * provides.
+ *
+ * `dwarfline_origin_at` returns NULL past the end, so a caller cannot walk off
+ * it by getting the bound wrong.
+ */
+size_t dwarfline_origin_count(const OriginMap *origins);
+const FunctionOrigin *dwarfline_origin_at(const OriginMap *origins, size_t at);
+
 /* Release the map and every name and path it owns. Safe on NULL, and safe
  * twice. */
 void originmap_free(OriginMap *origins);
@@ -158,6 +182,23 @@ bool dwarfline_covers(const LineCoverage *coverage, const char *path);
  */
 bool dwarfline_compiled(const LineCoverage *coverage, const char *path,
                         uint32_t line);
+
+/* Whether this build compiled an instruction for any line in `from`..`to`.
+ *
+ * The question a conditional region asks, which cannot be answered by asking
+ * `dwarfline_compiled` about one line: a region is judged whole, because a
+ * single absent line is folding by the optimiser and an entire absent region
+ * between two present neighbours is evidence about the build (HLR-154,
+ * HLR-211). Inclusive at both ends, and false where `from` exceeds `to`, so
+ * that an empty range asks nothing rather than everything.
+ *
+ * Only meaningful where `dwarfline_covers` is true for the same path, for the
+ * reason `dwarfline_compiled` is: false is returned for an uncovered file, and
+ * a caller that skipped the coverage test would read that as "this build
+ * compiled none of it" for every region of an image built without -g.
+ */
+bool dwarfline_compiled_between(const LineCoverage *coverage, const char *path,
+                                uint32_t from, uint32_t to);
 
 /* Release the coverage set and every path and line list it owns. Safe on
  * NULL, and safe twice. */

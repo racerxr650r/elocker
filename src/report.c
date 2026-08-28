@@ -189,6 +189,22 @@ static int by_start_line(const void *a, const void *b)
  * then by name — the last for the reason the function ordering carries one: two
  * functions can begin on one line, and a comparator returning 0 there would
  * leave their order to qsort, which is not stable (HLR-032). */
+/* The functions the image places and the parse did not reach, in the order the
+ * absent list takes and for the same reason: the two are the two directions of
+ * one mismatch and a reader consults them together (HLR-032, HLR-212). */
+static int by_placed(const void *a, const void *b)
+{
+	const PlacedRow *x = a;
+	const PlacedRow *y = b;
+	int              c = strcmp(x->file, y->file);
+
+	if (c != 0)
+		return c;
+	if (x->line != y->line)
+		return x->line < y->line ? -1 : 1;
+	return strcmp(x->function, y->function);
+}
+
 static int by_absent(const void *a, const void *b)
 {
 	const AbsentRow *x = a;
@@ -302,6 +318,8 @@ static int total_files(Report *out)
 		out->summary.eloc           += out->files[i]->eloc;
 		out->summary.function_count += out->files[i]->function_count;
 		out->undecided_regions      += out->files[i]->undecided_regions;
+		out->image_decided_regions  +=
+			out->files[i]->image_decided_regions;
 		out->file_scope_eloc        += out->files[i]->scope_eloc;
 		out->pruned_lines           += out->files[i]->pruned_lines;
 		out->uncovered_files        +=
@@ -613,6 +631,115 @@ int report_check_image_ambiguity(const Report *report, const SymbolSet *image)
 	return 0;
 }
 
+/* Whether some function the parse found covers this line of this file.
+ *
+ * A linear scan rather than a search over the sorted list, because the ranges
+ * are not disjoint: a nested named function lies inside its host, and a binary
+ * search over start lines would answer for the innermost run it landed in
+ * (HLR-067). The lists are one file's functions, and the question is asked once
+ * per subprogram the image places there.
+ */
+static bool line_is_parsed(const FileMetrics *file, uint32_t line)
+{
+	for (size_t i = 0; i < file->function_count; i++)
+		if (line >= file->functions[i].start_line &&
+		    line <= file->functions[i].end_line)
+			return true;
+
+	return false;
+}
+
+/* Whether this definition is one the parse did not reach in this file.
+ *
+ * A definition with no recorded line is skipped rather than placed at line 0 —
+ * the entry is still a placement for HLR-193's purposes, and a location is what
+ * this table exists to give. The file test is what makes the answer per file:
+ * the map is every definition in the image, most of them written somewhere
+ * `elc` was never pointed at.
+ *
+ * **And the symbol table governs, not the debug information.** They disagree,
+ * and the disagreement is ordinary rather than exotic: a link that discards
+ * unused sections removes the code while the compiler's subprogram entry for it
+ * stays in `.debug_info`, describing a function that is no longer in the image.
+ * Measured on an AVR build of `avrOS`, believing the debug information alone
+ * would have reported 82 such functions where 11 are real — every one of the
+ * other 71 already named, correctly, in the list of functions the image does
+ * *not* define. The two tables would have contradicted each other on the same
+ * page.
+ *
+ * So this asks the question HLR-140's filter asks, of the same authority: did
+ * the link keep a symbol for it? The debug information then says *where* it was
+ * written, which is the one thing the symbol table cannot say (HLR-212).
+ */
+static bool placed_beyond_parse(const FileMetrics *file,
+                                const SymbolSet *image,
+                                const FunctionOrigin *origin)
+{
+	return origin->line != 0 &&
+	       strcmp(origin->file, file->path) == 0 &&
+	       elfsyms_defines(image, origin->name) &&
+	       !line_is_parsed(file, origin->line);
+}
+
+/* The functions the image places that the parse did not reach (HLR-212).
+ *
+ * The mirror of `collect_absent`, and it runs where that one cannot: the absent
+ * list is built per file during the parse, because a file's own functions are
+ * what it is drawn from, and this is drawn from a map of the *image* that no
+ * single file's analysis holds.
+ *
+ * **Nothing here enters the metrics or the graph.** The rows are a list beside
+ * the report, not functions added to a file, because `elc` has no body for any
+ * of them: added to `FileMetrics.functions` they would acquire a node, a
+ * fan-out of 0 and an ELOC of 0, and every one of those figures would be a
+ * measurement of something nobody measured (HLR-133, HLR-138).
+ */
+static int collect_placed(Report *out, const SymbolSet *image)
+{
+	size_t origins = dwarfline_origin_count(&image->origins);
+	size_t total   = 0;
+
+	for (size_t i = 0; i < out->file_count; i++)
+		for (size_t j = 0; j < origins; j++)
+			if (placed_beyond_parse(out->files[i], image,
+			        dwarfline_origin_at(&image->origins, j)))
+				total++;
+
+	if (total == 0)
+		return 0;
+
+	out->placed = calloc(total, sizeof *out->placed);
+	if (!out->placed) {
+		diag_printf("elc: out of memory recording the functions the "
+		      "image places\n");
+		return -1;
+	}
+
+	for (size_t i = 0; i < out->file_count; i++)
+		for (size_t j = 0; j < origins; j++) {
+			const FunctionOrigin *o =
+				dwarfline_origin_at(&image->origins, j);
+			PlacedRow            *row;
+
+			if (!placed_beyond_parse(out->files[i], image, o))
+				continue;
+
+			row = &out->placed[out->placed_count];
+			row->function = strdup(o->name);
+			row->file     = strdup(out->files[i]->path);
+			if (!row->function || !row->file)
+				return -1;
+			row->line = o->line;
+			out->placed_count++;
+		}
+
+	if (out->placed_count > 1)
+		qsort(out->placed, out->placed_count, sizeof *out->placed,
+		      by_placed);
+
+	return 0;
+}
+
 int report_set_image(Report *report, const SymbolSet *image)
 {
 	if (!report || !image || !image->path)
@@ -624,7 +751,13 @@ int report_set_image(Report *report, const SymbolSet *image)
 		return -1;
 	}
 	report->image_unresolved = elfsyms_unresolved(image);
-	return 0;
+
+	/* Here rather than in `report_assemble`, which has the option but not
+	 * the image: the rows are read off the debug information, and this is
+	 * the one entry point holding it. After `order_collections`, so the
+	 * per-file function lists this is compared against are the ones the
+	 * report presents. */
+	return collect_placed(report, image);
 }
 
 /* One row per function: its fan-out and its fan-in, carried out of the graph
@@ -1980,6 +2113,13 @@ static void free_source_rows(Report *report)
 	free(report->absent);
 	report->absent       = NULL;
 	report->absent_count = 0;
+	for (size_t i = 0; i < report->placed_count; i++) {
+		free(report->placed[i].function);
+		free(report->placed[i].file);
+	}
+	free(report->placed);
+	report->placed       = NULL;
+	report->placed_count = 0;
 
 	free(report->image);
 	report->image = NULL;

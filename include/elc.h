@@ -470,6 +470,18 @@ typedef struct {
 	 * is a fact about the graph — a figure whose accuracy is unstated
 	 * cannot be acted on. */
 	uint32_t        undecided_regions;
+	/* Conditional regions this configuration could not decide and the
+	 * image's line information could — a region the build compiled no
+	 * instruction for, or one it plainly did (HLR-211).
+	 *
+	 * Counted apart from the regions a `-D` settled and from those still
+	 * undecided, because it is a different claim from either. A `-D` is
+	 * what the user says the configuration is; this is evidence about the
+	 * build in front of `elc`, strong enough to act on and not proof —
+	 * HLR-154's limit on what an absent line means applies to it — and a
+	 * figure that lumped the two together would let a reader take the
+	 * second for the first. Zero on every run with no image. */
+	uint32_t        image_decided_regions;
 	/* How this file's text reached the parser: expanded by the
 	 * preprocessor, or measured as written and why (HLR-206). Two files in
 	 * one report may have been measured two different ways, and nothing in

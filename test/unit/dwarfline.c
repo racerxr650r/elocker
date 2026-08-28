@@ -183,6 +183,116 @@ Test(dwarfline, a_covered_file_with_no_lines_compiled_nothing)
 	dwarfline_free(&c);
 }
 
+/* ------------------------------------------------- compiled in a range -- */
+
+/* Verifies LLR-DWL-08: the question a conditional region asks, which cannot be
+ * built out of the per-line call.
+ *
+ * A region is judged whole, because one absent line is the optimiser folding it
+ * into a neighbour and an entire absent region is evidence about the build
+ * (HLR-154, HLR-211). Inclusive at both ends, so a caller naming the region's
+ * own first and last lines asks about the region and not about part of it.
+ */
+Test(dwarfline, a_range_holding_a_compiled_line_reports_compiled)
+{
+	LineCoverage c = { 0 };
+	const uint32_t lines[] = { 3, 4, 12 };
+
+	add_file(&c, "/p/a.c", lines, 3);
+
+	cr_assert(dwarfline_compiled_between(&c, "/p/a.c", 1, 3), "at the end");
+	cr_assert(dwarfline_compiled_between(&c, "/p/a.c", 3, 3), "one line");
+	cr_assert(dwarfline_compiled_between(&c, "/p/a.c", 4, 20),
+	          "at the start");
+	cr_assert(dwarfline_compiled_between(&c, "/p/a.c", 1, 99),
+	          "the whole file");
+
+	cr_assert_not(dwarfline_compiled_between(&c, "/p/a.c", 5, 11),
+	              "a gap between two compiled runs");
+	cr_assert_not(dwarfline_compiled_between(&c, "/p/a.c", 13, 99),
+	              "past the last");
+	cr_assert_not(dwarfline_compiled_between(&c, "/p/a.c", 1, 2),
+	              "before the first");
+
+	dwarfline_free(&c);
+}
+
+Test(dwarfline, an_empty_range_asks_nothing)
+{
+	LineCoverage c = { 0 };
+	const uint32_t lines[] = { 3 };
+
+	add_file(&c, "/p/a.c", lines, 1);
+
+	/* A region whose body ends before it begins describes no lines, and the
+	 * answer has to be "no evidence" rather than "the whole file". False
+	 * is the safe direction: it leaves the region undecidable. */
+	cr_assert_not(dwarfline_compiled_between(&c, "/p/a.c", 4, 3));
+
+	dwarfline_free(&c);
+}
+
+Test(dwarfline, an_uncovered_file_answers_no_range_compiled)
+{
+	LineCoverage c = { 0 };
+	const uint32_t lines[] = { 3, 4 };
+
+	add_file(&c, "/p/a.c", lines, 2);
+
+	/* The same unsafe answer `dwarfline_compiled` gives, and unsafe in the
+	 * same way: a caller that skipped the coverage test would find every
+	 * region of a file compiled without -g uncompiled and delete each one.
+	 * `dwarfline_covers` is what makes the question safe to ask. */
+	cr_assert_not(dwarfline_compiled_between(&c, "/p/b.c", 1, 99));
+	cr_assert_not(dwarfline_covers(&c, "/p/b.c"),
+	              "and this is the call that tells them apart");
+
+	dwarfline_free(&c);
+}
+
+/* ------------------------------------------------- walking the origins -- */
+
+/* Verifies LLR-DWL-09: the map can be walked as well as searched.
+ *
+ * `dwarfline_knows` and `dwarfline_places` answer "where is this function",
+ * which is a key lookup. "Which functions does the image place in this file" is
+ * the opposite question and has no key to search on, so it is answered by
+ * walking — and the walk has to stop where the map does (HLR-212).
+ */
+Test(dwarfline, the_origin_map_is_walkable_and_bounded)
+{
+	OriginMap m = { 0 };
+	FunctionOrigin items[2];
+
+	items[0].name = strdup("from_macro");
+	items[0].file = strdup("/p/a.c");
+	items[0].line = 26;
+	items[1].name = strdup("plain");
+	items[1].file = strdup("/p/b.c");
+	items[1].line = 4;
+	cr_assert_not_null(items[0].name);
+	cr_assert_not_null(items[1].name);
+
+	m.items    = items;
+	m.count    = 2;
+	m.capacity = 2;
+	m.present  = true;
+
+	cr_assert_eq(dwarfline_origin_count(&m), 2);
+	cr_assert_eq(dwarfline_origin_at(&m, 0)->line, 26);
+	cr_assert_str_eq(dwarfline_origin_at(&m, 1)->file, "/p/b.c");
+	cr_assert_null(dwarfline_origin_at(&m, 2),
+	               "one past the end is not a walk off it");
+
+	cr_assert_eq(dwarfline_origin_count(NULL), 0);
+	cr_assert_null(dwarfline_origin_at(NULL, 0));
+
+	free(items[0].name);
+	free(items[0].file);
+	free(items[1].name);
+	free(items[1].file);
+}
+
 /* ------------------------------------------------------------- lifetime -- */
 
 Test(dwarfline, free_is_safe_on_null_and_twice)

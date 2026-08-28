@@ -18,6 +18,7 @@ setup() {
 	CPP="$BATS_TEST_DIRNAME/elf/cpp"
 	MANGLED="$BATS_TEST_DIRNAME/elf/mangled"
 	DEBUGLINE="$BATS_TEST_DIRNAME/elf/debugline"
+	EVIDENCE="$BATS_TEST_DIRNAME/elf/evidence"
 }
 
 # The functions elc reported, in the order the report presents them.
@@ -35,6 +36,16 @@ functions_of() {
 # The functions the image does not define, from the section of that name.
 absent_of() {
 	awk '/^Functions the image does not define/ {s=1; next}
+	     s && /^$/ {exit}
+	     s && $1 == "Function" {next}
+	     s && /^  [^ -]/ {print $1}' "$1" | sort | tr '\n' ' '
+}
+
+# The functions the image places that the parse did not reach, from the section
+# of that name. Written the way absent_of is, and read beside it: the two are
+# the two directions of one mismatch.
+placed_of() {
+	awk '/^Functions the image places/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "Function" {next}
 	     s && /^  [^ -]/ {print $1}' "$1" | sort | tr '\n' ' '
@@ -91,11 +102,36 @@ build_debugline() {
 		skip "cc cannot build a debug image here: HLR-153 unverified"
 }
 
+# The evidence image: branched.c and macro.c compiled WITH -g, dark.c WITHOUT
+# it, linked together. One image therefore carries a file whose regions the
+# build can settle, a file whose regions it cannot be asked about, and a
+# function only the debug information places (elf/evidence/README.md).
+build_evidence() {
+	require_tool cc "HLR-211 conditional regions decided from the image"
+	IMAGE="$BATS_TEST_TMPDIR/ev"
+	cc -O0 -g -c "$EVIDENCE/branched.c" -o "$BATS_TEST_TMPDIR/b.o" \
+		2>/dev/null &&
+	cc -O0 -g -c "$EVIDENCE/macro.c" -o "$BATS_TEST_TMPDIR/m.o" \
+		2>/dev/null &&
+	cc -O0 -c "$EVIDENCE/dark.c" -o "$BATS_TEST_TMPDIR/d.o" \
+		2>/dev/null &&
+	cc -o "$IMAGE" "$BATS_TEST_TMPDIR/b.o" "$BATS_TEST_TMPDIR/m.o" \
+		"$BATS_TEST_TMPDIR/d.o" 2>/dev/null || \
+		skip "cc cannot build an evidence image here: HLR-211 unverified"
+}
+
 # One function's ELOC, from the per-function tier.
 eloc_of() {
 	awk -v want="$2" '/^Functions$/ {s=1; next}
 	                  s && /^$/ {exit}
 	                  s && $2 == want {print $5}' "$1"
+}
+
+# One function's fan-out, from the same tier and the same row.
+fanout_of() {
+	awk -v want="$2" '/^Functions$/ {s=1; next}
+	                  s && /^$/ {exit}
+	                  s && $2 == want {print $8}' "$1"
 }
 
 # ------------------------------------------------------- the hand counts --
@@ -170,27 +206,96 @@ eloc_of() {
 }
 
 @test "HLR-155: both counts are reported" {
-	# Three statements and the two directives around them; one file whose
-	# coverage could not be established. The pair is read as the
-	# unresolved-call count and the undecided-region count are: the first
-	# states what the filter removed, the second where it could not look.
+	# One file whose coverage could not be established, and nothing left
+	# for the line granularity to remove — the region went whole, at the
+	# coarser grain HLR-211 added, before any line inside it was judged.
+	#
+	# Zero is the figure and it is the right one: the pair states what the
+	# filter removed *by line* and where it could not look, and a count
+	# that double-counted lines a region had already taken would inflate a
+	# figure a reader acts on (LLR-ANL-58).
 	build_debugline
 	report "$DEBUGLINE" --elf "$IMAGE"
 	assert_success
 
-	assert_equal "$(filter_of "$OUT" "Lines not compiled by this build")" "5"
+	assert_equal "$(filter_of "$OUT" "Lines not compiled by this build")" "0"
 	assert_equal "$(filter_of "$OUT" "Files with no debug coverage")" "1"
 }
 
-@test "HLR-133: the region is undecided, so only the image ruled it out" {
-	# The fixture's whole assertion rests on this. Were the condition
-	# decidable from the source, Phase 15 would have removed the region
-	# before the image was consulted and every test above would pass
-	# against an implementation that read no debug information at all.
+@test "HLR-155: the line granularity still removes what a -D left active" {
+	# The same five lines, taken the other way. Told the symbol is defined,
+	# `elc` settles the region from the `-D` and leaves its statements
+	# active — and the image, built without that definition, compiled none
+	# of them. What the region grain no longer removes, the line grain
+	# does, and the count says so.
+	#
+	# The directive lines are not among them here: the file expands under
+	# the same `-D`, and the preprocessor has already taken them out.
+	build_debugline
+	report "$DEBUGLINE" --elf "$IMAGE" -D ELC_FIXTURE_FEATURE
+	assert_success
+
+	assert_equal "$(eloc_of "$OUT" guarded)" "4"
+	assert_equal "$(summary_of "$OUT" ELOC)" "12"
+	assert_equal "$(filter_of "$OUT" "Lines not compiled by this build")" "3"
+}
+
+@test "HLR-211: a -D decides the region, not the image" {
+	# Order of authority, asserted rather than assumed. A `-D` is what the
+	# user says this configuration is; the image is evidence about one
+	# build. The definition is consulted first and the image is never
+	# asked, so no region is counted as decided by it.
+	build_debugline
+	report "$DEBUGLINE" --elf "$IMAGE" -D ELC_FIXTURE_FEATURE
+	assert_success
+
+	assert_equal "$(filter_of "$OUT" "Regions decided by this build")" "0"
+	assert_equal "$(summary_of "$OUT" "Undecided regions")" "0"
+}
+
+@test "HLR-211: the image decides the region the source cannot" {
+	# The fixture's whole assertion rests on the condition being
+	# undecidable. Were it decidable from the source, Phase 15 would have
+	# removed the region before the image was consulted and every test
+	# above would pass against an implementation that read no debug
+	# information at all.
+	#
+	# So the region is counted where it belongs: not undecided, and not
+	# among the ones a `-D` settled, but as one this build answered.
 	build_debugline
 	report "$DEBUGLINE" --elf "$IMAGE"
 	assert_success
+
+	assert_equal "$(summary_of "$OUT" "Undecided regions")" "0"
+	assert_equal "$(filter_of "$OUT" "Regions decided by this build")" "1"
+}
+
+@test "HLR-211: with no image the region is undecided exactly as before" {
+	# HLR-141 forbids *requiring* debug information, and this is the shape
+	# that takes here: the same file, the same condition, no image, and the
+	# answer Phase 15 gave.
+	report "$DEBUGLINE"
+	assert_success
+
 	assert_equal "$(summary_of "$OUT" "Undecided regions")" "1"
+	assert_equal "$(eloc_of "$OUT" guarded)" "7"
+}
+
+@test "HLR-208: a file whose one undecidable region the image decides expands" {
+	# The interaction, confirmed deliberately rather than left to happen.
+	# HLR-208 refuses to expand a file holding a region `elc` could not
+	# decide, because the preprocessor would silently resolve it. A region
+	# the image decides is not one `elc` could not decide, so the gate
+	# opens — and covered.c, refused before, is expanded.
+	build_debugline
+	report "$DEBUGLINE"
+	local without
+	without="$(summary_of "$OUT" "Files expanded")"
+
+	report "$DEBUGLINE" --elf "$IMAGE"
+	assert_success
+	assert_equal "$without" "1"
+	assert_equal "$(summary_of "$OUT" "Files expanded")" "2"
 }
 
 @test "HLR-153: an image without debug information prunes nothing" {
@@ -261,17 +366,21 @@ eloc_of() {
 	# That is not a defect to be corrected: nothing in the image records
 	# the difference, and the lines really did contribute nothing to what
 	# shipped. It is why HLR-155's count exists, and why no exact figure is
-	# asserted here — one would pin the fixture to a single compiler's
+	# asserted for -O2 — one would pin the fixture to a single compiler's
 	# optimiser rather than to a requirement.
+	#
+	# The `-D` is what keeps this test about the *line* granularity. Without
+	# it the region is settled whole from the image (HLR-211) and there is
+	# nothing left for the optimiser to be observed folding.
 	build_debugline -O0
-	report "$DEBUGLINE" --elf "$IMAGE"
+	report "$DEBUGLINE" --elf "$IMAGE" -D ELC_FIXTURE_FEATURE
 	assert_success
 	local at_o0
 	at_o0="$(filter_of "$OUT" "Lines not compiled by this build")"
-	assert_equal "$at_o0" "5"
+	assert_equal "$at_o0" "3"
 
 	build_debugline -O2
-	report "$DEBUGLINE" --elf "$IMAGE"
+	report "$DEBUGLINE" --elf "$IMAGE" -D ELC_FIXTURE_FEATURE
 	assert_success
 	local at_o2
 	at_o2="$(filter_of "$OUT" "Lines not compiled by this build")"
@@ -315,10 +424,31 @@ eloc_of() {
 }
 
 @test "HLR-155: the counts survive a record round trip" {
-	# Neither can be recomputed from a record: regeneration has no image,
-	# and no debug information to read from one.
+	# None of the three can be recomputed from a record: regeneration has
+	# no image, and no debug information to read from one. The pruned-line
+	# count is asserted through a `-D` for the reason the -O2 pair is —
+	# without one the region goes whole and there is no line count to carry
+	# — and the region count is asserted through the run that has one.
 	build_debugline
 	local record="$BATS_TEST_TMPDIR/dl.xml"
+
+	run bash -c '"$0" --elf "$1" -f xml -D ELC_FIXTURE_FEATURE "$2" > "$3" 2>/dev/null' \
+		"$ELC" "$IMAGE" "$DEBUGLINE" "$record"
+	assert_success
+
+	run bash -c '"$0" --verbose --from-xml "$1" 2>/dev/null' "$ELC" "$record"
+	assert_success
+	assert_output --partial "Lines not compiled by this build"
+	assert_output --regexp "Lines not compiled by this build *\| *3"
+	assert_output --regexp "Files with no debug coverage *\| *1"
+}
+
+@test "HLR-211: the region count survives a record round trip" {
+	# It cannot be recomputed either: a regenerated report has no image to
+	# read the evidence off, so a count the record did not carry would come
+	# back as zero and say the source settled a region the build did.
+	build_debugline
+	local record="$BATS_TEST_TMPDIR/dl2.xml"
 
 	run bash -c '"$0" --elf "$1" -f xml "$2" > "$3" 2>/dev/null' \
 		"$ELC" "$IMAGE" "$DEBUGLINE" "$record"
@@ -326,9 +456,145 @@ eloc_of() {
 
 	run bash -c '"$0" --verbose --from-xml "$1" 2>/dev/null' "$ELC" "$record"
 	assert_success
-	assert_output --partial "Lines not compiled by this build"
-	assert_output --regexp "Lines not compiled by this build *\| *5"
-	assert_output --regexp "Files with no debug coverage *\| *1"
+	assert_output --regexp "Regions decided by this build *\| *1"
+}
+
+# ------------------------------------------------- the image as evidence --
+#
+# Expected values are worked out by hand in elf/evidence/README.md.
+
+@test "HLR-211: a region with an alternative is decided against its alternative" {
+	# The strongest form the evidence takes, and self-contained: exactly
+	# one of the two branches produced instructions. `branched` holds one
+	# region the build did not compile and one it did, and both are settled
+	# — the first losing its body, the second losing its alternative.
+	build_evidence
+	report "$EVIDENCE" --elf "$IMAGE"
+	assert_success
+
+	assert_equal "$(eloc_of "$OUT" branched)" "5"
+	assert_equal "$(filter_of "$OUT" "Regions decided by this build")" "2"
+}
+
+@test "HLR-211: with no image the same regions are undecidable" {
+	# What stops the test above passing against an implementation that
+	# guessed. Nothing in the source settles either condition, so with no
+	# image both branches of both regions stay and the count says so.
+	report "$EVIDENCE"
+	assert_success
+
+	assert_equal "$(eloc_of "$OUT" branched)" "8"
+	assert_equal "$(summary_of "$OUT" "Undecided regions")" "3"
+}
+
+@test "HLR-154: a region in a file the line information never described stands" {
+	# The dangerous case, at the region granularity. dark.c is compiled
+	# without -g into the same image and contributes no line entries at
+	# all, so a rule keyed on absence alone would find its region
+	# uncompiled and delete it. Coverage governs, and it is established per
+	# file: the region stays, counted undecided, exactly as it is with no
+	# image.
+	build_evidence
+	report "$EVIDENCE" --elf "$IMAGE"
+	assert_success
+
+	assert_equal "$(eloc_of "$OUT" dark)" "4"
+	assert_equal "$(summary_of "$OUT" "Undecided regions")" "1"
+	assert_equal "$(filter_of "$OUT" "Files with no debug coverage")" "1"
+}
+
+@test "HLR-212: a function a macro defines is reported with its location" {
+	# Tree-sitter finds no function at that line — it is looking at the
+	# macro — and repair cannot help, because repair does not know the
+	# macro defines one. The debug information does, and says where.
+	build_evidence
+	report "$EVIDENCE" --elf "$IMAGE" --no-expand
+	assert_success
+
+	assert_equal "$(placed_of "$OUT")" "from_macro "
+	# The line the macro stands on, which is the one thing that says where
+	# in the source it is.
+	run grep -F "from_macro" "$OUT"
+	assert_output --regexp "macro\.c +26$"
+}
+
+@test "HLR-212: a recovered function carries no figure elc did not measure" {
+	# The whole of the requirement. `elc` has a name and a line and no body
+	# at all, so the row has three columns and the function is in neither
+	# the Functions table nor the project's function count: a fan-out of
+	# zero for a body nobody read is not a fan-out of zero, and an ELOC of
+	# zero for it is not an ELOC (HLR-133, HLR-138).
+	build_evidence
+	report "$EVIDENCE" --elf "$IMAGE" --no-expand
+	assert_success
+
+	assert_equal "$(functions_of "$OUT")" "branched dark main reached "
+	assert_equal "$(summary_of "$OUT" Functions)" "4"
+	run grep -c "from_macro" "$OUT"
+	assert_output "1"
+}
+
+@test "HLR-212: a call to a recovered function is unresolved, not an edge" {
+	# `main` calls four functions and three of them became edges. The
+	# fourth has no node, so the graph cannot carry the edge, and the
+	# unresolved-call count is where that is said — the same figure that
+	# states how complete the graph is for a call into libc (HLR-077).
+	# Inventing a node to hang the edge on is what would produce the
+	# fan-out of zero the requirement refuses.
+	#
+	# Two calls are unresolved, not one: the macro invocation itself is an
+	# expression to the grammar, and a call to `ELC_FIXTURE_HANDLER` is
+	# exactly what the grammar sees there. That is the same misreading the
+	# whole requirement exists to work around, counted where every other
+	# call the graph cannot represent is counted.
+	build_evidence
+	report "$EVIDENCE" --elf "$IMAGE" --no-expand
+	assert_success
+
+	assert_equal "$(fanout_of "$OUT" main)" "3"
+	assert_equal "$(summary_of "$OUT" "Unresolved calls")" "2"
+}
+
+@test "HLR-212: where the preprocessor reaches it there is nothing to recover" {
+	# The other half, and the reason the tests above name --no-expand. A
+	# cross-compiled tree is the state that option describes: where the
+	# expansion succeeds, the definition is put in place at its own line and
+	# parsed like any other function, and the table has no rows.
+	build_evidence
+	report "$EVIDENCE" --elf "$IMAGE"
+	assert_success
+
+	assert_equal "$(summary_of "$OUT" Functions)" "5"
+	assert_equal "$(placed_of "$OUT")" ""
+}
+
+@test "HLR-212: with no image no function is placed" {
+	# The section belongs to a filtered run, which is the one place the
+	# uniform-composition rule gives way, and it gives way by requirement:
+	# a run without the option reports exactly what it reported before the
+	# option existed (HLR-140).
+	report "$EVIDENCE" --no-expand
+	assert_success
+
+	run grep -c "Functions the image places" "$OUT"
+	assert_output "0"
+}
+
+@test "HLR-212: the placed rows survive a record round trip" {
+	# A regenerated report has no image to read them off, so a row the
+	# record did not carry would vanish and the two reports would disagree
+	# about what the build contains (HLR-056).
+	build_evidence
+	local record="$BATS_TEST_TMPDIR/ev.xml"
+
+	run bash -c '"$0" --elf "$1" --no-expand -f xml "$2" > "$3" 2>/dev/null' \
+		"$ELC" "$IMAGE" "$EVIDENCE" "$record"
+	assert_success
+
+	run bash -c '"$0" --verbose --from-xml "$1" 2>/dev/null' "$ELC" "$record"
+	assert_success
+	assert_output --partial "Functions the image places that the parse did not reach (1"
+	assert_output --partial "from_macro"
 }
 
 # ---------------------------------------------------- with no image at all --

@@ -1203,6 +1203,15 @@ typedef struct {
 	uint32_t region_end;
 	uint32_t alt_start;      /* 0 when the region has no alternative */
 	uint32_t alt_end;
+	/* The same three spans in lines, 1-based.
+	 *
+	 * Bytes are what the exclusion works in and lines are what the image
+	 * answers in, so both are carried rather than converted at the point of
+	 * use — a conversion needing the buffer would put the buffer into every
+	 * signature between here and the evidence (HLR-211). */
+	uint32_t start_line;
+	uint32_t end_line;
+	uint32_t alt_line;       /* the `#else` line; 0 with no alternative */
 	TSNode   symbol;
 	bool     has_alt;
 	bool     decided;        /* the query settled it, with no -D      */
@@ -1317,10 +1326,13 @@ static bool read_cond_region(const TSQuery *query, const TSQueryMatch *match,
 		if (capture_is(query, index, CAPTURE_COND_REGION)) {
 			region->region_start = ts_node_start_byte(node);
 			region->region_end   = ts_node_end_byte(node);
+			region->start_line   = ts_node_start_point(node).row + 1;
+			region->end_line     = ts_node_end_point(node).row + 1;
 			seen                 = true;
 		} else if (capture_is(query, index, CAPTURE_COND_ALT)) {
 			region->alt_start = ts_node_start_byte(node);
 			region->alt_end   = ts_node_end_byte(node);
+			region->alt_line  = ts_node_start_point(node).row + 1;
 			region->has_alt   = true;
 		} else if (capture_is(query, index, CAPTURE_COND_TRUE)) {
 			region->decided = true;
@@ -1365,13 +1377,123 @@ static int gather_cond_regions(const TSQuery *query, Registry *reg,
 	return 0;
 }
 
+/* What the image's line information says about one conditional region.
+ *
+ * The third answer to a definedness test, after the query's own constants and
+ * the user's -D set, and the only one that describes the build rather than the
+ * source: a region the compiler emitted no instruction for is a region that
+ * build did not compile (HLR-211).
+ *
+ * **Coverage governs, exactly as it governs the line pruning** (HLR-154). A
+ * file the line information never described contributes no entries at all, so
+ * a rule keyed on absence alone would find every region of it inactive and
+ * delete the file. The coverage test comes first here for the same reason it
+ * comes first there, and a run with no image reaches neither.
+ *
+ * **Absence is evidence between two presences, and nowhere else.** HLR-154
+ * already states the limit this works within: an optimiser folds one line into
+ * a neighbour, so one absent line proves nothing. What is asked instead is
+ * whether an *entire* region is absent while the code around it is present —
+ * a region with an alternative is judged against that alternative, which is
+ * the strongest form of the question, and one without is judged against the
+ * lines before and after it in the same file. Neither is proof, which is why
+ * the disposition is counted separately from the ones a -D settled.
+ */
+typedef enum {
+	EVIDENCE_NONE = 0,   /* no answer; the region stays undecidable   */
+	EVIDENCE_ACTIVE,     /* this build compiled it                    */
+	EVIDENCE_INACTIVE    /* this build compiled none of it            */
+} RegionEvidence;
+
+/* The two branches disagreeing, which is the whole of the evidence where a
+ * region has an alternative — and it is self-contained: exactly one of them was
+ * compiled, and the image says which.
+ *
+ * Both, or neither, is a condition this rule cannot read — a function the build
+ * never emitted reads as "neither" — and the answer is no answer rather than
+ * one of two resolved by the order they were tested in.
+ */
+static RegionEvidence evidence_from_alternative(const LineCoverage *lines,
+                                                const char *path,
+                                                const CondRegion *region,
+                                                bool body)
+{
+	bool alt = dwarfline_compiled_between(lines, path, region->alt_line,
+	                                      region->end_line);
+
+	if (body != alt)
+		return body ? EVIDENCE_ACTIVE : EVIDENCE_INACTIVE;
+
+	return EVIDENCE_NONE;
+}
+
+/* Whether compiled code stands on both sides of the region, in the same file.
+ *
+ * What makes an absent region's absence mean something where it has no
+ * alternative to be judged against: the line information was being written
+ * across this stretch of the file, so the gap is a gap rather than the edge of
+ * what the build described.
+ */
+static bool compiled_either_side(const LineCoverage *lines, const char *path,
+                                 const CondRegion *region)
+{
+	return region->start_line > 1 &&
+	       dwarfline_compiled_between(lines, path, 1,
+	                                  region->start_line - 1) &&
+	       dwarfline_compiled_between(lines, path, region->end_line + 1,
+	                                  UINT32_MAX);
+}
+
+static RegionEvidence region_evidence(const SymbolSet *image, const char *path,
+                                      const CondRegion *region)
+{
+	const LineCoverage *lines;
+	uint32_t            body_end;
+	bool                body;
+
+	if (!image || !dwarfline_covers(&image->lines, path))
+		return EVIDENCE_NONE;
+
+	lines = &image->lines;
+
+	/* The region proper stops where its alternative begins: `#else` is the
+	 * other branch, and evidence about it is evidence about the other
+	 * decision rather than this one. The directive lines are inside both
+	 * spans and produce no instruction either way, so including them costs
+	 * nothing and keeps the arithmetic off by nobody. */
+	body_end = region->has_alt ? region->alt_line : region->end_line;
+	if (region->start_line == 0 || region->start_line > body_end)
+		return EVIDENCE_NONE;
+
+	body = dwarfline_compiled_between(lines, path, region->start_line,
+	                                  body_end);
+
+	if (region->has_alt)
+		return evidence_from_alternative(lines, path, region, body);
+
+	/* With no alternative there is nothing to compare against but the rest
+	 * of the file. Compiled is compiled — and deciding so excludes nothing,
+	 * since a region with no alternative that holds loses none of itself. */
+	if (body)
+		return EVIDENCE_ACTIVE;
+
+	return compiled_either_side(lines, path, region) ? EVIDENCE_INACTIVE
+	                                                 : EVIDENCE_NONE;
+}
+
 /* Exclude what one region's condition settles, or count it undecided.
+ *
+ * Three dispositions and not two, and they are counted apart because they are
+ * different claims: the source or a -D settled it, the image's line
+ * information is evidence about the build that settled it, or nothing settled
+ * it and both branches stay (HLR-133, HLR-211).
  *
  * Returns 0, or -1 when a span cannot be recorded.
  */
-static int apply_cond_region(const ElcOptions *opts, const char *data,
+static int apply_cond_region(const ElcOptions *opts, const SymbolSet *image,
+                             const char *path, const char *data,
                              const CondRegion *region, SpanList *spans,
-                             uint32_t *undecided)
+                             uint32_t *undecided, uint32_t *from_image)
 {
 	bool decided = region->decided;
 	bool holds   = region->holds;
@@ -1383,6 +1505,20 @@ static int apply_cond_region(const ElcOptions *opts, const char *data,
 		 * being defined excludes it. */
 		decided = true;
 		holds   = !region->negated;
+	}
+
+	if (!decided) {
+		/* Nothing in the source or the -D set settled it, so the image
+		 * is asked. Asked last, and only here: a -D is what the user
+		 * said this configuration is, and evidence about one build must
+		 * not overrule it (HLR-132). */
+		RegionEvidence evidence = region_evidence(image, path, region);
+
+		if (evidence != EVIDENCE_NONE) {
+			decided = true;
+			holds   = evidence == EVIDENCE_ACTIVE;
+			(*from_image)++;
+		}
 	}
 
 	if (!decided) {
@@ -1420,15 +1556,18 @@ static int apply_cond_region(const ElcOptions *opts, const char *data,
  * and a module omitting this file is not a broken one (HLR-134, HLR-121).
  */
 static int collect_inactive_regions(const LanguageModule *module, Registry *reg,
-                                    const ElcOptions *opts, const char *data,
+                                    const ElcOptions *opts,
+                                    const SymbolSet *image, const char *path,
+                                    const char *data,
                                     TSNode root, SpanList *spans,
-                                    uint32_t *undecided)
+                                    uint32_t *undecided, uint32_t *from_image)
 {
 	TSQuery *query = module->queries[QUERY_CONDITIONALS];
 	CondList regions = { 0 };
 	int      status  = -1;
 
-	*undecided = 0;
+	*undecided  = 0;
+	*from_image = 0;
 	if (!query)
 		return 0;
 
@@ -1456,7 +1595,8 @@ static int collect_inactive_regions(const LanguageModule *module, Registry *reg,
 		if (span_excluded(spans, region->region_start))
 			continue;
 
-		if (apply_cond_region(opts, data, region, spans, undecided) != 0)
+		if (apply_cond_region(opts, image, path, data, region, spans,
+		                      undecided, from_image) != 0)
 			goto done;
 	}
 
@@ -2335,14 +2475,30 @@ cleanup:
 static int build_exclusions(const LanguageModule *module, Registry *reg,
                             const ElcOptions *opts, const SymbolSet *image,
                             const char *data, size_t len, TSNode root,
-                            const char *path, FileMetrics *metrics,
-                            SpanList *comments)
+                            const char *path, bool expanded,
+                            FileMetrics *metrics, SpanList *comments)
 {
 	SpanList kept = { 0 };
 
-	if (collect_comments(module, reg, data, root, comments) != 0 ||
-	    collect_inactive_regions(module, reg, opts, data, root, comments,
-	                             &metrics->undecided_regions) != 0) {
+	if (collect_comments(module, reg, data, root, comments) != 0) {
+		diag_printf("elc: out of memory analysing %s\n", path);
+		return -1;
+	}
+
+	/* **Skipped on an expanded buffer, where it would answer zero and
+	 * overwrite the answer.**
+	 *
+	 * The conditional figures are the source-as-written's, settled before
+	 * anything was expanded and recorded then, because the preprocessor
+	 * removes the very directives they are read from. Running the query
+	 * here would find no region in an expanded file, count none of the
+	 * three dispositions, and replace a measurement with a zero — which
+	 * matters now that one of the three can be non-zero on a file that
+	 * went on to expand (HLR-208, HLR-211). */
+	if (!expanded &&
+	    collect_inactive_regions(module, reg, opts, image, path, data, root,
+	                             comments, &metrics->undecided_regions,
+	                             &metrics->image_decided_regions) != 0) {
 		diag_printf("elc: out of memory analysing %s\n", path);
 		return -1;
 	}
@@ -2501,22 +2657,32 @@ static int preproc_expand_configured(const char *path, const char *language,
  * (HLR-133, HLR-208).
  */
 static uint32_t undecided_in(const LanguageModule *module, Registry *reg,
-                             const ElcOptions *opts, const char *data,
-                             size_t len, TSParser *parser)
+                             const ElcOptions *opts, const SymbolSet *image,
+                             const char *path, const char *data,
+                             size_t len, TSParser *parser,
+                             FileMetrics *metrics)
 {
 	TSTree   *raw = ts_parser_parse_string(parser, NULL, data,
 	                                       (uint32_t)len);
 	SpanList  comments = { 0 };
 	uint32_t  undecided = 0;
+	uint32_t  from_image = 0;
 
 	if (!raw)
 		return 0;
 
 	if (collect_comments(module, reg, data, ts_tree_root_node(raw),
 	                     &comments) == 0)
-		collect_inactive_regions(module, reg, opts, data,
+		collect_inactive_regions(module, reg, opts, image, path, data,
 		                         ts_tree_root_node(raw), &comments,
-		                         &undecided);
+		                         &undecided, &from_image);
+
+	/* Recorded here and not only returned, because this pass is the only
+	 * one that will see these directives if the file goes on to expand.
+	 * `build_exclusions` skips its own conditional pass on an expanded
+	 * buffer for exactly that reason. */
+	metrics->undecided_regions     = undecided;
+	metrics->image_decided_regions = from_image;
 
 	free(comments.items);
 	ts_tree_delete(raw);
@@ -2533,7 +2699,7 @@ static uint32_t undecided_in(const LanguageModule *module, Registry *reg,
 static int measure_tree(const LanguageModule *module, Registry *reg,
                         const ElcOptions *opts, const SymbolSet *image,
                         const char *map, size_t len, TSTree *tree,
-                        const char *path, FileMetrics *metrics,
+                        const char *path, bool expanded, FileMetrics *metrics,
                         FileFacts *facts, SpanList *comments,
                         FnRangeIndex *ranges, SiteList *sites)
 {
@@ -2542,7 +2708,7 @@ static int measure_tree(const LanguageModule *module, Registry *reg,
 	measure_damage(root, path, map, len, metrics);
 
 	if (build_exclusions(module, reg, opts, image, map, len, root, path,
-	                     metrics, comments) != 0)
+	                     expanded, metrics, comments) != 0)
 		return -1;
 
 	if (collect_all(module, reg, map, root, path, comments, ranges,
@@ -2671,18 +2837,31 @@ static TSTree *parse_for_metrics(TSParser *parser, const char *path,
  * expanding it would let the preprocessor resolve what elc had just declared
  * unresolvable, and the effective-line count would silently become that of one
  * branch (HLR-208).
+ *
+ * **The image is passed in here, and that is the interaction, not an
+ * accident.** The gate asks whether anything was left undecided, so a region
+ * the image decided is not left — and a file whose only undecidable region was
+ * one the build answers now expands, where it was refused before (HLR-211).
+ * What HLR-208 guards against is the preprocessor *guessing* where elc had
+ * declared no answer available; here an answer is available, read off the
+ * build the image records, and the preprocessor is run against the flags and
+ * definitions describing that same build (HLR-132). A user who names an image
+ * from one build and flags from another has already asked for two answers to
+ * one question, which is a condition no analysis can rescue.
  */
 static void expand_for_metrics(const LanguageModule *module, Registry *reg,
-                               const ElcOptions *opts, const char *path,
+                               const ElcOptions *opts, const SymbolSet *image,
+                               const char *path,
                                const char *raw, size_t raw_len,
-                               PreprocResult *out, const char **map,
-                               size_t *len)
+                               FileMetrics *metrics, PreprocResult *out,
+                               const char **map, size_t *len)
 {
 	if (preproc_expand_configured(path, module->language_name, opts,
 	                              out) != 0 || !out->text)
 		return;
 
-	if (undecided_in(module, reg, opts, raw, raw_len, reg->parser) != 0) {
+	if (undecided_in(module, reg, opts, image, path, raw, raw_len,
+	                 reg->parser, metrics) != 0) {
 		/* Declined, and the buffer goes with the decision.
 		 *
 		 * A non-NULL `text` is what every caller reads as "this file
@@ -2799,8 +2978,8 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	ts_parser_set_language(reg->parser, module->ts_lang);
 
 	if (!opts->no_expand)
-		expand_for_metrics(module, reg, opts, path, map, len,
-		                   &expanded, &map, &len);
+		expand_for_metrics(module, reg, opts, image, path, map, len,
+		                   metrics, &expanded, &map, &len);
 
 	metrics->preproc_status = (int)expanded.status;
 	if (record_stdlib(metrics, &expanded) != 0)
@@ -2827,7 +3006,8 @@ int analyze_file(Registry *reg, const ElcOptions *opts, const SymbolSet *image,
 	}
 
 	if (measure_tree(module, reg, opts, image, map, len, tree, path,
-	                 metrics, facts, &comments, &ranges, &sites) != 0)
+	                 expanded.text != NULL, metrics, facts, &comments,
+	                 &ranges, &sites) != 0)
 		goto cleanup;
 
 	status = metrics->unparsed_lines ? ANALYZE_DAMAGED : ANALYZE_OK;

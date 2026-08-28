@@ -63,21 +63,47 @@ sign it is wrong.
 
 ## The project figures
 
-| Figure | No image | With image | Counted how |
-| ------ | -------- | ---------- | ----------- |
-| ELOC | **15** | **12** | 3 + 7 + 1 + 4, less the three guarded statements |
-| Functions | **4** | **4** | the link kept every one |
-| Undecided regions | **1** | **1** | the `#ifdef` neither build nor `elc` decided |
-| Lines not compiled by this build | — | **5** | HLR-155 |
-| Files with no debug coverage | — | **1** | `opaque.c`; HLR-155 |
+| Figure | No image | With image | With image and `-D` | Counted how |
+| ------ | -------- | ---------- | ------------------- | ----------- |
+| ELOC | **15** | **12** | **12** | 3 + 7 + 1 + 4, less the three guarded statements |
+| Functions | **4** | **4** | **4** | the link kept every one |
+| Undecided regions | **1** | **0** | **0** | see below |
+| Regions decided by this build | — | **1** | **0** | HLR-211 |
+| Lines not compiled by this build | — | **0** | **3** | HLR-155 |
+| Files with no debug coverage | — | **1** | **1** | `opaque.c`; HLR-155 |
 
-**Five lines pruned, three statements lost.** The other two are the `#ifdef`
-and `#endif` lines themselves, which produce no instruction either and are
-excluded with the rest. Neither was ELOC to begin with, so the ELOC delta is 3
-while the pruned-line count is 5. The count states what the mechanism removed
-from the measured text — the reach of the filter — and is read the way the
-unresolved-call count and the undecided-region count are read, not as an ELOC
-difference.
+The `-D` column is `-D ELC_FIXTURE_FEATURE`, and it is what keeps this fixture
+about the *line* granularity. Read the three columns across one row at a time:
+the ELOC is the same in all three, and what differs is **which mechanism
+removed the guarded statements**.
+
+*   **No image.** Nothing removes them. The condition is undecidable from the
+    source, both branches stay, and the region is counted undecided (HLR-133).
+*   **With the image.** The region goes *whole*, at the coarser grain: the build
+    compiled no instruction for any line of it while the lines either side were
+    compiled, so it is inactive for this build and every line of it is excluded
+    at once (HLR-211). Nothing is left for the line granularity to remove, which
+    is why that count is 0 — a line already excluded is not pruned again, and
+    counting it twice would inflate a figure a reader acts on (LLR-ANL-58).
+*   **With the image and the `-D`.** The definition settles the region first: a
+    `-D` is what the user says this configuration is, and evidence about one
+    build does not overrule it. So the region is *active*, its three statements
+    are counted — and the image, built without that definition, compiled none of
+    them. The line granularity removes exactly those three.
+
+**Three lines pruned in that last column, not five.** The `#ifdef` and `#endif`
+lines produce no instruction either, and on an unexpanded parse they would be
+pruned with the rest; but the file *expands* under the same `-D` (HLR-202) and
+the preprocessor has already taken the directives out. The count states what the
+mechanism removed from the measured text — the reach of the filter — and is read
+the way the unresolved-call count and the undecided-region count are read, not
+as an ELOC difference.
+
+**And the file expands where it did not before.** Without the image, HLR-208
+refuses to expand `covered.c`: it holds a region `elc` could not decide, and the
+preprocessor would silently resolve it. With the image the region *is* decided,
+so the gate opens and one more file is expanded. That interaction is asserted
+rather than left to be noticed.
 
 ## Two optimisation levels, and what the second one shows
 
@@ -100,6 +126,10 @@ the reader needs is to know it happened, which is what the pruned-line count of
 HLR-155 is for — and why a large one beside an optimised build is information
 rather than alarm.
 
+Both `-O2` cases are run under the `-D`, for the reason the table above gives:
+without one the region is settled whole from the image and there is nothing left
+for the optimiser to be observed folding.
+
 **The suite therefore asserts at `-O2` only what holds whatever the optimiser
 did:**
 
@@ -117,4 +147,7 @@ rather than to a requirement.
 ## What is not here
 
 No unresolved linkage names and no absent functions — those are the rest of the
-[`elf/`](../README.md) group, at the granularity the symbol table answers.
+[`elf/`](../README.md) group, at the granularity the symbol table answers. And
+no region settled from its own `#else`, and no function the grammar could not
+see: those are [`evidence/`](../evidence/README.md), which asks the image the
+two questions the source cannot answer at all.
