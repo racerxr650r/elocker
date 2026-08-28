@@ -9,8 +9,8 @@
  * **The columns are the Functions table's columns, in its order.** CSV is that
  * table for a consumer that loads it rather than reads it, and the two had
  * drifted: the table gained a visibility, a navigable location and the flow
- * degrees, and this still wrote a language and a line range nothing else
- * reported. One view of one set of rows, spelled two ways, is two views nobody
+ * degrees, and this still wrote a start and end line nothing else reported.
+ * One view of one set of rows, spelled two ways, is two views nobody
  * reconciles (HLR-014).
  *
  * That reverses what HLR-014 said of the complete-record formats — that they
@@ -18,6 +18,11 @@
  * was not given. The reasoning holds for XML, which must rebuild a report from
  * its record and needs both numbers as numbers (HLR-056). It did not hold
  * here, where the record is the table.
+ *
+ * The `language` field is the same rule read the other way. It was dropped when
+ * the two were first matched, because the table did not carry one; the table
+ * carries one now, so this does too. They move together or the drift starts
+ * again.
  *
  * Every field goes through `write_field`. Not most fields: every one. A C++
  * template signature such as `foo<int, long>` contains a comma, and one
@@ -90,7 +95,7 @@ static const char *csv_visibility(Visibility v)
 int format_csv(const Report *report, FILE *out)
 {
 	static const char *const header[] = {
-		"file", "function", "visibility", "lines", "eloc",
+		"file", "language", "function", "visibility", "lines", "eloc",
 		"complexity", "fan_in", "fan_out", "mi"
 	};
 	const size_t columns = sizeof header / sizeof *header;
@@ -108,8 +113,8 @@ int format_csv(const Report *report, FILE *out)
 			char lines[16], eloc[16], complexity[16];
 			char fan_in[16], fan_out[16], mi[16];
 			const char *fields[] = {
-				where, fn->name,
-				csv_visibility(fn->visibility),
+				where, f->language ? f->language : "",
+				fn->name, csv_visibility(fn->visibility),
 				lines, eloc, complexity, fan_in, fan_out, mi
 			};
 

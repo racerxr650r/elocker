@@ -551,8 +551,8 @@ The columns are the ones the
 table of a human\-readable report carries, in its order:
 .IP
 .EX
-file,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
-/src/a.c:12,measure,public,9,4,2,3,1,84
+file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
+/src/a.c:12,c,measure,public,9,4,2,3,1,84
 .EE
 .IP
 .B file
@@ -568,19 +568,19 @@ a language whose module supplies no visibility rule has not been asked, and
 that is a different claim from having answered.
 .IP
 The record is that table for a consumer that loads it rather than reads it, so
-the two carry the same columns. Before elc 0.30 this format wrote
+the two carry the same columns and gain a column together. Before elc 0.30 this
+format wrote
 .BR file,language,function,start_line,end_line,eloc,complexity .
 A consumer reading the old shape takes the start line from the
 .B file
-field, reads
+field and reads
 .B lines
 where it computed
-.BR "end_line \- start_line" ,
-and finds the file's language in the
-.B Files
-table of a report or in the
+.BR "end_line \- start_line" ;
+every other field it read is still there, under the same name and in the same
+relative order. The
 .B xml
-record, which is unchanged and still carries a separate start and end line.
+record is unchanged and still carries a separate start and end line.
 .TP
 .B xml
 The complete record of a run, carrying every element any report may present
@@ -1136,8 +1136,19 @@ measured it.
 proposes no fix, ranks no design beyond what a cited standard states, and
 applies no style opinion of its own.
 .SS The function table
-Each function is reported with its location, its name, its visibility, and the
-number of lines it occupies.
+Each function is reported with its location, the language of the file that
+defines it, its name, its visibility, and the number of lines it occupies.
+.PP
+The
+.B Language
+is the file's rather than the function's and repeats down every row belonging
+to one file, and it is here anyway: this is the table a reader of a polyglot
+project asks the question in, and answering it by sending them to the
+.B Files
+table costs them more than the repetition costs the page. It stands
+immediately after the location, which is where the
+.B Files
+table has put it since that table existed.
 .PP
 The location is
 .IR path:line ,
@@ -2448,7 +2459,7 @@ unchanged by what the list contains.
 .B elc \-f md src/ > report.md
 Produce a Markdown report.
 .TP
-.B elc \-f csv src/ | cut \-d, \-f2,6
+.B elc \-f csv src/ | cut \-d, \-f3,7
 Take the function names and their complexities into another tool.
 .TP
 .B elc \-f xml \-o run.xml src/ && elc \-\-from\-xml run.xml \-c 8

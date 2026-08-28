@@ -1,6 +1,6 @@
 # High-Level Requirements
 
-**Version:** 3.12
+**Version:** 3.13
 **Date:** 2026-08-28
 **Author(s):** John Anderson
 
@@ -103,18 +103,22 @@ Requirements governing how `elc` computes Effective Lines of Code and cyclomatic
     *Trace:* [SDD Section 7](SDD.md).
 
 *   <a id="HLR-014"></a>**HLR-014: Per-Function Identity.**
-    For each function discovered in a source file, `elc` shall report the function's name, where it begins, and how far it extends.
+    For each function discovered in a source file, `elc` shall report the function's name, where it begins, how far it extends, and **the language of the file that defines it** (HLR-007).
+
+    The language is a property of the file and repeats down every row belonging to one, and it is reported here anyway. The function table is where a reader of a polyglot project asks what language a function is written in — it is the table they are already looking at — and answering it by sending them to the Files table costs them more than the repetition costs the page. It is reported immediately after the location, which is where the Files table has put it since that table existed.
 
     **In a human-readable report (HLR-027, HLR-029) the extent shall be a line count** — the number of lines the function occupies — and the start shall be carried by the navigable location of HLR-210. A count is the figure a reader compares between two functions; a range is a fact about the file that they must subtract before they can use it, and once the start line is in the location column the range would state it twice.
 
     **The XML record shall continue to report start and end line numbers as separate fields**, because it must remain the thing a report can be rebuilt from and a regenerated report needs both numbers as numbers (HLR-056).
 
-    **The CSV record shall carry the same columns as the human-readable function table, in its order and with its meanings** — the location as `path:line`, the extent as a count, and the visibility and flow degrees the table reports. CSV is that table for a consumer that loads it rather than reads it, and one view of one set of rows must be spelled one way. The `language` column, which no other view of a function reports, goes with the change: the file's language is a property of the file and is reported where the files are.
+    **The CSV record shall carry the same columns as the human-readable function table, in its order and with its meanings** — the language, the location as `path:line`, the extent as a count, and the visibility and flow degrees the table reports. CSV is that table for a consumer that loads it rather than reads it, and one view of one set of rows must be spelled one way. The two move together or they do not move: a column added to one and not the other is how they drifted apart in the first place.
+
+    **The XML record needs no language field of its own.** Its function elements are nested inside the file element that states it, so the fact is already there, recorded once for the file rather than once per function — and a second copy would be a second place for one fact to be written down and a second place for it to disagree.
 
     *This reverses what this requirement said between Phase 29 and Phase 30* — that every complete-record format keeps a separate start and end line "because a consumer cannot subtract a column it was not given". That reasoning survived contact with XML, which rebuilds a report, and did not survive contact with CSV, where the record *is* the table: the two drifted apart column by column, and a consumer loading the CSV got a different set of figures from the one reading the report.
 
     For the purposes of this and every other requirement in this document, "function" means any named callable unit the source language defines — including a method, a constructor, a destructor, and a nested subprogram — as identified by that language's runtime query configuration.
-    *Trace:* [SDD Section 7](SDD.md), [SDD Section 15](SDD.md).
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 14](SDD.md), [SDD Section 15](SDD.md).
 
 *   <a id="HLR-015"></a>**HLR-015: Per-Function Effective Lines of Code.**
     For each function discovered in a source file, `elc` shall compute and report the function's Effective Lines of Code (ELOC): the count of executable statements within the function's line span — a statement that assigns or operates on data, directs control flow, invokes a function, returns from the function, or performs exception handling — as distinct from a line that serves only a structural, declarative, blank, or documentary purpose. HLR-044 through HLR-052 enumerate the specific categories counted toward, and excluded from, ELOC; HLR-053 governs how a statement spanning multiple physical lines is counted.

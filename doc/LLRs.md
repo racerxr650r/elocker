@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.15
+**Version:** 2.16
 **Date:** 2026-08-28
 **Author(s):** John Anderson
 
@@ -1303,13 +1303,13 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-CSV-02"></a>**LLR-CSV-02** — `format_csv` shall emit per-function metrics only, excluding the architectural findings.
     *Trace:* HLR-028 (CSV Output), HLR-031 (Uniform Report Composition Across Formats).
 
-*   <a id="LLR-CSV-03"></a>**LLR-CSV-03** — `format_csv` shall write the columns `file`, `function`, `visibility`, `lines`, `eloc`, `complexity`, `fan_in`, `fan_out`, `mi`, in that order; `file` shall carry `path:line`, `lines` shall be `end - start + 1`, and an unknown visibility shall be the empty field.
+*   <a id="LLR-CSV-03"></a>**LLR-CSV-03** — `format_csv` shall write the columns `file`, `language`, `function`, `visibility`, `lines`, `eloc`, `complexity`, `fan_in`, `fan_out`, `mi`, in that order; `file` shall carry `path:line`, `lines` shall be `end - start + 1`, and an unknown visibility shall be the empty field.
 
     **These are the Functions table's columns, and that is the requirement rather than a choice.** CSV is that table for a consumer that loads it rather than reads it, and the two had drifted column by column — the table gained a visibility, a navigable location and the flow degrees, and this still wrote a `language` and a start and end line nothing else reported (HLR-014).
 
     The empty field is the unknown visibility because that is what a loader reads as "no value"; the em dash the report prints is a typographic answer to a human and would be a value here. It is never written as `public`, which is a claim, where the absence is the absence of one (HLR-209).
 
-    The `language` column goes with the change. It is a property of the file, not of the function, and it is reported where the files are.
+    The `language` field is the same rule read the other way. It was dropped when the two were first matched, because the table carried no such column; the table carries one now, so this does too (HLR-014).
     *Trace:* HLR-014 (Per-Function Identity), HLR-028, HLR-210.
 
 ## 40. `write_field` ([src/format_csv.c](../src/format_csv.c))
@@ -2102,7 +2102,7 @@ What the language says about a function's reach, and the one rule that lets four
     *Not analysed* and *public* are different claims, and the second is the one that misleads: a reader scanning for a module's interface would take every function of an unanalysed language for part of it. This is the asymmetry HLR-138 draws for a language with no dead-code query, applied to a third kind of absence.
     *Trace:* HLR-209 (Function Visibility Reported), HLR-138.
 
-*   <a id="LLR-VIS-04"></a>**LLR-VIS-04** — `functions_section` shall render the location as `path:line` in the File column, the visibility immediately after the name, and the extent as `end - start + 1`.
+*   <a id="LLR-VIS-04"></a>**LLR-VIS-04** — `functions_section` shall render the location as `path:line` in the File column, the file's language immediately after it, the visibility immediately after the name, and the extent as `end - start + 1`.
 
     The column order is the requirement rather than a presentation choice: the visibility answers a question about the function just named, so it belongs beside the name and not at the end of eight numeric columns (HLR-209).
 

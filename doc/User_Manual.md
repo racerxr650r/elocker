@@ -274,11 +274,11 @@ At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and 
   /home/u/proj/src/a.c  parse              7       1        2  62
 
 Functions
-  File                  Function    Lines  ELOC  Complexity  Fan-in  Fan-out   MI
-  --------------------  ----------  -----  ----  ----------  ------  -------  ---
-  /home/u/proj/src/a.c  parse        5-19     9           7       1        2   77
-  /home/u/proj/src/a.c  emit        21-24     3           1       1        0   90
-  /home/u/proj/src/b.c  main         3-11     6           2       0        1   83
+  File                     Language  Function  Visibility  Lines  ELOC  Complexity  Fan-in  Fan-out   MI
+  -----------------------  --------  --------  ----------  -----  ----  ----------  ------  -------  ---
+  /home/u/proj/src/a.c:5   c         parse     public         15     9           7       1        2   77
+  /home/u/proj/src/a.c:21  c         emit      public          4     3           1       1        0   90
+  /home/u/proj/src/b.c:3   c         main      public          9     6           2       0        1   83
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
@@ -529,9 +529,9 @@ They carry the same columns, in the same order:
 
 ```console
 $ elc -f csv src/ | head -3
-file,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
-/home/you/src/measure.c:12,measure,public,9,4,2,3,1,84
-/home/you/src/measure.c:24,scale,private,6,3,1,1,0,91
+file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
+/home/you/src/measure.c:12,c,measure,public,9,4,2,3,1,84
+/home/you/src/measure.c:24,c,scale,private,6,3,1,1,0,91
 ```
 
 `file` is `path:line` — the function's first line, in the navigable form the
@@ -542,10 +542,10 @@ asked, and that is a different claim from having answered.
 
 **If you are reading a CSV written by elc 0.29 or earlier**, the shape was
 `file,language,function,start_line,end_line,eloc,complexity`. To move: take the
-start line from the `file` field, read `lines` where you computed
-`end_line - start_line`, and take the file's language from the `Files` table of
-a report — or from the `xml` record, which is unchanged and still carries a
-separate start and end line.
+start line from the `file` field, and read `lines` where you computed
+`end_line - start_line`. Every other field you read is still there, under the
+same name and in the same relative order. The `xml` record is unchanged and
+still carries a separate start and end line.
 
 ### The Markdown report folds its tables away
 
@@ -560,9 +560,9 @@ behind it:
 <details>
 <summary>639 rows (click to expand)</summary>
 
-| File                 | Function | Lines | ELOC | Complexity | Fan-in | Fan-out | MI |
-| -------------------- | -------- | ----: | ---: | ---------: | -----: | ------: | -: |
-| /home/u/proj/src/a.c | parse    | 21-70 |   31 |          9 |      3 |       7 | 62 |
+| File                    | Language | Function | Visibility | Lines | ELOC | Complexity | Fan-in | Fan-out | MI |
+| ----------------------- | -------- | -------- | ---------- | ----: | ---: | ---------: | -----: | ------: | -: |
+| /home/u/proj/src/a.c:21 | c        | parse    | public     |    50 |   31 |          9 |      3 |       7 | 62 |
 
 </details>
 ```
@@ -860,11 +860,11 @@ the function's two degrees:
 
 ```text
 Functions
-  File                  Function  Lines   ELOC  Complexity  Fan-in  Fan-out   MI
-  --------------------  --------  ------  ----  ----------  ------  -------  ---
-  /home/u/proj/src/a.c  main       5-19     12           3       0        4   84
-  /home/u/proj/src/a.c  parse     21-70     31           9       3        7   62
-  /home/u/proj/src/a.c  chomp     72-78      4           1       6        0   93
+  File                     Language  Function  Visibility  Lines  ELOC  Complexity  Fan-in  Fan-out   MI
+  -----------------------  --------  --------  ----------  -----  ----  ----------  ------  -------  ---
+  /home/u/proj/src/a.c:5   c         main      public         15    12           3       0        4   84
+  /home/u/proj/src/a.c:21  c         parse     public         50    31           9       3        7   62
+  /home/u/proj/src/a.c:72  c         chomp     public          7     4           1       6        0   93
 ```
 
 **Fan-out** is the number of *distinct subroutines a function invokes*.
@@ -3314,10 +3314,10 @@ asked.
 
 ```text
 Functions
-  File                     Function          Visibility  Lines  ELOC  Complexity  Fan-in  Fan-out   MI
-  -----------------------  ----------------  ----------  -----  ----  ----------  ------  -------  ---
-  /home/u/proj/src/a.c:21  parse             public         50    31           9       3        7   62
-  /home/u/proj/src/a.c:88  parse_one_header  private        14     9           3       1        2   81
+  File                     Language  Function          Visibility  Lines  ELOC  Complexity  Fan-in  Fan-out   MI
+  -----------------------  --------  ----------------  ----------  -----  ----  ----------  ------  -------  ---
+  /home/u/proj/src/a.c:21  c         parse             public         50    31           9       3        7   62
+  /home/u/proj/src/a.c:88  c         parse_one_header  private        14     9           3       1        2   81
 ```
 
 **The File column is a location you can act on.** `path:line` is the form
@@ -3325,6 +3325,13 @@ editors and terminals already understand — ctrl-click it in VS Code's terminal
 and you land on that line of that file. The path is absolute, deliberately: a
 relative one would resolve against whatever directory your terminal happens to
 be in, which is the one thing a navigable reference must not depend on.
+
+**Language is the file's, not the function's**, and it repeats down every row
+belonging to one file. It is here anyway, because this is the table you are
+already looking at when you ask what language a function is written in, and
+sending you to the Files table to answer it costs you more than the repetition
+costs the page. It sits immediately after the location, which is where the
+Files table has put it all along.
 
 **Visibility says whether the language exposes the function** outside the file
 or module that defines it. It is the first thing anyone asks of an unfamiliar
@@ -3354,9 +3361,12 @@ first line is in the location beside it, so the range is the two read
 together — and a count is the figure you compare between two functions, where
 a range is something you have to subtract first.
 
-The complete-record formats do not follow this. CSV and XML carry separate
-`start-line` and `end-line` fields, because a consumer that has to split a
-string to recover a number has been handed a worse record.
+**XML does not follow this**, and CSV no longer differs. The `xml` record
+carries separate `start-line` and `end-line` fields, because it must be enough
+to rebuild a report from and a rebuild needs both numbers as numbers. The `csv`
+record is this table for a consumer that loads it rather than reads it, so it
+carries these columns and not others — see
+[The CSV record is the Functions table](#the-csv-record-is-the-functions-table-loaded-rather-than-read).
 
 ## When the parser cannot follow your code
 
