@@ -1785,6 +1785,12 @@ a flag saying it again is exactly the disagreement `elc` refuses when
 output, where there is no filename to read an extension from, `-f html` names it
 like any other format.
 
+**A file opens where it sits.** Click a file and it stays exactly where it
+was on screen; everything around it moves outward to make room. A file that
+was left of it is still left of it afterwards, so you never have to hunt for
+the box you just opened, and closing it puts the drawing back. Edges between
+other files pass behind an opened box rather than across its face.
+
 **It opens at the file level, inside the architecture.** What you see first is
 one box per file, sitting inside the layer you declared it in with
 `--stratum`. Click a file and it opens to the functions in it; click it again

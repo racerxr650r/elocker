@@ -559,16 +559,19 @@ Test(report_html, the_page_loads_the_viewer_and_opens_collapsed)
 	cr_assert_not_null(strstr(page, "algorithm: 'layered'"));
 	cr_assert_not_null(strstr(page,
 	        "'elk.hierarchyHandling': 'INCLUDE_CHILDREN'"));
-	/* Handed to the extension rather than called around it: `expand` is
-	 * asynchronous when it animates, and a layout invoked on the next
-	 * line runs while the children are still arriving — which stacked
-	 * every function of an opened file at one point (LLR-HTM-04). */
-	cr_assert_not_null(strstr(page, "layoutBy: LAYOUT"));
-	cr_assert_null(strstr(page, "}).run();"),
-	               "the page lays itself out around the extension");
+	/* The extension adds and removes children and does nothing else: a
+	 * layout of its own re-ranks the drawing and its fisheye repositions
+	 * the box, and either moves the file the reader just clicked
+	 * (LLR-HTM-04, HLR-216). */
+	cr_assert_not_null(strstr(page, "layoutBy: null"));
+	cr_assert_not_null(strstr(page, "fisheye: false"));
+	cr_assert_not_null(strstr(page, "animate: false"));
+	/* The placement is the page's own, and it keeps the box where it is
+	 * while the drawing moves aside. */
+	cr_assert_not_null(strstr(page, "const inPlace = function (node, act)"));
+	cr_assert_not_null(strstr(page, "const reflow = function"));
+	cr_assert_not_null(strstr(page, "node.children().layout(CHILD_LAYOUT)"));
 	cr_assert_not_null(strstr(page, "expandCollapse({"));
-	cr_assert_not_null(strstr(page, "fisheye: true"));
-	cr_assert_not_null(strstr(page, "animate: true"));
 	/* The files, and only the files (HLR-216). */
 	cr_assert_not_null(strstr(page,
 	        "api.collapse(cy.nodes('[tier = \"file\"]'));"));
@@ -725,6 +728,10 @@ Test(report_html, the_page_carries_a_key_for_every_mark)
 	cr_assert_not_null(strstr(page, "'node[?deepest]'"));
 	cr_assert_not_null(strstr(page, "'node[?recursive]'"));
 	cr_assert_not_null(strstr(page, "'edge[?chain]'"));
+	/* Edges pass behind a box, opened or not: a node that becomes a
+	 * container is drawn at a lower compound depth than an edge between
+	 * two nodes outside it (LLR-HTM-06). */
+	cr_assert_not_null(strstr(page, "'z-compound-depth': 'bottom'"));
 
 	/* And the legend names them for the reader. */
 	cr_assert_not_null(strstr(page, "id=\"legend\""));

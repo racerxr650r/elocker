@@ -240,11 +240,15 @@ print(\"ok\")
 		"https://unpkg.com/cytoscape-expand-collapse/cytoscape-expand-collapse.js"
 	assert_output --partial "algorithm: 'layered'"
 	assert_output --partial "'elk.hierarchyHandling': 'INCLUDE_CHILDREN'"
-	# The layout is the extension's to run: it knows when an animated
-	# expansion has finished and this script does not (LLR-HTM-04).
-	assert_output --partial "layoutBy: LAYOUT"
-	refute_output --partial "}).run();"
-	assert_output --partial "fisheye: true"
+	# The extension adds and removes children and does nothing else. A
+	# layout of its own re-ranks the drawing and its fisheye repositions
+	# the box; either moves the file the reader just clicked, which is
+	# the failure HLR-216 names (LLR-HTM-04).
+	assert_output --partial "layoutBy: null"
+	assert_output --partial "fisheye: false"
+	assert_output --partial "const inPlace = function (node, act)"
+	# And an edge passes behind a box rather than across its face.
+	assert_output --partial "'z-compound-depth': 'bottom'"
 	# The files, and only the files: a layer is context to be read, not a
 	# box to be opened (HLR-216).
 	assert_output --partial "api.collapse(cy.nodes('[tier = \"file\"]'));"

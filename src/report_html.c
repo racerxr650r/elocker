@@ -511,54 +511,91 @@ done:
 
 /* The complete elements array: the three node tiers in that order, then the
  * edges (HLR-213, HLR-214). Returns a new reference, or NULL. */
+/* Everything the payload is assembled from that the graph does not itself
+ * hold: the findings placed on its nodes and its components, the components
+ * the drawing keeps, and the layer each of those lies in.
+ *
+ * Gathered as one thing because each is derived from the same pair — the
+ * graph and the report — and threading six of them separately through the
+ * assembly is what put it below the maintainability band `elc` holds its own
+ * source to (LLR-BLD-23). The band is computed over the information flowing
+ * through a function's interface (HLR-191), so this is the shape of that
+ * measurement rather than a cosmetic tidy.
+ */
+typedef struct {
+	Annotation *nodes;    /* one per graph node; owned      */
+	Annotation *comps;    /* one per component; owned       */
+	char       *notes;    /* what belongs to no node; owned */
+	uint32_t   *chain;    /* the deepest chain; owned       */
+	bool       *drawn;    /* the components drawn; owned    */
+	size_t     *stratum;  /* the layer of each; owned       */
+} Derived;
+
+static void derived_free(const Sdg *g, Derived *d)
+{
+	annotations_free(d->nodes, g->node_count);
+	annotations_free(d->comps, g->component_count);
+	free(d->notes);
+	free(d->chain);
+	free(d->drawn);
+	free(d->stratum);
+}
+
+/* Returns 0 with every member published, or -1 with whatever was built left
+ * for `derived_free` to release. */
+static int derived_build(const Sdg *g, const Report *r, const ElcOptions *opts,
+                         Derived *d)
+{
+	/* The findings, placed by the module the `.dot` writer places them
+	 * with. Deciding here which finding describes which node would be the
+	 * second opinion `annotate.c` exists to prevent (HLR-098). */
+	if (annotations_build(g, r, &d->nodes, &d->comps, &d->notes,
+	                      &d->chain) != 0)
+		return -1;
+
+	d->drawn = components_drawn(g);
+	if (!d->drawn)
+		return -1;
+
+	/* Only where a layering was declared. `stratum_of_components`
+	 * allocates for a project with no components too, and asking it for a
+	 * map nothing will read is an allocation that can fail for no
+	 * reason. */
+	if (opts->strata.count == 0)
+		return 0;
+
+	d->stratum = stratum_of_components(g, opts);
+	return d->stratum ? 0 : -1;
+}
+
+/* The three node tiers in that order, then the edges (HLR-213, HLR-214). */
+static int append_tiers(json_t *elements, const Sdg *g, const Report *r,
+                        const ElcOptions *opts, const Derived *d)
+{
+	if (append_layers(elements, opts) != 0 ||
+	    append_files(elements, g, d->stratum, d->comps, d->drawn) != 0 ||
+	    append_functions(elements, g, d->nodes) != 0 ||
+	    append_edges(elements, g, d->chain, r->deepest_count) != 0)
+		return -1;
+	return 0;
+}
+
 static json_t *html_elements(const Sdg *g, const Report *r,
                              const ElcOptions *opts)
 {
-	json_t     *elements = json_array();
-	size_t     *stratum  = NULL;
-	Annotation *nodes    = NULL;
-	Annotation *comps    = NULL;
-	char       *notes    = NULL;
-	uint32_t   *chain    = NULL;
-	bool       *drawn    = NULL;
-	int         built    = -1;
+	json_t  *elements = json_array();
+	Derived  d        = { 0 };
 
 	if (!elements)
 		return NULL;
 
-	/* The findings, placed by the module the `.dot` writer places them
-	 * with. Deciding here which finding describes which node would be the
-	 * second opinion `annotate.c` exists to prevent (HLR-098). */
-	built = annotations_build(g, r, &nodes, &comps, &notes, &chain);
-
-	drawn = components_drawn(g);
-	if (!drawn)
-		built = -1;
-
-	/* Only where a layering was declared. `stratum_of_components`
-	 * allocates for a project with no components too, and asking it for a
-	 * map nothing will read is an allocation that can fail for no reason. */
-	if (opts->strata.count > 0 && built == 0) {
-		stratum = stratum_of_components(g, opts);
-		if (!stratum)
-			built = -1;
-	}
-
-	if (built != 0 ||
-	    append_layers(elements, opts) != 0 ||
-	    append_files(elements, g, stratum, comps, drawn) != 0 ||
-	    append_functions(elements, g, nodes) != 0 ||
-	    append_edges(elements, g, chain, r->deepest_count) != 0) {
+	if (derived_build(g, r, opts, &d) != 0 ||
+	    append_tiers(elements, g, r, opts, &d) != 0) {
 		json_decref(elements);
 		elements = NULL;
 	}
 
-	annotations_free(nodes, g->node_count);
-	annotations_free(comps, g->component_count);
-	free(notes);
-	free(chain);
-	free(drawn);
-	free(stratum);
+	derived_free(g, &d);
 	return elements;
 }
 
@@ -746,6 +783,12 @@ static void write_glue(FILE *out)
 "        'border-color': '#37474f' } },\n"
 "\n"
 "    { selector: 'edge', style: {\n"
+"        /* Beneath every box, opened or not. A node that becomes a\n"
+"           container is drawn at a lower compound depth than an edge\n"
+"           between two nodes outside it, so without this an opened file\n"
+"           has the rest of the drawing's edges laid across its face\n"
+"           instead of passing behind it (LLR-HTM-06). */\n"
+"        'z-compound-depth': 'bottom',\n"
 "        'width': 1, 'line-color': '#90a4ae',\n"
 "        'target-arrow-color': '#90a4ae',\n"
 "        'target-arrow-shape': 'triangle', 'arrow-scale': 0.8,\n"
@@ -774,19 +817,31 @@ static void write_glue(FILE *out)
 "                        'elk.layered.spacing.nodeNodeBetweenLayers': '40' }\n"
 "               };\n"
 "\n"
-"/* The layout is handed to the extension rather than called around it, and\n"
-"   that is the whole of what keeps an opened file readable. `expand` is\n"
-"   asynchronous whenever it animates, so a layout invoked on the next line\n"
-"   runs while the children are still arriving and leaves every function of\n"
-"   the file stacked at one point. `layoutBy` is the extension's own hook:\n"
-"   it runs after the expansion, and after a collapse, which is the moment\n"
-"   this script cannot name for itself (LLR-HTM-04). */\n"
+"/* The extension is asked to add and remove the children and to do nothing\n"
+"   else: no layout of its own, no fisheye, no animation.\n"
+"\n"
+"   Each of those was tried and each moves the box the reader just clicked.\n"
+"   `layoutBy` re-ranks the whole drawing, so an opened file changes place\n"
+"   in its layer; the fisheye repositions it directly. Either way the reader\n"
+"   has to find their file again, which is the failure HLR-216 names. With\n"
+"   them off the expansion is synchronous, and the placement below is this\n"
+"   page's own (LLR-HTM-04). */\n"
 "const api = cy.expandCollapse({\n"
-"  layoutBy: LAYOUT,\n"
-"  fisheye: true,\n"
-"  animate: true,\n"
+"  layoutBy: null,\n"
+"  fisheye: false,\n"
+"  animate: false,\n"
 "  undoable: false\n"
 "});\n"
+"\n"
+"/* The functions of one opened file. A grid rather than a ranked layout,\n"
+"   and the reason is size: over `elc`'s own sources a ranked arrangement\n"
+"   of one 76-function file is some 6400px wide against a grid's 1500, and\n"
+"   a box that wide shoulders the rest of the drawing off the screen. The\n"
+"   calls between those functions are still drawn; what is given up is\n"
+"   reading their direction from the arrangement, inside one file. */\n"
+"const CHILD_LAYOUT = { name: 'grid', animate: false, padding: 12,\n"
+"                       avoidOverlap: true, condense: true,\n"
+"                       nodeDimensionsIncludeLabels: true };\n"
 "\n"
 "/* Only files open and close (HLR-216). A layer is a container the reader\n"
 "   reads rather than one they navigate: collapsing it would hide the tier\n"
@@ -794,8 +849,11 @@ static void write_glue(FILE *out)
 "   functions actually happens. */\n"
 "api.collapse(cy.nodes('[tier = \"file\"]'));\n"
 "\n"
-"/* That collapse is also the drawing's first layout, by way of `layoutBy`\n"
-"   above — so nothing here lays the graph out a second time. */\n"
+"/* The one layout of the drawing, over the collapsed view it opens with.\n"
+"   Nothing lays the whole graph out again: an opened file is placed by\n"
+"   `openInPlace` below, which moves the drawing around it rather than\n"
+"   rebuilding it (HLR-216). */\n"
+"cy.layout(LAYOUT).run();\n"
 "\n"
 "/* Layouts settle asynchronously, so a fit() called at a moment of this\n"
 "   script's choosing frames whatever drawing is mid-flight. Fit when a\n"
@@ -807,6 +865,41 @@ static void write_glue(FILE *out)
 "\n"
 , out);
 	fputs(
+"/* Open or close a file without moving it, and move the drawing to suit.\n"
+"\n"
+"   The box the reader clicked keeps its centre, and every other file is\n"
+"   displaced by half the room this one gained, on the side it already lay.\n"
+"   That is what makes the guarantee: a file left of the opened one stays\n"
+"   left of it, so the order the reader was reading is the order they are\n"
+"   still reading (HLR-216). A layer needs no displacing of its own — it is\n"
+"   sized by the files within it and grows as they move apart.\n"
+"\n"
+"   Each file moves as one piece: shifting a container carries its\n"
+"   functions with it, so an opened file elsewhere in the drawing keeps its\n"
+"   own arrangement rather than being pulled apart around this one. */\n"
+"const reflow = function (opened, dw, dh, centre) {\n"
+"  cy.nodes('[tier = \"file\"]').not(opened).forEach(function (f) {\n"
+"    const p = f.position();\n"
+"    f.shift({ x: p.x < centre.x ? -dw : dw,\n"
+"              y: p.y < centre.y ? -dh : dh });\n"
+"  });\n"
+"};\n"
+"\n"
+"const inPlace = function (node, act) {\n"
+"  const centre = { x: node.position('x'), y: node.position('y') };\n"
+"  const before = node.boundingBox();\n"
+"\n"
+"  act();\n"
+"\n"
+"  /* Put the box back where it was: the extension is free to move it and\n"
+"     the children's layout resizes it, and neither is the reader's doing. */\n"
+"  node.shift({ x: centre.x - node.position('x'),\n"
+"               y: centre.y - node.position('y') });\n"
+"\n"
+"  const after = node.boundingBox();\n"
+"  reflow(node, (after.w - before.w) / 2, (after.h - before.h) / 2, centre);\n"
+"};\n"
+"\n"
 "/* The descent, bound explicitly rather than left to the extension's cue\n"
 "   icons. HLR-216 requires that the reader can descend and return, and a\n"
 "   requirement met only by whatever gesture a CDN's current version happens\n"
@@ -820,9 +913,12 @@ static void write_glue(FILE *out)
 "cy.on('tap', 'node[tier = \"file\"]', function (event) {\n"
 "  const node = event.target;\n"
 "  if (node.hasClass('cy-expand-collapse-collapsed-node')) {\n"
-"    api.expand(node);\n"
+"    inPlace(node, function () {\n"
+"      api.expand(node);\n"
+"      node.children().layout(CHILD_LAYOUT).run();\n"
+"    });\n"
 "  } else {\n"
-"    api.collapse(node);\n"
+"    inPlace(node, function () { api.collapse(node); });\n"
 "  }\n"
 "});\n"
 "</script>\n", out);
