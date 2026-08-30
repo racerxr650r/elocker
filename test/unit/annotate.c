@@ -377,6 +377,15 @@ Test(annotate, a_global_finding_lands_once_per_function_not_once_per_access)
 	/* `top` both writes and reads one object, which is the shape that
 	 * produced the repeat: `sysUpdateWaitTicks` over avrOS. */
 	n = node_index(&s.graph, "/p/a.c", 1);
+
+	/* Released before being replaced: `graph_build` owns whatever it put
+	 * here, and overwriting the pointers would leak it — which the plain
+	 * unit run does not notice and LeakSanitizer does. */
+	for (size_t i = 0; i < s.graph.global_name_count; i++)
+		free(s.graph.global_names[i]);
+	free(s.graph.global_names);
+	free(s.graph.touches);
+
 	s.graph.global_names = calloc(1, sizeof *s.graph.global_names);
 	cr_assert_not_null(s.graph.global_names);
 	s.graph.global_names[0] = strdup("gvar");
