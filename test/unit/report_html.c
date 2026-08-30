@@ -564,6 +564,9 @@ Test(report_html, the_page_loads_the_viewer_and_opens_collapsed)
 	 * the box, and either moves the file the reader just clicked
 	 * (LLR-HTM-04, HLR-216). */
 	cr_assert_not_null(strstr(page, "layoutBy: null"));
+	/* A layout fits the viewport unless told not to, so opening a file
+	 * re-zoomed the drawing around it (LLR-HTM-04). */
+	cr_assert_not_null(strstr(page, "fit: false"));
 	cr_assert_not_null(strstr(page, "fisheye: false"));
 	cr_assert_not_null(strstr(page, "animate: false"));
 	/* The placement is the page's own, and it keeps the box where it is
@@ -732,6 +735,17 @@ Test(report_html, the_page_carries_a_key_for_every_mark)
 	 * container is drawn at a lower compound depth than an edge between
 	 * two nodes outside it (LLR-HTM-06). */
 	cr_assert_not_null(strstr(page, "'z-compound-depth': 'bottom'"));
+	/* And an opened box is opaque, so what passes behind it is hidden by
+	 * it — while the file's own calls are raised back above its fill
+	 * (LLR-HTM-06). */
+	cr_assert_not_null(strstr(page, "'edge.inside'"));
+	/* Every edge *touching* an opened file rises, not only those with both
+	 * ends inside it: the call path into and out of a file is what a
+	 * reader opened it to follow (LLR-HTM-06). */
+	cr_assert_not_null(strstr(page, "const markInside = function"));
+	cr_assert_not_null(strstr(page, ".children().connectedEdges().addClass('inside')"));
+	cr_assert_null(strstr(page, "edgesWith(node.children())"),
+	               "only the edges wholly inside an opened file are raised");
 
 	/* And the legend names them for the reader. */
 	cr_assert_not_null(strstr(page, "id=\"legend\""));
@@ -805,6 +819,69 @@ Test(report_html, the_shed_prefix_ignores_a_component_not_drawn)
 	 * two apart. */
 	cr_assert_not_null(strstr(payload,
 	        "\"label\":\"b.h\",\"path\":\"/p/inc/b.h\""));
+
+	free(page);
+	scene_free(&s);
+}
+
+/* The one control on the page closes every file, which is the view the page
+ * opened at — so it restores the layout and the framing with it. There is no
+ * "expand all": that is the density at function level HLR-216 exists to keep
+ * the view out of (LLR-HTM-07). */
+Test(report_html, the_page_carries_a_collapse_all_control)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	page = page_of(&s.report, &s.graph, &opts);
+
+	cr_assert_not_null(strstr(page, "id=\"collapse-all\""));
+	cr_assert_not_null(strstr(page, "Collapse all</button>"));
+	cr_assert_not_null(strstr(page,
+	        "document.getElementById('collapse-all')"));
+	/* It closes the files, clears what an opened file marked, and puts
+	 * the drawing back where it started. */
+	cr_assert_not_null(strstr(page,
+	        "api.collapse(cy.nodes('[tier = \"file\"]'));"));
+	cr_assert_not_null(strstr(page, "cy.edges('.inside').removeClass"));
+	/* It restores the opening viewport rather than fitting afresh, which
+	 * is what makes it a reset; and the bar it sits in is above the
+	 * viewer's canvases, or the click never reaches it (LLR-HTM-07). */
+	cr_assert_not_null(strstr(page, "cy.zoom(opening.zoom)"));
+	cr_assert_not_null(strstr(page, "cy.pan(opening.pan)"));
+	cr_assert_not_null(strstr(page, "z-index: 1000"));
+	cr_assert_null(strstr(page, "expandAll"),
+	               "the page offers an expand-all HLR-216 forbids");
+
+	free(page);
+	scene_free(&s);
+}
+
+/* No two file boxes may overlap, whatever moved them.
+ *
+ * The displacement of an opened file creates no overlap by itself, which is
+ * why this is stated separately: the viewer lets the reader drag a box, and
+ * one dropped on another would stay there. The box the reader acted on is
+ * held fixed and the drawing moves around it (LLR-HTM-08). */
+Test(report_html, no_two_file_boxes_may_overlap)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	page = page_of(&s.report, &s.graph, &opts);
+
+	cr_assert_not_null(strstr(page, "const separate = function (pinned)"));
+	/* Parted along the shorter penetration, which moves them least and
+	 * leaves each on the side it was already on. */
+	cr_assert_not_null(strstr(page, "if (px <= 0 || py <= 0) { continue; }"));
+	/* Run after an open or close, and after a dragged box is dropped. */
+	cr_assert_not_null(strstr(page, "separate(node);"));
+	cr_assert_not_null(strstr(page,
+	        "cy.on('dragfree', 'node[tier = \"file\"]'"));
 
 	free(page);
 	scene_free(&s);

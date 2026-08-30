@@ -1785,8 +1785,22 @@ a flag saying it again is exactly the disagreement `elc` refuses when
 output, where there is no filename to read an extension from, `-f html` names it
 like any other format.
 
+**Collapse all** in the top right closes every file and returns the drawing
+to exactly the picture the page opened with — the same arrangement at the same
+zoom, not a fresh fit that lands somewhere near it. There is deliberately no *expand
+all*: opening every file at once is the whole call graph at function level,
+which is the picture this format exists to save you from.
+
+**Boxes never overlap.** Whatever moves them — opening a file, or dragging one
+yourself — any boxes that end up on top of each other are pushed apart. A box
+you dropped stays where you put it and the others move out from under it.
+
 **A file opens where it sits.** Click a file and it stays exactly where it
-was on screen; everything around it moves outward to make room. A file that
+was on screen; everything around it moves outward to make room. An open
+file's box is solid, so lines between other files pass behind it rather than
+across it, while every call that touches its functions — its own, and the call
+paths in and out of it — is drawn on top. Opening a file never changes your
+zoom. A file that
 was left of it is still left of it afterwards, so you never have to hunt for
 the box you just opened, and closing it puts the drawing back. Edges between
 other files pass behind an opened box rather than across its face.

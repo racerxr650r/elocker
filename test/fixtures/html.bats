@@ -247,8 +247,18 @@ print(\"ok\")
 	assert_output --partial "layoutBy: null"
 	assert_output --partial "fisheye: false"
 	assert_output --partial "const inPlace = function (node, act)"
+	# No two file boxes may overlap, whatever moved them — the
+	# displacement, or the reader dragging one (LLR-HTM-08).
+	assert_output --partial "const separate = function (pinned)"
+	assert_output --partial "cy.on('dragfree', 'node[tier = \"file\"]'"
 	# And an edge passes behind a box rather than across its face.
 	assert_output --partial "'z-compound-depth': 'bottom'"
+	# An opened box is opaque so what passes behind it is hidden, and the
+	# file's own calls are raised back above its fill (LLR-HTM-06).
+	assert_output --partial "'edge.inside'"
+	assert_output --partial ".children().connectedEdges().addClass('inside')"
+	# A layout fits the viewport unless told not to (LLR-HTM-04).
+	assert_output --partial "fit: false"
 	# The files, and only the files: a layer is context to be read, not a
 	# box to be opened (HLR-216).
 	assert_output --partial "api.collapse(cy.nodes('[tier = \"file\"]'));"
@@ -389,4 +399,23 @@ print(sum(1 for e in json.load(sys.stdin)
 "' "$BATS_TEST_TMPDIR/r.html"
 	assert_success
 	assert_equal "$output" "$clusters"
+}
+
+@test "html: one control closes every file, and none opens them all" {
+	# The button returns the drawing to the view the page opened at.
+	# There is no expand-all: that is the density at function level the
+	# collapsed default exists to keep the view out of (HLR-216).
+	run_elc
+	assert_success
+	run cat "$HTML"
+	assert_success
+	assert_output --partial 'id="collapse-all"'
+	assert_output --partial "Collapse all</button>"
+	assert_output --partial "document.getElementById('collapse-all')"
+	assert_output --partial "cy.edges('.inside').removeClass"
+	assert_output --partial "cy.zoom(opening.zoom)"
+	# The bar is above the viewer's canvases, or the click never reaches
+	# the button and the press pans the drawing instead (LLR-HTM-07).
+	assert_output --partial "z-index: 1000"
+	refute_output --partial "expandAll"
 }
