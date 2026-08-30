@@ -145,7 +145,12 @@ for e in json.load(sys.stdin):
 	assert_success
 	# `-` is this helper's stand-in for an absent key, not an empty one:
 	# the element carries no `parent` member (LLR-CYT-02).
-	assert_line "file file_2 vendor/blob.c -"
+	# `file_3`, not `file_2`: the identifiers are the SDG's component
+	# indices, and `hal/port.h` holds index 2 while being drawn nowhere.
+	# The gap is the property that keeps every `parent` valid — a
+	# renumbering that closed it would repoint the function nodes
+	# (LLR-CYT-02, LLR-CYT-03).
+	assert_line "file file_3 vendor/blob.c -"
 }
 
 @test "html: the label sheds the shared prefix and path keeps it" {
@@ -178,7 +183,7 @@ print(\"ok\")
 	assert_line "function func_1 boot file_0"
 	assert_line "function func_2 hal_open file_1"
 	assert_line "function func_3 hal_close file_1"
-	assert_line "function func_4 vendor_init file_2"
+	assert_line "function func_4 vendor_init file_3"
 }
 
 @test "html: the node counts are the hand-worked ones" {

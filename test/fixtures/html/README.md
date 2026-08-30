@@ -60,12 +60,19 @@ file order and then the order the functions are defined in.
 | layer | `layer_1` | `hal` | — |
 | file | `file_0` | `app/main.c` | `layer_0` |
 | file | `file_1` | `hal/port.c` | `layer_1` |
-| file | `file_2` | `vendor/blob.c` | **absent** |
+| file | `file_3` | `vendor/blob.c` | **absent** |
 | function | `func_0` | `run` | `file_0` |
 | function | `func_1` | `boot` | `file_0` |
 | function | `func_2` | `hal_open` | `file_1` |
 | function | `func_3` | `hal_close` | `file_1` |
-| function | `func_4` | `vendor_init` | `file_2` |
+| function | `func_4` | `vendor_init` | `file_3` |
+
+**The file identifiers skip 2, and that is the point.** `hal/port.h` is
+component 2 by the report's sorted file order and is drawn nowhere, so no
+`file_2` appears and `vendor/blob.c` is `file_3`. The identifiers are the
+SDG's component indices rather than a numbering of the boxes drawn: closing
+the gap would renumber the components and repoint every function's `parent`,
+which is the one thing the drawing cannot get wrong (LLR-CYT-03).
 
 **Two layers, not three.** `vendor/` is matched by no stratum, so no layer node
 exists for it and its file node carries no `parent` key. That is

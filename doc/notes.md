@@ -255,6 +255,26 @@ documented where you would look for it; the last was found in Phase 31.
     appended this cheaply — and is luck rather than a property of the
     mechanism. The fix in §1.4 above is still the one worth making.
 
+*   **A fixture suite is only meaningful against *committed* state, and a
+    new fixture file is invisible until it is.** Discovery inside a
+    repository analyses the files tracked at `HEAD` (HLR-127), so a fixture
+    added to a tree and not yet committed is not discovered — the suite runs
+    green over the tree as it was, and CI then runs it over the tree as it
+    is. Phase 31 lost a CI round to this: adding `hal/port.h` to
+    `test/fixtures/html/tree` shifted every component index after it, so
+    `vendor/blob.c` became `file_3` and two assertions that named `file_2`
+    failed in CI alone.
+
+    **Commit a new fixture file before trusting the suite that reads it**, or
+    run that suite over a copy outside the repository, which is what the two
+    cases added in the same phase do — and which is worth preferring, since
+    it tests the drawing rule rather than the discovery route.
+
+    This is the second way this project's local environment and CI disagree
+    about what is being measured; the macro-expansion entry below is the
+    first. Neither is a defect and both are invisible from a green local run,
+    which is the only reason they are written down.
+
 *   **The self-analysis gate measures different numbers locally and in CI,
     and a green `make instrumented` is not proof it will pass.** On a
     developer box `gcc -E` cannot find the headers of the libraries built
