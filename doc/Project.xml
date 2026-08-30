@@ -18,8 +18,8 @@
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.23" date="2026-08-28" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="213"/>
-      <count name="llrs"       value="586"/>
-      <count name="tests"      value="1277"/>
+      <count name="llrs"       value="587"/>
+      <count name="tests"      value="1278"/>
       <count name="test_files" value="59"/>
     </counts>
   </metadata>
@@ -7851,6 +7851,20 @@ The line-granularity counts travel with the image element rather than with the p
         <text><![CDATA[`node_style` shall emit annotations as attributes a renderer may ignore while still producing a valid call tree.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-105" name="Annotated .dot Output"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-STY-03">
+        <text><![CDATA[Each node's `tooltip` shall carry its definition site, the ELOC and cyclomatic complexity the report states for it, and the findings upon it, one to a line.
+
+**The same three things the interactive report shows when a reader points at a box** (LLR-HTM-09). They are two drawings of one graph, and a reader who has asked one of them a question should not have to learn what the other will answer; the figures were absent here and present there, which is a difference in what the artefacts *know* rather than in how they draw it.
+
+**The line separator shall be a newline character and not DOT's `\n` escape.** Graphviz resolves that escape for SVG output and *not* for the xdot format, so a viewer reading xdot — which is what `xdot` reads — shows the two characters of the escape where the line break should be. A newline inside a quoted string is legal DOT and reaches both: SVG still writes the separators as character references, and the xdot stream now carries the breaks themselves.
+
+**The cost is stated because it is real.** A node's attribute list then spans several physical lines, so the file is no longer one line per node, and anything reading it line-wise — a `grep` for a node and its findings, the suite's own stripping of the decoration — must join the quoted strings first. That is accepted here and would not be accepted for the other export: this artefact is a drawing for someone to look at, and the machine-readable rendering of the same graph is GraphML, which carries no tooltip and is untouched (SDD §17).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-105" name="Annotated .dot Output"/>
+          <trace target="HLR" ref="HLR-217" name="The Drawing Carries the Findings It Was Drawn From"/>
         </traces>
       </llr>
     </function>
@@ -15806,7 +15820,7 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
     </test>
   </file>
 
-  <file path="test/fixtures/dot.bats" role="fixture" count="25">
+  <file path="test/fixtures/dot.bats" role="fixture" count="26">
     <test name="HLR-102: the emitted call tree renders under Graphviz">
       <purpose><![CDATA[Validity is settled by handing the file to Graphviz and requiring it to render, never by matching text that looks like DOT — the first artefact elc produces for another program to read deserves the reader's own verdict.]]></purpose>
       <traces>
@@ -15986,7 +16000,13 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
         <trace target="HLR" ref="HLR-119"/>
       </traces>
     </test>
-  </file>
+        <test name="dot: a node's tooltip carries its site, its figures and its findings">
+        <purpose><![CDATA[Verifies that a node's tooltip states the definition site, the ELOC and complexity, and the findings, and that a rendered SVG receives the separators as newline characters rather than as the two characters of the escape.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-STY-03"/>
+        </traces>
+      </test>
+</file>
 
   <file path="test/fixtures/debug.bats" role="fixture" count="12">
     <test name="HLR-194: the companion is named from the report and written beside it">

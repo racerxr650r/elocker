@@ -218,8 +218,10 @@ static void write_preamble(FILE *out, const char *notes)
 	      " *\n"
 	      " * Every one of those is a Graphviz attribute a renderer may\n"
 	      " * ignore; ignoring them all leaves the same tree, undecorated.\n"
-	      " * The tooltip of each node carries its definition site and the\n"
-	      " * findings in full.\n", out);
+	      " * The tooltip of each node carries its definition site, its\n"
+	      " * ELOC and complexity, and the findings in full, one to a\n"
+	      " * line. A renderer that shows tooltips shows them; `dot -Tsvg`\n"
+	      " * writes them into each node's xlink:title.\n", out);
 	if (notes)
 		fprintf(out, " *\n * Findings that belong to no single node:\n"
 		             " *\n *   %s\n", notes);
@@ -300,11 +302,35 @@ static void write_nodes(FILE *out, const Sdg *g, const Annotation *nodes,
 		dot_escape(n->name, out);
 		fputc('"', out);
 		node_style(out, &nodes[i]);
+		/* The definition site, the figures the report states for the
+		 * function, and the findings upon it — the same three things
+		 * the interactive report shows when a reader points at a box,
+		 * because they are two drawings of one graph and a reader who
+		 * has asked one of them a question should not have to learn
+		 * what the other will answer (HLR-217, LLR-HTM-09). */
 		fputs(", tooltip=\"", out);
 		dot_escape(n->file, out);
 		fprintf(out, ":%" PRIu32, n->line_start);
+		/* A real newline, not DOT's `\n` escape.
+		 *
+		 * Graphviz resolves the escape for SVG and *not* for the xdot
+		 * format, so a viewer reading xdot — which is what `xdot`
+		 * does — shows the reader the two characters of the escape
+		 * instead of a line break. A newline in the quoted string is
+		 * legal DOT and reaches both: SVG still writes `&#10;` and
+		 * xdot now carries the break.
+		 *
+		 * The cost is that a node's attribute list spans several
+		 * physical lines, so the file is no longer one line per node.
+		 * That is a real loss for anything reading it line-wise, and
+		 * it is accepted because this artefact is a drawing for
+		 * someone to look at — the machine-readable export of the
+		 * same graph is GraphML, which is unaffected (SDD §17,
+		 * LLR-STY-03). */
+		fprintf(out, "\nELOC %" PRIu32 ", complexity %" PRIu32,
+		        n->eloc, n->complexity);
 		if (nodes[i].note) {
-			fputs("\\n", out);
+			fputc('\n', out);
 			dot_escape(nodes[i].note, out);
 		}
 		fputs("\"];\n", out);

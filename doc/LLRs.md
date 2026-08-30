@@ -1483,6 +1483,15 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-STY-02"></a>**LLR-STY-02** — `node_style` shall emit annotations as attributes a renderer may ignore while still producing a valid call tree.
     *Trace:* HLR-105 (Annotated .dot Output).
 
+*   <a id="LLR-STY-03"></a>**LLR-STY-03** — Each node's `tooltip` shall carry its definition site, the ELOC and cyclomatic complexity the report states for it, and the findings upon it, one to a line.
+
+    **The same three things the interactive report shows when a reader points at a box** (LLR-HTM-09). They are two drawings of one graph, and a reader who has asked one of them a question should not have to learn what the other will answer; the figures were absent here and present there, which is a difference in what the artefacts *know* rather than in how they draw it.
+
+    **The line separator shall be a newline character and not DOT's `\n` escape.** Graphviz resolves that escape for SVG output and *not* for the xdot format, so a viewer reading xdot — which is what `xdot` reads — shows the two characters of the escape where the line break should be. A newline inside a quoted string is legal DOT and reaches both: SVG still writes the separators as character references, and the xdot stream now carries the breaks themselves.
+
+    **The cost is stated because it is real.** A node's attribute list then spans several physical lines, so the file is no longer one line per node, and anything reading it line-wise — a `grep` for a node and its findings, the suite's own stripping of the decoration — must join the quoted strings first. That is accepted here and would not be accepted for the other export: this artefact is a drawing for someone to look at, and the machine-readable rendering of the same graph is GraphML, which carries no tooltip and is untouched (SDD §17).
+    *Trace:* HLR-105 (Annotated .dot Output), HLR-217 (The Drawing Carries the Findings It Was Drawn From).
+
 ## 47. `graph_write_graphml` ([src/format_graph.c](../src/format_graph.c))
 
 *   <a id="LLR-GML-01"></a>**LLR-GML-01** — `graph_write_graphml` shall export the graph in the GraphML serialisation schema so that it may be ingested by other tools.

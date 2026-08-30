@@ -177,36 +177,26 @@ static bool listed_in_group(const char *group, const char *path)
  * and no global object and so belongs to the graph as a whole, or -1 on
  * failure.
  */
-static int place_finding(const Sdg *g, const FindingRow *row, const char *text,
-                         Annotation *nodes, Annotation *comps)
+/* A finding about a global object, on every function that touches it.
+ *
+ * Such a finding names neither a definition site nor a component, so it goes
+ * to the object's users — which is where a reader looking at the drawing
+ * would expect to find it, and the only place it can go on a graph whose
+ * nodes are functions (HLR-091, HLR-105).
+ *
+ * Split out of `place_finding` rather than nested inside it: the two are
+ * different searches over different collections, and together they carried
+ * the caller to the complexity threshold `elc` holds its own source to
+ * (LLR-BLD-23). Returns 1 if the finding landed anywhere, 0 if not, -1 on
+ * failure.
+ */
+static int place_on_users(const Sdg *g, const FindingRow *row,
+                          const char *text, Annotation *nodes)
 {
-	bool placed  = false;
-	bool touched = false;
+	uint32_t last    = UINT32_MAX;
+	bool     touched = false;
 
-	for (size_t i = 0; i < g->node_count; i++) {
-		if (!finding_is_node(row, &g->nodes[i]))
-			continue;
-		if (annotate(&nodes[i], row->severity, text) != 0)
-			return -1;
-		placed = true;
-	}
-
-	for (size_t c = 0; c < g->component_count && !placed; c++) {
-		if (strcmp(row->subject, g->component_paths[c]) != 0)
-			continue;
-		if (annotate(&comps[c], row->severity, text) != 0)
-			return -1;
-		placed = true;
-	}
-
-	/* A finding about a global object names neither a definition site nor a
-	 * component, so it is placed on the functions that touch the object —
-	 * which is where a reader looking at the drawing would expect to find
-	 * it, and the only place it can go on a graph whose nodes are functions
-	 * (HLR-091, HLR-105). */
-	uint32_t last = UINT32_MAX;
-
-	for (size_t t = 0; !placed && t < g->touch_count; t++) {
+	for (size_t t = 0; t < g->touch_count; t++) {
 		if (g->touches[t].node >= g->node_count ||
 		    strcmp(row->subject, g->touches[t].object) != 0)
 			continue;
@@ -229,7 +219,37 @@ static int place_finding(const Sdg *g, const FindingRow *row, const char *text,
 		touched = true;
 	}
 
-	return placed || touched;
+	return touched ? 1 : 0;
+}
+
+/* The definition site first, then the component, then the object's users —
+ * the three things a finding's subject can name, tried in that order because
+ * a definition site is the most specific of them. */
+static int place_finding(const Sdg *g, const FindingRow *row, const char *text,
+                         Annotation *nodes, Annotation *comps)
+{
+	bool placed = false;
+
+	for (size_t i = 0; i < g->node_count; i++) {
+		if (!finding_is_node(row, &g->nodes[i]))
+			continue;
+		if (annotate(&nodes[i], row->severity, text) != 0)
+			return -1;
+		placed = true;
+	}
+
+	for (size_t c = 0; c < g->component_count && !placed; c++) {
+		if (strcmp(row->subject, g->component_paths[c]) != 0)
+			continue;
+		if (annotate(&comps[c], row->severity, text) != 0)
+			return -1;
+		placed = true;
+	}
+
+	if (placed)
+		return 1;
+
+	return place_on_users(g, row, text, nodes);
 }
 
 /* Every finding in the catalogue, on whatever it describes. `notes` receives

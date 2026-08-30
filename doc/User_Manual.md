@@ -2012,7 +2012,14 @@ colours what Findings already decided — it does not apply a second, separate
 judgment of its own.
 
 Each node's tooltip carries its definition site and its findings in full, which
-an SVG renderer will show on hover. The head of the file carries the same key
+a viewer will show on hover — the definition site, the ELOC and complexity,
+and the findings, one to a line, which is the same thing the interactive
+report shows when you point at a box. The line breaks are newline characters
+rather than DOT's `\n` escape, because Graphviz resolves that escape for SVG
+and not for the xdot stream that `xdot` reads. One consequence worth knowing
+if you process the file yourself: a node's attributes therefore span several
+lines, so join the quoted strings before grepping for a node and its
+findings. The head of the file carries the same key
 in a comment, along with any finding that belongs to no single function — the
 depth of the call tree is the one that does.
 

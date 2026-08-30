@@ -138,7 +138,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1277 test(s)** across
+Snapshot: **1278 test(s)** across
 **59 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
@@ -1356,7 +1356,7 @@ Role: **fixture**. **29 test(s).**
 
 ### 3.43. [test/fixtures/dot.bats](../test/fixtures/dot.bats)
 
-Role: **fixture**. **25 test(s).**
+Role: **fixture**. **26 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1385,6 +1385,7 @@ Role: **fixture**. **25 test(s).**
 | 23 | <a id="HLR-100: a critical annotation does not become an exit status"></a>`HLR-100: a critical annotation does not become an exit status` | `LLR-MAIN-11` | A run full of critical findings in which every file was read still exits 0. Severity is a label, and drawing it on a graph does not change that. |
 | 24 | <a id="a forward declaration is not a node"></a>`a forward declaration is not a node` | — | Three nodes and not four, which also pins that the C module's function query captures definitions rather than declarations. |
 | 25 | <a id="LLR-DOT-05: a companion that cannot be written is diagnosed, not fatal"></a>`LLR-DOT-05: a companion that cannot be written is diagnosed, not fatal` | `LLR-DOT-05` | The primary report is the deliverable and the call tree is a companion, so a companion that cannot be created leaves the report written and says so. The path is blocked with a directory rather than with permissions, which fopen refuses whatever the mode is — so the case reproduces for root, where a read-only directory would not. |
+| 26 | <a id="dot: a node's tooltip carries its site, its figures and its findings"></a>`dot: a node's tooltip carries its site, its figures and its findings` | `LLR-STY-03` | Verifies that a node's tooltip states the definition site, the ELOC and complexity, and the findings, and that a rendered SVG receives the separators as newline characters rather than as the two characters of the escape. |
 
 ### 3.44. [test/fixtures/debug.bats](../test/fixtures/debug.bats)
 
@@ -2261,6 +2262,7 @@ verified by code review — see
 | `LLR-DOT-05` | `graph_write_dot` | `HLR-035` | `LLR-DOT-05: a companion that cannot be written is diagnosed, not fatal` |
 | `LLR-STY-01` | `node_style` | `HLR-105` | `HLR-105: the deepest call chain is annotated, nodes and edges`, `HLR-105: every unreachable function is annotated`, `HLR-105: a fan-out over the band is annotated with its severity`, `HLR-105: both participants in a hidden channel are annotated`, `HLR-105: every member of a dependency cycle is annotated`, `HLR-105: a bottleneck component is annotated and attributed`, `HLR-105: every member of a recursive cycle is annotated` |
 | `LLR-STY-02` | `node_style` | `HLR-105` | `LLR-STY-02: stripping every annotation leaves the same valid tree`, `HLR-105: two findings on one node ride two attributes` |
+| `LLR-STY-03` | `node_style` | `HLR-105`, `HLR-217` | `dot: a node's tooltip carries its site, its figures and its findings` |
 | `LLR-GML-01` | `graph_write_graphml` | `HLR-106` | `HLR-106: the exported graph matches the expected topology exactly` |
 | `LLR-GML-02` | `graph_write_graphml` | `HLR-106` | `graphml_is_off_unless_asked_for`, `graphml_is_written_when_asked_for_and_named` |
 | `LLR-GML-03` | `graph_write_graphml` | `HLR-106`, `HLR-119` | `graphml_needs_an_output_path`, `the_companion_replaces_the_extension`, `a_path_without_an_extension_gains_one`, `a_dot_in_a_directory_is_not_an_extension`, `a_directory_dot_with_an_extension_still_substitutes` |
