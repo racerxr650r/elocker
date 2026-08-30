@@ -1217,7 +1217,7 @@ Two questions a reader asks of an unfamiliar module are answered by the source a
     **A language whose module supplies no visibility query shall report neither.** This is the asymmetry HLR-138 draws for a language with no dead-code query and HLR-133 for an undecidable condition, applied to a third kind of absence: *not analysed* and *public* are different claims, and a reader who cannot tell them apart has been told something false rather than nothing.
 
     Access control within a class — C++'s `private:` and `public:` sections — is a different axis from linkage and is not what this reports. A private method of an externally visible class has external linkage, and conflating the two would make the column answer neither question.
-    *Trace:* [SDD Section 29](SDD.md), [SDD Section 7](SDD.md), [SDD Section 14](SDD.md).
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 14](SDD.md).
 
 *   <a id="HLR-210"></a>**HLR-210: Function Location Reported Navigably.**
     In a human-readable report, `elc` shall report each function's location as `path:line`, where `line` is the line the function begins on, in the column that today carries the path alone.
@@ -1396,9 +1396,25 @@ Requirements governing the interactive companion: the graph `elc` already builds
     *Trace:* [SDD Section 27](SDD.md), [SDD Section 4](SDD.md).
 
 *   <a id="HLR-216"></a>**HLR-216: The View Opens at the Architectural Level.**
-    The companion shall open showing the outermost tier the run produced — the declared layers, or the files where no layer was declared — with every container collapsed, and shall let the reader descend to any tier and return.
+    The companion shall open showing every file of the run as a single box carrying that file's name, within the architectural layer it was declared in where one was declared, and **the file shall be the only tier that opens and closes**.
 
     **The default is the requirement, not a preference.** What makes the existing graph companions unreadable on a real project is not that they lack a collapsing facility; it is that they begin at maximum density. A view that opened at function level and offered collapsing would reproduce that failure and add a step to recovering from it. The reader is shown the architecture and descends into what interests them, which is the order the question is actually asked in.
 
-    **Descent shall preserve the reader's place.** Expanding a container shall not re-lay-out the whole drawing from nothing: a reader who loses their bearings on every expansion is navigating a new drawing each time rather than one drawing at a new depth.
+    **A layer is read, not navigated, and this is the correction of an earlier reading.** The companion first opened with *every* container collapsed, layers included, which hid the very tier the drawing is arranged by: a reader was shown a handful of unlabelled layer boxes and had to open one before the drawing said anything about their project. A declared layer is context for the files inside it — the answer to *where does this file sit* — and context that must be opened to be read is not context. So the layers stand open, the files within them are closed, and the one gesture the drawing offers is the one the legend names.
+
+    **The file is where the descent belongs**, because it is the tier at which the question changes: above it the reader is asking about architecture, and inside it about the functions of one file. A collapsed file shall be drawn as a box carrying its name rather than as a shrunken container, since it is what the reader is reading at the level the view opens at.
+
+    **Descent shall preserve the reader's place.** Expanding a file shall not re-lay-out the whole drawing from nothing: a reader who loses their bearings on every expansion is navigating a new drawing each time rather than one drawing at a new depth.
     *Trace:* [SDD Section 27](SDD.md).
+
+*   <a id="HLR-217"></a>**HLR-217: The Drawing Carries the Findings It Was Drawn From.**
+    Every drawing `elc` produces of the call graph shall show, on each function and each component it draws, the findings the report states about it — the severity of the worst, the structural roles the analyses assign it, and the findings themselves in full on demand — and shall carry a key naming what each of those marks means.
+
+    **A drawing without them is a picture of the topology, and the topology is not the product.** `elc` exists to say where a codebase needs attention; a drawing that renders eight hundred functions identically has shown the reader the shape of the call graph and withheld every judgement the run made about it, which is the half a reader opened it for. The Graphviz companion has carried these marks since Phase 13 (HLR-105); this requirement generalises what that companion does rather than describing a second scheme, so that a reader who has learned one drawing can read the other.
+
+    **The marks shall be the report's own, and no drawing shall form its own.** The severity of a finding is the catalogue's (HLR-098, HLR-099), and *which* finding describes which function is one question with one answer. Two drawings deciding it separately is how they come to disagree about a function while sitting side by side in the same directory, which is the failure HLR-164 forbids for the conformance indices — so the placement is made once and every drawing reads it.
+
+    **Every mark shall be ignorable.** Strip the colours, the shapes and the borders from either drawing and what remains is the same graph with the same nodes and the same edges. A mark is an annotation upon the drawing and never a change to what is drawn — which is what lets a renderer that cannot express one omit it without misreporting the graph.
+
+    **The key shall be part of the artefact.** A drawing whose colours are explained in the manual is a drawing the reader must leave to read; both companions state their own key, and a reader who was sent the file alone can still read it.
+    *Trace:* [SDD Section 28](SDD.md), [SDD Section 27](SDD.md), [SDD Section 17](SDD.md).

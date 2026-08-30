@@ -179,6 +179,60 @@ static const char *const PATHS[]     = { "/p/app/a.c", "/p/hal/b.c",
                                          "/p/vendor/c.c" };
 static const char *const FUNCTIONS[] = { "app_fn", "hal_fn", "vendor_fn" };
 
+/* One hand-built finding on the report, so that a node with an annotation and
+ * a node without are both present in one document. */
+static void add_finding(Report *r, const char *severity, const char *subject,
+                        const char *where, uint32_t line)
+{
+	FindingRow *grown = realloc(r->findings,
+	                            (r->finding_count + 1) * sizeof *grown);
+	FindingRow *f;
+
+	cr_assert_not_null(grown);
+	r->findings = grown;
+	f = &r->findings[r->finding_count];
+
+	memset(f, 0, sizeof *f);
+	f->severity    = strdup(severity);
+	f->measurement = strdup("complexity");
+	f->subject     = strdup(subject);
+	f->where       = strdup(where);
+	f->detail      = strdup("cyclomatic complexity 20");
+	f->source      = strdup("McCabe");
+	f->line        = line;
+	cr_assert_not_null(f->severity);
+	cr_assert_not_null(f->subject);
+	cr_assert_not_null(f->where);
+	r->finding_count++;
+}
+
+/* The one element carrying `label`, copied out whole.
+ *
+ * Scanned in both directions from the label rather than forward from it: the
+ * payload is written with its keys sorted, so `finding` and `eloc` sit *before*
+ * `label` and a forward scan to the next `}` would miss them. The caller frees.
+ */
+static char *element_with(const char *payload, const char *label)
+{
+	char  needle[128];
+	const char *at, *open, *close;
+	char *copy;
+
+	snprintf(needle, sizeof needle, "\"label\":\"%s\"", label);
+	at = strstr(payload, needle);
+	cr_assert_not_null(at, "no element is labelled %s", label);
+
+	for (open = at; open > payload && *open != '{'; open--)
+		;
+	close = strchr(at, '}');
+	cr_assert_not_null(close);
+
+	copy = calloc(1, (size_t)(close - open) + 2);
+	cr_assert_not_null(copy);
+	memcpy(copy, open, (size_t)(close - open) + 1);
+	return copy;
+}
+
 /* ------------------------------------------------------- the three tiers -- */
 
 /* One node per declared stratum, identified by ordinal rather than by name:
@@ -221,13 +275,14 @@ Test(report_html, a_file_names_the_layer_arch_assigned_it)
 	payload = payload_of(page);
 
 	/* `/p/app/a.c` is component 0 by the report's sorted file order, and
-	 * matches the first declared stratum. */
+	 * matches the first declared stratum. The label has shed the `/p/`
+	 * every component shares, and `path` keeps it (LLR-CYT-02). */
 	cr_assert_not_null(strstr(payload,
-	        "\"id\":\"file_0\",\"label\":\"/p/app/a.c\","
-	        "\"parent\":\"layer_0\""));
+	        "\"id\":\"file_0\",\"label\":\"app/a.c\","
+	        "\"parent\":\"layer_0\",\"path\":\"/p/app/a.c\""));
 	cr_assert_not_null(strstr(payload,
-	        "\"id\":\"file_1\",\"label\":\"/p/hal/b.c\","
-	        "\"parent\":\"layer_1\""));
+	        "\"id\":\"file_1\",\"label\":\"hal/b.c\","
+	        "\"parent\":\"layer_1\",\"path\":\"/p/hal/b.c\""));
 
 	free(page);
 	cli_options_free(&opts);
@@ -249,7 +304,7 @@ Test(report_html, a_file_in_no_declared_layer_has_no_parent)
 	page    = page_of(&s.report, &s.graph, &opts);
 	payload = payload_of(page);
 
-	node = strstr(payload, "\"label\":\"/p/vendor/c.c\"");
+	node = strstr(payload, "\"label\":\"vendor/c.c\"");
 	cr_assert_not_null(node, "the unmatched component was not emitted");
 
 	/* The key is absent from this element rather than merely unset: the
@@ -265,6 +320,53 @@ Test(report_html, a_file_in_no_declared_layer_has_no_parent)
 
 	free(page);
 	cli_options_free(&opts);
+	scene_free(&s);
+}
+
+/* The prefix a label sheds ends at a path separator, never inside a name:
+ * `/p/app/` and `/p/apple/` share `/p/app` byte-wise, and a label `le/b.c`
+ * would name a directory that does not exist. What was shed is recoverable
+ * from `path` on the same node rather than lost (LLR-CYT-02). */
+Test(report_html, the_shed_prefix_ends_at_a_separator)
+{
+	static const char *const NEAR[] = { "/p/app/a.c", "/p/apple/b.c" };
+	static const char *const FNS[]  = { "app_fn", "apple_fn" };
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page, *payload;
+
+	scene_build(&s, NEAR, FNS, 2, NULL, NULL, 0);
+	page    = page_of(&s.report, &s.graph, &opts);
+	payload = payload_of(page);
+
+	cr_assert_not_null(strstr(payload,
+	        "\"label\":\"app/a.c\",\"path\":\"/p/app/a.c\""));
+	cr_assert_not_null(strstr(payload,
+	        "\"label\":\"apple/b.c\",\"path\":\"/p/apple/b.c\""));
+
+	free(page);
+	scene_free(&s);
+}
+
+/* A lone component shares its whole directory with nothing, so it is labelled
+ * by its file name — the one case where the shared prefix is not a claim
+ * about other components (LLR-CYT-02). */
+Test(report_html, a_lone_component_is_labelled_by_its_file_name)
+{
+	static const char *const ONE[]    = { "/p/deep/dir/only.c" };
+	static const char *const ONE_FN[] = { "only_fn" };
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page, *payload;
+
+	scene_build(&s, ONE, ONE_FN, 1, NULL, NULL, 0);
+	page    = page_of(&s.report, &s.graph, &opts);
+	payload = payload_of(page);
+
+	cr_assert_not_null(strstr(payload,
+	        "\"label\":\"only.c\",\"path\":\"/p/deep/dir/only.c\""));
+
+	free(page);
 	scene_free(&s);
 }
 
@@ -451,17 +553,38 @@ Test(report_html, the_page_loads_the_viewer_and_opens_collapsed)
 	        "https://unpkg.com/cytoscape-expand-collapse/"
 	        "cytoscape-expand-collapse.js"));
 	cr_assert_not_null(strstr(page, "cytoscape({"));
-	cr_assert_not_null(strstr(page, "name: 'cose'"));
+	/* Ranked by call direction and respecting containment, which is what
+	 * makes this drawing and the .dot companion two renderings of one
+	 * picture (LLR-HTM-04). */
+	cr_assert_not_null(strstr(page, "algorithm: 'layered'"));
+	cr_assert_not_null(strstr(page,
+	        "'elk.hierarchyHandling': 'INCLUDE_CHILDREN'"));
 	cr_assert_not_null(strstr(page, "expandCollapse({"));
 	cr_assert_not_null(strstr(page, "fisheye: true"));
 	cr_assert_not_null(strstr(page, "animate: true"));
-	cr_assert_not_null(strstr(page, "api.collapseAll();"));
+	/* The files, and only the files (HLR-216). */
+	cr_assert_not_null(strstr(page,
+	        "api.collapse(cy.nodes('[tier = \"file\"]'));"));
+	cr_assert_null(strstr(page, "api.collapseAll();"),
+	               "the layers were collapsed along with the files");
+	/* The fit follows each layout as it settles rather than racing the
+	 * two asynchronous ones, and the reader's first gesture ends it
+	 * (LLR-HTM-04). */
+	cr_assert_not_null(strstr(page, "cy.on('layoutstop', refit)"));
+	cr_assert_not_null(strstr(page,
+	        "cy.one('tap', function () { cy.off('layoutstop', refit); })"));
 	/* And the descent is bound here rather than inherited from whatever
 	 * gesture the extension's current release happens to bind: the
 	 * extension is fetched at view time and is not pinned, so a
 	 * requirement resting on its defaults can stop being met without this
 	 * file changing (LLR-HTM-04, HLR-216). */
-	cr_assert_not_null(strstr(page, "cy.on('tap', 'node:parent'"));
+	/* Bound on the file tier alone, so a tap on a layer or a function
+	 * reaches no handler and the only thing that opens is the thing the
+	 * key names (LLR-HTM-04, HLR-216). */
+	cr_assert_not_null(strstr(page,
+	        "cy.on('tap', 'node[tier = \"file\"]', function"));
+	cr_assert_not_null(strstr(page,
+	        "if (node.hasClass('cy-expand-collapse-collapsed-node'))"));
 	cr_assert_not_null(strstr(page, "api.expand(node)"));
 	cr_assert_not_null(strstr(page, "api.collapse(node)"));
 
@@ -483,7 +606,11 @@ Test(report_html, an_empty_graph_still_produces_a_page)
 
 	page = page_of(&report, &empty, &opts);
 	cr_assert_not_null(strstr(page, "const graphData = []"));
-	cr_assert_not_null(strstr(page, "api.collapseAll();"));
+	/* The files, and only the files (HLR-216). */
+	cr_assert_not_null(strstr(page,
+	        "api.collapse(cy.nodes('[tier = \"file\"]'));"));
+	cr_assert_null(strstr(page, "api.collapseAll();"),
+	               "the layers were collapsed along with the files");
 	free(page);
 }
 
@@ -508,5 +635,99 @@ Test(report_html, the_stream_is_left_open_for_the_caller)
 
 	fclose(fp);
 	cli_options_free(&opts);
+	scene_free(&s);
+}
+
+/* ------------------------------------------------------- the annotations -- */
+
+/* The severity the catalogue decided reaches the node, spelled as the word the
+ * stylesheet selects on — and a node nothing was found about carries none, so
+ * a selector matches only what actually carries a finding (LLR-CYT-05). */
+Test(report_html, a_finding_reaches_the_node_it_describes)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page, *payload, *node;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	add_finding(&s.report, "critical", "app_fn", "/p/app/a.c", 1);
+	page    = page_of(&s.report, &s.graph, &opts);
+	payload = payload_of(page);
+
+	node = element_with(payload, "app_fn");
+	cr_assert_not_null(strstr(node, "\"severity\":\"critical\""));
+	cr_assert_not_null(strstr(node, "cyclomatic complexity 20"),
+	                   "the finding was not carried in full");
+	free(node);
+
+	/* And the clean function beside it says nothing at all. */
+	node = element_with(payload, "hal_fn");
+	cr_assert_null(strstr(node, "\"severity\""),
+	               "a function with no finding was given a severity");
+	free(node);
+
+	free(page);
+	scene_free(&s);
+}
+
+/* A mark is present or absent, never `false`: the stylesheet tests it with a
+ * truthy selector, and stating all five on every node would say the same thing
+ * in several times the bytes (LLR-CYT-05). */
+Test(report_html, an_absent_mark_is_an_absent_key)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page, *payload;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	page    = page_of(&s.report, &s.graph, &opts);
+	payload = payload_of(page);
+
+	cr_assert_null(strstr(payload, "false"),
+	               "a mark that does not hold was stated as false");
+	cr_assert_null(strstr(payload, "\"recursive\""));
+	cr_assert_null(strstr(payload, "\"unreachable\""));
+
+	free(page);
+	scene_free(&s);
+}
+
+/* Every mark takes a different visual attribute, so that several holding at
+ * once compose rather than overwrite — and the key names each of them, in the
+ * page rather than in the manual (LLR-HTM-06, HLR-217). */
+Test(report_html, the_page_carries_a_key_for_every_mark)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	page = page_of(&s.report, &s.graph, &opts);
+
+	/* The pigments are the .dot writer's, so one reader's understanding
+	 * serves both drawings. */
+	cr_assert_not_null(strstr(page, "'node[severity = \"warning\"]'"));
+	cr_assert_not_null(strstr(page, "'node[severity = \"critical\"]'"));
+	cr_assert_not_null(strstr(page, "#f7e0b0"));
+	cr_assert_not_null(strstr(page, "#f6c7c7"));
+
+	/* Shape, border and fill are separate attributes. */
+	cr_assert_not_null(strstr(page, "'node[?hidden]'"));
+	cr_assert_not_null(strstr(page, "'node[?soleUser]'"));
+	cr_assert_not_null(strstr(page, "'node[?unreachable]'"));
+	cr_assert_not_null(strstr(page, "'node[?deepest]'"));
+	cr_assert_not_null(strstr(page, "'node[?recursive]'"));
+	cr_assert_not_null(strstr(page, "'edge[?chain]'"));
+
+	/* And the legend names them for the reader. */
+	cr_assert_not_null(strstr(page, "id=\"legend\""));
+	for (const char *const *w = (const char *const[]){
+	             "warning", "critical", "recursive", "unreachable",
+	             "deepest call chain", "hidden channel",
+	             "sole namer of a global", NULL }; *w; w++)
+		cr_assert_not_null(strstr(page, *w),
+		                   "the key does not name %s", *w);
+
+	free(page);
 	scene_free(&s);
 }

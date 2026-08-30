@@ -1785,20 +1785,52 @@ a flag saying it again is exactly the disagreement `elc` refuses when
 output, where there is no filename to read an extension from, `-f html` names it
 like any other format.
 
-**It opens at the architectural level.** What you see first is one box per
-layer you declared with `--stratum`. Double-click a layer and it opens to the
-files it holds; double-click a file and it opens to the functions in it. That
+**It opens at the file level, inside the architecture.** What you see first is
+one box per file, sitting inside the layer you declared it in with
+`--stratum`. Click a file and it opens to the functions in it; click it again
+and it closes. **Files are the only boxes that open** — a layer stands open
+from the start, because it is context for the files inside it and context you
+have to open is not context. That
 default is the point of the artefact rather than a preference: a call graph of
 a real project drawn at function level is a picture nobody can read, which is
 the failing the `.dot` and GraphML companions have in common. You descend into
 the part you care about instead of starting at maximum density.
 
-With no `--stratum` declared, it opens at the file level instead. `elc` does
-not invent a layer to sit above them — a layering is something you state, never
+With no `--stratum` declared, there are simply no layers to sit above the
+files. `elc` does not invent one — a layering is something you state, never
 something read off the directory tree (see [Declaring the
 architecture](#declaring-the-architecture)) — and for the same reason a file
 matching none of your stratum patterns is drawn beside the layers rather than
 tucked inside one.
+
+**It shows you what the run found, not just what calls what.** A function the
+report warns about is drawn amber and one it calls critical is drawn red — the
+same two colours the `.dot` companion uses, so you learn one scheme and can
+read either drawing. A function in a recursive cycle gets a double border, one
+no entry point reaches is dashed, a participant in a hidden channel is an
+octagon, and the sole namer of a global is a tag. Hover any box for its
+definition site and the findings in full. The key sits above the drawing, so a
+page you send to somebody else still explains itself.
+
+These are the report's own judgements, placed by the same code that places them
+on the `.dot` companion — the drawing never forms a view of its own about what
+exceeds a threshold, so it cannot disagree with the tables in the report beside
+it. Strip every colour and shape away and the same graph remains, with the same
+boxes and the same arrows: a mark says something *about* the drawing and never
+changes what is drawn.
+
+**It is laid out in call order.** Callers sit above the functions they call, so
+the drawing reads as a flow rather than as a mesh, and a layer you declared
+stays a box around its own files. That needs a layout engine the viewer does
+not ship, which is why the page fetches four scripts rather than two — see
+*What "standalone" means here* below.
+
+**A file is labelled by where it differs.** Every file box sheds the directory
+prefix all of them share — on most projects, the path of the tree you analysed
+— so a box reads `src/report.c` rather than repeating a prefix that is the
+same on every box in the drawing. Nothing is lost by it: the full path is
+carried on the node itself, in the embedded record, and the tables of every
+other format are untouched.
 
 **It is not the Markdown report with a picture attached.** The other
 human-readable formats present the same tiers in the same order as each other;
@@ -1816,10 +1848,10 @@ and those are the measured ones.
 
 **What "standalone" means here.** The file needs no web server and no build
 step. It does need the network the first time you open it, because the drawing
-library is fetched from a CDN — so a browser on a disconnected machine shows
+library and its layout engine are fetched from a CDN — so a browser on a disconnected machine shows
 the page and no diagram. `elc` itself never touches the network; this is a
 property of viewing the artefact, not of producing it. If you need the page to
-work offline, keep it beside a cached copy of the two scripts named in its
+work offline, keep it beside a cached copy of the scripts named in its
 `<head>`, or open it once while connected and let the browser cache them.
 
 **A regenerated report cannot be written in this format.** A saved record

@@ -2188,7 +2188,9 @@ The compound-node data model: three tiers of nodes joined by a `parent` referenc
     Where no stratum was declared this appends nothing, and the document has two tiers rather than three.
     *Trace:* HLR-213 (The Graph Serialised as a Containment Hierarchy), HLR-078.
 
-*   <a id="LLR-CYT-02"></a>**LLR-CYT-02** — `html_elements` shall append one node object per component of the graph, with `id` set to `file_` followed by the component's index, `label` set to the component's path, and `parent` set to `layer_` followed by that component's stratum ordinal.
+*   <a id="LLR-CYT-02"></a>**LLR-CYT-02** — `html_elements` shall append one node object per component of the graph, with `id` set to `file_` followed by the component's index, `label` set to the component's path with the longest directory prefix shared by every component removed, `path` set to the component's path in full, and `parent` set to `layer_` followed by that component's stratum ordinal.
+
+    **The label is for reading and `path` is the record.** A drawing is read at label width, and within one document the shared prefix distinguishes nothing — every component carries it — while consuming most of each label; on a real project it is what makes the file tier illegible. The prefix ends at a path separator, never inside a name, so `/p/app/` beside `/p/apple/` sheds `/p/` and not the `/p/app` the bytes share; a lone component, whose whole directory is a prefix nothing else contests, is labelled by its file name. What the label sheds stays recoverable from `path` on the same node rather than lost, and the reduction is computed from the document's own components, so the artefact remains byte-identical across runs (HLR-032). The complete-record formats are untouched: this is a presentation of the drawing, not a change to what any record states.
 
     **The stratum comes from `stratum_of_components` and is not matched here.** That is `format_dsm.c`'s rule and it is this module's for the same reason: two matchers over one set of patterns eventually disagree about which layer a file is in, and this drawing would then place a file in one layer while the matrix beside it placed the file in another (HLR-164).
 
@@ -2212,6 +2214,15 @@ The compound-node data model: three tiers of nodes joined by a `parent` referenc
 
     Edges shall be emitted in ascending source-then-target order, which is `format_graph.c`'s ordering for the same artefact-level reason: the order is a property of this document rather than of a collection the model holds, so it is imposed here — the second of the two exceptions to `report.c` owning every sort (LLR-DOT-04, LLR-RPT-10).
     *Trace:* HLR-214 (Edges Between Functions Only), HLR-074, HLR-032.
+
+*   <a id="LLR-CYT-05"></a>**LLR-CYT-05** — `html_elements` shall carry on each function node and each component node the annotation `annotate.c` placed on it: `severity` spelling the rank of the worst finding, `finding` carrying those findings as text, and a key per structural mark — `unreachable`, `recursive`, `deepest`, `hidden`, `soleUser` — and shall carry `chain` on each edge that is a step of the deepest call chain.
+
+    **The severity is spelled here and decided nowhere.** It arrives as a rank on the annotation and is converted to the word the stylesheet selects on; a renderer that banded a measurement itself would be the second opinion this program's central claim forbids (HLR-098, HLR-099). The same annotation becomes a Graphviz fill in `format_graph.c`, which is what makes the two drawings agree about a node rather than merely resemble one another (HLR-217).
+
+    **A key absent means the mark does not hold**, rather than a key present carrying `false`. The stylesheet tests these with a truthy selector, and a payload that stated all five marks on every node would say the same thing in several times the bytes on a drawing whose nodes are mostly unremarkable. A node nothing was found about carries no annotation keys at all.
+
+    **The findings travel as text, not as structure.** The drawing shows *that* a function is critical and the text says *why*; a reader who needs to sort or filter findings has the CSV and the XML record, and duplicating their structure here would be a second machine-readable copy of the catalogue with no consumer.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-099, HLR-088.
 
 ## 73. `format_html` ([src/report_html.c](../src/report_html.c))
 
@@ -2240,13 +2251,23 @@ The page itself: when it is written, what its shell contains, how the payload su
     The escape is applied to the serialised text and not to each name before serialisation: applying it earlier would put the escape sequence in the data, and a viewer would render the literal characters `\u003c` in a function's label.
     *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-064.
 
-*   <a id="LLR-HTM-04"></a>**LLR-HTM-04** — `format_html` shall emit an initialisation script that constructs the viewer over the embedded payload with a force-directed layout, initialises the expand-collapse extension with its fisheye and animation behaviours enabled, and collapses every container immediately afterwards.
+*   <a id="LLR-HTM-04"></a>**LLR-HTM-04** — `format_html` shall emit an initialisation script that constructs the viewer over the embedded payload with no layout of its own, initialises the expand-collapse extension with its fisheye and animation behaviours enabled, collapses every container, and only then runs a force-directed layout — so the one layout the page opens with is computed over the collapsed view it opens showing.
 
     **The collapse is not a default this script chooses; it is HLR-216.** The page opens showing the declared layers and the reader descends. Initialising without it would reproduce, with an extra step, the density failure the existing graph companions have.
 
+    **The layout follows the collapse rather than preceding it, and the ordering is load-bearing twice over.** A layout run at construction is of the expanded graph — larger by the whole function tier, and a drawing HLR-216 forbids opening with, so the most expensive layout the page ever computes would be spent on a picture that is immediately discarded. And because layouts settle asynchronously, collapsing while that layout still runs is a race the collapse loses on any real project: the relayout it requests is stomped, and the page opens fitted to a drawing that no longer exists — a graph shrunk past visibility, presented as though rendered.
+
+    **The layout shall rank the drawing by call direction while keeping a container's members inside it**, and shall be re-run after a descent so that what is arranged is the drawing now on screen. A call graph is read as a hierarchy — who calls whom, in which direction — which is how the `.dot` companion is drawn and why it reads as an architecture rather than a mesh; a force-directed arrangement of the same graph is a hairball however the edges run, and was the first thing a reader noticed between the two artefacts.
+
+    **That requires a layout the viewer does not ship, and the dependency is argued rather than assumed.** Of the two layouts in the viewer's core, the force-directed one keeps a container's members together but ranks nothing, and the breadth-first one ranks by call direction but places a container's members by their global rank — which scatters one declared layer's files across the drawing and leaves its box overlapping another's. Neither is a drawing of the architecture. A layered algorithm that understands containment is a fourth and fifth script fetched at view time, on a page that already fetches two and already states that it needs the network the first time it is opened (HLR-215); what it buys is that this drawing and the `.dot` companion are two renderings of one picture rather than two different pictures.
+
+    **Only the file tier shall open and close** (HLR-216). The gesture shall be bound on the file tier alone, so that a tap on a layer or on a function reaches no handler and the only thing that opens is the thing the key names. A collapsed file shall be styled as a single box carrying its name, centred rather than set above an empty container, because at the level the view opens at that box *is* what the reader is reading.
+
     **Fisheye and animation are what make the descent navigable**, which HLR-216 also requires: expanding a container in place, and moving to the new arrangement rather than cutting to it, is what keeps the reader's bearings across an expansion. Without them each expansion presents a freshly laid-out drawing and the reader is navigating a new picture every time.
 
-    **The descent gesture shall be bound by this script rather than inherited.** HLR-216 requires that the reader can descend and return; a requirement met only by whatever gesture the extension's current release happens to bind is one that can stop being met without this file changing, and the extension is fetched from a CDN at view time rather than pinned. The binding uses the viewer's own event, so it holds whatever the extension's defaults are.
+    **The descent gesture shall be bound by this script rather than inherited, and bound on every node rather than on compound nodes.** HLR-216 requires that the reader can descend and return; a requirement met only by whatever gesture the extension's current release happens to bind is one that can stop being met without this file changing, and the extension is fetched from a CDN at view time rather than pinned. The binding uses the viewer's own event, so it holds whatever the extension's defaults are. The scope is load-bearing: a collapsed container is not a compound node — the extension holds its children removed until expansion — so a binding scoped to parents fires for the return half of the gesture and never for the descent half, and the asymmetry is invisible in review because the same selector reads as exactly the set of boxes that open and close. The handler decides by the collapsed marker first and containment second, so a tap on a function does nothing rather than collapsing the file above it.
+
+    **The view shall be fitted when a layout settles, not at a moment of the script's choosing, and refitting shall stop at the reader's first gesture.** A `fit()` call placed in the script's own sequence frames whatever drawing is mid-flight when it runs, which is how this page first shipped opening on an invisibly small graph. Fitting on the viewer's own layout-settled event frames what is actually drawn, however many layouts run; unbinding it at the first tap is what keeps the viewport the reader's from the moment they take it.
 
     A force-directed layout is chosen because it is the family that keeps a cluster's members near one another, so a collapsed container occupies the space its contents did.
     *Trace:* HLR-216 (The View Opens at the Architectural Level).
@@ -2259,3 +2280,41 @@ The page itself: when it is written, what its shell contains, how the payload su
 
     The error is checked once after the writing rather than per call, because a full disk shows up on the flush and a report claimed as written when it was truncated is the failure worth catching.
     *Trace:* HLR-215 (The Interactive Drawing as an Output Format), HLR-030, HLR-038.
+
+*   <a id="LLR-HTM-06"></a>**LLR-HTM-06** — `format_html` shall emit a stylesheet giving each annotation of LLR-CYT-05 a distinct visual attribute — fill for severity, shape for the role a function takes part in, border for whether it is reached and for the deepest chain — and a legend naming every one of them.
+
+    **Each mark shall take a different attribute**, so that several holding at once compose rather than overwrite: a function that is both recursive and critical is a red box with a double border, not whichever of the two the stylesheet happened to apply last. This is the rule `node_style` follows in the `.dot` writer, and following it here is what keeps a reader's understanding of one drawing good for the other (HLR-217).
+
+    **The severity pigments shall be the ones the `.dot` companion uses.** Amber for a warning and red for a critical, because a reader moving between the two artefacts should not have to learn two colour schemes for one judgement — and because the pigments being the same makes a disagreement between the drawings visible at a glance rather than plausible.
+
+    **The legend is part of the page** (HLR-217). The `.dot` companion states its key in a comment at the head of the file; this one states it above the drawing, where a reader of a rendered artefact will actually meet it. A drawing whose colours are explained only in the manual is one the reader has to leave in order to read.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-105.
+
+## 74. `annotations_build` ([src/annotate.c](../src/annotate.c))
+
+Placing a run's findings on the graph they describe, once, for every drawing that shows them.
+
+*   <a id="LLR-ANN-01"></a>**LLR-ANN-01** — `annotations_build` shall produce one `Annotation` per graph node and one per component, carrying the highest severity of any finding placed on it, those findings joined as text, and a bitset of the structural marks that hold; and shall publish separately the findings belonging to no single node and the deepest chain as node identifiers.
+
+    **The highest severity, not the last or the sum.** A node carrying a critical and a warning is a critical one: severities rank, they do not accumulate (HLR-123). A drawing filling by the most recent finding placed would colour a node by the order the catalogue happened to be walked in.
+
+    **Every output is assigned as soon as it exists**, so that a caller's teardown releases what was allocated when a later step fails. The alternative — publishing all four only on success — leaks whichever were built before the failure.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-123.
+
+*   <a id="LLR-ANN-02"></a>**LLR-ANN-02** — `annotations_build` shall place a finding on a node whose definition site it names, failing that on a component whose path it names, and failing that on every function that touches a global object of its name; and a finding matching none of the three shall be published as belonging to the graph as a whole rather than dropped.
+
+    **A definition site is a file and a line together.** A file alone is a component finding, and a line alone matches the same line in every file — so both halves are required, and matching on the *name* instead would mark all six of the functions `elc`'s own sources call `grow` because one of them was unreachable.
+
+    **A finding about a global object goes to the functions that touch it**, which is the only place it can go on a graph whose nodes are functions, and where a reader would look for it (HLR-091, HLR-105). The touch set rather than the edges: an object named by exactly one function produces no edge at all, and that object is precisely the scope-reduction candidate (HLR-092).
+
+    **Nothing is dropped silently.** A finding that describes the graph rather than anything in it — the depth of the call tree is the case that exists — reaches the caller, which puts it where its artefact can carry it.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-091, HLR-092.
+
+*   <a id="LLR-ANN-03"></a>**LLR-ANN-03** — `annotations_build` shall mark both kinds of cycle on every member from the report's cycle rows rather than from the catalogue's finding, and shall skip the catalogue's own copy of a recursion or component-cycle finding.
+
+    **The catalogue locates a cycle at one subject; HLR-105 asks for the members.** A finding has one location and a set has none, so the membership is read from the cycle rows — and the catalogue's copy is then a second note repeating on one member what the first already said about all of them.
+
+    **The severity is still looked up rather than restated**, so this module names no threshold of its own even where it decides membership (HLR-099).
+
+    **Recursion membership is matched by name**, which is all the report model carries: a node identifier means nothing to a reader and does not survive a record round trip. That inherits the duplicate-`static` imprecision the manual documents — two functions sharing a name are both marked when one recurses — which is visible in the drawing and therefore better than a silent wrong answer.
+    *Trace:* HLR-089, HLR-105, HLR-217 (The Drawing Carries the Findings It Was Drawn From).

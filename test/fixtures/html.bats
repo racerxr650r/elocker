@@ -132,8 +132,10 @@ for e in json.load(sys.stdin):
 	assert_success
 	run elements
 	assert_success
-	assert_line --regexp '^file file_0 .*/app/main\.c layer_0$'
-	assert_line --regexp '^file file_1 .*/hal/port\.c layer_1$'
+	# The labels are exact, not anchored tails: every component shares the
+	# tree's own directory, so the label is the path below it (LLR-CYT-02).
+	assert_line "file file_0 app/main.c layer_0"
+	assert_line "file file_1 hal/port.c layer_1"
 }
 
 @test "html: a file matching no stratum has no parent at all" {
@@ -143,7 +145,28 @@ for e in json.load(sys.stdin):
 	assert_success
 	# `-` is this helper's stand-in for an absent key, not an empty one:
 	# the element carries no `parent` member (LLR-CYT-02).
-	assert_line --regexp '^file file_2 .*/vendor/blob\.c -$'
+	assert_line "file file_2 vendor/blob.c -"
+}
+
+@test "html: the label sheds the shared prefix and path keeps it" {
+	# The label is for reading and `path` is the record: on every file
+	# node the full path is the shed prefix followed by the label, so
+	# nothing the label dropped is lost (LLR-CYT-02).
+	run_elc
+	assert_success
+	run bash -c 'grep "^const graphData = " "$0" |
+		sed -e "s/^const graphData = //" -e "s/;$//" |
+		python3 -c "
+import json, sys
+for e in json.load(sys.stdin):
+    d = e[\"data\"]
+    if d.get(\"tier\") == \"file\":
+        assert d[\"path\"].endswith(\"/\" + d[\"label\"]), d
+        assert \"/tree/\" in d[\"path\"], d
+print(\"ok\")
+"' "$HTML"
+	assert_success
+	assert_output "ok"
 }
 
 @test "html: each function names the file that defines it" {
@@ -210,13 +233,22 @@ for e in json.load(sys.stdin):
 		"https://unpkg.com/cytoscape/dist/cytoscape.min.js"
 	assert_output --partial \
 		"https://unpkg.com/cytoscape-expand-collapse/cytoscape-expand-collapse.js"
-	assert_output --partial "name: 'cose'"
+	assert_output --partial "algorithm: 'layered'"
+	assert_output --partial "'elk.hierarchyHandling': 'INCLUDE_CHILDREN'"
 	assert_output --partial "fisheye: true"
-	assert_output --partial "animate: true"
-	assert_output --partial "api.collapseAll();"
+	# The files, and only the files: a layer is context to be read, not a
+	# box to be opened (HLR-216).
+	assert_output --partial "api.collapse(cy.nodes('[tier = \"file\"]'));"
+	refute_output --partial "api.collapseAll();"
+	# The fit follows each layout as it settles rather than racing the two
+	# asynchronous ones, and the reader's first gesture ends it — a fit
+	# placed between them frames a drawing that is mid-flight (LLR-HTM-04).
+	assert_output --partial "cy.on('layoutstop', refit)"
+	assert_output --partial "cy.one('tap', function () { cy.off('layoutstop', refit); })"
 	# The descent is bound by the page, not by whatever the extension's
-	# current release happens to bind (HLR-216).
-	assert_output --partial "cy.on('tap', 'node:parent'"
+	# current release happens to bind (HLR-216) — and on the file tier
+	# alone, so a tap on a layer or a function reaches no handler.
+	assert_output --partial "cy.on('tap', 'node[tier = \"file\"]', function"
 }
 
 @test "html: the artefact is byte-identical across runs" {
@@ -240,4 +272,51 @@ for e in json.load(sys.stdin):
 	assert_equal "$(echo "$output" | grep -c '^file ')" "3"
 	# Every file is a root container, since none was placed.
 	assert_equal "$(echo "$output" | grep -c '^file .* -$')" "3"
+}
+
+@test "html: the drawing carries the findings the report states" {
+	# The same annotation the .dot companion draws, on the same nodes: a
+	# drawing that showed the topology and withheld every judgement would
+	# be half the artefact (HLR-217).
+	run_elc
+	assert_success
+	run bash -c 'grep "^const graphData = " "$0" |
+		sed -e "s/^const graphData = //" -e "s/;$//" |
+		python3 -c "
+import json, sys
+sev = 0
+for e in json.load(sys.stdin):
+    d = e[\"data\"]
+    if d.get(\"severity\"):
+        sev += 1
+        assert d[\"severity\"] in (\"info\", \"warning\", \"critical\"), d
+        assert d.get(\"finding\"), d
+    for m in (\"unreachable\", \"recursive\", \"deepest\", \"hidden\", \"soleUser\"):
+        assert d.get(m, True) is True, d
+print(\"annotated\", sev)
+"' "$HTML"
+	assert_success
+	assert_output --partial "annotated"
+}
+
+@test "html: the page states its own key" {
+	# The .dot companion explains itself in a header comment; this one
+	# explains itself above the drawing, where a reader sent the file
+	# alone will meet it (HLR-217, LLR-HTM-06).
+	run_elc
+	assert_success
+	run cat "$HTML"
+	assert_success
+	assert_output --partial 'id="legend"'
+	assert_output --partial "warning"
+	assert_output --partial "critical"
+	assert_output --partial "recursive"
+	assert_output --partial "unreachable"
+	assert_output --partial "deepest call chain"
+	assert_output --partial "hidden channel"
+	assert_output --partial "sole namer of a global"
+	# The severity pigments are the ones the .dot writer uses, so a reader
+	# does not learn two colour schemes for one judgement.
+	assert_output --partial "#f7e0b0"
+	assert_output --partial "#f6c7c7"
 }

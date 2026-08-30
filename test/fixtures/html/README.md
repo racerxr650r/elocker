@@ -46,9 +46,9 @@ file order and then the order the functions are defined in.
 | ---- | ---- | ------- | -------- |
 | layer | `layer_0` | `app` | — |
 | layer | `layer_1` | `hal` | — |
-| file | `file_0` | …`/app/main.c` | `layer_0` |
-| file | `file_1` | …`/hal/port.c` | `layer_1` |
-| file | `file_2` | …`/vendor/blob.c` | **absent** |
+| file | `file_0` | `app/main.c` | `layer_0` |
+| file | `file_1` | `hal/port.c` | `layer_1` |
+| file | `file_2` | `vendor/blob.c` | **absent** |
 | function | `func_0` | `run` | `file_0` |
 | function | `func_1` | `boot` | `file_0` |
 | function | `func_2` | `hal_open` | `file_1` |

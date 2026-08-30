@@ -242,6 +242,19 @@ documented where you would look for it; the last was found in Phase 31.
     LLRs' `source` attributes name. The second is cheaper and would have caught
     all four cases above.
 
+*   **One stale SDD ref was corrected, and the rest were left.** Adding
+    `src/annotate.c` as the last module moved the Data Dictionary from §28
+    to §29 and Traceability from §29 to §30. Exactly one requirement pointed
+    into that range — HLR-209 (function visibility) carried
+    `<traces target="SDD" ref="29">`, aimed at *Traceability*, which cannot
+    implement a visibility rule; it was already wrong before the module was
+    added, and the append would have silently re-aimed it at the Data
+    Dictionary. The ref was dropped, HLR-209 keeping its two correct ones
+    (§7 `analyze.c` and §14 `format_text.c`). Nothing else in the document
+    referenced §28 or beyond, which is the only reason a module could be
+    appended this cheaply — and is luck rather than a property of the
+    mechanism. The fix in §1.4 above is still the one worth making.
+
 *   **An empty `<traces>` element is schema-invalid.** A catalogued test
     that verifies no requirement — harness self-checks, mostly — must
     omit the element entirely. Emitting it empty to mean "none" fails

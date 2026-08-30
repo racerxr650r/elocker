@@ -138,8 +138,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1251 test(s)** across
-**58 file(s)**.
+Snapshot: **1267 test(s)** across
+**59 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
 
@@ -1752,31 +1752,51 @@ Role: **instrumented**. **8 test(s).**
 | 7 | <a id="LLR-BLD-14: no source file of elc is skipped for want of a module"></a>`LLR-BLD-14: no source file of elc is skipped for want of a module` | `LLR-BLD-14` | The other half of the same claim: a file measured around damage and a file never measured at all are different failures, and neither is acceptable in the delivered source. |
 | 8 | <a id="HLR-181: the self-analysis is the ordinary run, not a special mode"></a>`HLR-181: the self-analysis is the ordinary run, not a special mode` | — | Nothing above passes an option that relaxes anything, and the absence of such an option is part of the claim: a tool that needed one to measure itself cleanly would have measured nothing. |
 
-### 3.57. [test/unit/report_html.c](../test/unit/report_html.c)
+### 3.57. [test/unit/annotate.c](../test/unit/annotate.c)
 
-Role: **unit**. **11 test(s).**
+Role: **unit**. **8 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="a_finding_lands_on_the_definition_site_not_the_name"></a>`a_finding_lands_on_the_definition_site_not_the_name` | `LLR-ANN-02` | Verifies that a finding reaches the node at the definition site it names and not a second function sharing that name, which is what separates matching a site from matching a name. |
+| 2 | <a id="the_highest_severity_is_the_one_kept"></a>`the_highest_severity_is_the_one_kept` | `LLR-ANN-01` | Verifies that a node carrying a critical and two warnings is a critical one, and that all three findings remain readable in its note. |
+| 3 | <a id="a_component_finding_lands_on_the_component"></a>`a_component_finding_lands_on_the_component` | `LLR-ANN-02` | Verifies that a finding naming a component path reaches the component and no function of it. |
+| 4 | <a id="a_finding_about_the_graph_reaches_the_notes"></a>`a_finding_about_the_graph_reaches_the_notes` | `LLR-ANN-02` | Verifies that a finding describing neither a node, a component nor a global object is published to the caller rather than dropped. |
+| 5 | <a id="a_clean_graph_carries_no_annotation"></a>`a_clean_graph_carries_no_annotation` | `LLR-ANN-01` | Verifies that a run finding nothing produces no severity, no mark and no note, so that a drawing can test for their presence rather than for their value. |
+| 6 | <a id="recursion_is_marked_on_every_member_of_the_cycle"></a>`recursion_is_marked_on_every_member_of_the_cycle` | `LLR-ANN-03` | Verifies that recursion is marked on each member from the report's cycle rows, the catalogue locating a cycle at one subject while the drawing must show the members. |
+| 7 | <a id="an_unreachable_function_is_marked_at_its_definition_site"></a>`an_unreachable_function_is_marked_at_its_definition_site` | `LLR-ANN-01` | Verifies that the unreachable set marks the node at the site it names and not the function elsewhere that shares its name. |
+| 8 | <a id="only_consecutive_pairs_are_steps_of_the_chain"></a>`only_consecutive_pairs_are_steps_of_the_chain` | `LLR-ANN-01` | Verifies that an edge is a step of the deepest chain only where its endpoints are consecutive in it, and that the chain is read in the direction the calls run. |
+
+### 3.58. [test/unit/report_html.c](../test/unit/report_html.c)
+
+Role: **unit**. **16 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
 | 1 | <a id="a_node_is_emitted_for_each_declared_layer"></a>`a_node_is_emitted_for_each_declared_layer` | `LLR-CYT-01` | Verifies that one node is emitted per declared stratum, identified by its ordinal, and that no layer is emitted for a directory nobody declared. |
 | 2 | <a id="a_file_names_the_layer_arch_assigned_it"></a>`a_file_names_the_layer_arch_assigned_it` | `LLR-CYT-02` | Verifies that a component's container is the layer `stratum_of_components` assigned it, so the drawing cannot disagree with the dependency matrix printed beside it. |
 | 3 | <a id="a_file_in_no_declared_layer_has_no_parent"></a>`a_file_in_no_declared_layer_has_no_parent` | `LLR-CYT-02` | Verifies that a component matching no stratum carries no `parent` key at all — not an empty one and not a synthesised layer — since inventing a container would report a structure nobody declared. |
-| 4 | <a id="with_no_strata_the_document_has_two_tiers"></a>`with_no_strata_the_document_has_two_tiers` | `LLR-CYT-01`, `LLR-CYT-02` | Verifies that a run declaring no strata produces a file-and-function hierarchy rather than one rooted in an invented layer. |
-| 5 | <a id="a_function_names_the_file_that_defines_it"></a>`a_function_names_the_file_that_defines_it` | `LLR-CYT-03` | Verifies that a function node is parented on its defining component and carries the figures the graph already holds, rather than any this renderer derived. |
-| 6 | <a id="edges_join_functions_and_never_containers"></a>`edges_join_functions_and_never_containers` | `LLR-CYT-04` | Verifies that every emitted edge names two function nodes and that no meta-edge between two containers is emitted, the connection between collapsed boxes being the viewer's to derive. |
-| 7 | <a id="no_raw_angle_bracket_or_ampersand_reaches_the_payload"></a>`no_raw_angle_bracket_or_ampersand_reaches_the_payload` | `LLR-HTM-03` | Verifies the embedding escape on a function name containing `</script>`: well-formed JSON that would end the script element holding it, leaving the page to render empty rather than wrong. |
-| 8 | <a id="the_javascript_line_terminators_are_escaped"></a>`the_javascript_line_terminators_are_escaped` | `LLR-HTM-03` | Verifies that U+2028 and U+2029 are escaped — line terminators to a JavaScript parser and ordinary characters to a JSON one, so a name carrying either is valid in the document and a syntax error once embedded. |
-| 9 | <a id="the_page_loads_the_viewer_and_opens_collapsed"></a>`the_page_loads_the_viewer_and_opens_collapsed` | `LLR-HTM-02`, `LLR-HTM-04` | Verifies that the shell references the rendering library and its extension, and that the initialisation enables the fisheye and animation behaviours and collapses every container. |
-| 10 | <a id="an_empty_graph_still_produces_a_page"></a>`an_empty_graph_still_produces_a_page` | `LLR-HTM-02` | Verifies that a graph with no nodes yields a page rather than no file, so the artefact's existence does not vary with the project's content. |
-| 11 | <a id="the_stream_is_left_open_for_the_caller"></a>`the_stream_is_left_open_for_the_caller` | `LLR-HTM-05` | Verifies that the renderer writes to the stream it is given and neither flushes nor closes it: `emit` owns the destination here as it does for every other format, which is what makes this a format rather than a companion. |
-| 12 | <a id="the_html_extension_selects_the_html_format"></a>`the_html_extension_selects_the_html_format` | `LLR-HTM-01` | Verifies that `.html` maps to the html format in the extension table, the way every recognised extension maps to one. |
-| 13 | <a id="there_is_no_option_requesting_the_html_format"></a>`there_is_no_option_requesting_the_html_format` | `LLR-HTM-01` | Verifies that `--html` is not an option: the filename has already named the format, and a flag naming it again is a third spelling of one fact. |
-| 14 | <a id="the_format_option_spells_html"></a>`the_format_option_spells_html` | `LLR-HTM-01` | Verifies that `--format html` selects the format for a report on standard output, where there is no extension to read. |
-| 15 | <a id="the_html_format_is_refused_with_from_xml"></a>`the_html_format_is_refused_with_from_xml` | `LLR-CLI-15` | Verifies that regeneration into the html format is refused: a record carries findings and not the graph they came from. |
+| 4 | <a id="the_shed_prefix_ends_at_a_separator"></a>`the_shed_prefix_ends_at_a_separator` | `LLR-CYT-02` | Verifies that the prefix a file label sheds ends at a path separator rather than inside a name — `/p/app/` beside `/p/apple/` sheds `/p/`, not the `/p/app` the bytes share — and that `path` on the same node carries the full path the label dropped. |
+| 5 | <a id="a_lone_component_is_labelled_by_its_file_name"></a>`a_lone_component_is_labelled_by_its_file_name` | `LLR-CYT-02` | Verifies that a document with a single component labels it by its file name, its whole directory being a shared prefix nothing else contests, with the full path kept on the node's `path` key. |
+| 6 | <a id="with_no_strata_the_document_has_two_tiers"></a>`with_no_strata_the_document_has_two_tiers` | `LLR-CYT-01`, `LLR-CYT-02` | Verifies that a run declaring no strata produces a file-and-function hierarchy rather than one rooted in an invented layer. |
+| 7 | <a id="a_function_names_the_file_that_defines_it"></a>`a_function_names_the_file_that_defines_it` | `LLR-CYT-03` | Verifies that a function node is parented on its defining component and carries the figures the graph already holds, rather than any this renderer derived. |
+| 8 | <a id="edges_join_functions_and_never_containers"></a>`edges_join_functions_and_never_containers` | `LLR-CYT-04` | Verifies that every emitted edge names two function nodes and that no meta-edge between two containers is emitted, the connection between collapsed boxes being the viewer's to derive. |
+| 9 | <a id="no_raw_angle_bracket_or_ampersand_reaches_the_payload"></a>`no_raw_angle_bracket_or_ampersand_reaches_the_payload` | `LLR-HTM-03` | Verifies the embedding escape on a function name containing `</script>`: well-formed JSON that would end the script element holding it, leaving the page to render empty rather than wrong. |
+| 10 | <a id="the_javascript_line_terminators_are_escaped"></a>`the_javascript_line_terminators_are_escaped` | `LLR-HTM-03` | Verifies that U+2028 and U+2029 are escaped — line terminators to a JavaScript parser and ordinary characters to a JSON one, so a name carrying either is valid in the document and a syntax error once embedded. |
+| 11 | <a id="the_page_loads_the_viewer_and_opens_collapsed"></a>`the_page_loads_the_viewer_and_opens_collapsed` | `LLR-HTM-02`, `LLR-HTM-04` | Verifies that the shell references the rendering library and its extension, and that the initialisation enables the fisheye and animation behaviours and collapses every container. |
+| 12 | <a id="an_empty_graph_still_produces_a_page"></a>`an_empty_graph_still_produces_a_page` | `LLR-HTM-02` | Verifies that a graph with no nodes yields a page rather than no file, so the artefact's existence does not vary with the project's content. |
+| 13 | <a id="the_stream_is_left_open_for_the_caller"></a>`the_stream_is_left_open_for_the_caller` | `LLR-HTM-05` | Verifies that the renderer writes to the stream it is given and neither flushes nor closes it: `emit` owns the destination here as it does for every other format, which is what makes this a format rather than a companion. |
+| 14 | <a id="the_html_extension_selects_the_html_format"></a>`the_html_extension_selects_the_html_format` | `LLR-HTM-01` | Verifies that `.html` maps to the html format in the extension table, the way every recognised extension maps to one. |
+| 15 | <a id="there_is_no_option_requesting_the_html_format"></a>`there_is_no_option_requesting_the_html_format` | `LLR-HTM-01` | Verifies that `--html` is not an option: the filename has already named the format, and a flag naming it again is a third spelling of one fact. |
+| 16 | <a id="the_format_option_spells_html"></a>`the_format_option_spells_html` | `LLR-HTM-01` | Verifies that `--format html` selects the format for a report on standard output, where there is no extension to read. |
+| 17 | <a id="the_html_format_is_refused_with_from_xml"></a>`the_html_format_is_refused_with_from_xml` | `LLR-CLI-15` | Verifies that regeneration into the html format is refused: a record carries findings and not the graph they came from. |
+| 18 | <a id="a_finding_reaches_the_node_it_describes"></a>`a_finding_reaches_the_node_it_describes` | `LLR-CYT-05` | Verifies that the severity the catalogue decided reaches the node spelled as the word the stylesheet selects on, that the finding travels in full beside it, and that a function nothing was found about carries neither. |
+| 19 | <a id="an_absent_mark_is_an_absent_key"></a>`an_absent_mark_is_an_absent_key` | `LLR-CYT-05` | Verifies that a structural mark that does not hold is omitted rather than stated as false, which is what the stylesheet's truthy selectors read and what keeps the payload from stating five marks on every node. |
+| 20 | <a id="the_page_carries_a_key_for_every_mark"></a>`the_page_carries_a_key_for_every_mark` | `LLR-HTM-06` | Verifies that each annotation takes a distinct visual attribute so that several compose rather than overwrite, that the severity pigments are the ones the Graphviz companion uses, and that the legend names every mark in the page itself. |
 
-### 3.58. [test/fixtures/html.bats](../test/fixtures/html.bats)
+### 3.59. [test/fixtures/html.bats](../test/fixtures/html.bats)
 
-Role: **fixture**. **17 test(s).**
+Role: **fixture**. **20 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1785,18 +1805,21 @@ Role: **fixture**. **17 test(s).**
 | 3 | <a id="html: one node per declared stratum, and none for an undeclared one"></a>`html: one node per declared stratum, and none for an undeclared one` | — | Verifies against the hand-worked table that exactly the declared strata produce layer nodes. |
 | 4 | <a id="html: each file names the layer it was declared in"></a>`html: each file names the layer it was declared in` | — | Verifies against the hand-worked table that each component names the layer it was declared in as its container. |
 | 5 | <a id="html: a file matching no stratum has no parent at all"></a>`html: a file matching no stratum has no parent at all` | — | Verifies that the undeclared directory's file node carries no container, following the judgement `stratum_of_components` makes rather than reversing it. |
-| 6 | <a id="html: each function names the file that defines it"></a>`html: each function names the file that defines it` | — | Verifies against the hand-worked table that each function is contained by the file that defines it. |
-| 7 | <a id="html: the node counts are the hand-worked ones"></a>`html: the node counts are the hand-worked ones` | — | Verifies the two layer, three file and five function nodes counted by hand in the fixture header. |
-| 8 | <a id="html: every edge joins two functions, and there are four of them"></a>`html: every edge joins two functions, and there are four of them` | — | Verifies the four call edges read off the sources by hand, each joining two function nodes. |
-| 9 | <a id="html: no meta-edge is emitted between containers"></a>`html: no meta-edge is emitted between containers` | — | Verifies that none of the three boundary-crossing calls produces an edge naming a file or a layer, the connection between collapsed boxes being derived by the viewer. |
-| 10 | <a id="html: the page loads the viewer and opens collapsed"></a>`html: the page loads the viewer and opens collapsed` | — | Verifies that the page references both libraries and opens at the highest architectural level with the behaviours that keep a descent navigable. |
-| 11 | <a id="html: the artefact is byte-identical across runs"></a>`html: the artefact is byte-identical across runs` | — | Verifies that two runs over unchanged input produce the same bytes, the determinism required of every artefact. |
-| 12 | <a id="html: with no strata declared the hierarchy has two tiers"></a>`html: with no strata declared the hierarchy has two tiers` | — | Verifies that a run declaring no strata draws every file as a root container rather than acquiring an invented top. |
-| 13 | <a id="html: the .html extension selects the format, with no option asking"></a>`html: the .html extension selects the format, with no option asking` | — | Verifies that the format is chosen by the output filename's extension, the way every other format is chosen. |
-| 14 | <a id="html: there is no --html option"></a>`html: there is no --html option` | — | Verifies that no option requests the format: the filename has already said what it is, and a flag saying it again is the disagreement HLR-149 exists to prevent. |
-| 15 | <a id="html: --format html selects it for a report on standard output"></a>`html: --format html selects it for a report on standard output` | — | Verifies that the option names the format where there is no filename to read an extension from, the rule every other format follows. |
-| 16 | <a id="html: --format and a disagreeing extension are refused"></a>`html: --format and a disagreeing extension are refused` | — | Verifies that an explicit format contradicting the output filename is a usage error naming both rather than a silent preference for either. |
-| 17 | <a id="html: the format is refused with --from-xml, not ignored"></a>`html: the format is refused with --from-xml, not ignored` | — | Verifies that regeneration into this format is refused with a diagnostic: a saved record carries findings and not the topology the page draws, and an empty drawing would be a confidently wrong answer. |
+| 6 | <a id="html: the label sheds the shared prefix and path keeps it"></a>`html: the label sheds the shared prefix and path keeps it` | — | Verifies over the fixture tree that every file node's `path` is the shed prefix followed by its `label`, so the reduction the drawing makes for legibility loses nothing the record held. |
+| 7 | <a id="html: each function names the file that defines it"></a>`html: each function names the file that defines it` | — | Verifies against the hand-worked table that each function is contained by the file that defines it. |
+| 8 | <a id="html: the node counts are the hand-worked ones"></a>`html: the node counts are the hand-worked ones` | — | Verifies the two layer, three file and five function nodes counted by hand in the fixture header. |
+| 9 | <a id="html: every edge joins two functions, and there are four of them"></a>`html: every edge joins two functions, and there are four of them` | — | Verifies the four call edges read off the sources by hand, each joining two function nodes. |
+| 10 | <a id="html: no meta-edge is emitted between containers"></a>`html: no meta-edge is emitted between containers` | — | Verifies that none of the three boundary-crossing calls produces an edge naming a file or a layer, the connection between collapsed boxes being derived by the viewer. |
+| 11 | <a id="html: the page loads the viewer and opens collapsed"></a>`html: the page loads the viewer and opens collapsed` | — | Verifies that the page references both libraries and opens at the highest architectural level with the behaviours that keep a descent navigable. |
+| 12 | <a id="html: the artefact is byte-identical across runs"></a>`html: the artefact is byte-identical across runs` | — | Verifies that two runs over unchanged input produce the same bytes, the determinism required of every artefact. |
+| 13 | <a id="html: with no strata declared the hierarchy has two tiers"></a>`html: with no strata declared the hierarchy has two tiers` | — | Verifies that a run declaring no strata draws every file as a root container rather than acquiring an invented top. |
+| 14 | <a id="html: the .html extension selects the format, with no option asking"></a>`html: the .html extension selects the format, with no option asking` | — | Verifies that the format is chosen by the output filename's extension, the way every other format is chosen. |
+| 15 | <a id="html: there is no --html option"></a>`html: there is no --html option` | — | Verifies that no option requests the format: the filename has already said what it is, and a flag saying it again is the disagreement HLR-149 exists to prevent. |
+| 16 | <a id="html: --format html selects it for a report on standard output"></a>`html: --format html selects it for a report on standard output` | — | Verifies that the option names the format where there is no filename to read an extension from, the rule every other format follows. |
+| 17 | <a id="html: --format and a disagreeing extension are refused"></a>`html: --format and a disagreeing extension are refused` | — | Verifies that an explicit format contradicting the output filename is a usage error naming both rather than a silent preference for either. |
+| 18 | <a id="html: the format is refused with --from-xml, not ignored"></a>`html: the format is refused with --from-xml, not ignored` | — | Verifies that regeneration into this format is refused with a diagnostic: a saved record carries findings and not the topology the page draws, and an empty drawing would be a confidently wrong answer. |
+| 19 | <a id="html: the drawing carries the findings the report states"></a>`html: the drawing carries the findings the report states` | — | Verifies over the fixture tree that every annotated node carries a severity from the closed set with its finding beside it, and that a mark is only ever present-and-true. |
+| 20 | <a id="html: the page states its own key"></a>`html: the page states its own key` | — | Verifies that the page names every mark it draws and uses the Graphviz companion's severity pigments, so a reader sent the file alone can read it and a reader of both learns one scheme. |
 
 ## 4. LLR Coverage Matrix
 
@@ -2377,14 +2400,19 @@ verified by code review — see
 | `LLR-PLC-03` | `collect_placed` | `HLR-212`, `HLR-133`, `HLR-138` | `HLR-212: a recovered function carries no figure elc did not measure`, `HLR-212: a call to a recovered function is unresolved, not an edge`, `HLR-212: with no image no function is placed` |
 | `LLR-PLC-04` | `collect_placed` | `HLR-212`, `HLR-211`, `HLR-056` | `HLR-211: the region count survives a record round trip`, `HLR-212: the placed rows survive a record round trip` |
 | `LLR-CYT-01` | `html_elements` | `HLR-213`, `HLR-078` | `a_node_is_emitted_for_each_declared_layer`, `with_no_strata_the_document_has_two_tiers` |
-| `LLR-CYT-02` | `html_elements` | `HLR-213`, `HLR-114` | `a_file_names_the_layer_arch_assigned_it`, `a_file_in_no_declared_layer_has_no_parent`, `with_no_strata_the_document_has_two_tiers` |
+| `LLR-CYT-02` | `html_elements` | `HLR-213`, `HLR-114` | `a_file_names_the_layer_arch_assigned_it`, `a_file_in_no_declared_layer_has_no_parent`, `the_shed_prefix_ends_at_a_separator`, `a_lone_component_is_labelled_by_its_file_name`, `with_no_strata_the_document_has_two_tiers` |
 | `LLR-CYT-03` | `html_elements` | `HLR-213`, `HLR-032` | `a_function_names_the_file_that_defines_it` |
 | `LLR-CYT-04` | `html_elements` | `HLR-214`, `HLR-074`, `HLR-032` | `edges_join_functions_and_never_containers` |
+| `LLR-CYT-05` | `html_elements` | `HLR-217`, `HLR-099`, `HLR-088` | `a_finding_reaches_the_node_it_describes`, `an_absent_mark_is_an_absent_key` |
 | `LLR-HTM-01` | `format_html` | `HLR-215`, `HLR-148`, `HLR-149` | `the_html_extension_selects_the_html_format`, `there_is_no_option_requesting_the_html_format`, `the_format_option_spells_html` |
 | `LLR-HTM-02` | `format_html` | `HLR-215`, `HLR-040` | `the_page_loads_the_viewer_and_opens_collapsed`, `an_empty_graph_still_produces_a_page` |
 | `LLR-HTM-03` | `format_html` | `HLR-215`, `HLR-064` | `no_raw_angle_bracket_or_ampersand_reaches_the_payload`, `the_javascript_line_terminators_are_escaped` |
 | `LLR-HTM-04` | `format_html` | `HLR-216` | `the_page_loads_the_viewer_and_opens_collapsed` |
 | `LLR-HTM-05` | `format_html` | `HLR-215`, `HLR-030`, `HLR-038` | `the_stream_is_left_open_for_the_caller` |
+| `LLR-HTM-06` | `format_html` | `HLR-217`, `HLR-105` | `the_page_carries_a_key_for_every_mark` |
+| `LLR-ANN-01` | `annotations_build` | `HLR-217`, `HLR-123` | `the_highest_severity_is_the_one_kept`, `a_clean_graph_carries_no_annotation`, `an_unreachable_function_is_marked_at_its_definition_site`, `only_consecutive_pairs_are_steps_of_the_chain` |
+| `LLR-ANN-02` | `annotations_build` | `HLR-217`, `HLR-091`, `HLR-092` | `a_finding_lands_on_the_definition_site_not_the_name`, `a_component_finding_lands_on_the_component`, `a_finding_about_the_graph_reaches_the_notes` |
+| `LLR-ANN-03` | `annotations_build` | `HLR-089`, `HLR-105`, `HLR-217` | `recursion_is_marked_on_every_member_of_the_cycle` |
 
 ## 5. Integration Test Environment
 

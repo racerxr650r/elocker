@@ -37,11 +37,14 @@
 
 #include <jansson.h>
 
+#include "annotate.h"
 #include "arch.h"
 #include "diag.h"
 #include "elc.h"
 #include "graph.h"
 #include "report_html.h"
+#include "thresholds.h"   /* severity_name: the judgement is the
+                           * catalogue's, and only its spelling is used */
 
 /* The rendering library and its expand-collapse extension, fetched by the
  * *browser* when the page is opened.
@@ -57,6 +60,23 @@
 	"https://unpkg.com/cytoscape/dist/cytoscape.min.js"
 #define EXPAND_COLLAPSE_CDN \
 	"https://unpkg.com/cytoscape-expand-collapse/cytoscape-expand-collapse.js"
+
+/* The layout engine, and the reason it is a third and fourth script rather
+ * than one of the viewer's own (LLR-HTM-04).
+ *
+ * A call graph is read as a hierarchy and drawn as one by the `.dot`
+ * companion, which Graphviz ranks and clusters. The viewer ships two layouts
+ * and neither does both: its force-directed one keeps a container's members
+ * together but arranges them by simulated physics, and its breadth-first one
+ * ranks by call direction but scatters a container's members across the
+ * drawing, so a declared layer is drawn as a box overlapping the files of
+ * another. ELK's layered algorithm is the one that ranks *and* respects
+ * containment, which is what makes this drawing and the `.dot` companion
+ * two renderings of one picture rather than two different pictures. */
+#define ELK_CDN \
+	"https://unpkg.com/elkjs/lib/elk.bundled.js"
+#define CYTOSCAPE_ELK_CDN \
+	"https://unpkg.com/cytoscape-elk/dist/cytoscape-elk.js"
 
 /* ------------------------------------------------------------------ model */
 
@@ -99,6 +119,49 @@ static json_t *append_element(json_t *elements)
 		return NULL;
 
 	return data;
+}
+
+/* A structural mark, emitted only where it holds.
+ *
+ * Present-or-absent rather than true-or-false because the stylesheet tests it
+ * with `[?key]`: a node carrying every key with `false` in most of them would
+ * say the same thing in five times the bytes, on every node in the drawing.
+ */
+static int mark_flag(json_t *data, const char *key, unsigned bit)
+{
+	return bit ? set_new(data, key, json_true()) : 0;
+}
+
+/* What the analyses found about one node or component (LLR-CYT-05).
+ *
+ * **The severity is spelled, never re-decided.** It arrives on the annotation
+ * from `thresholds.c` by way of `annotate.c`, and this renderer converts a
+ * rank to the word the stylesheet selects on and nothing else — the same
+ * annotation the `.dot` companion turns into a fill, so the two drawings
+ * cannot disagree about a node (HLR-098, HLR-099).
+ *
+ * Nothing is emitted for a node nothing was found about, which is most of
+ * them: a key that is absent costs no bytes and matches no selector.
+ */
+static int annotation_fields(json_t *data, const Annotation *a)
+{
+	int rc = 0;
+
+	if (!a)
+		return 0;
+
+	if (a->note) {
+		rc |= set_new(data, "severity",
+		              json_string(severity_name((Severity)a->severity)));
+		rc |= set_new(data, "finding", json_string(a->note));
+	}
+
+	rc |= mark_flag(data, "unreachable", a->marks & MARK_UNREACHABLE);
+	rc |= mark_flag(data, "recursive",   a->marks & MARK_RECURSIVE);
+	rc |= mark_flag(data, "deepest",     a->marks & MARK_DEEPEST);
+	rc |= mark_flag(data, "hidden",      a->marks & MARK_HIDDEN);
+	rc |= mark_flag(data, "soleUser",    a->marks & MARK_SOLE_USER);
+	return rc;
 }
 
 /* Tier 1 — one node per declared stratum, identified by its ordinal
@@ -153,8 +216,38 @@ static int append_layers(json_t *elements, const ElcOptions *opts)
  * every run declaring no strata at all, wrapping the whole project in a
  * fiction.
  */
-static int append_files(json_t *elements, const Sdg *g, const size_t *stratum)
+/* The longest directory prefix every component path shares, measured in
+ * bytes and always ending just past a `/` (LLR-CYT-02).
+ *
+ * Within one document the shared prefix distinguishes nothing — every
+ * component has it — while consuming most of each label's width, which on a
+ * real project is what makes the file tier illegible. It is computed from the
+ * document's own components, so it is as deterministic as they are (HLR-032),
+ * and a lone component is labelled by its file name, its whole directory
+ * being a prefix nothing else contests.
+ */
+static size_t shared_prefix_len(char *const *paths, size_t count)
 {
+	size_t keep = 0;
+
+	if (count == 0)
+		return 0;
+	for (size_t i = 0; paths[0][i] != '\0'; i++) {
+		for (size_t p = 1; p < count; p++)
+			if (paths[p][i] != paths[0][i])
+				return keep;
+		if (paths[0][i] == '/')
+			keep = i + 1;
+	}
+	return keep;
+}
+
+static int append_files(json_t *elements, const Sdg *g, const size_t *stratum,
+                        const Annotation *comps)
+{
+	size_t prefix = shared_prefix_len(g->component_paths,
+	                                  g->component_count);
+
 	for (size_t c = 0; c < g->component_count; c++) {
 		json_t *data = append_element(elements);
 		char    id[64], parent[64];
@@ -164,10 +257,18 @@ static int append_files(json_t *elements, const Sdg *g, const size_t *stratum)
 		if (snprintf(id, sizeof id, "file_%zu", c) >= (int)sizeof id)
 			return -1;
 
+		/* The label is for reading and `path` is the record: what the
+		 * label sheds stays recoverable on the same node rather than
+		 * lost (LLR-CYT-02). */
 		if (set_new(data, "id", json_string(id)) != 0 ||
 		    set_new(data, "label",
+		            json_string(g->component_paths[c] + prefix)) != 0 ||
+		    set_new(data, "path",
 		            json_string(g->component_paths[c])) != 0 ||
 		    set_new(data, "tier", json_string("file")) != 0)
+			return -1;
+
+		if (annotation_fields(data, comps ? &comps[c] : NULL) != 0)
 			return -1;
 
 		if (stratum && stratum[c] != SIZE_MAX) {
@@ -204,7 +305,7 @@ static int append_files(json_t *elements, const Sdg *g, const size_t *stratum)
  * allocation failure, after which the whole document is discarded anyway.
  */
 static int function_fields(json_t *data, const SdgNode *n, size_t index,
-                           size_t component_count)
+                           size_t component_count, const Annotation *a)
 {
 	char id[64], parent[64];
 	int  rc = 0;
@@ -220,6 +321,7 @@ static int function_fields(json_t *data, const SdgNode *n, size_t index,
 	rc |= set_new(data, "eloc", json_integer((json_int_t)n->eloc));
 	rc |= set_new(data, "complexity",
 	              json_integer((json_int_t)n->complexity));
+	rc |= annotation_fields(data, a);
 
 	/* Unreachable by construction, and handled rather than asserted: the
 	 * failure it would otherwise produce is a `parent` naming a node that
@@ -235,15 +337,16 @@ static int function_fields(json_t *data, const SdgNode *n, size_t index,
 	return rc;
 }
 
-static int append_functions(json_t *elements, const Sdg *g)
+static int append_functions(json_t *elements, const Sdg *g,
+                            const Annotation *nodes)
 {
 	for (size_t i = 0; i < g->node_count; i++) {
 		json_t *data = append_element(elements);
 
 		if (!data)
 			return -1;
-		if (function_fields(data, &g->nodes[i], i,
-		                    g->component_count) != 0)
+		if (function_fields(data, &g->nodes[i], i, g->component_count,
+		                    nodes ? &nodes[i] : NULL) != 0)
 			return -1;
 	}
 	return 0;
@@ -281,7 +384,8 @@ static int html_edges_by_source_then_target(const void *a, const void *b)
  * two exceptions to `report.c` owning every sort: it is a property of this
  * artefact rather than of a collection the model holds (LLR-RPT-10).
  */
-static int append_edges(json_t *elements, const Sdg *g)
+static int append_edges(json_t *elements, const Sdg *g,
+                        const uint32_t *chain, size_t chain_count)
 {
 	SdgEdge *sorted = NULL;
 	int      status = -1;
@@ -321,6 +425,13 @@ static int append_edges(json_t *elements, const Sdg *g)
 		    set_new(data, "weight",
 		            json_integer((json_int_t)e->call_sites)) != 0)
 			goto done;
+
+		/* A step of the deepest chain, marked from the same test the
+		 * `.dot` writer uses so the two drawings agree about which
+		 * edges the chain runs through (HLR-088). */
+		if (annotation_on_chain(chain, chain_count, e->from, e->to) &&
+		    set_new(data, "chain", json_true()) != 0)
+			goto done;
 	}
 
 	status = 0;
@@ -331,34 +442,47 @@ done:
 
 /* The complete elements array: the three node tiers in that order, then the
  * edges (HLR-213, HLR-214). Returns a new reference, or NULL. */
-static json_t *html_elements(const Sdg *g, const ElcOptions *opts)
+static json_t *html_elements(const Sdg *g, const Report *r,
+                             const ElcOptions *opts)
 {
-	json_t *elements = json_array();
-	size_t *stratum  = NULL;
+	json_t     *elements = json_array();
+	size_t     *stratum  = NULL;
+	Annotation *nodes    = NULL;
+	Annotation *comps    = NULL;
+	char       *notes    = NULL;
+	uint32_t   *chain    = NULL;
+	int         built    = -1;
 
 	if (!elements)
 		return NULL;
 
+	/* The findings, placed by the module the `.dot` writer places them
+	 * with. Deciding here which finding describes which node would be the
+	 * second opinion `annotate.c` exists to prevent (HLR-098). */
+	built = annotations_build(g, r, &nodes, &comps, &notes, &chain);
+
 	/* Only where a layering was declared. `stratum_of_components`
 	 * allocates for a project with no components too, and asking it for a
 	 * map nothing will read is an allocation that can fail for no reason. */
-	if (opts->strata.count > 0) {
+	if (opts->strata.count > 0 && built == 0) {
 		stratum = stratum_of_components(g, opts);
-		if (!stratum) {
-			json_decref(elements);
-			return NULL;
-		}
+		if (!stratum)
+			built = -1;
 	}
 
-	if (append_layers(elements, opts) != 0 ||
-	    append_files(elements, g, stratum) != 0 ||
-	    append_functions(elements, g) != 0 ||
-	    append_edges(elements, g) != 0) {
-		free(stratum);
+	if (built != 0 ||
+	    append_layers(elements, opts) != 0 ||
+	    append_files(elements, g, stratum, comps) != 0 ||
+	    append_functions(elements, g, nodes) != 0 ||
+	    append_edges(elements, g, chain, r->deepest_count) != 0) {
 		json_decref(elements);
-		return NULL;
+		elements = NULL;
 	}
 
+	annotations_free(nodes, g->node_count);
+	annotations_free(comps, g->component_count);
+	free(notes);
+	free(chain);
 	free(stratum);
 	return elements;
 }
@@ -423,16 +547,50 @@ static void write_head(FILE *out)
 	fputs("<title>elc — System Dependence Graph</title>\n", out);
 	fprintf(out, "<script src=\"%s\"></script>\n", CYTOSCAPE_CDN);
 	fprintf(out, "<script src=\"%s\"></script>\n", EXPAND_COLLAPSE_CDN);
+	fprintf(out, "<script src=\"%s\"></script>\n", ELK_CDN);
+	fprintf(out, "<script src=\"%s\"></script>\n", CYTOSCAPE_ELK_CDN);
 	fputs("<style>\n"
 	      "  html, body { margin: 0; height: 100%; "
 	      "font-family: system-ui, sans-serif; }\n"
 	      "  #cy { width: 100%; height: 100%; display: block; }\n"
-	      "  #legend { position: absolute; top: 0; left: 0; padding: 8px "
-	      "12px; background: rgba(255,255,255,0.9); font-size: 13px; }\n"
+	      "  #legend { position: absolute; top: 0; left: 0; right: 0; "
+	      "padding: 6px 10px; background: rgba(255,255,255,0.92); "
+	      "border-bottom: 1px solid #cfd8dc; font-size: 12px; "
+	      "line-height: 1.7; }\n"
+	      "  #legend b { font-weight: 600; }\n"
+	      "  #legend .k { display: inline-block; margin-right: 14px; "
+	      "white-space: nowrap; }\n"
+	      "  #legend .s { display: inline-block; width: 22px; "
+	      "height: 12px; vertical-align: -2px; margin-right: 5px; "
+	      "border: 1px solid #78909c; }\n"
 	      "</style>\n", out);
 	fputs("</head>\n<body>\n", out);
-	fputs("<div id=\"legend\">Click a box to open it, and again to close "
-	      "it. Layers &rarr; files &rarr; functions.</div>\n", out);
+
+	/* The key, and it says the same things the `.dot` header says in
+	 * prose. A drawing whose colours are not explained is a drawing the
+	 * reader has to guess at, and the companion this one replaces
+	 * explained itself (LLR-HTM-06). */
+	fputs("<div id=\"legend\">\n"
+	      "<b>Click a file to open it, and again to close it.</b> "
+	      "Layers hold files; a file holds its functions.\n"
+	      "<div>\n"
+	      "<span class=\"k\"><span class=\"s\" "
+	      "style=\"background:#f7e0b0\"></span>warning</span>\n"
+	      "<span class=\"k\"><span class=\"s\" "
+	      "style=\"background:#f6c7c7\"></span>critical</span>\n"
+	      "<span class=\"k\"><span class=\"s\" "
+	      "style=\"background:#fff;border:3px double #37474f\"></span>"
+	      "recursive</span>\n"
+	      "<span class=\"k\"><span class=\"s\" "
+	      "style=\"background:#fff;border:1px dashed #9e9e9e\"></span>"
+	      "unreachable</span>\n"
+	      "<span class=\"k\"><span class=\"s\" "
+	      "style=\"background:#fff;border:2px solid #1f6fb4\"></span>"
+	      "deepest call chain</span>\n"
+	      "<span class=\"k\">octagon &mdash; hidden channel</span>\n"
+	      "<span class=\"k\">tag &mdash; sole namer of a global</span>\n"
+	      "</div>\n"
+	      "</div>\n", out);
 	fputs("<div id=\"cy\"></div>\n", out);
 }
 
@@ -460,56 +618,132 @@ static void write_glue(FILE *out)
 "const cy = cytoscape({\n"
 "  container: document.getElementById('cy'),\n"
 "  elements: graphData,\n"
-"  layout: { name: 'cose', animate: false, nestingFactor: 1.2,\n"
-"            idealEdgeLength: 80, padding: 20 },\n"
+"  /* No layout yet: the first one worth computing is of the collapsed\n"
+"     view, below. Laying out the expanded graph here would spend the most\n"
+"     expensive layout on a drawing HLR-216 forbids opening with — and\n"
+"     collapsing while it still runs is a race the collapse loses on any\n"
+"     real project, leaving the view fitted to a drawing that no longer\n"
+"     exists. */\n"
+"  layout: { name: 'preset' },\n"
 "  style: [\n"
+"    /* A function is a box, as it is in the .dot companion; the marks\n"
+"       below take shape, fill and border separately so that several can\n"
+"       apply at once without one overwriting another (LLR-HTM-06). */\n"
 "    { selector: 'node', style: {\n"
 "        'label': 'data(label)', 'font-size': 10,\n"
-"        'text-valign': 'center', 'background-color': '#cfd8dc',\n"
+"        'text-valign': 'center', 'text-halign': 'center',\n"
+"        'shape': 'round-rectangle', 'width': 'label', 'height': 'label',\n"
+"        'padding': '6px', 'background-color': '#ffffff',\n"
 "        'border-width': 1, 'border-color': '#78909c' } },\n"
 "    { selector: 'node[tier = \"layer\"]', style: {\n"
-"        'background-opacity': 0.12, 'background-color': '#1565c0',\n"
+"        'background-opacity': 0.10, 'background-color': '#1565c0',\n"
 "        'border-color': '#1565c0', 'font-size': 16,\n"
-"        'text-valign': 'top' } },\n"
+"        'text-valign': 'top', 'padding': '14px' } },\n"
 "    { selector: 'node[tier = \"file\"]', style: {\n"
-"        'background-opacity': 0.18, 'background-color': '#00897b',\n"
+"        'background-opacity': 0.14, 'background-color': '#00897b',\n"
 "        'border-color': '#00897b', 'font-size': 12,\n"
-"        'text-valign': 'top' } },\n"
+"        'text-valign': 'top', 'padding': '10px' } },\n"
+"\n"
+"    /* A collapsed file is one box carrying the file's name — the tier\n"
+"       the reader navigates, so it is drawn to be read rather than as a\n"
+"       shrunken container (HLR-216). */\n"
+"    { selector: 'node[tier = \"file\"].cy-expand-collapse-collapsed-node',\n"
+"      style: {\n"
+"        'text-valign': 'center', 'background-opacity': 1,\n"
+"        'background-color': '#e0f2f1', 'border-width': 2,\n"
+"        'font-size': 13, 'padding': '10px' } },\n"
+"\n"
+"    /* The severity is the catalogue's, spelled by annotate.c and only\n"
+"       coloured here — the same pigments the .dot writer uses. */\n"
+"    { selector: 'node[severity = \"warning\"]', style: {\n"
+"        'background-color': '#f7e0b0', 'background-opacity': 1 } },\n"
+"    { selector: 'node[severity = \"critical\"]', style: {\n"
+"        'background-color': '#f6c7c7', 'background-opacity': 1 } },\n"
+"\n"
+"    { selector: 'node[?hidden]',   style: { 'shape': 'octagon' } },\n"
+"    { selector: 'node[?soleUser]', style: { 'shape': 'tag' } },\n"
+"    { selector: 'node[?unreachable]', style: {\n"
+"        'border-style': 'dashed', 'border-color': '#9e9e9e' } },\n"
+"    { selector: 'node[?deepest]', style: {\n"
+"        'border-color': '#1f6fb4', 'border-width': 3 } },\n"
+"    { selector: 'node[?recursive]', style: {\n"
+"        'border-style': 'double', 'border-width': 4,\n"
+"        'border-color': '#37474f' } },\n"
+"\n"
 "    { selector: 'edge', style: {\n"
 "        'width': 1, 'line-color': '#90a4ae',\n"
 "        'target-arrow-color': '#90a4ae',\n"
-"        'target-arrow-shape': 'triangle',\n"
-"        'curve-style': 'bezier' } }\n"
+"        'target-arrow-shape': 'triangle', 'arrow-scale': 0.8,\n"
+"        'curve-style': 'bezier' } },\n"
+"    { selector: 'edge[?chain]', style: {\n"
+"        'line-color': '#1f6fb4', 'target-arrow-color': '#1f6fb4',\n"
+"        'width': 2 } }\n"
 "  ]\n"
 "});\n"
 "\n"
+, out);
+	fputs(
 "const api = cy.expandCollapse({\n"
-"  layoutBy: { name: 'cose', animate: false, randomize: false,\n"
-"              fit: false },\n"
+"  layoutBy: null,\n"
 "  fisheye: true,\n"
 "  animate: true,\n"
 "  undoable: false\n"
 "});\n"
 "\n"
-"/* HLR-216: the view opens at the highest architectural level the run\n"
-"   produced. A view that opened at function level and offered collapsing\n"
-"   would reproduce the density failure this companion exists to fix. */\n"
-"api.collapseAll();\n"
-"cy.fit(undefined, 30);\n"
+"/* Only files open and close (HLR-216). A layer is a container the reader\n"
+"   reads rather than one they navigate: collapsing it would hide the tier\n"
+"   the view is arranged by, and the file is where the descent to the\n"
+"   functions actually happens. */\n"
+"api.collapse(cy.nodes('[tier = \"file\"]'));\n"
+"\n"
+"/* Layouts settle asynchronously, so a fit() called at a moment of this\n"
+"   script's choosing frames whatever drawing is mid-flight. Fit when a\n"
+"   layout says it has settled, and stop at the reader's first gesture, so\n"
+"   the viewport is never taken back from them. */\n"
+"const refit = function () { cy.fit(undefined, 30); };\n"
+"cy.on('layoutstop', refit);\n"
+"cy.one('tap', function () { cy.off('layoutstop', refit); });\n"
+"\n"
+, out);
+	fputs(
+"/* Laid out in flow order rather than by simulated physics: a call graph\n"
+"   is read as a hierarchy — who calls whom, in which direction — and a\n"
+"   force-directed arrangement of one is a hairball however the edges run.\n"
+"   `INCLUDE_CHILDREN` is what keeps a declared layer a box around its own\n"
+"   files while the files are still ranked by the calls between them\n"
+"   (LLR-HTM-04). Re-run after a descent, because the drawing that needs\n"
+"   arranging is the one now on screen. */\n"
+"const relayout = function () {\n"
+"  cy.layout({ name: 'elk', nodeDimensionsIncludeLabels: true,\n"
+"              animate: false,\n"
+"              elk: { algorithm: 'layered',\n"
+"                     'elk.direction': 'DOWN',\n"
+"                     'elk.hierarchyHandling': 'INCLUDE_CHILDREN',\n"
+"                     'elk.spacing.nodeNode': '18',\n"
+"                     'elk.layered.mergeEdges': 'true',\n"
+"                     'elk.layered.spacing.nodeNodeBetweenLayers': '40' }\n"
+"            }).run();\n"
+"};\n"
+"relayout();\n"
 "\n"
 "/* The descent, bound explicitly rather than left to the extension's cue\n"
 "   icons. HLR-216 requires that the reader can descend and return, and a\n"
 "   requirement met only by whatever gesture a CDN's current version happens\n"
 "   to bind is a requirement that can stop being met without this file\n"
 "   changing. `tap` is cytoscape's own event, so this works whatever the\n"
-"   extension's defaults are. */\n"
-"cy.on('tap', 'node:parent', function (event) {\n"
+"   extension's defaults are.\n"
+"\n"
+"   Bound on the file tier alone: a tap on a layer or on a function reaches\n"
+"   no handler, so the only thing that opens and closes is the thing the\n"
+"   legend says opens and closes. */\n"
+"cy.on('tap', 'node[tier = \"file\"]', function (event) {\n"
 "  const node = event.target;\n"
 "  if (node.hasClass('cy-expand-collapse-collapsed-node')) {\n"
 "    api.expand(node);\n"
 "  } else {\n"
 "    api.collapse(node);\n"
 "  }\n"
+"  relayout();\n"
 "});\n"
 "</script>\n", out);
 	fputs("</body>\n</html>\n", out);
@@ -524,19 +758,12 @@ int format_html(const Report *report, const Sdg *g, const ElcOptions *opts,
 	char   *payload  = NULL;
 	int     status   = -1;
 
-	/* The report is not read here yet: the page presents the graph, and
-	 * every figure it draws is already on the graph's nodes. It is taken
-	 * so that the tiers this format will grow — presented in the context
-	 * of the drawing rather than as tables beside it (HLR-031) — arrive
-	 * without changing every caller. */
-	(void)report;
-
 	/* Serialised before anything is written, so a failure leaves a stream
 	 * the caller can still report on rather than a half-page. A partially
 	 * written page is worse than none: it opens, renders a truncated
 	 * graph, and states a structure that is wrong while looking exactly
 	 * like one that is right (LLR-HTM-05). */
-	elements = html_elements(g, opts);
+	elements = html_elements(g, report, opts);
 	if (!elements) {
 		diag_printf("elc: out of memory building the HTML graph\n");
 		goto done;

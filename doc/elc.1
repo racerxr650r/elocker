@@ -594,8 +594,20 @@ hierarchy: the architectural layers declared with
 .BR \-\-stratum ,
 each holding the files assigned to it, each of those holding its functions.
 The page opens in a browser directly from the filesystem \(em no local web
-server and no build step \(em showing the layers, and each box opens to what
-it contains and closes again.
+server and no build step \(em showing one box per file within the layer it
+was declared in. A file box is labelled by its path below the directory every
+analysed file shares, with the full path on the node in the page's embedded
+record, and
+.B the file is the only tier that opens and closes:
+a declared layer stands open, being context for the files within it.
+.IP
+Each function and file carries the findings the report states about it \(em
+amber for a warning and red for a critical, as in the Graphviz companion, with
+a double border for a member of a recursive cycle, a dashed border where no
+declared entry point reaches it, an octagon for a participant in a hidden
+channel and a tag for the sole namer of a global object. The page states this
+key above the drawing. Every mark is an annotation upon the drawing rather
+than a change to it: ignore them all and the same graph remains.
 .IP
 Where no stratum was declared it opens at the file level instead: a layer
 nobody declared is not invented, and a file matching no stratum is drawn
@@ -613,8 +625,8 @@ and
 are not. Where it presents a measurement it is the measurement the report
 states, taken from the same model.
 .IP
-The drawing library is fetched from the network the first time the page is
-opened, so
+The drawing library and its layout engine are fetched from the network the
+first time the page is opened, so
 .B standalone
 here means that the file needs no server and no build step and not that it
 needs nothing:
