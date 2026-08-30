@@ -609,6 +609,13 @@ channel and a tag for the sole namer of a global object. The page states this
 key above the drawing. Every mark is an annotation upon the drawing rather
 than a change to it: ignore them all and the same graph remains.
 .IP
+A file defining no function \(em an ordinary C header, or one whose functions
+an
+.B \-\-elf
+image does not define \(em carries no box, as it carries no cluster in the
+Graphviz companion. Such a file is still discovered, measured and counted:
+what is omitted is a box that could hold nothing.
+.IP
 Where no stratum was declared it opens at the file level instead: a layer
 nobody declared is not invented, and a file matching no stratum is drawn
 alongside the layers rather than inside one. Only calls between functions are

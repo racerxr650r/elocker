@@ -19,7 +19,7 @@
     <counts>
       <count name="hlrs"       value="213"/>
       <count name="llrs"       value="583"/>
-      <count name="tests"      value="1267"/>
+      <count name="tests"      value="1271"/>
       <count name="test_files" value="59"/>
     </counts>
   </metadata>
@@ -9201,7 +9201,13 @@ Where no stratum was declared this appends nothing, and the document has two tie
 
 **The stratum comes from `stratum_of_components` and is not matched here.** That is `format_dsm.c`'s rule and it is this module's for the same reason: two matchers over one set of patterns eventually disagree about which layer a file is in, and this drawing would then place a file in one layer while the matrix beside it placed the file in another (HLR-164).
 
-**Where that function returns `SIZE_MAX` the `parent` key shall be omitted entirely**, not set to empty and not set to a synthesised layer. A file matching no stratum lies outside the declared architecture — the judgement is argued where it is computed and this renderer follows it rather than reversing it. A layer named `other` would be a structure nobody declared, and would arrive on every run that declares no strata at all, wrapping the whole project in a fiction.]]></text>
+**A component defining no function shall not be emitted at all.** Such a component can hold no node and join no edge, so a box for it states nothing — and on a C project that set is exactly the headers, which is half the components of `elc`'s own sources. The `.dot` companion has never drawn them, and not by a rule of its own: it opens a cluster while walking the *functions*, so a component with none is never reached. This renderer walks the components, so it must say the same thing deliberately or the two drawings of one graph disagree about what is in it (HLR-217).
+
+**The omission is of a box, never of a measurement.** Such a file is discovered, measured and counted everywhere the report counts a file; what is withheld is a node in a drawing of the call structure, which is the one thing the file demonstrably takes no part in. It is also what `--elf` leaves behind when an image defines none of a file's functions: the filter empties the component and the drawing then omits it, on the image's evidence rather than on a rule of this renderer's.
+
+**The shed prefix shall be measured over the components that remain**, since a prefix shared by a file nobody will see is not shared by anything on the page.
+
+**Where `stratum_of_components` returns `SIZE_MAX` the `parent` key shall be omitted entirely**, not set to empty and not set to a synthesised layer. A file matching no stratum lies outside the declared architecture — the judgement is argued where it is computed and this renderer follows it rather than reversing it. A layer named `other` would be a structure nobody declared, and would arrive on every run that declares no strata at all, wrapping the whole project in a fiction.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-213" name="The Graph Serialised as a Containment Hierarchy" />
           <trace target="HLR" ref="HLR-114" />
@@ -9302,7 +9308,9 @@ The escape is applied to the serialised text and not to each name before seriali
 
 **The layout follows the collapse rather than preceding it, and the ordering is load-bearing twice over.** A layout run at construction is of the expanded graph — larger by the whole function tier, and a drawing HLR-216 forbids opening with, so the most expensive layout the page ever computes would be spent on a picture that is immediately discarded. And because layouts settle asynchronously, collapsing while that layout still runs is a race the collapse loses on any real project: the relayout it requests is stomped, and the page opens fitted to a drawing that no longer exists — a graph shrunk past visibility, presented as though rendered.
 
-**The layout shall rank the drawing by call direction while keeping a container's members inside it**, and shall be re-run after a descent so that what is arranged is the drawing now on screen. A call graph is read as a hierarchy — who calls whom, in which direction — which is how the `.dot` companion is drawn and why it reads as an architecture rather than a mesh; a force-directed arrangement of the same graph is a hairball however the edges run, and was the first thing a reader noticed between the two artefacts.
+**The layout shall rank the drawing by call direction while keeping a container's members inside it**, and shall be re-run after a descent so that what is arranged is the drawing now on screen.
+
+**It shall be handed to the expand-collapse extension rather than invoked around it.** An expansion that animates is asynchronous, so a layout called on the line after it runs while the children are still arriving and positions nothing: every function of an opened file is left stacked at a single point, which is what the page did when this script ran its own layout. The extension's layout hook runs after an expansion and after a collapse — the moment this script cannot name for itself — and the initial collapse then carries the drawing's first layout with it, so nothing lays the graph out twice. This is the same class of mistake as fitting the view between two asynchronous layouts, made a second time at a different seam, which is why the requirement now states the rule rather than the instance. A call graph is read as a hierarchy — who calls whom, in which direction — which is how the `.dot` companion is drawn and why it reads as an architecture rather than a mesh; a force-directed arrangement of the same graph is a hairball however the edges run, and was the first thing a reader noticed between the two artefacts.
 
 **That requires a layout the viewer does not ship, and the dependency is argued rather than assumed.** Of the two layouts in the viewer's core, the force-directed one keeps a container's members together but ranks nothing, and the breadth-first one ranks by call direction but places a container's members by their global rank — which scatters one declared layer's files across the drawing and leaves its box overlapping another's. Neither is a drawing of the architecture. A layered algorithm that understands containment is a fourth and fifth script fetched at view time, on a page that already fetches two and already states that it needs the network the first time it is opened (HLR-215); what it buys is that this drawing and the `.dot` companion are two renderings of one picture rather than two different pictures.
 
@@ -17941,7 +17949,7 @@ The error is checked once after the writing rather than per call, because a full
         </traces>
       </test>
     </file>
-    <file path="test/unit/report_html.c" role="unit" count="16">
+    <file path="test/unit/report_html.c" role="unit" count="18">
       <test name="a_node_is_emitted_for_each_declared_layer">
         <purpose><![CDATA[Verifies that one node is emitted per declared stratum, identified by its ordinal, and that no layer is emitted for a directory nobody declared.]]></purpose>
         <traces>
@@ -18065,9 +18073,22 @@ The error is checked once after the writing rather than per call, because a full
           <trace target="HLR" ref="HLR-217"/>
         </traces>
       </test>
+      <test name="a_component_with_no_function_is_not_drawn">
+        <purpose><![CDATA[Verifies that a component defining no function is absent from the payload, since a box that can hold no node and join no edge states nothing — the answer the Graphviz companion has always given.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-02"/>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="the_shed_prefix_ignores_a_component_not_drawn">
+        <purpose><![CDATA[Verifies that the directory prefix a label sheds is measured over the components actually drawn, a prefix shared by a file nobody will see being shared by nothing on the page.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-02"/>
+        </traces>
+      </test>
 </file>
 
-    <file path="test/fixtures/html.bats" role="fixture" count="20">
+    <file path="test/fixtures/html.bats" role="fixture" count="22">
       <test name="html: the embedded payload parses as JSON">
         <purpose><![CDATA[Verifies the payload against a real parser rather than by pattern-matching, which is the only level at which the embedding escape is observable.]]></purpose>
         <traces>
@@ -18190,6 +18211,19 @@ The error is checked once after the writing rather than per call, because a full
       </test>
       <test name="html: the page states its own key">
         <purpose><![CDATA[Verifies that the page names every mark it draws and uses the Graphviz companion's severity pigments, so a reader sent the file alone can read it and a reader of both learns one scheme.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="html: a file defining no function is measured but not drawn">
+        <purpose><![CDATA[Verifies over a header that declares and defines nothing that the file is discovered and counted in the project summary while carrying no node in the drawing, so the omission is of a box and never of a measurement.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="html: the drawing holds the components the .dot companion clusters">
+        <purpose><![CDATA[Verifies that the interactive drawing and the Graphviz companion hold the same components from one run, which they reach by different routes and had come to disagree about.]]></purpose>
         <traces>
           <trace target="HLR" ref="HLR-217"/>
         </traces>

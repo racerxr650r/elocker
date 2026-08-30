@@ -138,7 +138,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1267 test(s)** across
+Snapshot: **1271 test(s)** across
 **59 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
@@ -1769,7 +1769,7 @@ Role: **unit**. **8 test(s).**
 
 ### 3.58. [test/unit/report_html.c](../test/unit/report_html.c)
 
-Role: **unit**. **16 test(s).**
+Role: **unit**. **18 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1793,10 +1793,12 @@ Role: **unit**. **16 test(s).**
 | 18 | <a id="a_finding_reaches_the_node_it_describes"></a>`a_finding_reaches_the_node_it_describes` | `LLR-CYT-05` | Verifies that the severity the catalogue decided reaches the node spelled as the word the stylesheet selects on, that the finding travels in full beside it, and that a function nothing was found about carries neither. |
 | 19 | <a id="an_absent_mark_is_an_absent_key"></a>`an_absent_mark_is_an_absent_key` | `LLR-CYT-05` | Verifies that a structural mark that does not hold is omitted rather than stated as false, which is what the stylesheet's truthy selectors read and what keeps the payload from stating five marks on every node. |
 | 20 | <a id="the_page_carries_a_key_for_every_mark"></a>`the_page_carries_a_key_for_every_mark` | `LLR-HTM-06` | Verifies that each annotation takes a distinct visual attribute so that several compose rather than overwrite, that the severity pigments are the ones the Graphviz companion uses, and that the legend names every mark in the page itself. |
+| 21 | <a id="a_component_with_no_function_is_not_drawn"></a>`a_component_with_no_function_is_not_drawn` | `LLR-CYT-02` | Verifies that a component defining no function is absent from the payload, since a box that can hold no node and join no edge states nothing — the answer the Graphviz companion has always given. |
+| 22 | <a id="the_shed_prefix_ignores_a_component_not_drawn"></a>`the_shed_prefix_ignores_a_component_not_drawn` | `LLR-CYT-02` | Verifies that the directory prefix a label sheds is measured over the components actually drawn, a prefix shared by a file nobody will see being shared by nothing on the page. |
 
 ### 3.59. [test/fixtures/html.bats](../test/fixtures/html.bats)
 
-Role: **fixture**. **20 test(s).**
+Role: **fixture**. **22 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1820,6 +1822,8 @@ Role: **fixture**. **20 test(s).**
 | 18 | <a id="html: the format is refused with --from-xml, not ignored"></a>`html: the format is refused with --from-xml, not ignored` | — | Verifies that regeneration into this format is refused with a diagnostic: a saved record carries findings and not the topology the page draws, and an empty drawing would be a confidently wrong answer. |
 | 19 | <a id="html: the drawing carries the findings the report states"></a>`html: the drawing carries the findings the report states` | — | Verifies over the fixture tree that every annotated node carries a severity from the closed set with its finding beside it, and that a mark is only ever present-and-true. |
 | 20 | <a id="html: the page states its own key"></a>`html: the page states its own key` | — | Verifies that the page names every mark it draws and uses the Graphviz companion's severity pigments, so a reader sent the file alone can read it and a reader of both learns one scheme. |
+| 21 | <a id="html: a file defining no function is measured but not drawn"></a>`html: a file defining no function is measured but not drawn` | — | Verifies over a header that declares and defines nothing that the file is discovered and counted in the project summary while carrying no node in the drawing, so the omission is of a box and never of a measurement. |
+| 22 | <a id="html: the drawing holds the components the .dot companion clusters"></a>`html: the drawing holds the components the .dot companion clusters` | — | Verifies that the interactive drawing and the Graphviz companion hold the same components from one run, which they reach by different routes and had come to disagree about. |
 
 ## 4. LLR Coverage Matrix
 
@@ -2400,7 +2404,7 @@ verified by code review — see
 | `LLR-PLC-03` | `collect_placed` | `HLR-212`, `HLR-133`, `HLR-138` | `HLR-212: a recovered function carries no figure elc did not measure`, `HLR-212: a call to a recovered function is unresolved, not an edge`, `HLR-212: with no image no function is placed` |
 | `LLR-PLC-04` | `collect_placed` | `HLR-212`, `HLR-211`, `HLR-056` | `HLR-211: the region count survives a record round trip`, `HLR-212: the placed rows survive a record round trip` |
 | `LLR-CYT-01` | `html_elements` | `HLR-213`, `HLR-078` | `a_node_is_emitted_for_each_declared_layer`, `with_no_strata_the_document_has_two_tiers` |
-| `LLR-CYT-02` | `html_elements` | `HLR-213`, `HLR-114` | `a_file_names_the_layer_arch_assigned_it`, `a_file_in_no_declared_layer_has_no_parent`, `the_shed_prefix_ends_at_a_separator`, `a_lone_component_is_labelled_by_its_file_name`, `with_no_strata_the_document_has_two_tiers` |
+| `LLR-CYT-02` | `html_elements` | `HLR-213`, `HLR-114` | `a_file_names_the_layer_arch_assigned_it`, `a_file_in_no_declared_layer_has_no_parent`, `the_shed_prefix_ends_at_a_separator`, `a_lone_component_is_labelled_by_its_file_name`, `with_no_strata_the_document_has_two_tiers`, `a_component_with_no_function_is_not_drawn`, `the_shed_prefix_ignores_a_component_not_drawn` |
 | `LLR-CYT-03` | `html_elements` | `HLR-213`, `HLR-032` | `a_function_names_the_file_that_defines_it` |
 | `LLR-CYT-04` | `html_elements` | `HLR-214`, `HLR-074`, `HLR-032` | `edges_join_functions_and_never_containers` |
 | `LLR-CYT-05` | `html_elements` | `HLR-217`, `HLR-099`, `HLR-088` | `a_finding_reaches_the_node_it_describes`, `an_absent_mark_is_an_absent_key` |

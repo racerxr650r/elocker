@@ -255,6 +255,32 @@ documented where you would look for it; the last was found in Phase 31.
     appended this cheaply — and is luck rather than a property of the
     mechanism. The fix in §1.4 above is still the one worth making.
 
+*   **The self-analysis gate measures different numbers locally and in CI,
+    and a green `make instrumented` is not proof it will pass.** On a
+    developer box `gcc -E` cannot find the headers of the libraries built
+    under `/usr/local`, so every file falls back and `elc src/` reports
+    *Files expanded 0 — Measured as written 26*. CI's environment expands
+    them, and complexity is computed from the expanded parse (HLR-208), so
+    the two runs measure different source. Phase 31 lost a CI round to this:
+    `append_edges` measured under the threshold locally and **15** in CI,
+    which is `LLR-BLD-23`'s failure condition, and the local suite was green
+    the whole time.
+
+    To measure the way CI does, hand `elc` the build's own include paths:
+
+    ```sh
+    ./build/elc --cc-flag=-Iinclude --cc-flag=-I/usr/local/include \
+                --cc-flag=-I/usr/local/include/igraph \
+                --cc-flag=-D_XOPEN_SOURCE=700 --cc-flag=-D_DEFAULT_SOURCE src/
+    ```
+
+    Check *Files expanded* in the summary before trusting the figures. This
+    is not a defect — it is the narrowing PR #71 argued for and wrote into
+    HLR-208, *one source tree preprocessed by one toolchain, one report* —
+    but it means the self-analysis gate is the one suite whose local result
+    does not settle the question. Anything sitting at 14 locally is close
+    enough to the line to check the expanded figure before pushing.
+
 *   **An empty `<traces>` element is schema-invalid.** A catalogued test
     that verifies no requirement — harness self-checks, mostly — must
     omit the element entirely. Emitting it empty to mean "none" fails

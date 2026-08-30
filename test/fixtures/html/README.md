@@ -18,16 +18,28 @@ group keeps two claims separable:
 
 ## The tree
 
-Three directories, one file each, deliberately unequal: two are named by a
-`--stratum` and the third is named by none, so that both branches of
-LLR-CYT-02 are present in one run.
+Three directories, deliberately unequal: two are named by a `--stratum` and
+the third is named by none, so that both branches of LLR-CYT-02 are present in
+one run — and one directory holds a header as well as its source, so that a
+component defining no function is present too.
 
 ```text
 tree/
 ├── app/main.c     run, boot        — declared layer `app`, ordinal 0
 ├── hal/port.c     hal_open, hal_close — declared layer `hal`, ordinal 1
+├── hal/port.h     (declarations)   — measured, and *not drawn*
 └── vendor/blob.c  vendor_init      — matched by no stratum
 ```
+
+**Four files are measured and three are drawn.** `hal/port.h` defines no
+function, which is the ordinary shape of a C header and the shape `--elf`
+leaves behind when an image defines none of a file's functions. Such a
+component can hold no node and join no edge, so a box for it would state
+nothing; the `.dot` companion has never drawn one, and the header is here so
+that the interactive drawing is held to the same answer (LLR-CYT-02).
+
+It is counted everywhere a file is counted — the project summary says four —
+so the omission is of a box and never of a measurement.
 
 Run as:
 

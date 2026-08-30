@@ -226,58 +226,110 @@ static int append_layers(json_t *elements, const ElcOptions *opts)
  * and a lone component is labelled by its file name, its whole directory
  * being a prefix nothing else contests.
  */
-static size_t shared_prefix_len(char *const *paths, size_t count)
+static size_t shared_prefix_len(char *const *paths, size_t count,
+                                const bool *drawn)
 {
-	size_t keep = 0;
+	const char *first = NULL;
+	size_t      keep  = 0;
 
-	if (count == 0)
+	/* Measured over the components the drawing actually holds: a prefix
+	 * shared by a file nobody will see is not shared by anything on the
+	 * page. */
+	for (size_t p = 0; p < count && !first; p++)
+		if (drawn[p])
+			first = paths[p];
+	if (!first)
 		return 0;
-	for (size_t i = 0; paths[0][i] != '\0'; i++) {
-		for (size_t p = 1; p < count; p++)
-			if (paths[p][i] != paths[0][i])
+
+	for (size_t i = 0; first[i] != '\0'; i++) {
+		for (size_t p = 0; p < count; p++)
+			if (drawn[p] && paths[p][i] != first[i])
 				return keep;
-		if (paths[0][i] == '/')
+		if (first[i] == '/')
 			keep = i + 1;
 	}
 	return keep;
 }
 
+/* Which components the drawing holds: those defining at least one function
+ * (LLR-CYT-02).
+ *
+ * A component with no function of its own can hold no node and join no edge,
+ * so a box for it states nothing — and on a C project that set is exactly the
+ * headers, which on `elc`'s own sources is half the components. The `.dot`
+ * companion has never drawn them, and not by a rule of its own: it opens a
+ * cluster while walking the *functions*, so a component with none is never
+ * reached. This module walks the components, so it has to say the same thing
+ * deliberately or the two drawings of one graph disagree about what is in it
+ * (HLR-217).
+ */
+static bool *components_drawn(const Sdg *g)
+{
+	bool *drawn = calloc(g->component_count ? g->component_count : 1,
+	                     sizeof *drawn);
+
+	if (!drawn)
+		return NULL;
+	for (size_t i = 0; i < g->node_count; i++)
+		if (g->nodes[i].component < g->component_count)
+			drawn[g->nodes[i].component] = true;
+	return drawn;
+}
+
+/* One component node's fields.
+ *
+ * Split out of the loop below, and the failures accumulated rather than
+ * branched on, for the reason `function_fields` and `edge_fields` are: a chain
+ * of `set_new(...) != 0 ||` is one decision point per field, and the test that
+ * skips a component holding no function took the caller to the complexity
+ * threshold `elc` holds its own source to (LLR-BLD-23).
+ */
+static int file_fields(json_t *data, const Sdg *g, size_t c, size_t prefix,
+                       const size_t *stratum, const Annotation *comps)
+{
+	char id[64], parent[64];
+	int  rc = 0;
+
+	if (snprintf(id, sizeof id, "file_%zu", c) >= (int)sizeof id)
+		return -1;
+
+	/* The label is for reading and `path` is the record: what the label
+	 * sheds stays recoverable on the same node rather than lost
+	 * (LLR-CYT-02). */
+	rc |= set_new(data, "id", json_string(id));
+	rc |= set_new(data, "label",
+	              json_string(g->component_paths[c] + prefix));
+	rc |= set_new(data, "path", json_string(g->component_paths[c]));
+	rc |= set_new(data, "tier", json_string("file"));
+	rc |= annotation_fields(data, comps ? &comps[c] : NULL);
+
+	if (stratum && stratum[c] != SIZE_MAX) {
+		if (snprintf(parent, sizeof parent, "layer_%zu",
+		             stratum[c]) >= (int)sizeof parent)
+			return -1;
+		rc |= set_new(data, "parent", json_string(parent));
+	}
+
+	return rc;
+}
+
 static int append_files(json_t *elements, const Sdg *g, const size_t *stratum,
-                        const Annotation *comps)
+                        const Annotation *comps, const bool *drawn)
 {
 	size_t prefix = shared_prefix_len(g->component_paths,
-	                                  g->component_count);
+	                                  g->component_count, drawn);
 
 	for (size_t c = 0; c < g->component_count; c++) {
-		json_t *data = append_element(elements);
-		char    id[64], parent[64];
+		json_t *data;
 
+		if (!drawn[c])
+			continue;
+
+		data = append_element(elements);
 		if (!data)
 			return -1;
-		if (snprintf(id, sizeof id, "file_%zu", c) >= (int)sizeof id)
+		if (file_fields(data, g, c, prefix, stratum, comps) != 0)
 			return -1;
-
-		/* The label is for reading and `path` is the record: what the
-		 * label sheds stays recoverable on the same node rather than
-		 * lost (LLR-CYT-02). */
-		if (set_new(data, "id", json_string(id)) != 0 ||
-		    set_new(data, "label",
-		            json_string(g->component_paths[c] + prefix)) != 0 ||
-		    set_new(data, "path",
-		            json_string(g->component_paths[c])) != 0 ||
-		    set_new(data, "tier", json_string("file")) != 0)
-			return -1;
-
-		if (annotation_fields(data, comps ? &comps[c] : NULL) != 0)
-			return -1;
-
-		if (stratum && stratum[c] != SIZE_MAX) {
-			if (snprintf(parent, sizeof parent, "layer_%zu",
-			             stratum[c]) >= (int)sizeof parent)
-				return -1;
-			if (set_new(data, "parent", json_string(parent)) != 0)
-				return -1;
-		}
 	}
 	return 0;
 }
@@ -384,6 +436,44 @@ static int html_edges_by_source_then_target(const void *a, const void *b)
  * two exceptions to `report.c` owning every sort: it is a property of this
  * artefact rather than of a collection the model holds (LLR-RPT-10).
  */
+/* One edge's fields.
+ *
+ * Split out of the loop below for the reason `function_fields` is split out of
+ * its own, and by the same rule rather than a second one: a chain of
+ * `set_new(...) != 0 ||` is one decision point per field, and marking the
+ * deepest chain took the caller to the complexity threshold `elc` holds its
+ * own source to (LLR-BLD-23). The failures accumulate rather than branching,
+ * which is equivalent here because `set_new` leaks on neither path and the
+ * whole document is discarded on any failure.
+ */
+static int edge_fields(json_t *data, const SdgEdge *e, const uint32_t *chain,
+                       size_t chain_count)
+{
+	char id[80], source[64], target[64];
+	int  rc = 0;
+
+	if (snprintf(id, sizeof id, "call_%u_%u", e->from, e->to) >=
+	            (int)sizeof id ||
+	    snprintf(source, sizeof source, "func_%u", e->from) >=
+	            (int)sizeof source ||
+	    snprintf(target, sizeof target, "func_%u", e->to) >=
+	            (int)sizeof target)
+		return -1;
+
+	rc |= set_new(data, "id", json_string(id));
+	rc |= set_new(data, "source", json_string(source));
+	rc |= set_new(data, "target", json_string(target));
+	rc |= set_new(data, "weight", json_integer((json_int_t)e->call_sites));
+
+	/* A step of the deepest chain, marked from the same test the `.dot`
+	 * writer uses so the two drawings agree about which edges the chain
+	 * runs through (HLR-088). */
+	if (annotation_on_chain(chain, chain_count, e->from, e->to))
+		rc |= set_new(data, "chain", json_true());
+
+	return rc;
+}
+
 static int append_edges(json_t *elements, const Sdg *g,
                         const uint32_t *chain, size_t chain_count)
 {
@@ -402,35 +492,14 @@ static int append_edges(json_t *elements, const Sdg *g,
 	for (size_t i = 0; i < g->edge_count; i++) {
 		const SdgEdge *e = &sorted[i];
 		json_t        *data;
-		char           id[80], source[64], target[64];
 
 		if (e->kind != EDGE_CALL)
 			continue;
 
-		if (snprintf(id, sizeof id, "call_%u_%u", e->from, e->to) >=
-		            (int)sizeof id ||
-		    snprintf(source, sizeof source, "func_%u", e->from) >=
-		            (int)sizeof source ||
-		    snprintf(target, sizeof target, "func_%u", e->to) >=
-		            (int)sizeof target)
-			goto done;
-
 		data = append_element(elements);
 		if (!data)
 			goto done;
-
-		if (set_new(data, "id", json_string(id)) != 0 ||
-		    set_new(data, "source", json_string(source)) != 0 ||
-		    set_new(data, "target", json_string(target)) != 0 ||
-		    set_new(data, "weight",
-		            json_integer((json_int_t)e->call_sites)) != 0)
-			goto done;
-
-		/* A step of the deepest chain, marked from the same test the
-		 * `.dot` writer uses so the two drawings agree about which
-		 * edges the chain runs through (HLR-088). */
-		if (annotation_on_chain(chain, chain_count, e->from, e->to) &&
-		    set_new(data, "chain", json_true()) != 0)
+		if (edge_fields(data, e, chain, chain_count) != 0)
 			goto done;
 	}
 
@@ -451,6 +520,7 @@ static json_t *html_elements(const Sdg *g, const Report *r,
 	Annotation *comps    = NULL;
 	char       *notes    = NULL;
 	uint32_t   *chain    = NULL;
+	bool       *drawn    = NULL;
 	int         built    = -1;
 
 	if (!elements)
@@ -460,6 +530,10 @@ static json_t *html_elements(const Sdg *g, const Report *r,
 	 * with. Deciding here which finding describes which node would be the
 	 * second opinion `annotate.c` exists to prevent (HLR-098). */
 	built = annotations_build(g, r, &nodes, &comps, &notes, &chain);
+
+	drawn = components_drawn(g);
+	if (!drawn)
+		built = -1;
 
 	/* Only where a layering was declared. `stratum_of_components`
 	 * allocates for a project with no components too, and asking it for a
@@ -472,7 +546,7 @@ static json_t *html_elements(const Sdg *g, const Report *r,
 
 	if (built != 0 ||
 	    append_layers(elements, opts) != 0 ||
-	    append_files(elements, g, stratum, comps) != 0 ||
+	    append_files(elements, g, stratum, comps, drawn) != 0 ||
 	    append_functions(elements, g, nodes) != 0 ||
 	    append_edges(elements, g, chain, r->deepest_count) != 0) {
 		json_decref(elements);
@@ -483,6 +557,7 @@ static json_t *html_elements(const Sdg *g, const Report *r,
 	annotations_free(comps, g->component_count);
 	free(notes);
 	free(chain);
+	free(drawn);
 	free(stratum);
 	return elements;
 }
@@ -683,8 +758,31 @@ static void write_glue(FILE *out)
 "\n"
 , out);
 	fputs(
+"/* Laid out in flow order rather than by simulated physics: a call graph\n"
+"   is read as a hierarchy — who calls whom, in which direction — and a\n"
+"   force-directed arrangement of one is a hairball however the edges run.\n"
+"   `INCLUDE_CHILDREN` is what keeps a declared layer a box around its own\n"
+"   files while the files are still ranked by the calls between them\n"
+"   (LLR-HTM-04). */\n"
+"const LAYOUT = { name: 'elk', nodeDimensionsIncludeLabels: true,\n"
+"                 animate: false,\n"
+"                 elk: { algorithm: 'layered',\n"
+"                        'elk.direction': 'DOWN',\n"
+"                        'elk.hierarchyHandling': 'INCLUDE_CHILDREN',\n"
+"                        'elk.spacing.nodeNode': '18',\n"
+"                        'elk.layered.mergeEdges': 'true',\n"
+"                        'elk.layered.spacing.nodeNodeBetweenLayers': '40' }\n"
+"               };\n"
+"\n"
+"/* The layout is handed to the extension rather than called around it, and\n"
+"   that is the whole of what keeps an opened file readable. `expand` is\n"
+"   asynchronous whenever it animates, so a layout invoked on the next line\n"
+"   runs while the children are still arriving and leaves every function of\n"
+"   the file stacked at one point. `layoutBy` is the extension's own hook:\n"
+"   it runs after the expansion, and after a collapse, which is the moment\n"
+"   this script cannot name for itself (LLR-HTM-04). */\n"
 "const api = cy.expandCollapse({\n"
-"  layoutBy: null,\n"
+"  layoutBy: LAYOUT,\n"
 "  fisheye: true,\n"
 "  animate: true,\n"
 "  undoable: false\n"
@@ -696,6 +794,9 @@ static void write_glue(FILE *out)
 "   functions actually happens. */\n"
 "api.collapse(cy.nodes('[tier = \"file\"]'));\n"
 "\n"
+"/* That collapse is also the drawing's first layout, by way of `layoutBy`\n"
+"   above — so nothing here lays the graph out a second time. */\n"
+"\n"
 "/* Layouts settle asynchronously, so a fit() called at a moment of this\n"
 "   script's choosing frames whatever drawing is mid-flight. Fit when a\n"
 "   layout says it has settled, and stop at the reader's first gesture, so\n"
@@ -706,26 +807,6 @@ static void write_glue(FILE *out)
 "\n"
 , out);
 	fputs(
-"/* Laid out in flow order rather than by simulated physics: a call graph\n"
-"   is read as a hierarchy — who calls whom, in which direction — and a\n"
-"   force-directed arrangement of one is a hairball however the edges run.\n"
-"   `INCLUDE_CHILDREN` is what keeps a declared layer a box around its own\n"
-"   files while the files are still ranked by the calls between them\n"
-"   (LLR-HTM-04). Re-run after a descent, because the drawing that needs\n"
-"   arranging is the one now on screen. */\n"
-"const relayout = function () {\n"
-"  cy.layout({ name: 'elk', nodeDimensionsIncludeLabels: true,\n"
-"              animate: false,\n"
-"              elk: { algorithm: 'layered',\n"
-"                     'elk.direction': 'DOWN',\n"
-"                     'elk.hierarchyHandling': 'INCLUDE_CHILDREN',\n"
-"                     'elk.spacing.nodeNode': '18',\n"
-"                     'elk.layered.mergeEdges': 'true',\n"
-"                     'elk.layered.spacing.nodeNodeBetweenLayers': '40' }\n"
-"            }).run();\n"
-"};\n"
-"relayout();\n"
-"\n"
 "/* The descent, bound explicitly rather than left to the extension's cue\n"
 "   icons. HLR-216 requires that the reader can descend and return, and a\n"
 "   requirement met only by whatever gesture a CDN's current version happens\n"
@@ -743,7 +824,6 @@ static void write_glue(FILE *out)
 "  } else {\n"
 "    api.collapse(node);\n"
 "  }\n"
-"  relayout();\n"
 "});\n"
 "</script>\n", out);
 	fputs("</body>\n</html>\n", out);

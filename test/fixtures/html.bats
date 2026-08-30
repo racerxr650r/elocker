@@ -235,6 +235,10 @@ print(\"ok\")
 		"https://unpkg.com/cytoscape-expand-collapse/cytoscape-expand-collapse.js"
 	assert_output --partial "algorithm: 'layered'"
 	assert_output --partial "'elk.hierarchyHandling': 'INCLUDE_CHILDREN'"
+	# The layout is the extension's to run: it knows when an animated
+	# expansion has finished and this script does not (LLR-HTM-04).
+	assert_output --partial "layoutBy: LAYOUT"
+	refute_output --partial "}).run();"
 	assert_output --partial "fisheye: true"
 	# The files, and only the files: a layer is context to be read, not a
 	# box to be opened (HLR-216).
@@ -319,4 +323,61 @@ print(\"annotated\", sev)
 	# does not learn two colour schemes for one judgement.
 	assert_output --partial "#f7e0b0"
 	assert_output --partial "#f6c7c7"
+}
+
+@test "html: a file defining no function is measured but not drawn" {
+	# `hal/port.h` declares and defines nothing, which is the ordinary
+	# shape of a C header — and the shape `--elf` leaves behind when an
+	# image defines none of a file's functions. It is discovered and
+	# counted like any other file, and it is absent from the drawing,
+	# because a box that can hold no node and join no edge states nothing
+	# (LLR-CYT-02).
+	#
+	# Run over a copy outside the repository: inside one, discovery is
+	# git-aware and the question would become which files are tracked
+	# rather than which are drawn (HLR-127).
+	cp -r "$BATS_TEST_DIRNAME/html/tree" "$BATS_TEST_TMPDIR/tree"
+	run "$ELC" "$BATS_TEST_TMPDIR/tree"
+	assert_success
+	# Four files measured, five functions among them.
+	assert_output --regexp 'Files[[:space:]]+4'
+	assert_output --regexp 'Functions[[:space:]]+5'
+
+	run bash -c '"$0" -o "$1" "$2" 2>/dev/null' \
+		"$ELC" "$BATS_TEST_TMPDIR/r.html" "$BATS_TEST_TMPDIR/tree"
+	assert_success
+	run bash -c 'grep "^const graphData = " "$0" |
+		sed -e "s/^const graphData = //" -e "s/;$//" |
+		python3 -c "
+import json, sys
+files = [e[\"data\"] for e in json.load(sys.stdin)
+         if e[\"data\"].get(\"tier\") == \"file\"]
+assert not any(f[\"path\"].endswith(\".h\") for f in files), files
+print(len(files))
+"' "$BATS_TEST_TMPDIR/r.html"
+	assert_success
+	assert_output "3"
+}
+
+@test "html: the drawing holds the components the .dot companion clusters" {
+	# The two artefacts draw one graph and must hold the same components.
+	# They arrive at it differently — the .dot opens a cluster while
+	# walking the functions and so never reaches a component with none,
+	# this one walks the components and omits them deliberately — which is
+	# exactly how the two came to disagree (HLR-217, LLR-CYT-02).
+	cp -r "$BATS_TEST_DIRNAME/html/tree" "$BATS_TEST_TMPDIR/tree"
+	run bash -c '"$0" -o "$1" "$2" 2>/dev/null' \
+		"$ELC" "$BATS_TEST_TMPDIR/r.html" "$BATS_TEST_TMPDIR/tree"
+	assert_success
+
+	clusters=$(grep -c 'subgraph cluster_' "$BATS_TEST_TMPDIR/r.dot")
+	run bash -c 'grep "^const graphData = " "$0" |
+		sed -e "s/^const graphData = //" -e "s/;$//" |
+		python3 -c "
+import json, sys
+print(sum(1 for e in json.load(sys.stdin)
+          if e[\"data\"].get(\"tier\") == \"file\"))
+"' "$BATS_TEST_TMPDIR/r.html"
+	assert_success
+	assert_equal "$output" "$clusters"
 }

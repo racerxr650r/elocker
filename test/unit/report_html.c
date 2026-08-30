@@ -559,6 +559,13 @@ Test(report_html, the_page_loads_the_viewer_and_opens_collapsed)
 	cr_assert_not_null(strstr(page, "algorithm: 'layered'"));
 	cr_assert_not_null(strstr(page,
 	        "'elk.hierarchyHandling': 'INCLUDE_CHILDREN'"));
+	/* Handed to the extension rather than called around it: `expand` is
+	 * asynchronous when it animates, and a layout invoked on the next
+	 * line runs while the children are still arriving — which stacked
+	 * every function of an opened file at one point (LLR-HTM-04). */
+	cr_assert_not_null(strstr(page, "layoutBy: LAYOUT"));
+	cr_assert_null(strstr(page, "}).run();"),
+	               "the page lays itself out around the extension");
 	cr_assert_not_null(strstr(page, "expandCollapse({"));
 	cr_assert_not_null(strstr(page, "fisheye: true"));
 	cr_assert_not_null(strstr(page, "animate: true"));
@@ -727,6 +734,70 @@ Test(report_html, the_page_carries_a_key_for_every_mark)
 	             "sole namer of a global", NULL }; *w; w++)
 		cr_assert_not_null(strstr(page, *w),
 		                   "the key does not name %s", *w);
+
+	free(page);
+	scene_free(&s);
+}
+
+/* ----------------------------------------------- the components drawn --- */
+
+/* A component defining no function is not drawn. It can hold no node and
+ * join no edge, so its box would state nothing — and the `.dot` companion has
+ * never drawn one, because it opens a cluster while walking the functions and
+ * never reaches a component with none (LLR-CYT-02, HLR-217). */
+Test(report_html, a_component_with_no_function_is_not_drawn)
+{
+	static const char *const PATHS2[] = { "/p/a.c", "/p/b.h" };
+	static const char *const FNS2[]   = { "a_fn", "b_fn" };
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page, *payload;
+
+	/* Two components, then the second is emptied by removing its only
+	 * function from the graph's node set — the shape a header has, and
+	 * the shape `--elf` leaves behind when an image defines none of a
+	 * file's functions. */
+	scene_build(&s, PATHS2, FNS2, 2, NULL, NULL, 0);
+	cr_assert_geq(s.graph.node_count, 2);
+	s.graph.node_count = 1;   /* only /p/a.c's function remains */
+
+	page    = page_of(&s.report, &s.graph, &opts);
+	payload = payload_of(page);
+
+	cr_assert_not_null(strstr(payload, "\"tier\":\"file\""),
+	                   "the component that does define a function is gone");
+	cr_assert_null(strstr(payload, "b.h"),
+	               "a component defining no function was drawn");
+
+	free(page);
+	scene_free(&s);
+}
+
+/* The shed prefix is measured over the components actually drawn: a prefix
+ * shared by a file nobody will see is not shared by anything on the page
+ * (LLR-CYT-02). */
+Test(report_html, the_shed_prefix_ignores_a_component_not_drawn)
+{
+	static const char *const PATHS2[] = { "/p/src/a.c", "/p/inc/b.h" };
+	static const char *const FNS2[]   = { "a_fn", "b_fn" };
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page, *payload;
+
+	scene_build(&s, PATHS2, FNS2, 2, NULL, NULL, 0);
+	cr_assert_geq(s.graph.node_count, 2);
+	s.graph.node_count = 1;
+
+	page    = page_of(&s.report, &s.graph, &opts);
+	payload = payload_of(page);
+
+	/* Components sort by path, so the node kept is `/p/inc/b.h`'s and
+	 * `/p/src/a.c` is the one left undrawn. The prefix is then `/p/inc/`
+	 * and the label is bare. Were it measured over both components it
+	 * would be `/p/` and the label `inc/b.h`, so this assertion tells the
+	 * two apart. */
+	cr_assert_not_null(strstr(payload,
+	        "\"label\":\"b.h\",\"path\":\"/p/inc/b.h\""));
 
 	free(page);
 	scene_free(&s);

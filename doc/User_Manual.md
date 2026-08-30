@@ -1825,6 +1825,15 @@ stays a box around its own files. That needs a layout engine the viewer does
 not ship, which is why the page fetches four scripts rather than two — see
 *What "standalone" means here* below.
 
+**A file with no functions of its own is not drawn.** A C header usually
+declares functions rather than defining them, so it has nothing to put in the
+drawing — no box, no arrows — and the `.dot` companion has never drawn one
+either. The file is still discovered, measured and counted everywhere the
+report counts a file; what is left out is a box that could only ever be empty.
+The same thing happens under `--elf` when the image defines none of a file's
+functions: the filter empties it and the drawing then omits it, on the
+evidence of the build rather than on a rule of the drawing's own.
+
 **A file is labelled by where it differs.** Every file box sheds the directory
 prefix all of them share — on most projects, the path of the tree you analysed
 — so a box reads `src/report.c` rather than repeating a prefix that is the
