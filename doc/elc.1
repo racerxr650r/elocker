@@ -604,9 +604,13 @@ a declared layer stands open, being context for the files within it.
 Each function and file carries the findings the report states about it \(em
 amber for a warning and red for a critical, as in the Graphviz companion, with
 a double border for a member of a recursive cycle, a dashed border where no
-declared entry point reaches it, an octagon for a participant in a hidden
-channel and a tag for the sole namer of a global object. The page states this
-key above the drawing. Every mark is an annotation upon the drawing rather
+declared entry point reaches it, and a distinct shape for each of the two
+findings about global objects \(em taking part in a hidden channel, and being
+the only function that uses some global, which means that global could be a
+local one. The page states this key above the drawing, drawing each shape
+rather than naming it, and pointing at a box reports its definition site, its
+figures and each finding upon it \(em the text the Graphviz companion carries
+in its tooltips. Every mark is an annotation upon the drawing rather
 than a change to it: ignore them all and the same graph remains.
 .IP
 A file opens where it sits and the drawing moves aside to make room, so the

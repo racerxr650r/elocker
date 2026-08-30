@@ -680,6 +680,16 @@ static void write_head(FILE *out)
 	      "  #legend .s { display: inline-block; width: 22px; "
 	      "height: 12px; vertical-align: -2px; margin-right: 5px; "
 	      "border: 1px solid #78909c; }\n"
+	      "  #legend .g { display: inline-block; width: 24px; "
+	      "height: 16px; vertical-align: -4px; margin-right: 5px; }\n"
+	      /* Above the viewer's canvases for the reason the bar is, and
+	       * deaf to the mouse so that hovering never blocks a click on
+	       * the box being hovered (LLR-HTM-09). */
+	      "  #tip { position: absolute; z-index: 1001; display: none; "
+	      "max-width: 46em; padding: 6px 9px; font-size: 12px; "
+	      "line-height: 1.45; background: #263238; color: #eceff1; "
+	      "border-radius: 4px; pointer-events: none; "
+	      "white-space: pre-line; }\n"
 	      "  #collapse-all { position: absolute; top: 8px; right: 12px; "
 	      "font: inherit; font-size: 12px; padding: 4px 10px; "
 	      "border: 1px solid #78909c; border-radius: 4px; "
@@ -701,25 +711,48 @@ static void write_head(FILE *out)
 	      "Collapse all</button>\n"
 	      "<b>Click a file to open it, and again to close it.</b> "
 	      "Layers hold files; a file holds its functions.\n"
-	      "<div>\n"
-	      "<span class=\"k\"><span class=\"s\" "
+	      "<div>\n", out);
+
+	/* The key, and every entry of it is drawn rather than named.
+	 *
+	 * The two shapes were named and not shown — "octagon", "tag" — which
+	 * told the reader nothing twice over: `tag` is the rendering
+	 * library's word for a shape and no word of `elc`'s, and a reader
+	 * cannot match a name they have never seen to a box in the drawing.
+	 * A swatch is the shape, so the vocabulary is not needed at all
+	 * (LLR-HTM-06).
+	 */
+	fputs("<span class=\"k\"><span class=\"s\" "
 	      "style=\"background:#f7e0b0\"></span>warning</span>\n"
 	      "<span class=\"k\"><span class=\"s\" "
 	      "style=\"background:#f6c7c7\"></span>critical</span>\n"
 	      "<span class=\"k\"><span class=\"s\" "
 	      "style=\"background:#fff;border:3px double #37474f\"></span>"
-	      "recursive</span>\n"
+	      "in a recursive cycle</span>\n"
 	      "<span class=\"k\"><span class=\"s\" "
 	      "style=\"background:#fff;border:1px dashed #9e9e9e\"></span>"
-	      "unreachable</span>\n"
+	      "never reached from an entry point</span>\n"
 	      "<span class=\"k\"><span class=\"s\" "
 	      "style=\"background:#fff;border:2px solid #1f6fb4\"></span>"
-	      "deepest call chain</span>\n"
-	      "<span class=\"k\">octagon &mdash; hidden channel</span>\n"
-	      "<span class=\"k\">tag &mdash; sole namer of a global</span>\n"
+	      "on the deepest call chain</span>\n", out);
+
+	/* The shapes, drawn as the viewer draws them. What each *means* is
+	 * the finding it comes from — a reader meets the same words in the
+	 * report's own tables, so the term is kept and explained rather than
+	 * replaced (HLR-092, HLR-093). */
+	fputs("<span class=\"k\"><svg class=\"g\" viewBox=\"0 0 24 16\">"
+	      "<polygon points=\"8,1 16,1 23,6 23,10 16,15 8,15 1,10 1,6\" "
+	      "fill=\"#fff\" stroke=\"#78909c\"/></svg>"
+	      "hidden channel &mdash; shares a global with code it is "
+	      "otherwise disconnected from</span>\n"
+	      "<span class=\"k\"><svg class=\"g\" viewBox=\"0 0 24 16\">"
+	      "<polygon points=\"1,1 16,1 23,8 16,15 1,15\" "
+	      "fill=\"#fff\" stroke=\"#78909c\"/></svg>"
+	      "the only function using some global &mdash; that global could "
+	      "be a local one (MISRA C Rule 8.9)</span>\n"
 	      "</div>\n"
 	      "</div>\n", out);
-	fputs("<div id=\"cy\"></div>\n", out);
+	fputs("<div id=\"cy\"></div>\n<div id=\"tip\"></div>\n", out);
 }
 
 /* The initialisation script (LLR-HTM-04).
@@ -1022,6 +1055,50 @@ static void write_glue(FILE *out)
 "   legend says opens and closes. */\n"
 , out);
 	fputs(
+"/* What a box says when the reader asks it.\n"
+"\n"
+"   The `.dot` companion carries this in each node's `tooltip`, which an\n"
+"   SVG renderer shows on hover; a canvas has no elements to hang one on,\n"
+"   so the page provides it. A box states that a function is critical and\n"
+"   the reader asks *which finding said so* — without an answer the marks\n"
+"   are a colour scheme rather than a report (HLR-217, LLR-HTM-09). */\n"
+"const tip = document.getElementById('tip');\n"
+"\n"
+"cy.on('mouseover', 'node', function (event) {\n"
+"  const n = event.target;\n"
+"  const lines = [];\n"
+"  if (n.data('path')) { lines.push(n.data('path')); }\n"
+"  else if (n.data('file')) {\n"
+"    lines.push(n.data('file') + ':' + n.data('line'));\n"
+"  } else { lines.push(n.data('label')); }\n"
+"  if (n.data('tier') === 'function') {\n"
+"    lines.push('ELOC ' + n.data('eloc') +\n"
+"               '  ·  complexity ' + n.data('complexity'));\n"
+"  }\n"
+"  /* Each finding on its own line: they are joined with '; ' for the\n"
+"     record, and a reader scanning three of them wants them apart. */\n"
+"  if (n.data('finding')) {\n"
+"    n.data('finding').split('; ').forEach(function (f) { lines.push(f); });\n"
+"  }\n"
+"  tip.textContent = lines.join('\\n');\n"
+"  tip.style.display = 'block';\n"
+"});\n"
+"\n"
+"cy.on('mousemove', 'node', function (event) {\n"
+"  const p = event.renderedPosition || { x: 0, y: 0 };\n"
+"  /* Kept inside the window: a box near the right edge would otherwise\n"
+"     push its own description off the screen. */\n"
+"  const w = tip.offsetWidth, h = tip.offsetHeight;\n"
+"  let x = p.x + 16, y = p.y + 16;\n"
+"  if (x + w > window.innerWidth - 8) { x = p.x - w - 16; }\n"
+"  if (y + h > window.innerHeight - 8) { y = p.y - h - 16; }\n"
+"  tip.style.left = Math.max(4, x) + 'px';\n"
+"  tip.style.top = Math.max(4, y) + 'px';\n"
+"});\n"
+"\n"
+"cy.on('mouseout', 'node', function () { tip.style.display = 'none'; });\n"
+"cy.on('tap pan zoom', function () { tip.style.display = 'none'; });\n"
+"\n"
 "/* Close everything, which is the view the page opened at — so this also\n"
 "   restores the layout and the framing, rather than leaving the reader\n"
 "   zoomed into a drawing that is no longer there. Refitting here is the\n"

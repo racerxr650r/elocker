@@ -204,10 +204,25 @@ static int place_finding(const Sdg *g, const FindingRow *row, const char *text,
 	 * which is where a reader looking at the drawing would expect to find
 	 * it, and the only place it can go on a graph whose nodes are functions
 	 * (HLR-091, HLR-105). */
+	uint32_t last = UINT32_MAX;
+
 	for (size_t t = 0; !placed && t < g->touch_count; t++) {
 		if (g->touches[t].node >= g->node_count ||
 		    strcmp(row->subject, g->touches[t].object) != 0)
 			continue;
+
+		/* Once per function, not once per access. The touch set is
+		 * deduplicated by object, node *and direction*, so a function
+		 * that both writes and reads one object appears twice — and
+		 * the finding is still one finding. Placing it per touch put
+		 * it in the note twice, which reads as two findings where the
+		 * report states one. The set is sorted by object then node
+		 * (graph.h), so a node's touches of one object are adjacent
+		 * and the previous one is all that need be remembered. */
+		if (g->touches[t].node == last)
+			continue;
+		last = g->touches[t].node;
+
 		if (annotate(&nodes[g->touches[t].node], row->severity,
 		             text) != 0)
 			return -1;

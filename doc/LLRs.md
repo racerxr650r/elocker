@@ -2307,6 +2307,10 @@ The page itself: when it is written, what its shell contains, how the payload su
 
     **The set shall be recomputed from the open files rather than adjusted as each one opens.** An edge between two opened files belongs to both, and marks that were merely added and removed would drop it the moment either closed.
 
+    **A mark that is a shape shall be drawn in the key, not named.** The two shapes were named — "octagon", "tag" — and that told the reader nothing twice over: `tag` is the rendering library's word for a shape and no word of `elc`'s, and a reader cannot match a name they have never met to a box in the drawing. The key carries the shape itself, so the vocabulary is not needed at all; the fills and borders are drawn for the same reason and always were.
+
+    **What a mark means shall be stated as its consequence, in the report's own words.** "Sole namer of a global" named the mechanism and left the reader to work out what to do about it. The finding is that one function is the only user of some global, and what follows is that the global could be a local one — which is MISRA C Rule 8.9 and is what HLR-092 flags it for. The term the report uses is kept where it has one, so "hidden channel" appears in the key and in the tables alike, and the key explains it rather than replacing it.
+
     **The legend is part of the page** (HLR-217). The `.dot` companion states its key in a comment at the head of the file; this one states it above the drawing, where a reader of a rendered artefact will actually meet it. A drawing whose colours are explained only in the manual is one the reader has to leave in order to read.
     *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-105.
 
@@ -2334,6 +2338,17 @@ The page itself: when it is written, what its shell contains, how the payload su
     The pass repeats until nothing overlaps; the iteration cap is a guard against a pathological drawing rather than a working limit, a piled-up drawing of thirty-six files settling in some thirty-seven passes and about fifty milliseconds.
     *Trace:* HLR-216 (The View Opens at the Architectural Level).
 
+*   <a id="LLR-HTM-09"></a>**LLR-HTM-09** — `format_html` shall emit an element that shows, while the reader points at a box, that box's definition site, the figures the report states for it, and each finding upon it; and that element shall take no pointer event of its own.
+
+    **The drawing marks a box and this is what says why.** A fill states that a function is critical and a shape that it is the only user of some global; neither says *which* finding decided it, and a reader who cannot ask has been given a colour scheme rather than a report (HLR-217). The `.dot` companion answers by putting the same text in each node's `tooltip`, which an SVG renderer shows on hover — a canvas has no element to hang one on, so this page provides the behaviour rather than inheriting it.
+
+    **Each finding shall be on its own line.** They are joined with `; ` for the record, which is right for a record and wrong for a reader scanning three of them at once.
+
+    **It shall take no pointer event**, so that pointing at a box never intercepts a click meant for it, and shall be dismissed by the gestures that make it stale — leaving the box, and any tap, pan or zoom.
+
+    **It shall stay within the window.** A box near an edge would otherwise push its own description off the screen, which fails precisely where the drawing is most crowded.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From).
+
 ## 74. `annotations_build` ([src/annotate.c](../src/annotate.c))
 
 Placing a run's findings on the graph they describe, once, for every drawing that shows them.
@@ -2348,6 +2363,8 @@ Placing a run's findings on the graph they describe, once, for every drawing tha
 *   <a id="LLR-ANN-02"></a>**LLR-ANN-02** — `annotations_build` shall place a finding on a node whose definition site it names, failing that on a component whose path it names, and failing that on every function that touches a global object of its name; and a finding matching none of the three shall be published as belonging to the graph as a whole rather than dropped.
 
     **A definition site is a file and a line together.** A file alone is a component finding, and a line alone matches the same line in every file — so both halves are required, and matching on the *name* instead would mark all six of the functions `elc`'s own sources call `grow` because one of them was unreachable.
+
+    **A finding about a global shall reach each such function once, not once per access.** The touch set is deduplicated by object, node *and direction*, so a function that both writes and reads one object appears in it twice while the finding remains one finding; placing it per touch wrote it into the note twice, which reads as two findings where the report states one. The set is sorted by object then node, so a node's touches of one object are adjacent and only the previous one need be remembered.
 
     **A finding about a global object goes to the functions that touch it**, which is the only place it can go on a graph whose nodes are functions, and where a reader would look for it (HLR-091, HLR-105). The touch set rather than the edges: an object named by exactly one function produces no edge at all, and that object is precisely the scope-reduction candidate (HLR-092).
 

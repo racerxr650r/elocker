@@ -750,11 +750,23 @@ Test(report_html, the_page_carries_a_key_for_every_mark)
 	/* And the legend names them for the reader. */
 	cr_assert_not_null(strstr(page, "id=\"legend\""));
 	for (const char *const *w = (const char *const[]){
-	             "warning", "critical", "recursive", "unreachable",
-	             "deepest call chain", "hidden channel",
-	             "sole namer of a global", NULL }; *w; w++)
+	             "warning", "critical", "in a recursive cycle",
+	             "never reached from an entry point",
+	             "on the deepest call chain", "hidden channel",
+	             "the only function using some global", NULL }; *w; w++)
 		cr_assert_not_null(strstr(page, *w),
 		                   "the key does not name %s", *w);
+
+	/* The two shapes are drawn, not named. `tag` and `octagon` are the
+	 * rendering library's words for shapes and none of `elc`'s: a reader
+	 * cannot match a name they have never seen to a box in the drawing,
+	 * so the key carries the shape itself (LLR-HTM-06). */
+	cr_assert_not_null(strstr(page, "<svg class=\"g\""));
+	cr_assert_not_null(strstr(page, "<polygon points="));
+	cr_assert_null(strstr(page, "tag &mdash;"),
+	               "the key names a shape of the viewer's vocabulary");
+	cr_assert_null(strstr(page, "octagon &mdash;"),
+	               "the key names a shape of the viewer's vocabulary");
 
 	free(page);
 	scene_free(&s);
@@ -882,6 +894,36 @@ Test(report_html, no_two_file_boxes_may_overlap)
 	cr_assert_not_null(strstr(page, "separate(node);"));
 	cr_assert_not_null(strstr(page,
 	        "cy.on('dragfree', 'node[tier = \"file\"]'"));
+
+	free(page);
+	scene_free(&s);
+}
+
+/* What a box says when the reader asks it.
+ *
+ * The `.dot` companion carries this in each node's `tooltip`, which an SVG
+ * renderer shows on hover; a canvas has no elements to hang one on, so the
+ * page provides it. Without it the marks are a colour scheme rather than a
+ * report: the drawing says a function is critical and nothing says which
+ * finding said so (LLR-HTM-09, HLR-217). */
+Test(report_html, a_box_says_what_was_found_about_it_on_hover)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	add_finding(&s.report, "critical", "app_fn", "/p/app/a.c", 1);
+	page = page_of(&s.report, &s.graph, &opts);
+
+	cr_assert_not_null(strstr(page, "id=\"tip\""));
+	cr_assert_not_null(strstr(page, "cy.on('mouseover', 'node'"));
+	cr_assert_not_null(strstr(page, "cy.on('mouseout', 'node'"));
+	/* It carries the definition site, the figures and the findings. */
+	cr_assert_not_null(strstr(page, "n.data('finding').split('; ')"));
+	cr_assert_not_null(strstr(page, "'ELOC ' + n.data('eloc')"));
+	/* And it never takes a click meant for the box beneath it. */
+	cr_assert_not_null(strstr(page, "pointer-events: none"));
 
 	free(page);
 	scene_free(&s);

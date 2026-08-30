@@ -1826,10 +1826,18 @@ tucked inside one.
 **It shows you what the run found, not just what calls what.** A function the
 report warns about is drawn amber and one it calls critical is drawn red — the
 same two colours the `.dot` companion uses, so you learn one scheme and can
-read either drawing. A function in a recursive cycle gets a double border, one
-no entry point reaches is dashed, a participant in a hidden channel is an
-octagon, and the sole namer of a global is a tag. Hover any box for its
-definition site and the findings in full. The key sits above the drawing, so a
+read either drawing. A function in a recursive cycle gets a double border and
+one no entry point reaches is dashed. Two findings about global objects change
+the shape of the box instead: taking part in a hidden channel, and being the
+only function that uses some global — which means that global could be a local
+one. The key above the drawing *draws* each shape rather than naming it, so
+you can match what you see to what it means.
+
+**Point at any box and it tells you what was found about it** — the file and
+line it is defined at, its ELOC and complexity, and each finding on its own
+line. That is the same text the `.dot` companion puts in its tooltips, which
+is where you go when the drawing says a function is critical and you want to
+know which finding said so. The key sits above the drawing, so a
 page you send to somebody else still explains itself.
 
 These are the report's own judgements, placed by the same code that places them

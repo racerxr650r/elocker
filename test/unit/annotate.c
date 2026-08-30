@@ -358,3 +358,54 @@ Test(annotate, only_consecutive_pairs_are_steps_of_the_chain)
 	              "the chain is directed and was read backwards");
 	cr_assert_not(annotation_on_chain(NULL, 0, 3, 7));
 }
+
+/* A finding about a global lands on each function that touches it *once*.
+ *
+ * The touch set is deduplicated by object, node and direction, so a function
+ * that both writes and reads one object appears in it twice — and the finding
+ * is still one finding. Placing it per touch put it in the note twice, which
+ * reads as two findings where the report states one (LLR-ANN-02). */
+Test(annotate, a_global_finding_lands_once_per_function_not_once_per_access)
+{
+	Scene       s;
+	Built       b;
+	size_t      n;
+	const char *first, *second;
+
+	scene_build(&s);
+
+	/* `top` both writes and reads one object, which is the shape that
+	 * produced the repeat: `sysUpdateWaitTicks` over avrOS. */
+	n = node_index(&s.graph, "/p/a.c", 1);
+	s.graph.global_names = calloc(1, sizeof *s.graph.global_names);
+	cr_assert_not_null(s.graph.global_names);
+	s.graph.global_names[0] = strdup("gvar");
+	cr_assert_not_null(s.graph.global_names[0]);
+	s.graph.global_name_count = 1;
+
+	s.graph.touches = calloc(2, sizeof *s.graph.touches);
+	cr_assert_not_null(s.graph.touches);
+	s.graph.touches[0].object = s.graph.global_names[0];
+	s.graph.touches[0].node   = (uint32_t)n;
+	s.graph.touches[0].write  = true;
+	s.graph.touches[1].object = s.graph.global_names[0];
+	s.graph.touches[1].node   = (uint32_t)n;
+	s.graph.touches[1].write  = false;
+	s.graph.touch_count       = 2;
+	s.graph.touch_capacity    = 2;
+
+	/* A finding naming the object, not a definition site. */
+	add_finding(&s.report, "warning", "gvar", "", 0);
+	b = build(&s);
+
+	cr_assert_not_null(b.nodes[n].note, "the finding reached no function");
+	first = strstr(b.nodes[n].note, "cyclomatic complexity 20");
+	cr_assert_not_null(first);
+	second = strstr(first + 1, "cyclomatic complexity 20");
+	cr_assert_null(second,
+	               "one finding was placed once per access rather than "
+	               "once per function");
+
+	built_free(&b, &s);
+	scene_free(&s);
+}

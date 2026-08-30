@@ -334,10 +334,14 @@ print(\"annotated\", sev)
 	assert_output --partial "warning"
 	assert_output --partial "critical"
 	assert_output --partial "recursive"
-	assert_output --partial "unreachable"
+	assert_output --partial "never reached from an entry point"
 	assert_output --partial "deepest call chain"
 	assert_output --partial "hidden channel"
-	assert_output --partial "sole namer of a global"
+	assert_output --partial "the only function using some global"
+	# The shapes are drawn rather than named: "tag" and "octagon" are the
+	# viewer's vocabulary, not elc's (LLR-HTM-06).
+	assert_output --partial "<polygon points="
+	refute_output --partial "tag &mdash;"
 	# The severity pigments are the ones the .dot writer uses, so a reader
 	# does not learn two colour schemes for one judgement.
 	assert_output --partial "#f7e0b0"
@@ -418,4 +422,20 @@ print(sum(1 for e in json.load(sys.stdin)
 	# the button and the press pans the drawing instead (LLR-HTM-07).
 	assert_output --partial "z-index: 1000"
 	refute_output --partial "expandAll"
+}
+
+@test "html: a box says what was found about it on hover" {
+	# The .dot companion puts this in each node's tooltip, which an SVG
+	# renderer shows; a canvas has no element to hang one on, so the page
+	# provides it. Without it the marks are a colour scheme rather than a
+	# report (LLR-HTM-09).
+	run_elc
+	assert_success
+	run cat "$HTML"
+	assert_success
+	assert_output --partial 'id="tip"'
+	assert_output --partial "cy.on('mouseover', 'node'"
+	assert_output --partial "cy.on('mouseout', 'node'"
+	# It never swallows a click meant for the box under it.
+	assert_output --partial "pointer-events: none"
 }
