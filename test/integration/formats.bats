@@ -88,11 +88,18 @@ setup() {
 
 @test "HLR-031: table and Markdown present the same tiers" {
 	# The same headings, in the same order, differing only in decoration.
-	elc "$TREE"
+	#
+	# Compared at --verbose, which is where the two formats present the
+	# same tiers since HLR-218 gave the aligned table its own default
+	# composition. The uniformity HLR-031 is about is that a tier exists in
+	# both formats and says the same thing there; which tiers each shows
+	# *by default* is the second axis HLR-150 opened and HLR-218 widened,
+	# and it is asserted in verbosity.bats rather than here.
+	elc --verbose "$TREE"
 	local plain
 	plain="$(grep -E '^[A-Z]' <<<"$output")"
 
-	elc -f md "$TREE"
+	elc --verbose -f md "$TREE"
 	local marked
 	marked="$(sed -n 's/^## //p' <<<"$output")"
 
@@ -103,10 +110,10 @@ setup() {
 	# Nothing is over the default threshold and nothing is banded, so the
 	# tier is not printed — and both formats say so, in the same words
 	# (HLR-188, HLR-189).
-	elc "$TREE"
+	elc --verbose "$TREE"
 	refute_output --regexp "^At or over a threshold"
 	assert_output --partial "- At or over a threshold"
-	elc -f md "$TREE"
+	elc --verbose -f md "$TREE"
 	refute_output --regexp "^## At or over a threshold"
 	assert_output --partial "- At or over a threshold"
 }

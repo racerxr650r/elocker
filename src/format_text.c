@@ -28,6 +28,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "arch.h"
 #include "format_dsm.h"
@@ -41,6 +42,27 @@
  * with it: `grid_begin` writes one entry per column, so a tier declaring more
  * columns than this holds runs past three fixed-size arrays. */
 #define GRID_MAX_COLUMNS 10
+
+/* The widest line the aligned table puts on a terminal (HLR-219).
+ *
+ * A chosen constant, not a derived one, and choosing it is the whole of the
+ * decision. Reading the terminal's real width would make the output depend on
+ * the size of a window — two runs in two shells would disagree, and no diff of
+ * `elc` output would mean anything. 80 would fit every terminal and would make
+ * the ten columns of the function table unreadable; 128 keeps that table a
+ * table and fits a maximised terminal on any modern display.
+ */
+#define TABLE_TERMINAL_WIDTH 128
+
+/* The narrowest a text column is squeezed to before the table is given up on.
+ *
+ * Below this a column holds fragments rather than words, and a table of
+ * fragments is a paragraph with extra whitespace in it. Where even this floor
+ * does not fit, the table is emitted at its natural width and the terminal
+ * does what it does — a wide table is worse than a narrow one, and a mangled
+ * table is worse than both.
+ */
+#define TABLE_MIN_TEXT_WIDTH 8
 
 /* The type of one cell argument.
  *
@@ -290,16 +312,161 @@ static void grid_render_markdown(const Grid *grid, FILE *out)
 	fputs("\n</details>\n", out);
 }
 
+/* The width the aligned table is held to on this stream, or 0 for none.
+ *
+ * **Asked of the destination rather than declared by the user** (HLR-219). A
+ * file has no width and a pipe has no width; a terminal does. The destination
+ * has already said which it is, and an option saying it again would be a
+ * second spelling that can disagree with the first — the disagreement HLR-149
+ * exists to prevent between the two spellings of a format.
+ *
+ * **Determinism is unaffected** (HLR-032). 128 is a constant rather than the
+ * terminal's own width: nothing is read from `COLUMNS`, from the locale, or
+ * from a window. The stream is asked one yes-or-no question and the answer
+ * selects between two fixed presentations, so two runs to the same kind of
+ * destination are byte-identical — which is what every test and every diff of
+ * `elc` output depends on. A run to a terminal and a run to a pipe differ, and
+ * that is the difference the requirement is about rather than a violation of
+ * this one.
+ */
+static int table_limit(FILE *out)
+{
+	int fd = fileno(out);
+
+	return fd >= 0 && isatty(fd) ? TABLE_TERMINAL_WIDTH : 0;
+}
+
+/* The rendered width of one line with the text columns capped at `cap`.
+ *
+ * Two leading spaces, then two more before every column after the first. A
+ * left-aligned final column is not padded (`table_cell`), so this is an upper
+ * bound on the line rather than its exact length — which is the side to err on
+ * for a limit.
+ */
+static int table_width_at(const Grid *grid, int cap)
+{
+	int total = 2;
+
+	for (size_t c = 0; c < grid->column_count; c++) {
+		int w = grid->width[c];
+
+		if (!grid->numeric[c] && w > cap)
+			w = cap;
+		total += w + (c ? 2 : 0);
+	}
+
+	return total;
+}
+
+/* Choose the width to render each column at, so that the line fits `limit`.
+ *
+ * **Numeric columns keep their natural width.** A number broken across two
+ * lines is not a number — a reader would have to reassemble 1 and 7 into 17 —
+ * and they are the narrow columns in every table here anyway, so narrowing
+ * them would buy little and cost the one thing the column is for.
+ *
+ * The text columns are capped at one common value, found by bisection: the
+ * largest cap under which the line fits. A common cap rather than each column
+ * giving up a proportional share, because a common cap narrows the columns in
+ * the order they are widest — a column that already fits under the cap is left
+ * alone until every wider one has come down to it, which is what keeps a short
+ * column from being wrapped to pay for a long one.
+ *
+ * Where even the floor does not fit, every width is left natural and the table
+ * goes out wide. That is the honest failure: the caller renders it the same
+ * way either way, and a table squeezed past the point of alignment has lost
+ * the property it was chosen for.
+ */
+static void table_fit(const Grid *grid, int *width, int limit)
+{
+	int low  = TABLE_MIN_TEXT_WIDTH;
+	int high = 0;
+
+	for (size_t c = 0; c < grid->column_count; c++) {
+		width[c] = grid->width[c];
+		if (!grid->numeric[c] && grid->width[c] > high)
+			high = grid->width[c];
+	}
+
+	if (limit <= 0 || high <= low || table_width_at(grid, high) <= limit)
+		return;
+
+	while (low < high) {
+		int mid = low + (high - low + 1) / 2;
+
+		if (table_width_at(grid, mid) <= limit)
+			low = mid;
+		else
+			high = mid - 1;
+	}
+
+	if (table_width_at(grid, low) > limit)
+		return;
+
+	for (size_t c = 0; c < grid->column_count; c++)
+		if (!grid->numeric[c] && width[c] > low)
+			width[c] = low;
+}
+
+/* How many bytes of `text` belong on a line `width` columns wide, and how many
+ * to discard after them.
+ *
+ * Preference order: a space within reach, which is consumed; then a `/` or a
+ * `:` within reach, which is kept on the line it ends; then a hard break at
+ * the width. The two separators are the ones a path has, and a path is what
+ * the wide columns of this report hold — a path broken between two of its
+ * directories reads, and one broken mid-name does not.
+ *
+ * **Nothing is elided.** The whole cell reaches the reader across as many
+ * lines as it needs, rather than being cut with an ellipsis in the middle: the
+ * paths in this table are what a reader copies out of it, and a shortened path
+ * is not one (HLR-219).
+ *
+ * A hard break is backed off to a character boundary, so a multi-byte
+ * character is never split across two lines. The grid measures in bytes
+ * throughout — as it did before this limit existed — and that is a separate
+ * matter from cutting one in half, which would put a replacement character in
+ * the middle of a name.
+ */
+static size_t table_break(const char *text, size_t width, size_t *skip)
+{
+	size_t length = strlen(text);
+	size_t i;
+
+	*skip = 0;
+	if (length <= width)
+		return length;
+
+	for (i = width + 1; i-- > 1; )
+		if (text[i] == ' ') {
+			*skip = 1;
+			return i;
+		}
+
+	for (i = width; i-- > 0; )
+		if (text[i] == '/' || text[i] == ':')
+			return i + 1;
+
+	i = width;
+	while (i > 0 && ((unsigned char)text[i] & 0xC0) == 0x80)
+		i--;
+
+	return i ? i : width;
+}
+
 /* One plain-table cell, with the two spaces that separate it from the one
  * before.
  *
- * A left-aligned final column is not padded: padding it puts trailing
+ * `last` is the column the line ends at, which is the column count on a row's
+ * first line and the last column with anything left on it thereafter. A
+ * left-aligned cell in that position is not padded: padding it puts trailing
  * whitespace on every line, which shows up in a diff and in any tool that
  * strips it.
  */
-static void table_cell(const Grid *grid, size_t c, const char *text, FILE *out)
+static void table_cell(const Grid *grid, const int *width, size_t c,
+                       size_t last, const char *text, size_t length, FILE *out)
 {
-	bool unpadded = c + 1 == grid->column_count && !grid->numeric[c];
+	bool unpadded = c + 1 == last && !grid->numeric[c];
 
 	/* An empty final cell contributes nothing at all — not even the
 	 * separator that would precede it. Leaving the separator in put two
@@ -307,45 +474,109 @@ static void table_cell(const Grid *grid, size_t c, const char *text, FILE *out)
 	 * padding the column was for: a row whose last column is blank is the
 	 * common case in every table with an optional Finding column
 	 * (LLR-SUM-04). */
-	if (unpadded && text[0] == '\0')
+	if (unpadded && length == 0)
 		return;
 
 	if (c)
 		fputs("  ", out);
 
+	/* The cell is a *span* of the row's string rather than a copy of it,
+	 * written through a precision so no buffer is needed. A fixed one
+	 * would have to be as wide as the widest cell any table can hold — a
+	 * path is bounded only by the filesystem — and one sized to the wrap
+	 * limit would silently truncate every unwrapped table wider than the
+	 * limit, which is the case the limit is not supposed to touch. */
 	if (unpadded)
-		fputs(text, out);
+		fwrite(text, 1, length, out);
 	else
-		fprintf(out, "%*s",
-		        grid->numeric[c] ? grid->width[c] : -grid->width[c],
-		        text);
+		fprintf(out, "%*.*s",
+		        grid->numeric[c] ? width[c] : -width[c],
+		        (int)length, text);
+}
+
+/* Emit one row, continuing each cell that outran its column onto further
+ * lines beneath itself.
+ *
+ * **The unwrapped table is this same path.** Where no column was narrowed
+ * every cell fits on the first line, `last` is the column count, and the row
+ * comes out byte for byte as it did before the limit existed — which is what
+ * makes the limit a presentation of the same table rather than a second
+ * renderer to keep in step with this one.
+ *
+ * A continuation line stops at the last column with anything left on it, so a
+ * wrapped row does not trail whitespace across the gap where its short columns
+ * ran out. A column that has run out but whose neighbours have not is padded
+ * as usual, because the cell below it has to start under itself: a wrapped
+ * cell continues under itself and not under the column beside it, which is the
+ * whole reason for keeping the table aligned rather than reflowing it.
+ */
+static void table_row(const Grid *grid, const int *width,
+                      const char *const *cells, FILE *out)
+{
+	const char *rest[GRID_MAX_COLUMNS];
+	bool        more = true;
+	size_t      c;
+
+	for (c = 0; c < grid->column_count; c++)
+		rest[c] = cells[c] ? cells[c] : "";
+
+	for (size_t line = 0; more; line++) {
+		size_t last = 0;
+
+		more = false;
+
+		for (c = grid->column_count; c-- > 0; )
+			if (rest[c][0]) {
+				last = c + 1;
+				break;
+			}
+
+		if (line == 0)
+			last = grid->column_count;
+		else if (last == 0)
+			break;
+
+		fputs("  ", out);
+		for (c = 0; c < last; c++) {
+			size_t skip;
+			size_t take = table_break(rest[c], (size_t)width[c],
+			                          &skip);
+
+			table_cell(grid, width, c, last, rest[c], take, out);
+
+			rest[c] += take + skip;
+			while (*rest[c] == ' ')
+				rest[c]++;
+			if (*rest[c])
+				more = true;
+		}
+		fputc('\n', out);
+	}
 }
 
 static void grid_render_table(const Grid *grid, FILE *out)
 {
+	int width[GRID_MAX_COLUMNS];
+
+	table_fit(grid, width, table_limit(out));
+
 	fprintf(out, "\n%s\n", grid->heading);
 
-	fputs("  ", out);
-	for (size_t c = 0; c < grid->column_count; c++)
-		table_cell(grid, c, grid->columns[c], out);
-	fputc('\n', out);
+	table_row(grid, width, grid->columns, out);
 
 	fputs("  ", out);
 	for (size_t c = 0; c < grid->column_count; c++) {
 		if (c)
 			fputs("  ", out);
-		grid_rule(out, grid->width[c], '-');
+		grid_rule(out, width[c], '-');
 	}
 	fputc('\n', out);
 
-	for (size_t r = 0; r < grid->row_count; r++) {
-		fputs("  ", out);
-		for (size_t c = 0; c < grid->column_count; c++)
-			table_cell(grid, c,
-			           grid->cells[r * grid->column_count + c],
-			           out);
-		fputc('\n', out);
-	}
+	for (size_t r = 0; r < grid->row_count; r++)
+		table_row(grid, width,
+		          (const char *const *)
+		                  &grid->cells[r * grid->column_count],
+		          out);
 }
 
 /* Emit the grid in the requested style, then release it.
@@ -440,8 +671,8 @@ static uint64_t severity_total(const Report *report, const char *severity)
 static void summary_section(const Report *report, Style style, FILE *out)
 {
 	const ProjectSummary *sum   = &report->summary;
-	const int             label = (int)strlen("Physical lines");
-	int                   value = width_of(sum->physical_lines);
+	int                   label = 0;
+	int                   value = 0;
 
 	/* The figures, gathered before any are printed.
 	 *
@@ -495,12 +726,26 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	};
 	const size_t row_count = sizeof rows / sizeof *rows;
 
-	if (width_of(sum->eloc) > value)
-		value = width_of(sum->eloc);
-	if (width_of(sum->function_count) > value)
-		value = width_of(sum->function_count);
-	if (width_of((uint64_t)sum->file_count) > value)
-		value = width_of((uint64_t)sum->file_count);
+	/* Both columns measured over every row, which is the only way a table
+	 * stays aligned as rows are added to it.
+	 *
+	 * The label width was the length of "Physical lines" written out, and
+	 * the value width the widest of four of the figures named one by one.
+	 * Both were true when the summary was five rows of totals; five phases
+	 * later it carries "Measured as written" and "Critical findings", and
+	 * every label longer than the constant pushed its own value column out
+	 * of line with the rest. A width derived from the rows cannot fall out
+	 * of step with them (HLR-027, HLR-218).
+	 */
+	for (size_t i = 0; i < row_count; i++) {
+		int name  = (int)strlen(rows[i].name);
+		int digits = width_of(rows[i].value);
+
+		if (name > label)
+			label = name;
+		if (digits > value)
+			value = digits;
+	}
 
 	if (style == STYLE_MARKDOWN) {
 		fputs("\n## Project summary\n\n", out);
@@ -1940,7 +2185,7 @@ static void empty_tables_section(const EmptyTables *empty, Style style,
 		        empty->headings[i]);
 }
 
-/* Which of the two tiers a section belongs to (HLR-150).
+/* Which of the two tiers a section belongs to (HLR-150, HLR-218).
  *
  * The partition rule: a tier presenting a project-level aggregate, a file's
  * own totals, or a finding a reader is expected to act on is a summary tier;
@@ -1955,6 +2200,23 @@ static void empty_tables_section(const EmptyTables *empty, Style style,
  * a file's own totals, which is what the Files tier presents. Nothing is lost
  * from the summary by it: every one of those measurements that crossed a
  * published line is a finding, and the findings tier is a summary tier.
+ *
+ * **There are two partitions, because there are two readers** (HLR-218). The
+ * rule above is a document's rule, and it is the right one for the document:
+ * a `.md` report is read by searching it, so a long table costs its reader
+ * nothing and the tiers worth defaulting to are the aggregates. The aligned
+ * table is read in a terminal, once, by scrolling back through what a command
+ * left behind — and there the aggregate is the cheapest thing to recover,
+ * being twelve lines at the top, while the per-function figures are the reason
+ * the command was run. So the aligned table defaults to the project summary,
+ * the findings, and the function table, and everything else waits for
+ * `--verbose`.
+ *
+ * The difference is in *which tiers a format presents by default* and never in
+ * *what a tier says*: the Functions table on standard output is the Functions
+ * table in `report.md`, to the row and to the figure. That line is what keeps
+ * this from becoming two reports that have to be kept agreeing, which is the
+ * failure HLR-031 exists to prevent.
  */
 typedef enum {
 	TIER_SUMMARY = 0,
@@ -1992,6 +2254,21 @@ static bool scopes_omitted(const Report *report)
 	return report->scope_state != SCOPES_MEASURED;
 }
 
+/* `S` and `D` rather than the enumerators spelled out, for the section table
+ * below. That table is read *across*, comparing one section's two
+ * classifications, and at fourteen characters each the pair no longer fits on
+ * the line beside the section it classifies — a row that wraps is a row whose
+ * two columns have stopped being comparable at a glance, which is the only
+ * reason the second column is worth having rather than a list of its own.
+ *
+ * At file scope and not inside the declaration they serve, which would read
+ * better and does not parse: a preprocessor directive between a struct body
+ * and its declarator defeats the grammar, and `elc` could not then measure its
+ * own source (doc/notes.md §3). Undefined immediately after the function.
+ */
+#define S TIER_SUMMARY
+#define D TIER_DETAIL
+
 int render_report(const Report *report, Style style, Verbosity verbosity,
                   FILE *out)
 {
@@ -2002,12 +2279,23 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 	 * one verbosity and forgotten at the other, by the same construction
 	 * that keeps it from being present in one format and forgotten in the
 	 * other — there is nowhere to forget it, because a section is written
-	 * down once and classified once (LLR-SUM-02, LLR-SUM-09). */
+	 * down once and classified once (LLR-SUM-02, LLR-SUM-09).
+	 *
+	 * **Two classifications per section, in two columns of the one list**
+	 * (HLR-218, LLR-SUM-19). The aligned table and Markdown default to
+	 * different tiers, and a second array beside this one would satisfy
+	 * that requirement while quietly giving up the guarantee above: the
+	 * next section added would be classified in whichever list its author
+	 * was looking at, and the omission would be invisible until a reader
+	 * noticed a missing table. A second *column* cannot be filled in
+	 * halfway, because the initialiser does not compile without it. */
 	static const struct {
 		int  (*render)(const Report *, Style, FILE *, EmptyTables *);
-		Tier   tier;
+		Tier   markdown;   /* HLR-150's partition, for a document */
+		Tier   table;      /* HLR-218's, for a terminal           */
 		bool (*omitted)(const Report *);
 	} SECTIONS[] = {
+		/*                              .md  tty                  */
 		/* **The findings come first**, ahead of every table that
 		 * supplies their evidence (HLR-182). They were twenty-second
 		 * for the reason everything else is in the order it is in —
@@ -2017,11 +2305,11 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		 * for this: a finding names its subject and its file, so it
 		 * is read without the tables and the tables are found from
 		 * it. */
-		{ findings_section,              TIER_SUMMARY, NULL            },
-		{ callouts_section,              TIER_SUMMARY, NULL            },
-		{ discovery_section,             TIER_SUMMARY, NULL            },
-		{ languages_section,             TIER_SUMMARY, NULL            },
-		{ files_section,                 TIER_SUMMARY, NULL            },
+		{ findings_section,              S,   S,   NULL            },
+		{ callouts_section,              S,   D,   NULL            },
+		{ discovery_section,             S,   D,   NULL            },
+		{ languages_section,             S,   D,   NULL            },
+		{ files_section,                 S,   D,   NULL            },
 		/* From here to the recursion table the order is the reader's
 		 * descent, not the pipeline's: the component, then what is
 		 * wrong inside it, then the functions themselves, then the
@@ -2031,38 +2319,39 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		 * that everything depends on, and the threshold listing
 		 * before the function table because it is the short list the
 		 * long one is read through. */
-		{ coupling_section,              TIER_DETAIL,  NULL            },
-		{ dependency_cycles_section,     TIER_DETAIL,  NULL            },
-		{ threshold_listing_section,     TIER_SUMMARY, NULL            },
-		{ functions_section,             TIER_DETAIL,  NULL            },
-		{ deepest_chain_section,         TIER_DETAIL,  depth_omitted   },
-		{ recursion_section,             TIER_DETAIL,  NULL            },
-		{ layering_section,              TIER_DETAIL,  strata_omitted  },
-		{ conformance_section,           TIER_SUMMARY, NULL            },
-		{ dsm_section,                   TIER_DETAIL,  NULL            },
-		{ purification_section,          TIER_DETAIL,  NULL            },
-		{ recovery_section,              TIER_DETAIL,  NULL            },
-		{ global_state_section,          TIER_DETAIL,  NULL            },
-		{ unreachable_functions_section, TIER_DETAIL,  reach_omitted   },
-		{ unreachable_globals_section,   TIER_DETAIL,  NULL            },
-		{ dead_code_section,             TIER_DETAIL,  NULL            },
-		{ cross_scope_section,           TIER_DETAIL,  scopes_omitted  },
-		{ definitions_section,           TIER_SUMMARY, NULL            },
-		{ image_filter_section,          TIER_SUMMARY, NULL            },
-		{ rule_matches_section,          TIER_DETAIL,  NULL            },
-		{ partially_parsed_section,      TIER_SUMMARY, NULL            },
-		{ expansion_section,             TIER_SUMMARY, NULL            },
-		{ repaired_files_section,        TIER_SUMMARY, NULL            },
-		{ stdlib_section,                TIER_SUMMARY, NULL            },
-		{ skipped_files_section,         TIER_SUMMARY, NULL            },
+		{ coupling_section,              D,   D,   NULL            },
+		{ dependency_cycles_section,     D,   D,   NULL            },
+		{ threshold_listing_section,     S,   D,   NULL            },
+		{ functions_section,             D,   S,   NULL            },
+		{ deepest_chain_section,         D,   D,   depth_omitted   },
+		{ recursion_section,             D,   D,   NULL            },
+		{ layering_section,              D,   D,   strata_omitted  },
+		{ conformance_section,           S,   D,   NULL            },
+		{ dsm_section,                   D,   D,   NULL            },
+		{ purification_section,          D,   D,   NULL            },
+		{ recovery_section,              D,   D,   NULL            },
+		{ global_state_section,          D,   D,   NULL            },
+		{ unreachable_functions_section, D,   D,   reach_omitted   },
+		{ unreachable_globals_section,   D,   D,   NULL            },
+		{ dead_code_section,             D,   D,   NULL            },
+		{ cross_scope_section,           D,   D,   scopes_omitted  },
+		{ definitions_section,           S,   D,   NULL            },
+		{ image_filter_section,          S,   D,   NULL            },
+		{ rule_matches_section,          D,   D,   NULL            },
+		{ partially_parsed_section,      S,   D,   NULL            },
+		{ expansion_section,             S,   D,   NULL            },
+		{ repaired_files_section,        S,   D,   NULL            },
+		{ stdlib_section,                S,   D,   NULL            },
+		{ skipped_files_section,         S,   D,   NULL            },
 		/* Last, and the only section after the files the run could not
 		 * measure. It is the longest table a filtered run produces —
 		 * one row per function the build dropped — and it answers a
 		 * question a reader asks after reading the report rather than
 		 * one they read the report to answer (HLR-184). */
-		{ placed_functions_section,      TIER_DETAIL,  NULL            },
-		{ absent_functions_section,      TIER_DETAIL,  NULL            },
+		{ placed_functions_section,      D,   D,   NULL            },
+		{ absent_functions_section,      D,   D,   NULL            },
 	};
+
 	EmptyTables empty;
 	int         status = -1;
 
@@ -2073,8 +2362,19 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 	summary_section(report, style, out);
 
 	for (size_t i = 0; i < sizeof SECTIONS / sizeof *SECTIONS; i++) {
+		/* The style picks the column, which is the whole of what
+		 * makes the terminal report a different document rather than
+		 * a different walk (HLR-218). */
+		Tier tier   = style == STYLE_MARKDOWN ? SECTIONS[i].markdown
+		                                      : SECTIONS[i].table;
+		/* The omission predicate is asked about the *run* and not
+		 * about the format, so it applies under either column: a
+		 * detail section whose analysis was skipped for want of a
+		 * declaration is reached at the summary verbosity in both,
+		 * and its heading — which carries the reason — reaches the
+		 * reader through the closing statement (LLR-SUM-09). */
 		bool wanted = verbosity == VERBOSITY_VERBOSE
-		           || SECTIONS[i].tier == TIER_SUMMARY
+		           || tier == TIER_SUMMARY
 		           || (SECTIONS[i].omitted
 		               && SECTIONS[i].omitted(report));
 
@@ -2100,6 +2400,9 @@ done:
 	empty_tables_free(&empty);
 	return status;
 }
+
+#undef S
+#undef D
 
 int format_table(const Report *report, Verbosity verbosity, FILE *out)
 {

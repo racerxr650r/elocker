@@ -21,7 +21,10 @@ setup() {
 # The paths elc reports, one per line, with the fixture prefix stripped so
 # the assertions read as the tree does.
 analysed() {
-	elc "$@"
+	# --verbose because the Files table is a detail tier of the aligned
+	# table since HLR-218, and it is the tier that says what was
+	# discovered.
+	elc --verbose "$@"
 	printf '%s\n' "$output" |
 		awk '/^Files$/ { f = 1; next } f && /^$/ { f = 0 } f && /^  \// { print $1 }' |
 		sed "s|^$REPO_REAL/||"
@@ -32,7 +35,7 @@ analysed() {
 # route ran, rather than inferring it from a file count that two different
 # routes could produce.
 route_for() {
-	elc "$@"
+	elc --verbose "$@"
 	printf '%s\n' "$output" |
 		awk '/^Discovery$/ { d = 1; next } d && /^$/ { d = 0 }
 		     d && NF == 2 && $1 !~ /^-/ && $1 != "Target" { print $2 }'
@@ -192,7 +195,7 @@ src/b.c"
 
 	assert_equal "$(route_for "$empty")" "filesystem"
 
-	elc "$empty"
+	elc --verbose "$empty"
 	assert_success
 	assert_output --regexp "Files +1"
 }
@@ -204,7 +207,7 @@ src/b.c"
 	mkdir -p "$BATS_TEST_TMPDIR/plain"
 	printf 'int p(void) { return 0; }\n' > "$BATS_TEST_TMPDIR/plain/p.c"
 
-	elc "$REPO" "$BATS_TEST_TMPDIR/plain"
+	elc --verbose "$REPO" "$BATS_TEST_TMPDIR/plain"
 	assert_success
 	assert_output --regexp "Discovery"
 	assert_output --regexp "$REPO_REAL +repository"
@@ -216,7 +219,7 @@ src/b.c"
 	# spellings name the same directory, so a second row would report a
 	# run over two targets that was a run over one — and it would sit
 	# beside a Files section that had already collapsed them.
-	elc "$REPO" "$REPO/."
+	elc --verbose "$REPO" "$REPO/."
 	assert_success
 
 	local rows

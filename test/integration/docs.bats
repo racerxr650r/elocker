@@ -239,3 +239,59 @@ man_text() {
 		}
 	done
 }
+
+# --------------------------------------------------------------------------
+# The version (HLR-220, LLR-BLD-26).
+#
+# The version is written in one file — VERSION, in the project root — and
+# three things restate it: the binary, through `--version`; the man page, in
+# the third field of its .TH line; and the user manual, in the example of what
+# `--version` answers. Nothing in the build makes those three follow the file,
+# so this is what makes them: an edit to VERSION that is not carried into both
+# documents fails here rather than shipping a binary and a man page that
+# disagree about which release they are.
+#
+# **Not every "1.0.0" in those documents is a version stamp, and the two kinds
+# must not be conflated.** Both documents also say that *from* 1.0.0 the
+# spelling of the options is a compatibility promise. That names the release
+# the promise began at — a fixed point in the project's history, which stays
+# 1.0.0 when VERSION becomes 1.0.1. A test asserting that every version string
+# in the documents equals VERSION would pass today and be wrong at the first
+# patch release, so these three read the stating locations specifically.
+
+# The single source of truth, read the way the Makefile reads it.
+declared_version() {
+	tr -d '[:space:]' < "$REPO_ROOT/VERSION"
+}
+
+@test "HLR-220: the binary reports the version the VERSION file declares" {
+	local declared
+	declared="$(declared_version)"
+	[ -n "$declared" ] || {
+		echo "VERSION is empty; it is the one place the version is written" >&2
+		false
+	}
+	elc --version
+	assert_success
+	assert_output "elc $declared"
+}
+
+@test "HLR-220: the man page's title line states the declared version" {
+	local declared
+	declared="$(declared_version)"
+	# The .TH third field is the version the page is stamped with; it is
+	# what `man elc` prints in the footer of every screen of it.
+	run grep -m1 '^\.TH' "$MAN"
+	assert_success
+	assert_output --partial "\"elc $declared\""
+}
+
+@test "HLR-220: the user manual shows the declared version as --version's answer" {
+	local declared
+	declared="$(declared_version)"
+	grep -qF -- "elc $declared" "$MANUAL" || {
+		echo "doc/User_Manual.md does not show 'elc $declared'" >&2
+		echo "the manual's --version example must state the shipped version" >&2
+		false
+	}
+}

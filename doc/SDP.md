@@ -73,6 +73,7 @@ release readiness — is ready to start, and is the last.
 | [29](#phase-29--function-visibility-and-editor-navigable-locations) | Public/private visibility, `path:line` locations, and a line count | ✅ Complete |
 | [30](#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
 | [31](#phase-31--interactive-html-reporting--semantic-zooming) | The `.html` report format: layers containing files containing functions, opened collapsed | ✅ Complete |
+| [32](#phase-32--the-terminal-report-and-the-10-release) | The terminal report: three tiers, 128 columns, and `v1.0.0` | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -408,21 +409,24 @@ whole cycle runs from the working copy.
     warning list (`lint_project.py` without the flag) to see which
     requirements are still uncovered and whether they are this phase's.
 
-9.  **Update the Status sections — in both `doc/SDP.md` and `README.md` —
-    before pushing.** Two places track the same fact and both go stale the
-    moment a phase lands if this step is skipped:
-    *   In **this document**, mark the completed phase's row ✅ in the §8
-        Status table (🔄 if the phase is genuinely partial — that should be
-        rare, since a phase is not done until §6's rule is satisfied).
-    *   In **`README.md`**, make the identical change to its own copy of the
-        table, and update the `**Progress: N of M phases complete.**` line
-        to match, where `M` is the number of rows in the table — inserting a
-        phase changes it, and the instruction naming a fixed total is how it
-        gets missed.
-    The two tables must read the same after this step. A phase that changes
-    what a user can see but leaves either Status section unstated as
-    "Not started" is misleading anyone who reads the README instead of the
-    SDP — which is most readers.
+9.  **Update the §8 Status table in this document, before pushing.** Mark the
+    completed phase's row ✅ (🔄 if the phase is genuinely partial — that
+    should be rare, since a phase is not done until §6's rule is satisfied).
+    A phase that changes what a user can see but leaves its row reading
+    "Not started" misleads every reader of this document.
+
+    **This step no longer touches `README.md`** (Phase 32). It used to require
+    the identical edit in the README's own copy of the table and in its
+    `Progress: N of M phases complete.` line — which is the construction that
+    keeps two documents agreeing only for as long as nobody forgets. Phase 32
+    cuts `v1.0.0`, and after a 1.0 the question a reader of the README asks is
+    what the tool does and whether it is stable, not how far through a build
+    plan it is. The phase plan is this document's subject and status now lives
+    here alone.
+
+    **The README is maintained by hand and is not this protocol's to edit.**
+    Whatever it says about phases is its author's business; do not add to it,
+    re-sync it, or delete from it as part of closing a phase.
 10. **Commit and push.** One commit per logical change, the last of which
     carries the spec, documentation, and Status updates. `git push -u origin
     phase/NN-slug`.
@@ -441,18 +445,45 @@ No release is cut before Phase 16. From then on:
    complete and the gap list is empty but for review-verified items. `main`
    does not exist before the first release and is created at that point;
    `develop` is the default branch until then.
-2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release is
-   `v0.1.0`.** Feature completeness is not the thing the major version
-   promises — all 30 phases have shipped and the gap list is empty, and the
-   number still says the *command-line interface* is not yet fixed. Two
-   contracts are already stable regardless, and are stable because a
-   requirement says so rather than because a version number implies it:
-   HLR-121's cross-release clause fixes the six query files and their capture
-   names, so a language module written against this release keeps working,
-   and HLR-061 versions the saved record independently, so a record is
-   rejected by a build that cannot read it rather than half-understood. A
-   `1.0.0` would add to those only a promise about option spelling, which is
-   the one thing feedback from real use is most likely to change.
+2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release was
+   `v0.1.0`; Phase 32 cuts `v1.0.0`.** Feature completeness was never the
+   thing the major version promises — all the planned phases had shipped and
+   the gap list was empty at `v0.1.0`, and the number still said the
+   *command-line interface* was not yet fixed. Two contracts were stable
+   regardless, and were stable because a requirement says so rather than
+   because a version number implies it: HLR-121's cross-release clause fixes
+   the six query files and their capture names, so a language module written
+   against any release keeps working, and HLR-061 versions the saved record
+   independently, so a record is rejected by a build that cannot read it
+   rather than half-understood.
+
+   **What `1.0.0` adds is the promise `0.1.0` withheld: the spelling of the
+   options.** That was withheld on the grounds that option spelling is the one
+   thing feedback from real use is most likely to change, and the grounds were
+   sound — the reasoning is kept above rather than deleted, because a decision
+   reversed without its original argument in view is a decision nobody can
+   check. What changed is that the feedback arrived and was acted on. The
+   presentation changes it asked for are Phase 32's subject, and **not one of
+   them added, removed, or respelled an option**: the terminal report is
+   narrowed by changing what a format presents, and its width decided by
+   reading the destination. The phase most likely to have added a flag did not
+   need one, which is the evidence the option surface was asked for.
+
+   From `v1.0.0` the spelling is a compatibility promise under semantic
+   versioning: an option is not removed or renamed, and its argument grammar is
+   not narrowed, without a major version. What a report **presents** is
+   explicitly not covered. HLR-129 and HLR-130 already make the documentation
+   describe the version it ships with, and a composition, a column, or a line
+   width is a presentation `elc` stays free to improve within a major version —
+   exactly as Phase 32 does. Anything that must survive a redesign of the
+   presentation is what the record of HLR-054 is for, and HLR-061 versions that
+   separately for precisely this reason.
+
+   **A release that makes a version promise must be able to state its
+   version.** Phase 32 adds `--version` for that reason rather than as a
+   convenience: a tool the user cannot ask which release they are running is a
+   tool whose promise they cannot check, and a defect report against it names
+   no version.
 3. `make install` under a `DESTDIR`/`PREFIX` staging root produces the
    deliverable: the `elc` binary plus the `runtime/` tree, and the man page
    and user manual that HLR-128 ships with them. Verified by
@@ -3094,6 +3125,247 @@ update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
 before you push.
 ```
 
+### Phase 32 — The Terminal Report and the 1.0 Release
+
+`elc` has two readers and has been writing for one of them. A report saved as
+`.md` or `.html` is opened in something that scrolls, folds, and reflows; a
+report on standard output is read in a terminal, once, in the seconds after
+the command returns. Those are different documents, and until now they have
+been the same one — the aligned table is the Markdown report with different
+decoration, at the same composition and at whatever width the widest path in
+the project happened to make it.
+
+On `avrOS`, which is a small project by the standard of the ones this tool
+exists for, that default report is **fourteen sections and 242 columns wide**.
+Every terminal narrower than that wraps it, and a wrapped aligned table is
+worse than no table: the columns stop lining up, so the one property the
+format is chosen for is the first thing lost. The reader who most needs the
+report to be readable gets the version of it that is not.
+
+This phase makes the terminal report its own document, and then stops
+changing the interface.
+
+1.  **Three tiers on standard output** (HLR-218). The aligned table presents
+    the project summary, the findings, and the per-function table — and
+    nothing else — at the default verbosity. `--verbose` still restores every
+    tier, so nothing is removed from the tool; what changes is what a reader
+    who asked for nothing is shown.
+2.  **The tier partition becomes a property of the format** (HLR-218,
+    LLR-SUM-19). HLR-150 fixed one partition for every human-readable format,
+    and Markdown keeps it. The aligned table now carries a second. This is the
+    part of the phase most likely to be got wrong, and §5.4 step 6 exists for
+    exactly the discovery: the guarantee that has held since Phase 18 is that a
+    tier cannot be present in one format and forgotten in the other **because
+    there is nowhere to forget it**, the section list being written down once.
+    A second partition must be a second *column of that one list*, never a
+    second list — otherwise a section added to the report is a section that can
+    be classified in one format and left unclassified in the other, and the
+    construction that made the guarantee free is gone.
+3.  **A line the terminal can hold** (HLR-219). Where the report's destination
+    is a terminal, no line of the aligned table exceeds **128 columns**.
+    Columns holding text are narrowed and their cells wrapped across as many
+    physical lines as they need; columns holding numbers are not, since a
+    number split across two lines is not a number. The alignment survives,
+    which is the point — a wrapped cell continues under itself, not under its
+    neighbour.
+4.  **The width is read from the destination, not declared** (HLR-219). A file
+    has no width and a pipe has no width; a terminal does. `elc report.md` and
+    `elc . > out.txt` are unchanged, `elc .` wraps, and no option asks for
+    either. This is the same argument HLR-149 makes about formats — the
+    destination has already said what it is, and an option saying it again is a
+    second spelling that can disagree with the first.
+5.  **`--version`, and the release it exists to state** (HLR-220). One option,
+    printing the version and exiting, with the version written in exactly one
+    file — `VERSION`, in the project root — and reaching the binary, the man
+    page, and the manual from it. The binary takes it through the build; the
+    two documents state it as text, so a test reads that file and requires all
+    three to agree, and every object depends on the file so that a bump is not
+    left behind by an incremental build (LLR-BLD-26).
+6.  **Cut `v1.0.0`** (§5.5). The amendment to §5.5 is part of this phase, and
+    what it commits to is the option spelling — nothing about what a report
+    presents, which this very phase changes.
+
+**Why the terminal report is allowed to differ, and where the line is.**
+HLR-031 requires the human-readable formats to present the same tiers, and
+HLR-150 already carved the *verbosity* axis out of it — a summary run and a
+verbose run present different tiers of the same report and neither is a
+different report. This phase carves a second axis of the same kind and no
+more: **which tiers a format presents by default may differ; what a tier says
+may not.** The Functions table on standard output is the Functions table in
+`report.md`, to the row and to the figure, and any divergence there is a
+defect rather than a format difference. That line is what keeps this from
+becoming two reports that have to be kept agreeing, which is the failure
+HLR-031 exists to prevent and which the exemptions in it were each argued
+individually to avoid.
+
+**The Functions table moves from detail to summary, on standard output, and
+that looks backwards.** It is the longest table `elc` prints — one row per
+function, 82 of them on `avrOS` — and HLR-150's partition rule puts a tier
+enumerating one row per analysed entity in the detail tier by construction.
+The rule is right for a document and wrong for a terminal, because the two
+have different scarce resources. A document is read by *searching* it, so a
+long table costs a reader nothing and the tiers worth defaulting to are the
+aggregates. A terminal is read by *scrolling back* through what a command left
+behind, and there the aggregate is the cheapest thing to recover — it is
+twelve lines and it is at the top — while the per-function figures are the
+reason the command was run at all. A reader who types `elc src/` wants to know
+which functions are heavy. Sending them back with `--verbose` for the answer,
+after printing a dozen tables they did not ask for, is the default serving
+the format rather than the reader.
+
+What that costs is real and is accepted: the file-level totals, the languages,
+the discovery routes, the threshold listing, the conformance indices, and the
+image-filter provenance all leave the terminal default. Every one is a
+`--verbose` away, every one is in the saved report, and none of them is what
+the reader was looking at when they scrolled back.
+
+**The findings stay first and stay in.** HLR-182 put them directly after the
+project summary and HLR-150 kept them in the summary tier; both hold here
+unchanged, and the narrowing makes the placement matter more rather than less.
+A three-section report whose middle section is the one the reader is expected
+to act on is the shape this phase is aiming at.
+
+**Wrapping is a presentation of the same cells, not a truncation of them.**
+Nothing is elided, and no cell is replaced by a shortened form of itself: a
+path that does not fit is continued on the next line, not cut with an ellipsis
+in the middle. A report that quietly drops characters is a report a reader
+cannot copy a path out of, and the paths are what the reader does next with the
+table. Where a cell must be broken, the break is taken at a separator the
+content already has — whitespace first, then a `/` or a `:` — so a path breaks
+between its directories rather than mid-name.
+
+**Determinism holds, and its statement is sharpened rather than weakened.**
+HLR-032 requires repeated runs to produce identical output. A run to a terminal
+and a run to a pipe now differ, which reads like a violation and is not one:
+the requirement is about *repetition*, and repeating either run reproduces it
+exactly. Nothing here is read from the environment's `COLUMNS`, from a locale,
+or from a terminal's actual width — 128 is a constant. The destination is asked
+one yes-or-no question, and the answer decides between two fixed presentations
+rather than a continuum of them. Two runs to the same kind of destination are
+byte-identical, which is what every test and every diff of `elc` output depends
+on.
+
+**Why 128 and not 80.** 80 would fit every terminal and would make the
+Functions table's ten columns unreadable — at 80 columns the text columns fall
+to their floor and the table becomes a paragraph. 128 is wide enough that the
+table stays a table on the target this tool was built against, and narrow
+enough for a maximised terminal on any modern display. It is a chosen constant
+and not a derived one, and choosing it is the whole of the decision: reading
+the terminal's real width would make `elc`'s output depend on the size of a
+window, which is a worse property than being occasionally too wide.
+
+**Acceptance:** `elc src/` prints the project summary, the findings, and the
+Functions table, and no other section. `elc --verbose src/` prints every tier
+it printed before this phase, in the same order and carrying the same rows —
+the Phase 18 regression gate, reused, with the one exception recorded below. `elc -o report.md src/` presents exactly the tiers it
+presented before this phase, at both verbosities, and `elc -o report.md
+--verbose src/` still contains the Functions table.
+
+That is *tier-identical* rather than byte-identical, and the difference is one
+line of the project summary tier. Its label column was the length of the string
+`Physical lines` written out, and its value column the widest of four figures
+named one by one — both true of a summary of five totals, and neither true five
+phases later, so every label longer than the constant pushed its own value out
+of line with the rest. The tier that heads every report was the one tier in it
+that did not line up. Sizing both columns from the rows is a two-line fix and
+belongs in the phase whose subject is that this report is read by someone; it
+is recorded here rather than slipped in, because it is the one thing this phase
+changes in a format it otherwise leaves alone. A run to a terminal produces no line over 128
+columns, over a target whose paths are long enough to force wrapping in more
+than one column at once; the same run redirected to a file produces the
+unwrapped table, and two runs to the same destination are byte-identical. A
+cell broken across lines reassembles to the cell exactly, including a path
+containing no whitespace at all. A numeric column is never wrapped. A table
+whose numeric columns alone exceed the limit is emitted unwrapped rather than
+mangled. `elc --version` prints a version and exits 0; the version it prints,
+the one in `elc.1`, and the one the manual states are the same string, and a
+test checks that rather than a reader noticing.
+
+```text
+AI prompt — Phase 32
+
+Read issue #<N>, then HLR-031, HLR-032, HLR-150, HLR-151, HLR-182 and
+LLR-SUM-09, and SDD §14 (`format_text.c`) before writing code.
+
+Three changes, and they are independent — do them as three commits, not one.
+
+**The partition.** `SECTIONS[]` in `render_report` is one array with one
+`Tier` field. Give it two: one for Markdown, one for the aligned table, and
+select on the style already threaded through the traversal. Do NOT copy the
+array, do not write a second table beside it, and do not branch to a second
+walk. The reason is written above the array in the source and is the whole
+point of the structure: a section is written down once and classified once, so
+there is nowhere to forget it. Two columns preserve that; two arrays destroy
+it, and the destruction is invisible until somebody adds a section a year from
+now.
+
+Only `findings_section` and `functions_section` are summary in the table
+column. Everything else is detail there, including the sections that are
+summary in Markdown. The project summary is emitted before the loop and is not
+in the array — leave it there.
+
+Leave the `omitted` escape hatch working. A detail section whose analysis was
+skipped for want of a `--stratum` or `--entry` is still *reached* at summary
+verbosity so its heading lands in the closing statement; that predicate is
+about the run, not the format, and it must keep applying under both columns.
+LLR-SUM-09's last paragraph is the requirement.
+
+**The width.** It belongs in `grid_render_table`, which already has the
+stream. Ask `isatty(fileno(out))` there — do not thread a width parameter
+through thirty section functions, and do not add a module-static holding one.
+The layout is: total = 2 + sum(widths) + 2*(columns-1); if that exceeds 128,
+binary-search the largest cap such that capping the non-numeric columns at it
+fits, then wrap each cell to its capped width. Numeric columns keep their
+natural width. If even the floor does not fit, emit unwrapped — a mangled
+table is worse than a wide one.
+
+The break rule is: a space if there is one in range (and the space is
+consumed), else after the last `/` or `:` in range (kept on the line), else a
+hard break at the cap. Test the third case explicitly — every path in the
+`avrOS` target takes the second branch, so the hard break is the one that
+ships untested if you only look at real output.
+
+**Testing something that only happens on a tty is the awkward part, and there
+is no test seam for it.** Do not add an environment variable to `src/` to make
+this testable; that is exactly the seam the skill forbids. Bats captures
+output through a pipe, so `isatty` is false and the wrap never fires. Allocate
+a pty instead:
+
+    run script -qec "build/elc ..." /dev/null
+
+`script` is util-linux and is present. Strip its trailing CR if the assertion
+needs to be exact.
+
+**The version.** Define it once, in the Makefile, and pass it as
+`-DELC_VERSION='"1.0.0"'`. Not a header with a literal in it that the Makefile
+also knows, and not a string in `cli.c`. `doc/elc.1` and `doc/User_Manual.md`
+both carry it, so `test/integration/docs.bats` gets a case that reads the
+binary's `--version` and greps both documents for the same string — otherwise
+the three drift and nobody notices until a bug report names the wrong one.
+
+Verify against the real target, and not only the fixtures:
+
+    cd ~/Projects/avrOS/app/avrOS_example
+    elc --entry main --elf build/main.elf . ../../drv ../../sys ../../srv \
+        --stratum app:'*/app/*' --stratum drv:'*/drv/*' \
+        --stratum sys:'*/sys/*' --stratum srv:'*/srv/*'
+
+Three sections, and `awk '{print length}' | sort -rn | head -1` under 128 when
+it runs on a terminal. Then run it again with `-o report.md` and diff that
+against the file in the avrOS tree. The only difference must be the project
+summary's column widths; a changed heading, a changed row, or a changed figure
+anywhere is a defect in this phase.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), and step 8's gap-baseline
+update, before you push. Step 9 is `doc/SDP.md` alone now; leave `README.md`
+alone entirely.
+
+Then cut the release: §5.5, `v1.0.0`, with the Traceability matrix at the
+tagged commit as its evidence.
+```
+
 ## 9. Risks & Open Questions
 
 *   **~~The Ada grammar is community-maintained.~~ Closed 2026-08-17 by
@@ -3194,6 +3466,7 @@ T-shirt sizes; no calendar commitment implied.
 | 16 | M | libelf and the demangler are libraries; the name reduction is the work |
 | 17 | M | Sweeping and closing, plus whatever Phase 16 uncovers |
 | 31 | M | The serialisation is small; the escaping and the fixture are the work |
+| 32 | M | The partition is a field; the wrapping and its pty test are the work |
 
 Phase 8 is the one worth splitting if it proves oversized: symbol resolution
 and graph construction could ship separately from the GraphML writer, though

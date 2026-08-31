@@ -21,7 +21,9 @@ setup() {
 # --- the walking skeleton (HLR-027, HLR-071) ------------------------------
 
 @test "a directory target prints a table of its files" {
-	elc "$TREE"
+	# The Files table is the tier that answers which files were discovered,
+	# and it is a detail tier of the aligned table since HLR-218.
+	elc --verbose "$TREE"
 	assert_success
 	assert_output --partial "Project summary"
 	assert_output --partial "$TREE/a.c"
@@ -36,14 +38,14 @@ setup() {
 }
 
 @test "a single file target reports that file alone" {
-	elc "$TREE/a.c"
+	elc --verbose "$TREE/a.c"
 	assert_success
 	assert_output --partial "$TREE/a.c"
 	refute_output --partial "sub/b.c"
 }
 
 @test "files and directories may be intermixed on one command line" {
-	elc "$TREE/a.c" "$TREE/sub"
+	elc --verbose "$TREE/a.c" "$TREE/sub"
 	assert_success
 	assert_output --partial "$TREE/a.c"
 	assert_output --partial "$TREE/sub/b.c"
@@ -69,7 +71,7 @@ setup() {
 # --- duplicate elimination (HLR-072) --------------------------------------
 
 @test "a file named alongside a directory containing it is counted once" {
-	elc "$TREE/a.c" "$TREE"
+	elc --verbose "$TREE/a.c" "$TREE"
 	assert_success
 	assert_output --regexp "Files +2"
 
@@ -152,7 +154,7 @@ setup() {
 }
 
 @test "--output writes the report to the named file" {
-	elc --output "$BATS_TEST_TMPDIR/report.txt" "$TREE"
+	elc --verbose --output "$BATS_TEST_TMPDIR/report.txt" "$TREE"
 	assert_success
 	assert_output ""
 	run cat "$BATS_TEST_TMPDIR/report.txt"

@@ -22,6 +22,19 @@
 #include "cli.h"
 #include "elc.h"
 
+/* The release, from the build and from nowhere else (HLR-220).
+ *
+ * A fallback literal here would be a second place the version is
+ * written, and the one that gets forgotten is never the one anybody
+ * reads — a binary confidently reporting a version it was not built as
+ * is worse than one that would not build. The Makefile passes it; a
+ * build system that does not is told so here rather than at the point a
+ * user asks.
+ */
+#ifndef ELC_VERSION
+#error "ELC_VERSION must be defined by the build (see Makefile)"
+#endif
+
 /* The colon separating a declaration's name from its pattern list, or NULL
  * having diagnosed against `arg`.
  *
@@ -467,7 +480,8 @@ void cli_usage(FILE *stream)
 "                     --cc-flag -Iinclude; elc never invents one, so a\n"
 "                     project whose headers are not beside its sources\n"
 "                     expands only when told where they are\n"
-"  -h, --help         display this help and exit\n",
+"  -h, --help         display this help and exit\n"
+"      --version      display the version and exit\n",
 	      stream);
 
 	/* The fifth and last. Split, and not for style: one literal holding
@@ -518,7 +532,8 @@ enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
        OPT_SCOPE, OPT_STRATUM, OPT_STRATUM_ORDER, OPT_RULES, OPT_ELF,
        OPT_DSM, OPT_SINK_AUTHORITY, OPT_SINK_HUB, OPT_GOD_BETWEENNESS,
        OPT_GOD_HUB, OPT_CORE_DEPTH, OPT_MANIFEST, OPT_WRITE_MANIFEST,
-       OPT_PURIFY_DOT, OPT_DBG, OPT_NO_EXPAND, OPT_CC, OPT_CC_FLAG };
+       OPT_PURIFY_DOT, OPT_DBG, OPT_NO_EXPAND, OPT_CC, OPT_CC_FLAG,
+       OPT_VERSION };
 
 /* What reading one option needs: the options being built, and the record of
  * how the format came to be what it is. All three outlive the option that
@@ -1260,6 +1275,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "core-depth",           required_argument, NULL, OPT_CORE_DEPTH },
 		{ "stratum",              required_argument, NULL, OPT_STRATUM },
 		{ "stratum-order",        required_argument, NULL, OPT_STRATUM_ORDER },
+		{ "version",              no_argument,       NULL, OPT_VERSION },
 		{ "help",                 no_argument,       NULL, 'h' },
 		{ NULL,                   0,                 NULL, 0   }
 	};
@@ -1290,10 +1306,20 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		OptionFn handle;
 		int      status;
 
-		/* The one option that answers rather than records, and so ends
-		 * the parse where it stands rather than adding to `out`. */
+		/* The two options that answer rather than record, and so end
+		 * the parse where they stand rather than adding to `out`.
+		 *
+		 * `--version` answers before any validation, so an invocation
+		 * whose other arguments are wrong still answers it — which is
+		 * the state a user is usually in when somebody asks them what
+		 * version they are running (HLR-220). Both exit 0: being asked
+		 * a question is not an error (HLR-117). */
 		if (c == 'h') {
 			cli_usage(stdout);
+			return CLI_HELP;
+		}
+		if (c == OPT_VERSION) {
+			fprintf(stdout, "elc %s\n", ELC_VERSION);
 			return CLI_HELP;
 		}
 

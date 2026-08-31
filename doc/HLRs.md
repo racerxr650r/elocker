@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.13
-**Date:** 2026-08-28
+**Version:** 3.15
+**Date:** 2026-08-31
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -225,7 +225,7 @@ Requirements governing how `elc` aggregates and summarizes per-function metrics 
 Requirements governing how `elc` renders its computed results for human and machine consumption (PVD §5 item 7, §7.1).
 
 *   <a id="HLR-027"></a>**HLR-027: Default Human-Readable Output.**
-    By default, `elc` shall render its results as an aligned, human-readable table on standard output. What that table presents by default is the summary composition of HLR-150; this requirement fixes the default *format* and destination, and says nothing about how much of the report they carry.
+    By default, `elc` shall render its results as an aligned, human-readable table on standard output. What that table presents by default is the composition of HLR-218, and how wide its lines are where the destination is a terminal is fixed by HLR-219; this requirement fixes the default *format* and destination, and says nothing about how much of the report they carry or how it is laid out.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 14](SDD.md).
 
 *   <a id="HLR-028"></a>**HLR-028: CSV Output.**
@@ -257,7 +257,7 @@ Requirements governing how `elc` renders its computed results for human and mach
     *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md).
 
 *   <a id="HLR-031"></a>**HLR-031: Uniform Report Composition Across Formats.**
-    Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), Graphviz `.dot` (HLR-102), and HTML (HLR-215) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
+    Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), Graphviz `.dot` (HLR-102), and HTML (HLR-215) shall present the same tiers of information *at the verbose verbosity of HLR-151*, and shall present the same rows carrying the same figures wherever a tier is presented in more than one of them. Which tiers a format presents *by default* is settled per format by HLR-150 and HLR-218, and is deliberately not uniform: the reader of a saved document and the reader of a terminal are asking at different altitudes. The tiers, at that verbosity, are: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
 
     The enumeration above is the **verbose** composition of HLR-151. Verbosity selects how much of it a given run presents (HLR-150), and this requirement governs the axis it does not touch: whichever verbosity is in force, every affected format shall present the same tiers as every other. Uniformity is across formats at a fixed verbosity, never across verbosities — a table and a Markdown report of the same run must not differ, and a summary report is not required to match a verbose one.
 
@@ -288,6 +288,8 @@ Requirements governing how `elc` renders its computed results for human and mach
     It shall omit by default the **detail** tiers: every section presenting one row per function, per global object, per unreachable statement, per graph edge, or per custom-rule match. The partition rule is that a tier reporting a project-level or file-level aggregate, or a finding a reader is expected to act on, is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Which tier each section belongs to shall be stated in the delivered documentation (HLR-129), so that the partition is a published property of the report rather than an artefact of how a renderer was written.
 
     The default changed with this requirement, and that is deliberate: the full report grew past the length at which it can be read in a terminal, and a default nobody reads is a default that serves nobody. Nothing is lost, because HLR-151 restores it in full and HLR-152 exempts the formats whose whole purpose is completeness.
+
+    **This is the partition for a report that is saved and read as a document.** The aligned table, which is read once in a terminal, has its own and narrower one: HLR-218 states it, states why the same rule does not serve both readers, and states the boundary the two share — which tiers a format presents by default may differ, and what a tier says may not.
     *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
 
 *   <a id="HLR-151"></a>**HLR-151: Verbose Report on Request.**
@@ -295,6 +297,52 @@ Requirements governing how `elc` renders its computed results for human and mach
 
     The option shall govern presentation alone. It shall not change any measurement, any finding, any severity, or the process exit status, and a value absent from a summary report shall be absent because it was not printed rather than because it was not computed.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
+
+*   <a id="HLR-218"></a>**HLR-218: The Terminal Report's Own Composition.**
+    The aligned table (HLR-027) shall present, by default, the project summary (HLR-024 through HLR-026), the findings ranked by severity (HLR-098, HLR-123), and the per-function table (HLR-014, HLR-015, HLR-017, HLR-183) — and no other tier. Every remaining tier shall be presented on the verbose request of HLR-151, which restores them in full.
+
+    **There are two summary partitions because there are two readers, and neither is a special case of the other.** HLR-150 fixes one partition for every human-readable format, and its rule is a document's rule: a saved report is read by *searching* it, so a long table costs its reader nothing and the tiers worth defaulting to are the aggregates. A report on a terminal is read once, by scrolling back through what a command left behind, and there the aggregate is the cheapest thing to recover — it is a dozen lines and it is at the top — while the per-function figures are the reason the command was run. A reader who types the command with no options wants to know which of their functions are heavy; sending them back with a second option to find out, after a dozen tables they did not ask for, is a default serving the format rather than the reader.
+
+    **The per-function table therefore crosses the partition, and only in this format.** By HLR-150's rule it is a detail tier by construction, enumerating one row per analysed entity. That rule is right for the document and wrong for the terminal, and this requirement states the exception rather than weakening the rule that produces it.
+
+    **What is given up is stated rather than glossed.** The file totals, the languages, the discovery routes, the threshold listing, the conformance indices and the image provenance all leave this format's default. Every one remains a verbose request away, and every one remains in a report saved in any other format at any verbosity — nothing is removed from the tool, and this requirement removes nothing from any other format.
+
+    **The difference shall be in which tiers a format presents and never in what a tier says.** A tier presented in two formats shall present the same rows carrying the same figures, taken from the same model. That is the boundary that keeps this from becoming two reports to be kept in agreement, which is the failure HLR-031 exists to prevent; a divergence in the content of a tier is a defect and not a format difference.
+
+    **The classification shall be a property of the one shared traversal**, as HLR-150's already is: a second list of sections beside the first would let a tier be classified in one format and left unclassified in the other, which is the construction HLR-031 and HLR-151 are made safe by.
+    *Trace:* [SDD Section 14](SDD.md).
+
+*   <a id="HLR-219"></a>**HLR-219: A Line the Terminal Can Hold.**
+    Where the aligned table (HLR-027) is written to a terminal, no line of it shall exceed **128 columns**. Columns holding text shall be narrowed and their cells continued on the lines beneath them; columns holding numbers shall not be narrowed, since a number divided across two lines is not a number.
+
+    **A wrapped aligned table is worse than no table.** The format is chosen for exactly one property — the columns line up — and a line the terminal folds is a line that has lost it. On a project of forty-four files the report is already twice the width of a wide terminal, and the reader who most needs it to be readable is the one who gets the version that is not.
+
+    **Nothing shall be elided.** A cell that does not fit shall be continued rather than shortened: no ellipsis, no abbreviation, no dropped middle. The paths in this report are what a reader copies out of it in order to do something next, and a shortened path is not one. Where a cell must be broken, the break shall be taken at a separator the content already carries wherever there is one within reach, so that a path breaks between two of its directories rather than through the middle of a name.
+
+    **A cell's continuation shall appear beneath its own column.** The table is not reflowed into paragraphs; it stays a table, read down its columns, which is the property being preserved rather than sacrificed.
+
+    **The width shall be decided by the destination and not declared by an option.** A file has no width and a pipe has no width; a terminal does, and the destination has therefore already said which it is. An option restating it would be a second spelling that can disagree with the first — the disagreement HLR-149 exists to prevent between the two ways of naming a format — and it would put the reader in charge of a fact the program can observe.
+
+    **This does not weaken HLR-032.** The limit is a fixed constant and not the terminal's own width: nothing is read from the environment's column count, from the locale, or from the size of a window. The destination is asked one yes-or-no question and the answer selects between two fixed presentations, so two runs to the same kind of destination produce identical bytes and a resized window changes nothing. A run to a terminal and a run to a pipe differ, which is the distinction this requirement draws rather than an exception to that one.
+
+    **Where the table cannot be made to fit, it shall be emitted unwrapped.** A table whose columns of numbers alone exceed the limit has no arrangement that both fits and stays aligned, and squeezing it past that point produces something that is neither a table nor prose. A wide table is a worse outcome than a narrow one and a better outcome than a mangled one.
+    *Trace:* [SDD Section 14](SDD.md).
+
+*   <a id="HLR-220"></a>**HLR-220: The Version the Build Was Made As.**
+    `elc` shall provide a command-line option that writes the version of the build to standard output and exits successfully, and the version it writes shall be the version stated by the delivered documentation (HLR-128 – HLR-130).
+
+    **A release that makes a compatibility promise must be able to state which release it is.** From `1.0.0` the spelling of the options is such a promise — an option is not removed or renamed, and its argument grammar is not narrowed, without a new major version — and a user cannot check a promise against a build that will not say what it is. A defect report against such a build names no version, and two builds that behave differently cannot be told apart at all.
+
+    **The version shall be written in exactly one file — `VERSION`, in the project root — and shall reach the binary and both delivered documents from it.** That file holds the version and nothing else, so that a release is made by editing one line and every restatement of it is derived or checked. A literal compiled into the source that a build system also knows is two places, and the one that is forgotten is never the one anybody reads: a binary confidently reporting a version it was not built as is worse than a binary that will not build. Where that file is absent or empty, the build shall fail rather than a default be substituted.
+
+    **The restatements that are not derived shall be checked.** The binary takes the version from the file through the build; the man page's title line and the user manual state it as text, and nothing in the build makes those follow. A test shall read the file and require all three to agree, so that a version bump not carried into both documents fails the build rather than shipping a binary and a manual that disagree about which release they are.
+
+    **A statement of the release a promise began at is not a version stamp**, and shall not be required to track the file. Both documents record that the compatibility promise above holds *from* `1.0.0`; that names a fixed point in the project's history and stays as it is when the version moves past it.
+
+    **The version shall be answered before the rest of the command line is validated**, so that it is answered by an invocation whose other arguments are wrong. That is the state a user is usually in when they are asked which version they are running. Being asked a question is not an error, so the exit status is that of a successful run, exactly as it is for the usage summary (HLR-117).
+
+    **What the promise does not cover shall be stated where the promise is.** A report's composition, its columns, and the width of its lines are presentations `elc` remains free to improve within a major version — HLR-218 and HLR-219 are both such changes — and a consumer that must survive a change of presentation is the reason the saved record of HLR-054 exists and is versioned separately by HLR-061.
+    *Trace:* [SDD Section 4](SDD.md).
 
 *   <a id="HLR-152"></a>**HLR-152: Complete-Record Formats Unaffected by Verbosity.**
     The XML record (HLR-054) shall carry every element of a run whatever the verbosity, since its defining purpose is to be a complete and durable record sufficient to regenerate any report `elc` can produce (Section 9). A summarised record would silently destroy the measurements a later regeneration depends on, and the loss would not be visible in the file it produced.

@@ -23,7 +23,7 @@ headings() {
 }
 
 has_heading() {
-	printf '%s\n' "$output" | grep -qE "^$1"
+	printf '%s\n' "$output" | grep -qE "^(## )?$1"
 }
 
 # Whether the traversal *reached* a section, printed or not.
@@ -33,13 +33,17 @@ has_heading() {
 # question about the union of the two. A tier a verbosity filtered out appears
 # in neither, which is what these tests are distinguishing (HLR-189).
 reaches() {
-	has_heading "$1" || printf '%s\n' "$output" | grep -qF "    - $1"
+	has_heading "$1" ||
+		printf '%s\n' "$output" | grep -qE "^ *- $1"
 }
 
 # --- the summary tiers (HLR-150) -------------------------------------------
 
 @test "HLR-150: the summary tiers are present by default" {
-	elc "$TREE"
+	# Asserted against Markdown. HLR-150's partition is a document's rule,
+	# and since HLR-218 the aligned table answers with its own — the three
+	# tests below this one are where that answer is asserted.
+	elc -f md "$TREE"
 	assert_success
 
 	# Every tier HLR-150 enumerates, printed where it found rows and named
@@ -56,7 +60,7 @@ reaches() {
 }
 
 @test "HLR-150: the detail tiers are absent by default" {
-	elc "$TREE"
+	elc -f md "$TREE"
 	assert_success
 
 	# One row per function, per global object, per graph edge, per
@@ -233,22 +237,23 @@ reaches() {
 	assert_equal "$status" "$plain_status"
 }
 
-@test "HLR-031: both human formats present the same tiers at each verbosity" {
-	# Uniformity across formats at a fixed verbosity — never across
-	# verbosities. Markdown decorates its headings with `## `, so the two
-	# are compared with that stripped.
-	for flag in "" "--verbose"; do
-		elc $flag "$TREE"
-		local table
-		table="$(headings)"
+@test "HLR-031: both human formats present the same tiers when verbose" {
+	# Uniformity across formats — never across verbosities, and since
+	# HLR-218 never at the default verbosity either, where the two formats
+	# deliberately compose differently. What survives, and is the property
+	# HLR-031 is actually about, is that a tier exists in both formats:
+	# a verbose run of each presents the same tiers in the same order, so
+	# a section cannot be present in one format and missing from the other.
+	elc --verbose "$TREE"
+	local table
+	table="$(headings)"
 
-		elc $flag -f md "$TREE"
-		local markdown
-		markdown="$(printf '%s\n' "$output" |
-			awk '/^## / { sub(/^## /, ""); print }')"
+	elc --verbose -f md "$TREE"
+	local markdown
+	markdown="$(printf '%s\n' "$output" |
+		awk '/^## / { sub(/^## /, ""); print }')"
 
-		assert_equal "$markdown" "$table"
-	done
+	assert_equal "$markdown" "$table"
 }
 
 # --- the complete-record formats (HLR-152) ---------------------------------

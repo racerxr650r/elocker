@@ -20,7 +20,9 @@ setup() {
 # rows beginning with a path, and an unscoped match would report each file
 # once per function it defines.
 analysed() {
-	elc "$@"
+	# --verbose because the Files table is a detail tier of the aligned
+	# table since HLR-218.
+	elc --verbose "$@"
 	printf '%s\n' "$output" |
 		awk '/^Files$/ { f = 1; next } f && /^$/ { f = 0 } f && /^  \// { print $1 }' |
 		sed "s|^$TREE_REAL/||"

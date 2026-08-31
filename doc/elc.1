@@ -1,5 +1,5 @@
 .\" elc.1 — manual page for elc.
-.TH ELC 1 "2026-08-20" "elocker" "User Commands"
+.TH ELC 1 "2026-08-31" "elc 1.0.0" "User Commands"
 .SH NAME
 elc \- per-function code metrics and whole-project architecture analysis
 .SH SYNOPSIS
@@ -14,6 +14,9 @@ elc \- per-function code metrics and whole-project architecture analysis
 .br
 .B elc
 .B \-\-help
+.br
+.B elc
+.B \-\-version
 .SH DESCRIPTION
 .B elc
 calculates code metrics and performs architecture analysis per function. It calculates metrics based on 
@@ -1110,6 +1113,26 @@ there is then no name to derive one from.
 .BR \-h ", " \-\-help
 Display a usage summary on standard output and exit successfully. Requesting
 help is not an error, so the exit status is 0 rather than a failure code.
+.TP
+.B \-\-version
+Display the version and exit successfully. The version is answered before the
+rest of the command line is validated, so it is answered by an invocation whose
+other arguments are wrong \(em which is the state you are usually in when
+somebody asks you which version you are running.
+.IP
+From
+.BR 1.0.0 ,
+the spelling of the options on this page is a compatibility promise: an option
+is not removed or renamed, and its argument grammar is not narrowed, without a
+new major version. What a report
+.I presents
+is not covered by that promise \(em a composition, a column, or a line width is
+a presentation
+.B elc
+stays free to improve. Anything of yours that must survive a change to the
+presentation should read the saved record described under
+.BR "THE SAVED RECORD" ,
+whose format is versioned separately for exactly this reason.
 .SS Findings, severity, and attribution
 Every analysis above measures. The
 .B Findings
@@ -1332,10 +1355,13 @@ results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
 The default format is an aligned table in tiers, and by default it presents
-the summary tiers alone \(em see
+three of them \(em the project summary, the findings, and the per\-function
+table \(em with every other tier a
+.B \-\-verbose
+away. See
 .B REPORT VERBOSITY
-below for which those are. A section with no rows is not emitted at all; the
-report closes with a
+below, which gives the partition for both human\-readable formats. A section
+with no rows is not emitted at all; the report closes with a
 .B Nothing to report
 statement naming every one that was empty. The example below is of a
 .B \-\-verbose
@@ -1448,6 +1474,30 @@ The shape of the report does not vary with the type of the target: a single
 file, a plain directory, and a repository all reach the same sections with the
 same columns. Which of them are printed and which are named as empty is a
 property of what a run found, not of what kind of target it was given.
+.SS Line width
+Where the report is written to a terminal, no line of the aligned table exceeds
+.B 128
+columns. Columns holding text are narrowed and their cells continued on the
+lines beneath them; columns holding numbers are not narrowed, since a number
+split across two lines is not a number. Nothing is elided \(em a path that does
+not fit is continued, never shortened \(em and the break is taken at a
+separator the text already has, so a path breaks between two of its directories
+rather than in the middle of a name.
+.PP
+The width is decided by the destination and not by an option, because the
+destination has already said what it is: a file has no width and a pipe has no
+width. Redirect the report and you get the table at its natural width, which is
+what a
+.BR diff (1)
+or a script wants; leave it on the terminal and you get a table you can read.
+.PP
+This does not make the output non\-deterministic.
+.B 128
+is a constant rather than the terminal's own width \(em nothing is read from
+.BR COLUMNS ,
+from the locale, or from the size of a window \(em so two runs to the same kind
+of destination produce identical bytes.
+
 .SH REPORT VERBOSITY
 A report is presented at one of two verbosities. The default is the
 .IR summary ,
@@ -1469,7 +1519,39 @@ to act on is a summary tier. A tier enumerating one row per analysed entity
 \(em per function, per global object, per unreachable statement, per graph
 edge, per custom\-rule match \(em is a detail tier.
 .PP
-The summary tiers, in the order they are presented:
+.B There are two summary partitions, one per human\-readable format,
+because there are two readers. The rule above is the partition for
+.BR md :
+a saved report is read by searching it, so a long table costs you nothing and
+the tiers worth defaulting to are the aggregates.
+.PP
+The aligned table is read in a terminal, once, by scrolling back through what
+the command left behind. There the aggregate is the cheapest thing to recover
+\(em it is twelve lines and it is at the top \(em while the per\-function
+figures are what you ran the command for. So the aligned table presents
+.BR "Project summary" ,
+.BR Findings ,
+and
+.BR Functions ,
+and nothing else; every other tier is a
+.B \-\-verbose
+away, and every one of them is in a saved report whatever the verbosity.
+.PP
+The difference is in
+.I which
+tiers a format presents by default, never in
+.I what
+a tier says. The
+.B Functions
+table on your terminal is the
+.B Functions
+table in your
+.BR report.md ,
+to the row and to the figure.
+.PP
+The summary tiers of the
+.B md
+format, in the order they are presented:
 .RS
 .IP \(bu 2
 Project summary.
@@ -1509,8 +1591,13 @@ Partially parsed files.
 Skipped files.
 .RE
 .PP
-The detail tiers, presented only with
-.BR \-\-verbose :
+The detail tiers of the
+.B md
+format, presented only with
+.BR \-\-verbose
+\(em and, but for
+.BR Functions ,
+the tiers the aligned table also holds back until then:
 .RS
 .IP \(bu 2
 Functions \(em one row per analysed function, carrying its line range, ELOC,
