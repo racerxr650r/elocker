@@ -138,7 +138,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1278 test(s)** across
+Snapshot: **1280 test(s)** across
 **59 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
@@ -1771,7 +1771,7 @@ Role: **unit**. **9 test(s).**
 
 ### 3.58. [test/unit/report_html.c](../test/unit/report_html.c)
 
-Role: **unit**. **21 test(s).**
+Role: **unit**. **22 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1800,10 +1800,11 @@ Role: **unit**. **21 test(s).**
 | 23 | <a id="the_page_carries_a_collapse_all_control"></a>`the_page_carries_a_collapse_all_control` | `LLR-HTM-07` | Verifies that the page emits one control closing every file and restoring the opening view, that it clears the marks an opened file made, and that no control opens every file. |
 | 24 | <a id="no_two_file_boxes_may_overlap"></a>`no_two_file_boxes_may_overlap` | `LLR-HTM-08` | Verifies that the page carries the separation pass, that it runs after a file is opened or closed, and that it runs when the reader drops a dragged box — the case the displacement alone does not cover. |
 | 25 | <a id="a_box_says_what_was_found_about_it_on_hover"></a>`a_box_says_what_was_found_about_it_on_hover` | `LLR-HTM-09` | Verifies that the page carries the element that reports a box's definition site, figures and findings while the reader points at it, and that the element takes no pointer event of its own. |
+| 26 | <a id="pointing_at_a_function_lights_the_calls_it_takes_part_in"></a>`pointing_at_a_function_lights_the_calls_it_takes_part_in` | `LLR-HTM-10` | Verifies that the page marks the pointed-at function and the edges it takes part in, in both directions, and lifts the marked edges above the boxes so a call into an opened file is not hidden by it. |
 
 ### 3.59. [test/fixtures/html.bats](../test/fixtures/html.bats)
 
-Role: **fixture**. **24 test(s).**
+Role: **fixture**. **25 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1831,6 +1832,7 @@ Role: **fixture**. **24 test(s).**
 | 22 | <a id="html: the drawing holds the components the .dot companion clusters"></a>`html: the drawing holds the components the .dot companion clusters` | — | Verifies that the interactive drawing and the Graphviz companion hold the same components from one run, which they reach by different routes and had come to disagree about. |
 | 23 | <a id="html: one control closes every file, and none opens them all"></a>`html: one control closes every file, and none opens them all` | `LLR-HTM-07` | Verifies over a real run that the emitted page carries the collapse-all control and no expand-all, the latter being the density at function level the collapsed default exists to prevent. |
 | 24 | <a id="html: a box says what was found about it on hover"></a>`html: a box says what was found about it on hover` | `LLR-HTM-09` | Verifies over a real run that the emitted page carries the hover element and its handlers, and that it is deaf to the pointer so a hovered box can still be clicked. |
+| 25 | <a id="html: pointing at a function lights the calls it takes part in"></a>`html: pointing at a function lights the calls it takes part in` | `LLR-HTM-10` | Verifies over a real run that the emitted page carries the highlight, marks the edges in both directions, and tells the reader in the header that the gesture exists. |
 
 ## 4. LLR Coverage Matrix
 
@@ -2425,6 +2427,7 @@ verified by code review — see
 | `LLR-HTM-07` | `format_html` | `HLR-216` | `the_page_carries_a_collapse_all_control`, `html: one control closes every file, and none opens them all` |
 | `LLR-HTM-08` | `format_html` | `HLR-216` | `no_two_file_boxes_may_overlap` |
 | `LLR-HTM-09` | `format_html` | `HLR-217` | `a_box_says_what_was_found_about_it_on_hover`, `html: a box says what was found about it on hover` |
+| `LLR-HTM-10` | `format_html` | `HLR-216`, `HLR-085` | `pointing_at_a_function_lights_the_calls_it_takes_part_in`, `html: pointing at a function lights the calls it takes part in` |
 | `LLR-ANN-01` | `annotations_build` | `HLR-217`, `HLR-123` | `the_highest_severity_is_the_one_kept`, `a_clean_graph_carries_no_annotation`, `an_unreachable_function_is_marked_at_its_definition_site`, `only_consecutive_pairs_are_steps_of_the_chain` |
 | `LLR-ANN-02` | `annotations_build` | `HLR-217`, `HLR-091`, `HLR-092` | `a_finding_lands_on_the_definition_site_not_the_name`, `a_component_finding_lands_on_the_component`, `a_finding_about_the_graph_reaches_the_notes`, `a_global_finding_lands_once_per_function_not_once_per_access` |
 | `LLR-ANN-03` | `annotations_build` | `HLR-089`, `HLR-105`, `HLR-217` | `recursion_is_marked_on_every_member_of_the_cycle` |

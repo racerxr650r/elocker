@@ -2358,6 +2358,19 @@ The page itself: when it is written, what its shell contains, how the payload su
     **It shall stay within the window.** A box near an edge would otherwise push its own description off the screen, which fails precisely where the drawing is most crowded.
     *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From).
 
+*   <a id="LLR-HTM-10"></a>**LLR-HTM-10** — While the reader points at a function, that function's outline and every call it takes part in — those it makes and those made to it — shall be drawn in a distinguishing colour, and returned to their ordinary appearance when the reader points elsewhere.
+
+    **A function's row states its fan-in and fan-out as numbers; this says which calls they are.** The two figures tell a reader that a function is called by eleven others without telling them which eleven, and finding out means tracing lines across a drawing that may hold a thousand — the one task a drawing should make easy and this one did not.
+
+    **Both directions are marked and not distinguished from one another.** The question the gesture answers is what the function takes part in; which way each call runs is already drawn, in the arrowhead. Colouring the two differently would answer a question the drawing has already answered and spend the reader's attention twice.
+
+    **The marked calls shall be lifted above the boxes.** Every edge is drawn beneath every box so that an unrelated one passes behind an opened file (LLR-HTM-06); a highlighted call left there would be hidden by the very file it runs into, which is most of what the reader is following. The lift is for the marked edges alone and lasts as long as the mark does.
+
+    **The mark shall follow the current graph rather than the graph as emitted.** Where a call runs into a file that is closed, what the reader can see is the viewer's meta-edge, and that is what is marked.
+
+    **It shall be cleared when a file opens or closes**, since the functions it holds are about to arrive or depart, and a mark surviving on an element the reader is no longer pointing at is a claim about the drawing that nothing made.
+    *Trace:* HLR-216 (The View Opens at the Architectural Level), HLR-085.
+
 ## 74. `annotations_build` ([src/annotate.c](../src/annotate.c))
 
 Placing a run's findings on the graph they describe, once, for every drawing that shows them.

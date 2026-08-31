@@ -439,3 +439,17 @@ print(sum(1 for e in json.load(sys.stdin)
 	# It never swallows a click meant for the box under it.
 	assert_output --partial "pointer-events: none"
 }
+
+@test "html: pointing at a function lights the calls it takes part in" {
+	# Its row in the report gives fan-in and fan-out as numbers; this says
+	# which calls they are (LLR-HTM-10).
+	run_elc
+	assert_success
+	run cat "$HTML"
+	assert_success
+	assert_output --partial "'node.hot'"
+	assert_output --partial "'edge.hot'"
+	assert_output --partial "n.connectedEdges().addClass('hot')"
+	# And the drawing says so where a reader will meet it.
+	assert_output --partial "Point at a function to light the calls"
+}

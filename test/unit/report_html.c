@@ -928,3 +928,37 @@ Test(report_html, a_box_says_what_was_found_about_it_on_hover)
 	free(page);
 	scene_free(&s);
 }
+
+/* Pointing at a function lights the function and the calls it takes part in.
+ *
+ * Its row in the report gives fan-in and fan-out as numbers; this says which
+ * calls they are, without the reader tracing a line across a drawing that has
+ * a thousand of them. Both directions, because the question is what the
+ * function participates in — the arrowhead already says which way each runs
+ * (LLR-HTM-10). */
+Test(report_html, pointing_at_a_function_lights_the_calls_it_takes_part_in)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	page = page_of(&s.report, &s.graph, &opts);
+
+	cr_assert_not_null(strstr(page, "'node.hot'"));
+	cr_assert_not_null(strstr(page, "'edge.hot'"));
+	cr_assert_not_null(strstr(page, "#c62828"));
+	/* Both directions at once, which is what `connectedEdges` is. */
+	cr_assert_not_null(strstr(page,
+	        "n.connectedEdges().addClass('hot')"));
+	cr_assert_not_null(strstr(page,
+	        "cy.on('mouseover', 'node[tier = \"function\"]'"));
+	cr_assert_not_null(strstr(page,
+	        "cy.on('mouseout', 'node[tier = \"function\"]', cool)"));
+	/* Lifted above the boxes, or a highlighted call would be hidden by
+	 * the very file it runs into. */
+	cr_assert_not_null(strstr(page, "'z-compound-depth': 'top'"));
+
+	free(page);
+	scene_free(&s);
+}

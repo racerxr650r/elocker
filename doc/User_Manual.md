@@ -1833,6 +1833,13 @@ only function that uses some global — which means that global could be a local
 one. The key above the drawing *draws* each shape rather than naming it, so
 you can match what you see to what it means.
 
+**Point at a function and the calls it takes part in light up red** — the
+ones it makes and the ones made to it, together with its own outline. The
+function table gives you fan-in and fan-out as numbers; this is how you see
+*which* calls those numbers are counting, without tracing a line across a
+drawing that may hold a thousand. Both directions are lit at once, because
+the arrowheads already say which way each one runs.
+
 **Point at any box and it tells you what was found about it** — the file and
 line it is defined at, its ELOC and complexity, and each finding on its own
 line. That is the same text the `.dot` companion puts in its tooltips, which
