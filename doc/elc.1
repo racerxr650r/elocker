@@ -488,6 +488,10 @@ RFC 4180 CSV, as
 .B \&.xml
 the complete record, as
 .BR "\-f xml" .
+.TP
+.B \&.html
+an interactive drawing of the dependence graph, as
+.BR "\-f html" .
 .RE
 .PP
 An output filename carrying any other extension, or none at all, is a usage
@@ -583,6 +587,79 @@ The complete record of a run, carrying every element any report may present
 and a format-version identifier. It is what
 .B \-\-from\-xml
 reads back.
+.TP
+.B html
+One self-contained page drawing the dependence graph as a containment
+hierarchy: the architectural layers declared with
+.BR \-\-stratum ,
+each holding the files assigned to it, each of those holding its functions.
+The page opens in a browser directly from the filesystem \(em no local web
+server and no build step \(em showing one box per file within the layer it
+was declared in. A file box is labelled by its path below the directory every
+analysed file shares, with the full path on the node in the page's embedded
+record, and
+.B the file is the only tier that opens and closes:
+a declared layer stands open, being context for the files within it.
+.IP
+Each function and file carries the findings the report states about it \(em
+amber for a warning and red for a critical, as in the Graphviz companion, with
+a double border for a member of a recursive cycle, a dashed border where no
+declared entry point reaches it, and a distinct shape for each of the two
+findings about global objects \(em taking part in a hidden channel, and being
+the only function that uses some global, which means that global could be a
+local one. The page states this key above the drawing, drawing each shape
+rather than naming it, and pointing at a box reports its definition site, its
+figures and each finding upon it \(em the text the Graphviz companion carries
+in its tooltips. Pointing at a function also draws that function and every
+call it takes part in, in either direction, in red: the function table counts
+those calls, and this is where a reader sees which ones they are. Every mark is an annotation upon the drawing rather
+than a change to it: ignore them all and the same graph remains.
+.IP
+A file opens where it sits and the drawing moves aside to make room, so the
+order of the files is not disturbed by reading one of them. A
+.B Collapse all
+control in the upper right returns the drawing to the view it opened at.
+There is no control that opens every file: that is the whole graph at
+function level, which the collapsed default exists to avoid.
+.IP
+A file defining no function \(em an ordinary C header, or one whose functions
+an
+.B \-\-elf
+image does not define \(em carries no box, as it carries no cluster in the
+Graphviz companion. Such a file is still discovered, measured and counted:
+what is omitted is a box that could hold nothing.
+.IP
+Where no stratum was declared it opens at the file level instead: a layer
+nobody declared is not invented, and a file matching no stratum is drawn
+alongside the layers rather than inside one. Only calls between functions are
+drawn; a line between two collapsed boxes is derived by the viewer from the
+calls crossing between them, and is not a second coupling figure.
+.IP
+This format presents its information
+.I in the context of the drawing
+rather than as the sequence of tables the aligned table and Markdown present,
+so it is not held to their uniformity \(em in the way
+.B csv
+and
+.B xml
+are not. Where it presents a measurement it is the measurement the report
+states, taken from the same model.
+.IP
+The drawing library and its layout engine are fetched from the network the
+first time the page is opened, so
+.B standalone
+here means that the file needs no server and no build step and not that it
+needs nothing:
+.B elc
+itself never uses the network, but a browser on a disconnected machine renders
+the page without its diagram.
+.IP
+A regenerated report cannot be written in this format. A saved record carries
+the findings of a run and not the graph they came from, so
+.B \-\-from\-xml
+with an
+.B \&.html
+output is refused rather than answered with an empty drawing.
 .SH THE SAVED RECORD
 .B elc \-f xml
 writes a record that is sufficient on its own to produce a report later,

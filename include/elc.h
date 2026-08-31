@@ -158,7 +158,15 @@ typedef enum {
 	FORMAT_TABLE = 0, /* the default (HLR-027)                          */
 	FORMAT_CSV,       /* one record per function, flat (HLR-028)         */
 	FORMAT_XML,       /* the complete record of a run (HLR-054)          */
-	FORMAT_MARKDOWN   /* GitHub-Flavored Markdown (HLR-029)              */
+	FORMAT_MARKDOWN,  /* GitHub-Flavored Markdown (HLR-029)              */
+	FORMAT_HTML       /* the interactive drawing of the graph (HLR-215).
+	                   *
+	                   * Selected by `.html` like every other format, and
+	                   * unlike the others it presents its information in
+	                   * the context of the drawing rather than as the
+	                   * tiers HLR-031 makes uniform — which is why that
+	                   * requirement exempts it, as it already exempts CSV
+	                   * and the record.                                 */
 } OutputFormat;
 
 /* One declared architectural stratum: a named layer, the component patterns

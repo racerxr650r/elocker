@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.14
-**Date:** 2026-08-27
+**Version:** 2.16
+**Date:** 2026-08-28
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -1483,6 +1483,15 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-STY-02"></a>**LLR-STY-02** — `node_style` shall emit annotations as attributes a renderer may ignore while still producing a valid call tree.
     *Trace:* HLR-105 (Annotated .dot Output).
 
+*   <a id="LLR-STY-03"></a>**LLR-STY-03** — Each node's `tooltip` shall carry its definition site, the ELOC and cyclomatic complexity the report states for it, and the findings upon it, one to a line.
+
+    **The same three things the interactive report shows when a reader points at a box** (LLR-HTM-09). They are two drawings of one graph, and a reader who has asked one of them a question should not have to learn what the other will answer; the figures were absent here and present there, which is a difference in what the artefacts *know* rather than in how they draw it.
+
+    **The line separator shall be a newline character and not DOT's `\n` escape.** Graphviz resolves that escape for SVG output and *not* for the xdot format, so a viewer reading xdot — which is what `xdot` reads — shows the two characters of the escape where the line break should be. A newline inside a quoted string is legal DOT and reaches both: SVG still writes the separators as character references, and the xdot stream now carries the breaks themselves.
+
+    **The cost is stated because it is real.** A node's attribute list then spans several physical lines, so the file is no longer one line per node, and anything reading it line-wise — a `grep` for a node and its findings, the suite's own stripping of the decoration — must join the quoted strings first. That is accepted here and would not be accepted for the other export: this artefact is a drawing for someone to look at, and the machine-readable rendering of the same graph is GraphML, which carries no tooltip and is untouched (SDD §17).
+    *Trace:* HLR-105 (Annotated .dot Output), HLR-217 (The Drawing Carries the Findings It Was Drawn From).
+
 ## 47. `graph_write_graphml` ([src/format_graph.c](../src/format_graph.c))
 
 *   <a id="LLR-GML-01"></a>**LLR-GML-01** — `graph_write_graphml` shall export the graph in the GraphML serialisation schema so that it may be ingested by other tools.
@@ -2174,3 +2183,221 @@ The functions the image defines that the parse never reached, and the one rule t
 
     Neither can be recomputed from a record: a regenerated report has no image, and no debug information to read either off. A row the record did not carry would vanish and a count it did not carry would come back as zero, and in both cases the regenerated report would disagree with the one it came from about what the build contains (HLR-056).
     *Trace:* HLR-212 (Functions the Image Places and the Parse Did Not Reach), HLR-211, HLR-056.
+
+## 72. `html_elements` ([src/report_html.c](../src/report_html.c))
+
+The compound-node data model: three tiers of nodes joined by a `parent` reference, and the edges that are allowed to exist between them.
+
+*   <a id="LLR-CYT-01"></a>**LLR-CYT-01** — `html_elements` shall append one node object per declared stratum, before any other node, with `id` set to `layer_` followed by the stratum's ordinal and `label` set to its declared name.
+
+    The ordinal rather than the name, because the name is user text: two strata may be declared with names differing only in characters an identifier cannot carry, and a collision would silently reparent every file of one layer into the other. The ordinal is already the stratum's identity everywhere else in the program — it is what makes a direction out of a set of names (HLR-078) — so using it here keeps one notion of which layer is which.
+
+    Layers are emitted first so that a consumer reading the sequence forward never meets a `parent` naming a node it has not yet seen. Nothing requires that, but a document whose containment resolves in one forward pass is one a reader can check by eye.
+
+    Where no stratum was declared this appends nothing, and the document has two tiers rather than three.
+    *Trace:* HLR-213 (The Graph Serialised as a Containment Hierarchy), HLR-078.
+
+*   <a id="LLR-CYT-02"></a>**LLR-CYT-02** — `html_elements` shall append one node object per component of the graph, with `id` set to `file_` followed by the component's index, `label` set to the component's path with the longest directory prefix shared by every component removed, `path` set to the component's path in full, and `parent` set to `layer_` followed by that component's stratum ordinal.
+
+    **The label is for reading and `path` is the record.** A drawing is read at label width, and within one document the shared prefix distinguishes nothing — every component carries it — while consuming most of each label; on a real project it is what makes the file tier illegible. The prefix ends at a path separator, never inside a name, so `/p/app/` beside `/p/apple/` sheds `/p/` and not the `/p/app` the bytes share; a lone component, whose whole directory is a prefix nothing else contests, is labelled by its file name. What the label sheds stays recoverable from `path` on the same node rather than lost, and the reduction is computed from the document's own components, so the artefact remains byte-identical across runs (HLR-032). The complete-record formats are untouched: this is a presentation of the drawing, not a change to what any record states.
+
+    **The stratum comes from `stratum_of_components` and is not matched here.** That is `format_dsm.c`'s rule and it is this module's for the same reason: two matchers over one set of patterns eventually disagree about which layer a file is in, and this drawing would then place a file in one layer while the matrix beside it placed the file in another (HLR-164).
+
+    **A component defining no function shall not be emitted at all.** Such a component can hold no node and join no edge, so a box for it states nothing — and on a C project that set is exactly the headers, which is half the components of `elc`'s own sources. The `.dot` companion has never drawn them, and not by a rule of its own: it opens a cluster while walking the *functions*, so a component with none is never reached. This renderer walks the components, so it must say the same thing deliberately or the two drawings of one graph disagree about what is in it (HLR-217).
+
+    **The omission is of a box, never of a measurement.** Such a file is discovered, measured and counted everywhere the report counts a file; what is withheld is a node in a drawing of the call structure, which is the one thing the file demonstrably takes no part in. It is also what `--elf` leaves behind when an image defines none of a file's functions: the filter empties the component and the drawing then omits it, on the image's evidence rather than on a rule of this renderer's.
+
+    **The shed prefix shall be measured over the components that remain**, since a prefix shared by a file nobody will see is not shared by anything on the page.
+
+    **Where `stratum_of_components` returns `SIZE_MAX` the `parent` key shall be omitted entirely**, not set to empty and not set to a synthesised layer. A file matching no stratum lies outside the declared architecture — the judgement is argued where it is computed and this renderer follows it rather than reversing it. A layer named `other` would be a structure nobody declared, and would arrive on every run that declares no strata at all, wrapping the whole project in a fiction.
+    *Trace:* HLR-213 (The Graph Serialised as a Containment Hierarchy), HLR-114.
+
+*   <a id="LLR-CYT-03"></a>**LLR-CYT-03** — `html_elements` shall append one node object per node of the graph, with `id` set to `func_` followed by the node's index, `parent` set to `file_` followed by `SdgNode.component`, and `label` set to the function's name; and shall carry on it the file, the first line, the ELOC, and the cyclomatic complexity the node already holds.
+
+    The index is the SDG's own, which is the report's sorted file order (LLR-SDG-09). Taking it rather than assigning one here is what makes the document byte-identical across runs without this module sorting anything (HLR-032), and it is what lets a reader match a node in the drawing to a row in the GraphML export, whose identifiers are the same indices.
+
+    The figures are copied, never recomputed. A drawing that derived a complexity of its own would be a second opinion in a program that keeps exactly one, and the one with a threshold behind it is the report's (HLR-099).
+
+    A node whose `component` is not a valid component index carries no `parent`. That is unreachable by construction and is handled rather than asserted, because the failure it would otherwise produce is a `parent` naming a node that does not exist — which a viewer reports as a corrupt document rather than as the bug it is.
+    *Trace:* HLR-213 (The Graph Serialised as a Containment Hierarchy), HLR-032.
+
+*   <a id="LLR-CYT-04"></a>**LLR-CYT-04** — `html_elements` shall append one edge object for each edge of the graph whose kind is `EDGE_CALL`, with `source` and `target` naming the two function nodes it joins and `weight` carrying the collapsed call-site count; and shall append no edge whose `source` or `target` names a file node or a layer node.
+
+    **No meta-edges** (HLR-214). The connection between two collapsed containers is synthesised by the viewer from the edges crossing between them, so an emitted one would state the same fact twice from two rules — and the emitted one would be the statement with no threshold behind it, unreconcilable with the Ca/Ce figures the report prints (HLR-081).
+
+    **Global edges are excluded** (HLR-074). A global edge joins a writer to a reader and is not a call; including it in a drawing of the call structure would report one kind of coupling as the other, which is the distinction the graph carries two views to preserve.
+
+    Edges shall be emitted in ascending source-then-target order, which is `format_graph.c`'s ordering for the same artefact-level reason: the order is a property of this document rather than of a collection the model holds, so it is imposed here — the second of the two exceptions to `report.c` owning every sort (LLR-DOT-04, LLR-RPT-10).
+    *Trace:* HLR-214 (Edges Between Functions Only), HLR-074, HLR-032.
+
+*   <a id="LLR-CYT-05"></a>**LLR-CYT-05** — `html_elements` shall carry on each function node and each component node the annotation `annotate.c` placed on it: `severity` spelling the rank of the worst finding, `finding` carrying those findings as text, and a key per structural mark — `unreachable`, `recursive`, `deepest`, `hidden`, `soleUser` — and shall carry `chain` on each edge that is a step of the deepest call chain.
+
+    **The severity is spelled here and decided nowhere.** It arrives as a rank on the annotation and is converted to the word the stylesheet selects on; a renderer that banded a measurement itself would be the second opinion this program's central claim forbids (HLR-098, HLR-099). The same annotation becomes a Graphviz fill in `format_graph.c`, which is what makes the two drawings agree about a node rather than merely resemble one another (HLR-217).
+
+    **A key absent means the mark does not hold**, rather than a key present carrying `false`. The stylesheet tests these with a truthy selector, and a payload that stated all five marks on every node would say the same thing in several times the bytes on a drawing whose nodes are mostly unremarkable. A node nothing was found about carries no annotation keys at all.
+
+    **The findings travel as text, not as structure.** The drawing shows *that* a function is critical and the text says *why*; a reader who needs to sort or filter findings has the CSV and the XML record, and duplicating their structure here would be a second machine-readable copy of the catalogue with no consumer.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-099, HLR-088.
+
+## 73. `format_html` ([src/report_html.c](../src/report_html.c))
+
+The page itself: when it is written, what its shell contains, how the payload survives being embedded in it, and what the viewer is told to do with it.
+
+*   <a id="LLR-HTM-01"></a>**LLR-HTM-01** — `cli.c`'s extension table shall map `html` to `FORMAT_HTML`, and its format-name table shall spell that format `html`, so that `--output report.html` selects it and `--format html` names it.
+
+    **Both tables are the single statement of their fact.** `format_extensions()` builds the "not a report format extension" diagnostic from the first, so the new extension is named in that message without a second list to keep in step; the second is indexed by the enumerator, so the disagreement diagnostic of HLR-149 names `html` for free. Adding a format to either without the other is what makes an error message name a set the parser does not accept.
+
+    **No option shall request this format.** A flag would be a second way of saying what the filename has already said — the disagreement HLR-149 exists to prevent, arriving as a third spelling rather than a second (HLR-215).
+    *Trace:* HLR-215 (The Interactive Drawing as an Output Format), HLR-148, HLR-149.
+
+*   <a id="LLR-HTM-02"></a>**LLR-HTM-02** — `format_html` shall emit a complete HTML document whose head references the rendering library and its expand-collapse extension, and whose body carries one container element for the drawing.
+
+    The two references are the only external content in the file, and their being fetched at view time is the bound HLR-215 places on the word "standalone". Nothing is fetched by `elc`: this function writes text and returns, so the run remains free of the network, the interpreter and the virtual machine HLR-040 excludes.
+
+    The document shall be written even where the graph holds no nodes. A page that is absent when the project has no call structure makes the artefact's existence vary with its content, which is the rule `format_dsm.c` follows for an empty matrix and the report follows for an empty section.
+    *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-040.
+
+*   <a id="LLR-HTM-03"></a>**LLR-HTM-03** — `write_payload` shall emit the serialised document into the script element with `<` escaped as `\u003c`, `&` escaped as `\u0026`, and U+2028 and U+2029 escaped as `\u2028` and `\u2029`.
+
+    **This is not the serialisation's escaping and cannot be delegated to it.** A C++ template signature containing `</script>` is *well-formed* JSON; the serialiser emits it verbatim and is right to, and the HTML parser then ends the script element at it, turning the remainder of the graph into body text and rendering an empty page. Escaping `<` closes that case, and escaping `&` closes the second half of it — an entity reference in the text would otherwise be decoded before the script ever ran.
+
+    **U+2028 and U+2029 are the case that is invisible in review.** They are line terminators to a JavaScript parser and ordinary characters to a JSON one, so a name containing either is valid in the document and a syntax error the moment it is embedded. A `\u`-escape is chosen for all four because it is legal inside a JSON string literal and inside a JavaScript one, so the escaped text remains parseable by either.
+
+    The escape is applied to the serialised text and not to each name before serialisation: applying it earlier would put the escape sequence in the data, and a viewer would render the literal characters `\u003c` in a function's label.
+    *Trace:* HLR-215 (A Single File That Opens Without a Server), HLR-064.
+
+*   <a id="LLR-HTM-04"></a>**LLR-HTM-04** — `format_html` shall emit an initialisation script that constructs the viewer over the embedded payload with no layout of its own, initialises the expand-collapse extension with its fisheye and animation behaviours enabled, collapses every container, and only then runs a force-directed layout — so the one layout the page opens with is computed over the collapsed view it opens showing.
+
+    **The collapse is not a default this script chooses; it is HLR-216.** The page opens showing the declared layers and the reader descends. Initialising without it would reproduce, with an extra step, the density failure the existing graph companions have.
+
+    **The layout follows the collapse rather than preceding it, and the ordering is load-bearing twice over.** A layout run at construction is of the expanded graph — larger by the whole function tier, and a drawing HLR-216 forbids opening with, so the most expensive layout the page ever computes would be spent on a picture that is immediately discarded. And because layouts settle asynchronously, collapsing while that layout still runs is a race the collapse loses on any real project: the relayout it requests is stomped, and the page opens fitted to a drawing that no longer exists — a graph shrunk past visibility, presented as though rendered.
+
+    **The layout shall rank the drawing by call direction while keeping a container's members inside it**, and shall be re-run after a descent so that what is arranged is the drawing now on screen.
+
+    **A file shall open where it stands, and the drawing shall move to make room for it.** The reader clicked a particular box; if opening it puts that box somewhere else, they have to find their file again before they can read what they opened, and the descent has cost them the place it was supposed to keep. So the opened file's centre is unchanged, and every other file is displaced by half the room this one gained, on the side it already lay — which is what makes the guarantee exact rather than approximate: a file left of the opened one is still left of it, so the order the reader was reading is the order they are still reading. A layer needs no displacement of its own, being sized by the files within it. Each file moves as one piece, so a file opened elsewhere keeps its own arrangement rather than being pulled apart around this one.
+
+    **Neither the extension's layout hook nor its fisheye can provide that, and both were measured before being set aside.** A layout run after an expansion re-ranks the whole drawing, so an opened file changes place among its siblings — observed moving from first to fourth in its layer. The fisheye repositions the box directly, by some three thousand pixels in the same drawing. Both also re-lay-out the drawing from nothing, which HLR-216 forbids in terms. So the extension is asked only to add and remove the children: with its layout, fisheye and animation all off the expansion is synchronous, and the placement is this page's own.
+
+    **Opening a file shall not move the viewport.** A layout fits the view unless told otherwise, so the layout of an opened file's functions re-zoomed the whole drawing around it — the reader asked to see inside one box and had the scale of everything changed under them. The zoom and the pan are the reader's; the only place the page takes them back is the control of LLR-HTM-07, and only because that control is a request to.
+
+    **The functions of an opened file are arranged in a grid rather than ranked.** The reason is size and it is worth stating: over `elc`'s own sources a ranked arrangement of one 76-function file is some 6400px wide against a grid's 1500, and a box that wide shoulders the rest of the drawing off the screen — which defeats the displacement above by making the room needed larger than the drawing. The calls between those functions are still drawn; what is given up is reading their direction from the arrangement, inside one file, and only there. A call graph is read as a hierarchy — who calls whom, in which direction — which is how the `.dot` companion is drawn and why it reads as an architecture rather than a mesh; a force-directed arrangement of the same graph is a hairball however the edges run, and was the first thing a reader noticed between the two artefacts.
+
+    **That requires a layout the viewer does not ship, and the dependency is argued rather than assumed.** Of the two layouts in the viewer's core, the force-directed one keeps a container's members together but ranks nothing, and the breadth-first one ranks by call direction but places a container's members by their global rank — which scatters one declared layer's files across the drawing and leaves its box overlapping another's. Neither is a drawing of the architecture. A layered algorithm that understands containment is a fourth and fifth script fetched at view time, on a page that already fetches two and already states that it needs the network the first time it is opened (HLR-215); what it buys is that this drawing and the `.dot` companion are two renderings of one picture rather than two different pictures.
+
+    **Only the file tier shall open and close** (HLR-216). The gesture shall be bound on the file tier alone, so that a tap on a layer or on a function reaches no handler and the only thing that opens is the thing the key names. A collapsed file shall be styled as a single box carrying its name, centred rather than set above an empty container, because at the level the view opens at that box *is* what the reader is reading.
+
+    **Fisheye and animation are what make the descent navigable**, which HLR-216 also requires: expanding a container in place, and moving to the new arrangement rather than cutting to it, is what keeps the reader's bearings across an expansion. Without them each expansion presents a freshly laid-out drawing and the reader is navigating a new picture every time.
+
+    **The descent gesture shall be bound by this script rather than inherited, and bound on every node rather than on compound nodes.** HLR-216 requires that the reader can descend and return; a requirement met only by whatever gesture the extension's current release happens to bind is one that can stop being met without this file changing, and the extension is fetched from a CDN at view time rather than pinned. The binding uses the viewer's own event, so it holds whatever the extension's defaults are. The scope is load-bearing: a collapsed container is not a compound node — the extension holds its children removed until expansion — so a binding scoped to parents fires for the return half of the gesture and never for the descent half, and the asymmetry is invisible in review because the same selector reads as exactly the set of boxes that open and close. The handler decides by the collapsed marker first and containment second, so a tap on a function does nothing rather than collapsing the file above it.
+
+    **The view shall be fitted when a layout settles, not at a moment of the script's choosing, and refitting shall stop at the reader's first gesture.** A `fit()` call placed in the script's own sequence frames whatever drawing is mid-flight when it runs, which is how this page first shipped opening on an invisibly small graph. Fitting on the viewer's own layout-settled event frames what is actually drawn, however many layouts run; unbinding it at the first tap is what keeps the viewport the reader's from the moment they take it.
+
+    A force-directed layout is chosen because it is the family that keeps a cluster's members near one another, so a collapsed container occupies the space its contents did.
+    *Trace:* HLR-216 (The View Opens at the Architectural Level).
+
+*   <a id="LLR-HTM-05"></a>**LLR-HTM-05** — `format_html` shall return -1 where serialisation or allocation fails, or where an error is observed on the stream after writing, and 0 otherwise.
+
+    **Nothing shall be written where serialisation failed.** The document is built and serialised before the first byte reaches the stream, so a failure leaves an empty destination rather than half a page. A partially written page is worse than an absent one: it opens, renders a truncated graph, and states a structure that is wrong while looking exactly like one that is right.
+
+    **The stream is the caller's and is neither flushed nor closed here**, exactly as it is for every other renderer: `emit` opens the destination, dispatches, and reports a write failure naming it. That is what makes this a format rather than a companion — a companion owns its file, and this one owns none.
+
+    The error is checked once after the writing rather than per call, because a full disk shows up on the flush and a report claimed as written when it was truncated is the failure worth catching.
+    *Trace:* HLR-215 (The Interactive Drawing as an Output Format), HLR-030, HLR-038.
+
+*   <a id="LLR-HTM-06"></a>**LLR-HTM-06** — `format_html` shall emit a stylesheet giving each annotation of LLR-CYT-05 a distinct visual attribute — fill for severity, shape for the role a function takes part in, border for whether it is reached and for the deepest chain — and a legend naming every one of them.
+
+    **Each mark shall take a different attribute**, so that several holding at once compose rather than overwrite: a function that is both recursive and critical is a red box with a double border, not whichever of the two the stylesheet happened to apply last. This is the rule `node_style` follows in the `.dot` writer, and following it here is what keeps a reader's understanding of one drawing good for the other (HLR-217).
+
+    **The severity pigments shall be the ones the `.dot` companion uses.** Amber for a warning and red for a critical, because a reader moving between the two artefacts should not have to learn two colour schemes for one judgement — and because the pigments being the same makes a disagreement between the drawings visible at a glance rather than plausible.
+
+    **An edge shall pass behind a box rather than across its face, and a box shall be opaque enough to hide what passes behind it.** Two things are required and each is insufficient alone. A node that becomes a container is drawn at a lower compound depth than an edge between two nodes outside it, so every edge is placed at the bottom of the compound order; and an opened file's box is filled opaquely, because a translucent one shows every unrelated edge in the drawing straight through the one part of it the reader has just opened. A collapsed file was already opaque, which is why the fault appeared only on opening one — the edges were behind the box the whole time and simply visible through it.
+
+    **Every edge touching an opened file shall be raised back above its fill.** Placing every edge beneath every box is what puts an unrelated edge behind this one, and it would equally hide the calls the reader opened the file to see. The set that must rise is not the file's own calls alone: an edge with one end inside is the call path *into* or *out of* the file, which is the greater part of what opening it was for, and an opaque box that hid those would answer the first fault by committing a worse one. So every edge with at least one end among an opened file's functions is raised, and only an edge with neither end inside passes behind — which is exactly the case the opaque fill exists for.
+
+    **The set shall be recomputed from the open files rather than adjusted as each one opens.** An edge between two opened files belongs to both, and marks that were merely added and removed would drop it the moment either closed.
+
+    **A mark that is a shape shall be drawn in the key, not named.** The two shapes were named — "octagon", "tag" — and that told the reader nothing twice over: `tag` is the rendering library's word for a shape and no word of `elc`'s, and a reader cannot match a name they have never met to a box in the drawing. The key carries the shape itself, so the vocabulary is not needed at all; the fills and borders are drawn for the same reason and always were.
+
+    **What a mark means shall be stated as its consequence, in the report's own words.** "Sole namer of a global" named the mechanism and left the reader to work out what to do about it. The finding is that one function is the only user of some global, and what follows is that the global could be a local one — which is MISRA C Rule 8.9 and is what HLR-092 flags it for. The term the report uses is kept where it has one, so "hidden channel" appears in the key and in the tables alike, and the key explains it rather than replacing it.
+
+    **The legend is part of the page** (HLR-217). The `.dot` companion states its key in a comment at the head of the file; this one states it above the drawing, where a reader of a rendered artefact will actually meet it. A drawing whose colours are explained only in the manual is one the reader has to leave in order to read.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-105.
+
+*   <a id="LLR-HTM-07"></a>**LLR-HTM-07** — `format_html` shall emit one control on the page, closing every file and returning the drawing to the view the page opened at; and shall emit no control that opens every file.
+
+    **Closing everything is a return, not a new state**, so the control restores the layout and the framing as well as the containment: a reader who has opened several files and moved about is otherwise left zoomed into a drawing that is no longer there. This is the one place the viewport is taken back after the reader's first gesture, and it is taken back because they asked for it.
+
+    **There is deliberately no "expand all".** It is the same gesture in the opposite direction and it would be as easy to provide, which is exactly why the omission has to be argued rather than left to look like an oversight: expanding every file is the drawing at function level, at maximum density, which is the state HLR-216 exists to keep the view out of. A control that reaches it in one click would undo the requirement the default is there to satisfy.
+
+    **The bar the control sits in shall be layered above the viewer's canvases.** The expand-collapse extension draws its own canvas over the whole element at a z-index of 999, so a bar merely drawn there is visible and not clickable: the press reaches the canvas underneath, the drawing pans, and the one control on the page cannot be used at all. Raising the bar also stops a drag begun on it from moving the drawing, which is right for the same reason — it is a bar, not part of the picture.
+
+    **The restoration shall be of the opening viewport itself, not a fresh fit.** The layout is deterministic and returns every file to the position it opened at, so what remains is the scale and the offset; recomputing a fit gets close and is not the same thing. The zoom and pan the reader was first given are remembered and put back, after the layout settles rather than before, since a layout fits as it finishes.
+
+    **The marks an opened file made shall be cleared with it**, so the drawing is left as the page first drew it rather than carrying the residue of what the reader had opened.
+    *Trace:* HLR-216 (The View Opens at the Architectural Level).
+
+*   <a id="LLR-HTM-08"></a>**LLR-HTM-08** — No two file boxes shall overlap. After anything moves a box, any pair still overlapping shall be pushed apart along the shorter of their two penetrations until none overlaps, and one box may be held fixed while the others move around it.
+
+    **This is a guarantee rather than a description of the usual case.** The displacement of LLR-HTM-04 opens exactly the room an opened file needs and so creates no overlap by itself, which is precisely why the rule has to be stated separately: it is not the only thing that moves a box. The viewer lets the reader drag one, and a box dropped on top of another stays there until something moves it. A drawing whose boxes may overlap under *some* sequence of gestures is a drawing that overlaps, and the reader has no way to tell which arrangement they are looking at.
+
+    **Along the shorter penetration**, because that is the direction that moves the pair least and leaves each on the side of the other it was already on — the same reasoning that keeps the displacement order-preserving. **A pair is parted by its penetration and a margin**, so boxes come to rest apart rather than exactly touching.
+
+    **The fixed box is the one the reader just acted on** — the file they opened, or the one they dropped — so the drawing moves around their action rather than undoing it. Where nothing was acted on, both boxes of a pair move by half.
+
+    The pass repeats until nothing overlaps; the iteration cap is a guard against a pathological drawing rather than a working limit, a piled-up drawing of thirty-six files settling in some thirty-seven passes and about fifty milliseconds.
+    *Trace:* HLR-216 (The View Opens at the Architectural Level).
+
+*   <a id="LLR-HTM-09"></a>**LLR-HTM-09** — `format_html` shall emit an element that shows, while the reader points at a box, that box's definition site, the figures the report states for it, and each finding upon it; and that element shall take no pointer event of its own.
+
+    **The drawing marks a box and this is what says why.** A fill states that a function is critical and a shape that it is the only user of some global; neither says *which* finding decided it, and a reader who cannot ask has been given a colour scheme rather than a report (HLR-217). The `.dot` companion answers by putting the same text in each node's `tooltip`, which an SVG renderer shows on hover — a canvas has no element to hang one on, so this page provides the behaviour rather than inheriting it.
+
+    **Each finding shall be on its own line.** They are joined with `; ` for the record, which is right for a record and wrong for a reader scanning three of them at once.
+
+    **It shall take no pointer event**, so that pointing at a box never intercepts a click meant for it, and shall be dismissed by the gestures that make it stale — leaving the box, and any tap, pan or zoom.
+
+    **It shall stay within the window.** A box near an edge would otherwise push its own description off the screen, which fails precisely where the drawing is most crowded.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From).
+
+*   <a id="LLR-HTM-10"></a>**LLR-HTM-10** — While the reader points at a function, that function's outline and every call it takes part in — those it makes and those made to it — shall be drawn in a distinguishing colour, and returned to their ordinary appearance when the reader points elsewhere.
+
+    **A function's row states its fan-in and fan-out as numbers; this says which calls they are.** The two figures tell a reader that a function is called by eleven others without telling them which eleven, and finding out means tracing lines across a drawing that may hold a thousand — the one task a drawing should make easy and this one did not.
+
+    **Both directions are marked and not distinguished from one another.** The question the gesture answers is what the function takes part in; which way each call runs is already drawn, in the arrowhead. Colouring the two differently would answer a question the drawing has already answered and spend the reader's attention twice.
+
+    **The marked calls shall be lifted above the boxes.** Every edge is drawn beneath every box so that an unrelated one passes behind an opened file (LLR-HTM-06); a highlighted call left there would be hidden by the very file it runs into, which is most of what the reader is following. The lift is for the marked edges alone and lasts as long as the mark does.
+
+    **The mark shall follow the current graph rather than the graph as emitted.** Where a call runs into a file that is closed, what the reader can see is the viewer's meta-edge, and that is what is marked.
+
+    **It shall be cleared when a file opens or closes**, since the functions it holds are about to arrive or depart, and a mark surviving on an element the reader is no longer pointing at is a claim about the drawing that nothing made.
+    *Trace:* HLR-216 (The View Opens at the Architectural Level), HLR-085.
+
+## 74. `annotations_build` ([src/annotate.c](../src/annotate.c))
+
+Placing a run's findings on the graph they describe, once, for every drawing that shows them.
+
+*   <a id="LLR-ANN-01"></a>**LLR-ANN-01** — `annotations_build` shall produce one `Annotation` per graph node and one per component, carrying the highest severity of any finding placed on it, those findings joined as text, and a bitset of the structural marks that hold; and shall publish separately the findings belonging to no single node and the deepest chain as node identifiers.
+
+    **The highest severity, not the last or the sum.** A node carrying a critical and a warning is a critical one: severities rank, they do not accumulate (HLR-123). A drawing filling by the most recent finding placed would colour a node by the order the catalogue happened to be walked in.
+
+    **Every output is assigned as soon as it exists**, so that a caller's teardown releases what was allocated when a later step fails. The alternative — publishing all four only on success — leaks whichever were built before the failure.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-123.
+
+*   <a id="LLR-ANN-02"></a>**LLR-ANN-02** — `annotations_build` shall place a finding on a node whose definition site it names, failing that on a component whose path it names, and failing that on every function that touches a global object of its name; and a finding matching none of the three shall be published as belonging to the graph as a whole rather than dropped.
+
+    **A definition site is a file and a line together.** A file alone is a component finding, and a line alone matches the same line in every file — so both halves are required, and matching on the *name* instead would mark all six of the functions `elc`'s own sources call `grow` because one of them was unreachable.
+
+    **A finding about a global shall reach each such function once, not once per access.** The touch set is deduplicated by object, node *and direction*, so a function that both writes and reads one object appears in it twice while the finding remains one finding; placing it per touch wrote it into the note twice, which reads as two findings where the report states one. The set is sorted by object then node, so a node's touches of one object are adjacent and only the previous one need be remembered.
+
+    **A finding about a global object goes to the functions that touch it**, which is the only place it can go on a graph whose nodes are functions, and where a reader would look for it (HLR-091, HLR-105). The touch set rather than the edges: an object named by exactly one function produces no edge at all, and that object is precisely the scope-reduction candidate (HLR-092).
+
+    **Nothing is dropped silently.** A finding that describes the graph rather than anything in it — the depth of the call tree is the case that exists — reaches the caller, which puts it where its artefact can carry it.
+    *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-091, HLR-092.
+
+*   <a id="LLR-ANN-03"></a>**LLR-ANN-03** — `annotations_build` shall mark both kinds of cycle on every member from the report's cycle rows rather than from the catalogue's finding, and shall skip the catalogue's own copy of a recursion or component-cycle finding.
+
+    **The catalogue locates a cycle at one subject; HLR-105 asks for the members.** A finding has one location and a set has none, so the membership is read from the cycle rows — and the catalogue's copy is then a second note repeating on one member what the first already said about all of them.
+
+    **The severity is still looked up rather than restated**, so this module names no threshold of its own even where it decides membership (HLR-099).
+
+    **Recursion membership is matched by name**, which is all the report model carries: a node identifier means nothing to a reader and does not survive a record round trip. That inherits the duplicate-`static` imprecision the manual documents — two functions sharing a name are both marked when one recurses — which is visible in the drawing and therefore better than a silent wrong answer.
+    *Trace:* HLR-089, HLR-105, HLR-217 (The Drawing Carries the Findings It Was Drawn From).

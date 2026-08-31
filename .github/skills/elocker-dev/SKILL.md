@@ -272,9 +272,29 @@ that alters one forces a deliberate decision rather than a silent golden-file
 update. Never regenerate expected values from `elc`'s own output — a fixture
 that agrees with the implementation by construction asserts nothing.
 
-**The suite must pass three times** before a change is done: ordinary,
-`make asan`, and `make valgrind`. A sanitizer diagnostic or a leak is a
-failure whatever the assertions did (HLR-124, HLR-125).
+**The suite must pass twice locally** before a change is done: ordinary, and
+`make asan`. A sanitizer diagnostic or a leak is a failure whatever the
+assertions did (HLR-124, HLR-125).
+
+**Do not run `make valgrind` locally.** It takes the better part of an hour,
+which is an unreasonable price for a small change and one paid on every
+iteration of it. It is a required CI job on the pull request, where it costs
+waiting rather than working and where it runs against the merge result rather
+than your working copy (SDP §5.4 step 5).
+
+What that gives up is one class of defect, stated rather than glossed: memcheck
+catches **reads of uninitialised memory** and ASan does not detect that class at
+all, so it now surfaces on the PR instead of before the push. Everything ASan
+and LSan cover — invalid accesses and leaks — still fails locally and fails
+fast.
+
+Run it locally only to reproduce a `valgrind` failure CI has already reported,
+or when the change is specifically about memory handling. `ELC_VALGRIND=1`
+against a single suite is the cheap form:
+
+```sh
+ELC_VALGRIND=1 test/helpers/bats-core/bin/bats test/fixtures/graph.bats
+```
 
 ## Canonical Data Structures
 
@@ -464,16 +484,15 @@ extensibility pillar is broken — stop and fix that instead.
       the Makefile, with `.PHONY` set if it is not a file.
 - [ ] New or changed behaviour has a Bats test; new languages have a fixture.
 - [ ] `make asan` clean.
-- [ ] `valgrind --leak-check=full` clean on a single file, a directory, and a
-      Git repo target.
 - [ ] Every acquired resource released on **every** path, including error
       paths, in the documented teardown order.
 - [ ] Output is byte-identical across repeated runs.
 - [ ] No language name, file extension, or grammar node type hard-coded in C.
 - [ ] No threads introduced.
 - [ ] Errors on `stderr`, exit status reflects failure.
-- [ ] `make asan` and `make valgrind` both clean — a diagnostic or a leak is
-      a failure whatever the assertions did (HLR-124, HLR-125).
+- [ ] `make asan` clean locally — a diagnostic or a leak is a failure whatever
+      the assertions did (HLR-124, HLR-125). `make valgrind` is CI's, on the
+      PR; do not run it locally (SDP §5.4 step 5).
 - [ ] Behaviour change is reflected in `doc/Project.xml` and the affected
       documents re-rendered; a new behaviour has an HLR, an LLR, and a test.
 

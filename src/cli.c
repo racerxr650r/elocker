@@ -288,7 +288,7 @@ void cli_usage(FILE *stream)
 "\n"
 "Options:\n"
 "  -f, --format FORMAT\n"
-"                     table, csv, xml, or md, for a report written to\n"
+"                     table, csv, xml, md, or html, for a report written to\n"
 "                     standard output (default table). With --output the\n"
 "                     filename extension names the format instead, and this\n"
 "                     option is accepted only where it agrees with it. In\n"
@@ -304,9 +304,10 @@ void cli_usage(FILE *stream)
 "                     threshold affects the exit status\n"
 "  -o, --output FILE  write the report to FILE instead of standard output.\n"
 "                     The extension of FILE names the format: .txt for the\n"
-"                     aligned table, .md for Markdown, .csv for CSV, and\n"
-"                     .xml for the complete record. Any other extension, or\n"
-"                     none, is a usage error rather than a guess\n"
+"                     aligned table, .md for Markdown, .csv for CSV, .xml\n"
+"                     for the complete record, and .html for an interactive\n"
+"                     drawing of the dependence graph. Any other extension,\n"
+"                     or none, is a usage error rather than a guess\n"
 "  -v, --verbose      present the verbose report: every per-function,\n"
 "                     per-object, per-edge, and per-match table, in addition\n"
 "                     to the summary tiers a report presents by default.\n"
@@ -550,13 +551,15 @@ EXTENSIONS[] = {
 	{ "txt", FORMAT_TABLE    },
 	{ "md",  FORMAT_MARKDOWN },
 	{ "csv", FORMAT_CSV      },
-	{ "xml", FORMAT_XML      }
+	{ "xml", FORMAT_XML      },
+	{ "html", FORMAT_HTML    }
 };
 
 /* How the `--format` option spells each format, for a diagnostic that names
  * what the user would have had to write. Ordered by the enumerator so the
  * lookup is an index rather than a search. */
-static const char *const FORMAT_NAMES[] = { "table", "csv", "xml", "md" };
+static const char *const FORMAT_NAMES[] = { "table", "csv", "xml", "md",
+                                            "html" };
 
 /* Read a threshold: digits and nothing else.
  *
@@ -626,7 +629,8 @@ static int opt_format(const char *arg, CliParse *p)
 		{ "table", FORMAT_TABLE },
 		{ "csv",   FORMAT_CSV   },
 		{ "xml",   FORMAT_XML   },
-		{ "md",    FORMAT_MARKDOWN }
+		{ "md",    FORMAT_MARKDOWN },
+		{ "html",  FORMAT_HTML }
 	};
 
 	for (size_t i = 0; i < sizeof formats / sizeof *formats; i++) {
@@ -638,7 +642,7 @@ static int opt_format(const char *arg, CliParse *p)
 	}
 
 	diag_printf("elc: '%s' is not a format; expected table, csv, xml, "
-	        "or md\n", arg);
+	        "md, or html\n", arg);
 	return CLI_ERROR;
 }
 
@@ -1120,6 +1124,17 @@ static int check_regenerate(int argc, char *argv[], CliParse *p)
 		diag_printf("elc: --graphml cannot be combined with --from-xml: a "
 		      "saved record carries the findings of a run, not the "
 		      "graph they came from\n");
+		return CLI_ERROR;
+	}
+
+	/* The same rule reaching a format rather than an option. The page
+	 * draws the graph's topology, which a record does not carry, so there
+	 * is nothing to draw — and the request is refused rather than answered
+	 * with an empty drawing (HLR-122, HLR-215). */
+	if (p->out->format == FORMAT_HTML) {
+		diag_printf("elc: the html format cannot be combined with "
+		      "--from-xml: a saved record carries the findings of a "
+		      "run, not the graph they came from\n");
 		return CLI_ERROR;
 	}
 

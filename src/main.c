@@ -35,6 +35,7 @@
 #include "recover.h"
 #include "registry.h"
 #include "report.h"
+#include "report_html.h"
 #include "state.h"
 #include "thresholds.h"
 
@@ -48,7 +49,8 @@
  * and a verbose request against either is honoured by changing nothing rather
  * than rejected (HLR-152, LLR-MAIN-21).
  */
-static int render_to(const Report *report, const ElcOptions *opts, FILE *out)
+static int render_to(const Report *report, const Sdg *g,
+                     const ElcOptions *opts, FILE *out)
 {
 	Verbosity verbosity = opts->verbose ? VERBOSITY_VERBOSE
 	                                    : VERBOSITY_SUMMARY;
@@ -57,6 +59,12 @@ static int render_to(const Report *report, const ElcOptions *opts, FILE *out)
 	case FORMAT_CSV:      return format_csv(report, out);
 	case FORMAT_XML:      return xml_write_report(report, out);
 	case FORMAT_MARKDOWN: return format_markdown(report, verbosity, out);
+	/* The one renderer that takes the graph as well as the model: the
+	 * topology is the thing it presents rather than a figure derived from
+	 * it. Reachable only outside regeneration mode, where there is no
+	 * graph to hand it and the format is refused at parse time
+	 * (HLR-122). */
+	case FORMAT_HTML:     return format_html(report, g, opts, out);
 	case FORMAT_TABLE:
 	default:              return format_table(report, verbosity, out);
 	}
@@ -539,7 +547,7 @@ static int emit(Run *run)
 
 	/* Results go to the selected destination and nothing else does; every
 	 * diagnostic above and below went to stderr (HLR-038, LLR-MAIN-12). */
-	if (render_to(&run->report, &run->opts, run->out) != 0) {
+	if (render_to(&run->report, &run->sdg, &run->opts, run->out) != 0) {
 		diag_printf("elc: %s: %s\n",
 		        run->opts.output_path ? run->opts.output_path
 		                              : "standard output",

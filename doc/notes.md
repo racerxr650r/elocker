@@ -194,8 +194,8 @@ graph analysis and ELOC classification were added.
 
 ### 1.4 What the spec toolchain does and does not enforce
 
-Three behaviours of TraceR that Phase 0 established by running into
-them. None is documented where you would look for it.
+Behaviours of TraceR established by running into them. None is
+documented where you would look for it; the last was found in Phase 31.
 
 *   **`lint_project.py` does not fail on uncovered requirements.** A
     requirement with no verifying test is reported as a *warning* and
@@ -212,6 +212,95 @@ them. None is documented where you would look for it.
     Every change goes into [`Project.xml`](Project.xml), and the
     documents are regenerated with
     `python3 tools/render_doc.py tools/templates/<D>.md.j2 <D> --out doc/<D>.md`.
+*   **An SDD trace ref is a *position*, and it drifts when a module is
+    inserted.** The renderer numbers SDD sections by the order of the
+    `<module>` elements — module *i* renders as section *i+3* — so adding a
+    module renumbers every section after it and silently repoints every
+    `<traces target="SDD" ref="N">` aimed past the insertion. Nothing catches
+    it: the refs stay valid, the linter reports no error, and the matrix goes
+    on looking complete while naming the wrong module.
+
+    It has already happened more than once. On `develop` at 7752b7f, HLR-175
+    (the purification manifest) pointed at `src/dwarfline.c`, HLR-180 (the
+    dependency matrix) at `src/preproc.c`, HLR-200 and HLR-201 (templated
+    names from debug information) at `src/format_dsm.c`, and HLR-202 – HLR-208
+    (macro expansion) at the *Data Dictionary*.
+
+    **Phase 31 corrected exactly one of those and left the rest deliberately.**
+    Appending `src/report_html.c` as §27 would have moved the seven expansion
+    requirements off the Data Dictionary and onto the new module — a matrix
+    claiming the HTML writer implements macro expansion, which is worse than
+    the wrong answer they already carried. Those seven were repointed to §22,
+    the section they describe. The others were wrong before and are no more
+    wrong now; correcting them is a sweep of its own rather than something to
+    bury in a feature branch.
+
+    **The fix worth making is to the mechanism.** While the target is a
+    position this recurs on every phase that adds a module, invisibly. Either
+    `<module>` carries a stable id that `ref` names, or `lint_project.py`
+    grows a check that a requirement's SDD sections are among the modules its
+    LLRs' `source` attributes name. The second is cheaper and would have caught
+    all four cases above.
+
+*   **One stale SDD ref was corrected, and the rest were left.** Adding
+    `src/annotate.c` as the last module moved the Data Dictionary from §28
+    to §29 and Traceability from §29 to §30. Exactly one requirement pointed
+    into that range — HLR-209 (function visibility) carried
+    `<traces target="SDD" ref="29">`, aimed at *Traceability*, which cannot
+    implement a visibility rule; it was already wrong before the module was
+    added, and the append would have silently re-aimed it at the Data
+    Dictionary. The ref was dropped, HLR-209 keeping its two correct ones
+    (§7 `analyze.c` and §14 `format_text.c`). Nothing else in the document
+    referenced §28 or beyond, which is the only reason a module could be
+    appended this cheaply — and is luck rather than a property of the
+    mechanism. The fix in §1.4 above is still the one worth making.
+
+*   **A fixture suite is only meaningful against *committed* state, and a
+    new fixture file is invisible until it is.** Discovery inside a
+    repository analyses the files tracked at `HEAD` (HLR-127), so a fixture
+    added to a tree and not yet committed is not discovered — the suite runs
+    green over the tree as it was, and CI then runs it over the tree as it
+    is. Phase 31 lost a CI round to this: adding `hal/port.h` to
+    `test/fixtures/html/tree` shifted every component index after it, so
+    `vendor/blob.c` became `file_3` and two assertions that named `file_2`
+    failed in CI alone.
+
+    **Commit a new fixture file before trusting the suite that reads it**, or
+    run that suite over a copy outside the repository, which is what the two
+    cases added in the same phase do — and which is worth preferring, since
+    it tests the drawing rule rather than the discovery route.
+
+    This is the second way this project's local environment and CI disagree
+    about what is being measured; the macro-expansion entry below is the
+    first. Neither is a defect and both are invisible from a green local run,
+    which is the only reason they are written down.
+
+*   **The self-analysis gate measures different numbers locally and in CI,
+    and a green `make instrumented` is not proof it will pass.** On a
+    developer box `gcc -E` cannot find the headers of the libraries built
+    under `/usr/local`, so every file falls back and `elc src/` reports
+    *Files expanded 0 — Measured as written 26*. CI's environment expands
+    them, and complexity is computed from the expanded parse (HLR-208), so
+    the two runs measure different source. Phase 31 lost a CI round to this:
+    `append_edges` measured under the threshold locally and **15** in CI,
+    which is `LLR-BLD-23`'s failure condition, and the local suite was green
+    the whole time.
+
+    To measure the way CI does, hand `elc` the build's own include paths:
+
+    ```sh
+    ./build/elc --cc-flag=-Iinclude --cc-flag=-I/usr/local/include \
+                --cc-flag=-I/usr/local/include/igraph \
+                --cc-flag=-D_XOPEN_SOURCE=700 --cc-flag=-D_DEFAULT_SOURCE src/
+    ```
+
+    Check *Files expanded* in the summary before trusting the figures. This
+    is not a defect — it is the narrowing PR #71 argued for and wrote into
+    HLR-208, *one source tree preprocessed by one toolchain, one report* —
+    but it means the self-analysis gate is the one suite whose local result
+    does not settle the question. Anything sitting at 14 locally is close
+    enough to the line to check the expanded figure before pushing.
+
 *   **An empty `<traces>` element is schema-invalid.** A catalogued test
     that verifies no requirement — harness self-checks, mostly — must
     omit the element entirely. Emitting it empty to mean "none" fails

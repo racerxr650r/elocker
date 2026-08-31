@@ -76,7 +76,7 @@ setup() {
 	assert_equal "$status" 2
 
 	run bash -c '"$0" -f yaml "$1" 2>&1 >/dev/null' "$ELC" "$TREE"
-	assert_output --partial "table, csv, xml, or md"
+	assert_output --partial "table, csv, xml, md, or html"
 }
 
 @test "HLR-063: a format option without its argument is a usage error" {

@@ -521,6 +521,7 @@ elc -f xml src/          # the complete record of the run
 | `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order; each table folded behind a click-to-expand |
 | `csv` | `.csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it. The same columns the Functions table carries |
 | `xml` | `.xml` | keeping | Complete record; what `--from-xml` reads back |
+| `html` | `.html` | looking at the shape of it | One page drawing the graph as layers holding files holding functions, opened collapsed. Presents its information in the context of the drawing rather than as the same tiers; not available from `--from-xml` |
 
 ### The CSV record is the Functions table, loaded rather than read
 
@@ -1766,6 +1767,142 @@ whatever it wants from them exactly; carrying a derived value as well would
 put a second computation of it beside the one in the report, and two places
 computing a figure are two places it can be computed differently.
 
+### Looking at it
+
+```sh
+elc -o report.html \
+    --stratum app:'*/app/*' --stratum hal:'*/hal/*' src/
+```
+
+The `.dot` and GraphML companions are exports: something else draws or loads
+them. The `html` format *is* the drawing — one file that opens in a browser
+when you double-click it, with no server to start and nothing to build.
+
+**It is chosen the way every format is chosen: by the extension.** There is no
+`--html` option, because `report.html` has already said what the format is, and
+a flag saying it again is exactly the disagreement `elc` refuses when
+`--format` and a filename contradict each other. For a report going to standard
+output, where there is no filename to read an extension from, `-f html` names it
+like any other format.
+
+**Collapse all** in the top right closes every file and returns the drawing
+to exactly the picture the page opened with — the same arrangement at the same
+zoom, not a fresh fit that lands somewhere near it. There is deliberately no *expand
+all*: opening every file at once is the whole call graph at function level,
+which is the picture this format exists to save you from.
+
+**Boxes never overlap.** Whatever moves them — opening a file, or dragging one
+yourself — any boxes that end up on top of each other are pushed apart. A box
+you dropped stays where you put it and the others move out from under it.
+
+**A file opens where it sits.** Click a file and it stays exactly where it
+was on screen; everything around it moves outward to make room. An open
+file's box is solid, so lines between other files pass behind it rather than
+across it, while every call that touches its functions — its own, and the call
+paths in and out of it — is drawn on top. Opening a file never changes your
+zoom. A file that
+was left of it is still left of it afterwards, so you never have to hunt for
+the box you just opened, and closing it puts the drawing back. Edges between
+other files pass behind an opened box rather than across its face.
+
+**It opens at the file level, inside the architecture.** What you see first is
+one box per file, sitting inside the layer you declared it in with
+`--stratum`. Click a file and it opens to the functions in it; click it again
+and it closes. **Files are the only boxes that open** — a layer stands open
+from the start, because it is context for the files inside it and context you
+have to open is not context. That
+default is the point of the artefact rather than a preference: a call graph of
+a real project drawn at function level is a picture nobody can read, which is
+the failing the `.dot` and GraphML companions have in common. You descend into
+the part you care about instead of starting at maximum density.
+
+With no `--stratum` declared, there are simply no layers to sit above the
+files. `elc` does not invent one — a layering is something you state, never
+something read off the directory tree (see [Declaring the
+architecture](#declaring-the-architecture)) — and for the same reason a file
+matching none of your stratum patterns is drawn beside the layers rather than
+tucked inside one.
+
+**It shows you what the run found, not just what calls what.** A function the
+report warns about is drawn amber and one it calls critical is drawn red — the
+same two colours the `.dot` companion uses, so you learn one scheme and can
+read either drawing. A function in a recursive cycle gets a double border and
+one no entry point reaches is dashed. Two findings about global objects change
+the shape of the box instead: taking part in a hidden channel, and being the
+only function that uses some global — which means that global could be a local
+one. The key above the drawing *draws* each shape rather than naming it, so
+you can match what you see to what it means.
+
+**Point at a function and the calls it takes part in light up red** — the
+ones it makes and the ones made to it, together with its own outline. The
+function table gives you fan-in and fan-out as numbers; this is how you see
+*which* calls those numbers are counting, without tracing a line across a
+drawing that may hold a thousand. Both directions are lit at once, because
+the arrowheads already say which way each one runs.
+
+**Point at any box and it tells you what was found about it** — the file and
+line it is defined at, its ELOC and complexity, and each finding on its own
+line. That is the same text the `.dot` companion puts in its tooltips, which
+is where you go when the drawing says a function is critical and you want to
+know which finding said so. The key sits above the drawing, so a
+page you send to somebody else still explains itself.
+
+These are the report's own judgements, placed by the same code that places them
+on the `.dot` companion — the drawing never forms a view of its own about what
+exceeds a threshold, so it cannot disagree with the tables in the report beside
+it. Strip every colour and shape away and the same graph remains, with the same
+boxes and the same arrows: a mark says something *about* the drawing and never
+changes what is drawn.
+
+**It is laid out in call order.** Callers sit above the functions they call, so
+the drawing reads as a flow rather than as a mesh, and a layer you declared
+stays a box around its own files. That needs a layout engine the viewer does
+not ship, which is why the page fetches four scripts rather than two — see
+*What "standalone" means here* below.
+
+**A file with no functions of its own is not drawn.** A C header usually
+declares functions rather than defining them, so it has nothing to put in the
+drawing — no box, no arrows — and the `.dot` companion has never drawn one
+either. The file is still discovered, measured and counted everywhere the
+report counts a file; what is left out is a box that could only ever be empty.
+The same thing happens under `--elf` when the image defines none of a file's
+functions: the filter empties it and the drawing then omits it, on the
+evidence of the build rather than on a rule of the drawing's own.
+
+**A file is labelled by where it differs.** Every file box sheds the directory
+prefix all of them share — on most projects, the path of the tree you analysed
+— so a box reads `src/report.c` rather than repeating a prefix that is the
+same on every box in the drawing. Nothing is lost by it: the full path is
+carried on the node itself, in the embedded record, and the tables of every
+other format are untouched.
+
+**It is not the Markdown report with a picture attached.** The other
+human-readable formats present the same tiers in the same order as each other;
+this one presents its information *in the context of the drawing* — a figure
+reached by opening the box that holds it, at the level you are looking at — so
+it is not held to that uniformity, in the way `csv` and `xml` are not. Where it
+shows you a measurement it is the measurement the report states; what differs is
+the arrangement, never the content.
+
+**Only calls between functions are drawn.** When you collapse a file, the lines
+between the collapsed boxes are drawn by the viewer from the calls crossing
+between them. `elc` does not emit them: a coupling figure drawn here by a rule
+of its own could disagree with the Ca/Ce figures in the report's own tables,
+and those are the measured ones.
+
+**What "standalone" means here.** The file needs no web server and no build
+step. It does need the network the first time you open it, because the drawing
+library and its layout engine are fetched from a CDN — so a browser on a disconnected machine shows
+the page and no diagram. `elc` itself never touches the network; this is a
+property of viewing the artefact, not of producing it. If you need the page to
+work offline, keep it beside a cached copy of the scripts named in its
+`<head>`, or open it once while connected and let the browser cache them.
+
+**A regenerated report cannot be written in this format.** A saved record
+carries the findings of a run and not the graph they came from, so
+`--from-xml` with an `.html` output is refused rather than answered with an
+empty drawing.
+
 ### Where the graph is imprecise, and in which direction
 
 `elc` resolves calls by matching names across the files you gave it, without
@@ -1882,7 +2019,14 @@ colours what Findings already decided — it does not apply a second, separate
 judgment of its own.
 
 Each node's tooltip carries its definition site and its findings in full, which
-an SVG renderer will show on hover. The head of the file carries the same key
+a viewer will show on hover — the definition site, the ELOC and complexity,
+and the findings, one to a line, which is the same thing the interactive
+report shows when you point at a box. The line breaks are newline characters
+rather than DOT's `\n` escape, because Graphviz resolves that escape for SVG
+and not for the xdot stream that `xdot` reads. One consequence worth knowing
+if you process the file yourself: a node's attributes therefore span several
+lines, so join the quoted strings before grepping for a node and its
+findings. The head of the file carries the same key
 in a comment, along with any finding that belongs to no single function — the
 depth of the call tree is the one that does.
 
@@ -2569,7 +2713,7 @@ comparable.
 
 | Option | Argument | Default | Effect |
 | ------ | -------- | ------- | ------ |
-| `-f`, `--format` | `table\|csv\|xml\|md` | `table` | Render the report as `FORMAT` |
+| `-f`, `--format` | `table\|csv\|xml\|md\|html` | `table` | Render the report as `FORMAT` |
 | `--from-xml` | `FILE` | — | Rebuild a report from a saved record; takes no `TARGET` |
 | `-c`, `--complexity-threshold` | `N` | `15` | List functions whose complexity is `N` or greater |
 | `-o`, `--output` | `FILE` | standard output | Write the report to `FILE` |

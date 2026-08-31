@@ -30,6 +30,23 @@ run_elc() {
 		"$ELC" "$OUT" "$TREE"
 }
 
+# A node's tooltip carries real newlines (LLR-STY-03), so its attribute list
+# spans several physical lines. Assertions that are about *one node* want it
+# back on one line: this replaces newlines that fall inside a quoted string
+# with spaces, and leaves the file's own line structure otherwise intact.
+flatten() {
+	python3 -c '
+import sys
+text = open(sys.argv[1]).read()
+out, quoted = [], False
+for ch in text:
+    if ch == chr(34):
+        quoted = not quoted
+    out.append(" " if (ch == chr(10) and quoted) else ch)
+sys.stdout.write("".join(out))
+' "$1" > "$2"
+}
+
 run_recursive() {
 	run bash -c '"$0" --entry kick -o "$1" "$2" 2>/dev/null' \
 		"$ELC" "$OUT" "$RECURSIVE"
@@ -79,6 +96,12 @@ edges() {
 	assert_success
 
 	local stripped="$BATS_TEST_TMPDIR/stripped.dot"
+	local flat="$BATS_TEST_TMPDIR/flat.dot"
+
+	# Flattened first: a tooltip's newlines would otherwise leave the
+	# stripping — which is line-oriented, as a reader's would be — with
+	# half an attribute list on a line of its own.
+	flatten "$DOT" "$flat"
 
 	# The default-attribute statements go whole, because deleting only their
 	# attribute list would leave a bare `graph;` — which no renderer would
@@ -86,7 +109,7 @@ edges() {
 	sed -e '/^[[:space:]]*\(graph\|node\|edge\) \[/d' \
 	    -e 's/ \[[^]]*\]//g' \
 	    -e '/^[[:space:]]*\(label\|style\|bgcolor\|tooltip\|penwidth\)=/d' \
-	    "$DOT" > "$stripped"
+	    "$flat" > "$stripped"
 
 	run dot -Tsvg -o /dev/null "$stripped"
 	assert_success
@@ -244,9 +267,12 @@ edges() {
 	run_elc
 	assert_success
 
-	run bash -c 'grep -c "label=\"reader\".*fan-out" "$0"' "$DOT"
+	flatten "$DOT" "$BATS_TEST_TMPDIR/flat.dot"
+	run bash -c 'grep -c "label=\"reader\".*fan-out" "$0"' \
+		"$BATS_TEST_TMPDIR/flat.dot"
 	assert_output "1"
-	run bash -c 'grep -c "label=\"reader\".*warning: fan-out" "$0"' "$DOT"
+	run bash -c 'grep -c "label=\"reader\".*warning: fan-out" "$0"' \
+		"$BATS_TEST_TMPDIR/flat.dot"
 	assert_output "1"
 }
 
@@ -336,4 +362,28 @@ edges() {
 	assert [ -s "$out" ]
 	assert_output --partial "blocked.dot"
 	refute [ "$status" -eq 0 ]
+}
+
+@test "dot: a node's tooltip carries its site, its figures and its findings" {
+	# The same three things the interactive report shows when a reader
+	# points at a box: they are two drawings of one graph, and a reader
+	# who has asked one a question should not have to learn what the
+	# other will answer (HLR-217, LLR-DOT-03).
+	run_elc
+	assert_success
+	flatten "$DOT" "$BATS_TEST_TMPDIR/flat.dot"
+	run bash -c 'grep -oE "tooltip=\"[^\"]*\"" "$0" | head -1' \
+		"$BATS_TEST_TMPDIR/flat.dot"
+	assert_success
+	# The site, then the figures. Flattened for this assertion; in the file
+	# itself the separator is a real newline, which is the next assertion.
+	assert_output --regexp 'tooltip="[^"]*:[0-9]+ ELOC [0-9]+, complexity [0-9]+'
+
+	# And a renderer receives them as newlines rather than as two
+	# characters, which is the claim worth pinning rather than assuming.
+	# Any node's title will do; a cluster carries one too, so the figures
+	# are what distinguishes a function's.
+	run bash -c 'dot -Tsvg "$0" | grep -oE "xlink:title=\"[^\"]*ELOC[^\"]*\"" | head -1' "$DOT"
+	assert_success
+	assert_output --partial "&#10;ELOC "
 }

@@ -72,6 +72,7 @@ release readiness — is ready to start, and is the last.
 | [28](#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | ✅ Complete |
 | [29](#phase-29--function-visibility-and-editor-navigable-locations) | Public/private visibility, `path:line` locations, and a line count | ✅ Complete |
 | [30](#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
+| [31](#phase-31--interactive-html-reporting--semantic-zooming) | The `.html` report format: layers containing files containing functions, opened collapsed | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -340,8 +341,28 @@ whole cycle runs from the working copy.
 4.  **Implement**, following the [`elocker-dev`](../.github/skills/elocker-dev/SKILL.md)
     skill's conventions. New behaviour needs an HLR, an LLR, and a test; no
     test seam enters `src/`.
-5.  **Test** — `make test`, then `make asan`, then `make valgrind`. All three
-    must be clean before the phase is considered done (§6).
+5.  **Test** — `make test`, then `make asan`. Both must be clean before the
+    phase is considered done (§6).
+
+    **Do not run `make valgrind` locally.** It re-runs the integration and
+    fixture levels under instrumentation and takes the better part of an hour,
+    which is an unreasonable price for a small change and a price paid on every
+    iteration of one. It runs in CI on the pull request instead, where it costs
+    waiting rather than working, and where it runs against the merge result
+    rather than the working copy — which is the thing that has to be clean.
+
+    **What that gives up, stated rather than glossed.** ASan and LSan catch
+    invalid accesses and leaks, so those still fail locally and fail fast.
+    `valgrind`'s memcheck additionally catches **reads of uninitialised
+    memory**, which ASan does not detect at all; a defect of that one class now
+    surfaces on the PR rather than before the push. That is the trade, it is
+    accepted deliberately, and it is not a licence to push untested work — the
+    two local gates above are not optional.
+
+    Run it locally only when CI has reported a `valgrind` failure and you are
+    reproducing it, or when a change is specifically about memory handling and
+    you would rather know now. `ELC_VALGRIND=1` on a single suite is the cheap
+    form; the full target is rarely what you want.
 6.  **Feed discoveries back into the specification — before pushing.** This is
     the step that keeps the documents true, and it is not optional. During
     implementation you will find requirements that were ambiguous, designs
@@ -453,7 +474,7 @@ the SDP-local summary of what each phase must satisfy.
 | Integration | `build/elc` over its command line | Bats, `bats-assert` | Every HLR the phase delivers |
 | Fixture conformance | Hand-counted expected values per language | Bats | Every metric the phase computes |
 | Instrumented | Process, syscall, and link observation | Bats + `strace`/`ldd`/`unshare` | The non-functional HLRs |
-| Sanitized | The whole suite re-run instrumented | ASan, UBSan, LSan, valgrind | HLR-124, HLR-125 |
+| Sanitized | The whole suite re-run instrumented | ASan, UBSan, LSan locally and in CI; valgrind in CI only (§5.4 step 5) | HLR-124, HLR-125 |
 
 Tests are traced to Low-Level Requirements in [Project.xml](Project.xml) and
 reported in the [STP](STP.md) and the [Traceability Matrix](Traceability.md).
@@ -493,6 +514,8 @@ requirements and no others.
 | `libgit2` | Phase 7 | Isolated to one discovery route |
 | `igraph` | Phase 8 | With GraphML and OpenMP off, and its GMP choice pinned |
 | `libelf` | Phase 16 | The image container only; the demangler it needs is already linked, the C++ runtime arriving with `igraph` |
+| `jansson` | Phase 23 | The purification manifest, and from Phase 31 the HTML companion's payload. One JSON library, not two |
+| Cytoscape.js + `expand-collapse` | Phase 31 | Fetched by the *browser* at view time, not linked and not required by the run (HLR-040) |
 
 **Ordering constraints beyond the obvious:**
 
@@ -2926,6 +2949,151 @@ update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
 before you push.
 ```
 
+### Phase 31 — Interactive HTML Reporting & Semantic Zooming
+
+`elc` already writes the graph twice: as `.dot` for Graphviz to lay out
+(HLR-103) and as GraphML for a tool to load (HLR-106). Both are exports.
+Neither is something a reader can *open*, and on a real target neither is
+something a reader can read: `avrOS` renders as 82 nodes and the projects this
+tool exists for render as thousands. A drawing that cannot be navigated is a
+drawing nobody looks at twice, and the two existing companions have that
+failure in common — they scale by getting denser.
+
+**The graph is already hierarchical; only the drawing is flat.** A function
+belongs to a file (`SdgNode.component`, HLR-114) and a file belongs to a
+declared layer (`stratum_of_components`, HLR-078). That is a three-level
+containment `elc` computes on every run and then discards at the point of
+emission, drawing every function at one altitude as though the project had no
+structure. This phase emits the containment it already knows.
+
+1.  **The hierarchy as data** (HLR-213). One JSON document in Cytoscape's
+    compound-node form: a node per declared layer, a node per source file
+    carrying its layer as `parent`, and a node per function carrying its file
+    as `parent`. Serialised with the JSON library already linked for the
+    purification manifest (HLR-175) — a second JSON library would be the
+    `igraph`-and-GraphML risk in §9 arriving through a different door, and
+    HLR-112 makes the choice a design one rather than a requirement.
+2.  **Edges stay function-to-function** (HLR-214). Only the call edges the SDG
+    holds are emitted. A meta-edge between two collapsed files is *derived* by
+    the viewer from the edges it contains, so emitting one would put a second
+    opinion about coupling in the artefact — and it would be a worse one, since
+    it could not be reconciled with the Ca/Ce figures the report states beside
+    it (HLR-081).
+3.  **An output format, selected by its extension** (HLR-215). Not a
+    companion and not an option: `-o report.html` writes the page, exactly as
+    `-o report.md` writes Markdown (HLR-148). A flag asking for it would make
+    this the one artefact chosen by a means nothing else uses, and would be a
+    second spelling of what the filename already said — the disagreement
+    HLR-149 exists to prevent. It renders when double-clicked: no build step,
+    no bundler, and **no local web server** — the constraint that decides the
+    shape, because a reader who has to start a server to look at a report does
+    not look at it.
+4.  **It opens collapsed** (HLR-216). The view loads at the layer level and the
+    reader descends. A view that opens at function level and offers collapsing
+    has answered the wrong question first: the reason the flat drawings fail is
+    that they begin at maximum density, and a default is not a preference.
+
+**The viewing libraries are fetched, and that is not an HLR-040 violation.**
+Cytoscape.js and its `expand-collapse` extension are loaded from a CDN by the
+browser, at view time. HLR-040 governs *`elc`'s execution* — it forbids the
+analysis needing an interpreter, a VM, or the network, and this phase adds
+nothing to what the run does: `elc` writes text and exits. What the requirement
+does oblige is honesty about the word: the artefact is **standalone in the sense
+that it needs no server or build step**, not in the sense that it needs nothing.
+A reader on a disconnected machine gets the page and no diagram. That is stated
+in the manual rather than discovered, and vendoring the libraries into the file
+instead is a change to HLR-215 alone should the offline case ever be the one
+that matters.
+
+**A component in no declared layer gets no parent.** `stratum_of_components`
+returns `SIZE_MAX` for a file matching no stratum, and the reason is argued
+where it is computed: the user said nothing about that file, and placing it
+would report a structure nobody drew. The drawing follows the analysis — such a
+file is a root-level container, and a run with no `--stratum` at all produces a
+two-tier file/function hierarchy rather than an invented top. Inferring layers
+from the directory tree here would be the filesystem-derived architecture
+HLR-078 refuses.
+
+**HLR-031's uniformity rule is softened, and the softening is the honest
+reading rather than an exception carved for this phase.** That requirement said
+every human-readable format but CSV, the record and `.dot` presents the same
+tiers in the same order. Those three were never awkward cases: CSV is one table
+to load, the record is every element for a machine to read back, and `.dot` is
+a drawing — no reading of the requirement ever asked them to match the aligned
+table. HTML joins them on the same ground. It presents its information **in the
+context of the drawing** — a figure reached by opening the box that holds it —
+rather than as tables beside it, and holding it to the tier list would be
+requiring it to be the Markdown report with a diagram attached. The exemption
+is about *arrangement* and never about content: wherever this format shows a
+measurement, it is the report's.
+
+**Acceptance:** a target with two declared strata produces exactly one node per
+stratum, one per file carrying the correct `parent`, and one per function
+carrying its file as `parent`, hand-checked against a fixture. Every edge in the
+payload joins two function nodes and no edge names a file or a layer. A file
+matching no stratum emits a node with no `parent` key. The emitted document
+parses as JSON, and the parsed node set equals the SDG's. The page contains both
+CDN `<script>` tags, one `cytoscape({...})` initialisation, an `expandCollapse`
+call carrying `fisheye: true` and `animate: true`, and a `collapseAll()` after
+it. `-o report.html` selects the format with no option
+asking, `-f html` selects it for a report on standard output, `--format md`
+against an `.html` output is refused as a disagreement, and `--from-xml` with
+an `.html` output is refused because a record carries no topology. Names containing `<`, `&`, `"`, and a
+Unicode line separator survive into the page without closing the script element
+or breaking the parse.
+
+```text
+AI prompt — Phase 31
+
+Read issue #81, HLR-112, HLR-119, HLR-040 and HLR-114 before writing code.
+
+Do not add a second JSON library. `libjansson` is already linked for the
+purification manifest, and §9's igraph entry is the same objection: a
+dependency the project has an existing answer for is a cost with no
+purchase. HLR-112 says the library is a design choice, so making it is
+allowed; making it twice is not.
+
+The escaping is the correctness core, and it is not JSON escaping. The
+payload sits inside an HTML `<script>` element, where a `</script>` in a C++
+template signature ends the element and the rest of the graph becomes body
+text. Jansson will not escape it for you — it is well-formed JSON. Escape
+`<` and `&` after serialising, and escape U+2028 and U+2029, which are
+newlines to a JavaScript parser and not to a JSON one.
+
+Emit no meta-edges. The plugin derives them. An edge between two file nodes
+in the payload is a coupling figure elc computed twice by two rules, and the
+one in the report is the one with a threshold behind it.
+
+`stratum_of_components` returns SIZE_MAX for a file in no declared layer.
+That is not an error and not a layer named "other" — omit the `parent` key.
+Read the comment above it before deciding otherwise.
+
+This is a *format*, not a companion. It renders to the stream `emit` opened,
+is selected by the output filename's extension, and has no option of its own —
+a flag would be a second spelling of what `report.html` already says, which is
+the disagreement HLR-149 refuses between the two spellings there already are.
+Add it to both tables in cli.c: the extension map and the format-name list.
+The diagnostics are built from those tables, so a format added to one and not
+the other produces an error message naming a set the parser will not accept.
+
+Verify against the real target and not only the fixtures:
+
+    cd ~/Projects/avrOS/app/avrOS_example
+    elc --entry main -o report.html --elf build/main.elf . ../../drv ../../sys \
+        ../../srv -v \
+        --stratum app:'*/app/*' --stratum drv:'*/drv/*' \
+        --stratum sys:'*/sys/*' --stratum srv:'*/srv/*'
+
+Open the result. Four layer nodes, 44 file nodes, 82 function nodes, and it
+opens showing four boxes.
+
+When the work is done, follow the Phase Execution Protocol in §5.4 —
+including step 6 (updating `doc/Project.xml` with everything this phase
+discovered), step 7 (the manual and man page), step 8's gap-baseline
+update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+before you push.
+```
+
 ## 9. Risks & Open Questions
 
 *   **~~The Ada grammar is community-maintained.~~ Closed 2026-08-17 by
@@ -2961,14 +3129,27 @@ before you push.
     values from `elc`, which would assert nothing. *Mitigation:* budget for
     it explicitly in Phases 3, 6, and 8.
 
-*   **The `valgrind` job will become the long pole.** It re-runs the
-    integration and fixture levels under instrumentation, and the fixture
-    corpus grows fivefold at Phase 6 and again at Phase 8. No performance
-    target is committed, so a slow gate is acceptable rather than a defect —
-    but expect PR turnaround to lengthen noticeably from Phase 6, and decide
-    then whether to keep `valgrind` on every PR or move it to a merge-queue
-    or nightly job. *Mitigation:* the choice is a CI configuration change, not
-    a plan change; ASan remains on every PR either way.
+*   **~~The `valgrind` job will become the long pole.~~ It did. Settled
+    2026-08-28 by taking it out of the local loop and leaving it on the PR.**
+    The prediction was right and the remedy was the other one: the question
+    posed here was whether to move the *job* off every PR, and what actually
+    hurt was running the same target *locally* before pushing. At roughly an
+    hour a pass it was being paid on every iteration of a change, by a
+    developer sitting still, to re-verify a working copy that CI would verify
+    again as a merge result.
+
+    So `make valgrind` leaves the phase protocol (§5.4 step 5) and stays a
+    required CI job. Waiting is cheaper than working, and the PR checks the
+    merge result rather than one copy of it. **The cost is one class of defect
+    moving later:** memcheck catches reads of uninitialised memory and ASan
+    does not, so that class is now found on the PR instead of before the push.
+    Everything ASan and LSan cover — invalid accesses and leaks — still fails
+    locally and still fails fast.
+
+    *Residual risk:* a developer who ignores a red `valgrind` job merges a
+    defect the local gates were never going to catch. That is a review
+    obligation now rather than a mechanical one, which is a real weakening and
+    is recorded here as such.
 
 **Settled: Git support is kept** (decided 2026-08-14). libgit2 buys
 `.gitignore` compliance, which is load-bearing for the estimation and
@@ -3012,6 +3193,7 @@ T-shirt sizes; no calendar commitment implied.
 | 15 | M | Conditional-region pruning; the evaluator and its fixtures |
 | 16 | M | libelf and the demangler are libraries; the name reduction is the work |
 | 17 | M | Sweeping and closing, plus whatever Phase 16 uncovers |
+| 31 | M | The serialisation is small; the escaping and the fixture are the work |
 
 Phase 8 is the one worth splitting if it proves oversized: symbol resolution
 and graph construction could ship separately from the GraphML writer, though

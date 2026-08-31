@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.19" date="2026-08-27" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.11" date="2026-08-27" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.14" date="2026-08-27" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.20" date="2026-08-27" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.21" date="2026-08-27" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.21" date="2026-08-28" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.13" date="2026-08-28" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.16" date="2026-08-28" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.22" date="2026-08-28" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.23" date="2026-08-28" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="208"/>
-      <count name="llrs"       value="569"/>
-      <count name="tests"      value="1219"/>
-      <count name="test_files" value="56"/>
+      <count name="hlrs"       value="213"/>
+      <count name="llrs"       value="588"/>
+      <count name="tests"      value="1280"/>
+      <count name="test_files" value="59"/>
     </counts>
   </metadata>
 
@@ -55,6 +55,7 @@
       <file path="src/preproc.c"><![CDATA[Macro expansion through the language's own preprocessor, and the `#line` filter that reduces its output to the file under analysis.]]></file>
       <file path="src/diag.c"><![CDATA[The diagnostic stream every message to standard error passes through, and the debug companion that records the run beside the report.]]></file>
       <file path="src/format_dsm.c"><![CDATA[The Dependency Structure Matrix and its CSV and Markdown renderings.]]></file>
+      <file path="src/report_html.c"><![CDATA[The interactive HTML companion: the System Dependence Graph serialised as a three-tier Cytoscape compound-node payload, and the single-file page that renders it.]]></file>
       <file path="doc/elc.1"><![CDATA[The section-1 man page: the reference form of every option, format, and finding category.]]></file>
       <file path="doc/User_Manual.md"><![CDATA[The user manual: the same material in expository form, with worked examples.]]></file>
       <outro><![CDATA[It does not describe the language grammars or query files under `runtime/`, which are data rather than code, nor the Criterion and Bats test suites under `test/`, which are covered by the [Software Test Plan](STP.md). The two documentation files are listed because their currency is a delivery obligation (HLR-128 – HLR-130), not because their prose is designed here.]]></outro>
@@ -1077,8 +1078,7 @@ Every one is an attribute a renderer may ignore; ignoring all of them leaves the
           <function signature="int graph_write_graphml(const Sdg *g, const char *path)" summary="Write the SDG in GraphML, nodes in ascending identifier order and each node's edges by ascending target. Reuses `write_escaped` from `format_xml.c` rather than carrying a second escaper: one implementation of HLR-065 means one place for it to be wrong."/>
           <function signature="bool graph_graphml_warranted(const ElcOptions *opts)" summary="True only when the export was requested *and* the report goes to a named file. Both halves matter: the export is off by default (HLR-106), and requesting it with the report on standard output writes nothing, because there is no path to derive a name from (HLR-104)."/>
           <function signature="char *graph_companion_path(const char *output_path, const char *extension)" summary="The companion's name, by extension substitution on the report's output path. The extension search is scoped to the last path component, so a dot in a directory name is not mistaken for one."/>
-          <function signature="void node_style(FILE *out, const Annotation *a)" summary="Write the Graphviz attributes for a node given the findings that apply to it. `Annotation` is local to the module — a bitset of the marks that apply, the highest severity among them, and those findings joined for the tooltip — because nothing outside the writer has any use for it. Takes a gathered annotation rather than the report and a node identifier: the report is keyed by definition site and the graph by identifier, so matching the two is a search, and a styler that searched would entangle emission order with lookup order."/>
-          <function signature="int collect(const Sdg *g, const Report *r, Annotation *nodes, Annotation *comps, char **notes)" summary="Gather every finding and structural mark onto the node and component it applies to, so that emission is a pure walk. Findings are matched to a node by definition site rather than by name, because a name is not unique and a drawing that marked six functions called `grow` because one was unreachable would be worse than one that marked none."/>
+          <function signature="void node_style(FILE *out, const Annotation *a)" summary="Write the Graphviz attributes for a node given the findings that apply to it. The `Annotation` is `annotate.c`'s, shared with the HTML report so that the two drawings cannot disagree about a node (HLR-217); what stays here is the pigment — that a critical is `#f6c7c7` and a recursive member takes a second periphery. Takes a gathered annotation rather than the report and a node identifier: the report is keyed by definition site and the graph by identifier, so matching the two is a search, and a styler that searched would entangle emission order with lookup order."/>
         </functions>
         <algorithm><![CDATA[Both writers are plain text emission, which keeps Graphviz a tool the user may run on the output rather than a library `elc` links against (HLR-102), and keeps GraphML generation independent of any XML library. Unlike the report renderers, these two walk the `Sdg` rather than the sorted report model, so they impose their own order explicitly: nodes are emitted in ascending stable node-id order and each node's adjacency in ascending target-id order. Without that the graph library's internal enumeration would leak into the output and break HLR-032. Annotations use colour and shape attributes that a renderer ignoring them will simply drop, leaving a valid call tree (HLR-105).
 
@@ -1089,6 +1089,7 @@ The DOT writer runs in two passes rather than one, and the split is what keeps t
 DOT quoted strings escape two characters, `"` and `\`. That escaper is deliberately *not* folded into `write_escaped`: XML's five entities and DOT's two backslashes are different languages, and one escaper serving both would have to be told which, at which point it is two functions anyway.]]></algorithm>
         <dependencies>
           <dep><![CDATA[`src/graph.c` and `src/report.c`. No third-party dependency.]]></dep>
+          <dep><![CDATA[`src/annotate.c` for the findings placed on the graph. This writer gathered them itself until the HTML report needed the same answers; deciding twice which finding describes which node is how two drawings of one graph come to colour a function differently (HLR-217).]]></dep>
         </dependencies>
         <error_handling>
           <case name="Report written to stdout"><![CDATA[No `.dot` and no GraphML file is produced, since no output path exists from which to derive their names (HLR-104, HLR-106).]]></case>
@@ -1533,6 +1534,94 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
           <case name="No output path"><![CDATA[Not an error. `dsm_warranted` is false, no companion is written, and the report itself still carries the matrix — the rule the GraphML export follows, since the companion's name is derived from the report's and there is none to derive from (HLR-104).]]></case>
           <case name="An empty matrix"><![CDATA[Renders as its heading, its convention, and its column names rather than as nothing. A section that vanishes when it has no content makes the report's shape vary with its content.]]></case>
         </error_handling>
+      </module>
+
+      <module path="src/report_html.c">
+        <purpose><![CDATA[renders the interactive HTML report format. It serialises the System Dependence Graph as a hierarchical Cytoscape *compound-node* payload — layers containing files containing functions — and emits one self-contained page that renders it, so that a graph too dense to read at function level can be read at the level the reader chooses.]]></purpose>
+        <responsibility><![CDATA[Render to the stream the caller opened, as every other renderer does, leaving the destination's lifetime to `emit` (HLR-215).]]></responsibility>
+        <responsibility><![CDATA[Emit a node for each declared architectural stratum, taking the assignment from `arch.c` rather than matching the stratum patterns again (HLR-213).]]></responsibility>
+        <responsibility><![CDATA[Emit a node for each component carrying its layer as `parent`, and no `parent` at all for a component in no declared layer (HLR-213).]]></responsibility>
+        <responsibility><![CDATA[Emit a node for each graph node carrying its component as `parent`, with the figures the report already computed (HLR-213).]]></responsibility>
+        <responsibility><![CDATA[Emit edges between function nodes only, and never a meta-edge between two containers (HLR-214).]]></responsibility>
+        <responsibility><![CDATA[Escape the serialised payload for the HTML script element it is embedded in — which is not the escaping the JSON writer performs (HLR-215).]]></responsibility>
+        <responsibility><![CDATA[Write the page's shell and its initialisation script, configured to open at the highest architectural level (HLR-216).]]></responsibility>
+        <interfaces>
+          <interface title="The Output Format"><![CDATA[One of the formats `--output`'s extension selects (HLR-148): an `--output` of `report.html` is written by this module, and `--format html` names the same format for a report going to standard output. The page *is* the report in this format, not a file beside one — nothing here derives a filename, and no option requests it.]]></interface>
+          <interface title="The Embedded Payload"><![CDATA[A JavaScript `const graphData` holding a Cytoscape elements array. Its shape is the plugin's, not `elc`'s: each entry is `{ data: { id, ... } }`, and containment is expressed by a `parent` key naming an enclosing node's `id`.]]></interface>
+        </interfaces>
+        <functions>
+          <function signature="int format_html(const Report *report, const Sdg *g, const ElcOptions *opts, FILE *out)" summary="Render the graph as one self-contained page on a stream the caller opened — a renderer like every other, selected by the output filename's extension (HLR-148). The one renderer taking the graph as well as the model, because the topology is what it presents rather than a figure derived from it."/>
+          <function signature="static json_t *html_elements(const Sdg *g, const ElcOptions *opts)" summary="The complete Cytoscape elements array: the three node tiers in that order, then the call edges."/>
+          <function signature="static int append_layers(json_t *elements, const ElcOptions *opts)" summary="Tier 1 — one node per declared stratum, at its declared ordinal."/>
+          <function signature="static int append_files(json_t *elements, const Sdg *g, const size_t *stratum)" summary="Tier 2 — one node per component, parented on its layer where it has one."/>
+          <function signature="static int append_functions(json_t *elements, const Sdg *g)" summary="Tier 3 — one node per graph node, parented on its component."/>
+          <function signature="static int function_fields(json_t *data, const SdgNode *n, size_t index, size_t component_count)" summary="One function node's fields, split out of the loop and accumulating its failures rather than branching on them: a chain of `set_new(...) != 0 ||` per field is one decision point per field, and the two together put the caller over the complexity threshold elc holds its own source to (LLR-BLD-23)."/>
+          <function signature="static int append_edges(json_t *elements, const Sdg *g)" summary="The call edges, function to function, in ascending source-then-target order."/>
+          <function signature="static int html_edges_by_source_then_target(const void *a, const void *b)" summary="The edge ordering. Named apart from `format_graph.c`'s identical comparison deliberately: two file-local functions sharing a name are a call elc cannot resolve, in its own source as in anyone's (HLR-075, LLR-BLD-25)."/>
+          <function signature="static int write_payload(FILE *out, const char *json)" summary="Write the serialised payload into the script element, escaping what JSON escaping does not."/>
+        </functions>
+        <algorithm><![CDATA[**The hierarchy is read, not derived.** A function's component is `SdgNode.component` and a component's layer is `stratum_of_components`'s answer — the same call `format_dsm.c` makes, for the same reason it makes it. Two matchers over one set of stratum patterns would eventually disagree about which layer a file is in, and this drawing would then contradict the matrix printed beside it (HLR-164).
+
+**Two shapes here are owed to elc's own self-analysis gate, and are not stylistic.** The per-field population is split out of its loop and accumulates failures rather than branching on them, because a chain of `set_new(...) != 0 ||` is one decision point per field and the two together carried the caller over the complexity threshold elc holds its own source to (LLR-BLD-23). And the edge comparator is named apart from `format_graph.c`'s identical one, because elc resolves calls by matching names without a compiler's type information, so two file-local functions sharing a name are a call it cannot resolve — in its own source as in anyone's (HLR-075, LLR-BLD-25). Copying the name along with the comparison would have put an ambiguity into the very graph this artefact draws.
+
+**Identifiers are positional and stable.** `layer_<ordinal>`, `file_<component index>`, `func_<node index>`. The node index is the SDG's, which is the report's sorted file order (LLR-SDG-09), so the payload is byte-identical across runs without this module sorting anything — the property HLR-032 asks of every artefact, obtained here by inheriting an order rather than imposing one.
+
+**A component in no declared layer has no `parent` key.** `stratum_of_components` returns `SIZE_MAX` for a file matching no stratum, and the comment above it argues why: the user said nothing about that file, and placing it would report a structure nobody drew. A layer named "other" would be exactly that invention, and a run with no `--stratum` would acquire a single fictional root containing everything. Omitting the key renders the file as a top-level container, which is what it is.
+
+**Only function-to-function edges are emitted, and the plugin derives the rest.** `cytoscape-expand-collapse` synthesises a meta-edge between two collapsed containers from the edges crossing between them, so an emitted file-to-file edge would be a second, independent statement about coupling in the same artefact. It would also be the weaker statement: the report's Ca/Ce figures have a threshold and an attribution behind them (HLR-081, HLR-099), and a number drawn here by a different rule could not be reconciled with them.
+
+**The escaping is the correctness core, and it is not JSON escaping.** The payload is embedded in an HTML `<script>` element, where the parser looks for `</script` before it looks for anything else. A C++ template signature such as `basic_ostream</script>` is well-formed JSON that Jansson will emit verbatim, and it ends the element — the remainder of the graph becomes body text and the page renders empty. So the serialised text is post-processed: `<` becomes `\u003c` and `&` becomes `\u0026`, which closes both the element-termination case and the `&lt;` entity case at once. U+2028 and U+2029 are escaped for a second reason — they are line terminators to a JavaScript parser and ordinary characters to a JSON one, so a name containing either is valid JSON that is a syntax error once embedded.
+
+**The libraries are fetched by the browser, not by `elc`.** Two `<script src>` tags in the head. This is not an HLR-040 exception: that requirement governs what the *run* needs, and the run writes text and exits. What the artefact promises is that it needs no server and no build step (HLR-215) — the file opens from the filesystem — and the manual states plainly that the diagram needs the network the first time, which is the honest reading of "standalone" here.
+
+**The view opens collapsed** (HLR-216). `api.collapseAll()` runs immediately after `expandCollapse` is initialised, so the page loads showing the declared layers and the reader descends. The default is the requirement rather than a preference: the reason the `.dot` and GraphML companions fail on a real project is that they begin at maximum density, and a view that opens at function level and offers collapsing has reproduced that failure with an extra step.]]></algorithm>
+        <dependencies>
+          <dep><![CDATA[`src/graph.c` for the topology and the component projection, `src/arch.c` for the layer assignment, and `src/diag.c` for diagnostics. Nothing from `src/format_graph.c`: this is a format and derives no filename. `libjansson`, already linked for the purification manifest (HLR-175) — the one JSON library, not a second (HLR-112).]]></dep>
+        </dependencies>
+        <error_handling>
+          <case name="Report written to standard output"><![CDATA[Not an error and not a special case. The page is written to the stream like any other format; `--format html` selects it there, exactly as it selects CSV or the record (HLR-149).]]></case>
+          <case name="Regeneration mode"><![CDATA[Refused at parse time with a diagnostic naming the reason. A saved record carries the findings of a run and not the graph they came from, so there is no topology to draw, and an empty drawing would be a confidently wrong answer where a refusal is the honest one (HLR-122).]]></case>
+          <case name="No strata declared"><![CDATA[Not an error and not an invention. No layer nodes are emitted, and the payload is a two-tier file/function hierarchy — which is the whole of the structure the user declared.]]></case>
+          <case name="Serialisation or allocation failure"><![CDATA[Diagnostic naming the file, nothing written, and -1. A partially written page is worse than none: it would open and render a truncated graph, which is a wrong answer wearing the shape of a right one.]]></case>
+          <case name="Write failure"><![CDATA[Checked on `ferror` after the writing — a full disk shows up on the flush, and a report claimed as written when it was truncated is the failure worth catching. The stream is closed by `emit`, which owns it here as it does for every other format, so the close error is caught in one place rather than in each renderer.]]></case>
+        </error_handling>
+      </module>
+
+      <module path="src/annotate.c">
+        <purpose><![CDATA[places the findings of a run on the graph nodes and components they describe, once, for every drawing that shows them. It answers *what was found about this function* — the severity of the worst finding, the structural roles the analyses assign it, and the findings themselves as text — and answers it in one place so that two drawings of one graph cannot disagree about a node (HLR-217).]]></purpose>
+        <responsibility><![CDATA[Place each finding of the report on the node, the component or the global-object users it describes, keeping the highest severity seen (HLR-217, HLR-123).]]></responsibility>
+        <responsibility><![CDATA[Mark both kinds of cycle on every member, from the report's cycle rows rather than from the catalogue's single located finding (HLR-089, HLR-105).]]></responsibility>
+        <responsibility><![CDATA[Mark the structural roles — unreachable, a step of the deepest chain, a hidden channel's participant, the sole namer of a global (HLR-088, HLR-092, HLR-093, HLR-096).]]></responsibility>
+        <responsibility><![CDATA[Decide no severity and band no measurement: every judgement placed here was made by `thresholds.c` and arrives in the report (HLR-098, HLR-099).]]></responsibility>
+        <responsibility><![CDATA[Diagnose nothing. The caller names the artefact it was writing, which this module does not know.]]></responsibility>
+        <interfaces>
+          <interface title="The Annotation"><![CDATA[One `Annotation` per graph node and per component: a severity rank, the findings joined as text, and a bitset of structural marks. A bitset rather than a winner, because a function can be several things at once and a drawing shows each on a different attribute — shape says what it takes part in, fill says how severely, and the border says whether it is reached.]]></interface>
+          <interface title="What a Drawing Adds"><![CDATA[The pigment. This module says a node is critical; `format_graph.c` decides that critical is `#f6c7c7` in a Graphviz `fillcolor` and `report_html.c` that it is the same colour in a stylesheet rule. A drawing free to decide *which* nodes are critical would be a second opinion; a drawing deciding how to draw one is doing its job.]]></interface>
+        </interfaces>
+        <functions>
+          <function signature="int annotations_build(const Sdg *g, const Report *r, Annotation **nodes, Annotation **comps, char **notes, uint32_t **chain)" summary="Everything a drawing needs that is derived rather than written: the node and component annotations, the note carrying what belongs to no single node, and the deepest chain as node identifiers."/>
+          <function signature="void annotations_free(Annotation *a, size_t count)" summary="Release an annotation array and the notes it owns."/>
+          <function signature="bool annotation_on_chain(const uint32_t *chain, size_t count, uint32_t from, uint32_t to)" summary="Is this edge a step of the deepest chain? The chain is a list of definition sites, so a step is a consecutive pair of them (HLR-088)."/>
+          <function signature="static int place_findings(const Sdg *g, const Report *r, Annotation *nodes, Annotation *comps, char **notes)" summary="Every finding in the catalogue, on whatever it describes; those belonging to the graph as a whole reach the caller's note rather than being dropped."/>
+          <function signature="static int place_finding(const Sdg *g, const FindingRow *row, const char *text, Annotation *nodes, Annotation *comps)" summary="One finding on everything it describes — a definition site, a component, or the functions touching a global object."/>
+          <function signature="static int mark_cycles(const Sdg *g, const Report *r, Annotation *nodes, Annotation *comps)" summary="Both kinds of cycle, on every member, from the report's cycle rows."/>
+          <function signature="static void mark_structure(const Sdg *g, const Report *r, Annotation *nodes)" summary="The structural marks, each from the collection that owns it."/>
+          <function signature="static bool finding_is_node(const FindingRow *f, const SdgNode *n)" summary="Does this finding name this node? File and line together are the definition site; a file alone is a component finding and a line alone matches every file."/>
+          <function signature="static uint32_t node_at(const Sdg *g, const char *file, uint32_t line)" summary="The node at a definition site, matched on file and line rather than on name — a name is not unique, and elc's own sources define six functions called `grow`."/>
+        </functions>
+        <algorithm><![CDATA[**Lifted out of `format_graph.c` when a second drawing needed the same answers**, and the lift is the point rather than a tidying. Which finding describes which node is not a property of the language a drawing is written in: deciding it twice is how the `.dot` companion and the HTML report come to colour one function differently while claiming to draw one graph, and it is the same failure `format_dsm.c` and `report_html.c` would produce if each matched the stratum patterns itself instead of taking `arch.c`'s answer (HLR-164).
+
+**Findings first, then marks.** The severity a node carries is the catalogue's, and the marks that follow only add shape — so a node that is both unreachable and over a complexity threshold is filled by the threshold and outlined by the reachability, rather than one of the two silently winning.
+
+**A cycle is marked from the cycle rows, not from the finding.** The catalogue locates a finding at one subject because a finding has one location and a set has none, while HLR-105 asks for the *members*. So both kinds of cycle are placed from the report's cycle rows, and the catalogue's own copy is skipped to avoid a second note saying the same thing on one member.
+
+**A finding about a global object is placed on the functions that touch it.** Such a finding names neither a definition site nor a component, and the touch set is where a reader of a drawing whose nodes are functions would look for it (HLR-091, HLR-105). The touches rather than the edges, for the reason `graph.h` gives: an object named by exactly one function produces no edge at all, and that object is precisely the scope-reduction candidate (HLR-092).
+
+**Nothing here is diagnosed.** A caller that fails to build its annotations names the artefact it was writing — "the call tree", "the HTML graph" — and this module knows neither. Returning the failure rather than reporting it is what lets one builder serve both.]]></algorithm>
+        <dependencies>
+          <dep><![CDATA[`graph.h` and `report.h` for the two collections it walks, and `thresholds.h` for the severity ranking and the catalogue lookups — the judgement it places and never forms (HLR-099).]]></dep>
+          <dep><![CDATA[Depended upon by `format_graph.c` and `report_html.c`, which is the whole reason it exists: two drawings of one graph reading one set of answers rather than deriving two (HLR-217).]]></dep>
+        </dependencies>
       </module>
 
     </modules>
@@ -2185,6 +2274,11 @@ The adversarial fixtures are the ones that matter: they are chosen so that an im
         <artefact key="expected" label="Expected" path="That the emitted file is valid DOT is settled by rendering it under `dot`, never by matching text that looks like DOT. That the annotations say what the analyses found is asserted against the hand-worked node and component tables in `README.md`. And, uniquely to this artefact, that **stripping every annotation leaves the same tree** — performed by deleting every attribute from the file and requiring the remainder to render with the same nodes and the same edges"/>
         <artefact key="verifies" label="Verifies" path="HLR-032, HLR-100, HLR-102 – HLR-105, HLR-119"/>
       </fixture>
+      <fixture name="`html/`" source="[test/fixtures/html/](../test/fixtures/html/)">
+        <artefact key="inputs" label="Inputs" path="One tree of three directories with one file each, deliberately unequal: two are named by a `--stratum` and the third by none, so that both branches of the layer assignment are present in one run. Five functions across them, and four calls chosen to separate the cases — one inside a single file and one layer, two crossing into the layer below, and one reaching the *undeclared* directory. Run with the two strata declared and again with none, selected each time by the output filename's extension; and run through the selection cases the format shares with every other — the option spelling for standard output, a disagreeing `--format`, a rejected option that does not exist, and regeneration mode"/>
+        <artefact key="expected" label="Expected" path="That the embedded payload is well-formed is settled by extracting it and handing it to a JSON parser, never by matching text that looks like JSON — the distinction is load-bearing rather than stylistic here, since the failure the embedding escape guards against produces text that is *valid JSON* and a syntax error once inside a script element. That the hierarchy says what the analyses found is asserted against the hand-worked node and edge tables in `README.md`: two layer nodes, three file nodes of which one carries no container, five function nodes, and four edges each joining two functions. And that no meta-edge exists — three of the four calls cross a container boundary and none of them produces an edge naming a file or a layer"/>
+        <artefact key="verifies" label="Verifies" path="HLR-032, HLR-078, HLR-122, HLR-148, HLR-149, HLR-213 – HLR-216"/>
+      </fixture>
       <fixture name="`arch/`" source="[test/fixtures/arch/](../test/fixtures/arch/)">
         <artefact key="inputs" label="Inputs" path="A layered tree with declared strata and execution scopes; a call skipping a layer; a call inverting the declared direction; a component with high fan-in and fan-out; components at each end of the instability range; a run with no strata declared at all; a run declaring one layer over every component, so that calls exist and no inter-layer call does; a run reversing the declared direction with `--stratum-order`; and a directory whose name carries a comma, built in the test's own temporary directory"/>
         <artefact key="expected" label="Expected" path="The hand-computed `Ca`, `Ce`, and instability table and the omission notice for the undeclared run, all worked out in `README.md` beside the fixture and never regenerated from `elc`'s output — and beside them the two conformance indices over their hand-counted six-edge denominator, the undefined pair where that denominator is zero, and the hand-drawn matrix in both of its arrangements: over the declared layers and over the analysed directories"/>
@@ -2733,11 +2827,15 @@ For the purposes of this and every other requirement in this document, "function
       </hlr>
 
       <hlr id="HLR-031" name="Uniform Report Composition Across Formats">
-        <text><![CDATA[Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), and Graphviz `.dot` (HLR-102) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
+        <text><![CDATA[Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), Graphviz `.dot` (HLR-102), and HTML (HLR-215) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
 
 The enumeration above is the **verbose** composition of HLR-151. Verbosity selects how much of it a given run presents (HLR-150), and this requirement governs the axis it does not touch: whichever verbosity is in force, every affected format shall present the same tiers as every other. Uniformity is across formats at a fixed verbosity, never across verbosities — a table and a Markdown report of the same run must not differ, and a summary report is not required to match a verbose one.
 
-The tiers a format **reaches** are what must match, rather than the headings it prints: a tier with no rows is presented in no human format and named in the closing statement of every one of them (HLR-188, HLR-189). The order those tiers are presented in is HLR-182's and HLR-184's, and is likewise the same in every affected format.]]></text>
+The tiers a format **reaches** are what must match, rather than the headings it prints: a tier with no rows is presented in no human format and named in the closing statement of every one of them (HLR-188, HLR-189). The order those tiers are presented in is HLR-182's and HLR-184's, and is likewise the same in every affected format.
+
+**This rule governs formats that present the report as a sequence of tables, and only those.** The exemptions above are not a list of awkward cases: CSV is one table for a consumer to load, the record is every element of the run for a machine to read back, and `.dot` is a drawing — none of them was ever expected to carry the same tiers as the aligned table, and no reading of this requirement has ever asked them to. HTML is exempt on the same ground rather than a new one. It presents its information **in the context of the drawing** — a figure reached by opening the box that holds it, at the tier the reader is looking at — rather than as a sequence of tables beside it, so requiring it to present the same tiers in the same order would be requiring it to be the Markdown report with a diagram attached.
+
+What the exemption does *not* license is a format that answers a question differently from the others. Wherever HTML presents a measurement, it is the measurement the report states, taken from the same model (HLR-213). The exemption is about **arrangement**, never about content.]]></text>
 
       <traces>
         <trace target="SDD" ref="13"/>
@@ -2747,7 +2845,7 @@ The tiers a format **reaches** are what must match, rather than the headings it 
       </hlr>
 
       <hlr id="HLR-148" name="Output Format Determined by Filename Extension">
-        <text><![CDATA[Where the user names an output file (HLR-030), the extension of that filename shall determine the report format, and no separate format option shall be required to state what the filename has already said. `elc` shall recognise `.txt` as the aligned table (HLR-027), `.md` as Markdown (HLR-029), `.csv` as CSV (HLR-028), and `.xml` as the complete record (HLR-054).
+        <text><![CDATA[Where the user names an output file (HLR-030), the extension of that filename shall determine the report format, and no separate format option shall be required to state what the filename has already said. `elc` shall recognise `.txt` as the aligned table (HLR-027), `.md` as Markdown (HLR-029), `.csv` as CSV (HLR-028), `.xml` as the complete record (HLR-054), and `.html` as the interactive drawing (HLR-215).
 
 An output filename carrying an extension `elc` does not recognise, or carrying none at all, shall be rejected as a usage error (HLR-063) naming the extension found and listing those that are recognised. Guessing a format for an unrecognised extension would write one format under a name promising another, and defaulting silently to the table would produce a file called `report.json` holding no JSON — each of which is a confidently wrong result of exactly the kind this document forbids elsewhere.
 
@@ -4131,7 +4229,7 @@ The output shall be captured into memory and **no intermediate file shall be wri
 
 The preprocessor is invoked on the file named, with no include paths, defines, or flags beyond those the user gave. `elc` does not have the build's configuration and shall not guess at it: a `-I` it invented would read a header the user did not name (HLR-039), and reaching the wrong header is worse than reaching none, because the expansion would succeed and be wrong.]]></text>
       <traces>
-        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="22"/>
       </traces>
       </hlr>
 
@@ -4144,7 +4242,7 @@ The filter shall be a state machine over the marker stream rather than a heurist
 
 A project's own headers are discarded along with the system's. They are files in their own right, analysed on their own account when the target includes them, and counting a header once per file that includes it would inflate every figure by its inclusion count.]]></text>
       <traces>
-        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="22"/>
       </traces>
       </hlr>
 
@@ -4161,7 +4259,7 @@ Restoring a location is not only a matter of adding lines. A preprocessor lays o
 
 No figure `elc` reports today depends on this: comments are excluded from effective lines (HLR-016) and stripping them removes nothing that was being counted. It is required because the buffer handed to the parser should differ from the source as little as the expansion allows. Every difference is one a reader of a finding has to account for, every future measurement over comments would otherwise read zero without anything to indicate why, and preserving them costs a flag.]]></text>
       <traces>
-        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="22"/>
         <trace target="SDD" ref="7"/>
       </traces>
       </hlr>
@@ -4175,7 +4273,7 @@ The fallback shall not be a diagnostic on standard error for each file. On a tre
 
 `elc` shall remain usable with no compiler installed at all, which is what keeps HLR-040's exclusions honest: a toolchain improves the result where it is present and is not required for one.]]></text>
       <traces>
-        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="22"/>
       </traces>
       </hlr>
 
@@ -4188,7 +4286,7 @@ It also bounds the honesty cost of HLR-202. `elc` no longer promises that one so
 
 The count carries no severity and does not reach the exit status (HLR-100). It is a figure to read.]]></text>
       <traces>
-        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="22"/>
         <trace target="SDD" ref="14"/>
       </traces>
       </hlr>
@@ -4204,7 +4302,7 @@ Hence the two parses of HLR-076. The unexpanded parse answers what the source *s
 
 The definitions the run was given (`-D`) shall be forwarded to the preprocessor. `elc` deciding a condition one way while the preprocessor decides it the other would measure a build the user never asked for, and the configuration a report names must be the configuration it measured (HLR-132).]]></text>
       <traces>
-        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="22"/>
         <trace target="SDD" ref="7"/>
       </traces>
       </hlr>
@@ -4224,7 +4322,7 @@ Detection shall be from the calls the graph could not resolve (HLR-077), which i
 
 Where a file's expansion succeeded, `elc` shall additionally report which standard-library headers it drew on, distinguishing the C library from the C++ library. That is the exposure the warnings above are drawn from — a fact rather than a finding, carrying no severity — and it answers what it would take to build the code somewhere else, which a freestanding or embedded target makes urgent. A file that fell back reports nothing here, and shall not be listed as depending on nothing: absence of evidence is not evidence of absence, and the provenance of HLR-206 is what tells a reader which files could be asked.]]></text>
       <traces>
-        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="22"/>
         <trace target="SDD" ref="12"/>
         <trace target="SDD" ref="14"/>
       </traces>
@@ -4247,7 +4345,6 @@ Where two patterns of a language's visibility query match one function, **the ea
 
 Access control within a class — C++'s `private:` and `public:` sections — is a different axis from linkage and is not what this reports. A private method of an externally visible class has external linkage, and conflating the two would make the column answer neither question.]]></text>
       <traces>
-        <trace target="SDD" ref="29"/>
         <trace target="SDD" ref="7"/>
         <trace target="SDD" ref="14"/>
       </traces>
@@ -4424,6 +4521,99 @@ The statement is unconditional because a section that appears only sometimes is 
       </traces>
       </hlr>
     </section>
+    <section number="31" title="Interactive HTML Reporting and Semantic Zooming">
+      <intro><![CDATA[Requirements governing the interactive companion: the graph `elc` already builds, drawn at the level the reader chooses rather than at the one level it has always been drawn at.
+
+`elc` writes the graph twice already — as `.dot` for Graphviz to lay out (HLR-103) and as GraphML for a tool to load (HLR-106). Both are exports, and both scale by getting denser: a project of a few thousand functions produces a drawing nobody looks at twice. The requirements here do not add a measurement. They emit a structure `elc` computes on every run and discards at the point of emission — a function belongs to a file (HLR-114), a file belongs to a declared layer (HLR-078) — so that the same graph can be read as four boxes or as four thousand nodes, at the reader's choice.
+
+**Nothing here is a second opinion about anything.** Every figure the payload carries was computed elsewhere and is copied; every edge it carries is an edge of the SDG. Where the drawing needs a number the report also states, it takes the report's.]]></intro>
+
+      <hlr id="HLR-213" name="The Graph Serialised as a Containment Hierarchy">
+        <text><![CDATA[`elc` shall serialise the System Dependence Graph as a hierarchical node document in which each function is contained by the file that defines it and each file is contained by the architectural layer it was declared in.
+
+**Three tiers, and each is an existing answer rather than a new one.** The layer of a component is the one `stratum_of_components` assigns (HLR-078), the component of a function is `SdgNode.component` (HLR-114), and the figures carried on a function node are the ones the report already states for it. This requirement is about *emission*, not measurement: a drawing that recomputed any of the three could disagree with the tables printed beside it, which is the failure HLR-164 forbids for the conformance indices and forbids here for the same reason.
+
+**Containment is expressed by reference, not by nesting.** Each node names its container, so the document is a flat sequence a consumer may read without recursion and the three tiers may be emitted in one pass. That is the form the rendering library specifies; adopting it is a design choice under HLR-112 rather than a requirement, and what this requirement fixes is that the containment be *stated* rather than left for a viewer to infer from path prefixes.
+
+**A component in no declared layer shall be contained by nothing.** `stratum_of_components` places a file matching no stratum outside the declared architecture rather than in a layer of its own, because the user said nothing about it and placing it would report a structure nobody drew. The serialisation shall follow that judgement rather than reverse it: such a component is emitted with no container, and a run declaring no strata at all therefore yields a two-tier file-and-function document rather than one rooted in an invented layer. Inferring a layer from the directory tree here would be the filesystem-derived architecture HLR-078 refuses.
+
+**Identifiers shall be stable across runs.** The document is a companion artefact and is subject to HLR-032 like every other: two runs over unchanged input produce byte-identical output.
+
+**One serialisation library, not two.** `elc` already links one for the purification manifest (HLR-175). HLR-112 makes the choice a design matter, and the choice is made once: a second library would add a dependency the project already has an answer for.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="8"/>
+        <trace target="SDD" ref="9"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-214" name="Edges Between Functions Only">
+        <text><![CDATA[The serialised document shall carry an edge for each call edge of the System Dependence Graph, joining two function nodes, and shall carry no edge joining two containers.
+
+**A dependency between two files is derived, and derived by the viewer.** A rendering that collapses a file to a single shape synthesises the connections between collapsed shapes from the edges they contain, at the moment of collapsing. An emitted file-to-file edge would therefore be a second and independent statement of the same fact in one artefact.
+
+**And it would be the weaker statement.** `elc` already reports coupling between components, with a threshold behind it and an attribution beside it (HLR-081, HLR-099). A figure drawn in this document by a rule of its own could not be reconciled with that one, and a reader who found the two disagreeing would have no way to tell which was the measurement.
+
+**Global-access edges are not call edges and are not emitted here** (HLR-074). Coupling through shared state is a different fact about a design from coupling through calls, and the graph carries the two separately precisely so that an analysis cannot report one as the other. A drawing of the call structure that silently included the global edges would do exactly that.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="8"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-215" name="The Interactive Drawing as an Output Format">
+        <text><![CDATA[`elc` shall write the interactive drawing as an **output format, selected by the output filename's extension** exactly as every other format is (HLR-148), rendering to the destination the report itself is written to. It shall be one file, which renders when opened directly from the filesystem — requiring no build step, no bundler, and **no local web server**.
+
+**No option shall ask for it.** The extension has already said what the format is, and an option saying it again is the disagreement HLR-149 exists to prevent between the two spellings there are: a flag would make this the one artefact selected by a means nothing else uses, and a reader would have to learn a second rule for one format. Where a report goes to standard output, `--format html` selects it by the same rule that selects every other format there (HLR-149).
+
+**The no-server constraint decides the artefact's shape**, and it is a usability requirement rather than a technical one: a reader who must start a server to look at a report does not look at the report. It forbids splitting the payload into a sibling file the page fetches, which is what a browser's local-file security policy blocks and what would otherwise be the natural structure.
+
+**"Standalone" is bounded, and the bound shall be stated rather than discovered.** The rendering library is fetched by the *browser*, at the time the page is viewed. That is not an HLR-040 matter — that requirement governs what a *run* of `elc` needs, and this run writes text and exits, requiring no interpreter, no virtual machine and no network of its own. What it does oblige is precision about the claim: the file needs no server and no build step, and it does need the network the first time it is opened. `elc` shall document that plainly (HLR-128 – HLR-130) rather than let a reader on a disconnected machine discover it as a blank page.
+
+**The payload shall be embedded such that no content of the graph can terminate its container.** A function name is arbitrary text from the user's source — a C++ template signature contains angle brackets, and `elc` places no restriction on what a name may hold. Serialisation escaping alone is not sufficient here: a name may be perfectly well-formed in the serialisation and still close the element embedding it, or be a line terminator to the embedding language and not to the serialisation. The requirement is on the result — a name containing any character whatsoever renders as that name — and not on the mechanism.
+
+**This format presents its information in the context of the drawing**, which is why HLR-031's uniformity rule exempts it as it already exempts CSV, the record, and `.dot`. A figure is reached by opening the box that holds it, at the tier the reader is looking at, rather than printed in a table beside it. The exemption is about arrangement and never about content: wherever this format presents a measurement it is the measurement the report states, taken from the same model (HLR-213).
+
+**A regenerated report shall not be written in this format.** A saved record carries the findings of a run and not the graph they came from (HLR-122), so there is no topology to draw; the request shall be refused with a diagnostic naming the reason rather than answered with an empty drawing.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+        <trace target="SDD" ref="4"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-216" name="The View Opens at the Architectural Level">
+        <text><![CDATA[The companion shall open showing every file of the run as a single box carrying that file's name, within the architectural layer it was declared in where one was declared, and **the file shall be the only tier that opens and closes**.
+
+**The default is the requirement, not a preference.** What makes the existing graph companions unreadable on a real project is not that they lack a collapsing facility; it is that they begin at maximum density. A view that opened at function level and offered collapsing would reproduce that failure and add a step to recovering from it. The reader is shown the architecture and descends into what interests them, which is the order the question is actually asked in.
+
+**A layer is read, not navigated, and this is the correction of an earlier reading.** The companion first opened with *every* container collapsed, layers included, which hid the very tier the drawing is arranged by: a reader was shown a handful of unlabelled layer boxes and had to open one before the drawing said anything about their project. A declared layer is context for the files inside it — the answer to *where does this file sit* — and context that must be opened to be read is not context. So the layers stand open, the files within them are closed, and the one gesture the drawing offers is the one the legend names.
+
+**The file is where the descent belongs**, because it is the tier at which the question changes: above it the reader is asking about architecture, and inside it about the functions of one file. A collapsed file shall be drawn as a box carrying its name rather than as a shrunken container, since it is what the reader is reading at the level the view opens at.
+
+**Descent shall preserve the reader's place.** Expanding a file shall not re-lay-out the whole drawing from nothing: a reader who loses their bearings on every expansion is navigating a new drawing each time rather than one drawing at a new depth.]]></text>
+      <traces>
+        <trace target="SDD" ref="27"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-217" name="The Drawing Carries the Findings It Was Drawn From">
+        <text><![CDATA[Every drawing `elc` produces of the call graph shall show, on each function and each component it draws, the findings the report states about it — the severity of the worst, the structural roles the analyses assign it, and the findings themselves in full on demand — and shall carry a key naming what each of those marks means.
+
+**A drawing without them is a picture of the topology, and the topology is not the product.** `elc` exists to say where a codebase needs attention; a drawing that renders eight hundred functions identically has shown the reader the shape of the call graph and withheld every judgement the run made about it, which is the half a reader opened it for. The Graphviz companion has carried these marks since Phase 13 (HLR-105); this requirement generalises what that companion does rather than describing a second scheme, so that a reader who has learned one drawing can read the other.
+
+**The marks shall be the report's own, and no drawing shall form its own.** The severity of a finding is the catalogue's (HLR-098, HLR-099), and *which* finding describes which function is one question with one answer. Two drawings deciding it separately is how they come to disagree about a function while sitting side by side in the same directory, which is the failure HLR-164 forbids for the conformance indices — so the placement is made once and every drawing reads it.
+
+**Every mark shall be ignorable.** Strip the colours, the shapes and the borders from either drawing and what remains is the same graph with the same nodes and the same edges. A mark is an annotation upon the drawing and never a change to what is drawn — which is what lets a renderer that cannot express one omit it without misreporting the graph.
+
+**The key shall be part of the artefact.** A drawing whose colours are explained in the manual is a drawing the reader must leave to read; both companions state their own key, and a reader who was sent the file alone can still read it.]]></text>
+        <traces>
+          <trace target="SDD" ref="28"/>
+          <trace target="SDD" ref="27"/>
+          <trace target="SDD" ref="17"/>
+        </traces>
+      </hlr>
+    </section>
+
   </hlrs>
 
   <!-- Low-Level Requirements (see tools/Developers_Guide.md §6). -->
@@ -7663,6 +7853,20 @@ The line-granularity counts travel with the image element rather than with the p
           <trace target="HLR" ref="HLR-105" name="Annotated .dot Output"/>
         </traces>
       </llr>
+
+      <llr id="LLR-STY-03">
+        <text><![CDATA[Each node's `tooltip` shall carry its definition site, the ELOC and cyclomatic complexity the report states for it, and the findings upon it, one to a line.
+
+**The same three things the interactive report shows when a reader points at a box** (LLR-HTM-09). They are two drawings of one graph, and a reader who has asked one of them a question should not have to learn what the other will answer; the figures were absent here and present there, which is a difference in what the artefacts *know* rather than in how they draw it.
+
+**The line separator shall be a newline character and not DOT's `\n` escape.** Graphviz resolves that escape for SVG output and *not* for the xdot format, so a viewer reading xdot — which is what `xdot` reads — shows the two characters of the escape where the line break should be. A newline inside a quoted string is legal DOT and reaches both: SVG still writes the separators as character references, and the xdot stream now carries the breaks themselves.
+
+**The cost is stated because it is real.** A node's attribute list then spans several physical lines, so the file is no longer one line per node, and anything reading it line-wise — a `grep` for a node and its findings, the suite's own stripping of the decoration — must join the quoted strings first. That is accepted here and would not be accepted for the other export: this artefact is a drawing for someone to look at, and the machine-readable rendering of the same graph is GraphML, which carries no tooltip and is untouched (SDD §17).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-105" name="Annotated .dot Output"/>
+          <trace target="HLR" ref="HLR-217" name="The Drawing Carries the Findings It Was Drawn From"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="47" title="`graph_write_graphml` ([src/format_graph.c](../src/format_graph.c))" name="graph_write_graphml" source="src/format_graph.c">
@@ -8987,6 +9191,316 @@ Neither can be recomputed from a record: a regenerated report has no image, and 
       </llr>
     </function>
 
+    <function number="72" title="`html_elements` ([src/report_html.c](../src/report_html.c))" name="html_elements" source="src/report_html.c">
+      <intro>The compound-node data model: three tiers of nodes joined by a `parent` reference, and the edges that are allowed to exist between them.</intro>
+
+      <llr id="LLR-CYT-01">
+        <text><![CDATA[`html_elements` shall append one node object per declared stratum, before any other node, with `id` set to `layer_` followed by the stratum's ordinal and `label` set to its declared name.
+
+The ordinal rather than the name, because the name is user text: two strata may be declared with names differing only in characters an identifier cannot carry, and a collision would silently reparent every file of one layer into the other. The ordinal is already the stratum's identity everywhere else in the program — it is what makes a direction out of a set of names (HLR-078) — so using it here keeps one notion of which layer is which.
+
+Layers are emitted first so that a consumer reading the sequence forward never meets a `parent` naming a node it has not yet seen. Nothing requires that, but a document whose containment resolves in one forward pass is one a reader can check by eye.
+
+Where no stratum was declared this appends nothing, and the document has two tiers rather than three.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-213" name="The Graph Serialised as a Containment Hierarchy" />
+          <trace target="HLR" ref="HLR-078" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-CYT-02">
+        <text><![CDATA[`html_elements` shall append one node object per component of the graph, with `id` set to `file_` followed by the component's index, `label` set to the component's path with the longest directory prefix shared by every component removed, `path` set to the component's path in full, and `parent` set to `layer_` followed by that component's stratum ordinal.
+
+**The label is for reading and `path` is the record.** A drawing is read at label width, and within one document the shared prefix distinguishes nothing — every component carries it — while consuming most of each label; on a real project it is what makes the file tier illegible. The prefix ends at a path separator, never inside a name, so `/p/app/` beside `/p/apple/` sheds `/p/` and not the `/p/app` the bytes share; a lone component, whose whole directory is a prefix nothing else contests, is labelled by its file name. What the label sheds stays recoverable from `path` on the same node rather than lost, and the reduction is computed from the document's own components, so the artefact remains byte-identical across runs (HLR-032). The complete-record formats are untouched: this is a presentation of the drawing, not a change to what any record states.
+
+**The stratum comes from `stratum_of_components` and is not matched here.** That is `format_dsm.c`'s rule and it is this module's for the same reason: two matchers over one set of patterns eventually disagree about which layer a file is in, and this drawing would then place a file in one layer while the matrix beside it placed the file in another (HLR-164).
+
+**A component defining no function shall not be emitted at all.** Such a component can hold no node and join no edge, so a box for it states nothing — and on a C project that set is exactly the headers, which is half the components of `elc`'s own sources. The `.dot` companion has never drawn them, and not by a rule of its own: it opens a cluster while walking the *functions*, so a component with none is never reached. This renderer walks the components, so it must say the same thing deliberately or the two drawings of one graph disagree about what is in it (HLR-217).
+
+**The omission is of a box, never of a measurement.** Such a file is discovered, measured and counted everywhere the report counts a file; what is withheld is a node in a drawing of the call structure, which is the one thing the file demonstrably takes no part in. It is also what `--elf` leaves behind when an image defines none of a file's functions: the filter empties the component and the drawing then omits it, on the image's evidence rather than on a rule of this renderer's.
+
+**The shed prefix shall be measured over the components that remain**, since a prefix shared by a file nobody will see is not shared by anything on the page.
+
+**Where `stratum_of_components` returns `SIZE_MAX` the `parent` key shall be omitted entirely**, not set to empty and not set to a synthesised layer. A file matching no stratum lies outside the declared architecture — the judgement is argued where it is computed and this renderer follows it rather than reversing it. A layer named `other` would be a structure nobody declared, and would arrive on every run that declares no strata at all, wrapping the whole project in a fiction.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-213" name="The Graph Serialised as a Containment Hierarchy" />
+          <trace target="HLR" ref="HLR-114" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-CYT-03">
+        <text><![CDATA[`html_elements` shall append one node object per node of the graph, with `id` set to `func_` followed by the node's index, `parent` set to `file_` followed by `SdgNode.component`, and `label` set to the function's name; and shall carry on it the file, the first line, the ELOC, and the cyclomatic complexity the node already holds.
+
+The index is the SDG's own, which is the report's sorted file order (LLR-SDG-09). Taking it rather than assigning one here is what makes the document byte-identical across runs without this module sorting anything (HLR-032), and it is what lets a reader match a node in the drawing to a row in the GraphML export, whose identifiers are the same indices.
+
+The figures are copied, never recomputed. A drawing that derived a complexity of its own would be a second opinion in a program that keeps exactly one, and the one with a threshold behind it is the report's (HLR-099).
+
+A node whose `component` is not a valid component index carries no `parent`. That is unreachable by construction and is handled rather than asserted, because the failure it would otherwise produce is a `parent` naming a node that does not exist — which a viewer reports as a corrupt document rather than as the bug it is.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-213" name="The Graph Serialised as a Containment Hierarchy" />
+          <trace target="HLR" ref="HLR-032" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-CYT-04">
+        <text><![CDATA[`html_elements` shall append one edge object for each edge of the graph whose kind is `EDGE_CALL`, with `source` and `target` naming the two function nodes it joins and `weight` carrying the collapsed call-site count; and shall append no edge whose `source` or `target` names a file node or a layer node.
+
+**No meta-edges** (HLR-214). The connection between two collapsed containers is synthesised by the viewer from the edges crossing between them, so an emitted one would state the same fact twice from two rules — and the emitted one would be the statement with no threshold behind it, unreconcilable with the Ca/Ce figures the report prints (HLR-081).
+
+**Global edges are excluded** (HLR-074). A global edge joins a writer to a reader and is not a call; including it in a drawing of the call structure would report one kind of coupling as the other, which is the distinction the graph carries two views to preserve.
+
+Edges shall be emitted in ascending source-then-target order, which is `format_graph.c`'s ordering for the same artefact-level reason: the order is a property of this document rather than of a collection the model holds, so it is imposed here — the second of the two exceptions to `report.c` owning every sort (LLR-DOT-04, LLR-RPT-10).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-214" name="Edges Between Functions Only" />
+          <trace target="HLR" ref="HLR-074" />
+          <trace target="HLR" ref="HLR-032" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-CYT-05">
+        <text><![CDATA[`html_elements` shall carry on each function node and each component node the annotation `annotate.c` placed on it: `severity` spelling the rank of the worst finding, `finding` carrying those findings as text, and a key per structural mark — `unreachable`, `recursive`, `deepest`, `hidden`, `soleUser` — and shall carry `chain` on each edge that is a step of the deepest call chain.
+
+**The severity is spelled here and decided nowhere.** It arrives as a rank on the annotation and is converted to the word the stylesheet selects on; a renderer that banded a measurement itself would be the second opinion this program's central claim forbids (HLR-098, HLR-099). The same annotation becomes a Graphviz fill in `format_graph.c`, which is what makes the two drawings agree about a node rather than merely resemble one another (HLR-217).
+
+**A key absent means the mark does not hold**, rather than a key present carrying `false`. The stylesheet tests these with a truthy selector, and a payload that stated all five marks on every node would say the same thing in several times the bytes on a drawing whose nodes are mostly unremarkable. A node nothing was found about carries no annotation keys at all.
+
+**The findings travel as text, not as structure.** The drawing shows *that* a function is critical and the text says *why*; a reader who needs to sort or filter findings has the CSV and the XML record, and duplicating their structure here would be a second machine-readable copy of the catalogue with no consumer.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-217" name="The Drawing Carries the Findings It Was Drawn From" />
+          <trace target="HLR" ref="HLR-099" />
+          <trace target="HLR" ref="HLR-088" />
+        </traces>
+      </llr>
+    </function>
+
+    <function number="73" title="`format_html` ([src/report_html.c](../src/report_html.c))" name="format_html" source="src/report_html.c">
+      <intro>The page itself: when it is written, what its shell contains, how the payload survives being embedded in it, and what the viewer is told to do with it.</intro>
+
+      <llr id="LLR-HTM-01">
+        <text><![CDATA[`cli.c`'s extension table shall map `html` to `FORMAT_HTML`, and its format-name table shall spell that format `html`, so that `--output report.html` selects it and `--format html` names it.
+
+**Both tables are the single statement of their fact.** `format_extensions()` builds the "not a report format extension" diagnostic from the first, so the new extension is named in that message without a second list to keep in step; the second is indexed by the enumerator, so the disagreement diagnostic of HLR-149 names `html` for free. Adding a format to either without the other is what makes an error message name a set the parser does not accept.
+
+**No option shall request this format.** A flag would be a second way of saying what the filename has already said — the disagreement HLR-149 exists to prevent, arriving as a third spelling rather than a second (HLR-215).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-215" name="The Interactive Drawing as an Output Format" />
+          <trace target="HLR" ref="HLR-148" />
+          <trace target="HLR" ref="HLR-149" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-HTM-02">
+        <text><![CDATA[`format_html` shall emit a complete HTML document whose head references the rendering library and its expand-collapse extension, and whose body carries one container element for the drawing.
+
+The two references are the only external content in the file, and their being fetched at view time is the bound HLR-215 places on the word "standalone". Nothing is fetched by `elc`: this function writes text and returns, so the run remains free of the network, the interpreter and the virtual machine HLR-040 excludes.
+
+The document shall be written even where the graph holds no nodes. A page that is absent when the project has no call structure makes the artefact's existence vary with its content, which is the rule `format_dsm.c` follows for an empty matrix and the report follows for an empty section.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-215" name="A Single File That Opens Without a Server" />
+          <trace target="HLR" ref="HLR-040" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-HTM-03">
+        <text><![CDATA[`write_payload` shall emit the serialised document into the script element with `<` escaped as `\u003c`, `&` escaped as `\u0026`, and U+2028 and U+2029 escaped as `\u2028` and `\u2029`.
+
+**This is not the serialisation's escaping and cannot be delegated to it.** A C++ template signature containing `</script>` is *well-formed* JSON; the serialiser emits it verbatim and is right to, and the HTML parser then ends the script element at it, turning the remainder of the graph into body text and rendering an empty page. Escaping `<` closes that case, and escaping `&` closes the second half of it — an entity reference in the text would otherwise be decoded before the script ever ran.
+
+**U+2028 and U+2029 are the case that is invisible in review.** They are line terminators to a JavaScript parser and ordinary characters to a JSON one, so a name containing either is valid in the document and a syntax error the moment it is embedded. A `\u`-escape is chosen for all four because it is legal inside a JSON string literal and inside a JavaScript one, so the escaped text remains parseable by either.
+
+The escape is applied to the serialised text and not to each name before serialisation: applying it earlier would put the escape sequence in the data, and a viewer would render the literal characters `\u003c` in a function's label.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-215" name="A Single File That Opens Without a Server" />
+          <trace target="HLR" ref="HLR-064" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-HTM-04">
+        <text><![CDATA[`format_html` shall emit an initialisation script that constructs the viewer over the embedded payload with no layout of its own, initialises the expand-collapse extension with its fisheye and animation behaviours enabled, collapses every container, and only then runs a force-directed layout — so the one layout the page opens with is computed over the collapsed view it opens showing.
+
+**The collapse is not a default this script chooses; it is HLR-216.** The page opens showing the declared layers and the reader descends. Initialising without it would reproduce, with an extra step, the density failure the existing graph companions have.
+
+**The layout follows the collapse rather than preceding it, and the ordering is load-bearing twice over.** A layout run at construction is of the expanded graph — larger by the whole function tier, and a drawing HLR-216 forbids opening with, so the most expensive layout the page ever computes would be spent on a picture that is immediately discarded. And because layouts settle asynchronously, collapsing while that layout still runs is a race the collapse loses on any real project: the relayout it requests is stomped, and the page opens fitted to a drawing that no longer exists — a graph shrunk past visibility, presented as though rendered.
+
+**The layout shall rank the drawing by call direction while keeping a container's members inside it**, and shall be re-run after a descent so that what is arranged is the drawing now on screen.
+
+**A file shall open where it stands, and the drawing shall move to make room for it.** The reader clicked a particular box; if opening it puts that box somewhere else, they have to find their file again before they can read what they opened, and the descent has cost them the place it was supposed to keep. So the opened file's centre is unchanged, and every other file is displaced by half the room this one gained, on the side it already lay — which is what makes the guarantee exact rather than approximate: a file left of the opened one is still left of it, so the order the reader was reading is the order they are still reading. A layer needs no displacement of its own, being sized by the files within it. Each file moves as one piece, so a file opened elsewhere keeps its own arrangement rather than being pulled apart around this one.
+
+**Neither the extension's layout hook nor its fisheye can provide that, and both were measured before being set aside.** A layout run after an expansion re-ranks the whole drawing, so an opened file changes place among its siblings — observed moving from first to fourth in its layer. The fisheye repositions the box directly, by some three thousand pixels in the same drawing. Both also re-lay-out the drawing from nothing, which HLR-216 forbids in terms. So the extension is asked only to add and remove the children: with its layout, fisheye and animation all off the expansion is synchronous, and the placement is this page's own.
+
+**Opening a file shall not move the viewport.** A layout fits the view unless told otherwise, so the layout of an opened file's functions re-zoomed the whole drawing around it — the reader asked to see inside one box and had the scale of everything changed under them. The zoom and the pan are the reader's; the only place the page takes them back is the control of LLR-HTM-07, and only because that control is a request to.
+
+**The functions of an opened file are arranged in a grid rather than ranked.** The reason is size and it is worth stating: over `elc`'s own sources a ranked arrangement of one 76-function file is some 6400px wide against a grid's 1500, and a box that wide shoulders the rest of the drawing off the screen — which defeats the displacement above by making the room needed larger than the drawing. The calls between those functions are still drawn; what is given up is reading their direction from the arrangement, inside one file, and only there. A call graph is read as a hierarchy — who calls whom, in which direction — which is how the `.dot` companion is drawn and why it reads as an architecture rather than a mesh; a force-directed arrangement of the same graph is a hairball however the edges run, and was the first thing a reader noticed between the two artefacts.
+
+**That requires a layout the viewer does not ship, and the dependency is argued rather than assumed.** Of the two layouts in the viewer's core, the force-directed one keeps a container's members together but ranks nothing, and the breadth-first one ranks by call direction but places a container's members by their global rank — which scatters one declared layer's files across the drawing and leaves its box overlapping another's. Neither is a drawing of the architecture. A layered algorithm that understands containment is a fourth and fifth script fetched at view time, on a page that already fetches two and already states that it needs the network the first time it is opened (HLR-215); what it buys is that this drawing and the `.dot` companion are two renderings of one picture rather than two different pictures.
+
+**Only the file tier shall open and close** (HLR-216). The gesture shall be bound on the file tier alone, so that a tap on a layer or on a function reaches no handler and the only thing that opens is the thing the key names. A collapsed file shall be styled as a single box carrying its name, centred rather than set above an empty container, because at the level the view opens at that box *is* what the reader is reading.
+
+**Fisheye and animation are what make the descent navigable**, which HLR-216 also requires: expanding a container in place, and moving to the new arrangement rather than cutting to it, is what keeps the reader's bearings across an expansion. Without them each expansion presents a freshly laid-out drawing and the reader is navigating a new picture every time.
+
+**The descent gesture shall be bound by this script rather than inherited, and bound on every node rather than on compound nodes.** HLR-216 requires that the reader can descend and return; a requirement met only by whatever gesture the extension's current release happens to bind is one that can stop being met without this file changing, and the extension is fetched from a CDN at view time rather than pinned. The binding uses the viewer's own event, so it holds whatever the extension's defaults are. The scope is load-bearing: a collapsed container is not a compound node — the extension holds its children removed until expansion — so a binding scoped to parents fires for the return half of the gesture and never for the descent half, and the asymmetry is invisible in review because the same selector reads as exactly the set of boxes that open and close. The handler decides by the collapsed marker first and containment second, so a tap on a function does nothing rather than collapsing the file above it.
+
+**The view shall be fitted when a layout settles, not at a moment of the script's choosing, and refitting shall stop at the reader's first gesture.** A `fit()` call placed in the script's own sequence frames whatever drawing is mid-flight when it runs, which is how this page first shipped opening on an invisibly small graph. Fitting on the viewer's own layout-settled event frames what is actually drawn, however many layouts run; unbinding it at the first tap is what keeps the viewport the reader's from the moment they take it.
+
+A force-directed layout is chosen because it is the family that keeps a cluster's members near one another, so a collapsed container occupies the space its contents did.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-216" name="The View Opens at the Architectural Level" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-HTM-05">
+        <text><![CDATA[`format_html` shall return -1 where serialisation or allocation fails, or where an error is observed on the stream after writing, and 0 otherwise.
+
+**Nothing shall be written where serialisation failed.** The document is built and serialised before the first byte reaches the stream, so a failure leaves an empty destination rather than half a page. A partially written page is worse than an absent one: it opens, renders a truncated graph, and states a structure that is wrong while looking exactly like one that is right.
+
+**The stream is the caller's and is neither flushed nor closed here**, exactly as it is for every other renderer: `emit` opens the destination, dispatches, and reports a write failure naming it. That is what makes this a format rather than a companion — a companion owns its file, and this one owns none.
+
+The error is checked once after the writing rather than per call, because a full disk shows up on the flush and a report claimed as written when it was truncated is the failure worth catching.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-215" name="The Interactive Drawing as an Output Format" />
+          <trace target="HLR" ref="HLR-030" />
+          <trace target="HLR" ref="HLR-038" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-HTM-06">
+        <text><![CDATA[`format_html` shall emit a stylesheet giving each annotation of LLR-CYT-05 a distinct visual attribute — fill for severity, shape for the role a function takes part in, border for whether it is reached and for the deepest chain — and a legend naming every one of them.
+
+**Each mark shall take a different attribute**, so that several holding at once compose rather than overwrite: a function that is both recursive and critical is a red box with a double border, not whichever of the two the stylesheet happened to apply last. This is the rule `node_style` follows in the `.dot` writer, and following it here is what keeps a reader's understanding of one drawing good for the other (HLR-217).
+
+**The severity pigments shall be the ones the `.dot` companion uses.** Amber for a warning and red for a critical, because a reader moving between the two artefacts should not have to learn two colour schemes for one judgement — and because the pigments being the same makes a disagreement between the drawings visible at a glance rather than plausible.
+
+**An edge shall pass behind a box rather than across its face, and a box shall be opaque enough to hide what passes behind it.** Two things are required and each is insufficient alone. A node that becomes a container is drawn at a lower compound depth than an edge between two nodes outside it, so every edge is placed at the bottom of the compound order; and an opened file's box is filled opaquely, because a translucent one shows every unrelated edge in the drawing straight through the one part of it the reader has just opened. A collapsed file was already opaque, which is why the fault appeared only on opening one — the edges were behind the box the whole time and simply visible through it.
+
+**Every edge touching an opened file shall be raised back above its fill.** Placing every edge beneath every box is what puts an unrelated edge behind this one, and it would equally hide the calls the reader opened the file to see. The set that must rise is not the file's own calls alone: an edge with one end inside is the call path *into* or *out of* the file, which is the greater part of what opening it was for, and an opaque box that hid those would answer the first fault by committing a worse one. So every edge with at least one end among an opened file's functions is raised, and only an edge with neither end inside passes behind — which is exactly the case the opaque fill exists for.
+
+**The set shall be recomputed from the open files rather than adjusted as each one opens.** An edge between two opened files belongs to both, and marks that were merely added and removed would drop it the moment either closed.
+
+**A mark that is a shape shall be drawn in the key, not named.** The two shapes were named — "octagon", "tag" — and that told the reader nothing twice over: `tag` is the rendering library's word for a shape and no word of `elc`'s, and a reader cannot match a name they have never met to a box in the drawing. The key carries the shape itself, so the vocabulary is not needed at all; the fills and borders are drawn for the same reason and always were.
+
+**What a mark means shall be stated as its consequence, in the report's own words.** "Sole namer of a global" named the mechanism and left the reader to work out what to do about it. The finding is that one function is the only user of some global, and what follows is that the global could be a local one — which is MISRA C Rule 8.9 and is what HLR-092 flags it for. The term the report uses is kept where it has one, so "hidden channel" appears in the key and in the tables alike, and the key explains it rather than replacing it.
+
+**The legend is part of the page** (HLR-217). The `.dot` companion states its key in a comment at the head of the file; this one states it above the drawing, where a reader of a rendered artefact will actually meet it. A drawing whose colours are explained only in the manual is one the reader has to leave in order to read.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-217" name="The Drawing Carries the Findings It Was Drawn From" />
+          <trace target="HLR" ref="HLR-105" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-HTM-07">
+        <text><![CDATA[`format_html` shall emit one control on the page, closing every file and returning the drawing to the view the page opened at; and shall emit no control that opens every file.
+
+**Closing everything is a return, not a new state**, so the control restores the layout and the framing as well as the containment: a reader who has opened several files and moved about is otherwise left zoomed into a drawing that is no longer there. This is the one place the viewport is taken back after the reader's first gesture, and it is taken back because they asked for it.
+
+**There is deliberately no "expand all".** It is the same gesture in the opposite direction and it would be as easy to provide, which is exactly why the omission has to be argued rather than left to look like an oversight: expanding every file is the drawing at function level, at maximum density, which is the state HLR-216 exists to keep the view out of. A control that reaches it in one click would undo the requirement the default is there to satisfy.
+
+**The bar the control sits in shall be layered above the viewer's canvases.** The expand-collapse extension draws its own canvas over the whole element at a z-index of 999, so a bar merely drawn there is visible and not clickable: the press reaches the canvas underneath, the drawing pans, and the one control on the page cannot be used at all. Raising the bar also stops a drag begun on it from moving the drawing, which is right for the same reason — it is a bar, not part of the picture.
+
+**The restoration shall be of the opening viewport itself, not a fresh fit.** The layout is deterministic and returns every file to the position it opened at, so what remains is the scale and the offset; recomputing a fit gets close and is not the same thing. The zoom and pan the reader was first given are remembered and put back, after the layout settles rather than before, since a layout fits as it finishes.
+
+**The marks an opened file made shall be cleared with it**, so the drawing is left as the page first drew it rather than carrying the residue of what the reader had opened.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-216" name="The View Opens at the Architectural Level" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-HTM-08">
+        <text><![CDATA[No two file boxes shall overlap. After anything moves a box, any pair still overlapping shall be pushed apart along the shorter of their two penetrations until none overlaps, and one box may be held fixed while the others move around it.
+
+**This is a guarantee rather than a description of the usual case.** The displacement of LLR-HTM-04 opens exactly the room an opened file needs and so creates no overlap by itself, which is precisely why the rule has to be stated separately: it is not the only thing that moves a box. The viewer lets the reader drag one, and a box dropped on top of another stays there until something moves it. A drawing whose boxes may overlap under *some* sequence of gestures is a drawing that overlaps, and the reader has no way to tell which arrangement they are looking at.
+
+**Along the shorter penetration**, because that is the direction that moves the pair least and leaves each on the side of the other it was already on — the same reasoning that keeps the displacement order-preserving. **A pair is parted by its penetration and a margin**, so boxes come to rest apart rather than exactly touching.
+
+**The fixed box is the one the reader just acted on** — the file they opened, or the one they dropped — so the drawing moves around their action rather than undoing it. Where nothing was acted on, both boxes of a pair move by half.
+
+The pass repeats until nothing overlaps; the iteration cap is a guard against a pathological drawing rather than a working limit, a piled-up drawing of thirty-six files settling in some thirty-seven passes and about fifty milliseconds.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-216" name="The View Opens at the Architectural Level" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-HTM-09">
+        <text><![CDATA[`format_html` shall emit an element that shows, while the reader points at a box, that box's definition site, the figures the report states for it, and each finding upon it; and that element shall take no pointer event of its own.
+
+**The drawing marks a box and this is what says why.** A fill states that a function is critical and a shape that it is the only user of some global; neither says *which* finding decided it, and a reader who cannot ask has been given a colour scheme rather than a report (HLR-217). The `.dot` companion answers by putting the same text in each node's `tooltip`, which an SVG renderer shows on hover — a canvas has no element to hang one on, so this page provides the behaviour rather than inheriting it.
+
+**Each finding shall be on its own line.** They are joined with `; ` for the record, which is right for a record and wrong for a reader scanning three of them at once.
+
+**It shall take no pointer event**, so that pointing at a box never intercepts a click meant for it, and shall be dismissed by the gestures that make it stale — leaving the box, and any tap, pan or zoom.
+
+**It shall stay within the window.** A box near an edge would otherwise push its own description off the screen, which fails precisely where the drawing is most crowded.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-217" name="The Drawing Carries the Findings It Was Drawn From" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-HTM-10">
+        <text><![CDATA[While the reader points at a function, that function's outline and every call it takes part in — those it makes and those made to it — shall be drawn in a distinguishing colour, and returned to their ordinary appearance when the reader points elsewhere.
+
+**A function's row states its fan-in and fan-out as numbers; this says which calls they are.** The two figures tell a reader that a function is called by eleven others without telling them which eleven, and finding out means tracing lines across a drawing that may hold a thousand — the one task a drawing should make easy and this one did not.
+
+**Both directions are marked and not distinguished from one another.** The question the gesture answers is what the function takes part in; which way each call runs is already drawn, in the arrowhead. Colouring the two differently would answer a question the drawing has already answered and spend the reader's attention twice.
+
+**The marked calls shall be lifted above the boxes.** Every edge is drawn beneath every box so that an unrelated one passes behind an opened file (LLR-HTM-06); a highlighted call left there would be hidden by the very file it runs into, which is most of what the reader is following. The lift is for the marked edges alone and lasts as long as the mark does.
+
+**The mark shall follow the current graph rather than the graph as emitted.** Where a call runs into a file that is closed, what the reader can see is the viewer's meta-edge, and that is what is marked.
+
+**It shall be cleared when a file opens or closes**, since the functions it holds are about to arrive or depart, and a mark surviving on an element the reader is no longer pointing at is a claim about the drawing that nothing made.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-216" name="The View Opens at the Architectural Level" />
+          <trace target="HLR" ref="HLR-085" />
+        </traces>
+      </llr>
+    </function>
+
+    <function number="74" title="`annotations_build` ([src/annotate.c](../src/annotate.c))" name="annotations_build" source="src/annotate.c">
+      <intro>Placing a run's findings on the graph they describe, once, for every drawing that shows them.</intro>
+
+      <llr id="LLR-ANN-01">
+        <text><![CDATA[`annotations_build` shall produce one `Annotation` per graph node and one per component, carrying the highest severity of any finding placed on it, those findings joined as text, and a bitset of the structural marks that hold; and shall publish separately the findings belonging to no single node and the deepest chain as node identifiers.
+
+**The highest severity, not the last or the sum.** A node carrying a critical and a warning is a critical one: severities rank, they do not accumulate (HLR-123). A drawing filling by the most recent finding placed would colour a node by the order the catalogue happened to be walked in.
+
+**Every output is assigned as soon as it exists**, so that a caller's teardown releases what was allocated when a later step fails. The alternative — publishing all four only on success — leaks whichever were built before the failure.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-217" name="The Drawing Carries the Findings It Was Drawn From" />
+          <trace target="HLR" ref="HLR-123" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-ANN-02">
+        <text><![CDATA[`annotations_build` shall place a finding on a node whose definition site it names, failing that on a component whose path it names, and failing that on every function that touches a global object of its name; and a finding matching none of the three shall be published as belonging to the graph as a whole rather than dropped.
+
+**A definition site is a file and a line together.** A file alone is a component finding, and a line alone matches the same line in every file — so both halves are required, and matching on the *name* instead would mark all six of the functions `elc`'s own sources call `grow` because one of them was unreachable.
+
+**A finding about a global shall reach each such function once, not once per access.** The touch set is deduplicated by object, node *and direction*, so a function that both writes and reads one object appears in it twice while the finding remains one finding; placing it per touch wrote it into the note twice, which reads as two findings where the report states one. The set is sorted by object then node, so a node's touches of one object are adjacent and only the previous one need be remembered.
+
+**A finding about a global object goes to the functions that touch it**, which is the only place it can go on a graph whose nodes are functions, and where a reader would look for it (HLR-091, HLR-105). The touch set rather than the edges: an object named by exactly one function produces no edge at all, and that object is precisely the scope-reduction candidate (HLR-092).
+
+**Nothing is dropped silently.** A finding that describes the graph rather than anything in it — the depth of the call tree is the case that exists — reaches the caller, which puts it where its artefact can carry it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-217" name="The Drawing Carries the Findings It Was Drawn From" />
+          <trace target="HLR" ref="HLR-091" />
+          <trace target="HLR" ref="HLR-092" />
+        </traces>
+      </llr>
+
+      <llr id="LLR-ANN-03">
+        <text><![CDATA[`annotations_build` shall mark both kinds of cycle on every member from the report's cycle rows rather than from the catalogue's finding, and shall skip the catalogue's own copy of a recursion or component-cycle finding.
+
+**The catalogue locates a cycle at one subject; HLR-105 asks for the members.** A finding has one location and a set has none, so the membership is read from the cycle rows — and the catalogue's copy is then a second note repeating on one member what the first already said about all of them.
+
+**The severity is still looked up rather than restated**, so this module names no threshold of its own even where it decides membership (HLR-099).
+
+**Recursion membership is matched by name**, which is all the report model carries: a node identifier means nothing to a reader and does not survive a record round trip. That inherits the duplicate-`static` imprecision the manual documents — two functions sharing a name are both marked when one recurses — which is visible in the drawing and therefore better than a silent wrong answer.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-089" />
+          <trace target="HLR" ref="HLR-105" />
+          <trace target="HLR" ref="HLR-217" name="The Drawing Carries the Findings It Was Drawn From" />
+        </traces>
+      </llr>
+    </function>
+
   </llrs>
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
@@ -9814,7 +10328,7 @@ Neither can be recomputed from a record: a regenerated report has no image, and 
       </traces>
     </test>
   </file>
-  <file path="test/unit/cli.c" role="unit" count="80">
+  <file path="test/unit/cli.c" role="unit" count="84">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -15324,7 +15838,7 @@ Neither can be recomputed from a record: a regenerated report has no image, and 
     </test>
   </file>
 
-  <file path="test/fixtures/dot.bats" role="fixture" count="25">
+  <file path="test/fixtures/dot.bats" role="fixture" count="26">
     <test name="HLR-102: the emitted call tree renders under Graphviz">
       <purpose><![CDATA[Validity is settled by handing the file to Graphviz and requiring it to render, never by matching text that looks like DOT — the first artefact elc produces for another program to read deserves the reader's own verdict.]]></purpose>
       <traces>
@@ -15504,7 +16018,13 @@ Neither can be recomputed from a record: a regenerated report has no image, and 
         <trace target="HLR" ref="HLR-119"/>
       </traces>
     </test>
-  </file>
+        <test name="dot: a node's tooltip carries its site, its figures and its findings">
+        <purpose><![CDATA[Verifies that a node's tooltip states the definition site, the ELOC and complexity, and the findings, and that a rendered SVG receives the separators as newline characters rather than as the two characters of the escape.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-STY-03"/>
+        </traces>
+      </test>
+</file>
 
   <file path="test/fixtures/debug.bats" role="fixture" count="12">
     <test name="HLR-194: the companion is named from the report and written beside it">
@@ -17477,6 +17997,391 @@ Neither can be recomputed from a record: a regenerated report has no image, and 
       </traces>
     </test>
   </file>
+
+    <file path="test/unit/annotate.c" role="unit" count="9">
+      <test name="a_finding_lands_on_the_definition_site_not_the_name">
+        <purpose><![CDATA[Verifies that a finding reaches the node at the definition site it names and not a second function sharing that name, which is what separates matching a site from matching a name.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-ANN-02"/>
+        </traces>
+      </test>
+      <test name="the_highest_severity_is_the_one_kept">
+        <purpose><![CDATA[Verifies that a node carrying a critical and two warnings is a critical one, and that all three findings remain readable in its note.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-ANN-01"/>
+          <trace target="HLR" ref="HLR-123"/>
+        </traces>
+      </test>
+      <test name="a_component_finding_lands_on_the_component">
+        <purpose><![CDATA[Verifies that a finding naming a component path reaches the component and no function of it.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-ANN-02"/>
+        </traces>
+      </test>
+      <test name="a_finding_about_the_graph_reaches_the_notes">
+        <purpose><![CDATA[Verifies that a finding describing neither a node, a component nor a global object is published to the caller rather than dropped.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-ANN-02"/>
+        </traces>
+      </test>
+      <test name="a_clean_graph_carries_no_annotation">
+        <purpose><![CDATA[Verifies that a run finding nothing produces no severity, no mark and no note, so that a drawing can test for their presence rather than for their value.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-ANN-01"/>
+        </traces>
+      </test>
+      <test name="recursion_is_marked_on_every_member_of_the_cycle">
+        <purpose><![CDATA[Verifies that recursion is marked on each member from the report's cycle rows, the catalogue locating a cycle at one subject while the drawing must show the members.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-ANN-03"/>
+          <trace target="HLR" ref="HLR-089"/>
+        </traces>
+      </test>
+      <test name="an_unreachable_function_is_marked_at_its_definition_site">
+        <purpose><![CDATA[Verifies that the unreachable set marks the node at the site it names and not the function elsewhere that shares its name.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-ANN-01"/>
+          <trace target="HLR" ref="HLR-096"/>
+        </traces>
+      </test>
+      <test name="only_consecutive_pairs_are_steps_of_the_chain">
+        <purpose><![CDATA[Verifies that an edge is a step of the deepest chain only where its endpoints are consecutive in it, and that the chain is read in the direction the calls run.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-ANN-01"/>
+          <trace target="HLR" ref="HLR-088"/>
+        </traces>
+      </test>
+          <test name="a_global_finding_lands_once_per_function_not_once_per_access">
+        <purpose><![CDATA[Verifies that a finding about a global reaches a function that both writes and reads it once rather than twice, the touch set being deduplicated by direction as well as by object and node.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-ANN-02"/>
+        </traces>
+      </test>
+</file>
+    <file path="test/unit/report_html.c" role="unit" count="22">
+      <test name="a_node_is_emitted_for_each_declared_layer">
+        <purpose><![CDATA[Verifies that one node is emitted per declared stratum, identified by its ordinal, and that no layer is emitted for a directory nobody declared.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-01"/>
+        </traces>
+      </test>
+      <test name="a_file_names_the_layer_arch_assigned_it">
+        <purpose><![CDATA[Verifies that a component's container is the layer `stratum_of_components` assigned it, so the drawing cannot disagree with the dependency matrix printed beside it.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-02"/>
+        </traces>
+      </test>
+      <test name="a_file_in_no_declared_layer_has_no_parent">
+        <purpose><![CDATA[Verifies that a component matching no stratum carries no `parent` key at all — not an empty one and not a synthesised layer — since inventing a container would report a structure nobody declared.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-02"/>
+        </traces>
+      </test>
+      <test name="the_shed_prefix_ends_at_a_separator">
+        <purpose><![CDATA[Verifies that the prefix a file label sheds ends at a path separator rather than inside a name — `/p/app/` beside `/p/apple/` sheds `/p/`, not the `/p/app` the bytes share — and that `path` on the same node carries the full path the label dropped.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-02"/>
+        </traces>
+      </test>
+      <test name="a_lone_component_is_labelled_by_its_file_name">
+        <purpose><![CDATA[Verifies that a document with a single component labels it by its file name, its whole directory being a shared prefix nothing else contests, with the full path kept on the node's `path` key.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-02"/>
+        </traces>
+      </test>
+      <test name="with_no_strata_the_document_has_two_tiers">
+        <purpose><![CDATA[Verifies that a run declaring no strata produces a file-and-function hierarchy rather than one rooted in an invented layer.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-01"/>
+          <trace target="LLR" ref="LLR-CYT-02"/>
+        </traces>
+      </test>
+      <test name="a_function_names_the_file_that_defines_it">
+        <purpose><![CDATA[Verifies that a function node is parented on its defining component and carries the figures the graph already holds, rather than any this renderer derived.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-03"/>
+        </traces>
+      </test>
+      <test name="edges_join_functions_and_never_containers">
+        <purpose><![CDATA[Verifies that every emitted edge names two function nodes and that no meta-edge between two containers is emitted, the connection between collapsed boxes being the viewer's to derive.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-04"/>
+        </traces>
+      </test>
+      <test name="no_raw_angle_bracket_or_ampersand_reaches_the_payload">
+        <purpose><![CDATA[Verifies the embedding escape on a function name containing `</script>`: well-formed JSON that would end the script element holding it, leaving the page to render empty rather than wrong.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-03"/>
+        </traces>
+      </test>
+      <test name="the_javascript_line_terminators_are_escaped">
+        <purpose><![CDATA[Verifies that U+2028 and U+2029 are escaped — line terminators to a JavaScript parser and ordinary characters to a JSON one, so a name carrying either is valid in the document and a syntax error once embedded.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-03"/>
+        </traces>
+      </test>
+      <test name="the_page_loads_the_viewer_and_opens_collapsed">
+        <purpose><![CDATA[Verifies that the shell references the rendering library and its extension, and that the initialisation enables the fisheye and animation behaviours and collapses every container.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-02"/>
+          <trace target="LLR" ref="LLR-HTM-04"/>
+        </traces>
+      </test>
+      <test name="an_empty_graph_still_produces_a_page">
+        <purpose><![CDATA[Verifies that a graph with no nodes yields a page rather than no file, so the artefact's existence does not vary with the project's content.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-02"/>
+        </traces>
+      </test>
+      <test name="the_stream_is_left_open_for_the_caller">
+        <purpose><![CDATA[Verifies that the renderer writes to the stream it is given and neither flushes nor closes it: `emit` owns the destination here as it does for every other format, which is what makes this a format rather than a companion.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-05"/>
+        </traces>
+      </test>
+      <test name="the_html_extension_selects_the_html_format">
+        <purpose><![CDATA[Verifies that `.html` maps to the html format in the extension table, the way every recognised extension maps to one.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-01"/>
+        </traces>
+      </test>
+      <test name="there_is_no_option_requesting_the_html_format">
+        <purpose><![CDATA[Verifies that `--html` is not an option: the filename has already named the format, and a flag naming it again is a third spelling of one fact.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-01"/>
+        </traces>
+      </test>
+      <test name="the_format_option_spells_html">
+        <purpose><![CDATA[Verifies that `--format html` selects the format for a report on standard output, where there is no extension to read.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-01"/>
+        </traces>
+      </test>
+      <test name="the_html_format_is_refused_with_from_xml">
+        <purpose><![CDATA[Verifies that regeneration into the html format is refused: a record carries findings and not the graph they came from.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CLI-15"/>
+        </traces>
+      </test>
+          <test name="a_finding_reaches_the_node_it_describes">
+        <purpose><![CDATA[Verifies that the severity the catalogue decided reaches the node spelled as the word the stylesheet selects on, that the finding travels in full beside it, and that a function nothing was found about carries neither.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-05"/>
+        </traces>
+      </test>
+      <test name="an_absent_mark_is_an_absent_key">
+        <purpose><![CDATA[Verifies that a structural mark that does not hold is omitted rather than stated as false, which is what the stylesheet's truthy selectors read and what keeps the payload from stating five marks on every node.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-05"/>
+        </traces>
+      </test>
+      <test name="the_page_carries_a_key_for_every_mark">
+        <purpose><![CDATA[Verifies that each annotation takes a distinct visual attribute so that several compose rather than overwrite, that the severity pigments are the ones the Graphviz companion uses, and that the legend names every mark in the page itself.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-06"/>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="a_component_with_no_function_is_not_drawn">
+        <purpose><![CDATA[Verifies that a component defining no function is absent from the payload, since a box that can hold no node and join no edge states nothing — the answer the Graphviz companion has always given.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-02"/>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="the_shed_prefix_ignores_a_component_not_drawn">
+        <purpose><![CDATA[Verifies that the directory prefix a label sheds is measured over the components actually drawn, a prefix shared by a file nobody will see being shared by nothing on the page.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-CYT-02"/>
+        </traces>
+      </test>
+      <test name="the_page_carries_a_collapse_all_control">
+        <purpose><![CDATA[Verifies that the page emits one control closing every file and restoring the opening view, that it clears the marks an opened file made, and that no control opens every file.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-07"/>
+          <trace target="HLR" ref="HLR-216"/>
+        </traces>
+      </test>
+      <test name="no_two_file_boxes_may_overlap">
+        <purpose><![CDATA[Verifies that the page carries the separation pass, that it runs after a file is opened or closed, and that it runs when the reader drops a dragged box — the case the displacement alone does not cover.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-08"/>
+        </traces>
+      </test>
+      <test name="a_box_says_what_was_found_about_it_on_hover">
+        <purpose><![CDATA[Verifies that the page carries the element that reports a box's definition site, figures and findings while the reader points at it, and that the element takes no pointer event of its own.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-09"/>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="pointing_at_a_function_lights_the_calls_it_takes_part_in">
+        <purpose><![CDATA[Verifies that the page marks the pointed-at function and the edges it takes part in, in both directions, and lifts the marked edges above the boxes so a call into an opened file is not hidden by it.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-10"/>
+        </traces>
+      </test>
+</file>
+
+    <file path="test/fixtures/html.bats" role="fixture" count="25">
+      <test name="html: the embedded payload parses as JSON">
+        <purpose><![CDATA[Verifies the payload against a real parser rather than by pattern-matching, which is the only level at which the embedding escape is observable.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </test>
+      <test name="html: the payload carries no raw angle bracket or ampersand">
+        <purpose><![CDATA[Verifies that no unescaped `<` or `&` reaches the script element, either of which would terminate it or be decoded as an entity before the script ran.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-215"/>
+        </traces>
+      </test>
+      <test name="html: one node per declared stratum, and none for an undeclared one">
+        <purpose><![CDATA[Verifies against the hand-worked table that exactly the declared strata produce layer nodes.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </test>
+      <test name="html: each file names the layer it was declared in">
+        <purpose><![CDATA[Verifies against the hand-worked table that each component names the layer it was declared in as its container.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </test>
+      <test name="html: a file matching no stratum has no parent at all">
+        <purpose><![CDATA[Verifies that the undeclared directory's file node carries no container, following the judgement `stratum_of_components` makes rather than reversing it.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+          <trace target="HLR" ref="HLR-078"/>
+        </traces>
+      </test>
+      <test name="html: the label sheds the shared prefix and path keeps it">
+        <purpose><![CDATA[Verifies over the fixture tree that every file node's `path` is the shed prefix followed by its `label`, so the reduction the drawing makes for legibility loses nothing the record held.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </test>
+      <test name="html: each function names the file that defines it">
+        <purpose><![CDATA[Verifies against the hand-worked table that each function is contained by the file that defines it.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </test>
+      <test name="html: the node counts are the hand-worked ones">
+        <purpose><![CDATA[Verifies the two layer, three file and five function nodes counted by hand in the fixture header.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </test>
+      <test name="html: every edge joins two functions, and there are four of them">
+        <purpose><![CDATA[Verifies the four call edges read off the sources by hand, each joining two function nodes.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-214"/>
+        </traces>
+      </test>
+      <test name="html: no meta-edge is emitted between containers">
+        <purpose><![CDATA[Verifies that none of the three boundary-crossing calls produces an edge naming a file or a layer, the connection between collapsed boxes being derived by the viewer.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-214"/>
+        </traces>
+      </test>
+      <test name="html: the page loads the viewer and opens collapsed">
+        <purpose><![CDATA[Verifies that the page references both libraries and opens at the highest architectural level with the behaviours that keep a descent navigable.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-216"/>
+        </traces>
+      </test>
+      <test name="html: the artefact is byte-identical across runs">
+        <purpose><![CDATA[Verifies that two runs over unchanged input produce the same bytes, the determinism required of every artefact.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-032"/>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </test>
+      <test name="html: with no strata declared the hierarchy has two tiers">
+        <purpose><![CDATA[Verifies that a run declaring no strata draws every file as a root container rather than acquiring an invented top.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </test>
+      <test name="html: the .html extension selects the format, with no option asking">
+        <purpose><![CDATA[Verifies that the format is chosen by the output filename's extension, the way every other format is chosen.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-148"/>
+          <trace target="HLR" ref="HLR-215"/>
+        </traces>
+      </test>
+      <test name="html: there is no --html option">
+        <purpose><![CDATA[Verifies that no option requests the format: the filename has already said what it is, and a flag saying it again is the disagreement HLR-149 exists to prevent.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-215"/>
+          <trace target="HLR" ref="HLR-149"/>
+        </traces>
+      </test>
+      <test name="html: --format html selects it for a report on standard output">
+        <purpose><![CDATA[Verifies that the option names the format where there is no filename to read an extension from, the rule every other format follows.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-149"/>
+          <trace target="HLR" ref="HLR-215"/>
+        </traces>
+      </test>
+      <test name="html: --format and a disagreeing extension are refused">
+        <purpose><![CDATA[Verifies that an explicit format contradicting the output filename is a usage error naming both rather than a silent preference for either.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-149"/>
+        </traces>
+      </test>
+      <test name="html: the format is refused with --from-xml, not ignored">
+        <purpose><![CDATA[Verifies that regeneration into this format is refused with a diagnostic: a saved record carries findings and not the topology the page draws, and an empty drawing would be a confidently wrong answer.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-122"/>
+          <trace target="HLR" ref="HLR-215"/>
+        </traces>
+      </test>
+          <test name="html: the drawing carries the findings the report states">
+        <purpose><![CDATA[Verifies over the fixture tree that every annotated node carries a severity from the closed set with its finding beside it, and that a mark is only ever present-and-true.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="html: the page states its own key">
+        <purpose><![CDATA[Verifies that the page names every mark it draws and uses the Graphviz companion's severity pigments, so a reader sent the file alone can read it and a reader of both learns one scheme.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="html: a file defining no function is measured but not drawn">
+        <purpose><![CDATA[Verifies over a header that declares and defines nothing that the file is discovered and counted in the project summary while carrying no node in the drawing, so the omission is of a box and never of a measurement.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-213"/>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="html: the drawing holds the components the .dot companion clusters">
+        <purpose><![CDATA[Verifies that the interactive drawing and the Graphviz companion hold the same components from one run, which they reach by different routes and had come to disagree about.]]></purpose>
+        <traces>
+          <trace target="HLR" ref="HLR-217"/>
+        </traces>
+      </test>
+      <test name="html: one control closes every file, and none opens them all">
+        <purpose><![CDATA[Verifies over a real run that the emitted page carries the collapse-all control and no expand-all, the latter being the density at function level the collapsed default exists to prevent.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-07"/>
+        </traces>
+      </test>
+      <test name="html: a box says what was found about it on hover">
+        <purpose><![CDATA[Verifies over a real run that the emitted page carries the hover element and its handlers, and that it is deaf to the pointer so a hovered box can still be clicked.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-09"/>
+        </traces>
+      </test>
+      <test name="html: pointing at a function lights the calls it takes part in">
+        <purpose><![CDATA[Verifies over a real run that the emitted page carries the highlight, marks the edges in both directions, and tells the reader in the header that the gesture exists.]]></purpose>
+        <traces>
+          <trace target="LLR" ref="LLR-HTM-10"/>
+        </traces>
+      </test>
+</file>
 
 </tests>
 </project>

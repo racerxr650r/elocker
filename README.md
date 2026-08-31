@@ -125,6 +125,26 @@ elc --entry main -o report.md src/    # writes report.md and report.dot
 dot -Tsvg report.dot -o report.svg
 ```
 
+Or have `elc` do the drawing. Name your output `report.html` and you get **one
+interactive page** that opens in a browser straight from the filesystem — no
+server, no build step. It opens at the level you declared your architecture at:
+one box per `--stratum`, each opening to the files it holds and each of those to
+their functions. That default is the point of it. A call graph of a real project
+drawn at function level is a picture nobody can read, so you descend into the
+part you care about instead of starting at maximum density.
+
+```sh
+elc -o report.html --stratum app:'*/app/*' --stratum hal:'*/hal/*' src/
+xdg-open report.html
+```
+
+It is a format, chosen by the extension like every other — there is no `--html`
+flag, because the filename has already said it.
+
+The drawing library is fetched from a CDN when the page is first opened, so
+"standalone" here means no server and no build step rather than no network —
+`elc` itself never uses one.
+
 And you can bring **your own rules**. A custom rule is a Tree-sitter query you
 write, checked against your source by the same mechanism that produces `elc`'s
 own metrics — during the same parse, with the same predicate handling. Put it
@@ -258,7 +278,7 @@ the target, an ancestor, or a dotfile. And `--purify-dot` draws the graph twice,
 before and after, with the masked functions greyed and detached rather than
 deleted, so you can see what was set aside before deciding to trust it.
 
-**Progress: 31 of 31 phases complete.**
+**Progress: 32 of 32 phases complete.**
 
 <details>
 <summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
@@ -296,6 +316,7 @@ deleted, so you can see what was set aside before deciding to trust it.
 | [28](doc/SDP.md#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | ✅ Complete |
 | [29](doc/SDP.md#phase-29--function-visibility-and-editor-navigable-locations) | Public/private visibility, `path:line` locations, and a line count | ✅ Complete |
 | [30](doc/SDP.md#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
+| [31](doc/SDP.md#phase-31--interactive-html-reporting--semantic-zooming) | The `.html` report format: layers containing files containing functions, opened collapsed | ✅ Complete |
 
 </details>
 
