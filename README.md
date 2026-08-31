@@ -78,6 +78,7 @@ Here's an example of a markdown report.
 > [!NOTE]
 > Tables are rolled up by default to make navigating the information easier.
 
+```markdown
 ## Project summary
 
 <details>
@@ -358,6 +359,7 @@ Here's an example of a markdown report.
 - Architecture conformance (omitted: no architectural strata declared, see --stratum)
 - Cross-scope access (omitted: no execution scopes declared, see --scope)
 - Conditional-compilation definitions (0)
+```
 
 ## Contributing
 
