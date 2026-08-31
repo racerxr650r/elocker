@@ -1,341 +1,16 @@
 # elocker (`elc`)
-
 **Got a codebase and want to determine the scale of it, the quality of the code,
 and where it can be improved?** `elc` parses your source instead of guessing at
 it, and reports both: per-function metrics and whole-project architecture
-analysis, for many languages.
-
-**Contents:** [Status](#status) ·
-[What it does](#what-it-does) ·
-[Why another metrics tool](#why-another-metrics-tool) ·
-[Adding a language](#adding-a-language-costs-no-rebuild) ·
-[Example output](#what-the-output-looks-like) ·
-[How it works](#how-it-works) ·
-[Documentation](#documentation) ·
-[Building](#building) ·
-[What it's not](#what-elc-is-not) ·
-[Contributing](#contributing)
-
-## Status
-
-**Phase 24 is complete.** `elc src/` reports **effective lines of code** and
-**cyclomatic complexity** per function across **C, C++, Rust, and Python**,
-in one invocation over a mixed target, as a table, Markdown, CSV, or
-XML. Inside a Git repository it analyses **the files tracked at `HEAD`**, and
-a directory the repository does not track is traversed instead; every report
-names the route it used.
-
-A report that goes to a file takes its format from the filename: `-o
-report.csv` writes CSV, and an extension `elc` does not recognise is a usage
-error rather than a guess. A report that goes to standard output still takes
-`-f`. By default the report is a **summary** — the totals, the findings, and
-the provenance, sized to be read in a terminal; **`--verbose`** adds the
-per-function and per-entity tables behind it. Verbosity is presentation
-only, so `-f csv` and `-f xml` are complete either way.
-
-It also builds the **System Dependence Graph** — every call resolved across
-file boundaries, every global linked from its writers to its readers, all
-from the same single parse that produced the metrics. `--graphml` exports it.
-
-Reading that graph, `elc` reports each function's **fan-out** and
-**fan-in** — callees and callers, both counted distinctly and over calls
-alone, so coupling through a shared global counts towards neither — beside its
-ELOC and its cyclomatic complexity, in one function table rather than three.
-**Complexity above 10 warns and above 15 is critical**, on McCabe's authority
-as NIST SP 500-235 records it; **fan-out above 10 warns and above 15 is
-critical**, on Henry and Kafura's; and **fan-in above 25 warns** on `elc`'s
-own, which is why that row says so wherever it appears. Every function a band
-names is collected into one listing, beside the functions at or over the
-complexity threshold `--complexity-threshold` sets. The same table carries an
-**Adapted Maintainability Index** — Coleman and Oman's, with the information
-flow through a function in place of its Halstead Volume — banded *downwards*
-at 65 and 55 on `elc`'s own authority, because a citation is not transitive
-and the published thresholds were calibrated for the term the adaptation
-replaces. It detects **recursion**
-both direct and mutual, and prints the **deepest call chain in full** from
-entry points you declare with `--entry`. It never guesses at an entry point,
-and never invents a number it cannot stand behind: where the
-call graph is recursive the depth is unbounded and the cycle is reported
-instead, and where a declaration is missing the analysis is omitted with the
-reason stated.
-
-It now also answers the question the whole tool is for — **what code does not
-run?** — at both scales. Between functions, `elc` traverses the call graph
-from a root set that is the entry points you declared **together with every
-function whose address is taken**, so a clique of unused functions calling
-one another is correctly reported dead while an interrupt handler installed
-in a vector table is not; globals every accessor of which is unreachable go
-the same way. Within a function, it reports statements after a `return` and
-branches a literally written condition excludes — from the syntax tree alone,
-with no data flow, so `if (0)` is found and `x = 0; if (x)` deliberately is
-not. It reports each global's writers and readers, flagging single-function
-objects for **scope reduction** and objects shared across disconnected
-regions as **hidden channels**, and with `--scope` it reports every call and
-shared variable by which one execution scope reaches another.
-
-At the level of files rather than functions, it reports **afferent and
-efferent coupling** per component with Martin's **Instability** beside it —
-`undefined`, not zero, where a component has no relationships at all —
-flags **bottlenecks** that are both widely depended upon and widely
-dependent, and finds **circular dependencies between components**, reporting
-each as the entangled group *and* a concrete loop through it. Declare your
-layers with `--stratum` and it validates them: a call bypassing a layer is
-**skip-level**, a call running against the declared direction is
-**inverted**, and the two are independent — a call ascending two layers is
-reported as both, because each has its own remedy.
-
-Beside that list it now reports **how much of the code base conforms**: the
-**Back-Call** and **Skip-Call Violation Indices**, each the share of the run's
-*inter-layer call edges* that breaches the declaration in one of the two ways.
-Both are counted from the violations listed above them rather than re-derived,
-so the percentage and the table cannot contradict each other, and where there
-is no inter-layer call at all both read `undefined` — a project whose layers
-never call one another has demonstrated nothing either way, not perfect
-conformance. They are never summed: a call that both skips and inverts is
-counted once in each, and each names its own remedy.
-
-And it draws the **Dependency Structure Matrix** — rows callers, columns
-callees, in ascending layer order, so the back-calls gather below the diagonal
-where you can see them at a glance and their total is exactly the inverted
-calls the layering table lists. Declare nothing and you still get one, over the
-analysed directories; `--dsm` writes it beside the report as CSV.
-
-Every one of those measurements is then evaluated against the published
-catalogue of **MISRA C**, **Robert C. Martin** and **Henry–Kafura**, and
-reported with a severity and, crucially, **the source that draws the line**.
-One module does all the judging, so the claim that `elc` carries no opinion of
-its own is something you can check by reading a single table — and the one
-threshold that *is* `elc`'s own says `elc heuristic — not a published
-standard` wherever it appears. Severity is a label and never the exit status:
-a project full of critical findings still exits 0, because deciding what a
-finding warrants is your call.
-
-And with a report going to a named file, all of it is **drawn**: `elc` writes
-the call tree beside the report as an annotated Graphviz `.dot` file, one
-cluster per source file and one node per function, with every finding on an
-attribute a renderer is free to ignore. Recursive cycles get a second border,
-hidden-channel participants an octagon, unreachable functions a dash, the
-deepest chain a thick blue line through it, and each node a tooltip carrying
-its findings in full. `elc` writes the file and renders nothing — Graphviz is
-yours to run on it, and `elc` neither links it nor invokes it. Generation is on
-by default; `--no-dot` declines it.
-
-```sh
-elc --entry main -o report.md src/    # writes report.md and report.dot
-dot -Tsvg report.dot -o report.svg
-```
-
-Or have `elc` do the drawing. Name your output `report.html` and you get **one
-interactive page** that opens in a browser straight from the filesystem — no
-server, no build step. It opens at the level you declared your architecture at:
-one box per `--stratum`, each opening to the files it holds and each of those to
-their functions. That default is the point of it. A call graph of a real project
-drawn at function level is a picture nobody can read, so you descend into the
-part you care about instead of starting at maximum density.
-
-```sh
-elc -o report.html --stratum app:'*/app/*' --stratum hal:'*/hal/*' src/
-xdg-open report.html
-```
-
-It is a format, chosen by the extension like every other — there is no `--html`
-flag, because the filename has already said it.
-
-The drawing library is fetched from a CDN when the page is first opened, so
-"standalone" here means no server and no build step rather than no network —
-`elc` itself never uses one.
-
-And you can bring **your own rules**. A custom rule is a Tree-sitter query you
-write, checked against your source by the same mechanism that produces `elc`'s
-own metrics — during the same parse, with the same predicate handling. Put it
-in the runtime location or name it with `--rules lang:path`; either way, adding
-one is a file, not a rebuild.
-
-```sh
-elc --rules c:house-style.scm src/
-```
-
-A rule's identity is the file's basename plus the capture name that matched, so
-one file expresses as many named rules as it holds captures. And `elc` reports
-what your rule matched and forms **no opinion about it** — no severity, no
-citation, because you decided the rule was worth writing, not `elc`. Matches
-get a section of their own beside the findings and never appear among them.
-
-And you can say **which configuration** you mean. Conditionally compiled
-source describes several programs; measuring it without saying which gives you
-the union of them all. `-DFEATURE` measures the build in which `FEATURE` is
-defined:
-
-```sh
-elc -DFEATURE_X -DTARGET=stm32 src/
-```
-
-`elc` runs no preprocessor — no `cpp`, no compiler, no build system, and it
-reads no file your source includes. It decides each region from the tree it
-already parsed, which means it decides only what it honestly can: a constant
-condition like `#if 0`, or a definedness test over a symbol you named. Anything
-else is **undecidable rather than false** — both branches stay counted and the
-region is reported in an `Undecided regions` figure, because silently deleting
-code you did not ask to delete is the one failure this design is arranged
-against. A symbol you did not name is undecidable too: it might be defined in a
-header `elc` will never see.
-
-Which constructs count as conditional is data, not code, so a C `#if` and a Rust
-`#[cfg]` are the same mechanism.
-
-And where you have a **linked image**, you can measure the program your build
-actually produced rather than the source it was drawn from:
-
-```sh
-elc --elf build/app.elf src/
-```
-
-Every measurement is then restricted to the functions that image defines. This
-is the same question `-D` answers and a different way of answering it: `-D`
-*re-decides* the conditions your build resolved, while an image *observes what
-your build did*. Neither replaces the other — the image says which functions
-survived and nothing about which lines inside one were compiled out — and you
-can give both.
-
-`elc` invokes no toolchain to read it: no `nm`, no `objdump`, no `readelf`, no
-compiler, no linker. It opens the file you named, reads the symbol table a
-linker writes by default, and closes it. A symbol counts only if it is a
-function **and** defined by the image rather than imported by it, so a function
-your program merely calls into libc is not mistaken for one it contains. C++
-and Rust names arrive mangled and are decoded and reduced to the identifier the
-report presents, so `geometry::Rect::area() const` matches a function reported
-as `area`.
-
-Two things are then reported, and they are different claims. The **linkage
-names `elc` could not decode** state how complete the filter is — the claim the
-unresolved-call count makes about the graph. The **source functions the image
-does not define** are the finding the option exists to produce: dead code
-established by what your linker did, rather than inferred from a traversal.
-
-Where the image also carries **debug line information** — where it was built
-with `-g` — `elc` reads that too, and narrows one granularity further: from the
-functions the link kept to the **lines inside them the compiler emitted an
-instruction for**. This is where an image outreaches `-D`. A region guarded by
-a symbol you never restated is one `elc` cannot decide from the source, so it
-is left whole and counted undecided; the image settles it, because the build
-compiled nothing there and the mapping says so. No option is needed and none
-exists: an image without debug information behaves exactly as it did before.
-
-Absence of a line proves nothing where coverage was never established, so
-coverage is settled **per file** first — a translation unit compiled without
-`-g` loses not one line and is counted instead. Two figures state both halves,
-and are read the way the unresolved-call count is: **lines not compiled by this
-build**, and **files with no debug coverage**.
-Code outside any function is retained and counted on its own, because an
-image's function set says nothing about a table of data. And a stripped image
-is an error rather than an empty filter, because reporting a project with no
-functions in it would be confidently wrong and indistinguishable from a correct
-result.
-
-A raw call graph rarely sorts into layers, so `elc` builds a second graph — a
-**recovery view** — with the functions that fuse unrelated domains set aside: a
-**utility sink** everything calls loses its incoming edges, a **god object**
-that dispatches everywhere loses its edges in both directions, and a
-**peripheral** function outside the connected centre is left out entirely. The
-report names every function it classified, the metric and value that classified
-it, and what the masking did.
-
-The view is a **copy**, and that is the point of it: no fan-out, coupling
-figure, conformance index, or matrix cell anywhere else in the report is
-computed over a masked graph. The five thresholds behind the classifications
-are `elc`'s own heuristics rather than published standards, are compared
-against a function's rank rather than its raw score so that one default serves
-a small project and a large one, and say so wherever a classification appears.
-No classification carries a severity: `elc` says where a function sits in a
-graph, not that the design is wrong.
-
-From what remains, `elc` reads a **layering** — a description of the
-architecture your code already has, for a reader who has declared none. It
-orders the purified view and folds the order by directory, placing each
-directory where the bulk of its edges point rather than at its outermost
-member, so one function reaching far down cannot drag its whole directory with
-it. Where the view is still cyclic there is no ordering to have, and the
-mutually reachable groups are reported in its place.
-
-**A recovered layering is a proposal and never a baseline.** Nothing is
-measured against it: the `--stratum` declarations remain the sole standard the
-conformance analyses judge by, and with none declared those analyses stay
-omitted with their reason stated — however confidently a layering was
-recovered. A tool measuring conformance against its own proposal would find
-every code base conformant, because the standard would have been read off the
-thing being judged. So the proposal arrives as an **argument list** in the form
-`--stratum` and `--stratum-order` accept: read it, and if you agree, paste it
-back. The declaring is yours.
-
-The classifications behind all of that are heuristics, and heuristics have
-false positives — a state machine's dispatcher looks exactly like a monolith
-from inside the graph. `--write-manifest` writes them out as JSON, one
-statement per classified function; edit the one you disagree with and hand it
-back with `--manifest`. Your statement governs, `elc` does not recompute it,
-and the report says which rows came from you and which from the tool. A
-manifest is read **only when you name it** — never from the working directory,
-the target, an ancestor, or a dotfile. And `--purify-dot` draws the graph twice,
-before and after, with the masked functions greyed and detached rather than
-deleted, so you can see what was set aside before deciding to trust it.
-
-**Progress: 32 of 32 phases complete.**
-
-<details>
-<summary><strong>Phase-by-phase status</strong> (click to expand)</summary>
-
-| Phase | Description | Status |
-| ----- | ----------- | ------ |
-| [0](doc/SDP.md#phase-0--foundation-and-continuous-integration) | Build system, CI pipeline, test harness, skeleton binary | ✅ Complete |
-| [1](doc/SDP.md#phase-1--target-discovery-and-the-walking-skeleton) | Target discovery, ordering, table output — end to end | ✅ Complete |
-| [2](doc/SDP.md#phase-2--language-runtime-and-function-discovery) | Runtime loading, Tree-sitter parse, function identity | ✅ Complete |
-| [3](doc/SDP.md#phase-3--effective-lines-of-code) | ELOC, comment merging, file and project totals | ✅ Complete |
-| [4](doc/SDP.md#phase-4--cyclomatic-complexity) | Complexity, threshold listing, most-complex callouts | ✅ Complete |
-| [5](doc/SDP.md#phase-5--output-formats-and-the-saved-record) | CSV, XML, Markdown, escaping, regeneration mode | ✅ Complete |
-| [6](doc/SDP.md#phase-6--language-breadth) | C++, Rust, Python — data only, no C change | ✅ Complete |
-| [7](doc/SDP.md#phase-7--git-aware-discovery) | Repository detection, applicability, scoping, routes | ✅ Complete |
-| [8](doc/SDP.md#phase-8--system-dependence-graph) | Cross-file resolution, the SDG, GraphML export | ✅ Complete |
-| [9](doc/SDP.md#phase-9--call-tree-analyses) | Fan-out, depth, deepest stack, recursion | ✅ Complete |
-| [10](doc/SDP.md#phase-10--dead-code-reachability-and-global-state) | Dead code within and between functions, global coupling, scopes | ✅ Complete |
-| [11](doc/SDP.md#phase-11--coupling-layering-and-cycles) | Strata, skip-level, Ca/Ce, instability, cycles | ✅ Complete |
-| [12](doc/SDP.md#phase-12--thresholds-severity-and-attribution) | The Appendix A catalogue, severity, attribution | ✅ Complete |
-| [13](doc/SDP.md#phase-13--graph-visualisation) | Annotated Graphviz `.dot` companion | ✅ Complete |
-| [14](doc/SDP.md#phase-14--custom-rules) | User-supplied `.scm` rules, binding, matching | ✅ Complete |
-| [15](doc/SDP.md#phase-15--conditional-compilation) | `-D` definitions, inactive-region pruning | ✅ Complete |
-| [16](doc/SDP.md#phase-16--elf-filtered-analysis) | `--elf` image filter, linkage-name resolution, unmatched reporting | ✅ Complete |
-| [17](doc/SDP.md#phase-17--hardening-and-release-readiness) | Full sanitizer sweep, self-analysis, coverage closure | ✅ Complete |
-| [18](doc/SDP.md#phase-18--output-format-selection-and-report-verbosity) | Format from filename extension, summary default, `--verbose` | ✅ Complete |
-| [19](doc/SDP.md#phase-19--information-flow-complexity) | Per-function fan-in, Henry–Kafura complexity, project total | ✅ Complete (Henry–Kafura withdrawn in Phase 24) |
-| [20](doc/SDP.md#phase-20--debug-line-pruning) | DWARF line pruning of code the build did not compile | ✅ Complete |
-| [21](doc/SDP.md#phase-21--architecture-conformance-measurement) | Conformance indices, the Dependency Structure Matrix | ✅ Complete |
-| [22](doc/SDP.md#phase-22--graph-purification) | Centrality-based classification, the masked recovery view | ✅ Complete |
-| [23](doc/SDP.md#phase-23--architecture-recovery-and-the-manifest) | Recovered layering, the purification manifest, visual diffing | ✅ Complete |
-| [24](doc/SDP.md#phase-24--report-composition-and-the-banded-function-table) | Report order, the combined function table, the maintainability index, DWARF-placed image symbols, the debug companion | ✅ Complete |
-| [25](doc/SDP.md#phase-25--repairing-what-the-grammar-could-not-follow) | In-buffer repair of unparsable macro shapes | ✅ Complete |
-| [26](doc/SDP.md#phase-26--placing-templated-names-by-debug-information) | DWARF names reduced the way image symbols are; a diagnostic that states what it observed | ✅ Complete |
-| [27](doc/SDP.md#phase-27--preprocessor-macro-expansion--ast-sanitization) | Macro expansion through `gcc -E`, filtered to project source and reported per file | ✅ Complete |
-| [28](doc/SDP.md#phase-28--repair-where-expansion-cannot-reach) | Repair restored as the fallback beneath expansion | ✅ Complete |
-| [29](doc/SDP.md#phase-29--function-visibility-and-editor-navigable-locations) | Public/private visibility, `path:line` locations, and a line count | ✅ Complete |
-| [30](doc/SDP.md#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
-| [31](doc/SDP.md#phase-31--interactive-html-reporting--semantic-zooming) | The `.html` report format: layers containing files containing functions, opened collapsed | ✅ Complete |
-
-</details>
-
-**Metrics land in Phases 3–4, the call graph in Phase 8, and the architectural
-analyses in Phases 9–13.** If you only want ELOC and complexity, everything
-through Phase 9 is already in place.
-
----
+analysis, for C, C++, Rust, and Python projects.
 
 ## What it does
+Point `elc` at a file, a directory, or a Git repository and it will create a
+a report with the following information about your source code:
 
-`elc` points at a file, a directory, or a Git repository and tells you two
-kinds of thing:
-
-**Which functions carry the code and the complexity.** Effective Lines of Code
-and cyclomatic complexity, reported **per function** — an editor-navigable
-`path:line`, the language, the name, whether it is public or private, its
-length, ELOC and complexity — rather than aggregated per file where the problem
-function hides inside a large one.
+**Which functions carry the code and the complexity.** Reports function name,
+source file, line number, language, public/private, complexity, fan-in,
+fan-out, and maintainability index.
 
 **How the system hangs together.** By stitching the per-file syntax trees into
 a project-wide **System Dependence Graph**, it answers the questions that
@@ -344,8 +19,8 @@ which components are architectural bottlenecks, how deep the call stack can
 actually get, and which functions are provably unreachable.
 
 **Which of it your build actually keeps.** Name a configuration with `-D` or a
-linked image with `--elf`, and the figures describe the program that ships
-rather than the source it was drawn from. An image carrying debug information
+linked image with `--elf`, and the report describes the program that ships
+rather than the complete source it was built from. An image carrying debug information
 answers two more questions the source cannot: which branch of an `#ifdef` you
 never restated the build actually took, and where the functions a macro defines
 are — an `ISR(...)` is a function to the compiler and an expression to a
@@ -393,105 +68,296 @@ checked by the same engine that produces the built-in metrics.
 
 ## What the output looks like
 
-> *Illustrative only — this shows the specified output shape, not a real run.
-> See [PVD.md](doc/PVD.md) §7.1 for the authoritative scope.*
-
-```console
-$ elc src/
-Project: 4,182 physical lines, 2,317 ELOC  (C 1,904 · Python 413)
-
-  Route: src/ — filesystem traversal
-
-  src/analyze.c            612 lines   381 ELOC
-    ⚠ merge_spans          142–198      41 ELOC   complexity 17
-
-  src/graph.c              498 lines   309 ELOC
-
-  Architecture
-    ✖ cycle          graph.c → arch.c → graph.c
-    ⚠ bottleneck     report.c   Ca 9  Ce 6   (elc heuristic, not a standard)
-    ⚠ fan-out        dispatch()  12 callees        (Henry–Kafura: >10)
-      deepest chain  main → run → analyze → parse → visit   (4 layers)
-    ✖ unreachable    legacy_dump(), legacy_fmt()   [util.c]
-```
-
 Reports render as an aligned table (default), CSV, XML, or GitHub-Flavored
 Markdown, with a Graphviz `.dot` call tree written alongside. The XML form is a
 complete record of a run, so a report can be regenerated later against a
 different complexity threshold without re-analysing the source.
 
-## How it works
+Here's an example of a markdown report.
 
-A one-way pipeline of fifteen translation units. Each stage consumes the
-previous stage's output; no stage reaches backwards, and **no source file is
-read twice**.
+> [!NOTE]
+> Tables are rolled up by default to make navigating the information easier.
 
-```text
-cli → discover → registry → analyze ─┬─→ report → format
-                                     │      ↑
-                                     └→ graph → arch / calltree / state → thresholds
-```
+## Project summary
 
-`analyze` is the only module that touches source text, and it extracts the
-per-function metrics *and* the graph facts in a single traversal. That is what
-makes the single-parse guarantee structural rather than a discipline the code
-has to remember.
+<details>
+<summary>12 rows (click to expand)</summary>
 
-The design is documented in full in [SDD.md](doc/SDD.md).
+| Metric         | Value |
+|----------------|------: |
+| Files          |    44 |
+| Physical lines | 12488 |
+| ELOC           |   438 |
+| Functions      |    82 |
+| Skipped        |     4 |
+| Unparsed lines |     5 |
+| Critical findings |     1 |
+| Warnings       |     5 |
+| Unresolved calls |    47 |
+| Undecided regions |    56 |
+| Files expanded |     0 |
+| Measured as written |    44 |
 
-## Documentation
+</details>
 
-This project is specified before it is built, and the specification is the
-current deliverable. It is managed with [TraceR](https://github.com/racerxr650r/TraceR):
-[`doc/Project.xml`](doc/Project.xml) is the single source of truth, and the
-documents below are generated from it.
+## Findings
 
-| Document | Answers |
-| -------- | ------- |
-| [PVD.md](doc/PVD.md) | *Why* does this exist, who is it for, how do we know it is succeeding? |
-| [HLRs.md](doc/HLRs.md) | *What* must it do — 135 high-level requirements |
-| [SDD.md](doc/SDD.md) | *How is it structured* — modules, data, algorithms, dependency selection |
-| [LLRs.md](doc/LLRs.md) | *How does each function contribute* — 296 low-level requirements |
-| [STP.md](doc/STP.md) | *How is it verified* — test levels, fixtures, the sanitizer gate |
-| [Traceability.md](doc/Traceability.md) | *Where are the gaps*, end to end |
-| [SDP.md](doc/SDP.md) | *How is it built* — the 17 phases below |
+<details>
+<summary>6 rows (click to expand)</summary>
 
-## Building
+| Severity | Measurement                | Subject                               | Detail                                                                                                                  | Source                                     |
+| -------- | -------------------------- | ------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| critical | component dependency cycle | /home/john/Projects/avrOS/sys/queue.c | /home/john/Projects/avrOS/sys/queue.c -> /home/john/Projects/avrOS/sys/queue.h -> /home/john/Projects/avrOS/sys/queue.c | Martin, acyclic dependencies               |
+| warning  | fan-out                    | sysInit                               | calls 13 distinct subroutines                                                                                           | Henry-Kafura                               |
+| warning  | maintainability            | sysInit                               | maintainability index 61 of 100                                                                                         | elc heuristic — not a published standard |
+| warning  | maintainability            | sysInitTick                           | maintainability index 64 of 100                                                                                         | elc heuristic — not a published standard |
+| warning  | single-function global     | scanCycle                             | named by one function; belongs at block scope                                                                           | MISRA C Rule 8.9                           |
+| warning  | single-function global     | sysTicksPending                       | named by one function; belongs at block scope                                                                           | MISRA C Rule 8.9                           |
 
-```sh
-make            # prints the target list
-make all        # builds build/elc
-make test       # unit, integration, fixture, and instrumented suites
-make asan       # the whole suite under AddressSanitizer and UBSan
-make install    # binary, runtime/, man page, and user manual
-```
+</details>
 
-### Dependencies
+## Callouts
 
-| Library | Used for |
-| ------- | -------- |
-| [`libtree-sitter`](https://tree-sitter.github.io/tree-sitter/) | Parsing and query execution |
-| [`libgit2`](https://libgit2.org/) | Repository-aware file discovery |
-| [`igraph`](https://igraph.org/c/) | Graph algorithms — cycles, reachability, centrality |
-| [Expat](https://libexpat.github.io/) | Streaming XML read for report regeneration |
-| [`libelf`](https://sourceware.org/elfutils/) | Reading the symbol table of the image `--elf` names |
-| The C++ runtime | `__cxa_demangle`, for C++ and Rust linkage names. Already linked — `igraph` is partly C++ inside |
-| POSIX libc | `mmap`, `fts`, `dlopen` |
+<details>
+<summary>2 rows (click to expand)</summary>
 
-Build tooling: GNU make, a C11 compiler, GNU ld or lld (for `--wrap`),
-[Criterion](https://github.com/Snaipe/Criterion) and
-[Bats](https://github.com/bats-core/bats-core) for tests, and Python 3 for the
-documentation toolchain.
+| What         | Value | Where                                                   |
+| ------------ | ----: | ------------------------------------------------------- |
+| Largest file |    96 | /home/john/Projects/avrOS/sys/fsm.c                     |
+| Most complex |    10 | evntListRemove in /home/john/Projects/avrOS/sys/event.c |
 
-## What `elc` is not
+</details>
 
-*   Not a linter, style checker, or formatter. It measures and reports; it
-    never proposes a fix.
-*   Not a static-analysis platform. Two metrics and a dependency graph, done
-    carefully.
-*   Not a server, daemon, or hosted dashboard, and not an editor plugin.
-*   Not a source of historical trends — it reports one run, deterministically
-    enough that you can diff two of them yourself.
+## Discovery
+
+<details>
+<summary>4 rows (click to expand)</summary>
+
+| Target                                      | Route      |
+| ------------------------------------------- | ---------- |
+| /home/john/Projects/avrOS/app/avrOS_example | repository |
+| /home/john/Projects/avrOS/drv               | repository |
+| /home/john/Projects/avrOS/srv               | repository |
+| /home/john/Projects/avrOS/sys               | repository |
+
+</details>
+
+## Languages
+
+<details>
+<summary>1 row (click to expand)</summary>
+
+| Language | Files | Lines | ELOC |
+| -------- | ----: | ----: | ---: |
+| c        |    44 | 12488 |  438 |
+
+</details>
+
+## Files
+
+<details>
+<summary>44 rows (click to expand)</summary>
+
+| File                                                      | Language | Lines | ELOC | Functions |
+| --------------------------------------------------------- | -------- | ----: | ---: | --------: |
+| /home/john/Projects/avrOS/app/avrOS_example/avrOSConfig.h | c        |   140 |    0 |         0 |
+| /home/john/Projects/avrOS/app/avrOS_example/main.c        | c        |   153 |   36 |         5 |
+| /home/john/Projects/avrOS/drv/ac.h                        | c        |   336 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/adc.h                       | c        |   472 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/clk.h                       | c        |   348 |    8 |         7 |
+| /home/john/Projects/avrOS/drv/cpu.c                       | c        |    99 |   18 |         2 |
+| /home/john/Projects/avrOS/drv/cpu.h                       | c        |    83 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/dac.h                       | c        |   172 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/evt.h                       | c        |   206 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/gpio.c                      | c        |   325 |   32 |         6 |
+| /home/john/Projects/avrOS/drv/gpio.h                      | c        |   218 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/int.h                       | c        |   259 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/mem.c                       | c        |   145 |   11 |         1 |
+| /home/john/Projects/avrOS/drv/mem.h                       | c        |   168 |    8 |         8 |
+| /home/john/Projects/avrOS/drv/nvm.h                       | c        |   227 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/pio.h                       | c        |   367 |   11 |        10 |
+| /home/john/Projects/avrOS/drv/pmux.h                      | c        |   269 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/rst.h                       | c        |   118 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/rtc.h                       | c        |   604 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/slp.h                       | c        |   165 |    9 |         4 |
+| /home/john/Projects/avrOS/drv/spi.h                       | c        |   319 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/tca.h                       | c        |   892 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/tcb.h                       | c        |   416 |    6 |         6 |
+| /home/john/Projects/avrOS/drv/twi.h                       | c        |   643 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/uart.c                      | c        |   416 |   19 |         2 |
+| /home/john/Projects/avrOS/drv/uart.h                      | c        |   633 |    4 |         4 |
+| /home/john/Projects/avrOS/drv/vref.h                      | c        |   148 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/wdt.h                       | c        |   221 |    0 |         0 |
+| /home/john/Projects/avrOS/drv/zcd.h                       | c        |   186 |    0 |         0 |
+| /home/john/Projects/avrOS/srv/cli.c                       | c        |   396 |    5 |         0 |
+| /home/john/Projects/avrOS/srv/cli.h                       | c        |   158 |    0 |         0 |
+| /home/john/Projects/avrOS/srv/log.c                       | c        |    63 |    0 |         0 |
+| /home/john/Projects/avrOS/srv/log.h                       | c        |   200 |    0 |         0 |
+| /home/john/Projects/avrOS/srv/pcm.c                       | c        |   162 |    3 |         0 |
+| /home/john/Projects/avrOS/sys/event.c                     | c        |   412 |   79 |         7 |
+| /home/john/Projects/avrOS/sys/event.h                     | c        |   325 |    0 |         0 |
+| /home/john/Projects/avrOS/sys/fio.h                       | c        |   150 |    0 |         0 |
+| /home/john/Projects/avrOS/sys/fsm.c                       | c        |   542 |   96 |        10 |
+| /home/john/Projects/avrOS/sys/fsm.h                       | c        |   378 |    0 |         0 |
+| /home/john/Projects/avrOS/sys/list.h                      | c        |    52 |    0 |         0 |
+| /home/john/Projects/avrOS/sys/queue.c                     | c        |   181 |   48 |         3 |
+| /home/john/Projects/avrOS/sys/queue.h                     | c        |   363 |    5 |         3 |
+| /home/john/Projects/avrOS/sys/sys.c                       | c        |   243 |   40 |         4 |
+| /home/john/Projects/avrOS/sys/sys.h                       | c        |   115 |    0 |         0 |
+
+</details>
+
+## At or over a threshold (complexity listed at 15; complexity, fan-in, fan-out and maintainability banded)
+
+<details>
+<summary>2 rows (click to expand)</summary>
+
+| File                                | Function    | Complexity | Fan-in | Fan-out | MI | Severity |
+| ----------------------------------- | ----------- | ---------: | -----: | ------: | -: | -------- |
+| /home/john/Projects/avrOS/sys/sys.c | sysInitTick |          2 |      1 |       7 | 64 | warning  |
+| /home/john/Projects/avrOS/sys/sys.c | sysInit     |          1 |      1 |      13 | 61 | warning  |
+
+</details>
+
+## Linked-image filter
+
+<details>
+<summary>6 rows (click to expand)</summary>
+
+| Property                         | Value          |
+| -------------------------------- | -------------- |
+| Image                            | build/main.elf |
+| Unresolved linkage names         | 0              |
+| ELOC outside any function        | 62             |
+| Lines not compiled by this build | 339            |
+| Files with no debug coverage     | 27             |
+| Regions decided by this build    | 34             |
+
+</details>
+
+## Partially parsed files (measured except for these lines)
+
+<details>
+<summary>3 rows (click to expand)</summary>
+
+| File                                  | Unparsed lines |
+| ------------------------------------- | -------------: |
+| /home/john/Projects/avrOS/drv/uart.c  |              3 |
+| /home/john/Projects/avrOS/srv/cli.c   |              1 |
+| /home/john/Projects/avrOS/sys/queue.c |              1 |
+
+</details>
+
+## Measured as written (macros not expanded)
+
+<details>
+<summary>44 rows (click to expand)</summary>
+
+| File                                                      | Why                                |
+| --------------------------------------------------------- | ---------------------------------- |
+| /home/john/Projects/avrOS/app/avrOS_example/avrOSConfig.h | a condition in it is undecidable   |
+| /home/john/Projects/avrOS/app/avrOS_example/main.c        | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/ac.h                        | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/adc.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/clk.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/cpu.c                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/cpu.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/dac.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/evt.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/gpio.c                      | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/gpio.h                      | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/int.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/mem.c                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/mem.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/nvm.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/pio.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/pmux.h                      | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/rst.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/rtc.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/slp.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/spi.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/tca.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/tcb.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/twi.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/uart.c                      | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/uart.h                      | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/vref.h                      | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/wdt.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/drv/zcd.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/srv/cli.c                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/srv/cli.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/srv/log.c                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/srv/log.h                       | a condition in it is undecidable   |
+| /home/john/Projects/avrOS/srv/pcm.c                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/sys/event.c                     | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/sys/event.h                     | a condition in it is undecidable   |
+| /home/john/Projects/avrOS/sys/fio.h                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/sys/fsm.c                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/sys/fsm.h                       | a condition in it is undecidable   |
+| /home/john/Projects/avrOS/sys/list.h                      | a condition in it is undecidable   |
+| /home/john/Projects/avrOS/sys/queue.c                     | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/sys/queue.h                     | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/sys/sys.c                       | the preprocessor rejected the file |
+| /home/john/Projects/avrOS/sys/sys.h                       | a condition in it is undecidable   |
+
+</details>
+
+## Repaired regions (rewritten in elc's buffer to be measured; the files are untouched)
+
+<details>
+<summary>9 rows (click to expand)</summary>
+
+| File                                               | Rule                       | Repairs |
+| -------------------------------------------------- | -------------------------- | ------: |
+| /home/john/Projects/avrOS/app/avrOS_example/main.c | macro as a declarator      |       1 |
+| /home/john/Projects/avrOS/drv/gpio.c               | macro adjacent to a string |       1 |
+| /home/john/Projects/avrOS/drv/mem.c                | macro adjacent to a string |      13 |
+| /home/john/Projects/avrOS/drv/uart.c               | macro adjacent to a string |       2 |
+| /home/john/Projects/avrOS/sys/event.c              | macro adjacent to a string |       2 |
+| /home/john/Projects/avrOS/sys/event.c              | macro before a declaration |       3 |
+| /home/john/Projects/avrOS/sys/fsm.c                | macro adjacent to a string |       5 |
+| /home/john/Projects/avrOS/sys/queue.c              | macro adjacent to a string |       1 |
+| /home/john/Projects/avrOS/sys/sys.c                | macro adjacent to a string |       5 |
+
+</details>
+
+## Standard-library dependence
+
+<details>
+<summary>5 rows (click to expand)</summary>
+
+| File                                  | Library | Headers | Which                                        |
+| ------------------------------------- | ------- | ------: | -------------------------------------------- |
+| /home/john/Projects/avrOS/srv/log.h   | C       |       3 | stdio.h stddef.h stdarg.h                    |
+| /home/john/Projects/avrOS/sys/event.h | C       |       5 | stdint.h wchar.h stddef.h stdbool.h stdlib.h |
+| /home/john/Projects/avrOS/sys/fsm.h   | C       |       5 | stdint.h wchar.h stdbool.h stdlib.h stddef.h |
+| /home/john/Projects/avrOS/sys/list.h  | C       |       3 | stdint.h wchar.h stddef.h                    |
+| /home/john/Projects/avrOS/sys/sys.h   | C       |       3 | stdint.h wchar.h stdbool.h                   |
+
+</details>
+
+## Skipped files (no language module)
+
+<details>
+<summary>4 rows (click to expand)</summary>
+
+| File                                                 |
+| ---------------------------------------------------- |
+| /home/john/Projects/avrOS/app/avrOS_example/avrOS.x  |
+| /home/john/Projects/avrOS/app/avrOS_example/makefile |
+| /home/john/Projects/avrOS/srv/btn.c_                 |
+| /home/john/Projects/avrOS/srv/btn.h_                 |
+
+</details>
+
+## Nothing to report
+
+4 tables above were empty and omitted:
+
+- Layering (omitted: no architectural strata declared, see --stratum)
+- Architecture conformance (omitted: no architectural strata declared, see --stratum)
+- Cross-scope access (omitted: no execution scopes declared, see --scope)
+- Conditional-compilation definitions (0)
 
 ## Contributing
 
