@@ -12,9 +12,9 @@
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
     <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.23" date="2026-08-31" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.15" date="2026-08-31" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.16" date="2026-09-01" author="John Anderson"/>
     <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.18" date="2026-08-31" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.24" date="2026-08-31" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.25" date="2026-09-01" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.25" date="2026-08-31" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="216"/>
@@ -2957,17 +2957,15 @@ The option shall govern presentation alone. It shall not change any measurement,
       <hlr id="HLR-220" name="The Version the Build Was Made As">
         <text><![CDATA[`elc` shall provide a command-line option that writes the version of the build to standard output and exits successfully, and the version it writes shall be the version stated by the delivered documentation (HLR-128 – HLR-130).
 
-**A release that makes a compatibility promise must be able to state which release it is.** From `1.0.0` the spelling of the options is such a promise — an option is not removed or renamed, and its argument grammar is not narrowed, without a new major version — and a user cannot check a promise against a build that will not say what it is. A defect report against such a build names no version, and two builds that behave differently cannot be told apart at all.
+**A build must be able to say which release it is.** A defect report against a build that will not name its version names no version, and two builds that behave differently cannot be told apart at all. `elc` is meant to be run from scripts and continuous integration, where the build that produced a result is frequently not the one the reader has in front of them, so *which release produced this* has to be answerable from the machine that produced it rather than reconstructed from how it was installed.
 
 **The version shall be written in exactly one file — `VERSION`, in the project root — and shall reach the binary and both delivered documents from it.** That file holds the version and nothing else, so that a release is made by editing one line and every restatement of it is derived or checked. A literal compiled into the source that a build system also knows is two places, and the one that is forgotten is never the one anybody reads: a binary confidently reporting a version it was not built as is worse than a binary that will not build. Where that file is absent or empty, the build shall fail rather than a default be substituted.
 
 **The restatements that are not derived shall be checked.** The binary takes the version from the file through the build; the man page's title line and the user manual state it as text, and nothing in the build makes those follow. A test shall read the file and require all three to agree, so that a version bump not carried into both documents fails the build rather than shipping a binary and a manual that disagree about which release they are.
 
-**A statement of the release a promise began at is not a version stamp**, and shall not be required to track the file. Both documents record that the compatibility promise above holds *from* `1.0.0`; that names a fixed point in the project's history and stays as it is when the version moves past it.
-
 **The version shall be answered before the rest of the command line is validated**, so that it is answered by an invocation whose other arguments are wrong. That is the state a user is usually in when they are asked which version they are running. Being asked a question is not an error, so the exit status is that of a successful run, exactly as it is for the usage summary (HLR-117).
 
-**What the promise does not cover shall be stated where the promise is.** A report's composition, its columns, and the width of its lines are presentations `elc` remains free to improve within a major version — HLR-218 and HLR-219 are both such changes — and a consumer that must survive a change of presentation is the reason the saved record of HLR-054 exists and is versioned separately by HLR-061.]]></text>
+**What a report presents is not an interface, and the delivered documentation shall say so where it describes the option.** A composition, a column, or a line width is a presentation `elc` remains free to improve — HLR-218 and HLR-219 are both such changes — and a consumer that must survive one shall be directed to the saved record of HLR-054, which exists for that purpose and is versioned separately by HLR-061. Stating this where a reader asks what version they are running is what keeps a version number from being read as a promise about the report.]]></text>
       <traces>
         <trace target="SDD" ref="4"/>
       </traces>
@@ -13076,7 +13074,7 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
       </traces>
     </test>
     <test name="HLR-220: the user manual shows the declared version as --version's answer">
-      <purpose><![CDATA[The manual's example of what `--version` answers is required to show the declared version. Read at the stating location rather than over every occurrence, because both documents also name the release the compatibility promise began at — a fixed point that stays 1.0.0 when the version moves past it, and which a test comparing every version string would wrongly reject.]]></purpose>
+      <purpose><![CDATA[The manual's example of what `--version` answers is required to show the declared version. Read at the stating location rather than over every occurrence, so that a worked example, a release note, or a passage naming an older release for a reason of its own is not taken for the version stamp and does not have to be edited every time the version moves.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-220"/>
         <trace target="HLR" ref="HLR-130"/>

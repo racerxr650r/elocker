@@ -446,44 +446,40 @@ No release is cut before Phase 16. From then on:
    does not exist before the first release and is created at that point;
    `develop` is the default branch until then.
 2. The release is tagged `vMAJOR.MINOR.PATCH`. **The first release was
-   `v0.1.0`; Phase 32 cuts `v1.0.0`.** Feature completeness was never the
-   thing the major version promises — all the planned phases had shipped and
-   the gap list was empty at `v0.1.0`, and the number still said the
-   *command-line interface* was not yet fixed. Two contracts were stable
-   regardless, and were stable because a requirement says so rather than
-   because a version number implies it: HLR-121's cross-release clause fixes
-   the six query files and their capture names, so a language module written
-   against any release keeps working, and HLR-061 versions the saved record
-   independently, so a record is rejected by a build that cannot read it
-   rather than half-understood.
+   `v0.1.0`; Phase 32 cuts `v1.0.0`.** What the number marks is that the
+   planned phases have shipped, the gap list is empty but for review-verified
+   items, and the tool has been used on real work long enough for the
+   presentation feedback this phase acts on to arrive. Two contracts are
+   stable across releases, and are stable because a requirement says so rather
+   than because a version number implies it: HLR-121's cross-release clause
+   fixes the six query files and their capture names, so a language module
+   written against any release keeps working, and HLR-061 versions the saved
+   record independently, so a record is rejected by a build that cannot read
+   it rather than half-understood.
 
-   **What `1.0.0` adds is the promise `0.1.0` withheld: the spelling of the
-   options.** That was withheld on the grounds that option spelling is the one
-   thing feedback from real use is most likely to change, and the grounds were
-   sound — the reasoning is kept above rather than deleted, because a decision
-   reversed without its original argument in view is a decision nobody can
-   check. What changed is that the feedback arrived and was acted on. The
-   presentation changes it asked for are Phase 32's subject, and **not one of
-   them added, removed, or respelled an option**: the terminal report is
-   narrowed by changing what a format presents, and its width decided by
-   reading the destination. The phase most likely to have added a flag did not
-   need one, which is the evidence the option surface was asked for.
+   **`1.0.0` is not a compatibility guarantee, and nothing delivered is
+   written as one.** `elc` is meant to be run from scripts and continuous
+   integration, so the project makes an effort to keep the option spelling and
+   the exit statuses as compatible as it reasonably can. That is an intention
+   held by the people doing the work, not a contract with the user: a future
+   major version may change the interface substantially, and the decision to
+   do so stays open. Binding the project to an option surface would cost more
+   than it gives — option spelling is the thing real use is most likely to
+   want changed, which is the ground on which `0.1.0` withheld a promise about
+   it, and the ground has not moved.
 
-   From `v1.0.0` the spelling is a compatibility promise under semantic
-   versioning: an option is not removed or renamed, and its argument grammar is
-   not narrowed, without a major version. What a report **presents** is
-   explicitly not covered. HLR-129 and HLR-130 already make the documentation
-   describe the version it ships with, and a composition, a column, or a line
-   width is a presentation `elc` stays free to improve within a major version —
-   exactly as Phase 32 does. Anything that must survive a redesign of the
-   presentation is what the record of HLR-054 is for, and HLR-061 versions that
-   separately for precisely this reason.
+   What a report **presents** is not an interface either. HLR-129 and HLR-130
+   make the documentation describe the version it ships with, and a
+   composition, a column, or a line width is a presentation `elc` stays free
+   to improve — exactly as Phase 32 does. Anything that must survive a
+   redesign of the presentation is what the record of HLR-054 is for, and
+   HLR-061 versions that separately for precisely this reason.
 
-   **A release that makes a version promise must be able to state its
-   version.** Phase 32 adds `--version` for that reason rather than as a
-   convenience: a tool the user cannot ask which release they are running is a
-   tool whose promise they cannot check, and a defect report against it names
-   no version.
+   **A build must be able to say which release it is.** Phase 32 adds
+   `--version` for that reason rather than as a convenience: a defect report
+   against a build that will not name its version names no version, and in the
+   CI use this tool is built for, the build that produced a result is
+   frequently not the one the reader has in front of them.
 3. `make install` under a `DESTDIR`/`PREFIX` staging root produces the
    deliverable: the `elc` binary plus the `runtime/` tree, and the man page
    and user manual that HLR-128 ships with them. Verified by
@@ -3181,9 +3177,11 @@ changing the interface.
     two documents state it as text, so a test reads that file and requires all
     three to agree, and every object depends on the file so that a bump is not
     left behind by an incremental build (LLR-BLD-26).
-6.  **Cut `v1.0.0`** (§5.5). The amendment to §5.5 is part of this phase, and
-    what it commits to is the option spelling — nothing about what a report
-    presents, which this very phase changes.
+6.  **Cut `v1.0.0`** (§5.5). The amendment to §5.5 is part of this phase. It
+    commits the project to nothing about the interface: compatibility is an
+    effort made for the CI users this tool is built for, not a guarantee given
+    to them, and what a report presents is not an interface at all — which
+    this very phase demonstrates by changing it.
 
 **Why the terminal report is allowed to differ, and where the line is.**
 HLR-031 requires the human-readable formats to present the same tiers, and

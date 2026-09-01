@@ -93,12 +93,9 @@ The version is answered before the rest of the command line is validated, so
 you get an answer even when the rest of the command is wrong — which is
 usually the state you are in when somebody asks you which version you have.
 
-From **1.0.0**, the spelling of the options in this manual is a compatibility
-promise: an option will not be removed or renamed, and its argument grammar
-will not be narrowed, without a new major version. What a report *presents* is
-deliberately not covered by that promise — a composition, a column, or a line
-width is a presentation `elc` stays free to improve. If you have a script that
-must keep working across releases, read [the saved
+What a report *presents* is not an interface to write against — a composition,
+a column, or a line width is a presentation `elc` stays free to improve. If you
+have a script that must keep working across releases, read [the saved
 record](#keeping-a-record) rather than the report: its format carries its own
 version, so a build that cannot read one rejects it rather than
 half-understanding it.

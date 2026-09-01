@@ -1120,19 +1120,15 @@ rest of the command line is validated, so it is answered by an invocation whose
 other arguments are wrong \(em which is the state you are usually in when
 somebody asks you which version you are running.
 .IP
-From
-.BR 1.0.0 ,
-the spelling of the options on this page is a compatibility promise: an option
-is not removed or renamed, and its argument grammar is not narrowed, without a
-new major version. What a report
+What a report
 .I presents
-is not covered by that promise \(em a composition, a column, or a line width is
-a presentation
+\(em a composition, a column, or a line width \(em is a presentation
 .B elc
-stays free to improve. Anything of yours that must survive a change to the
-presentation should read the saved record described under
+stays free to improve, and is not an interface to write against. Anything of
+yours that must keep working across releases should read the saved record
+described under
 .BR "THE SAVED RECORD" ,
-whose format is versioned separately for exactly this reason.
+whose format carries its own version for exactly this reason.
 .SS Findings, severity, and attribution
 Every analysis above measures. The
 .B Findings

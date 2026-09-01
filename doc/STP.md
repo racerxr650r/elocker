@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.24
-**Date:** 2026-08-31
+**Version:** 0.25
+**Date:** 2026-09-01
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -809,7 +809,7 @@ Role: **integration**. **18 test(s).**
 | 15 | <a id="LLR-DOC-05: every category of finding is described in both documents"></a>`LLR-DOC-05: every category of finding is described in both documents` | `LLR-DOC-05` | Taken from the threshold catalogue's own measurement names, so a category added to the catalogue and to neither document fails here rather than being met by a reader who cannot look it up. |
 | 16 | <a id="HLR-220: the binary reports the version the VERSION file declares"></a>`HLR-220: the binary reports the version the VERSION file declares` | `LLR-BLD-26` | The single source of truth is read from the `VERSION` file and the binary's answer is required to equal it exactly. The other two version tests assert only the shape of what is printed, which a build stamped with the wrong release satisfies; this is the one that reads what the project says the release is. |
 | 17 | <a id="HLR-220: the man page's title line states the declared version"></a>`HLR-220: the man page's title line states the declared version` | — | The third field of the `.TH` line is the version the page is stamped with and what `man elc` prints in the footer of every screen of it. Nothing in the build makes it follow the `VERSION` file, so a bump not carried into the man page fails here. |
-| 18 | <a id="HLR-220: the user manual shows the declared version as --version's answer"></a>`HLR-220: the user manual shows the declared version as --version's answer` | — | The manual's example of what `--version` answers is required to show the declared version. Read at the stating location rather than over every occurrence, because both documents also name the release the compatibility promise began at — a fixed point that stays 1.0.0 when the version moves past it, and which a test comparing every version string would wrongly reject. |
+| 18 | <a id="HLR-220: the user manual shows the declared version as --version's answer"></a>`HLR-220: the user manual shows the declared version as --version's answer` | — | The manual's example of what `--version` answers is required to show the declared version. Read at the stating location rather than over every occurrence, so that a worked example, a release note, or a passage naming an older release for a reason of its own is not taken for the version stamp and does not have to be edited every time the version moves. |
 
 ### 3.24. [test/integration/discovery.bats](../test/integration/discovery.bats)
 

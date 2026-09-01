@@ -251,13 +251,12 @@ man_text() {
 # documents fails here rather than shipping a binary and a man page that
 # disagree about which release they are.
 #
-# **Not every "1.0.0" in those documents is a version stamp, and the two kinds
-# must not be conflated.** Both documents also say that *from* 1.0.0 the
-# spelling of the options is a compatibility promise. That names the release
-# the promise began at — a fixed point in the project's history, which stays
-# 1.0.0 when VERSION becomes 1.0.1. A test asserting that every version string
-# in the documents equals VERSION would pass today and be wrong at the first
-# patch release, so these three read the stating locations specifically.
+# **They read the stating locations specifically, not every version string in
+# the documents.** A worked example, a release note, or a passage naming an
+# older release for a reason of its own is not a version stamp, and a test
+# comparing every occurrence to VERSION would demand it be edited on every
+# release — turning a check that catches real drift into one that manufactures
+# it. Only the two places that answer "which release is this" are read.
 
 # The single source of truth, read the way the Makefile reads it.
 declared_version() {

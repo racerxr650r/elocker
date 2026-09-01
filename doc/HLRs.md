@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.15
-**Date:** 2026-08-31
+**Version:** 3.16
+**Date:** 2026-09-01
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -331,17 +331,15 @@ Requirements governing how `elc` renders its computed results for human and mach
 *   <a id="HLR-220"></a>**HLR-220: The Version the Build Was Made As.**
     `elc` shall provide a command-line option that writes the version of the build to standard output and exits successfully, and the version it writes shall be the version stated by the delivered documentation (HLR-128 – HLR-130).
 
-    **A release that makes a compatibility promise must be able to state which release it is.** From `1.0.0` the spelling of the options is such a promise — an option is not removed or renamed, and its argument grammar is not narrowed, without a new major version — and a user cannot check a promise against a build that will not say what it is. A defect report against such a build names no version, and two builds that behave differently cannot be told apart at all.
+    **A build must be able to say which release it is.** A defect report against a build that will not name its version names no version, and two builds that behave differently cannot be told apart at all. `elc` is meant to be run from scripts and continuous integration, where the build that produced a result is frequently not the one the reader has in front of them, so *which release produced this* has to be answerable from the machine that produced it rather than reconstructed from how it was installed.
 
     **The version shall be written in exactly one file — `VERSION`, in the project root — and shall reach the binary and both delivered documents from it.** That file holds the version and nothing else, so that a release is made by editing one line and every restatement of it is derived or checked. A literal compiled into the source that a build system also knows is two places, and the one that is forgotten is never the one anybody reads: a binary confidently reporting a version it was not built as is worse than a binary that will not build. Where that file is absent or empty, the build shall fail rather than a default be substituted.
 
     **The restatements that are not derived shall be checked.** The binary takes the version from the file through the build; the man page's title line and the user manual state it as text, and nothing in the build makes those follow. A test shall read the file and require all three to agree, so that a version bump not carried into both documents fails the build rather than shipping a binary and a manual that disagree about which release they are.
 
-    **A statement of the release a promise began at is not a version stamp**, and shall not be required to track the file. Both documents record that the compatibility promise above holds *from* `1.0.0`; that names a fixed point in the project's history and stays as it is when the version moves past it.
-
     **The version shall be answered before the rest of the command line is validated**, so that it is answered by an invocation whose other arguments are wrong. That is the state a user is usually in when they are asked which version they are running. Being asked a question is not an error, so the exit status is that of a successful run, exactly as it is for the usage summary (HLR-117).
 
-    **What the promise does not cover shall be stated where the promise is.** A report's composition, its columns, and the width of its lines are presentations `elc` remains free to improve within a major version — HLR-218 and HLR-219 are both such changes — and a consumer that must survive a change of presentation is the reason the saved record of HLR-054 exists and is versioned separately by HLR-061.
+    **What a report presents is not an interface, and the delivered documentation shall say so where it describes the option.** A composition, a column, or a line width is a presentation `elc` remains free to improve — HLR-218 and HLR-219 are both such changes — and a consumer that must survive one shall be directed to the saved record of HLR-054, which exists for that purpose and is versioned separately by HLR-061. Stating this where a reader asks what version they are running is what keeps a version number from being read as a promise about the report.
     *Trace:* [SDD Section 4](SDD.md).
 
 *   <a id="HLR-152"></a>**HLR-152: Complete-Record Formats Unaffected by Verbosity.**
