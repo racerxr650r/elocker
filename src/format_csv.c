@@ -85,8 +85,8 @@ static void write_record(FILE *out, size_t count, const char *const *fields)
 static const char *csv_visibility(Visibility v)
 {
 	switch (v) {
-	case VISIBILITY_PUBLIC:  return "global";
-	case VISIBILITY_PRIVATE: return "local";
+	case VISIBILITY_PUBLIC:  return "public";
+	case VISIBILITY_PRIVATE: return "private";
 	case VISIBILITY_UNKNOWN:
 	default:                 return "";
 	}

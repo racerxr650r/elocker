@@ -575,7 +575,7 @@ table of a human\-readable report carries, in its order:
 .IP
 .EX
 file,language,function,scope,lines,eloc,cc,in,out,wtbi,burden
-/src/a.c:12,c,measure,global,9,4,2,3,1,6.00,healthy
+/src/a.c:12,c,measure,public,9,4,2,3,1,6.00,healthy
 .EE
 .IP
 .B file
@@ -586,7 +586,7 @@ is
 .B lines
 is the number of lines the function occupies rather than a range. An unknown
 visibility is the empty field and never
-.BR global :
+.BR public :
 a language whose module supplies no visibility rule has not been asked, and
 that is a different claim from having answered.
 .IP
@@ -1230,9 +1230,9 @@ reference must not depend on.
 .PP
 .B Scope
 is
-.B global
+.B public
 or
-.BR local .
+.BR private .
 It has nothing to do with
 .BR \-\-scope ,
 which declares an
@@ -1240,29 +1240,29 @@ which declares an
 scope \(em a named set of files sharing a memory map, used to find the calls by
 which one reaches another. This column is a property of a symbol rather than of
 a file, and a function reported
-.B global
+.B public
 is in no declared scope by virtue of it.
 .PP
 The column says whether the language exposes the function outside the file or
-module that defines it. The words are the linker's rather than an access-control
-language's: what C has is linkage, and "public" and "private" would invite you
-to expect an enforcement C does not provide \(em
+module that defines it \(em
 .B static
 in C and C++,
 .B pub
-in Rust, a leading underscore in Python. These are not the same kind of fact.
+in Rust, a leading underscore in Python. These are not the same kind of fact,
+and the two words do not claim they are: what C has is linkage rather than an
+access rule, which the paragraph below sets out.
 C and C++ report
 .IR linkage ,
 which is a harder guarantee than Python's convention and a different question
 from C++ class access control: a
 .B private:
 method of an exported class is reported
-.B global
+.B public
 here, because it has external linkage and the linker does see it.
 .PP
 A language whose module supplies no
 .I visibility.scm
-reports neither. Not analysed and global are different claims.
+reports neither. Not analysed and public are different claims.
 .PP
 .B Lines
 is a count and not a range. The first line is in the location beside it, so the

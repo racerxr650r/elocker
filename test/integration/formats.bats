@@ -67,7 +67,7 @@ setup() {
 	assert_line --index 0 "$want"
 	# And the location is the table's location: `path:line`, which an
 	# editor acts on, with the extent beside it as a count (HLR-210).
-	assert_output --regexp "$TREE/a\.c:[0-9]+,c,f,global,[0-9]+,"
+	assert_output --regexp "$TREE/a\.c:[0-9]+,c,f,public,[0-9]+,"
 }
 
 @test "HLR-029: md produces GitHub-Flavored Markdown" {

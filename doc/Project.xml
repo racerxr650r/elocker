@@ -13,7 +13,7 @@
   <metadata>
     <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.28" date="2026-09-02" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.21" date="2026-09-02" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.24" date="2026-09-02" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.25" date="2026-09-02" author="John Anderson"/>
     <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.32" date="2026-09-02" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.32" date="2026-09-02" author="John Anderson"/>
     <counts>
@@ -7554,6 +7554,8 @@ The tier shall present the indices only where the model carries them rendered, r
         <text><![CDATA[`render_summary` shall present every analysed function in one table carrying its file, name, scope, line range, effective lines, cyclomatic complexity, fan-in, fan-out, Weighted Test Burden Index and the band of that index, and shall present no second table enumerating one row per function for any of those measurements.
 
 The column headings shall be short enough that the file's path keeps the width. On a terminal the table is held to 128 columns (HLR-219) and the path is the cell that pays for every heading longer than its column needs: `Complexity`, `Visibility`, `Fan-in` and `Fan-out` each cost the path more than they told a reader, and are `CC`, `Scope`, `In` and `Out`.
+
+**A heading is not the vocabulary under it.** The scope column is headed `Scope` for width, and the values in it stay the `public` and `private` HLR-209 requires: the heading names the question and the cells answer it, and shortening the one does not re-word the other.
 
 The table shall be driven by the per-file function metrics rather than by the flow rows. The rows exist only where a graph was built and the metrics exist because the file was parsed, so a table driven by the rows would present no functions at all on a run whose graph was not built — which is exactly the run whose per-function figures a reader still wants.
 

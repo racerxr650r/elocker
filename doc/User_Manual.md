@@ -294,9 +294,9 @@ At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and 
 Functions
   File                     Language  Function  Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
   -----------------------  --------  --------  ------  -----  ----  --  ------  -------  -----  -------
-  /home/u/proj/src/a.c:5   c         parse     global     15     9   7       1        2  14.00  healthy
-  /home/u/proj/src/a.c:21  c         emit      global      4     3   1       1        0   1.00  healthy
-  /home/u/proj/src/b.c:3   c         main      global      9     6   2       0        1   2.00  healthy
+  /home/u/proj/src/a.c:5   c         parse     public     15     9   7       1        2  14.00  healthy
+  /home/u/proj/src/a.c:21  c         emit      public      4     3   1       1        0   1.00  healthy
+  /home/u/proj/src/b.c:3   c         main      public      9     6   2       0        1   2.00  healthy
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
@@ -590,14 +590,14 @@ They carry the same columns, in the same order:
 ```console
 $ elc -f csv src/ | head -3
 file,language,function,scope,lines,eloc,cc,in,out,wtbi,burden
-/home/you/src/measure.c:12,c,measure,global,9,4,2,3,1,84
-/home/you/src/measure.c:24,c,scale,local,6,3,1,1,0,91
+/home/you/src/measure.c:12,c,measure,public,9,4,2,3,1,84
+/home/you/src/measure.c:24,c,scale,private,6,3,1,1,0,91
 ```
 
 `file` is `path:line` — the function's first line, in the navigable form the
 report prints — and `lines` is the number of lines the function occupies
 rather than a range. An unknown visibility is the empty field and never
-`global`: a language whose module supplies no visibility rule has not been
+`public`: a language whose module supplies no visibility rule has not been
 asked, and that is a different claim from having answered.
 
 **If you are reading a CSV written by elc 0.29 or earlier**, the shape was
@@ -622,7 +622,7 @@ behind it:
 
 | File                    | Language | Function | Scope  | Lines | ELOC | CC | Fan-in | Fan-out |  WTBI | Burden  |
 | ----------------------- | -------- | -------- | ------ | ----: | ---: | -: | -----: | ------: | ----: | ------- |
-| /home/u/proj/src/a.c:21 | c        | parse    | global |    50 |   31 |  9 |      3 |       7 | 27.00 | warning |
+| /home/u/proj/src/a.c:21 | c        | parse    | public |    50 |   31 |  9 |      3 |       7 | 27.00 | warning |
 
 </details>
 ```
@@ -961,9 +961,9 @@ the function's two degrees:
 Functions
   File                     Language  Function  Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
   -----------------------  --------  --------  ------  -----  ----  --  ------  -------  -----  -------
-  /home/u/proj/src/a.c:5   c         main      global     15    12   3       0        4   3.00  healthy
-  /home/u/proj/src/a.c:21  c         parse     global     50    31   9       3        7  27.00  warning
-  /home/u/proj/src/a.c:72  c         chomp     global      7     4   1       6        0   1.00  healthy
+  /home/u/proj/src/a.c:5   c         main      public     15    12   3       0        4   3.00  healthy
+  /home/u/proj/src/a.c:21  c         parse     public     50    31   9       3        7  27.00  warning
+  /home/u/proj/src/a.c:72  c         chomp     public      7     4   1       6        0   1.00  healthy
 ```
 
 **Fan-out** is the number of *distinct subroutines a function invokes*.
@@ -2838,7 +2838,7 @@ for. Six query files are required and four are optional — a module that omits
 `deadcode.scm` is analysed for everything else while the report states that
 dead-code analysis was not performed for that language, one that omits
 `visibility.scm` reports every function's visibility as unknown rather than
-guessing that it is global, and one that omits `signature.scm` scores every
+guessing that it is public, and one that omits `signature.scm` scores every
 function at the base mocking tax alone, so its Weighted Test Burden Index
 rests on complexity and fan-in and never on what its callees cost to mock.
 The contract a module
@@ -3148,7 +3148,7 @@ That is the part worth having. A grammar that fails on a construct is debugged
 from the construct, and a line number without its line names a place nobody
 can visit. The recorded text is bounded and says how many lines it left out,
 so a file the grammar could follow nowhere is not copied into the log entire —
-which serves no one and may disclose more of a local tree than you meant.
+which serves no one and may disclose more of a private tree than you meant.
 
 **It is written as the run proceeds**, not saved up and flushed at the end. If
 `elc` faults or is killed part-way through, the log still holds everything up
@@ -3539,8 +3539,8 @@ asked.
 Functions
   File                     Language  Function          Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
   -----------------------  --------  ----------------  ----------  -----  ----  ----------  ------  -------  ---
-  /home/u/proj/src/a.c:21  c         parse             global         50    31           9       3        7   62
-  /home/u/proj/src/a.c:88  c         parse_one_header  local        14     9           3       1        2   81
+  /home/u/proj/src/a.c:21  c         parse             public         50    31           9       3        7   62
+  /home/u/proj/src/a.c:88  c         parse_one_header  private        14     9           3       1        2   81
 ```
 
 **The File column is a location you can act on.** `path:line` is the form
@@ -3566,11 +3566,11 @@ the source already states it:
 > find the calls by which one reaches another (see
 > [Cross-scope access](#cross-scope-access)). This column is a property of a
 > **symbol** — whether the linker can see its name from another translation
-> unit — and a function reported `global` here is in no declared scope by
+> unit — and a function reported `public` here is in no declared scope by
 > virtue of that. The two are unrelated and the report never mixes them: the
 > option's findings are a section of their own and are never a column.
 
-| language | `local` when | basis |
+| language | `private` when | basis |
 |---|---|---|
 | C | `static` at file scope | linkage |
 | C++ | `static`, or an anonymous namespace | linkage |
@@ -3580,13 +3580,13 @@ the source already states it:
 These are not the same kind of fact and `elc` does not pretend they are. C and
 C++ report **linkage** — whether the linker can see the name — which is a
 harder guarantee than Python's naming convention, and a different question
-from C++ class access control. A `local:` method of an exported class is
-reported **global** here, because it has external linkage and the linker does
+from C++ class access control. A `private:` method of an exported class is
+reported **public** here, because it has external linkage and the linker does
 see it; the access specifier answers a question about callers, not about the
 program's interface.
 
 A language whose module supplies no `visibility.scm` reports `—` for every
-function. That is *not analysed*, which is a different claim from *global*.
+function. That is *not analysed*, which is a different claim from *public*.
 
 **Lines is a count**, not a range: how many lines the function occupies. Its
 first line is in the location beside it, so the range is the two read

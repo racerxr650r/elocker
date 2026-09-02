@@ -240,15 +240,15 @@ staged_install() {
 
 @test "LLR-VIS-03: a module with no visibility query reports neither" {
 	# Every module shipped today supplies one, so the state is reached by
-	# taking one away. What must not happen is the column reading `global`:
+	# taking one away. What must not happen is the column reading `public`:
 	# a reader scanning for a module's interface would take every function
 	# of an unanalysed language for part of it, which is a false claim
 	# where the dash is merely an absent one.
 	rm -f "$RT/queries/c/visibility.scm"
 	elc_with_runtime "$RT" --verbose "$SUBJECT"
 	assert_success
-	refute_output --regexp "only +global"
-	refute_output --regexp "only +local"
+	refute_output --regexp "only +public"
+	refute_output --regexp "only +private"
 	assert_output --regexp "only +—"
 }
 

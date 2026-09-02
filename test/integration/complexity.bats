@@ -22,8 +22,8 @@ setup() {
 @test "HLR-017: complexity is reported per function" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --regexp "simple +global +4 +1 +1"
-	assert_output --regexp "branchy +global +8 +5 +4"
+	assert_output --regexp "simple +public +4 +1 +1"
+	assert_output --regexp "branchy +public +8 +5 +4"
 }
 
 @test "HLR-026: the summary names the most complex function and the largest file" {
@@ -224,7 +224,7 @@ setup() {
 	# 0.10 for the primitive parameter. It calls nothing, so there is
 	# nothing to mock, the weighted fan-out is zero, and the index is its
 	# complexity alone.
-	assert_output --regexp "simple +global +4 +1 +1 +0 +0 +1\.00 +healthy"
+	assert_output --regexp "simple +public +4 +1 +1 +0 +0 +1\.00 +healthy"
 }
 
 @test "HLR-224: a high index is banded upwards and says whose line it is" {

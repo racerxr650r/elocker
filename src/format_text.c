@@ -1044,24 +1044,26 @@ static int files_section(const Report *report, Style style,
  */
 /* What the report calls a visibility.
  *
- * **Reported as `global` and `local`, not as `public` and `private`.** What C
- * has is linkage, and the two words the language itself uses for it are
- * `extern` and `static`; "public" and "private" are borrowed from languages
- * with access control, which C has none of, and they invite a reader to
- * expect an enforcement that is not there. Global and local say what the
- * measurement actually is — whether the linker can see the name from another
- * translation unit.
+ * **Reported as `public` and `private`.** The column is headed `Scope`, which
+ * is the shorter word, but the values are the ones a reader of any of the
+ * supported languages already has for the idea: `pub` in Rust and a leading
+ * underscore in Python are conventions about a public and a private name, and
+ * C's `static` is how C spells the same intent. What C actually has is
+ * linkage, which is a harder guarantee than a convention and a different
+ * question from C++ class access control — the delivered documentation says
+ * so, because that is a distinction prose can draw and a one-word cell
+ * cannot.
  *
  * The unknown state is rendered as an em dash rather than left blank or
- * resolved to `global`: a language whose module supplies no visibility query
+ * resolved to `public`: a language whose module supplies no visibility query
  * has not been asked, and that is a different claim from having answered
  * (HLR-209).
  */
 static const char *visibility_name(Visibility v)
 {
 	switch (v) {
-	case VISIBILITY_PUBLIC:  return "global";
-	case VISIBILITY_PRIVATE: return "local";
+	case VISIBILITY_PUBLIC:  return "public";
+	case VISIBILITY_PRIVATE: return "private";
 	case VISIBILITY_UNKNOWN:
 	default:                 return "\u2014";
 	}

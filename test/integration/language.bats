@@ -49,8 +49,8 @@ setup() {
 	assert_success
 	# first() spans lines 1-4, second() lines 6-9: the start is in the
 	# navigable location and the extent is the count beside the name.
-	assert_output --regexp "pair\.c:1 +c +first +global +4"
-	assert_output --regexp "pair\.c:6 +c +second +global +4"
+	assert_output --regexp "pair\.c:1 +c +first +public +4"
+	assert_output --regexp "pair\.c:6 +c +second +public +4"
 }
 
 @test "HLR-210: the location is one an editor can act on" {
@@ -68,7 +68,7 @@ setup() {
 	printf 'int sig(void)\n{\n\treturn 0;\n}\n' > "$TREE/sig.c"
 	elc --verbose "$TREE/sig.c"
 	assert_success
-	assert_output --regexp "sig\.c:1 +c +sig +global +4"
+	assert_output --regexp "sig\.c:1 +c +sig +public +4"
 }
 
 @test "HLR-014: the function table names each function's language" {
@@ -252,7 +252,7 @@ alpha"
 	printf 'int f(void)\n{\n\tint n = 1;\n\treturn n;\n}\n' > "$TREE/one.c"
 	elc --verbose "$TREE/one.c"
 	assert_success
-	assert_output --regexp "f +global +5 +2"
+	assert_output --regexp "f +public +5 +2"
 }
 
 @test "HLR-024: the project summary carries a combined ELOC total" {
@@ -363,52 +363,52 @@ alpha"
 
 # --- visibility (HLR-209) --------------------------------------------------
 
-@test "HLR-209: a static C function is local and a plain one is global" {
+@test "HLR-209: a static C function is private and a plain one is public" {
 	printf 'static int hidden(void) { return 0; }\nint shown(void) { return 0; }\n' \
 		> "$TREE/vis.c"
 	elc --verbose "$TREE/vis.c"
 	assert_success
-	assert_output --regexp "hidden +local"
-	assert_output --regexp "shown +global"
+	assert_output --regexp "hidden +private"
+	assert_output --regexp "shown +public"
 }
 
 @test "HLR-209: the specific pattern decides, not the catch-all" {
 	# Both patterns of the C query match a static function: the static one
 	# and the every-function one beneath it. The earliest wins, or every
-	# function in every C file would report global.
+	# function in every C file would report public.
 	printf 'static char *dup2(char *p) { return p; }\n' > "$TREE/ptr.c"
 	elc --verbose "$TREE/ptr.c"
 	assert_success
-	assert_output --regexp "dup2 +local"
+	assert_output --regexp "dup2 +private"
 }
 
 @test "HLR-209: visibility reports linkage, not class access control" {
-	# A local method of an exported C++ class still has external linkage,
+	# A private method of an exported C++ class still has external linkage,
 	# and the linker still sees it. Reporting the access specifier would
 	# answer neither question the column asks.
 	printf 'class W {\npublic:\n\tint pub(void) { return 1; }\nprivate:\n\tint priv(void) { return 2; }\n};\n' \
 		> "$TREE/w.cpp"
 	elc --verbose "$TREE/w.cpp"
 	assert_success
-	assert_output --regexp "pub +global"
-	assert_output --regexp "priv +global"
+	assert_output --regexp "pub +public"
+	assert_output --regexp "priv +public"
 }
 
-@test "HLR-209: a C++ anonymous namespace is local, a named one is not" {
+@test "HLR-209: a C++ anonymous namespace is private, a named one is not" {
 	printf 'namespace {\nint tu_local(void) { return 1; }\n}\nnamespace api {\nint exported(void) { return 2; }\n}\n' \
 		> "$TREE/ns.cpp"
 	elc --verbose "$TREE/ns.cpp"
 	assert_success
-	assert_output --regexp "tu_local +local"
-	assert_output --regexp "exported +global"
+	assert_output --regexp "tu_local +private"
+	assert_output --regexp "exported +public"
 }
 
 @test "HLR-209: Rust reports its own pub keyword" {
 	printf 'pub fn open() -> i32 { 1 }\nfn helper() -> i32 { 2 }\n' > "$TREE/v.rs"
 	elc --verbose "$TREE/v.rs"
 	assert_success
-	assert_output --regexp "open +global"
-	assert_output --regexp "helper +local"
+	assert_output --regexp "open +public"
+	assert_output --regexp "helper +private"
 }
 
 @test "HLR-209: Python reports the leading-underscore convention" {
@@ -419,7 +419,7 @@ alpha"
 		> "$TREE/v.py"
 	elc --verbose "$TREE/v.py"
 	assert_success
-	assert_output --regexp "api +global"
-	assert_output --regexp "_helper +local"
-	assert_output --regexp "__init__ +global"
+	assert_output --regexp "api +public"
+	assert_output --regexp "_helper +private"
+	assert_output --regexp "__init__ +public"
 }

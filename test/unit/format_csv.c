@@ -226,7 +226,7 @@ Test(format_csv, a_record_carries_the_function_tables_fields)
 	char  *out    = rendered(&report);
 
 	cr_assert_not_null(strstr(out,
-	        "/tree/a.c:10,c,f,global,5,3,2,4,5,"
+	        "/tree/a.c:10,c,f,public,5,3,2,4,5,"
 	        "21.50,warning\r\n"),
 	        "the record was: %s", out);
 
