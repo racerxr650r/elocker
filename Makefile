@@ -139,9 +139,25 @@ DW_LIBS      ?= $(shell $(PKG_CONFIG) --libs libdw 2>/dev/null || echo -ldw)
 # No new package is required by Phase 31 for this reason.
 JANSSON_CFLAGS ?= $(shell $(PKG_CONFIG) --cflags jansson 2>/dev/null)
 JANSSON_LIBS   ?= $(shell $(PKG_CONFIG) --libs jansson 2>/dev/null || echo -ljansson)
+# The release this build is, read from the VERSION file in the project root.
+# That file is the single source of truth (HLR-220): the binary reports it
+# through --version, the man page's title line and the user manual state it,
+# and test/integration/docs.bats reads the file and requires all three to
+# agree with it. A literal here as well would be a second place to change,
+# and the one that gets forgotten is never the one anybody reads.
+#
+# Overridable, as every variable in this block is, so that a package build can
+# stamp a build of its own without editing a tracked file. There is no default
+# to fall back on: a tree with no readable VERSION cannot say what it is, and
+# a build that guesses would report a version it was not made as.
+VERSION_FILE := VERSION
+VERSION     ?= $(strip $(shell cat $(VERSION_FILE) 2>/dev/null))
+ifeq ($(VERSION),)
+$(error $(VERSION_FILE) is missing or empty; it is the one place the version is written (HLR-220))
+endif
 # _XOPEN_SOURCE/_DEFAULT_SOURCE are required for fts(3) on glibc and must be
 # set before any include; they live here rather than in the .c files.
-CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS) $(DW_CFLAGS) $(JANSSON_CFLAGS)
+CPPFLAGS    += -Iinclude -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE -DELC_VERSION='"$(VERSION)"' $(TS_CFLAGS) $(EXPAT_CFLAGS) $(GIT2_CFLAGS) $(IGRAPH_CFLAGS) $(ELF_CFLAGS) $(DW_CFLAGS) $(JANSSON_CFLAGS)
 CFLAGS      ?= -O2 -g
 LDFLAGS     +=
 # `-lm` for the logarithms the Maintainability Index is formed from
@@ -618,7 +634,19 @@ $(BIN): $(OBJ) | $(BUILD)
 # would interleave a shared one, and a per-object file survives an incremental
 # build — so the total describes the warnings *this image was built with*, not
 # merely those from the files that happened to be recompiled just now.
-$(BUILD)/%.o: src/%.c | $(BUILD)
+# $(VERSION_FILE) is a prerequisite because the version reaches the binary as a
+# translation-time definition, and make cannot see that a definition changed:
+# editing VERSION alters no source file, so without this line an incremental
+# build left every object as it was and the image went on reporting the release
+# it was previously made as. That is the exact failure HLR-220 exists to
+# prevent, arriving through the build rather than through the documentation.
+# Caught by rebuilding after a bump and finding the old version still answered.
+#
+# It rebuilds everything rather than the one object that reads the definition:
+# ELC_VERSION is in CPPFLAGS, so every translation unit is compiled with it and
+# a second file using it must not need this line to be revisited. A version
+# bump is rare and a full rebuild is its honest cost.
+$(BUILD)/%.o: src/%.c $(VERSION_FILE) | $(BUILD)
 	@echo "$(CC) $(CPPFLAGS) $(CFLAGS) $(ELC_CFLAGS) -c -o $@ $<"
 	@$(CC) $(CPPFLAGS) $(CFLAGS) $(ELC_CFLAGS) -c -o $@ $< 2> $@.diag; \
 	status=$$?; \

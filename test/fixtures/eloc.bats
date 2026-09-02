@@ -45,7 +45,7 @@ function_eloc() {
 }
 
 @test "HLR-019: the file's ELOC includes code outside any function" {
-	elc "$SUBJECT"
+	elc --verbose "$SUBJECT"
 	# 18 inside categories(), plus the initialised global on line 8.
 	assert_output --regexp "categories\.c +c +40 +19"
 }

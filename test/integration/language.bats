@@ -22,7 +22,7 @@ setup() {
 # --- automatic detection (HLR-007, HLR-008) --------------------------------
 
 @test "HLR-007: the language is determined from the extension, unprompted" {
-	elc "$TREE/pair.c"
+	elc --verbose "$TREE/pair.c"
 	assert_success
 	assert_output --regexp "pair\.c +c +"
 }
@@ -118,7 +118,7 @@ alpha"
 
 @test "HLR-012: a file with no language module is listed as skipped" {
 	printf '# not source\n' > "$TREE/notes.md"
-	elc "$TREE"
+	elc --verbose "$TREE"
 	assert_success
 	assert_output --partial "Skipped files"
 	assert_output --partial "notes.md"
@@ -194,7 +194,7 @@ alpha"
 	# a partial measurement must never read as a complete one.
 	printf 'int sound(void) { return 0; }\nint broken(void) { ((( \n' \
 		> "$TREE/half.c"
-	run bash -c '"$0" "$1" 2>/dev/null' "$ELC" "$TREE/half.c"
+	run bash -c '"$0" --verbose "$1" 2>/dev/null' "$ELC" "$TREE/half.c"
 	assert_output --partial "Partially parsed files"
 	assert_output --partial "half.c"
 	assert_output --regexp "Unparsed lines +[1-9]"
@@ -217,7 +217,7 @@ alpha"
 # --- the report (HLR-006, HLR-019) -----------------------------------------
 
 @test "HLR-019: each file reports its own line and function counts" {
-	elc "$TREE/pair.c"
+	elc --verbose "$TREE/pair.c"
 	assert_success
 	assert_output --regexp "pair\.c +c +9 +2"
 }
@@ -263,7 +263,7 @@ alpha"
 }
 
 @test "HLR-025: the totals are broken down by language" {
-	elc "$TREE"
+	elc --verbose "$TREE"
 	assert_success
 	assert_output --partial "Languages"
 	assert_equal "$(awk '/^Languages$/ { f = 1; next } f && /^  c / { print $1 }' <<<"$output")" "c"
@@ -271,7 +271,7 @@ alpha"
 
 @test "HLR-025: the per-language totals sum to the project totals" {
 	# One language present, so its row must equal the summary exactly.
-	elc "$TREE"
+	elc --verbose "$TREE"
 	assert_success
 
 	local summary_lines summary_eloc row_lines row_eloc
@@ -285,7 +285,7 @@ alpha"
 }
 
 @test "HLR-019: a header of declarations only reports zero ELOC" {
-	elc "$TREE/header.h"
+	elc --verbose "$TREE/header.h"
 	assert_success
 	# The header defines one inline function with a single return.
 	assert_output --regexp "header\.h +c +4 +1"
@@ -340,7 +340,7 @@ alpha"
 	printf 'int c_fn(void) { return 0; }\n' > "$tree/a.c"
 	printf 'fn rust_fn() -> i32 { 0 }\n'    > "$tree/b.rs"
 
-	elc "$tree"
+	elc --verbose "$tree"
 	assert_success
 
 	local languages

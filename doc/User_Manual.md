@@ -80,7 +80,25 @@ Run `make` with no arguments to see every available target.
 ```
 elc [OPTION]... TARGET...
 elc --help
+elc --version
 ```
+
+### Which version am I running?
+
+```sh
+elc --version      # elc 1.0.0
+```
+
+The version is answered before the rest of the command line is validated, so
+you get an answer even when the rest of the command is wrong — which is
+usually the state you are in when somebody asks you which version you have.
+
+What a report *presents* is not an interface to write against — a composition,
+a column, or a line width is a presentation `elc` stays free to improve. If you
+have a script that must keep working across releases, read [the saved
+record](#keeping-a-record) rather than the report: its format carries its own
+version, so a build that cannot read one rejects it rather than
+half-understanding it.
 
 A **target** is a source file or a directory. You can provide several targets in any combination:
 
@@ -518,10 +536,52 @@ elc -f xml src/          # the complete record of the run
 | Format | Extension | For | Notes |
 | ------ | --------- | --- | ----- |
 | `table` | `.txt` | reading | The default on standard output |
-| `md` | `.md` | a pull request, a wiki | Same sections as the table, in the same order; each table folded behind a click-to-expand |
+| `md` | `.md` | a pull request, a wiki | The same sections in the same order; each folded behind a click-to-expand. Presents more of them by default than the table does — see [Summary and verbose reports](#summary-and-verbose-reports) |
 | `csv` | `.csv` | a spreadsheet, another tool | Complete dataset; the threshold does not filter it. The same columns the Functions table carries |
 | `xml` | `.xml` | keeping | Complete record; what `--from-xml` reads back |
 | `html` | `.html` | looking at the shape of it | One page drawing the graph as layers holding files holding functions, opened collapsed. Presents its information in the context of the drawing rather than as the same tiers; not available from `--from-xml` |
+
+### The aligned table fits your terminal
+
+When the report goes to a **terminal**, no line of the aligned table is wider
+than **128 columns**. Text columns are narrowed and their cells continued on
+the lines beneath them:
+
+```console
+$ elc src/
+Functions
+  File                                    Language  Function  Lines  ELOC  Complexity
+  --------------------------------------  --------  --------  -----  ----  ----------
+  /home/you/very/long/path/to/a/project/  c         measure       9     4           2
+  src/measure.c:12
+```
+
+Three things about that, all deliberate:
+
+**Nothing is elided.** A path that does not fit is *continued*, never
+shortened. There is no ellipsis, because the paths are what you copy out of
+the table and a shortened path is not one. The break is taken at a separator
+the text already has, so a path breaks between two of its directories rather
+than in the middle of a name.
+
+**Numbers are never wrapped.** A number split across two lines is not a
+number. Only the text columns give up width.
+
+**Redirect it and you get the full width back.** The width is decided by the
+destination, not by an option, because the destination has already said what
+it is — a file has no width and a pipe has no width:
+
+```sh
+elc src/                 # wrapped to 128 columns
+elc src/ > report.txt    # the table at its natural width
+elc -o report.txt src/   # likewise
+```
+
+That does not make the output unpredictable. 128 is a constant, not your
+terminal's actual width: nothing is read from `COLUMNS`, from your locale, or
+from the size of the window, so two runs to the same kind of destination give
+you identical bytes. Resizing your terminal and running again gives you the
+same report.
 
 ### The CSV record is the Functions table, loaded rather than read
 
@@ -641,40 +701,79 @@ it can be read in a terminal, and a default nobody reads is a default that
 serves nobody. Nothing is lost: `--verbose` restores it exactly, and the two
 complete formats are untouched.
 
+### There are two summaries, because there are two readers
+
+Which tiers the *summary* presents depends on the format, and the difference
+is not an inconsistency — it is the same question answered for two different
+documents.
+
+A `report.md` is read by **searching** it. You scroll, you fold sections, you
+use your browser's find. A long table costs you nothing there, and the tiers
+worth putting in front of you are the aggregates: the totals, the per-file
+figures, the languages.
+
+A report on your **terminal** is read once, by scrolling back through what the
+command left behind. There the aggregate is the cheapest thing to recover — it
+is twelve lines and it is at the top — while the per-function figures are the
+reason you ran the command. So the terminal report is three sections:
+
+```sh
+elc src/            # Project summary, Findings, Functions — and nothing else
+elc -o report.md src/   # the aggregates, the routes, the files; no Functions
+elc --verbose src/  # everything, in either
+```
+
+**What a tier *says* never differs.** The `Functions` table on your terminal is
+the `Functions` table in your `report.md`, to the row and to the figure. Only
+which tiers you are shown without asking differs, and `--verbose` collapses
+even that.
+
+If you want one command that gives you a readable terminal report *and* a full
+saved one, ask for both — the report goes to the file and the companions are
+named from it:
+
+```sh
+elc -o report.md src/ && elc src/
+```
+
 ### Which tiers are which
 
 The rule is by *tier*, so the partition is a property of the report rather
 than of how it happened to be printed. A tier presenting a project-level
 aggregate, a file's own totals, or a finding you are expected to act on is a
-summary tier. A tier enumerating one row per analysed entity — per function,
-per global object, per unreachable statement, per graph edge, per custom-rule
-match — is a detail tier.
+summary tier of a *document*. A tier enumerating one row per analysed entity —
+per function, per global object, per unreachable statement, per graph edge, per
+custom-rule match — is a detail tier.
 
-| Tier | Summary | Verbose |
-| ---- | ------- | ------- |
-| Project summary, Findings | ✅ | ✅ |
-| Callouts | ✅ | ✅ |
-| Discovery | ✅ | ✅ |
-| Languages | ✅ | ✅ |
-| Files | ✅ | ✅ |
-| At or over a threshold | ✅ | ✅ |
-| An analysis omitted for want of a declaration, with its reason | ✅ | ✅ |
-| Architecture conformance | ✅ | ✅ |
-| Conditional-compilation definitions | ✅ | ✅ |
-| Linked-image filter | ✅ | ✅ |
-| Partially parsed files | ✅ | ✅ |
-| Skipped files | ✅ | ✅ |
-| Functions | — | ✅ |
-| Recursion, Deepest call chain | — | ✅ |
-| Component coupling, Component dependency cycles, Layering | — | ✅ |
-| Dependency structure matrix | — | ✅ |
-| Graph purification | — | ✅ |
-| Global state, Unreachable globals | — | ✅ |
-| Unreachable functions, Dead code within functions | — | ✅ |
-| Cross-scope access | — | ✅ |
-| Custom rule matches | — | ✅ |
-| Functions the image places that the parse did not reach | — | ✅ |
-| Functions the image does not define (**last**) | — | ✅ |
+The `table` column below is where the terminal report departs from that rule,
+and it departs in exactly two places: it keeps `Functions`, and it holds back
+everything else.
+
+| Tier | `md` summary | `table` summary | Verbose |
+| ---- | ------------ | --------------- | ------- |
+| Project summary, Findings | ✅ | ✅ | ✅ |
+| Functions | — | ✅ | ✅ |
+| Callouts | ✅ | — | ✅ |
+| Discovery | ✅ | — | ✅ |
+| Languages | ✅ | — | ✅ |
+| Files | ✅ | — | ✅ |
+| At or over a threshold | ✅ | — | ✅ |
+| An analysis omitted for want of a declaration, with its reason | ✅ | ✅ | ✅ |
+| Architecture conformance | ✅ | — | ✅ |
+| Conditional-compilation definitions | ✅ | — | ✅ |
+| Linked-image filter | ✅ | — | ✅ |
+| Partially parsed files | ✅ | — | ✅ |
+| Skipped files | ✅ | — | ✅ |
+| Recursion, Deepest call chain | — | — | ✅ |
+| Component coupling, Component dependency cycles, Layering | — | — | ✅ |
+| Dependency structure matrix | — | — | ✅ |
+| Graph purification | — | — | ✅ |
+| Global state, Unreachable globals | — | — | ✅ |
+| Unreachable functions, Dead code within functions | — | — | ✅ |
+| Cross-scope access | — | — | ✅ |
+| Custom rule matches | — | — | ✅ |
+| Functions the image places that the parse did not reach | — | — | ✅ |
+| Functions the image does not define (**last**) | — | — | ✅ |
 
 **The last row is last on purpose.** The functions a linked image does not
 define is the longest table a filtered run produces, and it answers a question

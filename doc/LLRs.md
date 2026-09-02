@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.16
-**Date:** 2026-08-28
+**Version:** 2.18
+**Date:** 2026-08-31
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -186,6 +186,13 @@ Command-line parsing and validation. `cli_parse` is the sole reader of `argv` an
 
 *   <a id="LLR-CLI-34"></a>**LLR-CLI-34** — `cli_parse` shall reject a manifest read, a manifest write, or a request for the drawings combined with regeneration from a saved record. A record carries what a run concluded and not the graph it concluded it from, so there is nothing there to classify, to mask, or to draw; and a user who asked for a file and received none is told why rather than left to discover the absence — the rule the GraphML export already follows.
     *Trace:* HLR-122 (Companion Artefacts Absent in Regeneration), HLR-063.
+
+*   <a id="LLR-CLI-35"></a>**LLR-CLI-35** — `cli_parse` shall answer a request for the version by writing the version of the build to standard output and ending the parse where it stands, reporting the outcome that ends the run successfully without analysis — the same outcome a request for the usage summary produces, since being asked a question is not an error (HLR-117, HLR-220).
+
+    The answer shall be given **within the option loop, before any validation of the rest of the command line**, so that an invocation whose other arguments are wrong still answers it. That is the state a user is usually in when they are asked which version they are running, and a version option that first requires a working command line is one they cannot use then.
+
+    The version shall be the one the build supplied and there shall be no default. Where the build supplies none, translation shall fail: a literal here that a build system also knows is a second place the version is written, and the one that is forgotten is never the one anybody reads.
+    *Trace:* HLR-220 (The Version the Build Was Made As), HLR-117 (Help Request Is Not an Error).
 
 ## 3. `cli_usage` ([src/cli.c](../src/cli.c))
 
@@ -1292,6 +1299,43 @@ The single place every reported collection is ordered. The audit point for deter
     The count shall be taken from the rows about to be emitted. The project summary is not built from a grid and shall gather its figures before printing any of them, so that its count is derived from the same array the rows are, rather than written down beside it.
     *Trace:* HLR-190 (Markdown Tables Presented Behind a Disclosure Element), HLR-029 (Markdown Output Format).
 
+*   <a id="LLR-SUM-19"></a>**LLR-SUM-19** — `render_summary` shall carry **two** tier classifications for each section — one for the Markdown style and one for the aligned style — and shall select between them by the style already in force for the traversal. At the summary verbosity the aligned style shall present the project summary, the findings and the per-function table alone; the Markdown style shall present the tiers LLR-SUM-09 enumerates (HLR-218).
+
+    The two classifications shall be **two fields of the one ordered section list**, never a second list beside it. A second list would satisfy the requirement and destroy the property the first one exists for: a section is written down once and classified where it is written, so there is nowhere to forget it, and a section added to one list and not the other would be silently unclassified in a format until a reader noticed a missing table. A second field cannot be filled in halfway, because the initialiser does not compile without it.
+
+    The omission predicate of LLR-SUM-09 shall apply under either classification. It asks a question about the *run* and not about the format — whether an analysis was skipped for want of a declaration — so a detail section carrying such a notice is reached at the summary verbosity in both styles, and its heading reaches the reader through the closing statement in both.
+
+    Nothing in this requirement shall change what a tier presents. A tier reached in both styles shall present the same rows and the same figures; only whether a style reaches it without being asked may differ (HLR-031).
+    *Trace:* HLR-218 (The Terminal Report's Own Composition), HLR-150 (Summary Report by Default), HLR-151 (Verbose Report on Request), HLR-031 (Uniform Report Composition Across Formats).
+
+*   <a id="LLR-SUM-20"></a>**LLR-SUM-20** — The aligned style shall hold its lines to 128 columns where — and only where — the stream it is writing to is a terminal, determined by asking that stream and not by an option, an environment variable, or a value threaded from the caller (HLR-219).
+
+    The limit shall be applied by choosing the width each column is rendered at before any row is written. Columns marked numeric shall keep their measured width. The remaining columns shall be capped at one common value, the largest under which the line fits, found by bisection over the measured widths. A common cap rather than a proportional share, because a common cap narrows the columns in the order they are widest: a column already narrower than the cap is untouched until every wider one has come down to it, which is what stops a short column being wrapped to pay for a long one.
+
+    Where no cap at or above the floor makes the line fit, every column shall keep its measured width and the table shall be emitted unwrapped (HLR-219).
+
+    The determination shall be made per table rather than once per run, so that a report written to a terminal and a companion written to a file are each laid out for their own destination without either being told about the other.
+    *Trace:* HLR-219 (A Line the Terminal Can Hold), HLR-027 (Default Human-Readable Output), HLR-032 (Deterministic Output).
+
+*   <a id="LLR-SUM-21"></a>**LLR-SUM-21** — A cell longer than the width its column was capped to shall be divided at the last of the following opportunities that falls within that width: a space, which is consumed; a `/` or a `:`, which is kept on the line it ends; failing both, the width itself. Nothing shall be discarded — every byte of the cell reaches the reader on one line or the next (HLR-219).
+
+    A division taken at the width shall be moved back to a character boundary, so that a multi-byte character is never split between two lines. The grid measures in bytes throughout, which is a separate matter and predates this requirement; cutting a character in half would put a replacement glyph in the middle of a name, which is a corruption rather than a measurement error.
+    *Trace:* HLR-219 (A Line the Terminal Can Hold), HLR-027 (Default Human-Readable Output).
+
+*   <a id="LLR-SUM-22"></a>**LLR-SUM-22** — A row whose cells did not all fit shall be written as consecutive lines, each carrying the next division of every column that still has content, padded so that a continuation appears beneath the column it continues (HLR-219).
+
+    A continuation line shall end at the last column with anything left on it, so that no line carries trailing whitespace across the gap where a short column ran out — which is the same rule LLR-SUM-04 states for a row's first line, applied to the lines beneath it.
+
+    A row whose cells all fit shall be written exactly as it was before any limit existed. The wrapped and unwrapped renderings shall be the *same* code path taken at different widths, so that an unwrapped table cannot drift from a wrapped one and a table written to a file is byte-identical to what the same run produced before this requirement (HLR-032).
+
+    No cell shall be copied into a fixed-size buffer to be written. A cell is bounded only by what a filesystem allows in a path, and a buffer sized to the limit would truncate every unwrapped table wider than the limit — which is precisely the case the limit does not apply to.
+    *Trace:* HLR-219 (A Line the Terminal Can Hold), HLR-032 (Deterministic Output), HLR-027 (Default Human-Readable Output).
+
+*   <a id="LLR-SUM-23"></a>**LLR-SUM-23** — The project summary shall take the width of both its columns from the rows it is about to present, rather than from any figure or label named individually.
+
+    The label column was the length of one label written out and the value column the widest of four of the figures named one by one. Both were true of a summary of five totals and neither survived its growth: every label longer than the constant pushed its own value out of line with the rest, so the tier that heads every report was the one tier in it that did not line up. A width derived from the rows cannot fall out of step with them, and a row added to the summary needs nothing else changed (HLR-027).
+    *Trace:* HLR-027 (Default Human-Readable Output), HLR-024 (Project-Level Totals).
+
 *   <a id="LLR-SUM-18"></a>**LLR-SUM-18** — `render_summary` shall present each function's Adapted Maintainability Index as a column of the one function table of LLR-SUM-14, and as a column of the threshold listing beside the three measurements already there, so that a listed function's score is readable without going back to the table.
     *Trace:* HLR-191 (Adapted Maintainability Index per Function), HLR-183 (One Per-Function Table), HLR-187 (The Threshold Listing Names Every Banded Function).
 
@@ -1689,6 +1733,11 @@ Requirements satisfied by the build rather than by any single function. Verified
 
 *   <a id="LLR-BLD-24"></a>**LLR-BLD-24** — The delivered source shall report no component dependency cycle when analysed by the delivered binary. A cycle is the finding `elc` raises at critical severity in anyone else's code (HLR-084), and one among its own modules would be the same defect reported by the module that contains it.
     *Trace:* HLR-181 (Self-Application), HLR-084.
+
+*   <a id="LLR-BLD-26"></a>**LLR-BLD-26** — The build shall take the version it stamps into the binary from the `VERSION` file in the project root, and shall fail with a diagnostic naming that file where it is absent or empty rather than substituting a default (HLR-220).
+
+    Every object shall depend on that file. The version reaches the binary as a translation-time definition, so editing `VERSION` alters no source file and an incremental build would otherwise leave the objects as they were and go on reporting the release the image was previously made as — the failure HLR-220 exists to prevent, arriving through the build rather than through the documentation. The dependency is on every object rather than on the one that reads the definition, since the definition is supplied to every translation unit and a second file using it must not require this to be revisited.
+    *Trace:* HLR-220 (The Version the Build Was Made As).
 
 *   <a id="LLR-BLD-25"></a>**LLR-BLD-25** — No two file-local functions in the delivered source shall share a name. `elc` resolves a call by name, so two definitions of one name make every call to it resolve to whichever the graph indexed first — an edge pointing at the wrong module, in the analysis on which the acyclicity of LLR-BLD-24 rests. The diagnostic `elc` already emits for an ambiguous resolution is the check.
     *Trace:* HLR-181 (Self-Application), HLR-077.

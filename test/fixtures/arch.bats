@@ -365,13 +365,13 @@ inverted"
 @test "HLR-162: the back-call index matches the hand-computed value" {
 	# One inverted call over six inter-layer call edges. The denominator
 	# and both figures are worked out in arch/README.md.
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 	assert_equal "$(conformance_of Back-call)" "16.67% 83.33% 6"
 }
 
 @test "HLR-163: the skip-call index matches the hand-computed value" {
-	elc "${STRATA[@]}" "$TREE"
+	elc --verbose "${STRATA[@]}" "$TREE"
 	assert_success
 	assert_equal "$(conformance_of Skip-call)" "16.67% 83.33% 6"
 }
@@ -404,7 +404,7 @@ inverted"
 	# Both files in one layer. There are two call edges and neither has a
 	# direction to invert, so the denominator is zero and the answer is
 	# "nothing demonstrated" rather than "perfectly conformant".
-	elc --stratum "all:*/cycles/*" "$CYCLES"
+	elc --verbose --stratum "all:*/cycles/*" "$CYCLES"
 	assert_success
 
 	assert_equal "$(conformance_of Back-call)" "undefined undefined 0"
@@ -414,7 +414,7 @@ inverted"
 }
 
 @test "HLR-115: with no strata the conformance section states the omission" {
-	elc "$TREE"
+	elc --verbose "$TREE"
 	assert_success
 	assert_equal "$(conformance_heading)" \
 		"Architecture conformance (omitted: no architectural strata declared, see --stratum)"

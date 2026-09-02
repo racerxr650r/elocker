@@ -83,6 +83,32 @@ Test(cli, help_long_option_reports_help)
 	cr_assert_eq(cli_parse(2, argv, &o), CLI_HELP);
 }
 
+/* Verifies LLR-CLI-35: the version request ends the parse successfully.
+ *
+ * The same outcome a help request produces, because being asked a question is
+ * not an error (HLR-117).
+ */
+Test(cli, version_option_reports_help)
+{
+	char *argv[] = { "elc", "--version", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(2, argv, &o), CLI_HELP);
+}
+
+/* Verifies LLR-CLI-35: the version is answered before the rest of the command
+ * line is validated.
+ *
+ * An unknown option and no target at all — either of which is a usage error on
+ * its own — and the version request still wins. That is the state a user is in
+ * when somebody asks which version they are running.
+ */
+Test(cli, version_is_answered_before_the_line_is_validated)
+{
+	char *argv[] = { "elc", "--version", "--bogus", NULL };
+	ElcOptions o;
+	cr_assert_eq(cli_parse(3, argv, &o), CLI_HELP);
+}
+
 Test(cli, unrecognised_option_is_a_usage_error)
 {
 	char *argv[] = { "elc", "--bogus", NULL };

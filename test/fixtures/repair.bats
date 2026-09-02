@@ -108,7 +108,7 @@ figures() {
 	# hand. This is the half a reader of the report gets: a figure resting
 	# on a guess says so where the figures are read, not only in a debug
 	# artefact nobody opens.
-	elc --no-expand "$TREE/shapes.c"
+	elc --verbose --no-expand "$TREE/shapes.c"
 	assert_success
 	assert_output --partial "Repaired regions"
 	assert_output --regexp "shapes\.c +macro adjacent to a string +1"
@@ -130,7 +130,7 @@ figures() {
 }
 
 @test "HLR-199: a sound file declares no repairs at all" {
-	elc --no-expand "$TREE/sound.c"
+	elc --verbose --no-expand "$TREE/sound.c"
 	assert_success
 	refute_output --regexp "^Repaired regions"
 	# Named among the tables that were empty, which is how the report
@@ -146,12 +146,12 @@ figures() {
 	require_tool gcc "HLR-196 repair as the fallback"
 	gcc -E -C "$TREE/sound.c" >/dev/null 2>&1 || skip "gcc cannot preprocess here"
 
-	elc "$TREE/shapes.c"
+	elc --verbose "$TREE/shapes.c"
 	assert_success
 	refute_output --regexp "^Repaired regions"
 	assert_output --partial "    - Repaired regions"
 
-	elc --no-expand "$TREE/shapes.c"
+	elc --verbose --no-expand "$TREE/shapes.c"
 	assert_success
 	assert_output --partial "Repaired regions"
 }

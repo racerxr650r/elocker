@@ -79,7 +79,7 @@ function_complexity() {
 
 @test "HLR-019: the file counts each statement line once" {
 	# Eight statements on eight distinct lines, however they are attributed.
-	elc "$SUBJECT"
+	elc --verbose "$SUBJECT"
 	assert_output --regexp "nested\.c +c +23 +8"
 }
 

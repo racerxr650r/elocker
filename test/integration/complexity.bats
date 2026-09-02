@@ -27,7 +27,10 @@ setup() {
 }
 
 @test "HLR-026: the summary names the most complex function and the largest file" {
-	elc "$TREE/pair.c"
+	# --verbose because the callouts are a detail tier of the aligned table
+	# since HLR-218; the claim under test is what they say, not where the
+	# terminal default puts them.
+	elc --verbose "$TREE/pair.c"
 	assert_success
 	assert_output --partial "Callouts"
 	assert_output --partial "Most complex"
@@ -38,13 +41,13 @@ setup() {
 # --- the threshold (HLR-021, HLR-022) --------------------------------------
 
 @test "HLR-022: the threshold defaults to 15" {
-	elc "$TREE/pair.c"
+	elc --verbose "$TREE/pair.c"
 	assert_success
 	assert_output --partial "At or over a threshold (complexity listed at 15"
 }
 
 @test "HLR-021: a function at or over the threshold is listed for its file" {
-	elc -c 4 "$TREE/pair.c"
+	elc --verbose -c 4 "$TREE/pair.c"
 	assert_success
 
 	local listed
@@ -55,7 +58,11 @@ setup() {
 
 @test "HLR-021: the listing is at-or-over, not strictly over" {
 	# branchy is exactly 4, so -c 4 lists it and -c 5 does not.
-	elc -c 5 "$TREE/pair.c"
+	#
+	# --verbose so the emptiness asserted below is the listing's and not
+	# the terminal default's: without it the section is filtered out
+	# entirely and the assertion would pass whatever the threshold did.
+	elc --verbose -c 5 "$TREE/pair.c"
 	assert_success
 
 	local listed
@@ -65,7 +72,7 @@ setup() {
 }
 
 @test "HLR-022: a lower threshold lists more" {
-	elc -c 1 "$TREE/pair.c"
+	elc --verbose -c 1 "$TREE/pair.c"
 	assert_success
 
 	local count
@@ -94,17 +101,24 @@ setup() {
 	# closing statement below it is not: at -c 100 the listing is empty and
 	# is named there, which is the listing changing and nothing else
 	# (HLR-189).
-	run bash -c '"$0" -c 1 "$1" 2>/dev/null | sed "/^At or over/,\$d"' \
+	#
+	# Rendered as Markdown, where the listing is still a summary tier
+	# (HLR-150) and is therefore followed by nothing this fixture prints.
+	# The aligned table has no listing to compare at its default since
+	# HLR-218, and --verbose puts a dozen detail sections after it — which
+	# would make the two truncations cut at different depths and the
+	# comparison meaningless.
+	run bash -c '"$0" -f md -c 1 "$1" 2>/dev/null | sed "/^## At or over/,\$d"' \
 		"$ELC" "$TREE/pair.c"
 	local low="$output"
-	run bash -c '"$0" -c 100 "$1" 2>/dev/null | sed "/^Nothing to report/,\$d"' \
+	run bash -c '"$0" -f md -c 100 "$1" 2>/dev/null | sed "/^## Nothing to report/,\$d"' \
 		"$ELC" "$TREE/pair.c"
 
 	assert_equal "$output" "$low"
 }
 
 @test "HLR-023: the threshold does not change the totals or the callouts" {
-	elc -c 100 "$TREE/pair.c"
+	elc --verbose -c 100 "$TREE/pair.c"
 	assert_success
 	assert_output --partial "branchy"
 	assert_output --regexp "Functions +2"
@@ -120,7 +134,7 @@ setup() {
 
 	local first=""
 	for _ in 1 2 3; do
-		elc "$TREE/tie.c"
+		elc --verbose "$TREE/tie.c"
 		assert_success
 		local got
 		# "  Most complex      4  branchy in /path" — the name is $4.
@@ -142,7 +156,7 @@ setup() {
 
 @test "HLR-066: an empty run still renders a well-formed report" {
 	mkdir -p "$BATS_TEST_TMPDIR/empty"
-	elc "$BATS_TEST_TMPDIR/empty"
+	elc --verbose "$BATS_TEST_TMPDIR/empty"
 	assert_success
 	assert_output --partial "Project summary"
 	# Every table is empty, so every table is named rather than printed —
@@ -179,7 +193,7 @@ setup() {
 		printf '\treturn n;\n}\n'
 	} > "$TREE/ten.c"
 
-	elc "$TREE/ten.c"
+	elc --verbose "$TREE/ten.c"
 	assert_success
 	refute_output --partial "cyclomatic complexity"
 	assert_output --partial "- At or over a threshold"
@@ -194,7 +208,7 @@ setup() {
 
 	# The listing threshold is 100 and warn() is nowhere near it; the band
 	# is what puts it in the listing, and the severity says which.
-	elc -c 100 "$TREE/bands.c"
+	elc --verbose -c 100 "$TREE/bands.c"
 	assert_success
 	assert_output --regexp "warn +11 +[0-9]+ +[0-9]+ +[0-9]+ +warning"
 }

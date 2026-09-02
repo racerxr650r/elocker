@@ -140,7 +140,7 @@ require_cc() {
 }
 
 @test "HLR-205: a preprocessor that cannot be run falls back and completes" {
-	elc --cc /nonexistent/cc "$TREE/sound.c"
+	elc --verbose --cc /nonexistent/cc "$TREE/sound.c"
 	assert_success
 	assert_output --partial "no preprocessor available"
 }
@@ -173,7 +173,7 @@ require_cc() {
 }
 
 @test "HLR-206: a fallen-back file is named with its reason" {
-	elc --cc /nonexistent/cc "$TREE/sound.c"
+	elc --verbose --cc /nonexistent/cc "$TREE/sound.c"
 	assert_success
 	assert_output --partial "Measured as written (macros not expanded)"
 	assert_output --regexp "sound\.c +no preprocessor available"
@@ -183,7 +183,7 @@ require_cc() {
 	require_cc
 	printf '#include <stdio.h>\nint mine(void) { return 1; }\n' \
 		> "$BATS_TEST_TMPDIR/uses.c"
-	elc "$BATS_TEST_TMPDIR/uses.c"
+	elc --verbose "$BATS_TEST_TMPDIR/uses.c"
 	assert_success
 	assert_output --partial "Standard-library dependence"
 	assert_output --regexp "uses\.c +C +[0-9]+ +.*stdio\.h"
@@ -195,7 +195,7 @@ require_cc() {
 		> "$BATS_TEST_TMPDIR/uses.cpp"
 	g++ -E -C "$BATS_TEST_TMPDIR/uses.cpp" >/dev/null 2>&1 || \
 		skip "g++ cannot preprocess here: HLR-207 unverified"
-	elc "$BATS_TEST_TMPDIR/uses.cpp"
+	elc --verbose "$BATS_TEST_TMPDIR/uses.cpp"
 	assert_success
 	assert_output --regexp "uses\.cpp +C\+\+ +[0-9]+"
 }

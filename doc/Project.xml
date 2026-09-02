@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.21" date="2026-08-28" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.13" date="2026-08-28" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.16" date="2026-08-28" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.22" date="2026-08-28" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.23" date="2026-08-28" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.23" date="2026-08-31" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.16" date="2026-09-01" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.18" date="2026-08-31" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.25" date="2026-09-01" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.25" date="2026-08-31" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="213"/>
-      <count name="llrs"       value="588"/>
-      <count name="tests"      value="1280"/>
-      <count name="test_files" value="59"/>
+      <count name="hlrs"       value="216"/>
+      <count name="llrs"       value="595"/>
+      <count name="tests"      value="1302"/>
+      <count name="test_files" value="60"/>
     </counts>
   </metadata>
 
@@ -205,10 +205,13 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
         <responsibility><![CDATA[Parse the structured declarations — architectural strata, entry points, and execution scopes — into their in-memory forms.]]></responsibility>
         <responsibility><![CDATA[Validate every option value and reject an unknown option, a missing argument, or a missing target before any analysis begins.]]></responsibility>
         <responsibility><![CDATA[Emit the usage summary, to `stdout` on request and to `stderr` on error.]]></responsibility>
+        <responsibility><![CDATA[Answer a request for the version from the value the build supplied, before the rest of the command line is validated, and end the run successfully without analysis (HLR-220).]]></responsibility>
         <responsibility><![CDATA[Record the purification manifest's path, and the two companion requests purification and recovery add, without reading or validating any file: the manifest is read by `purify.c`, which owns the failure, and a companion asked for with the report on standard output writes nothing rather than failing (HLR-104, HLR-119, HLR-175, HLR-176).]]></responsibility>
         <interfaces>
           <prose><![CDATA[Options are the entirety of `elc`'s configuration surface: there is no configuration file and no dotfile discovery (HLR-039).]]></prose>
-          <interface title="Option List as Single Reference"><![CDATA[The set of accepted options appears in three places: this module's `getopt_long` table, the man page, and the user manual. Nothing prevents those three drifting apart, so `cli_usage()`'s output is designated the **reference**: it is generated from the same table that parses, and the documentation is checked against it rather than against the source (LLR-DOC-04). An option that parses but does not print, or prints but is not documented, is a defect the documentation test catches.]]></interface>
+          <interface title="Option List as Single Reference"><![CDATA[The set of accepted options appears in three places: this module's `getopt_long` table, the man page, and the user manual. Nothing prevents those three drifting apart, so `cli_usage()`'s output is designated the **reference**: it is generated from the same table that parses, and the documentation is checked against it rather than against the source (LLR-DOC-04). An option that parses but does not print, or prints but is not documented, is a defect the documentation test catches.
+
+**The version has the same shape of problem and the same shape of answer** (HLR-220). It appears in the binary, in the man page's title line, and in the user manual, and nothing about those three keeps them in step. So the version is written once, in the `VERSION` file at the project root, and reaches the binary from there as a translation-time definition — there is no default and no literal in this module, and a build supplying none fails to translate rather than reporting a version it was not made as. The two documents state it as text, so the documentation test reads that file and requires the binary and both documents to agree with it (LLR-BLD-26).]]></interface>
           <interface title="Command-Line Options"><![CDATA[
 | Option | Argument | Default | Requirement |
 | ------ | -------- | ------- | ----------- |
@@ -229,6 +232,7 @@ Where a name would be ambiguous across modules it is prefixed with the module's 
 | `--from-xml` | path | — | HLR-055 |
 | `-D`, `--define` | `name[=value]` | none | HLR-131 |
 | `-h`, `--help` | — | — | HLR-117 |
+| `--version` | — | — | HLR-220 |
 ]]></interface>
           <interface title="Two Ways to Name One Format"><![CDATA[The format can be stated twice, and the two statements are settled against each other rather than by precedence.
 
@@ -850,6 +854,9 @@ It is also **the one row that runs downwards**, since the index is a score. The 
         <responsibility><![CDATA[Render Markdown with functions grouped under a per-file heading.]]></responsibility>
         <responsibility><![CDATA[Present every tier the uniform-composition rule requires, in both formats.]]></responsibility>
         <responsibility><![CDATA[Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).]]></responsibility>
+        <responsibility><![CDATA[Carry that classification twice — once for a document and once for a terminal — so the aligned table defaults to the project summary, the findings and the function table while Markdown keeps HLR-150's partition, without either becoming a second list of sections (HLR-218).]]></responsibility>
+        <responsibility><![CDATA[Hold the aligned table to 128 columns where the stream it is written to is a terminal, narrowing the text columns and continuing their cells beneath themselves, and leaving it at its natural width everywhere else (HLR-219).]]></responsibility>
+        <responsibility><![CDATA[Take the project summary's two column widths from the rows it presents, so the tier that heads every report stays aligned as rows are added to it (HLR-027).]]></responsibility>
         <responsibility><![CDATA[Present the two conformance indices as a summary tier and the dependency matrix as a detail tier, delegating the matrix's decoration to `format_dsm.c` in both human-facing formats (HLR-162, HLR-163, HLR-166).]]></responsibility>
         <responsibility><![CDATA[Present the recovered layering as a detail tier, stating in the heading that it is a proposal and never the baseline conformance is measured against, and rendering the proposal itself as the argument list a user passes back (HLR-172, HLR-173).]]></responsibility>
         <functions>
@@ -859,10 +866,16 @@ It is also **the one row that runs downwards**, since the index is a score. The 
           <function signature="void render_summary(const Report *r, FILE *out, Style style)" summary="Shared project-summary rendering for both formats."/>
           <function signature="static int grid_render(Grid *g, Style style, FILE *out, EmptyTables *empty)" summary="Emit one tier's grid in the requested style and release it — or, where the grid has no rows, emit nothing and record its heading for the closing statement (HLR-188)."/>
           <function signature="static void empty_tables_section(const EmptyTables *empty, Style style, FILE *out)" summary="The closing statement: the headings of the tables this run had nothing to put in, verbatim, so that a section omitted for want of a declaration still states its reason (HLR-189, HLR-115). Emitted whether or not anything was empty."/>
+          <function signature="static int table_limit(FILE *out)" summary="The width the aligned table is held to on this stream: 128 where the stream is a terminal, and none otherwise. The destination is asked rather than an option consulted, because a file has no width and a pipe has no width (HLR-219)."/>
+          <function signature="static void table_fit(const Grid *g, int *width, int limit)" summary="Choose the width each column renders at. Numeric columns keep their measured width; the text columns are capped at one common value found by bisection, and where no cap at or above the floor fits, every width is left as measured and the table goes out wide (HLR-219)."/>
+          <function signature="static size_t table_break(const char *text, size_t width, size_t *skip)" summary="How many bytes of a cell belong on a line of the given width, and how many to discard after them: a space if one is in reach, else a `/` or `:` kept on the line it ends, else the width itself backed off to a character boundary (HLR-219)."/>
+          <function signature="static void table_row(const Grid *g, const int *width, const char *const *cells, FILE *out)" summary="Emit one row, continuing each cell that outran its column onto the lines beneath it. The unwrapped table is this same path with nothing left over, which is what keeps the two renderings from drifting."/>
         </functions>
         <algorithm><![CDATA[**The two renderers are one traversal.** `render_report()` walks the model once and emits every tier in a fixed order; the `Style` decides only how each tier is decorated. A tier added to the traversal appears in both formats, and cannot be added to one and forgotten in the other, because there is nowhere to forget it — which is what makes HLR-031's uniform composition structural rather than maintained (LLR-SUM-02).
 
 **Verbosity is a second parameter of that same traversal, not a second traversal.** The ordered section list carries, beside each section's render function, the tier it belongs to; the walk emits a section when the verbosity is verbose, when its tier is `TIER_SUMMARY`, or when its analysis was omitted for want of a declaration. That last case is what carries HLR-115's omission notices into the summary: the section is a detail tier, but an omitted analysis produced no rows, so it renders as its heading and the reason in it — which is the notice, and needs no section of its own. A section is therefore written down once and classified once, and the guarantee that a tier cannot exist at one verbosity and not the other holds by the same construction as the guarantee across formats (LLR-SUM-09).
+
+**There are two partitions, in two columns of that one list** (HLR-218, LLR-SUM-19). The aligned table and Markdown default to different tiers, so each section carries two classifications and the style in force selects the column. Two *columns* rather than two lists, and the distinction is the whole of the design: a second array beside the first would satisfy the requirement and give up the property the first exists for, since the next section added would be classified in whichever array its author was looking at and the omission would be invisible until a reader noticed a missing table. A second column cannot be filled in halfway, because the initialiser does not compile without it. The omission predicate is asked about the run rather than the format and so applies under either column.
 
 The partition rule is HLR-150's: a tier presenting a project-level aggregate, a file's own totals, or a finding a reader is expected to act on is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Coupling, the cycles, the layering violations, and the recursive chains fall on the detail side even though each row names a component, because they enumerate the graph one entity at a time — a *file-level aggregate* in the rule's sense is a file's own totals, which is what the Files tier presents. Nothing is lost from the summary by it: each of those measurements that crossed a published line is a finding, and the findings tier is a summary tier.
 
@@ -877,6 +890,16 @@ The image-filter tier is split along the same boundary. `image_filter_section` p
 Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
 
 A left-aligned final column is not padded in the aligned style. Padding it puts trailing whitespace on every line, which shows up in a diff and is stripped by half the tools that would read it.
+
+**The aligned style holds a terminal to 128 columns** (HLR-219, LLR-SUM-20 – LLR-SUM-22). The limit is read from the destination — `isatty` on the stream the grid is being written to — rather than threaded down from the caller as a parameter of thirty section functions or held in a module-static that would be the second global in the program. The stream is already there, and asking it is a question about the thing being written to rather than a fact to be carried.
+
+The layout is chosen before any row is written. Numeric columns keep their measured width; the text columns are capped at one common value found by bisecting the measured widths, which narrows them in the order they are widest and so leaves a short column alone until every long one has come down to it. Where no cap at or above the floor fits — a table whose numbers alone exceed the limit — every width is left as measured and the table goes out wide, because a table squeezed past the point of alignment is neither a table nor prose.
+
+A cell that outran its column is continued on the lines beneath it, divided at a space if one is in reach, else after a `/` or a `:`, else at the width itself moved back to a character boundary. Nothing is elided: the paths are what a reader copies out of the table, and a shortened path is not one.
+
+**The wrapped and unwrapped renderings are one code path.** A row whose cells all fit produces one line through the same function, `last` being the column count and nothing left over — so a table written to a file is byte-identical to what the same run produced before the limit existed, and the two cannot drift. Cells are written as spans of the row's own strings through a precision rather than copied into a buffer: a buffer would have to be as wide as the widest cell any table can hold, and one sized to the limit would truncate every unwrapped table wider than it, which is exactly the case the limit does not apply to.
+
+Determinism is unaffected (HLR-032). 128 is a constant rather than the terminal's own width, nothing is read from `COLUMNS` or the locale, and the stream is asked one yes-or-no question whose answer selects between two fixed presentations — so two runs to the same kind of destination produce identical bytes.
 
 **In the Markdown style each table is folded behind a disclosure element** (HLR-190). The report runs to hundreds of rows on any real project, and a reader opening it wants to choose which of them to look at. The section's `##` heading stays a heading and stays outside the element — it is what anchors the section, what a table of contents is built from, and what the composition tests read the report's shape off — so the `<summary>` states the row count instead, which is the one thing the heading above it does not already say. The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
 
@@ -2181,7 +2204,11 @@ Every test writes its scratch files to `$BATS_TEST_TMPDIR`, or for Criterion to 
 
 **Platform degradation.** The instrumented level rests on facilities that are not universal: `/proc`, `strace`, and read-only bind mounts are Linux conveniences. Where one is unavailable, the affected test **skips explicitly**, reporting through the harness both that it skipped and which requirement thereby went unverified on that platform. A silent non-run is treated as a suite failure rather than a pass, so that a CI target quietly shedding its memory-safety, single-thread, or single-parse coverage is visible rather than assumed.
 
-Because CI enforces that policy — a skip on a Linux runner fails the build — an instrumented test may not rest on a facility a *container* withholds, as distinct from one a *platform* lacks. Unprivileged user namespaces are the case that established this: `unshare -rn` is present on any modern Linux and works when run locally, but GitHub's runners disable it, so the test that used it to verify HLR-040 skipped there and turned an unavailable facility into a red build. The property is now observed with `strace -e trace=%network`, which needs no privilege. Prefer observing the syscalls a requirement forbids over constructing an environment in which the requirement cannot be violated: the direct observation is more portable, and it is the stronger claim — that `elc` never *attempts* the forbidden thing, not merely that it survives being denied it.]]></framework>
+Because CI enforces that policy — a skip on a Linux runner fails the build — an instrumented test may not rest on a facility a *container* withholds, as distinct from one a *platform* lacks. Unprivileged user namespaces are the case that established this: `unshare -rn` is present on any modern Linux and works when run locally, but GitHub's runners disable it, so the test that used it to verify HLR-040 skipped there and turned an unavailable facility into a red build. The property is now observed with `strace -e trace=%network`, which needs no privilege. Prefer observing the syscalls a requirement forbids over constructing an environment in which the requirement cannot be violated: the direct observation is more portable, and it is the stronger claim — that `elc` never *attempts* the forbidden thing, not merely that it survives being denied it.
+
+**A behaviour that only happens on a terminal is provoked with a terminal, not with a switch.** HLR-219 makes the aligned table's width a property of its destination, decided by asking the stream whether it is a terminal. Bats captures output through a pipe, so that question is answered `no` in every ordinary `run` and the behaviour under test never fires — a suite written the usual way would assert the unwrapped table and pass, for the wrong reason, permanently. `test/integration/terminal.bats` therefore allocates a pseudo-terminal with `script(1)` and runs `elc` under it, stripping the carriage returns the line discipline adds before asserting.
+
+The alternative — an environment variable in `src/` that forces the wrapping — was rejected, and the reason generalises. It would be a test seam in the product, which the development rules forbid, and it would be a seam of the worst kind: the *only* path most runs of the suite exercised would be the one no user ever takes, so the observation the requirement is actually about would go unverified while every test passed. Where a requirement is about how the program behaves in a particular environment, construct the environment.]]></framework>
 
       <build_execution>
         <intro><![CDATA[All tests are built and executed by `make test`. The target:]]></intro>
@@ -2765,7 +2792,7 @@ For the purposes of this and every other requirement in this document, "function
       <intro><![CDATA[Requirements governing how `elc` renders its computed results for human and machine consumption (PVD §5 item 7, §7.1).]]></intro>
 
       <hlr id="HLR-027" name="Default Human-Readable Output">
-        <text><![CDATA[By default, `elc` shall render its results as an aligned, human-readable table on standard output. What that table presents by default is the summary composition of HLR-150; this requirement fixes the default *format* and destination, and says nothing about how much of the report they carry.]]></text>
+        <text><![CDATA[By default, `elc` shall render its results as an aligned, human-readable table on standard output. What that table presents by default is the composition of HLR-218, and how wide its lines are where the destination is a terminal is fixed by HLR-219; this requirement fixes the default *format* and destination, and says nothing about how much of the report they carry or how it is laid out.]]></text>
       <traces>
         <trace target="SDD" ref="4"/>
         <trace target="SDD" ref="14"/>
@@ -2827,7 +2854,7 @@ For the purposes of this and every other requirement in this document, "function
       </hlr>
 
       <hlr id="HLR-031" name="Uniform Report Composition Across Formats">
-        <text><![CDATA[Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), Graphviz `.dot` (HLR-102), and HTML (HLR-215) shall present the same tiers of information *at the same verbosity*: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
+        <text><![CDATA[Every report format `elc` supports other than CSV (HLR-028), XML (HLR-054), Graphviz `.dot` (HLR-102), and HTML (HLR-215) shall present the same tiers of information *at the verbose verbosity of HLR-151*, and shall present the same rows carrying the same figures wherever a tier is presented in more than one of them. Which tiers a format presents *by default* is settled per format by HLR-150 and HLR-218, and is deliberately not uniform: the reader of a saved document and the reader of a terminal are asking at different altitudes. The tiers, at that verbosity, are: the project summary (HLR-024 through HLR-026), the discovery route applied to each directory target (HLR-127), each file's totals and threshold list (HLR-019, HLR-021), full per-function detail (HLR-014, HLR-015, HLR-017), the architectural measurements *and* findings of Sections 11 through 14 — including a measurement that falls within its accepted band and therefore yields no finding — any custom-rule matches (HLR-109), the files skipped for want of a language module (HLR-012), and any analysis omitted for want of a user declaration (HLR-115).
 
 The enumeration above is the **verbose** composition of HLR-151. Verbosity selects how much of it a given run presents (HLR-150), and this requirement governs the axis it does not touch: whichever verbosity is in force, every affected format shall present the same tiers as every other. Uniformity is across formats at a fixed verbosity, never across verbosities — a table and a Markdown report of the same run must not differ, and a summary report is not required to match a verbose one.
 
@@ -2871,7 +2898,9 @@ Where an output filename and an explicit format option are both supplied and the
 
 It shall omit by default the **detail** tiers: every section presenting one row per function, per global object, per unreachable statement, per graph edge, or per custom-rule match. The partition rule is that a tier reporting a project-level or file-level aggregate, or a finding a reader is expected to act on, is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Which tier each section belongs to shall be stated in the delivered documentation (HLR-129), so that the partition is a published property of the report rather than an artefact of how a renderer was written.
 
-The default changed with this requirement, and that is deliberate: the full report grew past the length at which it can be read in a terminal, and a default nobody reads is a default that serves nobody. Nothing is lost, because HLR-151 restores it in full and HLR-152 exempts the formats whose whole purpose is completeness.]]></text>
+The default changed with this requirement, and that is deliberate: the full report grew past the length at which it can be read in a terminal, and a default nobody reads is a default that serves nobody. Nothing is lost, because HLR-151 restores it in full and HLR-152 exempts the formats whose whole purpose is completeness.
+
+**This is the partition for a report that is saved and read as a document.** The aligned table, which is read once in a terminal, has its own and narrower one: HLR-218 states it, states why the same rule does not serve both readers, and states the boundary the two share — which tiers a format presents by default may differ, and what a tier says may not.]]></text>
       <traces>
         <trace target="SDD" ref="13"/>
         <trace target="SDD" ref="14"/>
@@ -2886,6 +2915,59 @@ The option shall govern presentation alone. It shall not change any measurement,
         <trace target="SDD" ref="4"/>
         <trace target="SDD" ref="13"/>
         <trace target="SDD" ref="14"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-218" name="The Terminal Report's Own Composition">
+        <text><![CDATA[The aligned table (HLR-027) shall present, by default, the project summary (HLR-024 through HLR-026), the findings ranked by severity (HLR-098, HLR-123), and the per-function table (HLR-014, HLR-015, HLR-017, HLR-183) — and no other tier. Every remaining tier shall be presented on the verbose request of HLR-151, which restores them in full.
+
+**There are two summary partitions because there are two readers, and neither is a special case of the other.** HLR-150 fixes one partition for every human-readable format, and its rule is a document's rule: a saved report is read by *searching* it, so a long table costs its reader nothing and the tiers worth defaulting to are the aggregates. A report on a terminal is read once, by scrolling back through what a command left behind, and there the aggregate is the cheapest thing to recover — it is a dozen lines and it is at the top — while the per-function figures are the reason the command was run. A reader who types the command with no options wants to know which of their functions are heavy; sending them back with a second option to find out, after a dozen tables they did not ask for, is a default serving the format rather than the reader.
+
+**The per-function table therefore crosses the partition, and only in this format.** By HLR-150's rule it is a detail tier by construction, enumerating one row per analysed entity. That rule is right for the document and wrong for the terminal, and this requirement states the exception rather than weakening the rule that produces it.
+
+**What is given up is stated rather than glossed.** The file totals, the languages, the discovery routes, the threshold listing, the conformance indices and the image provenance all leave this format's default. Every one remains a verbose request away, and every one remains in a report saved in any other format at any verbosity — nothing is removed from the tool, and this requirement removes nothing from any other format.
+
+**The difference shall be in which tiers a format presents and never in what a tier says.** A tier presented in two formats shall present the same rows carrying the same figures, taken from the same model. That is the boundary that keeps this from becoming two reports to be kept in agreement, which is the failure HLR-031 exists to prevent; a divergence in the content of a tier is a defect and not a format difference.
+
+**The classification shall be a property of the one shared traversal**, as HLR-150's already is: a second list of sections beside the first would let a tier be classified in one format and left unclassified in the other, which is the construction HLR-031 and HLR-151 are made safe by.]]></text>
+      <traces>
+        <trace target="SDD" ref="14"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-219" name="A Line the Terminal Can Hold">
+        <text><![CDATA[Where the aligned table (HLR-027) is written to a terminal, no line of it shall exceed **128 columns**. Columns holding text shall be narrowed and their cells continued on the lines beneath them; columns holding numbers shall not be narrowed, since a number divided across two lines is not a number.
+
+**A wrapped aligned table is worse than no table.** The format is chosen for exactly one property — the columns line up — and a line the terminal folds is a line that has lost it. On a project of forty-four files the report is already twice the width of a wide terminal, and the reader who most needs it to be readable is the one who gets the version that is not.
+
+**Nothing shall be elided.** A cell that does not fit shall be continued rather than shortened: no ellipsis, no abbreviation, no dropped middle. The paths in this report are what a reader copies out of it in order to do something next, and a shortened path is not one. Where a cell must be broken, the break shall be taken at a separator the content already carries wherever there is one within reach, so that a path breaks between two of its directories rather than through the middle of a name.
+
+**A cell's continuation shall appear beneath its own column.** The table is not reflowed into paragraphs; it stays a table, read down its columns, which is the property being preserved rather than sacrificed.
+
+**The width shall be decided by the destination and not declared by an option.** A file has no width and a pipe has no width; a terminal does, and the destination has therefore already said which it is. An option restating it would be a second spelling that can disagree with the first — the disagreement HLR-149 exists to prevent between the two ways of naming a format — and it would put the reader in charge of a fact the program can observe.
+
+**This does not weaken HLR-032.** The limit is a fixed constant and not the terminal's own width: nothing is read from the environment's column count, from the locale, or from the size of a window. The destination is asked one yes-or-no question and the answer selects between two fixed presentations, so two runs to the same kind of destination produce identical bytes and a resized window changes nothing. A run to a terminal and a run to a pipe differ, which is the distinction this requirement draws rather than an exception to that one.
+
+**Where the table cannot be made to fit, it shall be emitted unwrapped.** A table whose columns of numbers alone exceed the limit has no arrangement that both fits and stays aligned, and squeezing it past that point produces something that is neither a table nor prose. A wide table is a worse outcome than a narrow one and a better outcome than a mangled one.]]></text>
+      <traces>
+        <trace target="SDD" ref="14"/>
+      </traces>
+      </hlr>
+
+      <hlr id="HLR-220" name="The Version the Build Was Made As">
+        <text><![CDATA[`elc` shall provide a command-line option that writes the version of the build to standard output and exits successfully, and the version it writes shall be the version stated by the delivered documentation (HLR-128 – HLR-130).
+
+**A build must be able to say which release it is.** A defect report against a build that will not name its version names no version, and two builds that behave differently cannot be told apart at all. `elc` is meant to be run from scripts and continuous integration, where the build that produced a result is frequently not the one the reader has in front of them, so *which release produced this* has to be answerable from the machine that produced it rather than reconstructed from how it was installed.
+
+**The version shall be written in exactly one file — `VERSION`, in the project root — and shall reach the binary and both delivered documents from it.** That file holds the version and nothing else, so that a release is made by editing one line and every restatement of it is derived or checked. A literal compiled into the source that a build system also knows is two places, and the one that is forgotten is never the one anybody reads: a binary confidently reporting a version it was not built as is worse than a binary that will not build. Where that file is absent or empty, the build shall fail rather than a default be substituted.
+
+**The restatements that are not derived shall be checked.** The binary takes the version from the file through the build; the man page's title line and the user manual state it as text, and nothing in the build makes those follow. A test shall read the file and require all three to agree, so that a version bump not carried into both documents fails the build rather than shipping a binary and a manual that disagree about which release they are.
+
+**The version shall be answered before the rest of the command line is validated**, so that it is answered by an invocation whose other arguments are wrong. That is the state a user is usually in when they are asked which version they are running. Being asked a question is not an error, so the exit status is that of a successful run, exactly as it is for the usage summary (HLR-117).
+
+**What a report presents is not an interface, and the delivered documentation shall say so where it describes the option.** A composition, a column, or a line width is a presentation `elc` remains free to improve — HLR-218 and HLR-219 are both such changes — and a consumer that must survive one shall be directed to the saved record of HLR-054, which exists for that purpose and is versioned separately by HLR-061. Stating this where a reader asks what version they are running is what keeps a version number from being read as a promise about the report.]]></text>
+      <traces>
+        <trace target="SDD" ref="4"/>
       </traces>
       </hlr>
 
@@ -5056,6 +5138,17 @@ The extension is the last dot of the *basename*: a directory component carrying 
         <traces>
           <trace target="HLR" ref="HLR-122" name="Companion Artefacts Absent in Regeneration"/>
           <trace target="HLR" ref="HLR-063"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CLI-35">
+        <text><![CDATA[`cli_parse` shall answer a request for the version by writing the version of the build to standard output and ending the parse where it stands, reporting the outcome that ends the run successfully without analysis — the same outcome a request for the usage summary produces, since being asked a question is not an error (HLR-117, HLR-220).
+
+The answer shall be given **within the option loop, before any validation of the rest of the command line**, so that an invocation whose other arguments are wrong still answers it. That is the state a user is usually in when they are asked which version they are running, and a version option that first requires a working command line is one they cannot use then.
+
+The version shall be the one the build supplied and there shall be no default. Where the build supplies none, translation shall fail: a literal here that a build system also knows is a second place the version is written, and the one that is forgotten is never the one anybody reads.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-220" name="The Version the Build Was Made As"/>
+          <trace target="HLR" ref="HLR-117" name="Help Request Is Not an Error"/>
         </traces>
       </llr>
 
@@ -7436,6 +7529,67 @@ The count shall be taken from the rows about to be emitted. The project summary 
         </traces>
       </llr>
 
+      <llr id="LLR-SUM-19">
+        <text><![CDATA[`render_summary` shall carry **two** tier classifications for each section — one for the Markdown style and one for the aligned style — and shall select between them by the style already in force for the traversal. At the summary verbosity the aligned style shall present the project summary, the findings and the per-function table alone; the Markdown style shall present the tiers LLR-SUM-09 enumerates (HLR-218).
+
+The two classifications shall be **two fields of the one ordered section list**, never a second list beside it. A second list would satisfy the requirement and destroy the property the first one exists for: a section is written down once and classified where it is written, so there is nowhere to forget it, and a section added to one list and not the other would be silently unclassified in a format until a reader noticed a missing table. A second field cannot be filled in halfway, because the initialiser does not compile without it.
+
+The omission predicate of LLR-SUM-09 shall apply under either classification. It asks a question about the *run* and not about the format — whether an analysis was skipped for want of a declaration — so a detail section carrying such a notice is reached at the summary verbosity in both styles, and its heading reaches the reader through the closing statement in both.
+
+Nothing in this requirement shall change what a tier presents. A tier reached in both styles shall present the same rows and the same figures; only whether a style reaches it without being asked may differ (HLR-031).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-218" name="The Terminal Report's Own Composition"/>
+          <trace target="HLR" ref="HLR-150" name="Summary Report by Default"/>
+          <trace target="HLR" ref="HLR-151" name="Verbose Report on Request"/>
+          <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SUM-20">
+        <text><![CDATA[The aligned style shall hold its lines to 128 columns where — and only where — the stream it is writing to is a terminal, determined by asking that stream and not by an option, an environment variable, or a value threaded from the caller (HLR-219).
+
+The limit shall be applied by choosing the width each column is rendered at before any row is written. Columns marked numeric shall keep their measured width. The remaining columns shall be capped at one common value, the largest under which the line fits, found by bisection over the measured widths. A common cap rather than a proportional share, because a common cap narrows the columns in the order they are widest: a column already narrower than the cap is untouched until every wider one has come down to it, which is what stops a short column being wrapped to pay for a long one.
+
+Where no cap at or above the floor makes the line fit, every column shall keep its measured width and the table shall be emitted unwrapped (HLR-219).
+
+The determination shall be made per table rather than once per run, so that a report written to a terminal and a companion written to a file are each laid out for their own destination without either being told about the other.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-219" name="A Line the Terminal Can Hold"/>
+          <trace target="HLR" ref="HLR-027" name="Default Human-Readable Output"/>
+          <trace target="HLR" ref="HLR-032" name="Deterministic Output"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SUM-21">
+        <text><![CDATA[A cell longer than the width its column was capped to shall be divided at the last of the following opportunities that falls within that width: a space, which is consumed; a `/` or a `:`, which is kept on the line it ends; failing both, the width itself. Nothing shall be discarded — every byte of the cell reaches the reader on one line or the next (HLR-219).
+
+A division taken at the width shall be moved back to a character boundary, so that a multi-byte character is never split between two lines. The grid measures in bytes throughout, which is a separate matter and predates this requirement; cutting a character in half would put a replacement glyph in the middle of a name, which is a corruption rather than a measurement error.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-219" name="A Line the Terminal Can Hold"/>
+          <trace target="HLR" ref="HLR-027" name="Default Human-Readable Output"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SUM-22">
+        <text><![CDATA[A row whose cells did not all fit shall be written as consecutive lines, each carrying the next division of every column that still has content, padded so that a continuation appears beneath the column it continues (HLR-219).
+
+A continuation line shall end at the last column with anything left on it, so that no line carries trailing whitespace across the gap where a short column ran out — which is the same rule LLR-SUM-04 states for a row's first line, applied to the lines beneath it.
+
+A row whose cells all fit shall be written exactly as it was before any limit existed. The wrapped and unwrapped renderings shall be the *same* code path taken at different widths, so that an unwrapped table cannot drift from a wrapped one and a table written to a file is byte-identical to what the same run produced before this requirement (HLR-032).
+
+No cell shall be copied into a fixed-size buffer to be written. A cell is bounded only by what a filesystem allows in a path, and a buffer sized to the limit would truncate every unwrapped table wider than the limit — which is precisely the case the limit does not apply to.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-219" name="A Line the Terminal Can Hold"/>
+          <trace target="HLR" ref="HLR-032" name="Deterministic Output"/>
+          <trace target="HLR" ref="HLR-027" name="Default Human-Readable Output"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SUM-23">
+        <text><![CDATA[The project summary shall take the width of both its columns from the rows it is about to present, rather than from any figure or label named individually.
+
+The label column was the length of one label written out and the value column the widest of four of the figures named one by one. Both were true of a summary of five totals and neither survived its growth: every label longer than the constant pushed its own value out of line with the rest, so the tier that heads every report was the one tier in it that did not line up. A width derived from the rows cannot fall out of step with them, and a row added to the summary needs nothing else changed (HLR-027).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-027" name="Default Human-Readable Output"/>
+          <trace target="HLR" ref="HLR-024" name="Project-Level Totals"/>
+        </traces>
+      </llr>
       <llr id="LLR-SUM-18">
         <text><![CDATA[`render_summary` shall present each function's Adapted Maintainability Index as a column of the one function table of LLR-SUM-14, and as a column of the threshold listing beside the three measurements already there, so that a listed function's score is readable without going back to the table.]]></text>
         <traces>
@@ -8272,6 +8426,16 @@ The allowlist cannot hold the distinction that matters most about it. `libdw` co
           <trace target="HLR" ref="HLR-084"/>
         </traces>
       </llr>
+
+      <llr id="LLR-BLD-26">
+        <text><![CDATA[The build shall take the version it stamps into the binary from the `VERSION` file in the project root, and shall fail with a diagnostic naming that file where it is absent or empty rather than substituting a default (HLR-220).
+
+Every object shall depend on that file. The version reaches the binary as a translation-time definition, so editing `VERSION` alters no source file and an incremental build would otherwise leave the objects as they were and go on reporting the release the image was previously made as — the failure HLR-220 exists to prevent, arriving through the build rather than through the documentation. The dependency is on every object rather than on the one that reads the definition, since the definition is supplied to every translation unit and a second file using it must not require this to be revisited.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-220" name="The Version the Build Was Made As"/>
+        </traces>
+      </llr>
+
 
       <llr id="LLR-BLD-25">
         <text><![CDATA[No two file-local functions in the delivered source shall share a name. `elc` resolves a call by name, so two definitions of one name make every call to it resolve to whichever the graph indexed first — an edge pointing at the wrong module, in the analysis on which the acyclicity of LLR-BLD-24 rests. The diagnostic `elc` already emits for an ambiguous resolution is the check.]]></text>
@@ -10328,7 +10492,7 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
       </traces>
     </test>
   </file>
-  <file path="test/unit/cli.c" role="unit" count="84">
+  <file path="test/unit/cli.c" role="unit" count="86">
     <test name="wrap_passes_through_when_not_armed">
       <purpose><![CDATA[An unarmed link-time wrapper delegates to the real implementation, so wrapping does not perturb tests that do not use it.]]></purpose>
       <traces>
@@ -10351,6 +10515,18 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
       <purpose><![CDATA[`--help` is reported as a help request.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CLI-13"/>
+      </traces>
+    </test>
+    <test name="version_option_reports_help">
+      <purpose><![CDATA[The version request ends the parse with the outcome a help request ends it with, since being asked a question is not an error.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-35"/>
+      </traces>
+    </test>
+    <test name="version_is_answered_before_the_line_is_validated">
+      <purpose><![CDATA[An unknown option and no target at all — either a usage error on its own — and the version request still wins, because the state a user is in when somebody asks which version they are running is frequently one where the command did not work.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CLI-35"/>
       </traces>
     </test>
     <test name="unrecognised_option_is_a_usage_error">
@@ -12517,7 +12693,7 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
     </test>
 </file>
 
-  <file path="test/unit/format_text.c" role="unit" count="16">
+  <file path="test/unit/format_text.c" role="unit" count="20">
     <test name="the_table_carries_the_summary_and_every_file">
       <purpose><![CDATA[The rendered table contains the project summary tier and one row for each file in the model.]]></purpose>
       <traces>
@@ -12542,10 +12718,29 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
         <trace target="LLR" ref="LLR-TBL-03"/>
       </traces>
     </test>
-    <test name="the_summary_omits_the_per_function_tier">
-      <purpose><![CDATA[The tier boundary at its sharpest: a file's own totals stay in the summary and the per-function table goes, and the verbose render of the same model has it back.]]></purpose>
+    <test name="a_cell_wider_than_the_wrap_limit_survives_an_unwrapped_table">
+      <purpose><![CDATA[The regression the requirement's last paragraph exists for. The wrapping was first written by copying each cell into a fixed buffer the width of the limit, which silently divided every cell wider than 128 in tables the limit does not apply to. A temporary file is not a terminal, so the 299-character path under test must come back on one line.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-22"/>
+      </traces>
+    </test>
+    <test name="the_project_summary_columns_are_sized_from_its_rows">
+      <purpose><![CDATA[Every row of the project summary rendered to one width, which is what "aligned" means for that tier and what it stopped being the moment a label longer than the hard-coded one was added to it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-23"/>
+      </traces>
+    </test>
+    <test name="the_markdown_summary_omits_the_per_function_tier">
+      <purpose><![CDATA[The tier boundary at its sharpest: a file's own totals stay in the summary and the per-function table goes, and the verbose render of the same model has it back. Asserted against Markdown, whose partition is the document's rule HLR-150 states; the aligned table answers differently and the test below is where that is stated.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-SUM-09"/>
+      </traces>
+    </test>
+    <test name="the_terminal_summary_is_the_summary_the_findings_and_the_functions">
+      <purpose><![CDATA[The converse against the same model, so that the two together say the difference is the format's and not the fixture's: the aligned table's default carries the project summary and the function table, and reaches none of the tiers HLR-150 keeps in a Markdown summary. The absences are checked against tiers that *are* summary tiers somewhere — asserting the absence of a tier that is a detail tier in both columns would pass against a renderer that had lost the second partition entirely.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-19"/>
+        <trace target="HLR" ref="HLR-218"/>
       </traces>
     </test>
     <test name="the_findings_follow_the_project_summary">
@@ -12597,16 +12792,24 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
         <trace target="LLR" ref="LLR-SUM-09"/>
       </traces>
     </test>
-    <test name="both_styles_reach_the_same_tiers_at_each_verbosity">
-      <purpose><![CDATA[The structural property behind the partition: one traversal under two decorations and two filters, so whichever tier a verbosity reaches it reaches in both styles. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it. The tier lists include the conformance indices among the summary tiers and the dependency matrix among the detail tiers, so the two land on the same construction as the rest.]]></purpose>
+    <test name="every_tier_is_reached_at_the_verbose_verbosity_in_both_styles">
+      <purpose><![CDATA[The structural property the two partitions left standing: one traversal under two decorations, so every tier is reached by a verbose run of either style and a section forgotten in both columns of the list has nowhere to hide. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it. Asserted at the verbose verbosity alone: the two summaries are deliberately different documents since HLR-218, so a summary run can no longer make this claim.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-SUM-09"/>
         <trace target="LLR" ref="LLR-SUM-02"/>
         <trace target="LLR" ref="LLR-SUM-11"/>
       </traces>
     </test>
+    <test name="the_two_summary_partitions_differ_by_format">
+      <purpose><![CDATA[The partition itself asserted as data: a table of tiers with the answer each style gives, checked against both renderings of one model. Stronger than either summary's own test, because a tier classified summary in one column and detail in the other must be present in exactly one of the two — which is what fails if a future section is given the same classification in both columns by copy-paste.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-19"/>
+        <trace target="HLR" ref="HLR-218"/>
+        <trace target="HLR" ref="HLR-150"/>
+      </traces>
+    </test>
     <test name="conformance_is_a_summary_tier_and_the_matrix_a_detail_tier">
-      <purpose><![CDATA[The partition rule applied to the two tiers this phase added: a project-level aggregate stays in the summary and a table with one row per subject does not. Asserted in both decorations, because a tier reaching one and not the other would break the uniform composition the shared traversal exists to guarantee.]]></purpose>
+      <purpose><![CDATA[The partition rule applied to the two tiers Phase 21 added: a project-level aggregate stays in the summary and a table with one row per subject does not. Asserted against Markdown, whose partition is the one the claim is about — the aligned table classifies both as detail since HLR-218, which the partition test above states.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-SUM-11"/>
         <trace target="HLR" ref="HLR-150"/>
@@ -12752,7 +12955,7 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
     </test>
   </file>
 
-  <file path="test/integration/docs.bats" role="integration" count="15">
+  <file path="test/integration/docs.bats" role="integration" count="18">
     <test name="the man page exists">
       <purpose><![CDATA[The project delivers a man page.]]></purpose>
       <traces>
@@ -12853,6 +13056,27 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
       <traces>
         <trace target="LLR" ref="LLR-DOC-05"/>
         <trace target="HLR" ref="HLR-129"/>
+        <trace target="HLR" ref="HLR-130"/>
+      </traces>
+    </test>
+    <test name="HLR-220: the binary reports the version the VERSION file declares">
+      <purpose><![CDATA[The single source of truth is read from the `VERSION` file and the binary's answer is required to equal it exactly. The other two version tests assert only the shape of what is printed, which a build stamped with the wrong release satisfies; this is the one that reads what the project says the release is.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-220"/>
+        <trace target="LLR" ref="LLR-BLD-26"/>
+      </traces>
+    </test>
+    <test name="HLR-220: the man page's title line states the declared version">
+      <purpose><![CDATA[The third field of the `.TH` line is the version the page is stamped with and what `man elc` prints in the footer of every screen of it. Nothing in the build makes it follow the `VERSION` file, so a bump not carried into the man page fails here.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-220"/>
+        <trace target="HLR" ref="HLR-128"/>
+      </traces>
+    </test>
+    <test name="HLR-220: the user manual shows the declared version as --version's answer">
+      <purpose><![CDATA[The manual's example of what `--version` answers is required to show the declared version. Read at the stating location rather than over every occurrence, so that a worked example, a release note, or a passage naming an older release for a reason of its own is not taken for the version stamp and does not have to be edited every time the version moves.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-220"/>
         <trace target="HLR" ref="HLR-130"/>
       </traces>
     </test>
@@ -13906,6 +14130,103 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
     </test>
 </file>
 
+  <file path="test/integration/terminal.bats" role="integration" count="13">
+    <test name="HLR-219: no line of a terminal report exceeds 128 columns">
+      <purpose><![CDATA[The width itself, over a target whose paths are long enough to force the narrowing rather than merely permit it. Run on a pseudo-terminal allocated with script(1), because Bats captures output through a pipe and the limit would otherwise never fire — a test written the ordinary way would assert the unwrapped table and pass for the wrong reason forever. There is deliberately no environment variable in src/ to force the behaviour: that would be a test seam in the product, and the seam would be the only thing most runs exercised.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-219"/>
+      
+        <trace target="LLR" ref="LLR-SUM-20"/>
+      </traces>
+    </test>
+    <test name="HLR-219: the same report redirected is not wrapped">
+      <purpose><![CDATA[The half that makes the width a property of the destination rather than a new default: redirected, the same run over the same target produces a line past the limit.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-219"/>
+      
+        <trace target="LLR" ref="LLR-SUM-20"/>
+      </traces>
+    </test>
+    <test name="HLR-032: two runs to the same destination are byte-identical">
+      <purpose><![CDATA[Determinism is per destination. Two runs to a terminal agree and two runs to a pipe agree, which is what the requirement asks; that the two disagree with each other is the distinction HLR-219 draws rather than an exception to HLR-032.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-032"/>
+        <trace target="HLR" ref="HLR-219"/>
+      
+        <trace target="LLR" ref="LLR-SUM-22"/>
+      </traces>
+    </test>
+    <test name="HLR-219: wrapping elides nothing and breaks a path at a separator">
+      <purpose><![CDATA[No ellipsis anywhere, and the File column's first line ends at a directory boundary rather than mid-name. Read out of the column rather than off the end of a line, because how many continuation lines a path needs depends on the length of the temporary directory — an assertion that depended on that would pass or fail for reasons unrelated to the break rule.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-219"/>
+      
+        <trace target="LLR" ref="LLR-SUM-21"/>
+      </traces>
+    </test>
+    <test name="HLR-219: a numeric column is never wrapped">
+      <purpose><![CDATA[The six numeric headings of the function table intact on one line. A number divided across two lines is not a number, and a divided heading is the visible symptom of a renderer that would divide one.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-219"/>
+      </traces>
+    </test>
+    <test name="HLR-219: a cell with no separator in it is broken hard">
+      <purpose><![CDATA[The branch that ships untested if only real output is looked at: every path in a real report breaks at a slash, so the fallback division at the width itself is never reached. Provoked with a 120-character C identifier, which has neither a space nor a separator in it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-219"/>
+      
+        <trace target="LLR" ref="LLR-SUM-21"/>
+      </traces>
+    </test>
+    <test name="HLR-218: the report a terminal gets is three sections">
+      <purpose><![CDATA[The composition, end to end over a real run: the project summary, the findings and the functions, and no other heading. The fixture is given a function over a published band on purpose — a report with nothing to report would let this pass against a renderer that had dropped the findings, which is the one of the three a reader is expected to act on.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-218"/>
+      </traces>
+    </test>
+    <test name="HLR-218: the aligned table composes the same way into a file">
+      <purpose><![CDATA[The composition is the format's and not the destination's, which is the opposite of the width: an --output naming a .txt selects the aligned table and gets the aligned table's three tiers. The two properties are decided by different things and this pair of tests is where that is stated.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-218"/>
+        <trace target="HLR" ref="HLR-148"/>
+      </traces>
+    </test>
+    <test name="HLR-218: Markdown keeps the tiers the terminal report drops">
+      <purpose><![CDATA[Nothing is removed from the tool, only from one format's default: the same run written as Markdown still carries Files, Languages and Discovery, and still holds back the function table.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-218"/>
+        <trace target="HLR" ref="HLR-150"/>
+      </traces>
+    </test>
+    <test name="HLR-218: --verbose restores every tier to the terminal report">
+      <purpose><![CDATA[The escape the requirement rests on. Everything the narrowed default holds back is one option away in the same format.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-218"/>
+        <trace target="HLR" ref="HLR-151"/>
+      </traces>
+    </test>
+    <test name="HLR-218: a function's figures are the same in both compositions">
+      <purpose><![CDATA[The line HLR-218 does not cross, asserted rather than asserted about: which tiers a format presents may differ, what a tier says may not. One function's row is read out of the terminal report and out of the verbose Markdown one and the figures compared.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-218"/>
+        <trace target="HLR" ref="HLR-031"/>
+      </traces>
+    </test>
+    <test name="HLR-220: --version prints a version and exits 0">
+      <purpose><![CDATA[The option answers with a semantic version and the exit status of a successful run, since being asked a question is not an error.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-220"/>
+        <trace target="HLR" ref="HLR-117"/>
+      </traces>
+    </test>
+    <test name="HLR-220: --version answers before the rest of the line is validated">
+      <purpose><![CDATA[Given an unknown format and a target that does not exist, the version is still answered and the status is still zero — because the state a user is in when somebody asks which version they are running is frequently one where the command did not work.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-220"/>
+      </traces>
+    </test>
+  </file>
+
   <file path="test/integration/verbosity.bats" role="integration" count="22">
     <test name="HLR-150: the summary tiers are present by default">
       <purpose><![CDATA[Every tier HLR-150 enumerates is present in a default run, checked heading by heading rather than by counting lines — a line count would pass against a renderer that dropped the wrong section.]]></purpose>
@@ -14013,8 +14334,8 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
         <trace target="LLR" ref="LLR-MAIN-21"/>
       </traces>
     </test>
-    <test name="HLR-031: both human formats present the same tiers at each verbosity">
-      <purpose><![CDATA[Uniformity across formats holds at a fixed verbosity and is asserted at both, which is what the amended HLR-031 requires. The two are compared heading by heading with Markdown's decoration stripped.]]></purpose>
+    <test name="HLR-031: both human formats present the same tiers when verbose">
+      <purpose><![CDATA[Uniformity across formats, asserted where it still holds. A verbose run of each presents the same tiers in the same order, compared heading by heading with Markdown's decoration stripped — so a section present in one format and missing from the other fails here. It is no longer asserted at the default verbosity: since HLR-218 the two formats compose differently there on purpose, and the claim HLR-031 makes is that a tier exists in both rather than that both show it without being asked.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-031"/>
         <trace target="HLR" ref="HLR-150"/>

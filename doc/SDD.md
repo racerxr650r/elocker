@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.21
-**Date:** 2026-08-28
+**Version:** 2.23
+**Date:** 2026-08-31
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -230,6 +230,7 @@ The runtime data flow of an analysis run is:
 *   Parse the structured declarations — architectural strata, entry points, and execution scopes — into their in-memory forms.
 *   Validate every option value and reject an unknown option, a missing argument, or a missing target before any analysis begins.
 *   Emit the usage summary, to `stdout` on request and to `stderr` on error.
+*   Answer a request for the version from the value the build supplied, before the rest of the command line is validated, and end the run successfully without analysis (HLR-220).
 *   Record the purification manifest's path, and the two companion requests purification and recovery add, without reading or validating any file: the manifest is read by `purify.c`, which owns the failure, and a companion asked for with the report on standard output writes nothing rather than failing (HLR-104, HLR-119, HLR-175, HLR-176).
 
 ### 4.2 External Interfaces
@@ -238,6 +239,8 @@ Options are the entirety of `elc`'s configuration surface: there is no configura
 #### 4.2.1 Option List as Single Reference
 
 The set of accepted options appears in three places: this module's `getopt_long` table, the man page, and the user manual. Nothing prevents those three drifting apart, so `cli_usage()`'s output is designated the **reference**: it is generated from the same table that parses, and the documentation is checked against it rather than against the source (LLR-DOC-04). An option that parses but does not print, or prints but is not documented, is a defect the documentation test catches.
+
+**The version has the same shape of problem and the same shape of answer** (HLR-220). It appears in the binary, in the man page's title line, and in the user manual, and nothing about those three keeps them in step. So the version is written once, in the `VERSION` file at the project root, and reaches the binary from there as a translation-time definition — there is no default and no literal in this module, and a build supplying none fails to translate rather than reporting a version it was not made as. The two documents state it as text, so the documentation test reads that file and requires the binary and both documents to agree with it (LLR-BLD-26).
 
 #### 4.2.2 Command-Line Options
 
@@ -261,6 +264,7 @@ The set of accepted options appears in three places: this module's `getopt_long`
 | `--from-xml` | path | — | HLR-055 |
 | `-D`, `--define` | `name[=value]` | none | HLR-131 |
 | `-h`, `--help` | — | — | HLR-117 |
+| `--version` | — | — | HLR-220 |
 
 
 #### 4.2.3 Two Ways to Name One Format
@@ -1012,6 +1016,9 @@ It is also **the one row that runs downwards**, since the index is a score. The 
 *   Render Markdown with functions grouped under a per-file heading.
 *   Present every tier the uniform-composition rule requires, in both formats.
 *   Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).
+*   Carry that classification twice — once for a document and once for a terminal — so the aligned table defaults to the project summary, the findings and the function table while Markdown keeps HLR-150's partition, without either becoming a second list of sections (HLR-218).
+*   Hold the aligned table to 128 columns where the stream it is written to is a terminal, narrowing the text columns and continuing their cells beneath themselves, and leaving it at its natural width everywhere else (HLR-219).
+*   Take the project summary's two column widths from the rows it presents, so the tier that heads every report stays aligned as rows are added to it (HLR-027).
 *   Present the two conformance indices as a summary tier and the dependency matrix as a detail tier, delegating the matrix's decoration to `format_dsm.c` in both human-facing formats (HLR-162, HLR-163, HLR-166).
 *   Present the recovered layering as a detail tier, stating in the heading that it is a proposal and never the baseline conformance is measured against, and rendering the proposal itself as the argument list a user passes back (HLR-172, HLR-173).
 
@@ -1025,12 +1032,18 @@ It is also **the one row that runs downwards**, since the index is a score. The 
 *   **`void render_summary(const Report *r, FILE *out, Style style)`** — Shared project-summary rendering for both formats.
 *   **`static int grid_render(Grid *g, Style style, FILE *out, EmptyTables *empty)`** — Emit one tier's grid in the requested style and release it — or, where the grid has no rows, emit nothing and record its heading for the closing statement (HLR-188).
 *   **`static void empty_tables_section(const EmptyTables *empty, Style style, FILE *out)`** — The closing statement: the headings of the tables this run had nothing to put in, verbatim, so that a section omitted for want of a declaration still states its reason (HLR-189, HLR-115). Emitted whether or not anything was empty.
+*   **`static int table_limit(FILE *out)`** — The width the aligned table is held to on this stream: 128 where the stream is a terminal, and none otherwise. The destination is asked rather than an option consulted, because a file has no width and a pipe has no width (HLR-219).
+*   **`static void table_fit(const Grid *g, int *width, int limit)`** — Choose the width each column renders at. Numeric columns keep their measured width; the text columns are capped at one common value found by bisection, and where no cap at or above the floor fits, every width is left as measured and the table goes out wide (HLR-219).
+*   **`static size_t table_break(const char *text, size_t width, size_t *skip)`** — How many bytes of a cell belong on a line of the given width, and how many to discard after them: a space if one is in reach, else a `/` or `:` kept on the line it ends, else the width itself backed off to a character boundary (HLR-219).
+*   **`static void table_row(const Grid *g, const int *width, const char *const *cells, FILE *out)`** — Emit one row, continuing each cell that outran its column onto the lines beneath it. The unwrapped table is this same path with nothing left over, which is what keeps the two renderings from drifting.
 
 #### 14.3.2 Parsing Strategy / Algorithm
 
 **The two renderers are one traversal.** `render_report()` walks the model once and emits every tier in a fixed order; the `Style` decides only how each tier is decorated. A tier added to the traversal appears in both formats, and cannot be added to one and forgotten in the other, because there is nowhere to forget it — which is what makes HLR-031's uniform composition structural rather than maintained (LLR-SUM-02).
 
 **Verbosity is a second parameter of that same traversal, not a second traversal.** The ordered section list carries, beside each section's render function, the tier it belongs to; the walk emits a section when the verbosity is verbose, when its tier is `TIER_SUMMARY`, or when its analysis was omitted for want of a declaration. That last case is what carries HLR-115's omission notices into the summary: the section is a detail tier, but an omitted analysis produced no rows, so it renders as its heading and the reason in it — which is the notice, and needs no section of its own. A section is therefore written down once and classified once, and the guarantee that a tier cannot exist at one verbosity and not the other holds by the same construction as the guarantee across formats (LLR-SUM-09).
+
+**There are two partitions, in two columns of that one list** (HLR-218, LLR-SUM-19). The aligned table and Markdown default to different tiers, so each section carries two classifications and the style in force selects the column. Two *columns* rather than two lists, and the distinction is the whole of the design: a second array beside the first would satisfy the requirement and give up the property the first exists for, since the next section added would be classified in whichever array its author was looking at and the omission would be invisible until a reader noticed a missing table. A second column cannot be filled in halfway, because the initialiser does not compile without it. The omission predicate is asked about the run rather than the format and so applies under either column.
 
 The partition rule is HLR-150's: a tier presenting a project-level aggregate, a file's own totals, or a finding a reader is expected to act on is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Coupling, the cycles, the layering violations, and the recursive chains fall on the detail side even though each row names a component, because they enumerate the graph one entity at a time — a *file-level aggregate* in the rule's sense is a file's own totals, which is what the Files tier presents. Nothing is lost from the summary by it: each of those measurements that crossed a published line is a finding, and the findings tier is a summary tier.
 
@@ -1045,6 +1058,16 @@ The image-filter tier is split along the same boundary. `image_filter_section` p
 Each tier is built into a small grid of already-formatted cells and then rendered. The two passes are what the aligned style needs — a column's width is not known until its last cell is in — and the Markdown style reuses the same widths, so the raw document is readable rather than ragged. Formatting each value once, into a cell, is also what keeps the measuring pass and the writing pass in agreement: measuring a number one way and printing it another is how a column comes out a character short.
 
 A left-aligned final column is not padded in the aligned style. Padding it puts trailing whitespace on every line, which shows up in a diff and is stripped by half the tools that would read it.
+
+**The aligned style holds a terminal to 128 columns** (HLR-219, LLR-SUM-20 – LLR-SUM-22). The limit is read from the destination — `isatty` on the stream the grid is being written to — rather than threaded down from the caller as a parameter of thirty section functions or held in a module-static that would be the second global in the program. The stream is already there, and asking it is a question about the thing being written to rather than a fact to be carried.
+
+The layout is chosen before any row is written. Numeric columns keep their measured width; the text columns are capped at one common value found by bisecting the measured widths, which narrows them in the order they are widest and so leaves a short column alone until every long one has come down to it. Where no cap at or above the floor fits — a table whose numbers alone exceed the limit — every width is left as measured and the table goes out wide, because a table squeezed past the point of alignment is neither a table nor prose.
+
+A cell that outran its column is continued on the lines beneath it, divided at a space if one is in reach, else after a `/` or a `:`, else at the width itself moved back to a character boundary. Nothing is elided: the paths are what a reader copies out of the table, and a shortened path is not one.
+
+**The wrapped and unwrapped renderings are one code path.** A row whose cells all fit produces one line through the same function, `last` being the column count and nothing left over — so a table written to a file is byte-identical to what the same run produced before the limit existed, and the two cannot drift. Cells are written as spans of the row's own strings through a precision rather than copied into a buffer: a buffer would have to be as wide as the widest cell any table can hold, and one sized to the limit would truncate every unwrapped table wider than it, which is exactly the case the limit does not apply to.
+
+Determinism is unaffected (HLR-032). 128 is a constant rather than the terminal's own width, nothing is read from `COLUMNS` or the locale, and the stream is asked one yes-or-no question whose answer selects between two fixed presentations — so two runs to the same kind of destination produce identical bytes.
 
 **In the Markdown style each table is folded behind a disclosure element** (HLR-190). The report runs to hundreds of rows on any real project, and a reader opening it wants to choose which of them to look at. The section's `##` heading stays a heading and stays outside the element — it is what anchors the section, what a table of contents is built from, and what the composition tests read the report's shape off — so the `<summary>` states the row count instead, which is the one thing the heading above it does not already say. The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
 

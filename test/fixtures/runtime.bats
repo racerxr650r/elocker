@@ -22,7 +22,11 @@ setup() {
 # Run elc against the case's runtime directory rather than the in-tree one.
 elc_with_runtime() {
 	local dir="$1"; shift
-	ELC_RUNTIME_DIR="$dir" run "$ELC" "$@"
+	# --verbose: every assertion in this suite reads the Files, Languages
+	# or Skipped tier to say which languages a degraded runtime still
+	# served, and all three are detail tiers of the aligned table since
+	# HLR-218.
+	ELC_RUNTIME_DIR="$dir" run "$ELC" --verbose "$@"
 }
 
 # --- the control -----------------------------------------------------------
@@ -214,7 +218,7 @@ staged_install() {
 @test "HLR-059: the environment variable still wins over the installed layout" {
 	staged_install
 	rm "$RT/parsers/c.so"
-	ELC_RUNTIME_DIR="$RT" run "$STAGED/bin/elc" "$SUBJECT"
+	ELC_RUNTIME_DIR="$RT" run "$STAGED/bin/elc" --verbose "$SUBJECT"
 	assert_degraded_not_failed
 }
 

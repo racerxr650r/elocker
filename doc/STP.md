@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.22
-**Date:** 2026-08-28
+**Version:** 0.25
+**Date:** 2026-09-01
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -85,6 +85,10 @@ Every test writes its scratch files to `$BATS_TEST_TMPDIR`, or for Criterion to 
 
 Because CI enforces that policy — a skip on a Linux runner fails the build — an instrumented test may not rest on a facility a *container* withholds, as distinct from one a *platform* lacks. Unprivileged user namespaces are the case that established this: `unshare -rn` is present on any modern Linux and works when run locally, but GitHub's runners disable it, so the test that used it to verify HLR-040 skipped there and turned an unavailable facility into a red build. The property is now observed with `strace -e trace=%network`, which needs no privilege. Prefer observing the syscalls a requirement forbids over constructing an environment in which the requirement cannot be violated: the direct observation is more portable, and it is the stronger claim — that `elc` never *attempts* the forbidden thing, not merely that it survives being denied it.
 
+**A behaviour that only happens on a terminal is provoked with a terminal, not with a switch.** HLR-219 makes the aligned table's width a property of its destination, decided by asking the stream whether it is a terminal. Bats captures output through a pipe, so that question is answered `no` in every ordinary `run` and the behaviour under test never fires — a suite written the usual way would assert the unwrapped table and pass, for the wrong reason, permanently. `test/integration/terminal.bats` therefore allocates a pseudo-terminal with `script(1)` and runs `elc` under it, stripping the carriage returns the line discipline adds before asserting.
+
+The alternative — an environment variable in `src/` that forces the wrapping — was rejected, and the reason generalises. It would be a test seam in the product, which the development rules forbid, and it would be a seam of the worst kind: the *only* path most runs of the suite exercised would be the one no user ever takes, so the observation the requirement is actually about would go unverified while every test passed. Where a requirement is about how the program behaves in a particular environment, construct the environment.
+
 ### 2.3 Build and Execution
 All tests are built and executed by `make test`. The target:
 
@@ -138,8 +142,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1280 test(s)** across
-**59 file(s)**.
+Snapshot: **1302 test(s)** across
+**60 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
 
@@ -319,7 +323,7 @@ Role: **unit**. **11 test(s).**
 
 ### 3.9. [test/unit/cli.c](../test/unit/cli.c)
 
-Role: **unit**. **84 test(s).**
+Role: **unit**. **86 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -327,82 +331,84 @@ Role: **unit**. **84 test(s).**
 | 2 | <a id="wrap_intercepts_when_armed"></a>`wrap_intercepts_when_armed` | `LLR-BLD-10` | An armed wrapper intercepts the call, proving the mechanism by which later phases provoke allocation failure. |
 | 3 | <a id="help_short_option_reports_help"></a>`help_short_option_reports_help` | `LLR-CLI-13` | `-h` is reported as a help request rather than parsed as an ordinary option. |
 | 4 | <a id="help_long_option_reports_help"></a>`help_long_option_reports_help` | `LLR-CLI-13` | `--help` is reported as a help request. |
-| 5 | <a id="unrecognised_option_is_a_usage_error"></a>`unrecognised_option_is_a_usage_error` | `LLR-CLI-12` | An unrecognised option is rejected as a usage error. |
-| 6 | <a id="missing_target_is_a_usage_error"></a>`missing_target_is_a_usage_error` | `LLR-CLI-12`, `LLR-CLI-01` | An invocation with no target is rejected as a usage error. |
-| 7 | <a id="single_target_is_collected"></a>`single_target_is_collected` | `LLR-CLI-01` | A single target argument is collected into the options structure. |
-| 8 | <a id="several_targets_are_collected_in_order"></a>`several_targets_are_collected_in_order` | `LLR-CLI-01` | Several targets are collected in argument order, files and directories intermixed. |
-| 9 | <a id="help_takes_precedence_over_a_target"></a>`help_takes_precedence_over_a_target` | `LLR-CLI-13` | A help request is reported without validating the remaining arguments. |
-| 10 | <a id="mode_defaults_to_analyse"></a>`mode_defaults_to_analyse` | — | The run mode defaults to analysis when no mode-selecting option is given. |
-| 11 | <a id="the_output_destination_defaults_to_standard_output"></a>`the_output_destination_defaults_to_standard_output` | `LLR-CLI-03` | A null output path records standard output as the destination when none was supplied. |
-| 12 | <a id="an_output_path_is_collected"></a>`an_output_path_is_collected` | `LLR-CLI-03` | An output file path is collected into the options, and its argument is not mistaken for a target. |
-| 13 | <a id="the_short_output_option_behaves_as_the_long_one"></a>`the_short_output_option_behaves_as_the_long_one` | `LLR-CLI-03` | The short form of the redirection option is parsed as the long form is. |
-| 14 | <a id="an_output_option_without_its_argument_is_a_usage_error"></a>`an_output_option_without_its_argument_is_a_usage_error` | `LLR-CLI-12` | An option requiring an argument and given none is a usage error. |
-| 15 | <a id="the_complexity_threshold_defaults_to_fifteen"></a>`the_complexity_threshold_defaults_to_fifteen` | `LLR-CLI-04` | The threshold defaults to the documented value when none is supplied. |
-| 16 | <a id="a_complexity_threshold_is_collected"></a>`a_complexity_threshold_is_collected` | `LLR-CLI-04` | A threshold given as a long option is collected, and its argument is not mistaken for a target. |
-| 17 | <a id="the_short_threshold_option_behaves_as_the_long_one"></a>`the_short_threshold_option_behaves_as_the_long_one` | `LLR-CLI-04` | The short form is parsed as the long form is. |
-| 18 | <a id="a_threshold_of_zero_is_accepted"></a>`a_threshold_of_zero_is_accepted` | `LLR-CLI-04` | Zero lists every function, which is a legitimate request and must not be read as absent. |
-| 19 | <a id="a_malformed_threshold_is_a_usage_error"></a>`a_malformed_threshold_is_a_usage_error` | `LLR-CLI-16`, `LLR-CLI-12` | A sign, a trailing tail, leading whitespace, an empty string, and a hexadecimal literal are each rejected — every one of which a permissive conversion would accept, silently yielding a threshold the user did not write. |
-| 20 | <a id="options_free_is_safe_on_null"></a>`options_free_is_safe_on_null` | — | Releasing a null options structure does not fault, so teardown is safe on every path. |
-| 21 | <a id="a_scope_declaration_is_parsed_into_a_name_and_patterns"></a>`a_scope_declaration_is_parsed_into_a_name_and_patterns` | `LLR-SCP-01` | A name:glob[,glob…] declaration yields the scope name and each component pattern separately. |
-| 22 | <a id="scope_declarations_accumulate"></a>`scope_declarations_accumulate` | `LLR-SCP-01` | The option is repeatable and each declaration adds a scope rather than replacing the last. |
-| 23 | <a id="a_malformed_scope_declaration_is_rejected"></a>`a_malformed_scope_declaration_is_rejected` | `LLR-SCP-02` | A scope with no name, a name with no components, and an empty pattern between separators are each a usage error rather than a scope matching nothing — which would report nothing and read as a clean result. |
-| 24 | <a id="the_scope_option_reaches_the_options_structure"></a>`the_scope_option_reaches_the_options_structure` | `LLR-SCP-01` | --scope is parsed by cli_parse into the options structure the analyses read. |
-| 25 | <a id="a_malformed_scope_option_is_a_usage_error"></a>`a_malformed_scope_option_is_a_usage_error` | `LLR-SCP-02` | A malformed --scope argument fails the parse rather than being ignored. |
-| 26 | <a id="no_scope_declared_leaves_the_list_empty"></a>`no_scope_declared_leaves_the_list_empty` | `LLR-STA-02` | An empty scope list means the analysis is omitted with a stated reason, not that every file belongs to one scope. |
-| 27 | <a id="a_stratum_declaration_is_parsed_into_a_name_and_patterns"></a>`a_stratum_declaration_is_parsed_into_a_name_and_patterns` | `LLR-STR-01` | A name:glob[,glob…] declaration yields the layer name and each component pattern separately. |
-| 28 | <a id="the_declared_order_fixes_the_ordinals"></a>`the_declared_order_fixes_the_ordinals` | `LLR-STR-02` | Declaration order is the permitted dependency direction until an explicit order says otherwise: the first layer named is the top. |
-| 29 | <a id="repeating_a_stratum_name_adds_patterns_to_that_layer"></a>`repeating_a_stratum_name_adds_patterns_to_that_layer` | `LLR-STR-04` | One layer of two patterns, not two layers — a second layer of the same name would shift every ordinal below it and change what the layering is measured against. |
-| 30 | <a id="a_malformed_stratum_declaration_is_rejected"></a>`a_malformed_stratum_declaration_is_rejected` | `LLR-STR-03` | A layer with no name, a name with no components, and an empty pattern between separators are each a usage error rather than a layer matching nothing. |
-| 31 | <a id="stratum_order_reassigns_the_ordinals"></a>`stratum_order_reassigns_the_ordinals` | `LLR-STR-05` | An explicit order overrides declaration order, and is applied to the layers already parsed. |
-| 32 | <a id="stratum_order_may_precede_the_layers_it_orders"></a>`stratum_order_may_precede_the_layers_it_orders` | `LLR-STR-05` | The order is resolved once after every option has been read, so the two options may be given in either sequence. |
-| 33 | <a id="stratum_order_naming_an_undeclared_layer_is_an_error"></a>`stratum_order_naming_an_undeclared_layer_is_an_error` | `LLR-STR-05` | A typo whose silent acceptance would leave the layering validated against something other than what was written. |
-| 34 | <a id="a_partial_stratum_order_is_an_error"></a>`a_partial_stratum_order_is_an_error` | `LLR-STR-05` | A partial order determines no direction, and completing it silently would invent one. |
-| 35 | <a id="stratum_order_without_any_stratum_is_an_error"></a>`stratum_order_without_any_stratum_is_an_error` | `LLR-STR-05` | An order over no layers orders nothing, and is a usage error rather than a no-op. |
-| 36 | <a id="the_bottleneck_threshold_defaults_to_five"></a>`the_bottleneck_threshold_defaults_to_five` | `LLR-CLI-05` | The bottleneck threshold defaults to 5 when none is supplied. |
-| 37 | <a id="the_bottleneck_threshold_is_configurable"></a>`the_bottleneck_threshold_is_configurable` | `LLR-CLI-05` | The threshold is user-configurable, as the requirement asks. |
-| 38 | <a id="a_malformed_bottleneck_threshold_is_a_usage_error"></a>`a_malformed_bottleneck_threshold_is_a_usage_error` | `LLR-CLI-05` | A sign, a trailing tail, leading whitespace and a hexadecimal prefix are each rejected, as they are for the complexity threshold. |
-| 39 | <a id="a_rule_argument_is_recorded_unsplit"></a>`a_rule_argument_is_recorded_unsplit` | `LLR-RLR-02`, `LLR-CLI-09` | The `lang:path` argument reaches the options as given. The parser does not split it, and deliberately: whether the named language exists is the registry's question, and answering it here would put a second copy of that knowledge in the option parser. |
-| 40 | <a id="rule_arguments_accumulate"></a>`rule_arguments_accumulate` | `LLR-RLR-01` | The option is repeatable and a second use does not replace the first. |
-| 41 | <a id="no_rule_is_supplied_by_default"></a>`no_rule_is_supplied_by_default` | — | elc ships no rule of its own beyond the catalogued metrics and thresholds, so an invocation naming none has none. |
-| 42 | <a id="a_definition_is_recorded_as_given"></a>`a_definition_is_recorded_as_given` | `LLR-CLI-25`, `LLR-CLI-19` | A definition reaches the options as given, `NAME` and `NAME=VALUE` alike. What one *means* belongs to the evaluation, which alone knows what a language's conditions can test. |
-| 43 | <a id="definitions_are_empty_by_default"></a>`definitions_are_empty_by_default` | `LLR-CLI-19` | With no definitions nothing prunes, which is how adding the option changes no existing result. |
-| 44 | <a id="an_empty_definition_is_a_usage_error"></a>`an_empty_definition_is_a_usage_error` | `LLR-CLI-20` | `-D` with an empty argument names no symbol and is rejected rather than recorded as one. |
-| 45 | <a id="a_definition_with_regeneration_is_a_usage_error"></a>`a_definition_with_regeneration_is_a_usage_error` | `LLR-CLI-24`, `LLR-CLI-21` | Pruning happens when a file is measured, so a saved record already describes one configuration and cannot be re-cut into another. |
-| 46 | <a id="regeneration_without_a_definition_is_accepted"></a>`regeneration_without_a_definition_is_accepted` | `LLR-CLI-24` | The boundary of the rule above: regeneration alone is ordinary, and only an explicit definition conflicts with it. |
-| 47 | <a id="an_image_path_is_recorded_unvalidated"></a>`an_image_path_is_recorded_unvalidated` | `LLR-CLI-22` | The path reaches the options as given and nothing is opened. Whether the file is an image elc can read belongs to the module that owns the failure; answering it in the parser would put a second copy of that knowledge there. |
-| 48 | <a id="no_image_is_the_default"></a>`no_image_is_the_default` | `LLR-CLI-22` | With no `--elf` the image path is null, which is how adding the option changes no existing result. |
-| 49 | <a id="an_empty_image_path_is_a_usage_error"></a>`an_empty_image_path_is_a_usage_error` | `LLR-CLI-22` | An empty argument names no file, so there is nothing for the reader of the image to diagnose and the parser rejects it itself. |
-| 50 | <a id="an_image_with_regeneration_is_a_usage_error"></a>`an_image_with_regeneration_is_a_usage_error` | `LLR-CLI-23` | The filter is applied when a file is measured, so a saved record already describes one filtered run and cannot be re-cut against another image. Rejected rather than silently ignored. |
-| 51 | <a id="the_usage_summary_documents_the_image_option"></a>`the_usage_summary_documents_the_image_option` | `LLR-USG-07` | The summary names the option and states that no image means no filtering. The documentation test checks the manual and man page against this text, so this is where the claim itself is made. |
-| 52 | <a id="an_output_extension_selects_the_format"></a>`an_output_extension_selects_the_format` | `LLR-CLI-26` | Each recognised extension resolves to its own format with no format option given, driven as a table so a format added to the mapping without a case here is visible. |
-| 53 | <a id="an_unrecognised_output_extension_is_a_usage_error"></a>`an_unrecognised_output_extension_is_a_usage_error` | `LLR-CLI-26` | `-o report.json` is rejected rather than defaulted to the table, which would write a file whose name promises JSON and whose contents are not. |
-| 54 | <a id="an_output_path_with_no_extension_is_a_usage_error"></a>`an_output_path_with_no_extension_is_a_usage_error` | `LLR-CLI-26` | The four spellings of "no extension": a bare name, a dotfile, a trailing dot, and a name whose only dot is in a directory component. Each names no format and is rejected. |
-| 55 | <a id="a_format_option_contradicting_the_filename_is_a_usage_error"></a>`a_format_option_contradicting_the_filename_is_a_usage_error` | `LLR-CLI-27` | Driven in both argument orders, because the comparison happens after the option loop rather than as the options arrive; an implementation comparing them in place would pass one order and fail the other. |
-| 56 | <a id="a_format_option_agreeing_with_the_filename_is_accepted"></a>`a_format_option_agreeing_with_the_filename_is_accepted` | `LLR-CLI-27` | Nothing is ambiguous about saying a thing twice, so the agreeing pair parses and yields the format both named. |
-| 57 | <a id="the_format_defaults_to_the_table"></a>`the_format_defaults_to_the_table` | `LLR-CLI-02`, `LLR-CLI-27` | The default has to survive a resolution step that now runs whether or not anything selected a format, so it is asserted directly rather than left implied by the tests that do select one. |
-| 58 | <a id="standard_output_takes_its_format_from_the_option_alone"></a>`standard_output_takes_its_format_from_the_option_alone` | `LLR-CLI-27`, `LLR-CLI-02` | With no output path there is no extension to resolve, so the option decides and the destination stays standard output. |
-| 59 | <a id="regenerating_into_a_filename_naming_a_table_is_a_usage_error"></a>`regenerating_into_a_filename_naming_a_table_is_a_usage_error` | `LLR-CLI-28`, `LLR-CLI-10` | An output extension is an explicit format selection, so regeneration rejects one naming anything but Markdown exactly as it rejects `-f table`. |
-| 60 | <a id="regenerating_into_a_filename_naming_markdown_is_accepted"></a>`regenerating_into_a_filename_naming_markdown_is_accepted` | `LLR-CLI-28`, `LLR-CLI-10` | The complement, and what stops the rule above from rejecting every `--output` in regeneration mode. |
-| 61 | <a id="the_summary_is_the_default_verbosity"></a>`the_summary_is_the_default_verbosity` | `LLR-CLI-29` | A parsed command line with no verbosity option leaves the flag clear, so a zeroed options structure means the composition a run presents when nothing was asked for. |
-| 62 | <a id="verbose_is_recorded_in_either_spelling"></a>`verbose_is_recorded_in_either_spelling` | `LLR-CLI-29` | Both the short and the long spelling reach the options structure. |
-| 63 | <a id="verbose_with_a_complete_record_format_is_accepted"></a>`verbose_with_a_complete_record_format_is_accepted` | `LLR-CLI-30` | The pairing that is not a usage error. Both the request and the format survive the parse for XML and for CSV alike, so the acceptance is a property of the rule rather than of one format. |
-| 64 | <a id="the_matrix_companion_is_off_unless_requested"></a>`the_matrix_companion_is_off_unless_requested` | `LLR-CLI-31` | A zeroed configuration means no companion, as it does for the GraphML export. |
-| 65 | <a id="the_matrix_companion_is_requested_without_an_output_path"></a>`the_matrix_companion_is_requested_without_an_output_path` | `LLR-CLI-31` | Recorded, not validated against `--output`. Asking for the matrix with the report on standard output writes no file and is not a usage error; rejecting it would make the invocation fail where the requirement says it should quietly produce no companion. |
-| 66 | <a id="the_matrix_companion_is_accepted_with_regeneration"></a>`the_matrix_companion_is_accepted_with_regeneration` | `LLR-CLI-31` | Where `--graphml` is rejected with `--from-xml`, this one is accepted: a saved record carries the matrix where it carries no graph, so there is something to write from. |
-| 67 | <a id="the_usage_summary_documents_verbosity_and_the_extension_rule"></a>`the_usage_summary_documents_verbosity_and_the_extension_rule` | `LLR-USG-09`, `LLR-USG-02` | The summary names the verbosity option and states that an output filename's extension selects the format. The documentation test checks both delivered documents against this text, so this is where the claim itself is made. Reading the text back out of a caller-supplied stream is also what establishes that the summary is written to the stream it was handed rather than to a fixed one. |
-| 68 | <a id="the_purification_thresholds_default_to_elcs_own"></a>`the_purification_thresholds_default_to_elcs_own` | `LLR-CLI-32` | With none supplied the five purification thresholds take the defaults that make purification mean anything at all — a zeroed set would classify every function as everything. |
-| 69 | <a id="every_purification_threshold_is_configurable"></a>`every_purification_threshold_is_configurable` | `LLR-CLI-32` | Each of the five is settable, because a heuristic that cannot be adjusted is one whose disagreements have nowhere to go. |
-| 70 | <a id="a_rank_threshold_above_one_hundred_is_a_usage_error"></a>`a_rank_threshold_above_one_hundred_is_a_usage_error` | `LLR-CLI-32`, `LLR-CLI-12` | A rank is a percentage of the other functions, so a figure above 100 names a position no function can occupy and is rejected rather than silently classifying nothing. |
-| 71 | <a id="a_rank_threshold_of_one_hundred_is_accepted"></a>`a_rank_threshold_of_one_hundred_is_accepted` | `LLR-CLI-32` | The boundary itself is legitimate: a function outranking every other is what a strict reading of "high authority" asks for. |
-| 72 | <a id="a_malformed_purification_threshold_is_a_usage_error"></a>`a_malformed_purification_threshold_is_a_usage_error` | `LLR-CLI-32`, `LLR-CLI-16` | A core depth that is not a plain decimal number consumed in its entirety is a usage error, exactly as every other numeric option argument is. |
-| 73 | <a id="no_manifest_is_read_without_the_option"></a>`no_manifest_is_read_without_the_option` | `LLR-CLI-33`, `LLR-MFR-01` | A zeroed run names no manifest and requests neither companion: the option is the only way a manifest is reached, which is where the zero-configuration guarantee lives in this structure. |
-| 74 | <a id="the_manifest_path_is_taken_from_the_command_line"></a>`the_manifest_path_is_taken_from_the_command_line` | `LLR-CLI-33` | The path is recorded as given and borrowed from argv rather than copied or opened — the parser reads argv and not files. |
-| 75 | <a id="the_manifest_and_drawing_companions_are_requests"></a>`the_manifest_and_drawing_companions_are_requests` | `LLR-CLI-33` | Both companion switches are recorded without being validated against --output, by the rule the GraphML export already follows. |
-| 76 | <a id="the_recovery_companions_are_refused_in_regeneration_mode"></a>`the_recovery_companions_are_refused_in_regeneration_mode` | `LLR-CLI-34` | A manifest read, a manifest write, and a request for the drawings are each a usage error combined with --from-xml, so a user who asked for a file and would receive none is told why. |
-| 77 | <a id="entry_points_accumulate_across_occurrences"></a>`entry_points_accumulate_across_occurrences` | `LLR-CLI-18`, `LLR-CLI-08` | A second --entry adds a root rather than replacing the first, and the symbols are borrowed from argv rather than copied — only the array holding them is owned. |
-| 78 | <a id="no_entry_point_leaves_the_set_empty"></a>`no_entry_point_leaves_the_set_empty` | `LLR-CLI-08` | What makes reachability and depth omit themselves with a reason rather than measure from a root elc chose for the user. |
-| 79 | <a id="the_graphml_export_is_a_flag_taking_no_path"></a>`the_graphml_export_is_a_flag_taking_no_path` | `LLR-CLI-07` | The argument following --graphml is the target. A flag that took a path would have swallowed it, and the companion's name is derived from the report rather than given (HLR-119). |
-| 80 | <a id="the_call_tree_is_on_unless_declined"></a>`the_call_tree_is_on_unless_declined` | `LLR-CLI-06` | Default-on is the whole of HLR-103: the option declines the call tree rather than requesting it, and takes no argument. |
+| 5 | <a id="version_option_reports_help"></a>`version_option_reports_help` | `LLR-CLI-35` | The version request ends the parse with the outcome a help request ends it with, since being asked a question is not an error. |
+| 6 | <a id="version_is_answered_before_the_line_is_validated"></a>`version_is_answered_before_the_line_is_validated` | `LLR-CLI-35` | An unknown option and no target at all — either a usage error on its own — and the version request still wins, because the state a user is in when somebody asks which version they are running is frequently one where the command did not work. |
+| 7 | <a id="unrecognised_option_is_a_usage_error"></a>`unrecognised_option_is_a_usage_error` | `LLR-CLI-12` | An unrecognised option is rejected as a usage error. |
+| 8 | <a id="missing_target_is_a_usage_error"></a>`missing_target_is_a_usage_error` | `LLR-CLI-12`, `LLR-CLI-01` | An invocation with no target is rejected as a usage error. |
+| 9 | <a id="single_target_is_collected"></a>`single_target_is_collected` | `LLR-CLI-01` | A single target argument is collected into the options structure. |
+| 10 | <a id="several_targets_are_collected_in_order"></a>`several_targets_are_collected_in_order` | `LLR-CLI-01` | Several targets are collected in argument order, files and directories intermixed. |
+| 11 | <a id="help_takes_precedence_over_a_target"></a>`help_takes_precedence_over_a_target` | `LLR-CLI-13` | A help request is reported without validating the remaining arguments. |
+| 12 | <a id="mode_defaults_to_analyse"></a>`mode_defaults_to_analyse` | — | The run mode defaults to analysis when no mode-selecting option is given. |
+| 13 | <a id="the_output_destination_defaults_to_standard_output"></a>`the_output_destination_defaults_to_standard_output` | `LLR-CLI-03` | A null output path records standard output as the destination when none was supplied. |
+| 14 | <a id="an_output_path_is_collected"></a>`an_output_path_is_collected` | `LLR-CLI-03` | An output file path is collected into the options, and its argument is not mistaken for a target. |
+| 15 | <a id="the_short_output_option_behaves_as_the_long_one"></a>`the_short_output_option_behaves_as_the_long_one` | `LLR-CLI-03` | The short form of the redirection option is parsed as the long form is. |
+| 16 | <a id="an_output_option_without_its_argument_is_a_usage_error"></a>`an_output_option_without_its_argument_is_a_usage_error` | `LLR-CLI-12` | An option requiring an argument and given none is a usage error. |
+| 17 | <a id="the_complexity_threshold_defaults_to_fifteen"></a>`the_complexity_threshold_defaults_to_fifteen` | `LLR-CLI-04` | The threshold defaults to the documented value when none is supplied. |
+| 18 | <a id="a_complexity_threshold_is_collected"></a>`a_complexity_threshold_is_collected` | `LLR-CLI-04` | A threshold given as a long option is collected, and its argument is not mistaken for a target. |
+| 19 | <a id="the_short_threshold_option_behaves_as_the_long_one"></a>`the_short_threshold_option_behaves_as_the_long_one` | `LLR-CLI-04` | The short form is parsed as the long form is. |
+| 20 | <a id="a_threshold_of_zero_is_accepted"></a>`a_threshold_of_zero_is_accepted` | `LLR-CLI-04` | Zero lists every function, which is a legitimate request and must not be read as absent. |
+| 21 | <a id="a_malformed_threshold_is_a_usage_error"></a>`a_malformed_threshold_is_a_usage_error` | `LLR-CLI-16`, `LLR-CLI-12` | A sign, a trailing tail, leading whitespace, an empty string, and a hexadecimal literal are each rejected — every one of which a permissive conversion would accept, silently yielding a threshold the user did not write. |
+| 22 | <a id="options_free_is_safe_on_null"></a>`options_free_is_safe_on_null` | — | Releasing a null options structure does not fault, so teardown is safe on every path. |
+| 23 | <a id="a_scope_declaration_is_parsed_into_a_name_and_patterns"></a>`a_scope_declaration_is_parsed_into_a_name_and_patterns` | `LLR-SCP-01` | A name:glob[,glob…] declaration yields the scope name and each component pattern separately. |
+| 24 | <a id="scope_declarations_accumulate"></a>`scope_declarations_accumulate` | `LLR-SCP-01` | The option is repeatable and each declaration adds a scope rather than replacing the last. |
+| 25 | <a id="a_malformed_scope_declaration_is_rejected"></a>`a_malformed_scope_declaration_is_rejected` | `LLR-SCP-02` | A scope with no name, a name with no components, and an empty pattern between separators are each a usage error rather than a scope matching nothing — which would report nothing and read as a clean result. |
+| 26 | <a id="the_scope_option_reaches_the_options_structure"></a>`the_scope_option_reaches_the_options_structure` | `LLR-SCP-01` | --scope is parsed by cli_parse into the options structure the analyses read. |
+| 27 | <a id="a_malformed_scope_option_is_a_usage_error"></a>`a_malformed_scope_option_is_a_usage_error` | `LLR-SCP-02` | A malformed --scope argument fails the parse rather than being ignored. |
+| 28 | <a id="no_scope_declared_leaves_the_list_empty"></a>`no_scope_declared_leaves_the_list_empty` | `LLR-STA-02` | An empty scope list means the analysis is omitted with a stated reason, not that every file belongs to one scope. |
+| 29 | <a id="a_stratum_declaration_is_parsed_into_a_name_and_patterns"></a>`a_stratum_declaration_is_parsed_into_a_name_and_patterns` | `LLR-STR-01` | A name:glob[,glob…] declaration yields the layer name and each component pattern separately. |
+| 30 | <a id="the_declared_order_fixes_the_ordinals"></a>`the_declared_order_fixes_the_ordinals` | `LLR-STR-02` | Declaration order is the permitted dependency direction until an explicit order says otherwise: the first layer named is the top. |
+| 31 | <a id="repeating_a_stratum_name_adds_patterns_to_that_layer"></a>`repeating_a_stratum_name_adds_patterns_to_that_layer` | `LLR-STR-04` | One layer of two patterns, not two layers — a second layer of the same name would shift every ordinal below it and change what the layering is measured against. |
+| 32 | <a id="a_malformed_stratum_declaration_is_rejected"></a>`a_malformed_stratum_declaration_is_rejected` | `LLR-STR-03` | A layer with no name, a name with no components, and an empty pattern between separators are each a usage error rather than a layer matching nothing. |
+| 33 | <a id="stratum_order_reassigns_the_ordinals"></a>`stratum_order_reassigns_the_ordinals` | `LLR-STR-05` | An explicit order overrides declaration order, and is applied to the layers already parsed. |
+| 34 | <a id="stratum_order_may_precede_the_layers_it_orders"></a>`stratum_order_may_precede_the_layers_it_orders` | `LLR-STR-05` | The order is resolved once after every option has been read, so the two options may be given in either sequence. |
+| 35 | <a id="stratum_order_naming_an_undeclared_layer_is_an_error"></a>`stratum_order_naming_an_undeclared_layer_is_an_error` | `LLR-STR-05` | A typo whose silent acceptance would leave the layering validated against something other than what was written. |
+| 36 | <a id="a_partial_stratum_order_is_an_error"></a>`a_partial_stratum_order_is_an_error` | `LLR-STR-05` | A partial order determines no direction, and completing it silently would invent one. |
+| 37 | <a id="stratum_order_without_any_stratum_is_an_error"></a>`stratum_order_without_any_stratum_is_an_error` | `LLR-STR-05` | An order over no layers orders nothing, and is a usage error rather than a no-op. |
+| 38 | <a id="the_bottleneck_threshold_defaults_to_five"></a>`the_bottleneck_threshold_defaults_to_five` | `LLR-CLI-05` | The bottleneck threshold defaults to 5 when none is supplied. |
+| 39 | <a id="the_bottleneck_threshold_is_configurable"></a>`the_bottleneck_threshold_is_configurable` | `LLR-CLI-05` | The threshold is user-configurable, as the requirement asks. |
+| 40 | <a id="a_malformed_bottleneck_threshold_is_a_usage_error"></a>`a_malformed_bottleneck_threshold_is_a_usage_error` | `LLR-CLI-05` | A sign, a trailing tail, leading whitespace and a hexadecimal prefix are each rejected, as they are for the complexity threshold. |
+| 41 | <a id="a_rule_argument_is_recorded_unsplit"></a>`a_rule_argument_is_recorded_unsplit` | `LLR-RLR-02`, `LLR-CLI-09` | The `lang:path` argument reaches the options as given. The parser does not split it, and deliberately: whether the named language exists is the registry's question, and answering it here would put a second copy of that knowledge in the option parser. |
+| 42 | <a id="rule_arguments_accumulate"></a>`rule_arguments_accumulate` | `LLR-RLR-01` | The option is repeatable and a second use does not replace the first. |
+| 43 | <a id="no_rule_is_supplied_by_default"></a>`no_rule_is_supplied_by_default` | — | elc ships no rule of its own beyond the catalogued metrics and thresholds, so an invocation naming none has none. |
+| 44 | <a id="a_definition_is_recorded_as_given"></a>`a_definition_is_recorded_as_given` | `LLR-CLI-25`, `LLR-CLI-19` | A definition reaches the options as given, `NAME` and `NAME=VALUE` alike. What one *means* belongs to the evaluation, which alone knows what a language's conditions can test. |
+| 45 | <a id="definitions_are_empty_by_default"></a>`definitions_are_empty_by_default` | `LLR-CLI-19` | With no definitions nothing prunes, which is how adding the option changes no existing result. |
+| 46 | <a id="an_empty_definition_is_a_usage_error"></a>`an_empty_definition_is_a_usage_error` | `LLR-CLI-20` | `-D` with an empty argument names no symbol and is rejected rather than recorded as one. |
+| 47 | <a id="a_definition_with_regeneration_is_a_usage_error"></a>`a_definition_with_regeneration_is_a_usage_error` | `LLR-CLI-24`, `LLR-CLI-21` | Pruning happens when a file is measured, so a saved record already describes one configuration and cannot be re-cut into another. |
+| 48 | <a id="regeneration_without_a_definition_is_accepted"></a>`regeneration_without_a_definition_is_accepted` | `LLR-CLI-24` | The boundary of the rule above: regeneration alone is ordinary, and only an explicit definition conflicts with it. |
+| 49 | <a id="an_image_path_is_recorded_unvalidated"></a>`an_image_path_is_recorded_unvalidated` | `LLR-CLI-22` | The path reaches the options as given and nothing is opened. Whether the file is an image elc can read belongs to the module that owns the failure; answering it in the parser would put a second copy of that knowledge there. |
+| 50 | <a id="no_image_is_the_default"></a>`no_image_is_the_default` | `LLR-CLI-22` | With no `--elf` the image path is null, which is how adding the option changes no existing result. |
+| 51 | <a id="an_empty_image_path_is_a_usage_error"></a>`an_empty_image_path_is_a_usage_error` | `LLR-CLI-22` | An empty argument names no file, so there is nothing for the reader of the image to diagnose and the parser rejects it itself. |
+| 52 | <a id="an_image_with_regeneration_is_a_usage_error"></a>`an_image_with_regeneration_is_a_usage_error` | `LLR-CLI-23` | The filter is applied when a file is measured, so a saved record already describes one filtered run and cannot be re-cut against another image. Rejected rather than silently ignored. |
+| 53 | <a id="the_usage_summary_documents_the_image_option"></a>`the_usage_summary_documents_the_image_option` | `LLR-USG-07` | The summary names the option and states that no image means no filtering. The documentation test checks the manual and man page against this text, so this is where the claim itself is made. |
+| 54 | <a id="an_output_extension_selects_the_format"></a>`an_output_extension_selects_the_format` | `LLR-CLI-26` | Each recognised extension resolves to its own format with no format option given, driven as a table so a format added to the mapping without a case here is visible. |
+| 55 | <a id="an_unrecognised_output_extension_is_a_usage_error"></a>`an_unrecognised_output_extension_is_a_usage_error` | `LLR-CLI-26` | `-o report.json` is rejected rather than defaulted to the table, which would write a file whose name promises JSON and whose contents are not. |
+| 56 | <a id="an_output_path_with_no_extension_is_a_usage_error"></a>`an_output_path_with_no_extension_is_a_usage_error` | `LLR-CLI-26` | The four spellings of "no extension": a bare name, a dotfile, a trailing dot, and a name whose only dot is in a directory component. Each names no format and is rejected. |
+| 57 | <a id="a_format_option_contradicting_the_filename_is_a_usage_error"></a>`a_format_option_contradicting_the_filename_is_a_usage_error` | `LLR-CLI-27` | Driven in both argument orders, because the comparison happens after the option loop rather than as the options arrive; an implementation comparing them in place would pass one order and fail the other. |
+| 58 | <a id="a_format_option_agreeing_with_the_filename_is_accepted"></a>`a_format_option_agreeing_with_the_filename_is_accepted` | `LLR-CLI-27` | Nothing is ambiguous about saying a thing twice, so the agreeing pair parses and yields the format both named. |
+| 59 | <a id="the_format_defaults_to_the_table"></a>`the_format_defaults_to_the_table` | `LLR-CLI-02`, `LLR-CLI-27` | The default has to survive a resolution step that now runs whether or not anything selected a format, so it is asserted directly rather than left implied by the tests that do select one. |
+| 60 | <a id="standard_output_takes_its_format_from_the_option_alone"></a>`standard_output_takes_its_format_from_the_option_alone` | `LLR-CLI-27`, `LLR-CLI-02` | With no output path there is no extension to resolve, so the option decides and the destination stays standard output. |
+| 61 | <a id="regenerating_into_a_filename_naming_a_table_is_a_usage_error"></a>`regenerating_into_a_filename_naming_a_table_is_a_usage_error` | `LLR-CLI-28`, `LLR-CLI-10` | An output extension is an explicit format selection, so regeneration rejects one naming anything but Markdown exactly as it rejects `-f table`. |
+| 62 | <a id="regenerating_into_a_filename_naming_markdown_is_accepted"></a>`regenerating_into_a_filename_naming_markdown_is_accepted` | `LLR-CLI-28`, `LLR-CLI-10` | The complement, and what stops the rule above from rejecting every `--output` in regeneration mode. |
+| 63 | <a id="the_summary_is_the_default_verbosity"></a>`the_summary_is_the_default_verbosity` | `LLR-CLI-29` | A parsed command line with no verbosity option leaves the flag clear, so a zeroed options structure means the composition a run presents when nothing was asked for. |
+| 64 | <a id="verbose_is_recorded_in_either_spelling"></a>`verbose_is_recorded_in_either_spelling` | `LLR-CLI-29` | Both the short and the long spelling reach the options structure. |
+| 65 | <a id="verbose_with_a_complete_record_format_is_accepted"></a>`verbose_with_a_complete_record_format_is_accepted` | `LLR-CLI-30` | The pairing that is not a usage error. Both the request and the format survive the parse for XML and for CSV alike, so the acceptance is a property of the rule rather than of one format. |
+| 66 | <a id="the_matrix_companion_is_off_unless_requested"></a>`the_matrix_companion_is_off_unless_requested` | `LLR-CLI-31` | A zeroed configuration means no companion, as it does for the GraphML export. |
+| 67 | <a id="the_matrix_companion_is_requested_without_an_output_path"></a>`the_matrix_companion_is_requested_without_an_output_path` | `LLR-CLI-31` | Recorded, not validated against `--output`. Asking for the matrix with the report on standard output writes no file and is not a usage error; rejecting it would make the invocation fail where the requirement says it should quietly produce no companion. |
+| 68 | <a id="the_matrix_companion_is_accepted_with_regeneration"></a>`the_matrix_companion_is_accepted_with_regeneration` | `LLR-CLI-31` | Where `--graphml` is rejected with `--from-xml`, this one is accepted: a saved record carries the matrix where it carries no graph, so there is something to write from. |
+| 69 | <a id="the_usage_summary_documents_verbosity_and_the_extension_rule"></a>`the_usage_summary_documents_verbosity_and_the_extension_rule` | `LLR-USG-09`, `LLR-USG-02` | The summary names the verbosity option and states that an output filename's extension selects the format. The documentation test checks both delivered documents against this text, so this is where the claim itself is made. Reading the text back out of a caller-supplied stream is also what establishes that the summary is written to the stream it was handed rather than to a fixed one. |
+| 70 | <a id="the_purification_thresholds_default_to_elcs_own"></a>`the_purification_thresholds_default_to_elcs_own` | `LLR-CLI-32` | With none supplied the five purification thresholds take the defaults that make purification mean anything at all — a zeroed set would classify every function as everything. |
+| 71 | <a id="every_purification_threshold_is_configurable"></a>`every_purification_threshold_is_configurable` | `LLR-CLI-32` | Each of the five is settable, because a heuristic that cannot be adjusted is one whose disagreements have nowhere to go. |
+| 72 | <a id="a_rank_threshold_above_one_hundred_is_a_usage_error"></a>`a_rank_threshold_above_one_hundred_is_a_usage_error` | `LLR-CLI-32`, `LLR-CLI-12` | A rank is a percentage of the other functions, so a figure above 100 names a position no function can occupy and is rejected rather than silently classifying nothing. |
+| 73 | <a id="a_rank_threshold_of_one_hundred_is_accepted"></a>`a_rank_threshold_of_one_hundred_is_accepted` | `LLR-CLI-32` | The boundary itself is legitimate: a function outranking every other is what a strict reading of "high authority" asks for. |
+| 74 | <a id="a_malformed_purification_threshold_is_a_usage_error"></a>`a_malformed_purification_threshold_is_a_usage_error` | `LLR-CLI-32`, `LLR-CLI-16` | A core depth that is not a plain decimal number consumed in its entirety is a usage error, exactly as every other numeric option argument is. |
+| 75 | <a id="no_manifest_is_read_without_the_option"></a>`no_manifest_is_read_without_the_option` | `LLR-CLI-33`, `LLR-MFR-01` | A zeroed run names no manifest and requests neither companion: the option is the only way a manifest is reached, which is where the zero-configuration guarantee lives in this structure. |
+| 76 | <a id="the_manifest_path_is_taken_from_the_command_line"></a>`the_manifest_path_is_taken_from_the_command_line` | `LLR-CLI-33` | The path is recorded as given and borrowed from argv rather than copied or opened — the parser reads argv and not files. |
+| 77 | <a id="the_manifest_and_drawing_companions_are_requests"></a>`the_manifest_and_drawing_companions_are_requests` | `LLR-CLI-33` | Both companion switches are recorded without being validated against --output, by the rule the GraphML export already follows. |
+| 78 | <a id="the_recovery_companions_are_refused_in_regeneration_mode"></a>`the_recovery_companions_are_refused_in_regeneration_mode` | `LLR-CLI-34` | A manifest read, a manifest write, and a request for the drawings are each a usage error combined with --from-xml, so a user who asked for a file and would receive none is told why. |
+| 79 | <a id="entry_points_accumulate_across_occurrences"></a>`entry_points_accumulate_across_occurrences` | `LLR-CLI-18`, `LLR-CLI-08` | A second --entry adds a root rather than replacing the first, and the symbols are borrowed from argv rather than copied — only the array holding them is owned. |
+| 80 | <a id="no_entry_point_leaves_the_set_empty"></a>`no_entry_point_leaves_the_set_empty` | `LLR-CLI-08` | What makes reachability and depth omit themselves with a reason rather than measure from a root elc chose for the user. |
+| 81 | <a id="the_graphml_export_is_a_flag_taking_no_path"></a>`the_graphml_export_is_a_flag_taking_no_path` | `LLR-CLI-07` | The argument following --graphml is the target. A flag that took a path would have swallowed it, and the companion's name is derived from the report rather than given (HLR-119). |
+| 82 | <a id="the_call_tree_is_on_unless_declined"></a>`the_call_tree_is_on_unless_declined` | `LLR-CLI-06` | Default-on is the whole of HLR-103: the option declines the call tree rather than requesting it, and takes no argument. |
 
 ### 3.10. [test/unit/registry.c](../test/unit/registry.c)
 
@@ -730,7 +736,7 @@ Role: **unit**. **17 test(s).**
 
 ### 3.21. [test/unit/format_text.c](../test/unit/format_text.c)
 
-Role: **unit**. **16 test(s).**
+Role: **unit**. **20 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -738,18 +744,22 @@ Role: **unit**. **16 test(s).**
 | 2 | <a id="columns_are_aligned_on_the_longest_path"></a>`columns_are_aligned_on_the_longest_path` | `LLR-TBL-01` | Every file row is rendered to the same width, the path column having been sized from the longest path in the model. |
 | 3 | <a id="an_empty_report_still_renders_a_table"></a>`an_empty_report_still_renders_a_table` | `LLR-TBL-01` | A model with no files still renders its headings and column rule, so an empty run is distinguishable from a crash. |
 | 4 | <a id="a_write_failure_is_reported"></a>`a_write_failure_is_reported` | `LLR-TBL-03` | A stream that cannot absorb the report yields a non-zero return, so a truncated report is never reported as success. |
-| 5 | <a id="the_summary_omits_the_per_function_tier"></a>`the_summary_omits_the_per_function_tier` | `LLR-SUM-09` | The tier boundary at its sharpest: a file's own totals stay in the summary and the per-function table goes, and the verbose render of the same model has it back. |
-| 6 | <a id="the_findings_follow_the_project_summary"></a>`the_findings_follow_the_project_summary` | `LLR-SUM-15`, `LLR-SUM-09` | The findings section is emitted at the summary verbosity and is the first section after the project summary, ahead of the callouts and every table beneath them. |
-| 7 | <a id="an_empty_table_is_omitted_and_named_at_the_end"></a>`an_empty_table_is_omitted_and_named_at_the_end` | `LLR-SUM-16` | A table with no rows is not emitted and is named in the closing statement by its full heading — including the clause stating why an analysis was omitted, which is where that reason now reaches the reader. |
-| 8 | <a id="the_closing_statement_is_present_even_with_nothing_empty"></a>`the_closing_statement_is_present_even_with_nothing_empty` | `LLR-SUM-16` | The closing statement is emitted unconditionally, so its presence is not itself a signal. |
-| 9 | <a id="the_function_table_carries_the_degrees_beside_the_metrics"></a>`the_function_table_carries_the_degrees_beside_the_metrics` | `LLR-SUM-14` | One table carries complexity, fan-in and fan-out; the fan-out and information-flow tables are absent, and no Henry-Kafura figure is rendered anywhere. |
-| 10 | <a id="markdown_tables_sit_inside_a_disclosure_element"></a>`markdown_tables_sit_inside_a_disclosure_element` | `LLR-SUM-17` | Every Markdown table sits inside a details element whose summary states its row count, beneath a heading that stays a heading and stays outside the element. The blank lines either side of the table are asserted too: they are what makes GitHub-Flavored Markdown parse the contents as Markdown rather than as its own source text. |
-| 11 | <a id="the_aligned_table_carries_no_html"></a>`the_aligned_table_carries_no_html` | `LLR-SUM-17` | The aligned table gains no disclosure element. HLR-190 governs the Markdown report alone, and HTML in a terminal is noise. |
-| 12 | <a id="the_verbose_report_is_a_superset_of_the_summary"></a>`the_verbose_report_is_a_superset_of_the_summary` | `LLR-SUM-09` | The verbose render of one model is strictly longer than its summary, so the verbosity selects something rather than being accepted and ignored. |
-| 13 | <a id="both_styles_reach_the_same_tiers_at_each_verbosity"></a>`both_styles_reach_the_same_tiers_at_each_verbosity` | `LLR-SUM-09`, `LLR-SUM-02`, `LLR-SUM-11` | The structural property behind the partition: one traversal under two decorations and two filters, so whichever tier a verbosity reaches it reaches in both styles. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it. The tier lists include the conformance indices among the summary tiers and the dependency matrix among the detail tiers, so the two land on the same construction as the rest. |
-| 14 | <a id="conformance_is_a_summary_tier_and_the_matrix_a_detail_tier"></a>`conformance_is_a_summary_tier_and_the_matrix_a_detail_tier` | `LLR-SUM-11` | The partition rule applied to the two tiers this phase added: a project-level aggregate stays in the summary and a table with one row per subject does not. Asserted in both decorations, because a tier reaching one and not the other would break the uniform composition the shared traversal exists to guarantee. |
-| 15 | <a id="purification_is_a_detail_tier_and_names_elcs_own_thresholds"></a>`purification_is_a_detail_tier_and_names_elcs_own_thresholds` | `LLR-SUM-12` | The purification section is absent from the summary and present in both verbose renderings, and its heading carries the attribution marking the thresholds as elc's own together with the five values in force. No severity column appears. |
-| 16 | <a id="recovery_is_a_detail_tier_and_says_it_is_a_proposal"></a>`recovery_is_a_detail_tier_and_says_it_is_a_proposal` | `LLR-SUM-13` | The recovered layering is absent from the summary and present in both verbose renderings; its heading states that it is never the baseline conformance is measured against, and the proposal is rendered as the argument list rather than as prose. |
+| 5 | <a id="a_cell_wider_than_the_wrap_limit_survives_an_unwrapped_table"></a>`a_cell_wider_than_the_wrap_limit_survives_an_unwrapped_table` | `LLR-SUM-22` | The regression the requirement's last paragraph exists for. The wrapping was first written by copying each cell into a fixed buffer the width of the limit, which silently divided every cell wider than 128 in tables the limit does not apply to. A temporary file is not a terminal, so the 299-character path under test must come back on one line. |
+| 6 | <a id="the_project_summary_columns_are_sized_from_its_rows"></a>`the_project_summary_columns_are_sized_from_its_rows` | `LLR-SUM-23` | Every row of the project summary rendered to one width, which is what "aligned" means for that tier and what it stopped being the moment a label longer than the hard-coded one was added to it. |
+| 7 | <a id="the_markdown_summary_omits_the_per_function_tier"></a>`the_markdown_summary_omits_the_per_function_tier` | `LLR-SUM-09` | The tier boundary at its sharpest: a file's own totals stay in the summary and the per-function table goes, and the verbose render of the same model has it back. Asserted against Markdown, whose partition is the document's rule HLR-150 states; the aligned table answers differently and the test below is where that is stated. |
+| 8 | <a id="the_terminal_summary_is_the_summary_the_findings_and_the_functions"></a>`the_terminal_summary_is_the_summary_the_findings_and_the_functions` | `LLR-SUM-19` | The converse against the same model, so that the two together say the difference is the format's and not the fixture's: the aligned table's default carries the project summary and the function table, and reaches none of the tiers HLR-150 keeps in a Markdown summary. The absences are checked against tiers that *are* summary tiers somewhere — asserting the absence of a tier that is a detail tier in both columns would pass against a renderer that had lost the second partition entirely. |
+| 9 | <a id="the_findings_follow_the_project_summary"></a>`the_findings_follow_the_project_summary` | `LLR-SUM-15`, `LLR-SUM-09` | The findings section is emitted at the summary verbosity and is the first section after the project summary, ahead of the callouts and every table beneath them. |
+| 10 | <a id="an_empty_table_is_omitted_and_named_at_the_end"></a>`an_empty_table_is_omitted_and_named_at_the_end` | `LLR-SUM-16` | A table with no rows is not emitted and is named in the closing statement by its full heading — including the clause stating why an analysis was omitted, which is where that reason now reaches the reader. |
+| 11 | <a id="the_closing_statement_is_present_even_with_nothing_empty"></a>`the_closing_statement_is_present_even_with_nothing_empty` | `LLR-SUM-16` | The closing statement is emitted unconditionally, so its presence is not itself a signal. |
+| 12 | <a id="the_function_table_carries_the_degrees_beside_the_metrics"></a>`the_function_table_carries_the_degrees_beside_the_metrics` | `LLR-SUM-14` | One table carries complexity, fan-in and fan-out; the fan-out and information-flow tables are absent, and no Henry-Kafura figure is rendered anywhere. |
+| 13 | <a id="markdown_tables_sit_inside_a_disclosure_element"></a>`markdown_tables_sit_inside_a_disclosure_element` | `LLR-SUM-17` | Every Markdown table sits inside a details element whose summary states its row count, beneath a heading that stays a heading and stays outside the element. The blank lines either side of the table are asserted too: they are what makes GitHub-Flavored Markdown parse the contents as Markdown rather than as its own source text. |
+| 14 | <a id="the_aligned_table_carries_no_html"></a>`the_aligned_table_carries_no_html` | `LLR-SUM-17` | The aligned table gains no disclosure element. HLR-190 governs the Markdown report alone, and HTML in a terminal is noise. |
+| 15 | <a id="the_verbose_report_is_a_superset_of_the_summary"></a>`the_verbose_report_is_a_superset_of_the_summary` | `LLR-SUM-09` | The verbose render of one model is strictly longer than its summary, so the verbosity selects something rather than being accepted and ignored. |
+| 16 | <a id="every_tier_is_reached_at_the_verbose_verbosity_in_both_styles"></a>`every_tier_is_reached_at_the_verbose_verbosity_in_both_styles` | `LLR-SUM-09`, `LLR-SUM-02`, `LLR-SUM-11` | The structural property the two partitions left standing: one traversal under two decorations, so every tier is reached by a verbose run of either style and a section forgotten in both columns of the list has nowhere to hide. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it. Asserted at the verbose verbosity alone: the two summaries are deliberately different documents since HLR-218, so a summary run can no longer make this claim. |
+| 17 | <a id="the_two_summary_partitions_differ_by_format"></a>`the_two_summary_partitions_differ_by_format` | `LLR-SUM-19` | The partition itself asserted as data: a table of tiers with the answer each style gives, checked against both renderings of one model. Stronger than either summary's own test, because a tier classified summary in one column and detail in the other must be present in exactly one of the two — which is what fails if a future section is given the same classification in both columns by copy-paste. |
+| 18 | <a id="conformance_is_a_summary_tier_and_the_matrix_a_detail_tier"></a>`conformance_is_a_summary_tier_and_the_matrix_a_detail_tier` | `LLR-SUM-11` | The partition rule applied to the two tiers Phase 21 added: a project-level aggregate stays in the summary and a table with one row per subject does not. Asserted against Markdown, whose partition is the one the claim is about — the aligned table classifies both as detail since HLR-218, which the partition test above states. |
+| 19 | <a id="purification_is_a_detail_tier_and_names_elcs_own_thresholds"></a>`purification_is_a_detail_tier_and_names_elcs_own_thresholds` | `LLR-SUM-12` | The purification section is absent from the summary and present in both verbose renderings, and its heading carries the attribution marking the thresholds as elc's own together with the five values in force. No severity column appears. |
+| 20 | <a id="recovery_is_a_detail_tier_and_says_it_is_a_proposal"></a>`recovery_is_a_detail_tier_and_says_it_is_a_proposal` | `LLR-SUM-13` | The recovered layering is absent from the summary and present in both verbose renderings; its heading states that it is never the baseline conformance is measured against, and the proposal is rendered as the argument list rather than as prose. |
 
 ### 3.22. [test/integration/cli.bats](../test/integration/cli.bats)
 
@@ -778,7 +788,7 @@ Role: **integration**. **18 test(s).**
 
 ### 3.23. [test/integration/docs.bats](../test/integration/docs.bats)
 
-Role: **integration**. **15 test(s).**
+Role: **integration**. **18 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -797,6 +807,9 @@ Role: **integration**. **15 test(s).**
 | 13 | <a id="LLR-DOC-05: every output format is described in both documents"></a>`LLR-DOC-05: every output format is described in both documents` | `LLR-DOC-05` | The documentation test can check the option lists against --help and cannot check that a new format was described. This is the part of that a machine can hold. |
 | 14 | <a id="LLR-DOC-05: every companion artefact is described in both documents"></a>`LLR-DOC-05: every companion artefact is described in both documents` | `LLR-DOC-05` | Each named by the extension elc gives it, which is what a reader finds beside their report and looks up. |
 | 15 | <a id="LLR-DOC-05: every category of finding is described in both documents"></a>`LLR-DOC-05: every category of finding is described in both documents` | `LLR-DOC-05` | Taken from the threshold catalogue's own measurement names, so a category added to the catalogue and to neither document fails here rather than being met by a reader who cannot look it up. |
+| 16 | <a id="HLR-220: the binary reports the version the VERSION file declares"></a>`HLR-220: the binary reports the version the VERSION file declares` | `LLR-BLD-26` | The single source of truth is read from the `VERSION` file and the binary's answer is required to equal it exactly. The other two version tests assert only the shape of what is printed, which a build stamped with the wrong release satisfies; this is the one that reads what the project says the release is. |
+| 17 | <a id="HLR-220: the man page's title line states the declared version"></a>`HLR-220: the man page's title line states the declared version` | — | The third field of the `.TH` line is the version the page is stamped with and what `man elc` prints in the footer of every screen of it. Nothing in the build makes it follow the `VERSION` file, so a bump not carried into the man page fails here. |
+| 18 | <a id="HLR-220: the user manual shows the declared version as --version's answer"></a>`HLR-220: the user manual shows the declared version as --version's answer` | — | The manual's example of what `--version` answers is required to show the declared version. Read at the stating location rather than over every occurrence, so that a worked example, a release note, or a passage naming an older release for a reason of its own is not taken for the version stamp and does not have to be edited every time the version moves. |
 
 ### 3.24. [test/integration/discovery.bats](../test/integration/discovery.bats)
 
@@ -991,7 +1004,27 @@ Role: **integration**. **32 test(s).**
 | 31 | <a id="LLR-SUM-04: no line of the aligned table carries trailing whitespace"></a>`LLR-SUM-04: no line of the aligned table carries trailing whitespace` | `LLR-SUM-04` | The final column is left-aligned and unpadded for this reason, and the rule had a hole: an empty final cell still emitted the two-space separator that would have preceded it, so every row with a blank Finding column ended in whitespace. Asserted over the verbose report so every tier is present. |
 | 32 | <a id="HLR-014: the csv columns are the Functions table's columns"></a>`HLR-014: the csv columns are the Functions table's columns` | `LLR-CSV-03` | The header in full and one record beneath it. The two views had drifted column by column, so a prefix would not have caught it; and the record's location is asserted to be the table's `path:line`, with the extent beside it as a count. |
 
-### 3.30. [test/integration/verbosity.bats](../test/integration/verbosity.bats)
+### 3.30. [test/integration/terminal.bats](../test/integration/terminal.bats)
+
+Role: **integration**. **13 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="HLR-219: no line of a terminal report exceeds 128 columns"></a>`HLR-219: no line of a terminal report exceeds 128 columns` | `LLR-SUM-20` | The width itself, over a target whose paths are long enough to force the narrowing rather than merely permit it. Run on a pseudo-terminal allocated with script(1), because Bats captures output through a pipe and the limit would otherwise never fire — a test written the ordinary way would assert the unwrapped table and pass for the wrong reason forever. There is deliberately no environment variable in src/ to force the behaviour: that would be a test seam in the product, and the seam would be the only thing most runs exercised. |
+| 2 | <a id="HLR-219: the same report redirected is not wrapped"></a>`HLR-219: the same report redirected is not wrapped` | `LLR-SUM-20` | The half that makes the width a property of the destination rather than a new default: redirected, the same run over the same target produces a line past the limit. |
+| 3 | <a id="HLR-032: two runs to the same destination are byte-identical"></a>`HLR-032: two runs to the same destination are byte-identical` | `LLR-SUM-22` | Determinism is per destination. Two runs to a terminal agree and two runs to a pipe agree, which is what the requirement asks; that the two disagree with each other is the distinction HLR-219 draws rather than an exception to HLR-032. |
+| 4 | <a id="HLR-219: wrapping elides nothing and breaks a path at a separator"></a>`HLR-219: wrapping elides nothing and breaks a path at a separator` | `LLR-SUM-21` | No ellipsis anywhere, and the File column's first line ends at a directory boundary rather than mid-name. Read out of the column rather than off the end of a line, because how many continuation lines a path needs depends on the length of the temporary directory — an assertion that depended on that would pass or fail for reasons unrelated to the break rule. |
+| 5 | <a id="HLR-219: a numeric column is never wrapped"></a>`HLR-219: a numeric column is never wrapped` | — | The six numeric headings of the function table intact on one line. A number divided across two lines is not a number, and a divided heading is the visible symptom of a renderer that would divide one. |
+| 6 | <a id="HLR-219: a cell with no separator in it is broken hard"></a>`HLR-219: a cell with no separator in it is broken hard` | `LLR-SUM-21` | The branch that ships untested if only real output is looked at: every path in a real report breaks at a slash, so the fallback division at the width itself is never reached. Provoked with a 120-character C identifier, which has neither a space nor a separator in it. |
+| 7 | <a id="HLR-218: the report a terminal gets is three sections"></a>`HLR-218: the report a terminal gets is three sections` | — | The composition, end to end over a real run: the project summary, the findings and the functions, and no other heading. The fixture is given a function over a published band on purpose — a report with nothing to report would let this pass against a renderer that had dropped the findings, which is the one of the three a reader is expected to act on. |
+| 8 | <a id="HLR-218: the aligned table composes the same way into a file"></a>`HLR-218: the aligned table composes the same way into a file` | — | The composition is the format's and not the destination's, which is the opposite of the width: an --output naming a .txt selects the aligned table and gets the aligned table's three tiers. The two properties are decided by different things and this pair of tests is where that is stated. |
+| 9 | <a id="HLR-218: Markdown keeps the tiers the terminal report drops"></a>`HLR-218: Markdown keeps the tiers the terminal report drops` | — | Nothing is removed from the tool, only from one format's default: the same run written as Markdown still carries Files, Languages and Discovery, and still holds back the function table. |
+| 10 | <a id="HLR-218: --verbose restores every tier to the terminal report"></a>`HLR-218: --verbose restores every tier to the terminal report` | — | The escape the requirement rests on. Everything the narrowed default holds back is one option away in the same format. |
+| 11 | <a id="HLR-218: a function's figures are the same in both compositions"></a>`HLR-218: a function's figures are the same in both compositions` | — | The line HLR-218 does not cross, asserted rather than asserted about: which tiers a format presents may differ, what a tier says may not. One function's row is read out of the terminal report and out of the verbose Markdown one and the figures compared. |
+| 12 | <a id="HLR-220: --version prints a version and exits 0"></a>`HLR-220: --version prints a version and exits 0` | — | The option answers with a semantic version and the exit status of a successful run, since being asked a question is not an error. |
+| 13 | <a id="HLR-220: --version answers before the rest of the line is validated"></a>`HLR-220: --version answers before the rest of the line is validated` | — | Given an unknown format and a target that does not exist, the version is still answered and the status is still zero — because the state a user is in when somebody asks which version they are running is frequently one where the command did not work. |
+
+### 3.31. [test/integration/verbosity.bats](../test/integration/verbosity.bats)
 
 Role: **integration**. **22 test(s).**
 
@@ -1012,7 +1045,7 @@ Role: **integration**. **22 test(s).**
 | 13 | <a id="HLR-151: the verbose report is the summary plus the detail tiers"></a>`HLR-151: the verbose report is the summary plus the detail tiers` | `LLR-SUM-01` | Stated as a superset over the headings actually emitted rather than as a list, so that a tier added to the traversal in a later phase cannot satisfy one composition and be forgotten in the other. The strict-inequality half keeps it from passing where the option selects nothing. |
 | 14 | <a id="HLR-151: -v is the short form of --verbose"></a>`HLR-151: -v is the short form of --verbose` | — | Both spellings produce identical bytes. |
 | 15 | <a id="HLR-151: verbosity changes no measurement and no exit status"></a>`HLR-151: verbosity changes no measurement and no exit status` | `LLR-MAIN-21` | A value absent from a summary is absent because it was not printed, never because it was not computed — so the record, which carries every measurement either composition can present, is byte-identical, and so is the exit status. |
-| 16 | <a id="HLR-031: both human formats present the same tiers at each verbosity"></a>`HLR-031: both human formats present the same tiers at each verbosity` | `LLR-SUM-03` | Uniformity across formats holds at a fixed verbosity and is asserted at both, which is what the amended HLR-031 requires. The two are compared heading by heading with Markdown's decoration stripped. |
+| 16 | <a id="HLR-031: both human formats present the same tiers when verbose"></a>`HLR-031: both human formats present the same tiers when verbose` | `LLR-SUM-03` | Uniformity across formats, asserted where it still holds. A verbose run of each presents the same tiers in the same order, compared heading by heading with Markdown's decoration stripped — so a section present in one format and missing from the other fails here. It is no longer asserted at the default verbosity: since HLR-218 the two formats compose differently there on purpose, and the claim HLR-031 makes is that a tier exists in both rather than that both show it without being asked. |
 | 17 | <a id="HLR-152: --verbose with an xml output is accepted, not rejected"></a>`HLR-152: --verbose with an xml output is accepted, not rejected` | — | The one option pairing this project defines that is not a usage error. There is nothing contradictory about asking a complete format for detail, so the invocation succeeds. |
 | 18 | <a id="HLR-152: --verbose with a csv output is accepted, not rejected"></a>`HLR-152: --verbose with a csv output is accepted, not rejected` | — | The same rule for the other complete format, stated separately because HLR-152 reaches it for the same reason rather than a different one. |
 | 19 | <a id="HLR-152: csv is byte-identical at either verbosity"></a>`HLR-152: csv is byte-identical at either verbosity` | `LLR-MAIN-21` | Acceptance is not enough: the file produced must be the same one. A summarised CSV would be a record set with no rows in it. This is also where the dispatch is checked: the verbosity reaches the two human-facing renderers and neither complete-record writer, so a CSV that changed with it would mean the parameter had been threaded somewhere it does not belong. |
@@ -1020,7 +1053,7 @@ Role: **integration**. **22 test(s).**
 | 21 | <a id="HLR-056: a record regenerated verbosely matches a direct verbose run"></a>`HLR-056: a record regenerated verbosely matches a direct verbose run` | `LLR-XRD-08` | The same equivalence at the other verbosity, which is what makes the record complete rather than merely sufficient for the default. |
 | 22 | <a id="HLR-056: the two verbosities regenerate differently from one record"></a>`HLR-056: the two verbosities regenerate differently from one record` | — | What keeps the pair above from passing against an implementation that ignored the option in regeneration mode and produced one report both times. |
 
-### 3.31. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
+### 3.32. [test/fixtures/eloc.bats](../test/fixtures/eloc.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1046,7 +1079,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-048: a catch clause is a decision point"></a>`HLR-048: a catch clause is a decision point` | — | A handler is a path out of the guarded block and raises complexity; `try` and `throw` choose nothing and do not. |
 | 19 | <a id="HLR-011: a language with no exception construct still reports"></a>`HLR-011: a language with no exception construct still reports` | — | C has no exception handling and analysing it is not thereby an error — no language is required to have every category. |
 
-### 3.32. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
+### 3.33. [test/fixtures/comments.bats](../test/fixtures/comments.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -1060,7 +1093,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-016: inline syntax inside a block comment excludes no line twice"></a>`HLR-016: inline syntax inside a block comment excludes no line twice` | — | Comment-like openers inside a block comment do not cause any line to be excluded more than once. |
 | 7 | <a id="HLR-020: a file of only comments reports zero ELOC"></a>`HLR-020: a file of only comments reports zero ELOC` | `LLR-ANL-24` | A file with nothing but comments reports zero, without error. |
 
-### 3.33. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
+### 3.34. [test/fixtures/nesting.bats](../test/fixtures/nesting.bats)
 
 Role: **fixture**. **15 test(s).**
 
@@ -1082,7 +1115,7 @@ Role: **fixture**. **15 test(s).**
 | 14 | <a id="HLR-018: a C++ lambda's conditional lands on the enclosing function"></a>`HLR-018: a C++ lambda's conditional lands on the enclosing function` | — | The conditional expression inside a lambda raises the enclosing function's complexity. |
 | 15 | <a id="HLR-067: a nested named function is reported where a lambda is not"></a>`HLR-067: a nested named function is reported where a lambda is not` | — | The distinction the two requirements draw, in one language and one function body: Rust's nested `fn` is reported and the closure beside it is not. |
 
-### 3.34. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
+### 3.35. [test/fixtures/escaping.bats](../test/fixtures/escaping.bats)
 
 Role: **fixture**. **13 test(s).**
 
@@ -1102,7 +1135,7 @@ Role: **fixture**. **13 test(s).**
 | 12 | <a id="HLR-065: XML carrying such an identifier is well-formed"></a>`HLR-065: XML carrying such an identifier is well-formed` | — | An independent parser accepts the document, so the escaping is correct rather than merely present. |
 | 13 | <a id="HLR-056: such an identifier survives a record round trip"></a>`HLR-056: such an identifier survives a record round trip` | — | Regeneration matches a direct run, so escaping on the way out and reading on the way in agree about the identifier. |
 
-### 3.35. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
+### 3.36. [test/fixtures/regeneration.bats](../test/fixtures/regeneration.bats)
 
 Role: **fixture**. **20 test(s).**
 
@@ -1129,7 +1162,7 @@ Role: **fixture**. **20 test(s).**
 | 19 | <a id="LLR-CLI-15: declining a companion alongside --from-xml is not an error"></a>`LLR-CLI-15: declining a companion alongside --from-xml is not an error` | `LLR-CLI-15` | The boundary of the rule above: --no-dot is a refusal rather than a request, and refusing something that was never going to be produced conflicts with nothing. |
 | 20 | <a id="LLR-XRD-10: a numeric attribute that is not a number is a malformed record"></a>`LLR-XRD-10: a numeric attribute that is not a number is a malformed record` | `LLR-XRD-10` | Not a zero. A record accepted on those terms renders perfectly cleanly and reports the wrong figure, which is the one failure mode a regenerated report has no way of showing its reader — every other rejection at least tells them something is wrong. |
 
-### 3.36. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
+### 3.37. [test/fixtures/runtime.bats](../test/fixtures/runtime.bats)
 
 Role: **fixture**. **24 test(s).**
 
@@ -1160,7 +1193,7 @@ Role: **fixture**. **24 test(s).**
 | 23 | <a id="LLR-DOC-03: the installed man page is the one that renders"></a>`LLR-DOC-03: the installed man page is the one that renders` | `LLR-DOC-03`, `LLR-DOC-01` | Asserted against the installed copy rather than the source tree's, since installing a truncated or empty file would pass a check made on the original. |
 | 24 | <a id="HLR-059: the installed binary is executable as installed"></a>`HLR-059: the installed binary is executable as installed` | `LLR-ROP-09` | The mode `install -m 755` claims. A target that got it wrong would show up only at the moment a user first ran the installed copy. |
 
-### 3.37. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
+### 3.38. [test/fixtures/traversal.bats](../test/fixtures/traversal.bats)
 
 Role: **fixture**. **11 test(s).**
 
@@ -1178,7 +1211,7 @@ Role: **fixture**. **11 test(s).**
 | 10 | <a id="HLR-071: several targets combine into one report"></a>`HLR-071: several targets combine into one report` | — | Two targets produce a single report spanning both. |
 | 11 | <a id="HLR-043: the fixture tree is unchanged by a run"></a>`HLR-043: the fixture tree is unchanged by a run` | — | Every file in the fixture tree checksums identically before and after a run. |
 
-### 3.38. [test/fixtures/deadcode.bats](../test/fixtures/deadcode.bats)
+### 3.39. [test/fixtures/deadcode.bats](../test/fixtures/deadcode.bats)
 
 Role: **fixture**. **22 test(s).**
 
@@ -1207,7 +1240,7 @@ Role: **fixture**. **22 test(s).**
 | 21 | <a id="HLR-139: dead code is found in every language supplying a query"></a>`HLR-139: dead code is found in every language supplying a query` | `LLR-DED-01` | Python, Rust and C++ each find the statement after a terminator, so the mechanism is not C's alone. |
 | 22 | <a id="HLR-138: no language claims a branch guarded by a variable"></a>`HLR-138: no language claims a branch guarded by a variable` | `LLR-DED-03` | The restraint holds in Python and Rust as it does in C: no language module is permitted to infer a value. |
 
-### 3.39. [test/fixtures/reachability.bats](../test/fixtures/reachability.bats)
+### 3.40. [test/fixtures/reachability.bats](../test/fixtures/reachability.bats)
 
 Role: **fixture**. **24 test(s).**
 
@@ -1238,7 +1271,7 @@ Role: **fixture**. **24 test(s).**
 | 23 | <a id="HLR-032: the state sections survive a record round trip byte-identically"></a>`HLR-032: the state sections survive a record round trip byte-identically` | `LLR-XWR-11` | A report regenerated from the saved record is byte-identical to the live one, with the reachability and global-state sections included. |
 | 24 | <a id="HLR-032: a global-state finding survives the round trip"></a>`HLR-032: a global-state finding survives the round trip` | `LLR-XWR-12` | The verdict and its participants are carried in the record, and the citation is derived from the verdict on both paths rather than stored. |
 
-### 3.40. [test/fixtures/arch.bats](../test/fixtures/arch.bats)
+### 3.41. [test/fixtures/arch.bats](../test/fixtures/arch.bats)
 
 Role: **fixture**. **46 test(s).**
 
@@ -1291,7 +1324,7 @@ Role: **fixture**. **46 test(s).**
 | 45 | <a id="HLR-064: a directory carrying a comma is quoted in the CSV matrix"></a>`HLR-064: a directory carrying a comma is quoted in the CSV matrix` | `LLR-DSM-06` | Built in the test's temporary directory rather than committed, since a directory with a comma in its name is awkward to carry in a repository and the escaping rule is what is under test rather than the tree. |
 | 46 | <a id="HLR-104: the matrix companion needs a name to derive"></a>`HLR-104: the matrix companion needs a name to derive` | `LLR-DSM-08` | Asking for the companion with the report on standard output writes no file and is not an error, and the report still carries the matrix — only the companion needs a path to be named from. |
 
-### 3.41. [test/fixtures/thresholds.bats](../test/fixtures/thresholds.bats)
+### 3.42. [test/fixtures/thresholds.bats](../test/fixtures/thresholds.bats)
 
 Role: **fixture**. **20 test(s).**
 
@@ -1318,7 +1351,7 @@ Role: **fixture**. **20 test(s).**
 | 19 | <a id="HLR-032: findings survive a record round trip byte-identically"></a>`HLR-032: findings survive a record round trip byte-identically` | `LLR-THR-14` | A regenerated report is byte-identical to the live one with the findings section included. |
 | 20 | <a id="HLR-056: a regenerated report keeps each finding's attribution"></a>`HLR-056: a regenerated report keeps each finding's attribution` | `LLR-THR-14` | The citation cannot be re-derived on regeneration, which has no measurements to band, so the record carries it. |
 
-### 3.42. [test/fixtures/calltree.bats](../test/fixtures/calltree.bats)
+### 3.43. [test/fixtures/calltree.bats](../test/fixtures/calltree.bats)
 
 Role: **fixture**. **29 test(s).**
 
@@ -1354,7 +1387,7 @@ Role: **fixture**. **29 test(s).**
 | 28 | <a id="HLR-156, HLR-183: the flow figures survive a record round trip"></a>`HLR-156, HLR-183: the flow figures survive a record round trip` | `LLR-XWR-08`, `LLR-RPT-38` | Both degrees are carried by the record and restored from it, and joined onto the functions they describe. Neither can be recomputed: regeneration has no graph and no source to build one from, so a record carrying fan-out alone would regenerate every fan-in as zero. |
 | 29 | <a id="HLR-056: the measurements survive a record round trip"></a>`HLR-056: the measurements survive a record round trip` | — | A report regenerated from a record is byte-identical and still carries the depth, since none of the call-tree measurements can be recomputed without the source. |
 
-### 3.43. [test/fixtures/dot.bats](../test/fixtures/dot.bats)
+### 3.44. [test/fixtures/dot.bats](../test/fixtures/dot.bats)
 
 Role: **fixture**. **26 test(s).**
 
@@ -1387,7 +1420,7 @@ Role: **fixture**. **26 test(s).**
 | 25 | <a id="LLR-DOT-05: a companion that cannot be written is diagnosed, not fatal"></a>`LLR-DOT-05: a companion that cannot be written is diagnosed, not fatal` | `LLR-DOT-05` | The primary report is the deliverable and the call tree is a companion, so a companion that cannot be created leaves the report written and says so. The path is blocked with a directory rather than with permissions, which fopen refuses whatever the mode is — so the case reproduces for root, where a read-only directory would not. |
 | 26 | <a id="dot: a node's tooltip carries its site, its figures and its findings"></a>`dot: a node's tooltip carries its site, its figures and its findings` | `LLR-STY-03` | Verifies that a node's tooltip states the definition site, the ELOC and complexity, and the findings, and that a rendered SVG receives the separators as newline characters rather than as the two characters of the escape. |
 
-### 3.44. [test/fixtures/debug.bats](../test/fixtures/debug.bats)
+### 3.45. [test/fixtures/debug.bats](../test/fixtures/debug.bats)
 
 Role: **fixture**. **12 test(s).**
 
@@ -1406,7 +1439,7 @@ Role: **fixture**. **12 test(s).**
 | 11 | <a id="HLR-032: the timestamps stay out of the report"></a>`HLR-032: the timestamps stay out of the report` | `LLR-DBG-05` | A log nobody watched being produced needs timestamps; a report must be byte-identical across two runs over one target. The companion is a record of a run rather than a result of one, and that is the line they sit on. |
 | 12 | <a id="HLR-194: the companion is readable while the run is still going"></a>`HLR-194: the companion is readable while the run is still going` | `LLR-DBG-03` | Observed from outside by killing the run and reading what survived. This is the property the companion exists for: a run that faults on a tree nobody can reproduce still leaves everything up to the fault on disk, where a buffered implementation would leave an empty file. |
 
-### 3.45. [test/fixtures/elf.bats](../test/fixtures/elf.bats)
+### 3.46. [test/fixtures/elf.bats](../test/fixtures/elf.bats)
 
 Role: **fixture**. **61 test(s).**
 
@@ -1474,7 +1507,7 @@ Role: **fixture**. **61 test(s).**
 | 60 | <a id="HLR-032: two filtered runs over the same tree are byte-identical"></a>`HLR-032: two filtered runs over the same tree are byte-identical` | `LLR-ELF-05`, `LLR-ANL-59` | Nothing about symbol-table order or query-match order reaches the output, which is what the sorted symbol set and the sorted absent list are for. |
 | 61 | <a id="LLR-ANL-58: a function no configuration builds is not one the image lacks"></a>`LLR-ANL-58: a function no configuration builds is not one the image lacks` | `LLR-ANL-58` | The ordering the three exclusions are gathered in. A function inside a constant condition is gone before the image is consulted, so it is not reported as one the linker discarded; a function the image genuinely lacks is reported in the same run, so the case cannot pass by reporting nothing at all. |
 
-### 3.46. [test/fixtures/conditional.bats](../test/fixtures/conditional.bats)
+### 3.47. [test/fixtures/conditional.bats](../test/fixtures/conditional.bats)
 
 Role: **fixture**. **26 test(s).**
 
@@ -1507,7 +1540,7 @@ Role: **fixture**. **26 test(s).**
 | 25 | <a id="LLR-CND-08: a language supplying no conditional query has none"></a>`LLR-CND-08: a language supplying no conditional query has none` | `LLR-CND-08`, `LLR-RFP-10` | Python ships no `conditionals.scm`, which the contract permits by omission: the file is measured normally and nothing is excluded or counted undecided. |
 | 26 | <a id="LLR-CND-08: a definition changes nothing for such a language"></a>`LLR-CND-08: a definition changes nothing for such a language` | `LLR-CND-08` | A definition supplied against a language with no conditional compilation moves nothing but the section that names it. |
 
-### 3.47. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
+### 3.48. [test/fixtures/rules.bats](../test/fixtures/rules.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1533,7 +1566,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="LLR-ANL-47: a directive carries information and does not filter"></a>`LLR-ANL-47: a directive carries information and does not filter` | `LLR-ANL-47` | `#set!` attaches a property to a match rather than filtering it, and the match must survive. An evaluator treating every unrecognised predicate alike would discard it and the rule would silently find nothing. |
 | 19 | <a id="LLR-ANL-47: a filter this build cannot apply discards the match"></a>`LLR-ANL-47: a filter this build cannot apply discards the match` | `LLR-ANL-47` | The opposite direction, and the reason it is that way round: a filter the query author wrote and this build cannot honour is a condition nobody applied, and accepting the match would apply that condition's inverse. Under-reporting is the direction every capture in the contract errs in. |
 
-### 3.48. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
+### 3.49. [test/fixtures/graph.bats](../test/fixtures/graph.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1559,7 +1592,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-076: expansion costs one more open and no others"></a>`HLR-076: expansion costs one more open and no others` | — | The bound HLR-076 was amended to allow. The preprocessor is a separate process and opens the file for itself, so an expanded run shows two opens per source: elc's own and the toolchain's. A third would mean elc had gone back to the file, which the requirement forbids and which expansion must not become an excuse for. |
 | 19 | <a id="HLR-076: the graph is built without reopening a source file"></a>`HLR-076: the graph is built without reopening a source file` | `LLR-MAIN-06`, `LLR-SDG-06` | Each source is opened exactly once under strace while the graph is built, so cross-file resolution uses the facts of the single parse rather than re-reading. |
 
-### 3.49. [test/fixtures/purify.bats](../test/fixtures/purify.bats)
+### 3.50. [test/fixtures/purify.bats](../test/fixtures/purify.bats)
 
 Role: **fixture**. **21 test(s).**
 
@@ -1587,7 +1620,7 @@ Role: **fixture**. **21 test(s).**
 | 20 | <a id="HLR-179: two runs over the same tree classify identically"></a>`HLR-179: two runs over the same tree classify identically` | — | HITS is iterative and its scores approximate, so the ordering read off them is the part that has to be pinned rather than assumed. |
 | 21 | <a id="HLR-179: the classification does not depend on the order of the targets"></a>`HLR-179: the classification does not depend on the order of the targets` | — | The graph is the same graph whichever way its files were reached, so the ranking read off it is too — node identifiers run in the report's sorted file order. |
 
-### 3.50. [test/fixtures/recover.bats](../test/fixtures/recover.bats)
+### 3.51. [test/fixtures/recover.bats](../test/fixtures/recover.bats)
 
 Role: **fixture**. **28 test(s).**
 
@@ -1622,7 +1655,7 @@ Role: **fixture**. **28 test(s).**
 | 27 | <a id="HLR-179: two runs over the same tree propose one layering"></a>`HLR-179: two runs over the same tree propose one layering` | — | Two runs over one tree produce byte-identical reports, so neither the ordering underneath nor the fold above it carries an enumeration order into the output. |
 | 28 | <a id="HLR-038: the recovery section goes to the results destination"></a>`HLR-038: the recovery section goes to the results destination` | — | A run redirecting its report to a file produces nothing on the terminal, the recovery section included. |
 
-### 3.51. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
+### 3.52. [test/fixtures/repo.bats](../test/fixtures/repo.bats)
 
 Role: **fixture**. **19 test(s).**
 
@@ -1648,7 +1681,7 @@ Role: **fixture**. **19 test(s).**
 | 18 | <a id="HLR-006: a repository target produces the same report shape as any other"></a>`HLR-006: a repository target produces the same report shape as any other` | `LLR-RPT-13` | A repository target and a plain directory target produce the same section headings, completing a claim the man page has made since Phase 5 of which only the file and plain-directory halves were tested. |
 | 19 | <a id="HLR-056: the record carries the route, so regeneration is the same report"></a>`HLR-056: the record carries the route, so regeneration is the same report` | `LLR-XWR-06`, `LLR-XRD-12` | A report regenerated from a record is byte-identical to a direct run, and exactly one line of it names the target with its route — so the routes survived the round trip rather than both reports being equally empty. |
 
-### 3.52. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
+### 3.53. [test/fixtures/determinism.bats](../test/fixtures/determinism.bats)
 
 Role: **fixture**. **7 test(s).**
 
@@ -1662,7 +1695,7 @@ Role: **fixture**. **7 test(s).**
 | 6 | <a id="HLR-039: decoys in the working directory, the target, and an ancestor change nothing"></a>`HLR-039: decoys in the working directory, the target, and an ancestor change nothing` | `LLR-CLI-14`, `LLR-ROP-06` | Configuration-like files planted in all three locations produce output byte-identical to their absence. |
 | 7 | <a id="HLR-039: a decoy does not change the file count either"></a>`HLR-039: a decoy does not change the file count either` | — | A decoy planted in the target does not appear in the report as a discovered file. |
 
-### 3.53. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
+### 3.54. [test/instrumented/environment.bats](../test/instrumented/environment.bats)
 
 Role: **instrumented**. **36 test(s).**
 
@@ -1705,7 +1738,7 @@ Role: **instrumented**. **36 test(s).**
 | 35 | <a id="LLR-THR-11: only the threshold catalogue attributes a band"></a>`LLR-THR-11: only the threshold catalogue attributes a band` | `LLR-THR-11` | The claim to carry no opinion is checkable only if a reviewer can read one table rather than audit every analysis for a constant. What is checked is the citation of a band's published source; a module naming a measure it merely presents — a heading giving Martin's Instability formula, say — is a different thing and a required one. |
 | 36 | <a id="LLR-BLD-06: the graph library brings in no second XML library"></a>`LLR-BLD-06: the graph library brings in no second XML library` | `LLR-BLD-06` | What building igraph with GraphML support off is worth. Its reader and writer are unused — elc writes GraphML itself — and enabling them links libxml2, which the project has no other need for. Asserted against the link line rather than the cmake flag, because the flag is the mechanism and this is the property. |
 
-### 3.54. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
+### 3.55. [test/fixtures/smoke.bats](../test/fixtures/smoke.bats)
 
 Role: **fixture**. **2 test(s).**
 
@@ -1714,7 +1747,7 @@ Role: **fixture**. **2 test(s).**
 | 1 | <a id="the fixture level is wired and elc is runnable"></a>`the fixture level is wired and elc is runnable` | — | The fixture-conformance level is wired and green before the first real fixture is written. |
 | 2 | <a id="every expected-value file has a fixture header beside it"></a>`every expected-value file has a fixture header beside it` | — | Guards the convention that expected values are hand-counted, never generated from elc's own output. |
 
-### 3.55. [test/instrumented/sanitized.bats](../test/instrumented/sanitized.bats)
+### 3.56. [test/instrumented/sanitized.bats](../test/instrumented/sanitized.bats)
 
 Role: **instrumented**. **17 test(s).**
 
@@ -1738,7 +1771,7 @@ Role: **instrumented**. **17 test(s).**
 | 16 | <a id="HLR-125: a run writing every companion releases them all"></a>`HLR-125: a run writing every companion releases them all` | `LLR-MFW-01`, `LLR-DRW-03` | A run producing the manifest, both drawings, the GraphML export and the matrix at once, followed by a second run reading back the manifest the first wrote, is free of memory errors and leaks — the shortest path through every allocation this phase adds. |
 | 17 | <a id="HLR-125: a cyclic recovery view releases the components it collected"></a>`HLR-125: a cyclic recovery view releases the components it collected` | `LLR-RCY-02` | The branch a layered tree never reaches: three graph-library vectors and a rendered string per strongly connected component, on a path with its own early returns. |
 
-### 3.56. [test/instrumented/self.bats](../test/instrumented/self.bats)
+### 3.57. [test/instrumented/self.bats](../test/instrumented/self.bats)
 
 Role: **instrumented**. **8 test(s).**
 
@@ -1753,7 +1786,7 @@ Role: **instrumented**. **8 test(s).**
 | 7 | <a id="LLR-BLD-14: no source file of elc is skipped for want of a module"></a>`LLR-BLD-14: no source file of elc is skipped for want of a module` | `LLR-BLD-14` | The other half of the same claim: a file measured around damage and a file never measured at all are different failures, and neither is acceptable in the delivered source. |
 | 8 | <a id="HLR-181: the self-analysis is the ordinary run, not a special mode"></a>`HLR-181: the self-analysis is the ordinary run, not a special mode` | — | Nothing above passes an option that relaxes anything, and the absence of such an option is part of the claim: a tool that needed one to measure itself cleanly would have measured nothing. |
 
-### 3.57. [test/unit/annotate.c](../test/unit/annotate.c)
+### 3.58. [test/unit/annotate.c](../test/unit/annotate.c)
 
 Role: **unit**. **9 test(s).**
 
@@ -1769,7 +1802,7 @@ Role: **unit**. **9 test(s).**
 | 8 | <a id="only_consecutive_pairs_are_steps_of_the_chain"></a>`only_consecutive_pairs_are_steps_of_the_chain` | `LLR-ANN-01` | Verifies that an edge is a step of the deepest chain only where its endpoints are consecutive in it, and that the chain is read in the direction the calls run. |
 | 9 | <a id="a_global_finding_lands_once_per_function_not_once_per_access"></a>`a_global_finding_lands_once_per_function_not_once_per_access` | `LLR-ANN-02` | Verifies that a finding about a global reaches a function that both writes and reads it once rather than twice, the touch set being deduplicated by direction as well as by object and node. |
 
-### 3.58. [test/unit/report_html.c](../test/unit/report_html.c)
+### 3.59. [test/unit/report_html.c](../test/unit/report_html.c)
 
 Role: **unit**. **22 test(s).**
 
@@ -1802,7 +1835,7 @@ Role: **unit**. **22 test(s).**
 | 25 | <a id="a_box_says_what_was_found_about_it_on_hover"></a>`a_box_says_what_was_found_about_it_on_hover` | `LLR-HTM-09` | Verifies that the page carries the element that reports a box's definition site, figures and findings while the reader points at it, and that the element takes no pointer event of its own. |
 | 26 | <a id="pointing_at_a_function_lights_the_calls_it_takes_part_in"></a>`pointing_at_a_function_lights_the_calls_it_takes_part_in` | `LLR-HTM-10` | Verifies that the page marks the pointed-at function and the edges it takes part in, in both directions, and lifts the marked edges above the boxes so a call into an opened file is not hidden by it. |
 
-### 3.59. [test/fixtures/html.bats](../test/fixtures/html.bats)
+### 3.60. [test/fixtures/html.bats](../test/fixtures/html.bats)
 
 Role: **fixture**. **25 test(s).**
 
@@ -1900,6 +1933,7 @@ verified by code review — see
 | `LLR-CLI-32` | `cli_parse` | `HLR-171`, `HLR-063`, `HLR-039` | `the_purification_thresholds_default_to_elcs_own`, `every_purification_threshold_is_configurable`, `a_rank_threshold_above_one_hundred_is_a_usage_error`, `a_rank_threshold_of_one_hundred_is_accepted`, `a_malformed_purification_threshold_is_a_usage_error` |
 | `LLR-CLI-33` | `cli_parse` | `HLR-176`, `HLR-039`, `HLR-104`, `HLR-119`, `HLR-175`, `HLR-178` | `no_manifest_is_read_without_the_option`, `the_manifest_path_is_taken_from_the_command_line`, `the_manifest_and_drawing_companions_are_requests` |
 | `LLR-CLI-34` | `cli_parse` | `HLR-122`, `HLR-063` | `the_recovery_companions_are_refused_in_regeneration_mode` |
+| `LLR-CLI-35` | `cli_parse` | `HLR-220`, `HLR-117` | `version_option_reports_help`, `version_is_answered_before_the_line_is_validated` |
 | `LLR-USG-01` | `cli_usage` | `HLR-117` | `--help lists every option elc accepts` |
 | `LLR-USG-02` | `cli_usage` | `HLR-117`, `HLR-063`, `HLR-038` | `the_usage_summary_documents_verbosity_and_the_extension_rule` |
 | `LLR-USG-07` | `cli_usage` | `HLR-140`, `HLR-117` | `the_usage_summary_documents_the_image_option` |
@@ -2194,21 +2228,26 @@ verified by code review — see
 | `LLR-TBL-03` | `format_table` | `HLR-038` | `a_write_failure_is_reported` |
 | `LLR-MKD-01` | `format_markdown` | `HLR-029` | `HLR-029: md produces GitHub-Flavored Markdown` |
 | `LLR-SUM-01` | `render_summary` | `HLR-031`, `HLR-127`, `HLR-012`, `HLR-115` | `HLR-151: the verbose report is the summary plus the detail tiers` |
-| `LLR-SUM-03` | `render_summary` | `HLR-031` | `HLR-031: table and Markdown present the same tiers`, `HLR-031: both human formats present the same tiers at each verbosity` |
+| `LLR-SUM-03` | `render_summary` | `HLR-031` | `HLR-031: table and Markdown present the same tiers`, `HLR-031: both human formats present the same tiers when verbose` |
 | `LLR-SUM-04` | `render_summary` | `HLR-027`, `HLR-032` | `LLR-SUM-04: no line of the aligned table carries trailing whitespace` |
 | `LLR-SUM-05` | `render_summary` | `HLR-136`, `HLR-031` | `HLR-136: the definitions in force are reported` |
-| `LLR-SUM-02` | `render_summary` | `HLR-031` | `both_styles_reach_the_same_tiers_at_each_verbosity` |
+| `LLR-SUM-02` | `render_summary` | `HLR-031` | `every_tier_is_reached_at_the_verbose_verbosity_in_both_styles` |
 | `LLR-SUM-06` | `render_summary` | `HLR-143`, `HLR-155`, `HLR-031` | `HLR-155: both counts are reported`, `HLR-140: with no image nothing is filtered and no section is added`, `HLR-147: the report names the image it was filtered by` |
 | `LLR-SUM-07` | `render_summary` | `HLR-109`, `HLR-111`, `HLR-031` | `HLR-031: the section is emitted even with no rule supplied` |
 | `LLR-SUM-08` | `render_summary` | `HLR-136`, `HLR-031` | `HLR-136: the definitions in force are reported` |
-| `LLR-SUM-09` | `render_summary` | `HLR-150`, `HLR-151`, `HLR-031`, `HLR-115` | `the_summary_omits_the_per_function_tier`, `the_findings_follow_the_project_summary`, `the_verbose_report_is_a_superset_of_the_summary`, `both_styles_reach_the_same_tiers_at_each_verbosity` |
-| `LLR-SUM-11` | `render_summary` | `HLR-162`, `HLR-163`, `HLR-166`, `HLR-150`, `HLR-031` | `both_styles_reach_the_same_tiers_at_each_verbosity`, `conformance_is_a_summary_tier_and_the_matrix_a_detail_tier`, `HLR-115: with no strata the conformance section states the omission` |
+| `LLR-SUM-09` | `render_summary` | `HLR-150`, `HLR-151`, `HLR-031`, `HLR-115` | `the_markdown_summary_omits_the_per_function_tier`, `the_findings_follow_the_project_summary`, `the_verbose_report_is_a_superset_of_the_summary`, `every_tier_is_reached_at_the_verbose_verbosity_in_both_styles` |
+| `LLR-SUM-11` | `render_summary` | `HLR-162`, `HLR-163`, `HLR-166`, `HLR-150`, `HLR-031` | `every_tier_is_reached_at_the_verbose_verbosity_in_both_styles`, `conformance_is_a_summary_tier_and_the_matrix_a_detail_tier`, `HLR-115: with no strata the conformance section states the omission` |
 | `LLR-SUM-12` | `render_summary` | `HLR-174`, `HLR-171`, `HLR-150`, `HLR-038`, `HLR-031` | `purification_is_a_detail_tier_and_names_elcs_own_thresholds` |
 | `LLR-SUM-13` | `render_summary` | `HLR-173`, `HLR-172`, `HLR-150`, `HLR-031` | `recovery_is_a_detail_tier_and_says_it_is_a_proposal` |
 | `LLR-SUM-14` | `render_summary` | `HLR-183`, `HLR-085`, `HLR-156`, `HLR-017` | `the_function_table_carries_the_degrees_beside_the_metrics`, `HLR-183: the function table carries the degrees beside the metrics`, `HLR-156: every function reports a fan-in, not only the connected ones`, `HLR-183: one function table carries every per-function figure`, `HLR-183: the Henry-Kafura metric is withdrawn, per function and total`, `HLR-085, HLR-156: the degrees are reported as zero, not as blank` |
 | `LLR-SUM-15` | `render_summary` | `HLR-182`, `HLR-184`, `HLR-031` | `the_findings_follow_the_project_summary`, `HLR-182: the findings are the first section after the project summary` |
 | `LLR-SUM-16` | `render_summary` | `HLR-188`, `HLR-189`, `HLR-115`, `HLR-066` | `an_empty_table_is_omitted_and_named_at_the_end`, `the_closing_statement_is_present_even_with_nothing_empty`, `HLR-188: a table with no rows is not printed`, `HLR-189: the closing statement names every table that was empty`, `HLR-188: an empty table is named rather than presented` |
 | `LLR-SUM-17` | `render_summary` | `HLR-190`, `HLR-029` | `markdown_tables_sit_inside_a_disclosure_element`, `the_aligned_table_carries_no_html` |
+| `LLR-SUM-19` | `render_summary` | `HLR-218`, `HLR-150`, `HLR-151`, `HLR-031` | `the_terminal_summary_is_the_summary_the_findings_and_the_functions`, `the_two_summary_partitions_differ_by_format` |
+| `LLR-SUM-20` | `render_summary` | `HLR-219`, `HLR-027`, `HLR-032` | `HLR-219: no line of a terminal report exceeds 128 columns`, `HLR-219: the same report redirected is not wrapped` |
+| `LLR-SUM-21` | `render_summary` | `HLR-219`, `HLR-027` | `HLR-219: wrapping elides nothing and breaks a path at a separator`, `HLR-219: a cell with no separator in it is broken hard` |
+| `LLR-SUM-22` | `render_summary` | `HLR-219`, `HLR-032`, `HLR-027` | `a_cell_wider_than_the_wrap_limit_survives_an_unwrapped_table`, `HLR-032: two runs to the same destination are byte-identical` |
+| `LLR-SUM-23` | `render_summary` | `HLR-027`, `HLR-024` | `the_project_summary_columns_are_sized_from_its_rows` |
 | `LLR-SUM-18` | `render_summary` | `HLR-191`, `HLR-183`, `HLR-187` | `HLR-191: the function table carries a maintainability score` |
 | `LLR-CSV-01` | `format_csv` | `HLR-028` | `the_header_row_is_written`, `an_empty_report_is_a_header_alone`, `a_write_failure_is_reported` |
 | `LLR-CSV-02` | `format_csv` | `HLR-028`, `HLR-031` | `HLR-028: csv produces one record per function`, `HLR-028: csv is unfiltered by the threshold` |
@@ -2315,6 +2354,7 @@ verified by code review — see
 | `LLR-BLD-22` | `build_configuration` | `HLR-112`, `HLR-124` | `every library the Makefile builds from source is built by CI` |
 | `LLR-BLD-23` | `build_configuration` | `HLR-181`, `HLR-023` | `LLR-BLD-23: no function in elc is at or over the complexity threshold` |
 | `LLR-BLD-24` | `build_configuration` | `HLR-181`, `HLR-084` | `LLR-BLD-24: elc's own components hold no dependency cycle` |
+| `LLR-BLD-26` | `build_configuration` | `HLR-220` | `HLR-220: the binary reports the version the VERSION file declares` |
 | `LLR-BLD-25` | `build_configuration` | `HLR-181`, `HLR-077` | `LLR-BLD-25: no call in elc resolves ambiguously` |
 | `LLR-BLD-09` | `build_configuration` | `HLR-124`, `HLR-125` | `LLR-BLD-09: the build provides a sanitized configuration`, `LLR-BLD-09: the sanitized configuration rebuilds rather than reusing objects` |
 | `LLR-DOC-01` | `user_documentation` | `HLR-128` | `LLR-DOC-03: the installed man page is the one that renders` |
