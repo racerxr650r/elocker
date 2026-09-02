@@ -1,6 +1,6 @@
 # Software Test Plan
 
-**Version:** 0.31
+**Version:** 0.32
 **Date:** 2026-09-02
 **Author(s):** John Anderson
 

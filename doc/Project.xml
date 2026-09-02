@@ -11,11 +11,11 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.27" date="2026-09-02" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.28" date="2026-09-02" author="John Anderson"/>
     <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.21" date="2026-09-02" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.23" date="2026-09-02" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.31" date="2026-09-02" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.31" date="2026-09-02" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.24" date="2026-09-02" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.32" date="2026-09-02" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.32" date="2026-09-02" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="220"/>
       <count name="llrs"       value="604"/>
@@ -7551,7 +7551,9 @@ The tier shall present the indices only where the model carries them rendered, r
       </llr>
 
       <llr id="LLR-SUM-14">
-        <text><![CDATA[`render_summary` shall present every analysed function in one table carrying its file, name, line range, effective lines, cyclomatic complexity, fan-in and fan-out, and shall present no second table enumerating one row per function for any of those measurements.
+        <text><![CDATA[`render_summary` shall present every analysed function in one table carrying its file, name, scope, line range, effective lines, cyclomatic complexity, fan-in, fan-out, Weighted Test Burden Index and the band of that index, and shall present no second table enumerating one row per function for any of those measurements.
+
+The column headings shall be short enough that the file's path keeps the width. On a terminal the table is held to 128 columns (HLR-219) and the path is the cell that pays for every heading longer than its column needs: `Complexity`, `Visibility`, `Fan-in` and `Fan-out` each cost the path more than they told a reader, and are `CC`, `Scope`, `In` and `Out`.
 
 The table shall be driven by the per-file function metrics rather than by the flow rows. The rows exist only where a graph was built and the metrics exist because the file was parsed, so a table driven by the rows would present no functions at all on a run whose graph was not built — which is exactly the run whose per-function figures a reader still wants.
 
@@ -7719,13 +7721,11 @@ Under colour the final text column shall be padded, which it is not otherwise. A
       </llr>
     
       <llr id="LLR-CSV-03">
-        <text><![CDATA[`format_csv` shall write the columns `file`, `language`, `function`, `visibility`, `lines`, `eloc`, `complexity`, `fan_in`, `fan_out`, `mi`, in that order; `file` shall carry `path:line`, `lines` shall be `end - start + 1`, and an unknown visibility shall be the empty field.
+        <text><![CDATA[`format_csv` shall write the columns `file`, `language`, `function`, `scope`, `lines`, `eloc`, `cc`, `in`, `out`, `wtbi`, `burden`, in that order; `file` shall carry `path:line` and `lines` a count, as the table does.
 
-**These are the Functions table's columns, and that is the requirement rather than a choice.** CSV is that table for a consumer that loads it rather than reads it, and the two had drifted column by column — the table gained a visibility, a navigable location and the flow degrees, and this still wrote a `language` and a start and end line nothing else reported (HLR-014).
+**These are the Functions table's columns lowercased, and that is the requirement rather than a choice** (HLR-014). CSV is that table for a consumer that loads it rather than reads it, and a reader who has to translate `Scope` into `visibility` to move between the two has two views rather than one. They drifted once by name and once by content, so the verifying test derives the expected header from the table's own rather than restating it — a written-out expectation records only what the record said the day it was written, and was duly updated to match the drift instead of catching it.
 
-The empty field is the unknown visibility because that is what a loader reads as "no value"; the em dash the report prints is a typographic answer to a human and would be a value here. It is never written as `public`, which is a claim, where the absence is the absence of one (HLR-209).
-
-The `language` field is the same rule read the other way. It was dropped when the two were first matched, because the table carried no such column; the table carries one now, so this does too (HLR-014).]]></text>
+The empty field is the unknown scope, because that is what a loader reads as "no value"; the em dash the report prints is a typographic answer to a human and would be a value here.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-014" name="Per-Function Identity"/>
           <trace target="HLR" ref="HLR-028"/>

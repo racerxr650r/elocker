@@ -589,7 +589,7 @@ They carry the same columns, in the same order:
 
 ```console
 $ elc -f csv src/ | head -3
-file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
+file,language,function,scope,lines,eloc,cc,in,out,wtbi,burden
 /home/you/src/measure.c:12,c,measure,global,9,4,2,3,1,84
 /home/you/src/measure.c:24,c,scale,local,6,3,1,1,0,91
 ```
@@ -3252,7 +3252,7 @@ Every function a band names is collected into one table, alongside the
 functions at or over the complexity threshold `--complexity-threshold` sets:
 
 ```text
-At or over a threshold (complexity listed at 15; complexity, fan-in and fan-out banded)
+At or over a threshold (complexity listed at 15; complexity, fan-in, fan-out and weighted test burden banded)
   File                  Function  Complexity  Fan-in  Fan-out  Severity
   --------------------  --------  ----------  ------  -------  --------
   /home/u/proj/src/a.c  parse             12       3        7  warning
@@ -3556,10 +3556,19 @@ sending you to the Files table to answer it costs you more than the repetition
 costs the page. It sits immediately after the location, which is where the
 Files table has put it all along.
 
-**Visibility says whether the language exposes the function** outside the file
+**Scope says whether the language exposes the function** outside the file
 or module that defines it. It is the first thing anyone asks of an unfamiliar
 module — which of these are the interface, and which are its internals — and
 the source already states it:
+
+> **This column has nothing to do with `--scope`.** That option declares an
+> *execution* scope: a named set of **files** sharing a memory map, used to
+> find the calls by which one reaches another (see
+> [Cross-scope access](#cross-scope-access)). This column is a property of a
+> **symbol** — whether the linker can see its name from another translation
+> unit — and a function reported `global` here is in no declared scope by
+> virtue of that. The two are unrelated and the report never mixes them: the
+> option's findings are a section of their own and are never a column.
 
 | language | `local` when | basis |
 |---|---|---|

@@ -94,10 +94,15 @@ static const char *csv_visibility(Visibility v)
 
 int format_csv(const Report *report, FILE *out)
 {
+	/* **The table's column names, lowercased, and nothing else.** HLR-014
+	 * makes the record and the aligned table one view of one set of rows,
+	 * and a reader who has to translate `Scope` into `visibility` to move
+	 * between them is a reader for whom they are two views. The names
+	 * drifted once already, which is why the whole header is asserted in
+	 * test/integration/formats.bats rather than a prefix of it. */
 	static const char *const header[] = {
-		"file", "language", "function", "visibility", "lines", "eloc",
-		"complexity", "fan_in", "fan_out",
-		"wtbi", "wtbi_status"
+		"file", "language", "function", "scope", "lines", "eloc",
+		"cc", "in", "out", "wtbi", "burden"
 	};
 	const size_t columns = sizeof header / sizeof *header;
 

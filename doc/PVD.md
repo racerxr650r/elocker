@@ -349,10 +349,15 @@ below is an analysis over that graph.
 
 ### 7.2 Out of Scope
 
-*   Per-function metrics other than ELOC and cyclomatic complexity —
-    Halstead measures, cognitive complexity, maintainability index,
-    and duplication detection. (Coupling *is* in scope, but as a
-    property of the graph rather than of a function; see §7.1.)
+*   Per-function metrics measuring a function *in isolation*, beyond
+    ELOC and cyclomatic complexity — Halstead measures, cognitive
+    complexity, maintainability index, and duplication detection.
+    (Coupling *is* in scope, but as a property of the graph rather
+    than of a function; see §7.1. A figure derived from a function's
+    place in that graph — the Weighted Test Burden Index, and the
+    mocking cost and weighted degree it is built from — is therefore
+    in scope and is reported per function: what it measures is the
+    entanglement, and the function is only where it is attributed.)
 *   Aggregation of line and complexity totals between the file and
     whole-project levels: no per-directory, per-module, per-class, or
     per-package ELOC rollups. (The project-wide total in §7.1 is the

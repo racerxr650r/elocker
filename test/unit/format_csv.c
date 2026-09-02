@@ -138,9 +138,8 @@ Test(format_csv, the_header_row_is_written)
 	cr_assert_not_null(fgets(line, sizeof line, fp));
 
 	cr_assert_str_eq(line,
-	                 "file,language,function,visibility,lines,eloc,"
-	                 "complexity,fan_in,fan_out,"
-	                 "wtbi,wtbi_status\r\n");
+	                 "file,language,function,scope,lines,eloc,"
+	                 "cc,in,out,wtbi,burden\r\n");
 	fclose(fp);
 }
 

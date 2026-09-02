@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.23
+**Version:** 2.24
 **Date:** 2026-09-02
 **Author(s):** John Anderson
 
@@ -1275,7 +1275,9 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SUM-13"></a>**LLR-SUM-13** — `render_summary` shall present the recovered layering as a detail tier in both human-facing formats, stating in its heading that what follows is a proposal and never the baseline conformance is measured against, and shall present the proposal itself as the argument list `--stratum` and `--stratum-order` accept rather than as prose. A table of layers printed under an architecture report is otherwise easy to read as a verdict; and rendering the proposal as arguments is what makes adoption a copy rather than a transcription, and is the boundary HLR-173 draws in the one form a reader cannot mistake for a measurement. Where no layering could be read the heading shall say which of the two reasons applied, and where the view was cyclic the mutually reachable groups shall be listed in place of the layers.
     *Trace:* HLR-173 (A Recovered Layering Is a Proposal, Never a Baseline), HLR-172, HLR-150, HLR-031.
 
-*   <a id="LLR-SUM-14"></a>**LLR-SUM-14** — `render_summary` shall present every analysed function in one table carrying its file, name, line range, effective lines, cyclomatic complexity, fan-in and fan-out, and shall present no second table enumerating one row per function for any of those measurements.
+*   <a id="LLR-SUM-14"></a>**LLR-SUM-14** — `render_summary` shall present every analysed function in one table carrying its file, name, scope, line range, effective lines, cyclomatic complexity, fan-in, fan-out, Weighted Test Burden Index and the band of that index, and shall present no second table enumerating one row per function for any of those measurements.
+
+    The column headings shall be short enough that the file's path keeps the width. On a terminal the table is held to 128 columns (HLR-219) and the path is the cell that pays for every heading longer than its column needs: `Complexity`, `Visibility`, `Fan-in` and `Fan-out` each cost the path more than they told a reader, and are `CC`, `Scope`, `In` and `Out`.
 
     The table shall be driven by the per-file function metrics rather than by the flow rows. The rows exist only where a graph was built and the metrics exist because the file was parsed, so a table driven by the rows would present no functions at all on a run whose graph was not built — which is exactly the run whose per-function figures a reader still wants.
 
@@ -1369,13 +1371,11 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-CSV-02"></a>**LLR-CSV-02** — `format_csv` shall emit per-function metrics only, excluding the architectural findings.
     *Trace:* HLR-028 (CSV Output), HLR-031 (Uniform Report Composition Across Formats).
 
-*   <a id="LLR-CSV-03"></a>**LLR-CSV-03** — `format_csv` shall write the columns `file`, `language`, `function`, `visibility`, `lines`, `eloc`, `complexity`, `fan_in`, `fan_out`, `mi`, in that order; `file` shall carry `path:line`, `lines` shall be `end - start + 1`, and an unknown visibility shall be the empty field.
+*   <a id="LLR-CSV-03"></a>**LLR-CSV-03** — `format_csv` shall write the columns `file`, `language`, `function`, `scope`, `lines`, `eloc`, `cc`, `in`, `out`, `wtbi`, `burden`, in that order; `file` shall carry `path:line` and `lines` a count, as the table does.
 
-    **These are the Functions table's columns, and that is the requirement rather than a choice.** CSV is that table for a consumer that loads it rather than reads it, and the two had drifted column by column — the table gained a visibility, a navigable location and the flow degrees, and this still wrote a `language` and a start and end line nothing else reported (HLR-014).
+    **These are the Functions table's columns lowercased, and that is the requirement rather than a choice** (HLR-014). CSV is that table for a consumer that loads it rather than reads it, and a reader who has to translate `Scope` into `visibility` to move between the two has two views rather than one. They drifted once by name and once by content, so the verifying test derives the expected header from the table's own rather than restating it — a written-out expectation records only what the record said the day it was written, and was duly updated to match the drift instead of catching it.
 
-    The empty field is the unknown visibility because that is what a loader reads as "no value"; the em dash the report prints is a typographic answer to a human and would be a value here. It is never written as `public`, which is a claim, where the absence is the absence of one (HLR-209).
-
-    The `language` field is the same rule read the other way. It was dropped when the two were first matched, because the table carried no such column; the table carries one now, so this does too (HLR-014).
+    The empty field is the unknown scope, because that is what a loader reads as "no value"; the em dash the report prints is a typographic answer to a human and would be a value here.
     *Trace:* HLR-014 (Per-Function Identity), HLR-028, HLR-210.
 
 ## 40. `write_field` ([src/format_csv.c](../src/format_csv.c))

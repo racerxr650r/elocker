@@ -574,7 +574,7 @@ The columns are the ones the
 table of a human\-readable report carries, in its order:
 .IP
 .EX
-file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,wtbi,wtbi_status
+file,language,function,scope,lines,eloc,cc,in,out,wtbi,burden
 /src/a.c:12,c,measure,global,9,4,2,3,1,6.00,healthy
 .EE
 .IP
@@ -1232,9 +1232,19 @@ reference must not depend on.
 is
 .B global
 or
-.BR local ,
-and says whether the language exposes the function outside the file or module
-that defines it. The words are the linker's rather than an access-control
+.BR local .
+It has nothing to do with
+.BR \-\-scope ,
+which declares an
+.I execution
+scope \(em a named set of files sharing a memory map, used to find the calls by
+which one reaches another. This column is a property of a symbol rather than of
+a file, and a function reported
+.B global
+is in no declared scope by virtue of it.
+.PP
+The column says whether the language exposes the function outside the file or
+module that defines it. The words are the linker's rather than an access-control
 language's: what C has is linkage, and "public" and "private" would invite you
 to expect an enforcement C does not provide \(em
 .B static
