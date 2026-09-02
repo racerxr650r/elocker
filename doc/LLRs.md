@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.18
-**Date:** 2026-08-31
+**Version:** 2.19
+**Date:** 2026-09-01
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -903,6 +903,15 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
     A function that no analysed function calls has a fan-in of zero, and that zero is recorded as a measurement rather than as a finding: an entry point, an exported API boundary, and an interrupt handler reached from a vector table all legitimately have none.
     *Trace:* HLR-156 (Function Fan-In Measurement), HLR-085 (Function Fan-Out Measurement).
 
+*   <a id="LLR-CTR-13"></a>**LLR-CTR-13** — `calltree_analyse` shall accumulate a **Weighted Fan-Out** for every function in the same traversal of the call edges that already accumulates fan-out and fan-in (HLR-222). For each resolved call edge, the Mock Burden Score of the node the edge points at shall be added to the weighted fan-out of the node it leaves.
+
+    **One traversal and not two, for the reason the existing pass gives for fan-in and fan-out.** The three degrees are the same walk of the same edge table read three ways, and a second traversal would be a second place the `kind == EDGE_CALL` test could be forgotten — leaving a function whose weighted fan-out counted edges its fan-out did not.
+
+    An unresolvable call site contributes to neither degree, since it produces no edge to walk (HLR-077). A function with no resolved outgoing call shall therefore have a weighted fan-out of zero, which is the same value a function calling nothing has, and the two are not distinguished here: the unresolved count `graph_unresolved_count` reports is what tells them apart, and it is already presented beside these measurements.
+
+    The accumulation shall be in floating point and shall not be rounded before the index of LLR-TBI-01 consumes it, so that four calls to functions scoring `0.25` sum to `1.0` and not to zero.
+    *Trace:* HLR-222 (Weighted Fan-Out), HLR-077.
+
 *   <a id="LLR-CTR-12"></a>**LLR-CTR-12** — `calltree_maintainability` shall return the Adapted Maintainability Index of HLR-191 for one function, as a whole number on a 0-to-100 scale, and shall be the only definition of the formula. The report needs the figure for its function table and `thresholds.c` needs it to band; a second computation is a second place it could be computed differently.
 
     The degrees shall be widened before their product is squared rather than at the assignment, for the reason any squared term is: the product of two degrees is comfortable in 32 bits and its square is not, and a value that wrapped would enter the logarithm as an ordinary-looking number.
@@ -1071,6 +1080,15 @@ Evaluation of every measurement against the published threshold catalogue, and a
 
     No bound shall be invented. MISRA states no count at which use becomes unacceptable, and one `elc` chose would be its own opinion wearing MISRA's name — so occurrence governs, the severity is warning throughout, and no finding reaches the exit status (HLR-100, HLR-101).
     *Trace:* HLR-207 (C Library Use Outside MISRA Constraints Reported), HLR-099 (Threshold Source Attribution), HLR-077.
+
+*   <a id="LLR-THR-20"></a>**LLR-THR-20** — `thresholds_apply` shall classify each function's Testing Burden Index into the bands of HLR-224 — Critical at 45 or above, Warning at 20 or above, and Healthy below 20 — and shall test them in descending order, so that an index of 45 yields one Critical finding and not a Critical and a Warning both.
+
+    The bounds shall live in the one threshold catalogue this module already holds rather than in a table beside it, for the reason every other band in it is there: a catalogue that some measurements are in and others are not is a catalogue a reader cannot trust to be complete.
+
+    The band shall carry the *elc heuristic — not a published standard* label (HLR-193). The index is `elc`'s own and unpublished, so no published calibration describes it, and a citation would put an opinion of `elc`'s own under another name.
+
+    **Unlike the Maintainability Index, a high value is the bad one here**, so the comparison shall be the ordinary one rather than the inverted comparison LLR-THR-16 makes for a score out of a hundred. That difference is the reason the two are separate entries in the catalogue and not one parameterised by a bound.
+    *Trace:* HLR-224 (Testing Burden Threshold Classification), HLR-099, HLR-193.
 
 ## 35. `report_assemble` ([src/report.c](../src/report.c))
 
@@ -2288,6 +2306,13 @@ The compound-node data model: three tiers of nodes joined by a `parent` referenc
     **The findings travel as text, not as structure.** The drawing shows *that* a function is critical and the text says *why*; a reader who needs to sort or filter findings has the CSV and the XML record, and duplicating their structure here would be a second machine-readable copy of the catalogue with no consumer.
     *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-099, HLR-088.
 
+*   <a id="LLR-CYT-06"></a>**LLR-CYT-06** — `html_elements` shall carry, in the `data` object of every function node it emits, the function's Mock Burden Score as `mock_burden`, its Testing Burden Index as `tbi`, and its band as `tbi_status` taking exactly one of the strings `healthy`, `warning`, or `critical` (HLR-225).
+
+    **The band shall be the string the C already decided, and the page shall not derive it.** Emitting the index and letting the stylesheet compare it against 20 and 45 would put the bounds in a second place — in a script, where nothing checks them against the catalogue that decided the text report's finding — and the two would disagree the first time a bound moved. That is the disagreement HLR-149 refuses between two spellings of a format, arriving here between two spellings of a threshold.
+
+    The numbers shall be emitted through the same serialiser as every other numeric field on the node, so that a score is written in the locale-independent form the payload requires and a reader of the JSON sees `0.85` on every machine.
+    *Trace:* HLR-225 (Testing Burden in the Interactive Report Payload), HLR-213.
+
 ## 73. `format_html` ([src/report_html.c](../src/report_html.c))
 
 The page itself: when it is written, what its shell contains, how the payload survives being embedded in it, and what the viewer is told to do with it.
@@ -2450,3 +2475,39 @@ Placing a run's findings on the graph they describe, once, for every drawing tha
 
     **Recursion membership is matched by name**, which is all the report model carries: a node identifier means nothing to a reader and does not survive a record round trip. That inherits the duplicate-`static` imprecision the manual documents — two functions sharing a name are both marked when one recurses — which is visible in the drawing and therefore better than a silent wrong answer.
     *Trace:* HLR-089, HLR-105, HLR-217 (The Drawing Carries the Findings It Was Drawn From).
+
+## 75. `collect_mock_burden` ([src/analyze.c](../src/analyze.c))
+
+*   <a id="LLR-MBS-01"></a>**LLR-MBS-01** — `collect_mock_burden` shall compute the Mock Burden Score of HLR-221 for one function from the captures of the signature query, and shall be the only definition of the weighting. The score is needed by the graph, by the threshold catalogue, and by every format that reports per-function detail; a second computation would be a second place the weights could differ.
+
+    The score shall be the base tax of `0.25`, plus the return contribution — `0.0` for `void`, `0.1` for a primitive, `0.25` for a pointer or a `struct` — plus, for each parameter, `0.1` where it is a primitive and `0.25` where it is a pointer or an array.
+    *Trace:* HLR-221 (Mock Burden Score per Function).
+
+*   <a id="LLR-MBS-02"></a>**LLR-MBS-02** — `collect_mock_burden` shall read the return type, the parameter list, and the pointer and array tokens from a query file in the runtime directory, and shall contain no language-specific token text of its own (HLR-009, PVD §6 Principle 2).
+
+    **The classification of a type shall be by the captures the query returns, not by comparing spellings in C.** A list of primitive type names compiled into the binary would be a language fact in the one place this project forbids language facts, and would be wrong for the first project that types its own integers — which on the bare-metal targets this measurement exists for is every project.
+    *Trace:* HLR-221, HLR-009 (Language Data in the Runtime Directory).
+
+*   <a id="LLR-MBS-03"></a>**LLR-MBS-03** — `collect_mock_burden` shall settle the three signature cases HLR-221 names, and settle them where the score is computed rather than at each call site:
+
+    A variadic `...` shall not be counted as a parameter and shall contribute nothing. An empty parameter list, and one consisting of the single token `void`, shall yield no parameter contribution at all — so `void f(void)` scores exactly the base tax of `0.25`. A parameter that is a pointer to a pointer, or a `struct` passed through a pointer, shall be charged once at the pointer rate, the score being a tax on the kind of a type rather than a count of its tokens.
+    *Trace:* HLR-221.
+
+*   <a id="LLR-MBS-04"></a>**LLR-MBS-04** — `collect_mock_burden` shall run inside the traversal that already extracts each function (LLR-ANL-01), and shall not re-parse or re-walk the tree. PVD §6 Principle 7 admits one parse and no copies; a signature is available at the node the traversal is already standing on, and a second walk to fetch it would buy nothing.
+
+    A function whose signature the query cannot match shall be scored at the base tax alone and the shortfall diagnosed, rather than the function being omitted from the measurement. A function absent from a score column is indistinguishable from one that scored zero, and the run continues under HLR-070 either way.
+    *Trace:* HLR-221, HLR-070.
+
+## 76. `calltree_burden` ([src/calltree.c](../src/calltree.c))
+
+*   <a id="LLR-TBI-01"></a>**LLR-TBI-01** — `calltree_burden` shall return the Testing Burden Index of HLR-223 for one function, computed as its cyclomatic complexity multiplied by one plus the lesser of its fan-in and its Weighted Fan-Out, and shall be the only definition of the formula — the report needs it for the function table and `thresholds.c` needs it to band.
+
+    **The lesser of the two degrees and not their product**, which is the whole of what distinguishes this index from the Adapted Maintainability Index of LLR-CTR-12. A widely shared leaf has a large fan-in and a weighted fan-out near zero, and the index shall collapse towards its cyclomatic complexity; a coordinator has the reverse and shall do the same. Only a function large in both degrees shall produce a large index.
+
+    The two degrees shall be compared as the same type before the lesser is taken. Fan-in is a count and the weighted fan-out is not, so the count shall be widened rather than the weight truncated — truncating would make every weighted fan-out below `1.0` compare equal to zero and would silently return the complexity for the whole lower half of the range.
+    *Trace:* HLR-223 (Testing Burden Index per Function).
+
+*   <a id="LLR-TBI-02"></a>**LLR-TBI-02** — `calltree_burden` shall be a pure function of the three measurements it is given and shall read no graph, so that the figure the report prints and the figure the threshold catalogue bands are produced by one call and cannot diverge.
+
+    A function whose cyclomatic complexity is recorded as zero — which no analysed function has, every path count being at least one — shall yield an index of zero rather than a special case, the multiplication doing the work without a guard.
+    *Trace:* HLR-223.

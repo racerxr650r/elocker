@@ -1,6 +1,6 @@
 # Software Test Plan
 
-**Version:** 0.25
+**Version:** 0.26
 **Date:** 2026-09-01
 **Author(s):** John Anderson
 
@@ -142,7 +142,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1302 test(s)** across
+Snapshot: **1322 test(s)** across
 **60 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
@@ -442,7 +442,7 @@ Role: **unit**. **23 test(s).**
 
 ### 3.11. [test/unit/analyze.c](../test/unit/analyze.c)
 
-Role: **unit**. **47 test(s).**
+Role: **unit**. **54 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -493,10 +493,17 @@ Role: **unit**. **47 test(s).**
 | 45 | <a id="damage_is_counted_in_distinct_lines"></a>`damage_is_counted_in_distinct_lines` | `LLR-ANL-48` | Two unparsable constructs on one line are one line, by the rule the comment exclusion already counts by. |
 | 46 | <a id="the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable"></a>`the_macro_concatenation_the_c_grammar_cannot_follow_is_survivable` | `LLR-ANL-48` | The exact idiom that prompted the change: tree-sitter-c accepts one identifier before the first string literal of a concatenation and not two, so the ANSI-colour macro convention common in embedded C does not parse. One line of damage, and the functions around it measured. |
 | 47 | <a id="a_dead_span_outside_every_function_is_not_recorded"></a>`a_dead_span_outside_every_function_is_not_recorded` | `LLR-DED-08` | HLR-137 asks about statements within a function, and a span outside every one of them has no enclosing function to be reported against — so it would reach the report with a blank where the attribution goes. |
+| 48 | <a id="LLR-MBS-01: a void function taking nothing scores the base tax alone"></a>`LLR-MBS-01: a void function taking nothing scores the base tax alone` | `LLR-MBS-01`, `LLR-MBS-03` | `void f(void)` scores exactly 0.25. The floor of the scale, and the case showing the base tax is charged even to a function needing no return value decided and no parameter mocked. |
+| 49 | <a id="LLR-MBS-01: a pointer return is charged more than a primitive return"></a>`LLR-MBS-01: a pointer return is charged more than a primitive return` | `LLR-MBS-01` | Three signatures differing only in return type - `void`, `uint8_t`, `struct S *` - score 0.25, 0.35 and 0.50. Asserted as exact values and not merely as an ordering, because a weighting that ranked correctly could still put the bands somewhere other than where HLR-224 draws them. |
+| 50 | <a id="LLR-MBS-01: each parameter is charged by kind"></a>`LLR-MBS-01: each parameter is charged by kind` | `LLR-MBS-01` | `struct S *g(uint8_t a, char *b)` scores 0.25 + 0.25 + 0.1 + 0.25 = 0.85. One signature exercising the return contribution and both parameter rates together, against the arithmetic written out. |
+| 51 | <a id="LLR-MBS-03: a variadic ellipsis is not charged as a parameter"></a>`LLR-MBS-03: a variadic ellipsis is not charged as a parameter` | `LLR-MBS-03` | `void v(const char *fmt, ...)` scores 0.5 and no more: the pointer parameter is charged and the ellipsis is not, since it cannot be mocked per-argument. This is the shape of the logging function the measurement most often meets. |
+| 52 | <a id="LLR-MBS-03: indirection is charged once, not per token"></a>`LLR-MBS-03: indirection is charged once, not per token` | `LLR-MBS-03` | `char **p` and `char *p` are charged alike at the pointer rate. The score taxes the kind of a type rather than counting its tokens, and a rate growing with indirection would put the weights beyond reasoning about. |
+| 53 | <a id="LLR-MBS-04: a signature the query cannot match scores the base tax and diagnoses"></a>`LLR-MBS-04: a signature the query cannot match scores the base tax and diagnoses` | `LLR-MBS-04` | The function is scored rather than omitted, and the shortfall is diagnosed. A function missing from a score column is indistinguishable from one that scored zero, which is the reading a silent omission would produce. |
+| 54 | <a id="LLR-MBS-02: a project's own integer type is scored from the query, not from a name the binary knows"></a>`LLR-MBS-02: a project's own integer type is scored from the query, not from a name the binary knows` | `LLR-MBS-02` | A parameter typed `avr_reg_t` - a name no C in elc mentions - is charged at the primitive rate because the query captured it as one. The assertion is that the binary holds no list of primitive type names: such a list would be a language fact where PVD Principle 2 forbids them, and would be wrong for the first project that types its own integers, which on the bare-metal targets this measurement exists for is every project. |
 
 ### 3.12. [test/unit/calltree.c](../test/unit/calltree.c)
 
-Role: **unit**. **22 test(s).**
+Role: **unit**. **30 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -522,6 +529,14 @@ Role: **unit**. **22 test(s).**
 | 20 | <a id="a_chain_does_not_travel_along_a_global_edge"></a>`a_chain_does_not_travel_along_a_global_edge` | `LLR-CTR-07` | A chain stops at the last function actually called, rather than continuing to one that merely reads a global the callee wrote. |
 | 21 | <a id="an_empty_project_measures_nothing_without_failing"></a>`an_empty_project_measures_nothing_without_failing` | `LLR-CTR-01` | A run that analysed nothing produces an empty but valid set of measurements. |
 | 22 | <a id="tree_results_free_is_safe_on_null_and_twice"></a>`tree_results_free_is_safe_on_null_and_twice` | `LLR-CTR-01` | Releasing a null or already-released result set does not fault, so teardown is unconditional on every path. |
+| 23 | <a id="LLR-CTR-13: weighted fan-out sums the burden of what a function calls"></a>`LLR-CTR-13: weighted fan-out sums the burden of what a function calls` | `LLR-CTR-13` | A function calling four others each scoring 0.25 has a weighted fan-out of 1.0 while its plain fan-out is 4. The two degrees measure different things over the same edges, and this is the case that separates them. |
+| 24 | <a id="LLR-CTR-13: an unresolved call contributes to neither degree"></a>`LLR-CTR-13: an unresolved call contributes to neither degree` | `LLR-CTR-13` | A call site with no resolvable target leaves fan-out and weighted fan-out alike untouched, because it produces no edge to walk. The consequence the requirement names - a project calling the C library reads as cheaper to test than one wrapping it - is a property of what the graph can see, and this is where it is pinned down. |
+| 25 | <a id="LLR-CTR-13: fractional burdens accumulate without being rounded"></a>`LLR-CTR-13: fractional burdens accumulate without being rounded` | `LLR-CTR-13` | Four callees at 0.25 sum to 1.0 rather than to zero. Asserted because the accumulator's type is the whole of the risk: an integer one would truncate every callee below 1.0 and report the entire lower half of the range as no burden at all. |
+| 26 | <a id="LLR-TBI-01: a widely shared leaf collapses to its cyclomatic complexity"></a>`LLR-TBI-01: a widely shared leaf collapses to its cyclomatic complexity` | `LLR-TBI-01` | Fan-in 82, weighted fan-out 0, complexity 2 yields 2. The case the index exists for: a function many others call but which calls nothing needs no mocks. This is the shape the Adapted Maintainability Index scores as critical, and the two disagreeing here is the intended outcome rather than a defect in either. |
+| 27 | <a id="LLR-TBI-01: a coordinator called from one place collapses likewise"></a>`LLR-TBI-01: a coordinator called from one place collapses likewise` | `LLR-TBI-01` | Fan-in 1, weighted fan-out 12, complexity 4 yields 8. The mirror of the leaf case, asserted separately because a formula taking the larger degree would pass the leaf case and fail this one. |
+| 28 | <a id="LLR-TBI-01: only a function large in both degrees produces a large index"></a>`LLR-TBI-01: only a function large in both degrees produces a large index` | `LLR-TBI-01` | Fan-in 10 against a weighted fan-out of 9 at complexity 5 yields 50 - Critical - where either degree alone at the same complexity yields far less. The God Object is the one shape this index condemns, and this asserts it is the only one. |
+| 29 | <a id="LLR-TBI-01: the degrees are compared without truncating the weight"></a>`LLR-TBI-01: the degrees are compared without truncating the weight` | `LLR-TBI-01` | A weighted fan-out of 0.75 against a fan-in of 3 takes the weight and not zero. Truncating to an integer before comparing would make every weighted fan-out below 1.0 compare equal to zero, silently returning the bare complexity across the whole lower range - a defect no ordering assertion would catch. |
+| 30 | <a id="LLR-TBI-02: the index is a pure function of its three measurements"></a>`LLR-TBI-02: the index is a pure function of its three measurements` | `LLR-TBI-02` | The same complexity, fan-in and weighted fan-out yield the same index on repeated calls with no graph supplied, so the figure the report prints and the figure the threshold catalogue bands are produced by one call and cannot diverge. A complexity of zero yields zero through the multiplication rather than through a guard. |
 
 ### 3.13. [test/unit/discover.c](../test/unit/discover.c)
 
@@ -638,7 +653,7 @@ Role: **unit**. **15 test(s).**
 
 ### 3.17. [test/unit/thresholds.c](../test/unit/thresholds.c)
 
-Role: **unit**. **20 test(s).**
+Role: **unit**. **23 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -662,6 +677,9 @@ Role: **unit**. **20 test(s).**
 | 18 | <a id="an_omitted_depth_is_not_banded_as_zero"></a>`an_omitted_depth_is_not_banded_as_zero` | `LLR-THR-12` | A depth omitted for want of an entry point is not banded at all. Banding it would judge a number that does not exist. |
 | 19 | <a id="a_clean_project_yields_no_findings"></a>`a_clean_project_yields_no_findings` | `LLR-THR-01` | Finding nothing is an ordinary result. Paired with every band test so that an implementation emitting findings unconditionally cannot pass them. |
 | 20 | <a id="findinglist_free_is_safe_on_null_and_twice"></a>`findinglist_free_is_safe_on_null_and_twice` | `LLR-THR-01` | Releasing an empty or already-released finding list does not fault. |
+| 21 | <a id="LLR-THR-20: the testing-burden bands are evaluated in descending order"></a>`LLR-THR-20: the testing-burden bands are evaluated in descending order` | `LLR-THR-20` | An index of 45 yields one Critical finding and not a Critical and a Warning both, and 20 yields exactly one Warning. Asserted at the exact bounds because both are inclusive, and an ordering written with the wrong comparison passes every test placed away from the edge. |
+| 22 | <a id="LLR-THR-20: an index below twenty yields no finding"></a>`LLR-THR-20: an index below twenty yields no finding` | `LLR-THR-20` | 19 is Healthy and produces nothing. A band a reader is expected to act on must be silent where there is nothing to act on, and the boundary is asserted one below the bound rather than far from it. |
+| 23 | <a id="LLR-THR-20: the testing-burden band carries the elc-heuristic label"></a>`LLR-THR-20: the testing-burden band carries the elc-heuristic label` | `LLR-THR-20` | The finding is labelled *elc heuristic - not a published standard*, as the Maintainability bands are. The index is unpublished, so no published calibration describes it, and a citation would put an opinion of elc's own under another name. |
 
 ### 3.18. [test/unit/graph.c](../test/unit/graph.c)
 
@@ -1804,7 +1822,7 @@ Role: **unit**. **9 test(s).**
 
 ### 3.59. [test/unit/report_html.c](../test/unit/report_html.c)
 
-Role: **unit**. **22 test(s).**
+Role: **unit**. **24 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1834,6 +1852,8 @@ Role: **unit**. **22 test(s).**
 | 24 | <a id="no_two_file_boxes_may_overlap"></a>`no_two_file_boxes_may_overlap` | `LLR-HTM-08` | Verifies that the page carries the separation pass, that it runs after a file is opened or closed, and that it runs when the reader drops a dragged box — the case the displacement alone does not cover. |
 | 25 | <a id="a_box_says_what_was_found_about_it_on_hover"></a>`a_box_says_what_was_found_about_it_on_hover` | `LLR-HTM-09` | Verifies that the page carries the element that reports a box's definition site, figures and findings while the reader points at it, and that the element takes no pointer event of its own. |
 | 26 | <a id="pointing_at_a_function_lights_the_calls_it_takes_part_in"></a>`pointing_at_a_function_lights_the_calls_it_takes_part_in` | `LLR-HTM-10` | Verifies that the page marks the pointed-at function and the edges it takes part in, in both directions, and lifts the marked edges above the boxes so a call into an opened file is not hidden by it. |
+| 27 | <a id="LLR-CYT-06: a function node carries mock_burden, tbi and tbi_status"></a>`LLR-CYT-06: a function node carries mock_burden, tbi and tbi_status` | `LLR-CYT-06` | All three fields are present in the node's `data` object, with the score and the index as JSON numbers and the status as one of the three permitted strings. |
+| 28 | <a id="LLR-CYT-06: the status string agrees with the band the catalogue decided"></a>`LLR-CYT-06: the status string agrees with the band the catalogue decided` | `LLR-CYT-06`, `LLR-THR-20` | For an index either side of both bounds, the emitted `tbi_status` matches the band `thresholds_apply` produced for the same function. The page is given the decision rather than the bounds, so a threshold moved in the catalogue cannot leave the drawing disagreeing with the report. |
 
 ### 3.60. [test/fixtures/html.bats](../test/fixtures/html.bats)
 
@@ -2143,6 +2163,7 @@ verified by code review — see
 | `LLR-CTR-05` | `calltree_analyse` | `HLR-087` | `depth_is_the_length_of_the_deepest_chain`, `depth_measures_from_the_deepest_entry_point` |
 | `LLR-CTR-06` | `calltree_analyse` | `HLR-087`, `HLR-077` | `depth_carries_the_unresolved_count` |
 | `LLR-CTR-10` | `calltree_analyse` | `HLR-156`, `HLR-085` | `fan_in_counts_distinct_callers`, `the_degrees_are_counted_over_a_wide_hub`, `HLR-156: fan-in counts the distinct functions that call one`, `HLR-156: a repeated call does not raise fan-in`, `HLR-156: a function nothing calls has fan-in zero` |
+| `LLR-CTR-13` | `calltree_analyse` | `HLR-222`, `HLR-077` | `LLR-CTR-13: weighted fan-out sums the burden of what a function calls`, `LLR-CTR-13: an unresolved call contributes to neither degree`, `LLR-CTR-13: fractional burdens accumulate without being rounded` |
 | `LLR-CTR-12` | `calltree_analyse` | `HLR-191` | `the_maintainability_index_matches_the_formula`, `the_maintainability_index_handles_its_edges`, `the_maintainability_index_falls_as_a_function_worsens` |
 | `LLR-LPD-01` | `longest_path_dag` | `HLR-087` | `the_deepest_chain_is_an_ordered_sequence` |
 | `LLR-LPD-04` | `longest_path_dag` | `HLR-087`, `HLR-032` | `depth_is_the_length_of_the_deepest_chain` |
@@ -2184,6 +2205,7 @@ verified by code review — see
 | `LLR-THR-17` | `thresholds_apply` | `HLR-185`, `HLR-186`, `HLR-187`, `HLR-098` | `an_occurrence_row_bands_no_counted_value` |
 | `LLR-THR-18` | `thresholds_apply` | `HLR-192`, `HLR-099`, `HLR-101` | `maintainability_is_banded_downwards_on_elcs_own_authority` |
 | `LLR-THR-19` | `thresholds_apply` | `HLR-207`, `HLR-099`, `HLR-077` | `HLR-207: a C library call MISRA forbids is a warning citing its rule`, `HLR-207: the rule cited is the one that forbids that function`, `HLR-207: a function the project defines itself is not reported`, `HLR-207: a permitted function in a constrained header is not reported` |
+| `LLR-THR-20` | `thresholds_apply` | `HLR-224`, `HLR-099`, `HLR-193` | `LLR-THR-20: the testing-burden bands are evaluated in descending order`, `LLR-THR-20: an index below twenty yields no finding`, `LLR-THR-20: the testing-burden band carries the elc-heuristic label`, `LLR-CYT-06: the status string agrees with the band the catalogue decided` |
 | `LLR-RPT-01` | `report_assemble` | `HLR-024` | `totals_sum_across_every_file` |
 | `LLR-RPT-02` | `report_assemble` | `HLR-025` | `HLR-025: the totals are broken down by language`, `HLR-025: the per-language totals sum to the project totals` |
 | `LLR-RPT-03` | `report_assemble` | `HLR-026` | `HLR-026: the summary names the most complex function and the largest file` |
@@ -2458,6 +2480,7 @@ verified by code review — see
 | `LLR-CYT-03` | `html_elements` | `HLR-213`, `HLR-032` | `a_function_names_the_file_that_defines_it` |
 | `LLR-CYT-04` | `html_elements` | `HLR-214`, `HLR-074`, `HLR-032` | `edges_join_functions_and_never_containers` |
 | `LLR-CYT-05` | `html_elements` | `HLR-217`, `HLR-099`, `HLR-088` | `a_finding_reaches_the_node_it_describes`, `an_absent_mark_is_an_absent_key` |
+| `LLR-CYT-06` | `html_elements` | `HLR-225`, `HLR-213` | `LLR-CYT-06: a function node carries mock_burden, tbi and tbi_status`, `LLR-CYT-06: the status string agrees with the band the catalogue decided` |
 | `LLR-HTM-01` | `format_html` | `HLR-215`, `HLR-148`, `HLR-149` | `the_html_extension_selects_the_html_format`, `there_is_no_option_requesting_the_html_format`, `the_format_option_spells_html` |
 | `LLR-HTM-02` | `format_html` | `HLR-215`, `HLR-040` | `the_page_loads_the_viewer_and_opens_collapsed`, `an_empty_graph_still_produces_a_page` |
 | `LLR-HTM-03` | `format_html` | `HLR-215`, `HLR-064` | `no_raw_angle_bracket_or_ampersand_reaches_the_payload`, `the_javascript_line_terminators_are_escaped` |
@@ -2471,6 +2494,12 @@ verified by code review — see
 | `LLR-ANN-01` | `annotations_build` | `HLR-217`, `HLR-123` | `the_highest_severity_is_the_one_kept`, `a_clean_graph_carries_no_annotation`, `an_unreachable_function_is_marked_at_its_definition_site`, `only_consecutive_pairs_are_steps_of_the_chain` |
 | `LLR-ANN-02` | `annotations_build` | `HLR-217`, `HLR-091`, `HLR-092` | `a_finding_lands_on_the_definition_site_not_the_name`, `a_component_finding_lands_on_the_component`, `a_finding_about_the_graph_reaches_the_notes`, `a_global_finding_lands_once_per_function_not_once_per_access` |
 | `LLR-ANN-03` | `annotations_build` | `HLR-089`, `HLR-105`, `HLR-217` | `recursion_is_marked_on_every_member_of_the_cycle` |
+| `LLR-MBS-01` | `collect_mock_burden` | `HLR-221` | `LLR-MBS-01: a void function taking nothing scores the base tax alone`, `LLR-MBS-01: a pointer return is charged more than a primitive return`, `LLR-MBS-01: each parameter is charged by kind` |
+| `LLR-MBS-02` | `collect_mock_burden` | `HLR-221`, `HLR-009` | `LLR-MBS-02: a project's own integer type is scored from the query, not from a name the binary knows` |
+| `LLR-MBS-03` | `collect_mock_burden` | `HLR-221` | `LLR-MBS-01: a void function taking nothing scores the base tax alone`, `LLR-MBS-03: a variadic ellipsis is not charged as a parameter`, `LLR-MBS-03: indirection is charged once, not per token` |
+| `LLR-MBS-04` | `collect_mock_burden` | `HLR-221`, `HLR-070` | `LLR-MBS-04: a signature the query cannot match scores the base tax and diagnoses` |
+| `LLR-TBI-01` | `calltree_burden` | `HLR-223` | `LLR-TBI-01: a widely shared leaf collapses to its cyclomatic complexity`, `LLR-TBI-01: a coordinator called from one place collapses likewise`, `LLR-TBI-01: only a function large in both degrees produces a large index`, `LLR-TBI-01: the degrees are compared without truncating the weight` |
+| `LLR-TBI-02` | `calltree_burden` | `HLR-223` | `LLR-TBI-02: the index is a pure function of its three measurements` |
 
 ## 5. Integration Test Environment
 

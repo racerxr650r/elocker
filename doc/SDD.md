@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.23
-**Date:** 2026-08-31
+**Version:** 2.24
+**Date:** 2026-09-01
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -531,6 +531,7 @@ Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage`
 *   Measure a file the parser only partly understood from the parts it did, and record how many lines it did not, so that a grammar gap costs the lines it touches and not the file (HLR-035).
 *   Evaluate custom rule queries and record their matches.
 *   Omit every function the linked image does not define, and record which they were, so that no later stage need know a filter was applied (HLR-140, HLR-144).
+*   Compute the Mock Burden Score of every function from its parsed signature, in the traversal that already extracts the function (HLR-221). Pass 1 of the two the Testing Burden Index is built from: the score is settled where the syntax tree is standing open, and is carried on the function record thereafter.
 
 ### 7.2 External Interfaces
 #### 7.2.1 Deciding a Conditional Region
@@ -632,6 +633,7 @@ Produces `FileMetrics` and `FileFacts`. Holds a scratch span list for comment me
 *   **`const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)`** — Return the narrowest reported function containing a byte offset, or NULL when the offset lies outside every one of them. Only *reported* functions are in the index, which is what makes an anonymous callable transparent to the lookup: an offset inside one resolves to the named function around it (HLR-018).
 *   **`void filemetrics_free(FileMetrics *m)`** — Release a file's metrics and every function name it owns.
 *   **`void filefacts_free(FileFacts *f)`** — Release the call sites, global accesses, address-taken records, and rule matches a file produced.
+*   **`double collect_mock_burden(TSNode fn, const LanguageModule *lang)`** — The Mock Burden Score of one function (HLR-221): the base mocking tax of 0.25, plus 0.0 / 0.1 / 0.25 for a void, primitive, or pointer-or-struct return, plus 0.1 or 0.25 for each primitive or pointer-or-array parameter. The kind of every type comes from the captures of the runtime signature query and never from token text compared in C, since a list of primitive names in the binary would be a language fact where this project forbids them and would be wrong for the first project that types its own integers. A variadic ellipsis is not a parameter; an empty or (void) list contributes nothing; indirection is charged once at the pointer rate. A signature the query cannot match scores the base tax and is diagnosed, since a function absent from a score column reads as one that scored zero.
 
 #### 7.3.3 Parsing Strategy / Algorithm
 
@@ -806,6 +808,7 @@ A call that both skips and inverts contributed one violation of each kind and is
 *   Define the Adapted Maintainability Index — and define it once, since both the report's function table and the threshold catalogue need the figure and two computations of it are two figures (HLR-191).
 *   Detect direct and mutual recursion among functions.
 *   Compute the maximum call depth from the declared entry points, and capture the ordered chain that achieves it.
+*   Accumulate each function's Weighted Fan-Out in the existing single pass over the call edges, and define the Testing Burden Index formed from it (HLR-222, HLR-223). Pass 2 of the two: Pass 1 decided what each function costs to mock, and this sums that cost across the edges a function depends on.
 
 
 ### 10.3 Internal Structure
@@ -827,6 +830,7 @@ A call that both skips and inverts contributed one violation of each kind and is
 *   **`uint32_t calltree_maintainability(uint32_t eloc, uint32_t complexity, uint32_t fan_in, uint32_t fan_out)`** — Coleman and Oman's Maintainability Index with the information flow through a function substituted for its Halstead Volume, normalised over 171 to a 0-100 scale and rounded to the integer the report prints (HLR-191). A pure function of four measurements and the only definition of the formula: the report needs it for the function table and `thresholds.c` to band, and a second computation is a second place it could differ. A function with no effective lines is taken as having one, so the length term vanishes rather than becoming an infinity; either degree being zero makes the flow term vanish for the same reason, which is the intended reading rather than a gap.
 *   **`int longest_path_dag(const Sdg *g, const NodeSet *entries, Chain *out)`** — Memoised longest-path search with predecessor retention.
 *   **`void tree_results_free(TreeResults *r)`** — Release the per-node measurement tables, the recursive-cycle list, and the retained deepest chain.
+*   **`double calltree_burden(uint32_t complexity, uint32_t fan_in, double wf_out)`** — The Testing Burden Index of HLR-223 for one function: complexity x (1 + min(fan_in, wf_out)), and the only definition of the formula, since the report needs it for the function table and thresholds.c needs it to band. The lesser of the two degrees and not their product is the whole of what separates this index from calltree_maintainability: a widely shared leaf has a large fan-in and a weighted fan-out near zero and collapses to its complexity, a coordinator has the reverse and does the same, and only a function large in both - the God Object - yields a large index. The fan-in is widened to compare rather than the weight truncated; truncating would make every weighted fan-out below 1.0 compare equal to zero and return the bare complexity across the whole lower range. A pure function of three measurements, reading no graph.
 ### 10.4 Dependencies
 
 *   The graph library, for topological ordering and strongly connected components.

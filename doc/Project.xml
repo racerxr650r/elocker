@@ -11,15 +11,15 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.23" date="2026-08-31" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.16" date="2026-09-01" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.18" date="2026-08-31" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.25" date="2026-09-01" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.25" date="2026-08-31" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.24" date="2026-09-01" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.17" date="2026-09-01" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.19" date="2026-09-01" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.26" date="2026-09-01" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.26" date="2026-09-01" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="216"/>
-      <count name="llrs"       value="595"/>
-      <count name="tests"      value="1302"/>
+      <count name="hlrs"       value="221"/>
+      <count name="llrs"       value="604"/>
+      <count name="tests"      value="1322"/>
       <count name="test_files" value="60"/>
     </counts>
   </metadata>
@@ -443,6 +443,7 @@ It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Alloca
         <responsibility><![CDATA[Measure a file the parser only partly understood from the parts it did, and record how many lines it did not, so that a grammar gap costs the lines it touches and not the file (HLR-035).]]></responsibility>
         <responsibility><![CDATA[Evaluate custom rule queries and record their matches.]]></responsibility>
         <responsibility><![CDATA[Omit every function the linked image does not define, and record which they were, so that no later stage need know a filter was applied (HLR-140, HLR-144).]]></responsibility>
+        <responsibility><![CDATA[Compute the Mock Burden Score of every function from its parsed signature, in the traversal that already extracts the function (HLR-221). Pass 1 of the two the Testing Burden Index is built from: the score is settled where the syntax tree is standing open, and is carried on the function record thereafter.]]></responsibility>
         <interfaces>
           <interface title="Deciding a Conditional Region"><![CDATA[Which regions this configuration does not compile, and the exact division of labour that keeps the mechanism language-agnostic (HLR-131 – HLR-135).
 
@@ -528,7 +529,8 @@ Nothing here evaluates an expression. A branch is dead only where the source wri
           <function signature="const FnRange *innermost_enclosing(const FnRangeIndex *idx, uint32_t byte)" summary="Return the narrowest reported function containing a byte offset, or NULL when the offset lies outside every one of them. Only *reported* functions are in the index, which is what makes an anonymous callable transparent to the lookup: an offset inside one resolves to the named function around it (HLR-018)."/>
           <function signature="void filemetrics_free(FileMetrics *m)" summary="Release a file's metrics and every function name it owns."/>
           <function signature="void filefacts_free(FileFacts *f)" summary="Release the call sites, global accesses, address-taken records, and rule matches a file produced."/>
-        </functions>
+                  <function signature="double collect_mock_burden(TSNode fn, const LanguageModule *lang)" summary="The Mock Burden Score of one function (HLR-221): the base mocking tax of 0.25, plus 0.0 / 0.1 / 0.25 for a void, primitive, or pointer-or-struct return, plus 0.1 or 0.25 for each primitive or pointer-or-array parameter. The kind of every type comes from the captures of the runtime signature query and never from token text compared in C, since a list of primitive names in the binary would be a language fact where this project forbids them and would be wrong for the first project that types its own integers. A variadic ellipsis is not a parameter; an empty or (void) list contributes nothing; indirection is charged once at the pointer rate. A signature the query cannot match scores the base tax and is diagnosed, since a function absent from a score column reads as one that scored zero."/>
+</functions>
         <algorithm><![CDATA[**ELOC is a count of lines, derived from statements.** Each capture from `eloc.scm` contributes the line it *starts* on, and the count is of distinct lines. Both halves matter, for opposite reasons: taking the start line is what makes a statement spread over four lines worth one (HLR-053), and counting distinct lines rather than captures is what stops two statements written on one line being worth two — the same error inverted. What does *not* count is decided by absence from the query file rather than by a rule in C: a blank line, a lone brace, a bare declaration, and a preprocessor directive are excluded by never being captured (HLR-049 – HLR-052).
 
 **Comment-span merging is the one place where a naive implementation is silently wrong.** Spans are sorted by start byte and coalesced pairwise before anything is excluded. Subtracting per capture double-counts a block comment that contains inline comment syntax, and can drive a file's ELOC negative.
@@ -672,6 +674,7 @@ A call that both skips and inverts contributed one violation of each kind and is
         <responsibility><![CDATA[Define the Adapted Maintainability Index — and define it once, since both the report's function table and the threshold catalogue need the figure and two computations of it are two figures (HLR-191).]]></responsibility>
         <responsibility><![CDATA[Detect direct and mutual recursion among functions.]]></responsibility>
         <responsibility><![CDATA[Compute the maximum call depth from the declared entry points, and capture the ordered chain that achieves it.]]></responsibility>
+        <responsibility><![CDATA[Accumulate each function's Weighted Fan-Out in the existing single pass over the call edges, and define the Testing Burden Index formed from it (HLR-222, HLR-223). Pass 2 of the two: Pass 1 decided what each function costs to mock, and this sums that cost across the edges a function depends on.]]></responsibility>
         <functions>
           <function signature="int calltree_analyse(const Sdg *g, const ElcOptions *opts, TreeResults *out)">
             <purpose><![CDATA[Produce every call-tree measurement the report requires.]]></purpose>
@@ -690,7 +693,8 @@ A call that both skips and inverts contributed one violation of each kind and is
           <function signature="uint32_t calltree_maintainability(uint32_t eloc, uint32_t complexity, uint32_t fan_in, uint32_t fan_out)" summary="Coleman and Oman's Maintainability Index with the information flow through a function substituted for its Halstead Volume, normalised over 171 to a 0-100 scale and rounded to the integer the report prints (HLR-191). A pure function of four measurements and the only definition of the formula: the report needs it for the function table and `thresholds.c` to band, and a second computation is a second place it could differ. A function with no effective lines is taken as having one, so the length term vanishes rather than becoming an infinity; either degree being zero makes the flow term vanish for the same reason, which is the intended reading rather than a gap."/>
           <function signature="int longest_path_dag(const Sdg *g, const NodeSet *entries, Chain *out)" summary="Memoised longest-path search with predecessor retention."/>
           <function signature="void tree_results_free(TreeResults *r)" summary="Release the per-node measurement tables, the recursive-cycle list, and the retained deepest chain."/>
-        </functions>
+                  <function signature="double calltree_burden(uint32_t complexity, uint32_t fan_in, double wf_out)" summary="The Testing Burden Index of HLR-223 for one function: complexity x (1 + min(fan_in, wf_out)), and the only definition of the formula, since the report needs it for the function table and thresholds.c needs it to band. The lesser of the two degrees and not their product is the whole of what separates this index from calltree_maintainability: a widely shared leaf has a large fan-in and a weighted fan-out near zero and collapses to its complexity, a coordinator has the reverse and does the same, and only a function large in both - the God Object - yields a large index. The fan-in is widened to compare rather than the weight truncated; truncating would make every weighted fan-out below 1.0 compare equal to zero and return the bare complexity across the whole lower range. A pure function of three measurements, reading no graph."/>
+</functions>
         <dependencies>
           <dep><![CDATA[The graph library, for topological ordering and strongly connected components.]]></dep>
           <dep><![CDATA[`src/graph.c`.]]></dep>
@@ -4696,6 +4700,95 @@ The statement is unconditional because a section that appears only sometimes is 
       </hlr>
     </section>
 
+    <section number="32" title="Automated Weighted Test Burden Index">
+      <intro><![CDATA[Requirements governing a per-function estimate of what it costs, mechanically, to put a function under a unit test on a target with no operating system and no process isolation (PVD §4 "embedded / bare-metal developer", §6 Principle 1).
+
+On such a target the cost of a test is very largely the cost of standing up the function's dependencies: every function it calls has to be replaced by a mock, and every mock has to be written to a signature. Section 12 already counts those dependencies, and counts them all alike — a call to a function taking nothing and returning `void` is one unit of fan-out, and so is a call to one taking three pointers and returning a `struct`. Counting them equally is what makes fan-out a proxy for the cost of testing rather than a measure of it.
+
+The requirements here weight the edge by what the thing it points at costs to mock, and combine that weighted degree with cyclomatic complexity — the two halves of the cost, since a mock is written once per dependency and a test case once per path.
+
+**The weights and the bands are `elc`'s own**, and carry the *elc heuristic — not a published standard* label for the reason Section 24 gives: an unpublished formula cannot borrow thresholds calibrated for a published one.]]></intro>
+
+      <hlr id="HLR-221" name="Mock Burden Score per Function">
+        <text><![CDATA[For every function it reports, `elc` shall compute a **Mock Burden Score** from that function's signature as parsed, estimating what replacing the function with a mock costs to write. The score shall be the sum of:
+
+*   a **base mocking tax** of `0.25`, charged to every function, since a mock that does nothing at all is still a symbol that must be defined and linked;
+*   a **return contribution** — `0.0` where the return type is `void`, `0.1` where it is a primitive, and `0.25` where it is a pointer or a `struct` — because a mock returning nothing needs no return value decided, one returning a scalar needs a value, and one returning a pointer or an aggregate needs storage that outlives the call;
+*   a **parameter contribution** for each parameter — `0.1` for a primitive and `0.25` for a pointer or an array — because a pointer parameter is one a mock may have to read through or write back.
+
+The score shall be derived from the parse and from nothing else (PVD §6 Principle 1): from the return type, the parameter list, and the pointer and array tokens within them, extracted by a query in the runtime directory rather than by matching text in the binary (HLR-009).
+
+**Three cases shall be settled here rather than by the implementation**, each being a silent difference between two builds otherwise:
+
+*   A variadic `...` is not a parameter and shall contribute nothing. It cannot be mocked per-argument, so charging it as one would be arbitrary.
+*   An empty or `(void)` parameter list has no parameters and shall contribute nothing beyond the base tax and the return.
+*   A pointer to a pointer, or a `struct` passed by pointer, shall be charged once at the pointer rate. The score taxes the *kind* of a type, not the count of its tokens, and a rate that grew with indirection would put the weights beyond a reader's ability to reason about them.
+
+The weights above are `elc`'s own heuristics and shall be labelled as such wherever they are published (HLR-099, HLR-193).]]></text>
+        <traces>
+          <trace target="SDD" ref="6"/>
+          <trace target="SDD" ref="7"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-222" name="Weighted Fan-Out">
+        <text><![CDATA[For every function, `elc` shall compute a **Weighted Fan-Out** (WF-out): the sum of the Mock Burden Scores (HLR-221) of the functions its resolved outgoing call edges point at. Where a function has no resolved outgoing call, its Weighted Fan-Out shall be zero.
+
+**An unresolvable call shall contribute nothing**, exactly as it contributes nothing to the fan-out of HLR-076 (HLR-077). The consequence shall be stated in the delivered documentation rather than left for a reader to discover: a project that calls the C library directly reads as cheaper to test than one that centralises the same calls behind its own wrappers, because the first set of calls leaves the graph and the second stays in it. That is the artefact LLR-BLD-23 already records against the Adapted Maintainability Index, reaching a second measurement by the same route, and it is a property of what a call graph can see rather than a defect in the weighting.
+
+The weighted degree shall be accumulated in the traversal that already computes fan-in and fan-out (HLR-076, HLR-183) rather than in a second pass over the graph, so that a function's three degrees are read from one walk of one edge table and cannot disagree about which edges exist.]]></text>
+        <traces>
+          <trace target="SDD" ref="8"/>
+          <trace target="SDD" ref="10"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-223" name="Testing Burden Index per Function">
+        <text><![CDATA[For every function, `elc` shall compute and report a **Testing Burden Index** from its cyclomatic complexity (HLR-017), its fan-in (HLR-183) and its Weighted Fan-Out (HLR-222):
+
+`TBI = v(G) x (1 + min(Fan-In, WF-out))`
+
+**The `min` is the substance of this requirement and not a detail of its scaling.** A function that many others call but which itself calls almost nothing — a logging wrapper, a shared reduction, a leaf utility — has a large fan-in and a Weighted Fan-Out near zero, and `min` returns the smaller: its index collapses towards its cyclomatic complexity, which is the honest answer, because testing it requires few mocks or none. A function that calls a great deal but is called from one place is a coordinator, and `min` again returns the smaller. Only a function that is **both** widely depended upon **and** deeply dependent makes both terms large, and that shape — the God Object — is the only one this index is intended to condemn.
+
+**It shall not replace or amend the Adapted Maintainability Index** (HLR-191), whose information-flow term is the *product* of the two degrees and therefore cannot distinguish a widely shared leaf from a hub. The two shall be reported side by side; where they disagree about a function, the disagreement is information about the function and is left visible rather than reconciled.
+
+The index shall be computed from measurements `elc` already holds and shall introduce no new traversal of the source.]]></text>
+        <traces>
+          <trace target="SDD" ref="10"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-224" name="Testing Burden Threshold Classification">
+        <text><![CDATA[`elc` shall classify each function's Testing Burden Index (HLR-223) into one of three bands and report the band alongside the figure:
+
+| Band | Condition | Meaning |
+| ---- | --------- | ------- |
+| Healthy | `TBI < 20` | Within the range in which a unit test and its mocks are ordinary work. |
+| Warning | `TBI >= 20` | Approaching the limit of comfortable unit testing and mocking. |
+| Critical | `TBI >= 45` | An architectural bottleneck or a God Object; refactoring is indicated before the function is tested. |
+
+The bands shall be evaluated in descending order so that a Critical index is not also reported as a Warning, and the classification shall be a property of the one threshold catalogue that carries every other band (HLR-098), rather than a second table beside it.
+
+**These bounds are `elc`'s own and shall be labelled as such** — *elc heuristic — not a published standard* — for the reason HLR-193 gives for the Maintainability bands: the index is unpublished, so no published calibration describes it, and attaching a citation would put an opinion of `elc`'s own under someone else's name.
+
+A band shall be a prompt to look rather than an instruction to comply (HLR-099).]]></text>
+        <traces>
+          <trace target="SDD" ref="12"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-225" name="Testing Burden in the Interactive Report Payload">
+        <text><![CDATA[The JSON payload the interactive HTML report carries for each function node (HLR-213) shall include the function's Mock Burden Score, its Testing Burden Index, and its band as a string taking one of the values `healthy`, `warning`, or `critical`.
+
+The band shall be carried as the string the C already decided rather than recomputed in the page from the index and the bounds. A threshold spelled once in the binary and once in a script is two places it can be spelled differently, and the page would be the copy nobody checks — the same reason HLR-149 admits only one spelling of a format.
+
+The figures shall reach every other format that reports per-function detail on the terms those formats already set (HLR-031), so that the interactive report presents what the others present rather than a measurement available in one place only.]]></text>
+        <traces>
+          <trace target="SDD" ref="27"/>
+        </traces>
+      </hlr>
+    </section>
+
   </hlrs>
 
   <!-- Low-Level Requirements (see tools/Developers_Guide.md §6). -->
@@ -6679,6 +6772,19 @@ A function that no analysed function calls has a fan-in of zero, and that zero i
         </traces>
       </llr>
 
+      <llr id="LLR-CTR-13">
+        <text><![CDATA[`calltree_analyse` shall accumulate a **Weighted Fan-Out** for every function in the same traversal of the call edges that already accumulates fan-out and fan-in (HLR-222). For each resolved call edge, the Mock Burden Score of the node the edge points at shall be added to the weighted fan-out of the node it leaves.
+
+**One traversal and not two, for the reason the existing pass gives for fan-in and fan-out.** The three degrees are the same walk of the same edge table read three ways, and a second traversal would be a second place the `kind == EDGE_CALL` test could be forgotten — leaving a function whose weighted fan-out counted edges its fan-out did not.
+
+An unresolvable call site contributes to neither degree, since it produces no edge to walk (HLR-077). A function with no resolved outgoing call shall therefore have a weighted fan-out of zero, which is the same value a function calling nothing has, and the two are not distinguished here: the unresolved count `graph_unresolved_count` reports is what tells them apart, and it is already presented beside these measurements.
+
+The accumulation shall be in floating point and shall not be rounded before the index of LLR-TBI-01 consumes it, so that four calls to functions scoring `0.25` sum to `1.0` and not to zero.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-222" name="Weighted Fan-Out"/>
+          <trace target="HLR" ref="HLR-077"/>
+        </traces>
+      </llr>
       <llr id="LLR-CTR-12">
         <text><![CDATA[`calltree_maintainability` shall return the Adapted Maintainability Index of HLR-191 for one function, as a whole number on a 0-to-100 scale, and shall be the only definition of the formula. The report needs the figure for its function table and `thresholds.c` needs it to band; a second computation is a second place it could be computed differently.
 
@@ -7011,6 +7117,21 @@ No bound shall be invented. MISRA states no count at which use becomes unaccepta
           <trace target="HLR" ref="HLR-207" name="C Library Use Outside MISRA Constraints Reported"/>
           <trace target="HLR" ref="HLR-099" name="Threshold Source Attribution"/>
           <trace target="HLR" ref="HLR-077"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-THR-20">
+        <text><![CDATA[`thresholds_apply` shall classify each function's Testing Burden Index into the bands of HLR-224 — Critical at 45 or above, Warning at 20 or above, and Healthy below 20 — and shall test them in descending order, so that an index of 45 yields one Critical finding and not a Critical and a Warning both.
+
+The bounds shall live in the one threshold catalogue this module already holds rather than in a table beside it, for the reason every other band in it is there: a catalogue that some measurements are in and others are not is a catalogue a reader cannot trust to be complete.
+
+The band shall carry the *elc heuristic — not a published standard* label (HLR-193). The index is `elc`'s own and unpublished, so no published calibration describes it, and a citation would put an opinion of `elc`'s own under another name.
+
+**Unlike the Maintainability Index, a high value is the bad one here**, so the comparison shall be the ordinary one rather than the inverted comparison LLR-THR-16 makes for a score out of a hundred. That difference is the reason the two are separate entries in the catalogue and not one parameterised by a bound.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-224" name="Testing Burden Threshold Classification"/>
+          <trace target="HLR" ref="HLR-099"/>
+          <trace target="HLR" ref="HLR-193"/>
         </traces>
       </llr>
     </function>
@@ -9435,6 +9556,18 @@ Edges shall be emitted in ascending source-then-target order, which is `format_g
           <trace target="HLR" ref="HLR-088" />
         </traces>
       </llr>
+
+      <llr id="LLR-CYT-06">
+        <text><![CDATA[`html_elements` shall carry, in the `data` object of every function node it emits, the function's Mock Burden Score as `mock_burden`, its Testing Burden Index as `tbi`, and its band as `tbi_status` taking exactly one of the strings `healthy`, `warning`, or `critical` (HLR-225).
+
+**The band shall be the string the C already decided, and the page shall not derive it.** Emitting the index and letting the stylesheet compare it against 20 and 45 would put the bounds in a second place — in a script, where nothing checks them against the catalogue that decided the text report's finding — and the two would disagree the first time a bound moved. That is the disagreement HLR-149 refuses between two spellings of a format, arriving here between two spellings of a threshold.
+
+The numbers shall be emitted through the same serialiser as every other numeric field on the node, so that a score is written in the locale-independent form the payload requires and a reader of the JSON sees `0.85` on every machine.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-225" name="Testing Burden in the Interactive Report Payload"/>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="73" title="`format_html` ([src/report_html.c](../src/report_html.c))" name="format_html" source="src/report_html.c">
@@ -9661,6 +9794,64 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
           <trace target="HLR" ref="HLR-089" />
           <trace target="HLR" ref="HLR-105" />
           <trace target="HLR" ref="HLR-217" name="The Drawing Carries the Findings It Was Drawn From" />
+        </traces>
+      </llr>
+    </function>
+
+    <function number="75" name="collect_mock_burden" source="src/analyze.c" title="`collect_mock_burden` ([src/analyze.c](../src/analyze.c))">
+      <llr id="LLR-MBS-01">
+        <text><![CDATA[`collect_mock_burden` shall compute the Mock Burden Score of HLR-221 for one function from the captures of the signature query, and shall be the only definition of the weighting. The score is needed by the graph, by the threshold catalogue, and by every format that reports per-function detail; a second computation would be a second place the weights could differ.
+
+The score shall be the base tax of `0.25`, plus the return contribution — `0.0` for `void`, `0.1` for a primitive, `0.25` for a pointer or a `struct` — plus, for each parameter, `0.1` where it is a primitive and `0.25` where it is a pointer or an array.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-221" name="Mock Burden Score per Function"/>
+        </traces>
+      </llr>
+      <llr id="LLR-MBS-02">
+        <text><![CDATA[`collect_mock_burden` shall read the return type, the parameter list, and the pointer and array tokens from a query file in the runtime directory, and shall contain no language-specific token text of its own (HLR-009, PVD §6 Principle 2).
+
+**The classification of a type shall be by the captures the query returns, not by comparing spellings in C.** A list of primitive type names compiled into the binary would be a language fact in the one place this project forbids language facts, and would be wrong for the first project that types its own integers — which on the bare-metal targets this measurement exists for is every project.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-221"/>
+          <trace target="HLR" ref="HLR-009" name="Language Data in the Runtime Directory"/>
+        </traces>
+      </llr>
+      <llr id="LLR-MBS-03">
+        <text><![CDATA[`collect_mock_burden` shall settle the three signature cases HLR-221 names, and settle them where the score is computed rather than at each call site:
+
+A variadic `...` shall not be counted as a parameter and shall contribute nothing. An empty parameter list, and one consisting of the single token `void`, shall yield no parameter contribution at all — so `void f(void)` scores exactly the base tax of `0.25`. A parameter that is a pointer to a pointer, or a `struct` passed through a pointer, shall be charged once at the pointer rate, the score being a tax on the kind of a type rather than a count of its tokens.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-221"/>
+        </traces>
+      </llr>
+      <llr id="LLR-MBS-04">
+        <text><![CDATA[`collect_mock_burden` shall run inside the traversal that already extracts each function (LLR-ANL-01), and shall not re-parse or re-walk the tree. PVD §6 Principle 7 admits one parse and no copies; a signature is available at the node the traversal is already standing on, and a second walk to fetch it would buy nothing.
+
+A function whose signature the query cannot match shall be scored at the base tax alone and the shortfall diagnosed, rather than the function being omitted from the measurement. A function absent from a score column is indistinguishable from one that scored zero, and the run continues under HLR-070 either way.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-221"/>
+          <trace target="HLR" ref="HLR-070"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="76" name="calltree_burden" source="src/calltree.c" title="`calltree_burden` ([src/calltree.c](../src/calltree.c))">
+      <llr id="LLR-TBI-01">
+        <text><![CDATA[`calltree_burden` shall return the Testing Burden Index of HLR-223 for one function, computed as its cyclomatic complexity multiplied by one plus the lesser of its fan-in and its Weighted Fan-Out, and shall be the only definition of the formula — the report needs it for the function table and `thresholds.c` needs it to band.
+
+**The lesser of the two degrees and not their product**, which is the whole of what distinguishes this index from the Adapted Maintainability Index of LLR-CTR-12. A widely shared leaf has a large fan-in and a weighted fan-out near zero, and the index shall collapse towards its cyclomatic complexity; a coordinator has the reverse and shall do the same. Only a function large in both degrees shall produce a large index.
+
+The two degrees shall be compared as the same type before the lesser is taken. Fan-in is a count and the weighted fan-out is not, so the count shall be widened rather than the weight truncated — truncating would make every weighted fan-out below `1.0` compare equal to zero and would silently return the complexity for the whole lower half of the range.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-223" name="Testing Burden Index per Function"/>
+        </traces>
+      </llr>
+      <llr id="LLR-TBI-02">
+        <text><![CDATA[`calltree_burden` shall be a pure function of the three measurements it is given and shall read no graph, so that the figure the report prints and the figure the threshold catalogue bands are produced by one call and cannot diverge.
+
+A function whose cyclomatic complexity is recorded as zero — which no analysed function has, every path count being at least one — shall yield an index of zero rather than a special case, the multiplication doing the work without a guard.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-223"/>
         </traces>
       </llr>
     </function>
@@ -11175,7 +11366,7 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
     </test>
   </file>
 
-  <file path="test/unit/analyze.c" role="unit" count="47">
+  <file path="test/unit/analyze.c" role="unit" count="54">
     <test name="physical_lines_are_counted">
       <purpose><![CDATA[The physical line count comes from the mapped contents.]]></purpose>
       <traces>
@@ -11484,9 +11675,60 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
         <trace target="HLR" ref="HLR-137"/>
       </traces>
     </test>
+    <test name="LLR-MBS-01: a void function taking nothing scores the base tax alone">
+      <purpose><![CDATA[`void f(void)` scores exactly 0.25. The floor of the scale, and the case showing the base tax is charged even to a function needing no return value decided and no parameter mocked.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MBS-01"/>
+        <trace target="LLR" ref="LLR-MBS-03"/>
+        <trace target="HLR" ref="HLR-221"/>
+      </traces>
+    </test>
+    <test name="LLR-MBS-01: a pointer return is charged more than a primitive return">
+      <purpose><![CDATA[Three signatures differing only in return type - `void`, `uint8_t`, `struct S *` - score 0.25, 0.35 and 0.50. Asserted as exact values and not merely as an ordering, because a weighting that ranked correctly could still put the bands somewhere other than where HLR-224 draws them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MBS-01"/>
+        <trace target="HLR" ref="HLR-221"/>
+      </traces>
+    </test>
+    <test name="LLR-MBS-01: each parameter is charged by kind">
+      <purpose><![CDATA[`struct S *g(uint8_t a, char *b)` scores 0.25 + 0.25 + 0.1 + 0.25 = 0.85. One signature exercising the return contribution and both parameter rates together, against the arithmetic written out.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MBS-01"/>
+        <trace target="HLR" ref="HLR-221"/>
+      </traces>
+    </test>
+    <test name="LLR-MBS-03: a variadic ellipsis is not charged as a parameter">
+      <purpose><![CDATA[`void v(const char *fmt, ...)` scores 0.5 and no more: the pointer parameter is charged and the ellipsis is not, since it cannot be mocked per-argument. This is the shape of the logging function the measurement most often meets.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MBS-03"/>
+        <trace target="HLR" ref="HLR-221"/>
+      </traces>
+    </test>
+    <test name="LLR-MBS-03: indirection is charged once, not per token">
+      <purpose><![CDATA[`char **p` and `char *p` are charged alike at the pointer rate. The score taxes the kind of a type rather than counting its tokens, and a rate growing with indirection would put the weights beyond reasoning about.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MBS-03"/>
+        <trace target="HLR" ref="HLR-221"/>
+      </traces>
+    </test>
+    <test name="LLR-MBS-04: a signature the query cannot match scores the base tax and diagnoses">
+      <purpose><![CDATA[The function is scored rather than omitted, and the shortfall is diagnosed. A function missing from a score column is indistinguishable from one that scored zero, which is the reading a silent omission would produce.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MBS-04"/>
+        <trace target="HLR" ref="HLR-070"/>
+      </traces>
+    </test>
+    <test name="LLR-MBS-02: a project's own integer type is scored from the query, not from a name the binary knows">
+      <purpose><![CDATA[A parameter typed `avr_reg_t` - a name no C in elc mentions - is charged at the primitive rate because the query captured it as one. The assertion is that the binary holds no list of primitive type names: such a list would be a language fact where PVD Principle 2 forbids them, and would be wrong for the first project that types its own integers, which on the bare-metal targets this measurement exists for is every project.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-MBS-02"/>
+        <trace target="HLR" ref="HLR-221"/>
+        <trace target="HLR" ref="HLR-009"/>
+      </traces>
+    </test>
   </file>
 
-  <file path="test/unit/calltree.c" role="unit" count="22">
+  <file path="test/unit/calltree.c" role="unit" count="30">
     <test name="fan_out_counts_distinct_callees">
       <purpose><![CDATA[Four call sites to two functions give a fan-out of two, so the measure is of subroutines invoked and not of invocations.]]></purpose>
       <traces>
@@ -11628,6 +11870,62 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
       <purpose><![CDATA[Releasing a null or already-released result set does not fault, so teardown is unconditional on every path.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CTR-01"/>
+      </traces>
+    </test>
+    <test name="LLR-CTR-13: weighted fan-out sums the burden of what a function calls">
+      <purpose><![CDATA[A function calling four others each scoring 0.25 has a weighted fan-out of 1.0 while its plain fan-out is 4. The two degrees measure different things over the same edges, and this is the case that separates them.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-13"/>
+        <trace target="HLR" ref="HLR-222"/>
+      </traces>
+    </test>
+    <test name="LLR-CTR-13: an unresolved call contributes to neither degree">
+      <purpose><![CDATA[A call site with no resolvable target leaves fan-out and weighted fan-out alike untouched, because it produces no edge to walk. The consequence the requirement names - a project calling the C library reads as cheaper to test than one wrapping it - is a property of what the graph can see, and this is where it is pinned down.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-13"/>
+        <trace target="HLR" ref="HLR-077"/>
+      </traces>
+    </test>
+    <test name="LLR-CTR-13: fractional burdens accumulate without being rounded">
+      <purpose><![CDATA[Four callees at 0.25 sum to 1.0 rather than to zero. Asserted because the accumulator's type is the whole of the risk: an integer one would truncate every callee below 1.0 and report the entire lower half of the range as no burden at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CTR-13"/>
+        <trace target="HLR" ref="HLR-222"/>
+      </traces>
+    </test>
+    <test name="LLR-TBI-01: a widely shared leaf collapses to its cyclomatic complexity">
+      <purpose><![CDATA[Fan-in 82, weighted fan-out 0, complexity 2 yields 2. The case the index exists for: a function many others call but which calls nothing needs no mocks. This is the shape the Adapted Maintainability Index scores as critical, and the two disagreeing here is the intended outcome rather than a defect in either.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-TBI-01"/>
+        <trace target="HLR" ref="HLR-223"/>
+      </traces>
+    </test>
+    <test name="LLR-TBI-01: a coordinator called from one place collapses likewise">
+      <purpose><![CDATA[Fan-in 1, weighted fan-out 12, complexity 4 yields 8. The mirror of the leaf case, asserted separately because a formula taking the larger degree would pass the leaf case and fail this one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-TBI-01"/>
+        <trace target="HLR" ref="HLR-223"/>
+      </traces>
+    </test>
+    <test name="LLR-TBI-01: only a function large in both degrees produces a large index">
+      <purpose><![CDATA[Fan-in 10 against a weighted fan-out of 9 at complexity 5 yields 50 - Critical - where either degree alone at the same complexity yields far less. The God Object is the one shape this index condemns, and this asserts it is the only one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-TBI-01"/>
+        <trace target="HLR" ref="HLR-223"/>
+      </traces>
+    </test>
+    <test name="LLR-TBI-01: the degrees are compared without truncating the weight">
+      <purpose><![CDATA[A weighted fan-out of 0.75 against a fan-in of 3 takes the weight and not zero. Truncating to an integer before comparing would make every weighted fan-out below 1.0 compare equal to zero, silently returning the bare complexity across the whole lower range - a defect no ordering assertion would catch.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-TBI-01"/>
+        <trace target="HLR" ref="HLR-223"/>
+      </traces>
+    </test>
+    <test name="LLR-TBI-02: the index is a pure function of its three measurements">
+      <purpose><![CDATA[The same complexity, fan-in and weighted fan-out yield the same index on repeated calls with no graph supplied, so the figure the report prints and the figure the threshold catalogue bands are produced by one call and cannot diverge. A complexity of zero yields zero through the multiplication rather than through a guard.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-TBI-02"/>
+        <trace target="HLR" ref="HLR-223"/>
       </traces>
     </test>
   </file>
@@ -12219,7 +12517,7 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
     </test>
   </file>
 
-  <file path="test/unit/thresholds.c" role="unit" count="20">
+  <file path="test/unit/thresholds.c" role="unit" count="23">
     <test name="the_fan_out_bands_match_the_published_table">
       <purpose><![CDATA[Each of the eight boundary values from PVD Appendix A.2 bands as the table says. The same eight are pinned as measurements by calltree/fanout.c, so a disagreement here is a banding error rather than a counting one.]]></purpose>
       <traces>
@@ -12362,6 +12660,28 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
       <traces>
         <trace target="LLR" ref="LLR-THR-01"/>
         <trace target="HLR" ref="HLR-125"/>
+      </traces>
+    </test>
+    <test name="LLR-THR-20: the testing-burden bands are evaluated in descending order">
+      <purpose><![CDATA[An index of 45 yields one Critical finding and not a Critical and a Warning both, and 20 yields exactly one Warning. Asserted at the exact bounds because both are inclusive, and an ordering written with the wrong comparison passes every test placed away from the edge.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-20"/>
+        <trace target="HLR" ref="HLR-224"/>
+      </traces>
+    </test>
+    <test name="LLR-THR-20: an index below twenty yields no finding">
+      <purpose><![CDATA[19 is Healthy and produces nothing. A band a reader is expected to act on must be silent where there is nothing to act on, and the boundary is asserted one below the bound rather than far from it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-20"/>
+        <trace target="HLR" ref="HLR-224"/>
+      </traces>
+    </test>
+    <test name="LLR-THR-20: the testing-burden band carries the elc-heuristic label">
+      <purpose><![CDATA[The finding is labelled *elc heuristic - not a published standard*, as the Maintainability bands are. The index is unpublished, so no published calibration describes it, and a citation would put an opinion of elc's own under another name.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-20"/>
+        <trace target="HLR" ref="HLR-193"/>
+        <trace target="HLR" ref="HLR-099"/>
       </traces>
     </test>
   </file>
@@ -18379,7 +18699,7 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
         </traces>
       </test>
 </file>
-    <file path="test/unit/report_html.c" role="unit" count="22">
+    <file path="test/unit/report_html.c" role="unit" count="24">
       <test name="a_node_is_emitted_for_each_declared_layer">
         <purpose><![CDATA[Verifies that one node is emitted per declared stratum, identified by its ordinal, and that no layer is emitted for a directory nobody declared.]]></purpose>
         <traces>
@@ -18542,6 +18862,21 @@ The pass repeats until nothing overlaps; the iteration cap is a guard against a 
           <trace target="LLR" ref="LLR-HTM-10"/>
         </traces>
       </test>
+    <test name="LLR-CYT-06: a function node carries mock_burden, tbi and tbi_status">
+      <purpose><![CDATA[All three fields are present in the node's `data` object, with the score and the index as JSON numbers and the status as one of the three permitted strings.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYT-06"/>
+        <trace target="HLR" ref="HLR-225"/>
+      </traces>
+    </test>
+    <test name="LLR-CYT-06: the status string agrees with the band the catalogue decided">
+      <purpose><![CDATA[For an index either side of both bounds, the emitted `tbi_status` matches the band `thresholds_apply` produced for the same function. The page is given the decision rather than the bounds, so a threshold moved in the catalogue cannot leave the drawing disagreeing with the report.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYT-06"/>
+        <trace target="LLR" ref="LLR-THR-20"/>
+        <trace target="HLR" ref="HLR-225"/>
+      </traces>
+    </test>
 </file>
 
     <file path="test/fixtures/html.bats" role="fixture" count="25">

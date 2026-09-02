@@ -1,6 +1,6 @@
 # High-Level Requirements
 
-**Version:** 3.16
+**Version:** 3.17
 **Date:** 2026-09-01
 **Author(s):** John Anderson
 
@@ -1464,3 +1464,75 @@ Requirements governing the interactive companion: the graph `elc` already builds
 
     **The key shall be part of the artefact.** A drawing whose colours are explained in the manual is a drawing the reader must leave to read; both companions state their own key, and a reader who was sent the file alone can still read it.
     *Trace:* [SDD Section 28](SDD.md), [SDD Section 27](SDD.md), [SDD Section 17](SDD.md).
+
+## 32. Automated Weighted Test Burden Index
+
+Requirements governing a per-function estimate of what it costs, mechanically, to put a function under a unit test on a target with no operating system and no process isolation (PVD §4 "embedded / bare-metal developer", §6 Principle 1).
+
+On such a target the cost of a test is very largely the cost of standing up the function's dependencies: every function it calls has to be replaced by a mock, and every mock has to be written to a signature. Section 12 already counts those dependencies, and counts them all alike — a call to a function taking nothing and returning `void` is one unit of fan-out, and so is a call to one taking three pointers and returning a `struct`. Counting them equally is what makes fan-out a proxy for the cost of testing rather than a measure of it.
+
+The requirements here weight the edge by what the thing it points at costs to mock, and combine that weighted degree with cyclomatic complexity — the two halves of the cost, since a mock is written once per dependency and a test case once per path.
+
+**The weights and the bands are `elc`'s own**, and carry the *elc heuristic — not a published standard* label for the reason Section 24 gives: an unpublished formula cannot borrow thresholds calibrated for a published one.
+
+*   <a id="HLR-221"></a>**HLR-221: Mock Burden Score per Function.**
+    For every function it reports, `elc` shall compute a **Mock Burden Score** from that function's signature as parsed, estimating what replacing the function with a mock costs to write. The score shall be the sum of:
+
+    *   a **base mocking tax** of `0.25`, charged to every function, since a mock that does nothing at all is still a symbol that must be defined and linked;
+    *   a **return contribution** — `0.0` where the return type is `void`, `0.1` where it is a primitive, and `0.25` where it is a pointer or a `struct` — because a mock returning nothing needs no return value decided, one returning a scalar needs a value, and one returning a pointer or an aggregate needs storage that outlives the call;
+    *   a **parameter contribution** for each parameter — `0.1` for a primitive and `0.25` for a pointer or an array — because a pointer parameter is one a mock may have to read through or write back.
+
+    The score shall be derived from the parse and from nothing else (PVD §6 Principle 1): from the return type, the parameter list, and the pointer and array tokens within them, extracted by a query in the runtime directory rather than by matching text in the binary (HLR-009).
+
+    **Three cases shall be settled here rather than by the implementation**, each being a silent difference between two builds otherwise:
+
+    *   A variadic `...` is not a parameter and shall contribute nothing. It cannot be mocked per-argument, so charging it as one would be arbitrary.
+    *   An empty or `(void)` parameter list has no parameters and shall contribute nothing beyond the base tax and the return.
+    *   A pointer to a pointer, or a `struct` passed by pointer, shall be charged once at the pointer rate. The score taxes the *kind* of a type, not the count of its tokens, and a rate that grew with indirection would put the weights beyond a reader's ability to reason about them.
+
+    The weights above are `elc`'s own heuristics and shall be labelled as such wherever they are published (HLR-099, HLR-193).
+    *Trace:* [SDD Section 6](SDD.md), [SDD Section 7](SDD.md).
+
+*   <a id="HLR-222"></a>**HLR-222: Weighted Fan-Out.**
+    For every function, `elc` shall compute a **Weighted Fan-Out** (WF-out): the sum of the Mock Burden Scores (HLR-221) of the functions its resolved outgoing call edges point at. Where a function has no resolved outgoing call, its Weighted Fan-Out shall be zero.
+
+    **An unresolvable call shall contribute nothing**, exactly as it contributes nothing to the fan-out of HLR-076 (HLR-077). The consequence shall be stated in the delivered documentation rather than left for a reader to discover: a project that calls the C library directly reads as cheaper to test than one that centralises the same calls behind its own wrappers, because the first set of calls leaves the graph and the second stays in it. That is the artefact LLR-BLD-23 already records against the Adapted Maintainability Index, reaching a second measurement by the same route, and it is a property of what a call graph can see rather than a defect in the weighting.
+
+    The weighted degree shall be accumulated in the traversal that already computes fan-in and fan-out (HLR-076, HLR-183) rather than in a second pass over the graph, so that a function's three degrees are read from one walk of one edge table and cannot disagree about which edges exist.
+    *Trace:* [SDD Section 8](SDD.md), [SDD Section 10](SDD.md).
+
+*   <a id="HLR-223"></a>**HLR-223: Testing Burden Index per Function.**
+    For every function, `elc` shall compute and report a **Testing Burden Index** from its cyclomatic complexity (HLR-017), its fan-in (HLR-183) and its Weighted Fan-Out (HLR-222):
+
+    `TBI = v(G) x (1 + min(Fan-In, WF-out))`
+
+    **The `min` is the substance of this requirement and not a detail of its scaling.** A function that many others call but which itself calls almost nothing — a logging wrapper, a shared reduction, a leaf utility — has a large fan-in and a Weighted Fan-Out near zero, and `min` returns the smaller: its index collapses towards its cyclomatic complexity, which is the honest answer, because testing it requires few mocks or none. A function that calls a great deal but is called from one place is a coordinator, and `min` again returns the smaller. Only a function that is **both** widely depended upon **and** deeply dependent makes both terms large, and that shape — the God Object — is the only one this index is intended to condemn.
+
+    **It shall not replace or amend the Adapted Maintainability Index** (HLR-191), whose information-flow term is the *product* of the two degrees and therefore cannot distinguish a widely shared leaf from a hub. The two shall be reported side by side; where they disagree about a function, the disagreement is information about the function and is left visible rather than reconciled.
+
+    The index shall be computed from measurements `elc` already holds and shall introduce no new traversal of the source.
+    *Trace:* [SDD Section 10](SDD.md).
+
+*   <a id="HLR-224"></a>**HLR-224: Testing Burden Threshold Classification.**
+    `elc` shall classify each function's Testing Burden Index (HLR-223) into one of three bands and report the band alongside the figure:
+
+    | Band | Condition | Meaning |
+    | ---- | --------- | ------- |
+    | Healthy | `TBI < 20` | Within the range in which a unit test and its mocks are ordinary work. |
+    | Warning | `TBI >= 20` | Approaching the limit of comfortable unit testing and mocking. |
+    | Critical | `TBI >= 45` | An architectural bottleneck or a God Object; refactoring is indicated before the function is tested. |
+
+    The bands shall be evaluated in descending order so that a Critical index is not also reported as a Warning, and the classification shall be a property of the one threshold catalogue that carries every other band (HLR-098), rather than a second table beside it.
+
+    **These bounds are `elc`'s own and shall be labelled as such** — *elc heuristic — not a published standard* — for the reason HLR-193 gives for the Maintainability bands: the index is unpublished, so no published calibration describes it, and attaching a citation would put an opinion of `elc`'s own under someone else's name.
+
+    A band shall be a prompt to look rather than an instruction to comply (HLR-099).
+    *Trace:* [SDD Section 12](SDD.md).
+
+*   <a id="HLR-225"></a>**HLR-225: Testing Burden in the Interactive Report Payload.**
+    The JSON payload the interactive HTML report carries for each function node (HLR-213) shall include the function's Mock Burden Score, its Testing Burden Index, and its band as a string taking one of the values `healthy`, `warning`, or `critical`.
+
+    The band shall be carried as the string the C already decided rather than recomputed in the page from the index and the bounds. A threshold spelled once in the binary and once in a script is two places it can be spelled differently, and the page would be the copy nobody checks — the same reason HLR-149 admits only one spelling of a format.
+
+    The figures shall reach every other format that reports per-function detail on the terms those formats already set (HLR-031), so that the interactive report presents what the others present rather than a measurement available in one place only.
+    *Trace:* [SDD Section 27](SDD.md).
