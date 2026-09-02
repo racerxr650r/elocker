@@ -231,7 +231,7 @@ Test(report, the_testing_burden_index_is_derived_when_the_degrees_are)
 	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
 
 	/* Assembled before any graph exists: no degrees, so no burden. */
-	cr_assert_float_eq(report.files[0]->functions[0].tbi, 0.0, 1e-9);
+	cr_assert_float_eq(report.files[0]->functions[0].wtbi, 0.0, 1e-9);
 	cr_assert_eq(report.over_threshold.count, 0,
 	             "an unmeasured burden is zero, which is healthy, so "
 	             "nothing is listed — the field was not read as a band");
@@ -249,7 +249,7 @@ Test(report, the_testing_burden_index_is_derived_when_the_degrees_are)
 
 	cr_assert_eq(report_attach_flow(&report), 0);
 	/* complexity 5, and the lesser degree is the fan-in of 1. */
-	cr_assert_float_eq(report.files[0]->functions[0].tbi, 10.0, 1e-9,
+	cr_assert_float_eq(report.files[0]->functions[0].wtbi, 10.0, 1e-9,
 	             "the degrees are real now, so the burden is too");
 
 	report_free(&report);

@@ -81,9 +81,9 @@ int calltree_analyse(const Sdg *g, const ElcOptions *opts, TreeResults *out);
  * established acyclicity: on a cyclic graph the longest path has no finite
  * answer, and this function would not terminate.
  */
-/* The Testing Burden Index of one function (HLR-223).
+/* The Weighted Test Burden Index of one function (HLR-223).
  *
- *     TBI = v(G) x (1 + min(Fan-In, WF-out))
+ *     WTBI = v(G) x (1 + min(Fan-In, WF-out))
  *
  * A pure function of three measurements and the only definition of the
  * formula, for the reason every derived figure in this module is defined once:

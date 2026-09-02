@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.19
-**Date:** 2026-09-01
+**Version:** 3.20
+**Date:** 2026-09-02
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -341,6 +341,20 @@ Requirements governing how `elc` renders its computed results for human and mach
 
     **What a report presents is not an interface, and the delivered documentation shall say so where it describes the option.** A composition, a column, or a line width is a presentation `elc` remains free to improve — HLR-218 and HLR-219 are both such changes — and a consumer that must survive one shall be directed to the saved record of HLR-054, which exists for that purpose and is versioned separately by HLR-061. Stating this where a reader asks what version they are running is what keeps a version number from being read as a promise about the report.
     *Trace:* [SDD Section 4](SDD.md).
+
+*   <a id="HLR-226"></a>**HLR-226: Colour on a Terminal.**
+    Where the aligned table (HLR-027) is written to a terminal, `elc` shall colour it: the rows of each table shall alternate between two backgrounds — black and dark grey — with white text on both, and every cell whose content is a band name shall be written in a colour standing for that band, green for healthy, yellow for warning and red for critical.
+
+    **The destination shall decide, exactly as it decides the width** (HLR-219). A file has no colours and a pipe has none; a terminal does, and the destination has already said which it is. A report redirected, piped or written to a file shall carry no escape sequence whatever, so that every consumer of those bytes, and every test that reads them, is unaffected by this requirement existing.
+
+    **No option shall ask for colour and none shall suppress it.** That is the rule HLR-219 states for the width and it holds here for the same reason: an option would be a second spelling of a fact the program can observe, and the two can disagree. Nothing shall be read from the environment either — not a terminal's colour capability, not its palette, and not a variable naming one — since HLR-032 requires two runs to the same kind of destination to produce identical bytes, and a presentation varying with the environment would be a run whose output nobody else can reproduce.
+
+    **Colour shall carry no information that the text does not.** A reader whose terminal renders none of it, or who is reading a redirected copy, shall lose nothing but ease: every band a colour stands for is written in the cell as a word beside it. Colour is a way of finding a row, never the only way of reading one.
+
+    **An escape sequence occupies no columns**, so the limit of HLR-219 shall continue to be measured over what is displayed rather than over the bytes emitted. A line whose displayed width is within the limit conforms however many sequences it carries.
+
+    **The alternation shall be per row and not per line.** A row continued over several lines by the wrapping of HLR-219 shall carry one background across all of them, so that a wrapped row reads as one row rather than as several of alternating colour.
+    *Trace:* [SDD Section 14](SDD.md).
 
 *   <a id="HLR-152"></a>**HLR-152: Complete-Record Formats Unaffected by Verbosity.**
     The XML record (HLR-054) shall carry every element of a run whatever the verbosity, since its defining purpose is to be a complete and durable record sufficient to regenerate any report `elc` can produce (Section 9). A summarised record would silently destroy the measurements a later regeneration depends on, and the loss would not be visible in the file it produced.
@@ -1011,7 +1025,7 @@ Two boundaries govern the whole section, and both exist because this is the one 
 
 Requirements governing what `elc` writes down about a run other than the measurements themselves: the companion that carries the invocation and the diagnostics so a run can be discussed without the source tree it read, the record of what it could not parse, and the placing of symbols by the debug information in a linked image.
 
-**This section held the Adapted Maintainability Index until Phase 33 retired it.** The index combined size, branching and information flow into one score, and its information-flow term was the *product* of a function's two degrees — which is what made it unable to tell a widely shared leaf from a hub, and what made it report a ten-line logging wrapper of complexity two as a rigid, fragile monolith for the offence of being called from seventy-nine places. The per-function composite is now the Testing Burden Index of Section 32, whose corresponding term is the *lesser* of the two degrees and therefore charges a function only for the entanglement it actually has.
+**This section held the Adapted Maintainability Index until Phase 33 retired it.** The index combined size, branching and information flow into one score, and its information-flow term was the *product* of a function's two degrees — which is what made it unable to tell a widely shared leaf from a hub, and what made it report a ten-line logging wrapper of complexity two as a rigid, fragile monolith for the offence of being called from seventy-nine places. The per-function composite is now the Weighted Test Burden Index of Section 32, whose corresponding term is the *lesser* of the two degrees and therefore charges a function only for the entanglement it actually has.
 
 *   <a id="HLR-194"></a>**HLR-194: The Debug Companion.**
     `elc` shall provide a command-line option that writes a **debug companion** beside the report, carrying what is needed to diagnose a run on a source tree the reader cannot obtain: the invocation, and every message the run wrote to standard error.
@@ -1469,10 +1483,10 @@ The requirements here weight the edge by what the thing it points at costs to mo
     The weighted degree shall be accumulated in the traversal that already computes fan-in and fan-out (HLR-076, HLR-183) rather than in a second pass over the graph, so that a function's three degrees are read from one walk of one edge table and cannot disagree about which edges exist.
     *Trace:* [SDD Section 8](SDD.md), [SDD Section 10](SDD.md).
 
-*   <a id="HLR-223"></a>**HLR-223: Testing Burden Index per Function.**
-    For every function, `elc` shall compute and report a **Testing Burden Index** from its cyclomatic complexity (HLR-017), its fan-in (HLR-183) and its Weighted Fan-Out (HLR-222):
+*   <a id="HLR-223"></a>**HLR-223: Weighted Test Burden Index per Function.**
+    For every function, `elc` shall compute and report a **Weighted Test Burden Index** from its cyclomatic complexity (HLR-017), its fan-in (HLR-183) and its Weighted Fan-Out (HLR-222):
 
-    `TBI = v(G) x (1 + min(Fan-In, WF-out))`
+    `WTBI = v(G) x (1 + min(Fan-In, WF-out))`
 
     **The `min` is the substance of this requirement and not a detail of its scaling.** A function that many others call but which itself calls almost nothing — a logging wrapper, a shared reduction, a leaf utility — has a large fan-in and a Weighted Fan-Out near zero, and `min` returns the smaller: its index collapses towards its cyclomatic complexity, which is the honest answer, because testing it requires few mocks or none. A function that calls a great deal but is called from one place is a coordinator, and `min` again returns the smaller. Only a function that is **both** widely depended upon **and** deeply dependent makes both terms large, and that shape — the God Object — is the only one this index is intended to condemn.
 
@@ -1482,13 +1496,13 @@ The requirements here weight the edge by what the thing it points at costs to mo
     *Trace:* [SDD Section 10](SDD.md).
 
 *   <a id="HLR-224"></a>**HLR-224: Testing Burden Threshold Classification.**
-    `elc` shall classify each function's Testing Burden Index (HLR-223) into one of three bands and report the band alongside the figure:
+    `elc` shall classify each function's Weighted Test Burden Index (HLR-223) into one of three bands and report the band alongside the figure:
 
     | Band | Condition | Meaning |
     | ---- | --------- | ------- |
-    | Healthy | `TBI < 20` | Within the range in which a unit test and its mocks are ordinary work. |
-    | Warning | `TBI >= 20` | Approaching the limit of comfortable unit testing and mocking. |
-    | Critical | `TBI >= 45` | An architectural bottleneck or a God Object; refactoring is indicated before the function is tested. |
+    | Healthy | `WTBI < 20` | Within the range in which a unit test and its mocks are ordinary work. |
+    | Warning | `WTBI >= 20` | Approaching the limit of comfortable unit testing and mocking. |
+    | Critical | `WTBI >= 45` | An architectural bottleneck or a God Object; refactoring is indicated before the function is tested. |
 
     The bands shall be evaluated in descending order so that a Critical index is not also reported as a Warning, and the classification shall be a property of the one threshold catalogue that carries every other band (HLR-098), rather than a second table beside it.
 
@@ -1498,7 +1512,7 @@ The requirements here weight the edge by what the thing it points at costs to mo
     *Trace:* [SDD Section 12](SDD.md).
 
 *   <a id="HLR-225"></a>**HLR-225: Testing Burden in the Interactive Report Payload.**
-    The JSON payload the interactive HTML report carries for each function node (HLR-213) shall include the function's Mock Burden Score, its Testing Burden Index, and its band as a string taking one of the values `healthy`, `warning`, or `critical`.
+    The JSON payload the interactive HTML report carries for each function node (HLR-213) shall include the function's Weighted Test Burden Index and its band as a string taking one of the values `healthy`, `warning`, or `critical`.
 
     The band shall be carried as the string the C already decided rather than recomputed in the page from the index and the bounds. A threshold spelled once in the binary and once in a script is two places it can be spelled differently, and the page would be the copy nobody checks — the same reason HLR-149 admits only one spelling of a format.
 

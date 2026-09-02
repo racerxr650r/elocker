@@ -45,6 +45,13 @@ on_a_terminal() {
 	require_tool script "HLR-219 terminal width unverified on this platform"
 	run script -qec "$ELC $*" /dev/null
 	output="$(printf '%s' "$output" | tr -d '\r')"
+	# The raw bytes, kept for the tests that are *about* the colour.
+	raw_output="$output"
+	# And the report as displayed. HLR-219 bounds the width of a line in
+	# columns, and an SGR sequence occupies none of them — a test measuring
+	# the bytes would be asserting something about the escapes rather than
+	# about the table, and would fail on a report that fits perfectly.
+	output="$(printf '%s' "$output" | sed 's/\x1b\[[0-9;]*m//g')"
 	lines=()
 	while IFS= read -r line; do lines+=("$line"); done <<<"$output"
 }
@@ -154,7 +161,7 @@ widest() {
 	# split across two is the visible symptom.
 	on_a_terminal "$TREE"
 	assert_success
-	assert_output --regexp "Lines +ELOC +Complexity +Fan-in +Fan-out +MBS"
+	assert_output --regexp "Lines +ELOC +CC +In +Out +WTBI"
 }
 
 @test "HLR-219: a cell with no separator in it is broken hard" {
@@ -259,4 +266,59 @@ widest() {
 	elc --version --format nonsense /nonexistent
 	assert_success
 	assert_output --regexp "^elc [0-9]+\.[0-9]+\.[0-9]+$"
+}
+
+# --- colour (HLR-226) ------------------------------------------------------
+#
+# `on_a_terminal` strips the escapes from `$output`, because every other test
+# here is about the table rather than about how it is painted. These four read
+# `$raw_output`, which is what was actually written.
+
+@test "HLR-226: a terminal report alternates two backgrounds with white text" {
+	on_a_terminal "$TREE"
+	assert_success
+
+	# Both grounds appear, and both carry the same foreground — the text
+	# must not change weight from one row to the next.
+	[[ "$raw_output" == *$'\e[40;97m'* ]] ||
+		{ echo "no black-ground row" >&2; false; }
+	[[ "$raw_output" == *$'\e[100;97m'* ]] ||
+		{ echo "no grey-ground row" >&2; false; }
+}
+
+@test "HLR-226: a redirected report carries no escape sequence at all" {
+	# The property every consumer of these bytes depends on, and the one
+	# that keeps every other test in the suite reading what it always read.
+	elc "$TREE"
+	assert_success
+	refute_output --partial $'\e['
+
+	run bash -c '"$0" -f csv "$1" 2>/dev/null' "$ELC" "$TREE"
+	assert_success
+	refute_output --partial $'\e['
+}
+
+@test "HLR-226: a band name is coloured by what it says" {
+	on_a_terminal "$TREE"
+	assert_success
+
+	# busy() is over the complexity band, so the report carries a warning
+	# severity; every function carries a burden word, and on this tree they
+	# are all healthy. Two of the three bands, which is what this fixture
+	# can show — the third is asserted in the unit tests, where a band can
+	# be chosen rather than provoked.
+	[[ "$raw_output" == *$'\e[93mwarning'* ]] ||
+		{ echo "warning was not yellow" >&2; false; }
+	[[ "$raw_output" == *$'\e[92mhealthy'* ]] ||
+		{ echo "healthy was not green" >&2; false; }
+}
+
+@test "HLR-226: colour says nothing the text does not" {
+	# The words survive the escapes being removed, which is what makes the
+	# colour an aid rather than the only way to read the report.
+	on_a_terminal "$TREE"
+	assert_success
+	assert_output --partial "warning"
+	assert_output --partial "healthy"
+	refute_output --partial $'\e['
 }

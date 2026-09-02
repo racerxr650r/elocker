@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.26
-**Date:** 2026-09-01
+**Version:** 2.27
+**Date:** 2026-09-02
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -531,7 +531,7 @@ Teardown order is load-bearing. A `TSQuery` holds pointers into the `TSLanguage`
 *   Measure a file the parser only partly understood from the parts it did, and record how many lines it did not, so that a grammar gap costs the lines it touches and not the file (HLR-035).
 *   Evaluate custom rule queries and record their matches.
 *   Omit every function the linked image does not define, and record which they were, so that no later stage need know a filter was applied (HLR-140, HLR-144).
-*   Compute the Mock Burden Score of every function from its parsed signature, in the traversal that already extracts the function (HLR-221). Pass 1 of the two the Testing Burden Index is built from: the score is settled where the syntax tree is standing open, and is carried on the function record thereafter.
+*   Compute the Mock Burden Score of every function from its parsed signature, in the traversal that already extracts the function (HLR-221). Pass 1 of the two the Weighted Test Burden Index is built from: the score is settled where the syntax tree is standing open, and is carried on the function record thereafter.
 
 ### 7.2 External Interfaces
 #### 7.2.1 Deciding a Conditional Region
@@ -801,13 +801,13 @@ A call that both skips and inverts contributed one violation of each kind and is
 ## 10. Detailed Design for [src/calltree.c](../src/calltree.c)
 
 ### 10.1 Purpose and Responsibilities
-[src/calltree.c](../src/calltree.c) implements the function-level call-tree analyses: fan-out, fan-in and the weighted fan-out with their threshold classifications, the Testing Burden Index formed from them, maximum call depth, the deepest call stack in full, and recursion detection.
+[src/calltree.c](../src/calltree.c) implements the function-level call-tree analyses: fan-out, fan-in and the weighted fan-out with their threshold classifications, the Weighted Test Burden Index formed from them, maximum call depth, the deepest call stack in full, and recursion detection.
 
 *   Compute per-function fan-out and classify it against the published width thresholds.
 *   Compute per-function fan-in — the number of distinct functions that invoke it — over the call view alone (HLR-156).
 *   Detect direct and mutual recursion among functions.
 *   Compute the maximum call depth from the declared entry points, and capture the ordered chain that achieves it.
-*   Accumulate each function's Weighted Fan-Out in the existing single pass over the call edges, and define the Testing Burden Index formed from it (HLR-222, HLR-223). Pass 2 of the two: Pass 1 decided what each function costs to mock, and this sums that cost across the edges a function depends on.
+*   Accumulate each function's Weighted Fan-Out in the existing single pass over the call edges, and define the Weighted Test Burden Index formed from it (HLR-222, HLR-223). Pass 2 of the two: Pass 1 decided what each function costs to mock, and this sums that cost across the edges a function depends on.
 
 
 ### 10.3 Internal Structure
@@ -828,7 +828,7 @@ A call that both skips and inverts contributed one violation of each kind and is
 
 *   **`int longest_path_dag(const Sdg *g, const NodeSet *entries, Chain *out)`** — Memoised longest-path search with predecessor retention.
 *   **`void tree_results_free(TreeResults *r)`** — Release the per-node measurement tables, the recursive-cycle list, and the retained deepest chain.
-*   **`double calltree_burden(uint32_t complexity, uint32_t fan_in, double wf_out)`** — The Testing Burden Index of HLR-223 for one function: complexity x (1 + min(fan_in, wf_out)), and the only definition of the formula, since the report needs it for the function table and thresholds.c needs it to band. The lesser of the two degrees and not their product is the whole of what separates this index from calltree_maintainability: a widely shared leaf has a large fan-in and a weighted fan-out near zero and collapses to its complexity, a coordinator has the reverse and does the same, and only a function large in both - the God Object - yields a large index. The fan-in is widened to compare rather than the weight truncated; truncating would make every weighted fan-out below 1.0 compare equal to zero and return the bare complexity across the whole lower range. A pure function of three measurements, reading no graph.
+*   **`double calltree_burden(uint32_t complexity, uint32_t fan_in, double wf_out)`** — The Weighted Test Burden Index of HLR-223 for one function: complexity x (1 + min(fan_in, wf_out)), and the only definition of the formula, since the report needs it for the function table and thresholds.c needs it to band. The lesser of the two degrees and not their product is the whole of what separates this index from calltree_maintainability: a widely shared leaf has a large fan-in and a weighted fan-out near zero and collapses to its complexity, a coordinator has the reverse and does the same, and only a function large in both - the God Object - yields a large index. The fan-in is widened to compare rather than the weight truncated; truncating would make every weighted fan-out below 1.0 compare equal to zero and return the bare complexity across the whole lower range. A pure function of three measurements, reading no graph.
 ### 10.4 Dependencies
 
 *   The graph library, for topological ordering and strongly connected components.
@@ -900,7 +900,7 @@ The hidden-channel test asks whether the functions touching a global fall into m
 | ----------- | ----- | ----------- |
 | Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 warning; >15 critical | Henry–Kafura |
 | Function fan-in | ≤25 silent; >25 warning, with no critical band | **`elc` heuristic — not a published standard** |
-| Testing Burden Index | <20 silent; ≥20 warning; ≥45 critical | **`elc` heuristic — not a published standard** |
+| Weighted Test Burden Index | <20 silent; ≥20 warning; ≥45 critical | **`elc` heuristic — not a published standard** |
 | Cyclomatic complexity | ≤10 silent; 11–15 warning; >15 critical | McCabe (NIST SP 500-235) |
 | Call depth | >8 warning; >12 critical, on stack-constrained targets | Embedded practice |
 | Recursion present | critical | MISRA C Rule 17.2 |
@@ -922,9 +922,9 @@ The complexity row is not one of them. 10 is McCabe's own limit and 15 the highe
 
 The fan-in row is one of them, and has no critical band. `elc` has no published basis for a first line and none at all for a second, so it draws one and says whose it is.
 
-The testing-burden row is the third, and it is the sharpest case of the three. The Adapted Maintainability Index stood here until Phase 33, and it was an instructive one: the index *is* published — Coleman and Oman's — and so are thresholds for it, the Software Engineering Institute's 85 and 65, but this build adapted the formula and the published thresholds had been calibrated against the term the adaptation replaced. **A citation is not transitive**, and that row was the case that made the rule concrete.
+The weighted-test-burden row is the third, and it is the sharpest case of the three. The Adapted Maintainability Index stood here until Phase 33, and it was an instructive one: the index *is* published — Coleman and Oman's — and so are thresholds for it, the Software Engineering Institute's 85 and 65, but this build adapted the formula and the published thresholds had been calibrated against the term the adaptation replaced. **A citation is not transitive**, and that row was the case that made the rule concrete.
 
-The Testing Burden Index has no such published ancestor to decline. It is `elc`'s own formula and nothing anywhere has calibrated bounds for it, so 20 and 45 are judgements and the row says so. Its bounds are stated inclusively by HLR-224 and stored one lower, because these bands are exclusive upper bounds and `tbi >= 20` is `trunc(tbi) > 19` over the whole numbers this catalogue compares.
+The Weighted Test Burden Index has no such published ancestor to decline. It is `elc`'s own formula and nothing anywhere has calibrated bounds for it, so 20 and 45 are judgements and the row says so. Its bounds are stated inclusively by HLR-224 and stored one lower, because these bands are exclusive upper bounds and `wtbi >= 20` is `trunc(wtbi) > 19` over the whole numbers this catalogue compares.
 
 **No row runs downwards now.** The `inverted` flag stays, and stays exercised by `band_of`, because a score whose low value is the bad one is a shape the catalogue must be able to hold — the alternative being a catalogue that has to be rewritten the next time one arrives rather than extended.
 
@@ -968,7 +968,7 @@ The Testing Burden Index has no such published ancestor to decline. It is `elc`'
 *   Record the linked image a run was filtered by, the linkage names it could not resolve, the source functions it does not define, and the effective lines belonging to no function, so that a filtered figure is reported alongside the image that produced it (HLR-143, HLR-145, HLR-147).
 *   Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).
 *   Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).
-*   Derive each function's Testing Burden Index onto the per-function metrics once the degrees are joined, so that the figure the report prints and the figure `thresholds.c` bands are the one figure (HLR-223).
+*   Derive each function's Weighted Test Burden Index onto the per-function metrics once the degrees are joined, so that the figure the report prints and the figure `thresholds.c` bands are the one figure (HLR-223).
 *   Join the flow degrees onto the functions they describe, and rebuild the threshold listing over the joined result, in one function that both the live path and the record path call — so that the two cannot drift, and so that a listing which is a union over three measurements is not built before two of them exist (HLR-183, HLR-187).
 *   Define how a component's directory is derived from its path, in one function called at each of the two places a `FileMetrics` is constructed — the measurement of a source file and the reader that rebuilds a model from a record — so that every consumer reads one recorded answer rather than slicing the path for itself (HLR-160).
 *   Render the two conformance indices, and the complementary conforming proportion of each, into the model as text — "undefined" being one of their legitimate values, exactly as it is for Instability (HLR-162, HLR-163).
@@ -1014,7 +1014,7 @@ The Testing Burden Index has no such published ancestor to decline. It is `elc`'
 *   Compute column widths from the longest path and function name, and render the aligned table.
 *   Render every tier in the fixed order of HLR-184, so that the report reaches the same sections whatever the type of the target was (HLR-006).
 *   Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).
-*   Present every per-function figure in one table — lines, ELOC, complexity, fan-in, fan-out, the Mock Burden Score, the weighted fan-out and the Testing Burden Index — rather than in three tables enumerating the same functions (HLR-183, HLR-223).
+*   Present every per-function figure in one table — lines, ELOC, complexity, fan-in, fan-out, the Mock Burden Score, the weighted fan-out and the Weighted Test Burden Index — rather than in three tables enumerating the same functions (HLR-183, HLR-223).
 *   Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).
 *   In the Markdown style alone, place each table inside an HTML `<details>` element stating its row count, beneath a heading that stays a heading (HLR-190).
 *   Render Markdown with functions grouped under a per-file heading.

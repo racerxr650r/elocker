@@ -22,8 +22,8 @@ setup() {
 @test "HLR-017: complexity is reported per function" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --regexp "simple +public +4 +1 +1"
-	assert_output --regexp "branchy +public +8 +5 +4"
+	assert_output --regexp "simple +global +4 +1 +1"
+	assert_output --regexp "branchy +global +8 +5 +4"
 }
 
 @test "HLR-026: the summary names the most complex function and the largest file" {
@@ -218,13 +218,13 @@ setup() {
 @test "HLR-223: the function table carries the testing burden" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --regexp "Fan-in +Fan-out +MBS +WF-out +TBI +Burden"
+	assert_output --regexp "In +Out +WTBI +Burden"
 	# simple() is four lines, complexity 1, taking one int and returning
 	# one: the base tax of 0.25, plus 0.10 for the primitive return, plus
 	# 0.10 for the primitive parameter. It calls nothing, so there is
 	# nothing to mock, the weighted fan-out is zero, and the index is its
 	# complexity alone.
-	assert_output --regexp "simple +public +4 +1 +1 +0 +0 +0\.45 +0\.00 +1\.00 +healthy"
+	assert_output --regexp "simple +global +4 +1 +1 +0 +0 +1\.00 +healthy"
 }
 
 @test "HLR-224: a high index is banded upwards and says whose line it is" {
@@ -241,7 +241,7 @@ setup() {
 
 	elc "$TREE/sink.c"
 	assert_success
-	assert_output --regexp "(warning|critical) +testing burden +sink +testing burden [0-9]+\.[0-9]+"
+	assert_output --regexp "(warning|critical) +weighted test burden +sink +weighted test burden [0-9]+\.[0-9]+"
 	assert_output --partial "elc heuristic — not a published standard"
 }
 
@@ -259,7 +259,7 @@ setup() {
 
 	elc "$TREE/sink.c"
 	assert_success
-	assert_output --partial "testing burden"
+	assert_output --partial "weighted test burden"
 	refute_output --partial "recommend"
 	refute_output --partial "refactor"
 	refute_output --partial "mandatory"
@@ -272,7 +272,7 @@ setup() {
 	printf 'int tidy(int n)\n{\n\treturn n + 1;\n}\n' > "$TREE/tidy.c"
 	elc "$TREE/tidy.c"
 	assert_success
-	refute_output --partial "testing burden 2"
+	refute_output --partial "weighted test burden 2"
 }
 
 @test "HLR-023: a function listed by the configured threshold carries no severity" {

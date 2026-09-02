@@ -140,7 +140,7 @@ Test(format_csv, the_header_row_is_written)
 	cr_assert_str_eq(line,
 	                 "file,language,function,visibility,lines,eloc,"
 	                 "complexity,fan_in,fan_out,"
-	                 "mock_burden,wf_out,tbi,tbi_status\r\n");
+	                 "wtbi,wtbi_status\r\n");
 	fclose(fp);
 }
 
@@ -198,7 +198,7 @@ static Report one_function(Visibility visibility)
 	 * the warning bound and under the critical one (HLR-224). */
 	file->functions[0].mock_burden = 0.85;
 	file->functions[0].wf_out      = 3.60;
-	file->functions[0].tbi         = 21.5;
+	file->functions[0].wtbi         = 21.5;
 	file->function_count          = 1;
 
 	files[0]          = file;
@@ -227,8 +227,8 @@ Test(format_csv, a_record_carries_the_function_tables_fields)
 	char  *out    = rendered(&report);
 
 	cr_assert_not_null(strstr(out,
-	        "/tree/a.c:10,c,f,public,5,3,2,4,5,"
-	        "0.85,3.60,21.50,warning\r\n"),
+	        "/tree/a.c:10,c,f,global,5,3,2,4,5,"
+	        "21.50,warning\r\n"),
 	        "the record was: %s", out);
 
 	free(out);
@@ -248,7 +248,7 @@ Test(format_csv, an_unknown_visibility_is_an_empty_field)
 	char  *out    = rendered(&report);
 
 	cr_assert_not_null(strstr(out, "/tree/a.c:10,c,f,,5,3,2,4,5,"
-	                               "0.85,3.60,21.50,warning\r\n"),
+	                               "21.50,warning\r\n"),
 	        "the record was: %s", out);
 
 	free(out);

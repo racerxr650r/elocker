@@ -371,7 +371,7 @@ static void order_collections(Report *out)
  * the Testing Burden Index took the slot rather than the listing shrinking to
  * three, because what this listing is for is the per-function composite — the
  * measurement that answers a question the other three answer only in parts.
- * It is truncated to meet the catalogue for the reason `apply_testing_burden`
+ * It is truncated to meet the catalogue for the reason `apply_weighted_test_burden`
  * truncates: both bounds are inclusive, and truncation is the reduction that
  * preserves them.
  */
@@ -379,7 +379,7 @@ static Severity function_severity(const FunctionMetric *fn)
 {
 	static const MeasurementKind KINDS[] = {
 		MEASURE_COMPLEXITY, MEASURE_FAN_IN, MEASURE_FAN_OUT,
-		MEASURE_TESTING_BURDEN
+		MEASURE_WEIGHTED_TEST_BURDEN
 	};
 	Severity worst = SEVERITY_INFO;
 
@@ -391,8 +391,8 @@ static Severity function_severity(const FunctionMetric *fn)
 		case MEASURE_COMPLEXITY:      value = fn->complexity; break;
 		case MEASURE_FAN_IN:          value = fn->fan_in;     break;
 		case MEASURE_FAN_OUT:         value = fn->fan_out;    break;
-		case MEASURE_TESTING_BURDEN:
-		default:                      value = (uint32_t)fn->tbi; break;
+		case MEASURE_WEIGHTED_TEST_BURDEN:
+		default:                      value = (uint32_t)fn->wtbi; break;
 		}
 
 		if (!thresholds_band(KINDS[k], value, &band))
@@ -939,7 +939,7 @@ int report_attach_flow(Report *report)
 		/* Derived here, with the degrees, for the same reason the index
 		 * beside it is: the figure the report prints and the figure
 		 * `thresholds.c` bands must be the one figure (HLR-223). */
-		fn->tbi     = calltree_burden(fn->complexity, fn->fan_in,
+		fn->wtbi     = calltree_burden(fn->complexity, fn->fan_in,
 		                              fn->wf_out);
 	}
 

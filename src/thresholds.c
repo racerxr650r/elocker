@@ -106,13 +106,13 @@ static const Threshold CATALOGUE[] = {
 	 * than written.** HLR-224 states them inclusively — a warning *at* 20
 	 * and critical *at* 45 — while `band_of` tests a non-inverted row with
 	 * a strict `>`, so a row's bound is the highest acceptable value. For
-	 * the whole numbers this catalogue compares, `tbi >= 20` and
-	 * `trunc(tbi) > 19` are the same set. Subtracting here keeps the
+	 * the whole numbers this catalogue compares, `wtbi >= 20` and
+	 * `trunc(wtbi) > 19` are the same set. Subtracting here keeps the
 	 * requirement's own figures as the only place 20 and 45 are written:
 	 * spelling 19 and 44 as literals would be a second statement of the
 	 * bands that could drift from the first. */
-	{ MEASURE_TESTING_BURDEN, "testing burden",
-	  (uint32_t)ELC_TBI_WARNING - 1, (uint32_t)ELC_TBI_CRITICAL - 1,
+	{ MEASURE_WEIGHTED_TEST_BURDEN, "weighted test burden",
+	  (uint32_t)ELC_WTBI_WARNING - 1, (uint32_t)ELC_WTBI_CRITICAL - 1,
 	  false, SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
 
 	/* Depth: an embedded constraint rather than a numbered rule. Beyond 8
@@ -737,10 +737,10 @@ static int apply_bottlenecks(const ArchResults *arch, const Sdg *g,
  * this is the conversion that lets a fractional measurement join them without
  * the row having to grow a second pair of bounds.
  */
-static int apply_testing_burden(const TreeResults *tree, const Sdg *g,
+static int apply_weighted_test_burden(const TreeResults *tree, const Sdg *g,
                                 FindingList *out)
 {
-	const Threshold *t = thresholds_lookup(MEASURE_TESTING_BURDEN);
+	const Threshold *t = thresholds_lookup(MEASURE_WEIGHTED_TEST_BURDEN);
 
 	if (!t || !tree->fan_in || !tree->wf_out)
 		return 0;
@@ -748,17 +748,16 @@ static int apply_testing_burden(const TreeResults *tree, const Sdg *g,
 	for (size_t i = 0; i < tree->node_count && i < g->node_count; i++) {
 		Severity severity;
 		char     detail[80];
-		double   tbi = calltree_burden(g->nodes[i].complexity,
+		double   wtbi = calltree_burden(g->nodes[i].complexity,
 		                               tree->fan_in[i],
 		                               tree->wf_out[i]);
 
-		if (!band_of(t, (uint32_t)tbi, &severity))
+		if (!band_of(t, (uint32_t)wtbi, &severity))
 			continue;
 
 		snprintf(detail, sizeof detail,
-		         "testing burden %.2f (weighted fan-out %.2f)",
-		         tbi, tree->wf_out[i]);
-		if (finding_add(out, MEASURE_TESTING_BURDEN, severity,
+		         "weighted test burden %.2f", wtbi);
+		if (finding_add(out, MEASURE_WEIGHTED_TEST_BURDEN, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -772,7 +771,7 @@ static int apply_calltree_rows(const TreeResults *tree, const Sdg *g,
 {
 	return (apply_fan_out(tree, g, out) != 0 ||
 	        apply_fan_in(tree, g, out) != 0 ||
-	        apply_testing_burden(tree, g, out) != 0 ||
+	        apply_weighted_test_burden(tree, g, out) != 0 ||
 	        apply_depth(tree, out) != 0 ||
 	        apply_recursion(tree, g, out) != 0) ? -1 : 0;
 }

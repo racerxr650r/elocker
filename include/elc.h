@@ -134,8 +134,8 @@ typedef struct {
 #define ELC_MBS_PARAM_PRIM      0.10
 #define ELC_MBS_PARAM_AGG       0.25
 
-#define ELC_TBI_WARNING        20.0  /* at or above, heavier mock management */
-#define ELC_TBI_CRITICAL       45.0  /* at or above, refactoring indicated   */
+#define ELC_WTBI_WARNING        20.0  /* at or above, heavier mock management */
+#define ELC_WTBI_CRITICAL       45.0  /* at or above, refactoring indicated   */
 
 /* The band a Testing Burden Index falls in, as the string the report prints
  * and the interactive payload carries (HLR-224, HLR-225).
@@ -145,11 +145,11 @@ typedef struct {
  * drawing are given the same decision rather than each comparing the bounds
  * again (LLR-CYT-06).
  */
-static inline const char *elc_tbi_status(double tbi)
+static inline const char *elc_wtbi_status(double wtbi)
 {
-	if (tbi >= ELC_TBI_CRITICAL)
+	if (wtbi >= ELC_WTBI_CRITICAL)
 		return "critical";
-	if (tbi >= ELC_TBI_WARNING)
+	if (wtbi >= ELC_WTBI_WARNING)
 		return "warning";
 	return "healthy";
 }
@@ -467,7 +467,7 @@ typedef struct {
 	 * for a function that calls nothing resolvable, the two being
 	 * indistinguishable here for the same reason and by the same rule. */
 	double    wf_out;
-	double    tbi;
+	double    wtbi;
 } FunctionMetric;
 
 /* One function the source defines and the linked image does not (HLR-143).
@@ -654,7 +654,7 @@ typedef enum {
 	MEASURE_INSTABILITY,       /* per component  (HLR-082)  */
 	MEASURE_BOTTLENECK,        /* per component  (HLR-081)  */
 	MEASURE_MISRA_LIBRARY,     /* per call site  (HLR-207)  */
-	MEASURE_TESTING_BURDEN,    /* per function   (HLR-224)  */
+	MEASURE_WEIGHTED_TEST_BURDEN,    /* per function   (HLR-224)  */
 	MEASURE_KIND_COUNT
 } MeasurementKind;
 

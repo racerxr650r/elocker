@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.21
-**Date:** 2026-09-01
+**Version:** 2.22
+**Date:** 2026-09-02
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -909,7 +909,7 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
 
     An unresolvable call site contributes to neither degree, since it produces no edge to walk (HLR-077). A function with no resolved outgoing call shall therefore have a weighted fan-out of zero, which is the same value a function calling nothing has, and the two are not distinguished here: the unresolved count `graph_unresolved_count` reports is what tells them apart, and it is already presented beside these measurements.
 
-    The accumulation shall be in floating point and shall not be rounded before the index of LLR-TBI-01 consumes it, so that four calls to functions scoring `0.25` sum to `1.0` and not to zero.
+    The accumulation shall be in floating point and shall not be rounded before the index of LLR-WTB-01 consumes it, so that four calls to functions scoring `0.25` sum to `1.0` and not to zero.
     *Trace:* HLR-222 (Weighted Fan-Out), HLR-077.
 
 ## 27. `longest_path_dag` ([src/calltree.c](../src/calltree.c))
@@ -1067,7 +1067,7 @@ Evaluation of every measurement against the published threshold catalogue, and a
     No bound shall be invented. MISRA states no count at which use becomes unacceptable, and one `elc` chose would be its own opinion wearing MISRA's name — so occurrence governs, the severity is warning throughout, and no finding reaches the exit status (HLR-100, HLR-101).
     *Trace:* HLR-207 (C Library Use Outside MISRA Constraints Reported), HLR-099 (Threshold Source Attribution), HLR-077.
 
-*   <a id="LLR-THR-20"></a>**LLR-THR-20** — `thresholds_apply` shall classify each function's Testing Burden Index into the bands of HLR-224 — Critical at 45 or above, Warning at 20 or above, and Healthy below 20 — and shall test them in descending order, so that an index of 45 yields one Critical finding and not a Critical and a Warning both.
+*   <a id="LLR-THR-20"></a>**LLR-THR-20** — `thresholds_apply` shall classify each function's Weighted Test Burden Index into the bands of HLR-224 — Critical at 45 or above, Warning at 20 or above, and Healthy below 20 — and shall test them in descending order, so that an index of 45 yields one Critical finding and not a Critical and a Warning both.
 
     The bounds shall live in the one threshold catalogue this module already holds rather than in a table beside it, for the reason every other band in it is there: a catalogue that some measurements are in and others are not is a catalogue a reader cannot trust to be complete.
 
@@ -1195,10 +1195,10 @@ The single place every reported collection is ordered. The audit point for deter
     The bands shall be read from `thresholds.c` rather than from constants held here. That module is the only place a line is drawn, and a listing drawing its own would be a second opinion wearing the first's name.
     *Trace:* HLR-187 (The Threshold Listing Names Every Banded Function), HLR-021 (Per-File Complexity-Threshold List), HLR-023 (Threshold List is Reporting-Only), HLR-099 (Threshold Source Attribution).
 
-*   <a id="LLR-RPT-40"></a>**LLR-RPT-40** — `report_attach_flow` shall derive each function's Testing Burden Index onto the per-function metrics once the flow degrees have been joined, and shall be the only place it is derived.
+*   <a id="LLR-RPT-40"></a>**LLR-RPT-40** — `report_attach_flow` shall derive each function's Weighted Test Burden Index onto the per-function metrics once the flow degrees have been joined, and shall be the only place it is derived.
 
     One derivation, where the Adapted Maintainability Index that stood here needed two. That index had to be derived before the threshold listing was built *and* again with the degrees, because its unset zero was not a neutral figure but the worst score on its scale, and a listing built between the two would have called every function in the project critically unmaintainable. This index runs the other way: zero is the bottom of its range and is what a function with no measured degrees honestly has, so a single derivation at the point the degrees become real is both sufficient and correct.
-    *Trace:* HLR-223 (Testing Burden Index per Function), HLR-187 (The Threshold Listing Names Every Banded Function).
+    *Trace:* HLR-223 (Weighted Test Burden Index per Function), HLR-187 (The Threshold Listing Names Every Banded Function).
 
 *   <a id="LLR-RPT-41"></a>**LLR-RPT-41** — `report_check_image_ambiguity` shall fail a filtered run in which some function name is defined by two or more analysed files, is defined by the image, and is not held by the image's origin map — writing a diagnostic that names the function, both files, the image, and the remedy, and producing no report.
 
@@ -1340,8 +1340,24 @@ The single place every reported collection is ordered. The audit point for deter
     The label column was the length of one label written out and the value column the widest of four of the figures named one by one. Both were true of a summary of five totals and neither survived its growth: every label longer than the constant pushed its own value out of line with the rest, so the tier that heads every report was the one tier in it that did not line up. A width derived from the rows cannot fall out of step with them, and a row added to the summary needs nothing else changed (HLR-027).
     *Trace:* HLR-027 (Default Human-Readable Output), HLR-024 (Project-Level Totals).
 
-*   <a id="LLR-SUM-18"></a>**LLR-SUM-18** — `render_summary` shall present each function's Mock Burden Score, weighted fan-out and Testing Burden Index, with the band as a word, as columns of the one function table of LLR-SUM-14; and shall present the index as a column of the threshold listing beside the three measurements already there, so that a listed function's burden is readable without going back to the table.
-    *Trace:* HLR-223 (Testing Burden Index per Function), HLR-221 (Mock Burden Score per Function), HLR-183 (One Per-Function Table), HLR-187 (The Threshold Listing Names Every Banded Function).
+*   <a id="LLR-SUM-18"></a>**LLR-SUM-18** — `render_summary` shall present each function's Weighted Test Burden Index, with the band as a word beside it, as columns of the one function table of LLR-SUM-14; and shall present the index as a column of the threshold listing beside the three measurements already there, so that a listed function's burden is readable without going back to the table.
+
+    **The Mock Burden Score and the weighted fan-out shall not be columns of any presented format.** They are the terms the index is built from, not measurements a reader acts on: a score of 0.85 against a callee tells nobody what to do, and the sum of such scores tells them less. What a reader acts on is the index and its band, and the two figures behind it remain in the saved record, where a consumer that wants to recompute or re-band can read them (HLR-152).
+    *Trace:* HLR-223 (Weighted Test Burden Index per Function), HLR-221 (Mock Burden Score per Function), HLR-183 (One Per-Function Table), HLR-187 (The Threshold Listing Names Every Banded Function).
+
+*   <a id="LLR-SUM-24"></a>**LLR-SUM-24** — `grid_render_table` shall colour the table where, and only where, the stream it writes to is a terminal (HLR-226), and shall decide that by asking the stream rather than by reading any option or environment variable.
+
+    The question shall be asked through a predicate of its own rather than by reading the width `table_limit` returns. That function answers the same question for the same reason, but answers it as a *number*, and a caller reading 128 to mean "a terminal" is a caller that breaks the day the limit moves.
+
+    Each data row shall take the background its index selects, alternating between the two; the header shall take neither, being the legend for the block rather than the first row of it. Every physical line of a wrapped row shall carry that row's background, so a row continued over four lines reads as one row.
+    *Trace:* HLR-226 (Colour on a Terminal), HLR-219.
+
+*   <a id="LLR-SUM-25"></a>**LLR-SUM-25** — `table_cell` shall write a cell whose content is a band name in that band's colour — green for `healthy`, yellow for `warning`, red for `critical` — and shall then restore the row's own foreground rather than resetting, so the background the line was opened with continues underneath the rest of the row (HLR-226).
+
+    **The match shall be on the word and not on the column.** The Severity column of the findings and the Burden column of the function table carry the same vocabulary, and a reader scanning for red should not have to know which column he is looking at. A cell holding anything else shall be left in the row's own colour.
+
+    Under colour the final text column shall be padded, which it is not otherwise. A row's background is what makes the alternation readable, and one stopping at the last character of the last cell would leave a ragged edge that reads as a rendering fault rather than as a row.
+    *Trace:* HLR-226 (Colour on a Terminal).
 
 ## 39. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 
@@ -2292,7 +2308,7 @@ The compound-node data model: three tiers of nodes joined by a `parent` referenc
     **The findings travel as text, not as structure.** The drawing shows *that* a function is critical and the text says *why*; a reader who needs to sort or filter findings has the CSV and the XML record, and duplicating their structure here would be a second machine-readable copy of the catalogue with no consumer.
     *Trace:* HLR-217 (The Drawing Carries the Findings It Was Drawn From), HLR-099, HLR-088.
 
-*   <a id="LLR-CYT-06"></a>**LLR-CYT-06** — `html_elements` shall carry, in the `data` object of every function node it emits, the function's Mock Burden Score as `mock_burden`, its Testing Burden Index as `tbi`, and its band as `tbi_status` taking exactly one of the strings `healthy`, `warning`, or `critical` (HLR-225).
+*   <a id="LLR-CYT-06"></a>**LLR-CYT-06** — `html_elements` shall carry, in the `data` object of every function node it emits, the function's Weighted Test Burden Index as `wtbi` and its band as `wtbi_status`, taking exactly one of the strings `healthy`, `warning`, or `critical` (HLR-225).
 
     **The band shall be the string the C already decided, and the page shall not derive it.** Emitting the index and letting the stylesheet compare it against 20 and 45 would put the bounds in a second place — in a script, where nothing checks them against the catalogue that decided the text report's finding — and the two would disagree the first time a bound moved. That is the disagreement HLR-149 refuses between two spellings of a format, arriving here between two spellings of a threshold.
 
@@ -2486,14 +2502,14 @@ Placing a run's findings on the graph they describe, once, for every drawing tha
 
 ## 76. `calltree_burden` ([src/calltree.c](../src/calltree.c))
 
-*   <a id="LLR-TBI-01"></a>**LLR-TBI-01** — `calltree_burden` shall return the Testing Burden Index of HLR-223 for one function, computed as its cyclomatic complexity multiplied by one plus the lesser of its fan-in and its Weighted Fan-Out, and shall be the only definition of the formula — the report needs it for the function table and `thresholds.c` needs it to band.
+*   <a id="LLR-WTB-01"></a>**LLR-WTB-01** — `calltree_burden` shall return the Weighted Test Burden Index of HLR-223 for one function, computed as its cyclomatic complexity multiplied by one plus the lesser of its fan-in and its Weighted Fan-Out, and shall be the only definition of the formula — the report needs it for the function table and `thresholds.c` needs it to band.
 
     **The lesser of the two degrees and not their product**, which is the whole of what distinguished this index from the Adapted Maintainability Index it replaced. A widely shared leaf has a large fan-in and a weighted fan-out near zero, and the index shall collapse towards its cyclomatic complexity; a coordinator has the reverse and shall do the same. Only a function large in both degrees shall produce a large index.
 
     The two degrees shall be compared as the same type before the lesser is taken. Fan-in is a count and the weighted fan-out is not, so the count shall be widened rather than the weight truncated — truncating would make every weighted fan-out below `1.0` compare equal to zero and would silently return the complexity for the whole lower half of the range.
-    *Trace:* HLR-223 (Testing Burden Index per Function).
+    *Trace:* HLR-223 (Weighted Test Burden Index per Function).
 
-*   <a id="LLR-TBI-02"></a>**LLR-TBI-02** — `calltree_burden` shall be a pure function of the three measurements it is given and shall read no graph, so that the figure the report prints and the figure the threshold catalogue bands are produced by one call and cannot diverge.
+*   <a id="LLR-WTB-02"></a>**LLR-WTB-02** — `calltree_burden` shall be a pure function of the three measurements it is given and shall read no graph, so that the figure the report prints and the figure the threshold catalogue bands are produced by one call and cannot diverge.
 
     A function whose cyclomatic complexity is recorded as zero — which no analysed function has, every path count being at least one — shall yield an index of zero rather than a special case, the multiplication doing the work without a guard.
     *Trace:* HLR-223.

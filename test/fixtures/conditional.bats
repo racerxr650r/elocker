@@ -296,7 +296,7 @@ report() {
 	fanout="$(awk '/^Functions$/ {s=1; next}
 	               s && /^$/     {exit}
 	               s && !col     {for (i = 1; i <= NF; i++)
-	                                      if ($i == "Fan-out") col = i
+	                                      if ($i == "Out") col = i
 	                              next}
 	               s && col && $3 == "caller" {print $col}' "$OUT")"
 	assert_equal "$fanout" "0"

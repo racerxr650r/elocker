@@ -164,6 +164,63 @@ resolve by name, a
 helper defined in several files gives the winning definition every caller's
 fan-in and the losers none.
 .PP
+.B The Weighted Test Burden Index
+estimates what a function costs to put under a unit test on a target with no
+operating system, where that cost is very largely the cost of standing up its
+dependencies \(em every callee becomes a mock, and every mock is written to a
+signature.
+.PP
+.RS 4
+.I "WTBI = C \(mu (1 + min(Fan\-In, WF\-out))"
+.RE
+.PP
+.I C
+is the cyclomatic complexity and
+.I WF\-out
+the
+.BR "weighted fan-out" :
+the sum, over everything the function calls, of a
+.B Mock Burden Score
+computed from the callee's parsed signature. That score is a base mocking tax
+of 0.25, plus 0.00, 0.10 or 0.25 for a
+.BR void ,
+primitive, or pointer-or-struct return, plus 0.10 or 0.25 for each primitive
+or pointer-or-array parameter. Nothing is free: even a leaf needs a symbol
+defined and linked.
+.PP
+.B The lesser of the two degrees is the point of the formula.
+A function many others call but which itself calls almost nothing \(em a
+logging wrapper, a shared reduction \(em has a large fan-in and a weighted
+fan-out near zero, so its index collapses towards its complexity, which is the
+honest answer: testing it needs no mocks. A function calling a great deal but
+called from one place is the mirror of that. Only a function large in
+.I both
+degrees is charged for both, and that shape is the only one this measurement
+condemns.
+.PP
+The Mock Burden Score and the weighted fan-out are
+.I not
+columns of the report. They are the terms the index is built from, and neither
+is something you act on \(em a score of 0.85 against one callee tells you
+nothing to do, and the sum of such scores tells you less. The report gives you
+the index and its band; both terms stay in the XML record, for a consumer that
+wants to recompute or re\-band them.
+.PP
+An index below 20 draws no comment; 20 or above is a
+.BR warning ,
+and 45 or above is
+.BR critical .
+.B These bounds are elc's own
+and their rows say so. Unlike the index above it there is not even a published
+figure that had to be rejected: the measurement is
+.BR elc 's
+and no calibration for it exists anywhere.
+.PP
+A language module supplying no
+.I signature.scm
+scores every function at the base tax alone, so the index then rests on
+complexity and fan-in and never on what a callee costs to mock.
+.PP
 .B Recursion
 is detected statically, direct and mutual alike, in accordance with MISRA C
 Rule 17.2 \(em under which recursion is forbidden because it makes worst-case
@@ -517,8 +574,8 @@ The columns are the ones the
 table of a human\-readable report carries, in its order:
 .IP
 .EX
-file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
-/src/a.c:12,c,measure,public,9,4,2,3,1,84
+file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,wtbi,wtbi_status
+/src/a.c:12,c,measure,global,9,4,2,3,1,6.00,healthy
 .EE
 .IP
 .B file
@@ -529,7 +586,7 @@ is
 .B lines
 is the number of lines the function occupies rather than a range. An unknown
 visibility is the empty field and never
-.BR public :
+.BR global :
 a language whose module supplies no visibility rule has not been asked, and
 that is a different claim from having answered.
 .IP
@@ -1171,13 +1228,15 @@ path is absolute: a relative one would resolve against whatever directory the
 reader's terminal happens to be in, which is the one thing a navigable
 reference must not depend on.
 .PP
-.B Visibility
+.B Scope
 is
-.B public
+.B global
 or
-.BR private ,
+.BR local ,
 and says whether the language exposes the function outside the file or module
-that defines it \(em
+that defines it. The words are the linker's rather than an access-control
+language's: what C has is linkage, and "public" and "private" would invite you
+to expect an enforcement C does not provide \(em
 .B static
 in C and C++,
 .B pub
@@ -1188,12 +1247,12 @@ which is a harder guarantee than Python's convention and a different question
 from C++ class access control: a
 .B private:
 method of an exported class is reported
-.B public
+.B global
 here, because it has external linkage and the linker does see it.
 .PP
 A language whose module supplies no
 .I visibility.scm
-reports neither. Not analysed and public are different claims.
+reports neither. Not analysed and global are different claims.
 .PP
 .B Lines
 is a count and not a range. The first line is in the location beside it, so the
@@ -1396,8 +1455,8 @@ the functions are in view.
 There is
 .I one
 per-function table. Its columns are the function's line range, its effective
-lines, its cyclomatic complexity, its two degrees, its Mock Burden Score,
-its weighted fan-out and its Testing Burden Index. Earlier releases split
+lines, its cyclomatic complexity, its two degrees, and its Weighted Test
+Burden Index with the band beside it. Earlier releases split
 these across three tables enumerating the same functions in the same order,
 which was three places to look to answer one question about one function.
 .PP
@@ -1560,8 +1619,8 @@ the tiers the aligned table also holds back until then:
 .RS
 .IP \(bu 2
 Functions \(em one row per analysed function, carrying its line range, ELOC,
-cyclomatic complexity, fan\-in, fan\-out, its Mock Burden Score, its weighted
-fan\-out and its Testing Burden Index.
+cyclomatic complexity, fan\-in, fan\-out, and its Weighted Test Burden Index
+with the band beside it.
 .IP \(bu 2
 Recursion, the deepest call chain, component coupling, component dependency
 cycles, and layering \(em the measurements taken over the dependence graph,

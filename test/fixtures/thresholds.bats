@@ -130,7 +130,7 @@ finding_rows() {
 		awk '/^Functions$/ { f = 1; next }
 		     f && /^$/    { f = 0 }
 		     f && !col    { for (i = 1; i <= NF; i++)
-		                            if ($i == "Fan-out") col = i
+		                            if ($i == "Out") col = i
 		                    next }
 		     f && col && $3 == "band_acceptable_high" { print $col }')"
 	assert_equal "$fanout" "10"

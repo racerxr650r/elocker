@@ -405,9 +405,8 @@ static int burden_fields(json_t *data, const Report *r, const SdgNode *n)
 	if (!fn)
 		return 0;
 
-	rc |= set_new(data, "mock_burden", json_real(fn->mock_burden));
-	rc |= set_new(data, "tbi", json_real(fn->tbi));
-	rc |= set_new(data, "tbi_status", json_string(elc_tbi_status(fn->tbi)));
+	rc |= set_new(data, "wtbi", json_real(fn->wtbi));
+	rc |= set_new(data, "wtbi_status", json_string(elc_wtbi_status(fn->wtbi)));
 	return rc;
 }
 

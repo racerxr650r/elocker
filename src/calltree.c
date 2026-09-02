@@ -287,7 +287,7 @@ static uint32_t deepest_entry(const Sdg *g, const uint32_t *entries,
  * function would not terminate otherwise, and the guarantee is what makes the
  * memoisation valid.
  */
-/* The Testing Burden Index of one function (HLR-223, LLR-TBI-01).
+/* The Weighted Test Burden Index of one function (HLR-223, LLR-WTB-01).
  *
  * A pure function of three measurements and the only definition of the
  * formula: the report needs the figure for its function table and

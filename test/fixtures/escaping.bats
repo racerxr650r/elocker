@@ -35,7 +35,7 @@ import csv, sys
 rows = list(csv.reader(sys.stdin))
 widths = {len(r) for r in rows if r}
 print(",".join(str(w) for w in sorted(widths)))' <<<"$output"
-	assert_output "13"
+	assert_output "11"
 }
 
 @test "HLR-064: the path survives the round trip intact" {
@@ -146,7 +146,7 @@ names = [r[2] for r in rows[1:]]
 widths = {len(r) for r in rows}
 print(",".join(str(w) for w in sorted(widths)), "|", "|".join(sorted(names)))' \
 		<<<"$output"
-	assert_output "13 | combine|combine<int, long>"
+	assert_output "11 | combine|combine<int, long>"
 }
 
 @test "HLR-065: an identifier containing angle brackets is escaped" {

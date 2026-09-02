@@ -230,7 +230,7 @@ Test(thresholds, fan_in_is_banded_on_elcs_own_authority_and_says_so)
 	cr_assert_not_null(t);
 	cr_assert_eq(t->warning_bound, 25);
 	cr_assert(threshold_is_elc_own(MEASURE_FAN_IN));
-	cr_assert(threshold_is_elc_own(MEASURE_TESTING_BURDEN));
+	cr_assert(threshold_is_elc_own(MEASURE_WEIGHTED_TEST_BURDEN));
 	cr_assert_not_null(strstr(threshold_attribution(MEASURE_FAN_IN),
 	                          "not a published standard"));
 
@@ -480,7 +480,7 @@ Test(thresholds, findinglist_free_is_safe_on_null_and_twice)
  */
 Test(thresholds, the_testing_burden_bands_are_evaluated_in_descending_order)
 {
-	const Threshold *t = thresholds_lookup(MEASURE_TESTING_BURDEN);
+	const Threshold *t = thresholds_lookup(MEASURE_WEIGHTED_TEST_BURDEN);
 	Severity         band;
 
 	cr_assert_not_null(t);
@@ -496,15 +496,15 @@ Test(thresholds, the_testing_burden_bands_are_evaluated_in_descending_order)
 	cr_assert_eq(t->warning_bound, 19);
 	cr_assert_eq(t->critical_bound, 44);
 
-	cr_assert(thresholds_band(MEASURE_TESTING_BURDEN, 20, &band));
+	cr_assert(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 20, &band));
 	cr_assert_eq(band, SEVERITY_WARNING,
 	             "twenty is the floor of the warning band, not below it");
-	cr_assert(thresholds_band(MEASURE_TESTING_BURDEN, 44, &band));
+	cr_assert(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 44, &band));
 	cr_assert_eq(band, SEVERITY_WARNING);
-	cr_assert(thresholds_band(MEASURE_TESTING_BURDEN, 45, &band));
+	cr_assert(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 45, &band));
 	cr_assert_eq(band, SEVERITY_CRITICAL,
 	             "forty-five is critical and is not also a warning");
-	cr_assert(thresholds_band(MEASURE_TESTING_BURDEN, 1000, &band));
+	cr_assert(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 1000, &band));
 	cr_assert_eq(band, SEVERITY_CRITICAL);
 }
 
@@ -515,9 +515,9 @@ Test(thresholds, an_index_below_twenty_yields_no_finding)
 {
 	Severity band;
 
-	cr_assert_not(thresholds_band(MEASURE_TESTING_BURDEN, 19, &band),
+	cr_assert_not(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 19, &band),
 	              "nineteen is healthy");
-	cr_assert_not(thresholds_band(MEASURE_TESTING_BURDEN, 0, &band),
+	cr_assert_not(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 0, &band),
 	              "and so is a function that calls nothing");
 }
 
@@ -526,9 +526,9 @@ Test(thresholds, an_index_below_twenty_yields_no_finding)
  * figure existed and had to be rejected. */
 Test(thresholds, the_testing_burden_band_carries_the_elc_heuristic_label)
 {
-	cr_assert(threshold_is_elc_own(MEASURE_TESTING_BURDEN));
+	cr_assert(threshold_is_elc_own(MEASURE_WEIGHTED_TEST_BURDEN));
 	cr_assert_not_null(
-		strstr(threshold_attribution(MEASURE_TESTING_BURDEN),
+		strstr(threshold_attribution(MEASURE_WEIGHTED_TEST_BURDEN),
 		       "not a published standard"),
 		"an elc threshold must say so where it is read");
 }

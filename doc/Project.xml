@@ -11,15 +11,15 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.26" date="2026-09-01" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.19" date="2026-09-01" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.21" date="2026-09-01" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.28" date="2026-09-01" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.28" date="2026-09-01" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.27" date="2026-09-02" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.20" date="2026-09-02" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.22" date="2026-09-02" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.29" date="2026-09-02" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.29" date="2026-09-02" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="219"/>
-      <count name="llrs"       value="602"/>
-      <count name="tests"      value="1318"/>
+      <count name="hlrs"       value="220"/>
+      <count name="llrs"       value="604"/>
+      <count name="tests"      value="1322"/>
       <count name="test_files" value="60"/>
     </counts>
   </metadata>
@@ -443,7 +443,7 @@ It also holds **the run's only `TSParser` and its only `TSQueryCursor`**. Alloca
         <responsibility><![CDATA[Measure a file the parser only partly understood from the parts it did, and record how many lines it did not, so that a grammar gap costs the lines it touches and not the file (HLR-035).]]></responsibility>
         <responsibility><![CDATA[Evaluate custom rule queries and record their matches.]]></responsibility>
         <responsibility><![CDATA[Omit every function the linked image does not define, and record which they were, so that no later stage need know a filter was applied (HLR-140, HLR-144).]]></responsibility>
-        <responsibility><![CDATA[Compute the Mock Burden Score of every function from its parsed signature, in the traversal that already extracts the function (HLR-221). Pass 1 of the two the Testing Burden Index is built from: the score is settled where the syntax tree is standing open, and is carried on the function record thereafter.]]></responsibility>
+        <responsibility><![CDATA[Compute the Mock Burden Score of every function from its parsed signature, in the traversal that already extracts the function (HLR-221). Pass 1 of the two the Weighted Test Burden Index is built from: the score is settled where the syntax tree is standing open, and is carried on the function record thereafter.]]></responsibility>
         <interfaces>
           <interface title="Deciding a Conditional Region"><![CDATA[Which regions this configuration does not compile, and the exact division of labour that keeps the mechanism language-agnostic (HLR-131 – HLR-135).
 
@@ -668,12 +668,12 @@ A call that both skips and inverts contributed one violation of each kind and is
       </module>
 
       <module path="src/calltree.c">
-        <purpose><![CDATA[implements the function-level call-tree analyses: fan-out, fan-in and the weighted fan-out with their threshold classifications, the Testing Burden Index formed from them, maximum call depth, the deepest call stack in full, and recursion detection.]]></purpose>
+        <purpose><![CDATA[implements the function-level call-tree analyses: fan-out, fan-in and the weighted fan-out with their threshold classifications, the Weighted Test Burden Index formed from them, maximum call depth, the deepest call stack in full, and recursion detection.]]></purpose>
         <responsibility><![CDATA[Compute per-function fan-out and classify it against the published width thresholds.]]></responsibility>
         <responsibility><![CDATA[Compute per-function fan-in — the number of distinct functions that invoke it — over the call view alone (HLR-156).]]></responsibility>
         <responsibility><![CDATA[Detect direct and mutual recursion among functions.]]></responsibility>
         <responsibility><![CDATA[Compute the maximum call depth from the declared entry points, and capture the ordered chain that achieves it.]]></responsibility>
-        <responsibility><![CDATA[Accumulate each function's Weighted Fan-Out in the existing single pass over the call edges, and define the Testing Burden Index formed from it (HLR-222, HLR-223). Pass 2 of the two: Pass 1 decided what each function costs to mock, and this sums that cost across the edges a function depends on.]]></responsibility>
+        <responsibility><![CDATA[Accumulate each function's Weighted Fan-Out in the existing single pass over the call edges, and define the Weighted Test Burden Index formed from it (HLR-222, HLR-223). Pass 2 of the two: Pass 1 decided what each function costs to mock, and this sums that cost across the edges a function depends on.]]></responsibility>
         <functions>
           <function signature="int calltree_analyse(const Sdg *g, const ElcOptions *opts, TreeResults *out)">
             <purpose><![CDATA[Produce every call-tree measurement the report requires.]]></purpose>
@@ -691,7 +691,7 @@ A call that both skips and inverts contributed one violation of each kind and is
           </function>
           <function signature="int longest_path_dag(const Sdg *g, const NodeSet *entries, Chain *out)" summary="Memoised longest-path search with predecessor retention."/>
           <function signature="void tree_results_free(TreeResults *r)" summary="Release the per-node measurement tables, the recursive-cycle list, and the retained deepest chain."/>
-                  <function signature="double calltree_burden(uint32_t complexity, uint32_t fan_in, double wf_out)" summary="The Testing Burden Index of HLR-223 for one function: complexity x (1 + min(fan_in, wf_out)), and the only definition of the formula, since the report needs it for the function table and thresholds.c needs it to band. The lesser of the two degrees and not their product is the whole of what separates this index from calltree_maintainability: a widely shared leaf has a large fan-in and a weighted fan-out near zero and collapses to its complexity, a coordinator has the reverse and does the same, and only a function large in both - the God Object - yields a large index. The fan-in is widened to compare rather than the weight truncated; truncating would make every weighted fan-out below 1.0 compare equal to zero and return the bare complexity across the whole lower range. A pure function of three measurements, reading no graph."/>
+                  <function signature="double calltree_burden(uint32_t complexity, uint32_t fan_in, double wf_out)" summary="The Weighted Test Burden Index of HLR-223 for one function: complexity x (1 + min(fan_in, wf_out)), and the only definition of the formula, since the report needs it for the function table and thresholds.c needs it to band. The lesser of the two degrees and not their product is the whole of what separates this index from calltree_maintainability: a widely shared leaf has a large fan-in and a weighted fan-out near zero and collapses to its complexity, a coordinator has the reverse and does the same, and only a function large in both - the God Object - yields a large index. The fan-in is widened to compare rather than the weight truncated; truncating would make every weighted fan-out below 1.0 compare equal to zero and return the bare complexity across the whole lower range. A pure function of three measurements, reading no graph."/>
 </functions>
         <dependencies>
           <dep><![CDATA[The graph library, for topological ordering and strongly connected components.]]></dep>
@@ -748,7 +748,7 @@ A call that both skips and inverts contributed one violation of each kind and is
 | ----------- | ----- | ----------- |
 | Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 warning; >15 critical | Henry–Kafura |
 | Function fan-in | ≤25 silent; >25 warning, with no critical band | **`elc` heuristic — not a published standard** |
-| Testing Burden Index | <20 silent; ≥20 warning; ≥45 critical | **`elc` heuristic — not a published standard** |
+| Weighted Test Burden Index | <20 silent; ≥20 warning; ≥45 critical | **`elc` heuristic — not a published standard** |
 | Cyclomatic complexity | ≤10 silent; 11–15 warning; >15 critical | McCabe (NIST SP 500-235) |
 | Call depth | >8 warning; >12 critical, on stack-constrained targets | Embedded practice |
 | Recursion present | critical | MISRA C Rule 17.2 |
@@ -770,9 +770,9 @@ The complexity row is not one of them. 10 is McCabe's own limit and 15 the highe
 
 The fan-in row is one of them, and has no critical band. `elc` has no published basis for a first line and none at all for a second, so it draws one and says whose it is.
 
-The testing-burden row is the third, and it is the sharpest case of the three. The Adapted Maintainability Index stood here until Phase 33, and it was an instructive one: the index *is* published — Coleman and Oman's — and so are thresholds for it, the Software Engineering Institute's 85 and 65, but this build adapted the formula and the published thresholds had been calibrated against the term the adaptation replaced. **A citation is not transitive**, and that row was the case that made the rule concrete.
+The weighted-test-burden row is the third, and it is the sharpest case of the three. The Adapted Maintainability Index stood here until Phase 33, and it was an instructive one: the index *is* published — Coleman and Oman's — and so are thresholds for it, the Software Engineering Institute's 85 and 65, but this build adapted the formula and the published thresholds had been calibrated against the term the adaptation replaced. **A citation is not transitive**, and that row was the case that made the rule concrete.
 
-The Testing Burden Index has no such published ancestor to decline. It is `elc`'s own formula and nothing anywhere has calibrated bounds for it, so 20 and 45 are judgements and the row says so. Its bounds are stated inclusively by HLR-224 and stored one lower, because these bands are exclusive upper bounds and `tbi >= 20` is `trunc(tbi) > 19` over the whole numbers this catalogue compares.
+The Weighted Test Burden Index has no such published ancestor to decline. It is `elc`'s own formula and nothing anywhere has calibrated bounds for it, so 20 and 45 are judgements and the row says so. Its bounds are stated inclusively by HLR-224 and stored one lower, because these bands are exclusive upper bounds and `wtbi >= 20` is `trunc(wtbi) > 19` over the whole numbers this catalogue compares.
 
 **No row runs downwards now.** The `inverted` flag stays, and stays exercised by `band_of`, because a score whose low value is the bad one is a shape the catalogue must be able to hold — the alternative being a catalogue that has to be rewritten the next time one arrives rather than extended.
 
@@ -811,7 +811,7 @@ The Testing Burden Index has no such published ancestor to decline. It is `elc`'
         <responsibility><![CDATA[Record the linked image a run was filtered by, the linkage names it could not resolve, the source functions it does not define, and the effective lines belonging to no function, so that a filtered figure is reported alongside the image that produced it (HLR-143, HLR-145, HLR-147).]]></responsibility>
         <responsibility><![CDATA[Record every file skipped for want of a language module, so the report accounts for each discovered file (HLR-012).]]></responsibility>
         <responsibility><![CDATA[Record the discovery route applied to each directory target, so that an unexpectedly empty or oversized result is diagnosable (HLR-127).]]></responsibility>
-        <responsibility><![CDATA[Derive each function's Testing Burden Index onto the per-function metrics once the degrees are joined, so that the figure the report prints and the figure `thresholds.c` bands are the one figure (HLR-223).]]></responsibility>
+        <responsibility><![CDATA[Derive each function's Weighted Test Burden Index onto the per-function metrics once the degrees are joined, so that the figure the report prints and the figure `thresholds.c` bands are the one figure (HLR-223).]]></responsibility>
         <responsibility><![CDATA[Join the flow degrees onto the functions they describe, and rebuild the threshold listing over the joined result, in one function that both the live path and the record path call — so that the two cannot drift, and so that a listing which is a union over three measurements is not built before two of them exist (HLR-183, HLR-187).]]></responsibility>
         <responsibility><![CDATA[Define how a component's directory is derived from its path, in one function called at each of the two places a `FileMetrics` is constructed — the measurement of a source file and the reader that rebuilds a model from a record — so that every consumer reads one recorded answer rather than slicing the path for itself (HLR-160).]]></responsibility>
         <responsibility><![CDATA[Render the two conformance indices, and the complementary conforming proportion of each, into the model as text — "undefined" being one of their legitimate values, exactly as it is for Instability (HLR-162, HLR-163).]]></responsibility>
@@ -852,7 +852,7 @@ The Testing Burden Index has no such published ancestor to decline. It is `elc`'
         <responsibility><![CDATA[Compute column widths from the longest path and function name, and render the aligned table.]]></responsibility>
         <responsibility><![CDATA[Render every tier in the fixed order of HLR-184, so that the report reaches the same sections whatever the type of the target was (HLR-006).]]></responsibility>
         <responsibility><![CDATA[Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).]]></responsibility>
-        <responsibility><![CDATA[Present every per-function figure in one table — lines, ELOC, complexity, fan-in, fan-out, the Mock Burden Score, the weighted fan-out and the Testing Burden Index — rather than in three tables enumerating the same functions (HLR-183, HLR-223).]]></responsibility>
+        <responsibility><![CDATA[Present every per-function figure in one table — lines, ELOC, complexity, fan-in, fan-out, the Mock Burden Score, the weighted fan-out and the Weighted Test Burden Index — rather than in three tables enumerating the same functions (HLR-183, HLR-223).]]></responsibility>
         <responsibility><![CDATA[Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).]]></responsibility>
         <responsibility><![CDATA[In the Markdown style alone, place each table inside an HTML `<details>` element stating its row count, beneath a heading that stays a heading (HLR-190).]]></responsibility>
         <responsibility><![CDATA[Render Markdown with functions grouped under a per-file heading.]]></responsibility>
@@ -2975,6 +2975,23 @@ The option shall govern presentation alone. It shall not change any measurement,
       </traces>
       </hlr>
 
+      <hlr id="HLR-226" name="Colour on a Terminal">
+        <text><![CDATA[Where the aligned table (HLR-027) is written to a terminal, `elc` shall colour it: the rows of each table shall alternate between two backgrounds — black and dark grey — with white text on both, and every cell whose content is a band name shall be written in a colour standing for that band, green for healthy, yellow for warning and red for critical.
+
+**The destination shall decide, exactly as it decides the width** (HLR-219). A file has no colours and a pipe has none; a terminal does, and the destination has already said which it is. A report redirected, piped or written to a file shall carry no escape sequence whatever, so that every consumer of those bytes, and every test that reads them, is unaffected by this requirement existing.
+
+**No option shall ask for colour and none shall suppress it.** That is the rule HLR-219 states for the width and it holds here for the same reason: an option would be a second spelling of a fact the program can observe, and the two can disagree. Nothing shall be read from the environment either — not a terminal's colour capability, not its palette, and not a variable naming one — since HLR-032 requires two runs to the same kind of destination to produce identical bytes, and a presentation varying with the environment would be a run whose output nobody else can reproduce.
+
+**Colour shall carry no information that the text does not.** A reader whose terminal renders none of it, or who is reading a redirected copy, shall lose nothing but ease: every band a colour stands for is written in the cell as a word beside it. Colour is a way of finding a row, never the only way of reading one.
+
+**An escape sequence occupies no columns**, so the limit of HLR-219 shall continue to be measured over what is displayed rather than over the bytes emitted. A line whose displayed width is within the limit conforms however many sequences it carries.
+
+**The alternation shall be per row and not per line.** A row continued over several lines by the wrapping of HLR-219 shall carry one background across all of them, so that a wrapped row reads as one row rather than as several of alternating colour.]]></text>
+        <traces>
+          <trace target="SDD" ref="14"/>
+        </traces>
+      </hlr>
+
       <hlr id="HLR-152" name="Complete-Record Formats Unaffected by Verbosity">
         <text><![CDATA[The XML record (HLR-054) shall carry every element of a run whatever the verbosity, since its defining purpose is to be a complete and durable record sufficient to regenerate any report `elc` can produce (Section 9). A summarised record would silently destroy the measurements a later regeneration depends on, and the loss would not be visible in the file it produced.
 
@@ -4108,7 +4125,7 @@ The centrality scores of HLR-168 and HLR-169 are floating-point values produced 
     <section number="24" title="Diagnostic Companion and Image Evidence">
       <intro><![CDATA[Requirements governing what `elc` writes down about a run other than the measurements themselves: the companion that carries the invocation and the diagnostics so a run can be discussed without the source tree it read, the record of what it could not parse, and the placing of symbols by the debug information in a linked image.
 
-**This section held the Adapted Maintainability Index until Phase 33 retired it.** The index combined size, branching and information flow into one score, and its information-flow term was the *product* of a function's two degrees — which is what made it unable to tell a widely shared leaf from a hub, and what made it report a ten-line logging wrapper of complexity two as a rigid, fragile monolith for the offence of being called from seventy-nine places. The per-function composite is now the Testing Burden Index of Section 32, whose corresponding term is the *lesser* of the two degrees and therefore charges a function only for the entanglement it actually has.]]></intro>
+**This section held the Adapted Maintainability Index until Phase 33 retired it.** The index combined size, branching and information flow into one score, and its information-flow term was the *product* of a function's two degrees — which is what made it unable to tell a widely shared leaf from a hub, and what made it report a ten-line logging wrapper of complexity two as a rigid, fragile monolith for the offence of being called from seventy-nine places. The per-function composite is now the Weighted Test Burden Index of Section 32, whose corresponding term is the *lesser* of the two degrees and therefore charges a function only for the entanglement it actually has.]]></intro>
 
       <hlr id="HLR-194" name="The Debug Companion">
         <text><![CDATA[`elc` shall provide a command-line option that writes a **debug companion** beside the report, carrying what is needed to diagnose a run on a source tree the reader cannot obtain: the invocation, and every message the run wrote to standard error.
@@ -4703,10 +4720,10 @@ The weighted degree shall be accumulated in the traversal that already computes 
         </traces>
       </hlr>
 
-      <hlr id="HLR-223" name="Testing Burden Index per Function">
-        <text><![CDATA[For every function, `elc` shall compute and report a **Testing Burden Index** from its cyclomatic complexity (HLR-017), its fan-in (HLR-183) and its Weighted Fan-Out (HLR-222):
+      <hlr id="HLR-223" name="Weighted Test Burden Index per Function">
+        <text><![CDATA[For every function, `elc` shall compute and report a **Weighted Test Burden Index** from its cyclomatic complexity (HLR-017), its fan-in (HLR-183) and its Weighted Fan-Out (HLR-222):
 
-`TBI = v(G) x (1 + min(Fan-In, WF-out))`
+`WTBI = v(G) x (1 + min(Fan-In, WF-out))`
 
 **The `min` is the substance of this requirement and not a detail of its scaling.** A function that many others call but which itself calls almost nothing — a logging wrapper, a shared reduction, a leaf utility — has a large fan-in and a Weighted Fan-Out near zero, and `min` returns the smaller: its index collapses towards its cyclomatic complexity, which is the honest answer, because testing it requires few mocks or none. A function that calls a great deal but is called from one place is a coordinator, and `min` again returns the smaller. Only a function that is **both** widely depended upon **and** deeply dependent makes both terms large, and that shape — the God Object — is the only one this index is intended to condemn.
 
@@ -4719,13 +4736,13 @@ The index shall be computed from measurements `elc` already holds and shall intr
       </hlr>
 
       <hlr id="HLR-224" name="Testing Burden Threshold Classification">
-        <text><![CDATA[`elc` shall classify each function's Testing Burden Index (HLR-223) into one of three bands and report the band alongside the figure:
+        <text><![CDATA[`elc` shall classify each function's Weighted Test Burden Index (HLR-223) into one of three bands and report the band alongside the figure:
 
 | Band | Condition | Meaning |
 | ---- | --------- | ------- |
-| Healthy | `TBI < 20` | Within the range in which a unit test and its mocks are ordinary work. |
-| Warning | `TBI >= 20` | Approaching the limit of comfortable unit testing and mocking. |
-| Critical | `TBI >= 45` | An architectural bottleneck or a God Object; refactoring is indicated before the function is tested. |
+| Healthy | `WTBI < 20` | Within the range in which a unit test and its mocks are ordinary work. |
+| Warning | `WTBI >= 20` | Approaching the limit of comfortable unit testing and mocking. |
+| Critical | `WTBI >= 45` | An architectural bottleneck or a God Object; refactoring is indicated before the function is tested. |
 
 The bands shall be evaluated in descending order so that a Critical index is not also reported as a Warning, and the classification shall be a property of the one threshold catalogue that carries every other band (HLR-098), rather than a second table beside it.
 
@@ -4738,7 +4755,7 @@ A band shall be a prompt to look rather than an instruction to comply (HLR-099).
       </hlr>
 
       <hlr id="HLR-225" name="Testing Burden in the Interactive Report Payload">
-        <text><![CDATA[The JSON payload the interactive HTML report carries for each function node (HLR-213) shall include the function's Mock Burden Score, its Testing Burden Index, and its band as a string taking one of the values `healthy`, `warning`, or `critical`.
+        <text><![CDATA[The JSON payload the interactive HTML report carries for each function node (HLR-213) shall include the function's Weighted Test Burden Index and its band as a string taking one of the values `healthy`, `warning`, or `critical`.
 
 The band shall be carried as the string the C already decided rather than recomputed in the page from the index and the bounds. A threshold spelled once in the binary and once in a script is two places it can be spelled differently, and the page would be the copy nobody checks — the same reason HLR-149 admits only one spelling of a format.
 
@@ -6739,7 +6756,7 @@ A function that no analysed function calls has a fan-in of zero, and that zero i
 
 An unresolvable call site contributes to neither degree, since it produces no edge to walk (HLR-077). A function with no resolved outgoing call shall therefore have a weighted fan-out of zero, which is the same value a function calling nothing has, and the two are not distinguished here: the unresolved count `graph_unresolved_count` reports is what tells them apart, and it is already presented beside these measurements.
 
-The accumulation shall be in floating point and shall not be rounded before the index of LLR-TBI-01 consumes it, so that four calls to functions scoring `0.25` sum to `1.0` and not to zero.]]></text>
+The accumulation shall be in floating point and shall not be rounded before the index of LLR-WTB-01 consumes it, so that four calls to functions scoring `0.25` sum to `1.0` and not to zero.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-222" name="Weighted Fan-Out"/>
           <trace target="HLR" ref="HLR-077"/>
@@ -7056,7 +7073,7 @@ No bound shall be invented. MISRA states no count at which use becomes unaccepta
       </llr>
 
       <llr id="LLR-THR-20">
-        <text><![CDATA[`thresholds_apply` shall classify each function's Testing Burden Index into the bands of HLR-224 — Critical at 45 or above, Warning at 20 or above, and Healthy below 20 — and shall test them in descending order, so that an index of 45 yields one Critical finding and not a Critical and a Warning both.
+        <text><![CDATA[`thresholds_apply` shall classify each function's Weighted Test Burden Index into the bands of HLR-224 — Critical at 45 or above, Warning at 20 or above, and Healthy below 20 — and shall test them in descending order, so that an index of 45 yields one Critical finding and not a Critical and a Warning both.
 
 The bounds shall live in the one threshold catalogue this module already holds rather than in a table beside it, for the reason every other band in it is there: a catalogue that some measurements are in and others are not is a catalogue a reader cannot trust to be complete.
 
@@ -7364,11 +7381,11 @@ The bands shall be read from `thresholds.c` rather than from constants held here
       </llr>
 
       <llr id="LLR-RPT-40">
-        <text><![CDATA[`report_attach_flow` shall derive each function's Testing Burden Index onto the per-function metrics once the flow degrees have been joined, and shall be the only place it is derived.
+        <text><![CDATA[`report_attach_flow` shall derive each function's Weighted Test Burden Index onto the per-function metrics once the flow degrees have been joined, and shall be the only place it is derived.
 
 One derivation, where the Adapted Maintainability Index that stood here needed two. That index had to be derived before the threshold listing was built *and* again with the degrees, because its unset zero was not a neutral figure but the worst score on its scale, and a listing built between the two would have called every function in the project critically unmaintainable. This index runs the other way: zero is the bottom of its range and is what a function with no measured degrees honestly has, so a single derivation at the point the degrees become real is both sufficient and correct.]]></text>
         <traces>
-          <trace target="HLR" ref="HLR-223" name="Testing Burden Index per Function"/>
+          <trace target="HLR" ref="HLR-223" name="Weighted Test Burden Index per Function"/>
           <trace target="HLR" ref="HLR-187" name="The Threshold Listing Names Every Banded Function"/>
         </traces>
       </llr>
@@ -7646,12 +7663,37 @@ The label column was the length of one label written out and the value column th
         </traces>
       </llr>
       <llr id="LLR-SUM-18">
-        <text><![CDATA[`render_summary` shall present each function's Mock Burden Score, weighted fan-out and Testing Burden Index, with the band as a word, as columns of the one function table of LLR-SUM-14; and shall present the index as a column of the threshold listing beside the three measurements already there, so that a listed function's burden is readable without going back to the table.]]></text>
+        <text><![CDATA[`render_summary` shall present each function's Weighted Test Burden Index, with the band as a word beside it, as columns of the one function table of LLR-SUM-14; and shall present the index as a column of the threshold listing beside the three measurements already there, so that a listed function's burden is readable without going back to the table.
+
+**The Mock Burden Score and the weighted fan-out shall not be columns of any presented format.** They are the terms the index is built from, not measurements a reader acts on: a score of 0.85 against a callee tells nobody what to do, and the sum of such scores tells them less. What a reader acts on is the index and its band, and the two figures behind it remain in the saved record, where a consumer that wants to recompute or re-band can read them (HLR-152).]]></text>
         <traces>
-          <trace target="HLR" ref="HLR-223" name="Testing Burden Index per Function"/>
+          <trace target="HLR" ref="HLR-223" name="Weighted Test Burden Index per Function"/>
           <trace target="HLR" ref="HLR-221" name="Mock Burden Score per Function"/>
           <trace target="HLR" ref="HLR-183" name="One Per-Function Table"/>
           <trace target="HLR" ref="HLR-187" name="The Threshold Listing Names Every Banded Function"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-SUM-24">
+        <text><![CDATA[`grid_render_table` shall colour the table where, and only where, the stream it writes to is a terminal (HLR-226), and shall decide that by asking the stream rather than by reading any option or environment variable.
+
+The question shall be asked through a predicate of its own rather than by reading the width `table_limit` returns. That function answers the same question for the same reason, but answers it as a *number*, and a caller reading 128 to mean "a terminal" is a caller that breaks the day the limit moves.
+
+Each data row shall take the background its index selects, alternating between the two; the header shall take neither, being the legend for the block rather than the first row of it. Every physical line of a wrapped row shall carry that row's background, so a row continued over four lines reads as one row.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-226" name="Colour on a Terminal"/>
+          <trace target="HLR" ref="HLR-219"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-SUM-25">
+        <text><![CDATA[`table_cell` shall write a cell whose content is a band name in that band's colour — green for `healthy`, yellow for `warning`, red for `critical` — and shall then restore the row's own foreground rather than resetting, so the background the line was opened with continues underneath the rest of the row (HLR-226).
+
+**The match shall be on the word and not on the column.** The Severity column of the findings and the Burden column of the function table carry the same vocabulary, and a reader scanning for red should not have to know which column he is looking at. A cell holding anything else shall be left in the row's own colour.
+
+Under colour the final text column shall be padded, which it is not otherwise. A row's background is what makes the alternation readable, and one stopping at the last character of the last cell would leave a ragged edge that reads as a rendering fault rather than as a row.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-226" name="Colour on a Terminal"/>
         </traces>
       </llr>
 
@@ -9493,7 +9535,7 @@ Edges shall be emitted in ascending source-then-target order, which is `format_g
       </llr>
 
       <llr id="LLR-CYT-06">
-        <text><![CDATA[`html_elements` shall carry, in the `data` object of every function node it emits, the function's Mock Burden Score as `mock_burden`, its Testing Burden Index as `tbi`, and its band as `tbi_status` taking exactly one of the strings `healthy`, `warning`, or `critical` (HLR-225).
+        <text><![CDATA[`html_elements` shall carry, in the `data` object of every function node it emits, the function's Weighted Test Burden Index as `wtbi` and its band as `wtbi_status`, taking exactly one of the strings `healthy`, `warning`, or `critical` (HLR-225).
 
 **The band shall be the string the C already decided, and the page shall not derive it.** Emitting the index and letting the stylesheet compare it against 20 and 45 would put the bounds in a second place — in a script, where nothing checks them against the catalogue that decided the text report's finding — and the two would disagree the first time a bound moved. That is the disagreement HLR-149 refuses between two spellings of a format, arriving here between two spellings of a threshold.
 
@@ -9771,17 +9813,17 @@ A function whose signature the query cannot match shall be scored at the base ta
     </function>
 
     <function number="76" name="calltree_burden" source="src/calltree.c" title="`calltree_burden` ([src/calltree.c](../src/calltree.c))">
-      <llr id="LLR-TBI-01">
-        <text><![CDATA[`calltree_burden` shall return the Testing Burden Index of HLR-223 for one function, computed as its cyclomatic complexity multiplied by one plus the lesser of its fan-in and its Weighted Fan-Out, and shall be the only definition of the formula — the report needs it for the function table and `thresholds.c` needs it to band.
+      <llr id="LLR-WTB-01">
+        <text><![CDATA[`calltree_burden` shall return the Weighted Test Burden Index of HLR-223 for one function, computed as its cyclomatic complexity multiplied by one plus the lesser of its fan-in and its Weighted Fan-Out, and shall be the only definition of the formula — the report needs it for the function table and `thresholds.c` needs it to band.
 
 **The lesser of the two degrees and not their product**, which is the whole of what distinguished this index from the Adapted Maintainability Index it replaced. A widely shared leaf has a large fan-in and a weighted fan-out near zero, and the index shall collapse towards its cyclomatic complexity; a coordinator has the reverse and shall do the same. Only a function large in both degrees shall produce a large index.
 
 The two degrees shall be compared as the same type before the lesser is taken. Fan-in is a count and the weighted fan-out is not, so the count shall be widened rather than the weight truncated — truncating would make every weighted fan-out below `1.0` compare equal to zero and would silently return the complexity for the whole lower half of the range.]]></text>
         <traces>
-          <trace target="HLR" ref="HLR-223" name="Testing Burden Index per Function"/>
+          <trace target="HLR" ref="HLR-223" name="Weighted Test Burden Index per Function"/>
         </traces>
       </llr>
-      <llr id="LLR-TBI-02">
+      <llr id="LLR-WTB-02">
         <text><![CDATA[`calltree_burden` shall be a pure function of the three measurements it is given and shall read no graph, so that the figure the report prints and the figure the threshold catalogue bands are produced by one call and cannot diverge.
 
 A function whose cyclomatic complexity is recorded as zero — which no analysed function has, every path count being at least one — shall yield an index of zero rather than a special case, the multiplication doing the work without a guard.]]></text>
@@ -11809,35 +11851,35 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     <test name="a_widely_shared_leaf_collapses_to_its_cyclomatic_complexity">
       <purpose><![CDATA[Fan-in 82, weighted fan-out 0, complexity 2 yields 2. The case the index exists for: a function many others call but which calls nothing needs no mocks. This is the shape the retired Adapted Maintainability Index scored as critical — a ten-line wrapper called from eighty-two places — and the reason this index replaced it.]]></purpose>
       <traces>
-        <trace target="LLR" ref="LLR-TBI-01"/>
+        <trace target="LLR" ref="LLR-WTB-01"/>
         <trace target="HLR" ref="HLR-223"/>
       </traces>
     </test>
     <test name="a_coordinator_called_from_one_place_collapses_likewise">
       <purpose><![CDATA[Fan-in 1, weighted fan-out 12, complexity 4 yields 8. The mirror of the leaf case, asserted separately because a formula taking the larger degree would pass the leaf case and fail this one.]]></purpose>
       <traces>
-        <trace target="LLR" ref="LLR-TBI-01"/>
+        <trace target="LLR" ref="LLR-WTB-01"/>
         <trace target="HLR" ref="HLR-223"/>
       </traces>
     </test>
     <test name="only_a_function_large_in_both_degrees_produces_a_large_index">
       <purpose><![CDATA[Fan-in 10 against a weighted fan-out of 9 at complexity 5 yields 50 - Critical - where either degree alone at the same complexity yields far less. The God Object is the one shape this index condemns, and this asserts it is the only one.]]></purpose>
       <traces>
-        <trace target="LLR" ref="LLR-TBI-01"/>
+        <trace target="LLR" ref="LLR-WTB-01"/>
         <trace target="HLR" ref="HLR-223"/>
       </traces>
     </test>
     <test name="the_degrees_are_compared_without_truncating_the_weight">
       <purpose><![CDATA[A weighted fan-out of 0.75 against a fan-in of 3 takes the weight and not zero. Truncating to an integer before comparing would make every weighted fan-out below 1.0 compare equal to zero, silently returning the bare complexity across the whole lower range - a defect no ordering assertion would catch.]]></purpose>
       <traces>
-        <trace target="LLR" ref="LLR-TBI-01"/>
+        <trace target="LLR" ref="LLR-WTB-01"/>
         <trace target="HLR" ref="HLR-223"/>
       </traces>
     </test>
     <test name="the_index_is_a_pure_function_of_its_three_measurements">
       <purpose><![CDATA[The same complexity, fan-in and weighted fan-out yield the same index on repeated calls with no graph supplied, so the figure the report prints and the figure the threshold catalogue bands are produced by one call and cannot diverge. A complexity of zero yields zero through the multiplication rather than through a guard.]]></purpose>
       <traces>
-        <trace target="LLR" ref="LLR-TBI-02"/>
+        <trace target="LLR" ref="LLR-WTB-02"/>
         <trace target="HLR" ref="HLR-223"/>
       </traces>
     </test>
@@ -12491,7 +12533,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
 
     <test name="exactly_three_thresholds_are_elcs_own_and_say_so">
-      <purpose><![CDATA[Exactly three thresholds are not published standards — the bottleneck heuristic, the fan-in band, and the testing-burden bands — and each says so where a reader sees it. It was four until the maintainability bands were retired with the index they banded. Asserting the count means a fourth could only appear by decision rather than by drift.]]></purpose>
+      <purpose><![CDATA[Exactly three thresholds are not published standards — the bottleneck heuristic, the fan-in band, and the weighted-test-burden bands — and each says so where a reader sees it. It was four until the maintainability bands were retired with the index they banded. Asserting the count means a fourth could only appear by decision rather than by drift.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-THR-02"/>
         <trace target="LLR" ref="LLR-THR-16"/>
@@ -13852,7 +13894,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       </traces>
     </test>
 
-    <test name="HLR-223: the function table carries the testing burden">
+    <test name="HLR-223: the function table carries the weighted test burden">
       <purpose><![CDATA[The one function table gains an MI column, and a short, unbranchy, unjoined function sits at the top of the scale.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-223"/>
@@ -13868,7 +13910,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       </traces>
     </test>
 
-    <test name="HLR-101: a testing-burden finding recommends nothing">
+    <test name="HLR-101: a weighted-test-burden finding recommends nothing">
       <purpose><![CDATA[The finding states the score and the scale and stops. A metric whose name suggests a verdict is the last place to start advising, and HLR-101 governs it as it governs every other measurement.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-101"/>
@@ -13877,7 +13919,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
 
     <test name="HLR-224: a healthy function is not banded at all">
-      <purpose><![CDATA[A short function produces no testing-burden finding. Asserted against the finding's own words rather than the measurement's name, since the threshold listing's heading names every band it unites and therefore says "testing burden" whether or not one was found.]]></purpose>
+      <purpose><![CDATA[A short function produces no weighted-test-burden finding. Asserted against the finding's own words rather than the measurement's name, since the threshold listing's heading names every band it unites and therefore says "weighted test burden" whether or not one was found.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-224"/>
       </traces>
@@ -14355,7 +14397,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
 </file>
 
-  <file path="test/integration/terminal.bats" role="integration" count="13">
+  <file path="test/integration/terminal.bats" role="integration" count="17">
     <test name="HLR-219: no line of a terminal report exceeds 128 columns">
       <purpose><![CDATA[The width itself, over a target whose paths are long enough to force the narrowing rather than merely permit it. Run on a pseudo-terminal allocated with script(1), because Bats captures output through a pipe and the limit would otherwise never fire — a test written the ordinary way would assert the unwrapped table and pass for the wrong reason forever. There is deliberately no environment variable in src/ to force the behaviour: that would be a test seam in the product, and the seam would be the only thing most runs exercised.]]></purpose>
       <traces>
@@ -14448,6 +14490,35 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       <purpose><![CDATA[Given an unknown format and a target that does not exist, the version is still answered and the status is still zero — because the state a user is in when somebody asks which version they are running is frequently one where the command did not work.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-220"/>
+      </traces>
+    </test>
+    <test name="HLR-226: a terminal report alternates two backgrounds with white text">
+      <purpose><![CDATA[Both grounds appear in the bytes written to a pty, and both carry the same foreground, so the text does not change weight from one row to the next.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-24"/>
+        <trace target="HLR" ref="HLR-226"/>
+      </traces>
+    </test>
+    <test name="HLR-226: a redirected report carries no escape sequence at all">
+      <purpose><![CDATA[The aligned table and the CSV, written to a pipe, contain no escape byte. This is the property every consumer of those bytes depends on, and the one that keeps every other test in the suite reading what it always read.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-24"/>
+        <trace target="HLR" ref="HLR-226"/>
+        <trace target="HLR" ref="HLR-032"/>
+      </traces>
+    </test>
+    <test name="HLR-226: a band name is coloured by what it says">
+      <purpose><![CDATA[A warning is yellow and a healthy is green, matched on the word rather than on the column, since the Severity column and the Burden column carry the same vocabulary.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-25"/>
+        <trace target="HLR" ref="HLR-226"/>
+      </traces>
+    </test>
+    <test name="HLR-226: colour says nothing the text does not">
+      <purpose><![CDATA[With the escapes stripped, every band is still written as a word. Colour is a way of finding a row and never the only way of reading one, so a reader whose terminal renders none of it loses nothing but ease.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-25"/>
+        <trace target="HLR" ref="HLR-226"/>
       </traces>
     </test>
   </file>
@@ -16101,7 +16172,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       </traces>
     </test>
     <test name="HLR-099: the label appears on exactly the rows that earn it">
-      <purpose><![CDATA[The elc-heuristic label appears on exactly the rows entitled to it — the bottleneck, fan-in and testing-burden bands — and on no row citing MISRA, Martin, McCabe or Henry-Kafura. Stated as a correspondence rather than an absence, since a report can legitimately contain the words.]]></purpose>
+      <purpose><![CDATA[The elc-heuristic label appears on exactly the rows entitled to it — the bottleneck, fan-in and weighted-test-burden bands — and on no row citing MISRA, Martin, McCabe or Henry-Kafura. Stated as a correspondence rather than an absence, since a report can legitimately contain the words.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-THR-02"/>
         <trace target="HLR" ref="HLR-099"/>
@@ -18499,8 +18570,8 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       </traces>
     </test>
 
-    <test name="LLR-BLD-23: elc's own testing burden does not grow">
-      <purpose><![CDATA[A ratchet rather than a clean bill of health, and the successor to the maintainability ratchet that stood here. No function in elc is in the critical testing-burden band, and that zero is asserted so the debt cannot quietly grow — the same contract test/gap-baseline.txt holds for coverage. The predecessor started at twelve and climbed to sixteen, twice for the metric's own artefact: centralising diagnostics gave seventy-nine functions a point of fan-out and pushed two below the band, and `diag_printf` itself scored 51 for being called from seventy-nine places. Under this index that function scores 2.50 and is healthy while `symname_reduce` scores 23.00 and is flagged, which is why the recorded debt is zero rather than sixteen. Warnings are not gated.]]></purpose>
+    <test name="LLR-BLD-23: elc's own weighted test burden does not grow">
+      <purpose><![CDATA[A ratchet rather than a clean bill of health, and the successor to the maintainability ratchet that stood here. No function in elc is in the critical weighted-test-burden band, and that zero is asserted so the debt cannot quietly grow — the same contract test/gap-baseline.txt holds for coverage. The predecessor started at twelve and climbed to sixteen, twice for the metric's own artefact: centralising diagnostics gave seventy-nine functions a point of fan-out and pushed two below the band, and `diag_printf` itself scored 51 for being called from seventy-nine places. Under this index that function scores 2.50 and is healthy while `symname_reduce` scores 23.00 and is flagged, which is why the recorded debt is zero rather than sixteen. Warnings are not gated.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-181"/>
         <trace target="HLR" ref="HLR-224"/>
@@ -18775,7 +18846,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       </traces>
     </test>
     <test name="the_status_string_agrees_with_the_band_the_catalogue_decided">
-      <purpose><![CDATA[For an index either side of both bounds, the emitted `tbi_status` matches the band `thresholds_apply` produced for the same function. The page is given the decision rather than the bounds, so a threshold moved in the catalogue cannot leave the drawing disagreeing with the report.]]></purpose>
+      <purpose><![CDATA[For an index either side of both bounds, the emitted `wtbi_status` matches the band `thresholds_apply` produced for the same function. The page is given the decision rather than the bounds, so a threshold moved in the catalogue cannot leave the drawing disagreeing with the report.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CYT-06"/>
         <trace target="LLR" ref="LLR-THR-20"/>
