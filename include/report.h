@@ -103,7 +103,7 @@ typedef struct {
  * macro.
  *
  * **Name and location, and deliberately nothing else.** `elc` has no body for
- * it, so it has no ELOC, no complexity, no maintainability index and no edges,
+ * it, so it has no ELOC, no complexity, no testing burden and no edges,
  * and a row carrying zeroes for those would report an absence as a
  * measurement — which is the thing HLR-133 and HLR-138 both exist to refuse.
  * The record has no fields for them, so none can be invented later.

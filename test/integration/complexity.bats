@@ -210,21 +210,27 @@ setup() {
 	# is what puts it in the listing, and the severity says which.
 	elc --verbose -c 100 "$TREE/bands.c"
 	assert_success
-	assert_output --regexp "warn +11 +[0-9]+ +[0-9]+ +[0-9]+ +warning"
+	# The sixth column is the Testing Burden Index, which is fractional
+	# where the Maintainability Index it replaced was whole.
+	assert_output --regexp "warn +11 +[0-9]+ +[0-9]+ +[0-9.]+ +warning"
 }
 
-@test "HLR-191: the function table carries a maintainability score" {
+@test "HLR-223: the function table carries the testing burden" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --regexp "Function +Visibility +Lines +ELOC +Complexity +Fan-in +Fan-out +MI"
-	# simple() is four lines, complexity 1, and joined to nothing: the flow
-	# and length terms are small, so it sits at the top of the scale.
-	assert_output --regexp "simple +public +4 +1 +1 +0 +0 +100"
+	assert_output --regexp "Fan-in +Fan-out +MBS +WF-out +TBI +Burden"
+	# simple() is four lines, complexity 1, taking one int and returning
+	# one: the base tax of 0.25, plus 0.10 for the primitive return, plus
+	# 0.10 for the primitive parameter. It calls nothing, so there is
+	# nothing to mock, the weighted fan-out is zero, and the index is its
+	# complexity alone.
+	assert_output --regexp "simple +public +4 +1 +1 +0 +0 +0\.45 +0\.00 +1\.00 +healthy"
 }
 
-@test "HLR-192: a low score is banded downwards and says whose line it is" {
-	# A long, branchy, widely-joined function. The bands run the other way
-	# from every other row in the catalogue: low is the bad one.
+@test "HLR-224: a high index is banded upwards and says whose line it is" {
+	# A long, branchy function that calls something and is called by two
+	# others, so both degrees are non-zero and the lesser of them is not
+	# the zero that would collapse the index to its complexity.
 	{
 		printf 'int leaf%d(void){return %d;}\n' 1 1
 		printf 'int sink(int n)\n{\n'
@@ -235,13 +241,14 @@ setup() {
 
 	elc "$TREE/sink.c"
 	assert_success
-	assert_output --regexp "critical +maintainability +sink +maintainability index [0-9]+ of 100"
+	assert_output --regexp "(warning|critical) +testing burden +sink +testing burden [0-9]+\.[0-9]+"
 	assert_output --partial "elc heuristic — not a published standard"
 }
 
-@test "HLR-101: a maintainability finding recommends nothing" {
-	# The metric's name suggests a verdict, which is the last place to
-	# start advising. A finding states the score and stops.
+@test "HLR-101: a testing-burden finding recommends nothing" {
+	# The band names in the manual say "refactoring mandatory", which is
+	# advice to a reader of the manual. A *finding* states the figure and
+	# stops: what to do about it is the reader's call, not elc's.
 	{
 		printf 'int leaf1(void){return 1;}\n'
 		printf 'int sink(int n)\n{\n'
@@ -252,20 +259,20 @@ setup() {
 
 	elc "$TREE/sink.c"
 	assert_success
-	assert_output --partial "maintainability index"
+	assert_output --partial "testing burden"
 	refute_output --partial "recommend"
 	refute_output --partial "refactor"
-	refute_output --partial "review"
+	refute_output --partial "mandatory"
 }
 
-@test "HLR-192: a healthy function is not banded at all" {
+@test "HLR-224: a healthy function is not banded at all" {
 	# Refuting the finding's own words rather than the measurement's name:
 	# the threshold listing's heading names every band it unites, so a
-	# report with no maintainability finding still says "maintainability".
+	# report with no burden finding still says "testing burden".
 	printf 'int tidy(int n)\n{\n\treturn n + 1;\n}\n' > "$TREE/tidy.c"
 	elc "$TREE/tidy.c"
 	assert_success
-	refute_output --partial "maintainability index"
+	refute_output --partial "testing burden 2"
 }
 
 @test "HLR-023: a function listed by the configured threshold carries no severity" {

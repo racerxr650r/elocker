@@ -89,65 +89,50 @@ section_rows() {
 	fi
 }
 
-@test "LLR-BLD-23: elc's own maintainability debt does not grow" {
-	# A ratchet, not a clean bill of health. Fifteen of elc's own functions
-	# score below 55 on the Adapted Maintainability Index, which is a new
-	# band meeting old code rather than new code getting worse — the same
-	# situation the complexity band produced when it was drawn.
+@test "LLR-BLD-23: elc's own testing burden does not grow" {
+	# A ratchet, not a clean bill of health, and the successor to the
+	# maintainability ratchet that stood here until the Adapted
+	# Maintainability Index was retired.
 	#
-	# The figure is *recorded debt and not a target*. It is asserted so
-	# that the debt cannot quietly grow: make elc worse and this fails,
-	# make it better and the number comes down with the commit that earned
-	# it. The same contract `test/gap-baseline.txt` holds for coverage.
+	# **The recorded figure is zero, and that is a real assertion rather
+	# than a vacuous one.** No function in elc is in the critical testing
+	# burden band today, so any function that enters it fails this. The old
+	# ratchet started at twelve and climbed to sixteen; this one starts at
+	# the floor, which is the position a ratchet is worth the most from.
 	#
-	# **It moved from twelve to fifteen when diagnostics were centralised,
-	# and the three that crossed say something about the metric rather than
-	# about the code.** `fprintf` is a library call the graph cannot
-	# resolve, so it contributed nothing to a function's fan-out;
-	# `diag_printf` is an elc function, so it contributes a resolved edge.
-	# Every one of the seventy-nine functions that diagnose therefore
-	# gained a point of fan-out, and two sitting just above the line fell
-	# below it. The third is `diag_printf` itself, which is ten effective
-	# lines of complexity two and scores 51 purely because seventy-nine
-	# functions call it.
+	# **What the old gate recorded is worth carrying forward, because it is
+	# the argument for this measurement.** It rose from twelve to fifteen
+	# when diagnostics were centralised: `fprintf` is a library call the
+	# graph cannot resolve and contributed no fan-out, `diag_printf` is an
+	# elc function and contributes a resolved edge, so all seventy-nine
+	# functions that diagnose gained a point of fan-out and two fell below
+	# the band. The third crossing was `diag_printf` itself — ten effective
+	# lines of complexity two, scoring 51 and called a rigid, fragile
+	# monolith, purely for being called from seventy-nine places. It rose
+	# again, to sixteen, when `symname_reduce` was shared as HLR-200
+	# requires: fifteen lines of complexity five, scoring 54 on a fan-in of
+	# five against a fan-out of five.
 	#
-	# That is the index penalising a helper for being widely shared, which
-	# is the property the manual warns about under HLR-191 — and
-	# centralising those calls is what made the debug companion possible
-	# and left the code simpler, not harder to change. Recorded rather than
-	# refactored away, because the honest response to a metric artefact is
-	# to name it.
+	# Under this index those two separate: `diag_printf` scores 2.50 and is
+	# healthy, because nothing has to be mocked to test it, while
+	# `symname_reduce` scores 23.00 and is flagged, because five callees do.
+	# The metric that was asking for worse code in both directions has been
+	# replaced by one that asks for it in neither, which is why the recorded
+	# debt is zero rather than sixteen.
 	#
-	# **It moved from fifteen to sixteen when name reduction was
-	# centralised, and the crossing is the same artefact making a sharper
-	# point.** `symname_reduce` is fifteen effective lines of complexity
-	# five — as simple as anything in the tree — and scores 54 entirely on
-	# a fan-in of five against a fan-out of five. It was static in
-	# `elfsyms.c` and scored above the band; sharing it cost it the
-	# difference.
-	#
-	# What makes this one worth recording rather than arguing with is that
-	# HLR-200 *requires* the sharing. One reduction used by every path that
-	# compares names is the requirement; a second copy is the defect it was
-	# written to remove. The two ways to lift the score are to inline the
-	# five helpers it calls, which trades fifteen simple lines for one long
-	# one, or to give it fewer callers, which means copying it. The metric
-	# is asking for worse code in both directions, and HLR-099 is explicit
-	# that a threshold is a prompt to look rather than an instruction to
-	# comply.
-	#
-	# Warnings are not gated, here or for complexity. Bringing sixty-odd
-	# functions under a band is a refactor of the whole source tree, not a
-	# step in the phase that drew it.
+	# Warnings are not gated, here or for complexity. Seventy-four
+	# functions sit in the warning band; bringing them under it is a
+	# refactor of the whole source tree, not a step in the phase that drew
+	# the band.
 	local critical
 	critical="$(section_rows 'Findings' |
-		awk '$1 == "critical" && $2 == "maintainability" { n++ }
+		awk '$1 == "critical" && $2 == "testing" { n++ }
 		     END { print n + 0 }')"
 
-	if [ "$critical" -gt 16 ]; then
-		echo "elc's maintainability debt grew: $critical functions" >&2
-		echo "below the critical band, against a recorded 16." >&2
-		section_rows 'Findings' | awk '$2 == "maintainability"' >&2
+	if [ "$critical" -gt 0 ]; then
+		echo "elc's testing burden grew: $critical function(s) in the" >&2
+		echo "critical band, against a recorded 0." >&2
+		section_rows 'Findings' | awk '$2 == "testing"' >&2
 		false
 	fi
 }

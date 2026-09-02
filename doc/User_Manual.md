@@ -286,7 +286,7 @@ Files
   /home/u/proj/src/a.c  c            18    12          2
   /home/u/proj/src/b.c  c            24     6          1
 
-At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and maintainability banded)
+At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and testing burden banded)
   File                  Function  Complexity  Fan-in  Fan-out  MI  Severity
   --------------------  --------  ----------  ------  -------  --  --------
   /home/u/proj/src/a.c  parse              7       1        2  62
@@ -465,7 +465,7 @@ elc -c 1 src/           # list everything
 ```
 
 ```
-At or over a threshold (complexity listed at 10; complexity, fan-in, fan-out and maintainability banded)
+At or over a threshold (complexity listed at 10; complexity, fan-in, fan-out and testing burden banded)
   File                  Function  Complexity  Fan-in  Fan-out  MI  Severity
   --------------------  --------  ----------  ------  -------  --  --------
   /home/u/proj/src/a.c  parse             17       2        4  58  critical
@@ -1003,69 +1003,6 @@ them: that definition collects every caller's fan-in and the others collect
 none. Since fan-in is banded, an error of that shape can put a function over
 the line or hide one that is. `elc` diagnoses duplicate definitions on
 standard error; read the two together.
-
-### The Adapted Maintainability Index
-
-The last column of the Functions table is a single score out of a hundred,
-combining everything else on the row:
-
-```text
-IF  = (Fan-In × Fan-Out)²
-MI  = 171 − 5.2 ln(IF + 1) − 0.23 v(G) − 16.2 ln(ELOC)
-MI′ = max(0, MI ÷ 171 × 100)
-```
-
-It is Coleman and Oman's Maintainability Index with one substitution: their
-third term is the logarithm of a function's Halstead Volume, and `elc` uses
-the information flow through it instead. That is what makes the score fall
-when a function is *entangled* and not only when it is long or branchy — a
-short function that forty things call and that calls twenty more is hard to
-change, and no measure of its size says so.
-
-Two details keep the arithmetic defined. **One is added to the information
-flow** before the logarithm, so a function at either end of the call graph
-scores on length and branching alone rather than on an infinity — an entry
-point is not coupled by being an entry point. **A function with no effective
-lines is taken as having one**, for the same reason: it has nothing to
-maintain, so it sits at the top of the scale.
-
-| Score | Meaning |
-| ----- | ------- |
-| 65–100 | No finding. |
-| below 65 | **Warning** — moderate structural risk. |
-| below 55 | **Critical** — a rigid, fragile monolith. |
-
-> **These thresholds are `elc`'s own**, and it is the third of the three that
-> are. The index is published and so are thresholds for it — the Software
-> Engineering Institute's 85 and 65 — but those were calibrated against the
-> Halstead term this adaptation replaces. Dropping it removes thirty to
-> forty-five points of range, and the normalisation rescales what is left;
-> carried across unchanged, the published numbers flag four functions in five.
-> **A citation is not transitive.** Adapting a metric does not inherit the
-> thresholds drawn for the original, so `elc` draws its own and says so.
-
-This is the only measurement in `elc` where the **low** value is the bad one.
-Everywhere else a finding means a number got too big.
-
-> **One caveat, and it is the metric's rather than your code's.** The
-> information-flow term squares the product of the two degrees, so a small,
-> simple helper that many functions call scores badly *for being widely
-> shared*. `elc`'s own `diag_printf` is ten effective lines with a complexity
-> of two and scores 51, because seventy-nine functions call it — which is
-> good factoring, not a fragile monolith.
->
-> A related surprise: routing calls through one of your own functions rather
-> than a library one *lowers* the scores of every caller, because a library
-> call cannot be resolved into the graph and yours can. Centralising something
-> can therefore make the number worse while making the code simpler.
->
-> Read a low score as *a question worth asking*, not a verdict. That is why
-> the finding says where the score fell and stops.
-
-And as with every other finding, the row says where the score fell and who
-drew the line. It does not tell you to refactor anything — what a low score
-warrants is your call, and a metric whose name sounds like a verdict is the
-last place `elc` would start giving advice.
 
 > **The Henry–Kafura value is gone.** Earlier releases reported
 > `HK = ELOC × (Fan-In × Fan-Out)²` per function and summed across the
@@ -2131,7 +2068,7 @@ colour-coded in the HTML report.
 | :--- | :--- | :--- |
 | **Healthy** | **below 20** | **None.** The function is easily testable. Even if internal logic is moderately high, it lacks structural entanglement, meaning zero or very shallow mocks are required. |
 | **Warning** | **20 to 44** | **Review recommended.** The function is approaching the limits of comfortable testing. It balances moderate logic with external dependencies, forcing developers into heavier mock management. |
-| **Critical** | **45 and above** | **Refactoring mandatory.** An active threat to maintainability. This is typically a "God Object" or a highly entangled middle-manager where test isolation via overlapping symbols is overwhelmingly difficult. |
+| **Critical** | **45 and above** | **Refactoring mandatory.** An active threat to the code's continued maintenance. This is typically a "God Object" or a highly entangled middle-manager where test isolation via overlapping symbols is overwhelmingly difficult. |
 
 These bounds are `elc`'s own. They are labelled *elc heuristic — not a
 published standard* wherever the report prints them, for the reason every
@@ -2613,7 +2550,7 @@ Functions the image places that the parse did not reach (11; no figures are meas
 
 **Three columns, and the absence of the other six is deliberate.** `elc` has a
 name and a location, from the image, and no body at all — so it has no ELOC, no
-complexity, no maintainability index and no fan-in or fan-out. A row carrying
+complexity, no testing burden and no fan-in or fan-out. A row carrying
 zeroes for those would state an absence as a measurement, which is the one
 thing `elc` will not do. For the same reason such a function:
 
@@ -3263,7 +3200,7 @@ Where a threshold *is* `elc`'s own, the column says so in as many words:
 > `elc heuristic — not a published standard`
 
 There are exactly three such thresholds today: the **bottleneck**, the
-**fan-in** band, and the **maintainability** bands. If you disagree with a published threshold, take it up with
+**fan-in** band, and the **testing-burden** bands. If you disagree with a published threshold, take it up with
 the standard it comes from; if you disagree with one of these two, it is only
 `elc`'s opinion, and it is labelled as such so you know that's all it is.
 
@@ -3272,7 +3209,7 @@ the standard it comes from; if you disagree with one of these two, it is only
 | Measurement | Bands | Source |
 | ----------- | ----- | ------ |
 | Cyclomatic complexity | ≤10 silent; 11–15 **warning**; >15 **critical** | McCabe (NIST SP 500-235) |
-| Adapted Maintainability Index | ≥65 silent; <65 **warning**; <55 **critical** — the one that runs *downwards* | `elc` heuristic |
+| Testing Burden Index | <20 silent; ≥20 **warning**; ≥45 **critical** | `elc` heuristic |
 | Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 **warning**; >15 **critical** | Henry–Kafura |
 | Function fan-in | ≤25 silent; >25 **warning**, with no critical band | `elc` heuristic |
 | Call depth | >8 **warning**; >12 **critical** | embedded practice |
@@ -3293,14 +3230,14 @@ finding, and moving the option moves neither. If it did, the number in the
 Source column would be yours rather than McCabe's.
 
 **Three rows are `elc`'s own**, and each says so where you read them: the
-bottleneck, the fan-in band, and the maintainability bands. Nobody has
+bottleneck, the fan-in band, and the testing-burden bands. Nobody has
 published a fan-in threshold, so 25 is this project's judgement — and there is
 no critical band, because `elc` has no published basis for a first line and
-none whatever for a second. The maintainability bands are `elc`'s for a
-subtler reason, set out under
-[The Adapted Maintainability Index](#the-adapted-maintainability-index): the
-index is published, but this build adapts the formula, and the published
-thresholds were calibrated for the term the adaptation replaced.
+none whatever for a second. The testing-burden bands are `elc`'s for a
+starker reason, set out under
+[Weighted Test Burden Index](#weighted-test-burden-index-wtbi): the index is
+this project's own formula, so no published calibration for it exists anywhere
+to borrow.
 
 ### The threshold listing
 

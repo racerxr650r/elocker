@@ -249,64 +249,6 @@ Test(calltree, fan_in_ignores_global_edges)
 
 /* ----------------------------------------------------- information flow -- */
 
-/* Verifies LLR-CTR-12: the formula, computed by hand from the definition.
- *
- * MI = 171 - 5.2 ln(IF+1) - 0.23 v(G) - 16.2 ln(ELOC), normalised over 171
- * and rounded. A function of 20 effective lines, complexity 5, one caller and
- * two callees:
- *
- *   IF  = (1 x 2)^2 = 4
- *   MI  = 171 - 5.2 ln(5) - 0.23 x 5 - 16.2 ln(20)
- *       = 171 - 8.3699 - 1.15 - 48.5285 = 112.9516
- *   MI' = 112.9516 / 171 x 100 = 66.05  -> 66
- */
-Test(calltree, the_maintainability_index_matches_the_formula)
-{
-	cr_assert_eq(calltree_maintainability(20, 5, 1, 2), 66);
-}
-
-/* Verifies LLR-CTR-12 for the three edge cases the formula reaches. */
-Test(calltree, the_maintainability_index_handles_its_edges)
-{
-	/* No effective lines: the length term would be ln(0). The length is
-	 * taken as 1 so the term vanishes — a function with nothing in it has
-	 * nothing to maintain. 171 - 0.23 = 170.77, over 171, is 99.9 -> 100.
-	 */
-	cr_assert_eq(calltree_maintainability(0, 1, 0, 0), 100);
-
-	/* Either degree zero puts ln(1) in the flow term, so it vanishes and
-	 * the figure rests on length and branching alone. An entry point is
-	 * not coupled by being an entry point.
-	 *
-	 * 171 - 0 - 0.23 - 16.2 ln(20) = 122.24; /171 x 100 = 71.5 -> 71. */
-	cr_assert_eq(calltree_maintainability(20, 1, 0, 99), 71,
-	             "a fan-out of ninety-nine costs nothing with no callers");
-	cr_assert_eq(calltree_maintainability(20, 1, 99, 0), 71,
-	             "and the converse, for the same reason");
-
-	/* The clamp. A function of some millions of effective lines drives the
-	 * index negative, and the scale is a scale rather than a deficit. */
-	cr_assert_eq(calltree_maintainability(50000000, 200, 500, 500), 0);
-}
-
-/* The index falls as a function gets longer, branchier or more entangled, and
- * never rises. The direction is the whole of what the metric asserts; a sign
- * error in any term would leave the arithmetic plausible and the meaning
- * inverted. */
-Test(calltree, the_maintainability_index_falls_as_a_function_worsens)
-{
-	uint32_t base = calltree_maintainability(20, 5, 2, 2);
-
-	cr_assert_lt(calltree_maintainability(40, 5, 2, 2), base,
-	             "longer is worse");
-	cr_assert_lt(calltree_maintainability(20, 40, 2, 2), base,
-	             "branchier is worse");
-	cr_assert_lt(calltree_maintainability(20, 5, 8, 8), base,
-	             "more entangled is worse");
-	cr_assert_leq(base, 100u);
-}
-
-
 Test(calltree, the_degrees_are_counted_over_a_wide_hub)
 {
 	/* Both degrees at a size no fixture tree reaches, and at a size the

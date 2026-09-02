@@ -946,7 +946,6 @@ static int functions_section(const Report *report, Style style,
 	char c[32];
 	char d[32];
 	char e[32];
-	char f2[32];
 	char g2[32], h2[32], i2[32];
 
 	char where[4096];
@@ -969,16 +968,16 @@ static int functions_section(const Report *report, Style style,
 	static const char *const names[]   = { "File", "Language", "Function",
 	                                       "Visibility", "Lines", "ELOC",
 	                                       "Complexity", "Fan-in",
-	                                       "Fan-out", "MI", "MBS",
-	                                       "WF-out", "TBI", "Burden" };
+	                                       "Fan-out", "MBS", "WF-out",
+	                                       "TBI", "Burden" };
 	/* The band is a word and is left-aligned with the other words; the
 	 * three figures beside it are numbers and are not wrapped, since a
 	 * number divided across two lines is not a number (HLR-219). */
 	static const bool        numeric[] = { false, false, false, false,
 	                                       true, true, true, true, true,
-	                                       true, true, true, true, false };
+	                                       true, true, true, false };
 
-	grid_begin(&grid, "Functions", 14, names, numeric);
+	grid_begin(&grid, "Functions", 13, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -993,7 +992,6 @@ static int functions_section(const Report *report, Style style,
 			snprintf(c, sizeof c, "%" PRIu32, fn->complexity);
 			snprintf(d, sizeof d, "%" PRIu32, fn->fan_in);
 			snprintf(e, sizeof e, "%" PRIu32, fn->fan_out);
-			snprintf(f2, sizeof f2, "%" PRIu32, fn->mi);
 			/* Two decimals: the weights are quarters and tenths,
 			 * so two places carry every value the scale can take
 			 * exactly and no more (HLR-221, HLR-032). */
@@ -1006,7 +1004,7 @@ static int functions_section(const Report *report, Style style,
 			 * meet two spellings of one blank. */
 			grid_row(&grid, where, f->language ? f->language : "",
 			         fn->name, visibility_name(fn->visibility),
-			         a, b, c, d, e, f2, g2, h2, i2,
+			         a, b, c, d, e, g2, h2, i2,
 			         elc_tbi_status(fn->tbi));
 		}
 	}
@@ -1041,14 +1039,14 @@ static int threshold_listing_section(const Report *report, Style style,
 
 	static const char *const names[]   = { "File", "Function",
 	                                       "Complexity", "Fan-in",
-	                                       "Fan-out", "MI", "Severity" };
+	                                       "Fan-out", "TBI", "Severity" };
 	static const bool        numeric[] = { false, false, true, true,
 	                                       true, true, false };
 	char                     heading[160];
 
 	snprintf(heading, sizeof heading,
 	         "At or over a threshold (complexity listed at %" PRIu32
-	         "; complexity, fan-in, fan-out and maintainability banded)",
+	         "; complexity, fan-in, fan-out and testing burden banded)",
 	         report->complexity_threshold);
 
 	grid_begin(&grid, heading, 7, names, numeric);
@@ -1058,7 +1056,7 @@ static int threshold_listing_section(const Report *report, Style style,
 		snprintf(a, sizeof a, "%" PRIu32, e->function->complexity);
 		snprintf(b, sizeof b, "%" PRIu32, e->function->fan_in);
 		snprintf(c, sizeof c, "%" PRIu32, e->function->fan_out);
-		snprintf(d, sizeof d, "%" PRIu32, e->function->mi);
+		snprintf(d, sizeof d, "%.2f", e->function->tbi);
 		/* Blank rather than "info" for a function present only
 		 * because it met the listing threshold. `info` is a severity
 		 * and this row has none: printing one would turn a listing
@@ -2076,9 +2074,10 @@ static int image_filter_section(const Report *report, Style style,
  * and repair cannot reach it, because repair does not know the macro *defines*
  * one (HLR-212).
  *
- * **Three columns, and the absence of the other six is the requirement.** The
+ * **Three columns, and the absence of the others is the requirement.** The
  * Functions table carries a visibility, a line count, an ELOC, a complexity,
- * two degrees and a maintainability index, and `elc` has none of them here: it
+ * two degrees and three testing-burden figures, and `elc` has none of them
+ * here: it
  * has a name and a line, from the image, and no body at all. A row with zeroes
  * in those columns would report an absence as a measurement, which is what
  * HLR-133 refuses for an undecidable condition and HLR-138 for a language with

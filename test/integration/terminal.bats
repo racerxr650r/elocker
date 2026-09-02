@@ -122,9 +122,30 @@ widest() {
 	*)	echo "the File cell broke mid-segment: '$cell'" >&2; false ;;
 	esac
 
-	# And the file's own name, which is the part a reader is looking for,
-	# is never split down the middle.
-	assert_output --partial "src/a.c:"
+	# And nothing is lost in the breaking: the File column, read down and
+	# rejoined with its padding removed, is the path exactly.
+	#
+	# This used to assert that the substring "src/a.c:" appeared somewhere
+	# in the output, on the grounds that the last segment should survive
+	# intact. That depended on where the breaks happened to fall, which
+	# depends on both the width of the table and the length of the
+	# temporary directory — the very fragility the comment above warns
+	# about, and it duly broke when a column was removed. Reassembling the
+	# column asserts the property that was actually meant, and asserts it
+	# whatever the width.
+	local rejoined
+	rejoined="$(sed -n '/^Functions$/,$p' <<<"$output" |
+		sed -n '4,$p' |
+		cut -c3-$((2 + width)) |
+		sed 's/ *$//' |
+		tr -d '\n')"
+	case "$rejoined" in
+	*"$TREE/a.c:"*)	;;
+	*)	echo "the File column did not reassemble to the path" >&2
+		echo "  wanted to find: $TREE/a.c:" >&2
+		echo "  rejoined:       $rejoined" >&2
+		false ;;
+	esac
 }
 
 @test "HLR-219: a numeric column is never wrapped" {
@@ -133,7 +154,7 @@ widest() {
 	# split across two is the visible symptom.
 	on_a_terminal "$TREE"
 	assert_success
-	assert_output --regexp "Lines +ELOC +Complexity +Fan-in +Fan-out +MI"
+	assert_output --regexp "Lines +ELOC +Complexity +Fan-in +Fan-out +MBS"
 }
 
 @test "HLR-219: a cell with no separator in it is broken hard" {

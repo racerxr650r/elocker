@@ -1,6 +1,6 @@
 # High-Level Requirements
 
-**Version:** 3.18
+**Version:** 3.19
 **Date:** 2026-09-01
 **Author(s):** John Anderson
 
@@ -1007,13 +1007,11 @@ Two boundaries govern the whole section, and both exist because this is the one 
     The centrality scores of HLR-168 and HLR-169 are floating-point values produced by an iterative computation, so a comparison against a threshold shall be made in a defined way, and a run shall not classify differently on a different machine for want of one. And a ranking of nodes by such a score contains ties, which shall be broken by the stable node identifier of HLR-033 rather than by the order the graph library happened to enumerate them.
     *Trace:* [SDD Section 20](SDD.md), [SDD Section 21](SDD.md).
 
-## 24. Adapted Maintainability Index
+## 24. Diagnostic Companion and Image Evidence
 
-Requirements governing a single per-function score formed from the three things Sections 3, 4 and 12 measure separately: how much code a function holds, how branchy it is, and how entangled it is with its neighbours.
+Requirements governing what `elc` writes down about a run other than the measurements themselves: the companion that carries the invocation and the diagnostics so a run can be discussed without the source tree it read, the record of what it could not parse, and the placing of symbols by the debug information in a linked image.
 
-Each of those is answerable on its own and none of them answers the question a maintainer actually asks, which is *how hard will this be to change*. A function may be short and central, long and isolated, or branchy and neither. The index here is Coleman and Oman's, with one substitution: their third term is the logarithm of a function's Halstead Volume, and this one uses the information flow through it instead, so that the figure falls when a function is entangled and not only when it is large.
-
-**The substitution is what makes the bands `elc`'s own.** The formula is adapted, so the thresholds published for the unadapted one no longer describe it, and Section 24 says so where a reader sees it rather than borrowing an authority the adaptation forfeited.
+**This section held the Adapted Maintainability Index until Phase 33 retired it.** The index combined size, branching and information flow into one score, and its information-flow term was the *product* of a function's two degrees — which is what made it unable to tell a widely shared leaf from a hub, and what made it report a ten-line logging wrapper of complexity two as a rigid, fragile monolith for the offence of being called from seventy-nine places. The per-function composite is now the Testing Burden Index of Section 32, whose corresponding term is the *lesser* of the two degrees and therefore charges a function only for the entanglement it actually has.
 
 *   <a id="HLR-194"></a>**HLR-194: The Debug Companion.**
     `elc` shall provide a command-line option that writes a **debug companion** beside the report, carrying what is needed to diagnose a run on a source tree the reader cannot obtain: the invocation, and every message the run wrote to standard error.
@@ -1048,36 +1046,6 @@ Each of those is answerable on its own and none of them answers the question a m
 
     The failure is confined to that case. A name defined once is unaffected, a name the image does not define is unaffected — the ambiguity changes nothing a reader would see, since both definitions are excluded whichever was linked — and a run with no image never asks the question. Debug information remains **not required** (HLR-141): an image built without it filters exactly as before wherever the source defines each name once.
     *Trace:* [SDD Section 18](SDD.md), [SDD Section 19](SDD.md), [SDD Section 13](SDD.md).
-
-*   <a id="HLR-191"></a>**HLR-191: Adapted Maintainability Index per Function.**
-    For every function, `elc` shall compute and report an Adapted Maintainability Index, formed from the function's information flow, its cyclomatic complexity (HLR-017) and its effective lines of code (HLR-015):
-
-    `IF = (Fan-In × Fan-Out)²`
-
-    `MI = 171 − 5.2 ln(IF + 1) − 0.23 v(G) − 16.2 ln(ELOC)`
-
-    `MI′ = max(0, MI ÷ 171 × 100)`
-
-    where **Fan-In** is the measurement of HLR-156 and **Fan-Out** that of HLR-085. The reported figure shall be `MI′` rounded to a whole number, presented in the per-function table of HLR-183.
-
-    **One is added to the information flow before the logarithm** so that a function at either end of the call graph is defined rather than infinite: either degree being zero makes the product zero, and `ln(1)` is zero, so the term vanishes and the figure rests on length and branching alone. That is the intended reading and not a gap — an entry point is not coupled by being an entry point.
-
-    **A function with no effective lines shall be treated as having one**, for the same reason: `ln(0)` is not a number, and a function with nothing in it has nothing to maintain, so the term vanishes and the figure is at the top of the scale.
-
-    **The normalisation and its clamp** put the figure on a 0-to-100 scale, so that a monolith reports a floor rather than a negative score and the number can be read as a proportion of the best a function could do.
-
-    The figure shall be derived once, where the report model is assembled, and both the table and any finding over it shall present that same figure. A band read off a value other than the printed one is a band a reader cannot check against the table.
-    *Trace:* [SDD Section 10](SDD.md), [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
-
-*   <a id="HLR-192"></a>**HLR-192: Maintainability Index Threshold Classification.**
-    `elc` shall classify each function's Adapted Maintainability Index (HLR-191) against bands that run **downwards**, this being the one measurement in the catalogue where the low value is the bad one: a score of 65 or above produces no finding; below 65 produces a **warning**; and below 55 produces a **critical** finding.
-
-    **These thresholds are `elc`'s own and shall say so wherever a finding carries them**, in the same words the bottleneck heuristic of HLR-081 and the fan-in band of HLR-186 carry. The figures usually quoted with the Maintainability Index — 85 and 65, from the Software Engineering Institute — were calibrated against Coleman and Oman's unadapted formula, whose third term is a Halstead Volume this one does not have. Removing that term removes some thirty to forty-five points of range, and HLR-191's normalisation rescales what remains; carrying the published numbers across unchanged would put four functions in five in a band, which is a measurement that has stopped discriminating. Presenting a threshold calibrated here under a citation earned elsewhere is precisely what HLR-099 forbids.
-
-    A finding shall state the score and the scale it is out of, and nothing further. It shall not recommend a review, a refactoring, or any other action: HLR-101 governs this measurement as it governs every other, and a metric whose name suggests a verdict is the last place to start advising.
-
-    Every function a band names shall appear in the threshold listing of HLR-187 alongside the functions the other bands name.
-    *Trace:* [SDD Section 12](SDD.md), [SDD Section 13](SDD.md).
 
 ## 26. Placing Templated Names by Debug Information
 
@@ -1508,7 +1476,7 @@ The requirements here weight the edge by what the thing it points at costs to mo
 
     **The `min` is the substance of this requirement and not a detail of its scaling.** A function that many others call but which itself calls almost nothing — a logging wrapper, a shared reduction, a leaf utility — has a large fan-in and a Weighted Fan-Out near zero, and `min` returns the smaller: its index collapses towards its cyclomatic complexity, which is the honest answer, because testing it requires few mocks or none. A function that calls a great deal but is called from one place is a coordinator, and `min` again returns the smaller. Only a function that is **both** widely depended upon **and** deeply dependent makes both terms large, and that shape — the God Object — is the only one this index is intended to condemn.
 
-    **It shall not replace or amend the Adapted Maintainability Index** (HLR-191), whose information-flow term is the *product* of the two degrees and therefore cannot distinguish a widely shared leaf from a hub. The two shall be reported side by side; where they disagree about a function, the disagreement is information about the function and is left visible rather than reconciled.
+    **It is the per-function composite, and it replaced one.** The Adapted Maintainability Index stood in this place until Phase 33, and its information-flow term was the *product* of the two degrees — which cannot distinguish a widely shared leaf from a hub, and which therefore reported a ten-line logging wrapper called from seventy-nine places as a rigid, fragile monolith. The requirement stated here as originally drafted said the two would be reported side by side and their disagreements left visible; that was written while both existed, and the index it deferred to has since been retired rather than kept.
 
     The index shall be computed from measurements `elc` already holds and shall introduce no new traversal of the source.
     *Trace:* [SDD Section 10](SDD.md).

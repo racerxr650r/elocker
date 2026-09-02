@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.20
+**Version:** 2.21
 **Date:** 2026-09-01
 **Author(s):** John Anderson
 
@@ -912,13 +912,6 @@ Function-level call-tree measurements: width, height, the deepest stack, and rec
     The accumulation shall be in floating point and shall not be rounded before the index of LLR-TBI-01 consumes it, so that four calls to functions scoring `0.25` sum to `1.0` and not to zero.
     *Trace:* HLR-222 (Weighted Fan-Out), HLR-077.
 
-*   <a id="LLR-CTR-12"></a>**LLR-CTR-12** — `calltree_maintainability` shall return the Adapted Maintainability Index of HLR-191 for one function, as a whole number on a 0-to-100 scale, and shall be the only definition of the formula. The report needs the figure for its function table and `thresholds.c` needs it to band; a second computation is a second place it could be computed differently.
-
-    The degrees shall be widened before their product is squared rather than at the assignment, for the reason any squared term is: the product of two degrees is comfortable in 32 bits and its square is not, and a value that wrapped would enter the logarithm as an ordinary-looking number.
-
-    A function with no effective lines shall be treated as having one, and the sum inside the first logarithm shall be formed by the library routine that computes `ln(x + 1)` without forming the sum, which keeps the precision the addition would discard at the bottom of the range. The result shall be clamped to the closed interval 0 to 100 and rounded, so that the value returned is the value the report prints.
-    *Trace:* HLR-191 (Adapted Maintainability Index per Function).
-
 ## 27. `longest_path_dag` ([src/calltree.c](../src/calltree.c))
 
 *   <a id="LLR-LPD-01"></a>**LLR-LPD-01** — `longest_path_dag` shall compute the longest path from the declared entry points by memoised traversal in reverse topological order.
@@ -1063,13 +1056,6 @@ Evaluation of every measurement against the published threshold catalogue, and a
     Complexity shall be banded from the graph's own node table rather than from a second walk of the report model. The table carries the complexity `analyze.c` measured for every function in the report, so banding there cannot disagree with the fan-out finding beside it about which functions exist.
     *Trace:* HLR-185 (Cyclomatic Complexity Threshold Classification), HLR-186 (Fan-In Threshold Classification), HLR-187 (The Threshold Listing Names Every Banded Function), HLR-098 (Evaluation Against Published Thresholds).
 
-*   <a id="LLR-THR-18"></a>**LLR-THR-18** — The catalogue shall hold a row banding the Adapted Maintainability Index, warning below 65 and critical below 55, marked as `elc`'s own and carrying the label that says so; and the row shall be marked **inverted**, so that a value strictly below a bound falls in that band rather than above it.
-
-    The flag shall be a property of the row rather than a second pair of fields or a row storing the complement of its bound. Either alternative would leave the catalogue holding numbers a reviewer could not read straight off the table, which is the one thing this module's design exists to guarantee.
-
-    `thresholds_apply` shall emit a finding for every function whose index falls in a band, stating the score and the scale it is out of and nothing further — no recommendation, no remediation, no ranking of one design above another (HLR-101).
-    *Trace:* HLR-192 (Maintainability Index Threshold Classification), HLR-099 (Threshold Source Attribution), HLR-101 (No Remediation Advice).
-
 *   <a id="LLR-THR-19"></a>**LLR-THR-19** — The catalogue shall hold a row for MISRA library use, occurrence-governed at warning severity and attributed to `MISRA C:2012`; and `thresholds_apply` shall emit one finding per unresolved call site whose callee names a facility MISRA C:2012 §21 forbids, stating the function and the rule number.
 
     **The table shall be keyed by function, and shall be readable as a table.** MISRA constrains functions, not headers: `<stdlib.h>` supplies `abs`, which is permitted, beside `malloc`, which is not, so a rule keyed on the include would be a false claim about code that called neither. Each entry carries its rule number so a reviewer can check the table against the standard by reading it — the property the whole of this module is arranged around (HLR-099).
@@ -1087,7 +1073,7 @@ Evaluation of every measurement against the published threshold catalogue, and a
 
     The band shall carry the *elc heuristic — not a published standard* label (HLR-099). The index is `elc`'s own and unpublished, so no published calibration describes it, and a citation would put an opinion of `elc`'s own under another name.
 
-    **Unlike the Maintainability Index, a high value is the bad one here**, so the comparison shall be the ordinary one rather than the inverted comparison LLR-THR-16 makes for a score out of a hundred. That difference is the reason the two are separate entries in the catalogue and not one parameterised by a bound.
+    A high value is the bad one here, so the comparison shall be the ordinary one. The catalogue carries an `inverted` flag because the retired Adapted Maintainability Index ran the other way; no row runs that way now, and the flag stays because a measurement that does is a measurement the catalogue must be able to hold rather than one it must be rewritten for.
     *Trace:* HLR-224 (Testing Burden Threshold Classification), HLR-099 (Threshold Attribution).
 
 ## 35. `report_assemble` ([src/report.c](../src/report.c))
@@ -1209,10 +1195,10 @@ The single place every reported collection is ordered. The audit point for deter
     The bands shall be read from `thresholds.c` rather than from constants held here. That module is the only place a line is drawn, and a listing drawing its own would be a second opinion wearing the first's name.
     *Trace:* HLR-187 (The Threshold Listing Names Every Banded Function), HLR-021 (Per-File Complexity-Threshold List), HLR-023 (Threshold List is Reporting-Only), HLR-099 (Threshold Source Attribution).
 
-*   <a id="LLR-RPT-40"></a>**LLR-RPT-40** — `report_assemble` shall derive each function's Adapted Maintainability Index onto the per-function metrics before the threshold listing is built, and `report_attach_flow` shall derive it again once the flow degrees have been joined.
+*   <a id="LLR-RPT-40"></a>**LLR-RPT-40** — `report_attach_flow` shall derive each function's Testing Burden Index onto the per-function metrics once the flow degrees have been joined, and shall be the only place it is derived.
 
-    Both derivations are required and neither is redundant. The first runs before a graph exists, when both degrees are zero and the figure rests on length and branching; the second runs when they are real. What the pair prevents is the field ever being read as the zero of an uninitialised value, which for this measurement is not a neutral figure but the worst one on the scale — a listing built between the two would report every function in the project as critically unmaintainable.
-    *Trace:* HLR-191 (Adapted Maintainability Index per Function), HLR-192 (Maintainability Index Threshold Classification).
+    One derivation, where the Adapted Maintainability Index that stood here needed two. That index had to be derived before the threshold listing was built *and* again with the degrees, because its unset zero was not a neutral figure but the worst score on its scale, and a listing built between the two would have called every function in the project critically unmaintainable. This index runs the other way: zero is the bottom of its range and is what a function with no measured degrees honestly has, so a single derivation at the point the degrees become real is both sufficient and correct.
+    *Trace:* HLR-223 (Testing Burden Index per Function), HLR-187 (The Threshold Listing Names Every Banded Function).
 
 *   <a id="LLR-RPT-41"></a>**LLR-RPT-41** — `report_check_image_ambiguity` shall fail a filtered run in which some function name is defined by two or more analysed files, is defined by the image, and is not held by the image's origin map — writing a diagnostic that names the function, both files, the image, and the remedy, and producing no report.
 
@@ -1354,8 +1340,8 @@ The single place every reported collection is ordered. The audit point for deter
     The label column was the length of one label written out and the value column the widest of four of the figures named one by one. Both were true of a summary of five totals and neither survived its growth: every label longer than the constant pushed its own value out of line with the rest, so the tier that heads every report was the one tier in it that did not line up. A width derived from the rows cannot fall out of step with them, and a row added to the summary needs nothing else changed (HLR-027).
     *Trace:* HLR-027 (Default Human-Readable Output), HLR-024 (Project-Level Totals).
 
-*   <a id="LLR-SUM-18"></a>**LLR-SUM-18** — `render_summary` shall present each function's Adapted Maintainability Index as a column of the one function table of LLR-SUM-14, and as a column of the threshold listing beside the three measurements already there, so that a listed function's score is readable without going back to the table.
-    *Trace:* HLR-191 (Adapted Maintainability Index per Function), HLR-183 (One Per-Function Table), HLR-187 (The Threshold Listing Names Every Banded Function).
+*   <a id="LLR-SUM-18"></a>**LLR-SUM-18** — `render_summary` shall present each function's Mock Burden Score, weighted fan-out and Testing Burden Index, with the band as a word, as columns of the one function table of LLR-SUM-14; and shall present the index as a column of the threshold listing beside the three measurements already there, so that a listed function's burden is readable without going back to the table.
+    *Trace:* HLR-223 (Testing Burden Index per Function), HLR-221 (Mock Burden Score per Function), HLR-183 (One Per-Function Table), HLR-187 (The Threshold Listing Names Every Banded Function).
 
 ## 39. `format_csv` ([src/format_csv.c](../src/format_csv.c))
 
@@ -2502,7 +2488,7 @@ Placing a run's findings on the graph they describe, once, for every drawing tha
 
 *   <a id="LLR-TBI-01"></a>**LLR-TBI-01** — `calltree_burden` shall return the Testing Burden Index of HLR-223 for one function, computed as its cyclomatic complexity multiplied by one plus the lesser of its fan-in and its Weighted Fan-Out, and shall be the only definition of the formula — the report needs it for the function table and `thresholds.c` needs it to band.
 
-    **The lesser of the two degrees and not their product**, which is the whole of what distinguishes this index from the Adapted Maintainability Index of LLR-CTR-12. A widely shared leaf has a large fan-in and a weighted fan-out near zero, and the index shall collapse towards its cyclomatic complexity; a coordinator has the reverse and shall do the same. Only a function large in both degrees shall produce a large index.
+    **The lesser of the two degrees and not their product**, which is the whole of what distinguished this index from the Adapted Maintainability Index it replaced. A widely shared leaf has a large fan-in and a weighted fan-out near zero, and the index shall collapse towards its cyclomatic complexity; a coordinator has the reverse and shall do the same. Only a function large in both degrees shall produce a large index.
 
     The two degrees shall be compared as the same type before the lesser is taken. Fan-in is a count and the weighted fan-out is not, so the count shall be widened rather than the weight truncated — truncating would make every weighted fan-out below `1.0` compare equal to zero and would silently return the complexity for the whole lower half of the range.
     *Trace:* HLR-223 (Testing Burden Index per Function).

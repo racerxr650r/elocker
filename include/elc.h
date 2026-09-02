@@ -108,29 +108,8 @@ typedef struct {
 #define ELC_COMPLEXITY_WARNING  10u
 #define ELC_COMPLEXITY_CRITICAL 15u
 
-/* The Adapted Maintainability Index bands (HLR-192), and **the third
- * threshold `elc` invented**.
- *
- * The index itself is Coleman and Oman's, adapted: their third term is the
- * logarithm of a function's Halstead Volume, and this one substitutes the
- * information flow through it (HLR-191). That substitution is what makes the
- * bands `elc`'s own rather than inherited. The figures usually quoted with
- * the Maintainability Index — 85 and 65, from the Software Engineering
- * Institute — were calibrated for the *unadapted* formula on its own 0-171
- * scale, and neither half of that survives here: replacing the Halstead term
- * removes some thirty to forty-five points of range, and the normalisation of
- * HLR-191 then rescales what is left. Carrying those numbers across
- * unchanged would flag four functions in five, which is a measurement that
- * has stopped discriminating.
- *
- * So the bands below are drawn for the adapted formula, and the catalogue row
- * says whose they are. **Lower is worse here**, which no other row in the
- * catalogue is: a value strictly *below* the bound falls in the band. */
-#define ELC_MI_WARNING         65u  /* below this, moderate structural risk */
-#define ELC_MI_CRITICAL        55u  /* below this, a rigid monolith         */
-
 /* The Mock Burden Score weights (HLR-221), and the Testing Burden bands
- * (HLR-224) — **the fourth and fifth thresholds `elc` invented**.
+ * (HLR-224) — **the third and fourth thresholds `elc` invented**.
  *
  * The base tax is charged to every analysed function: on a target with no
  * operating system, even a mock that does nothing is a symbol that has to be
@@ -146,7 +125,8 @@ typedef struct {
  *
  * The bands are `elc`'s own, like the two above them, and for a sharper
  * reason: the index is unpublished, so there is no calibration anywhere to
- * borrow. **Higher is worse here**, unlike the Maintainability row. */
+ * borrow — not even a published figure that had to be rejected, which is what
+ * the Adapted Maintainability Index had before it was retired. */
 #define ELC_MBS_BASE_TAX        0.25
 #define ELC_MBS_RETURN_VOID     0.00
 #define ELC_MBS_RETURN_PRIM     0.10
@@ -467,15 +447,6 @@ typedef struct {
 	 * HLR-156). */
 	uint32_t  fan_in;
 	uint32_t  fan_out;
-	/* The Adapted Maintainability Index, 0-100 (HLR-191).
-	 *
-	 * Derived from the four fields above it rather than measured, and
-	 * derived *here* rather than at render time, so that the figure the
-	 * report prints and the figure `thresholds.c` banded are the same
-	 * one. Filled by `report_attach_flow` with the degrees, since three
-	 * of its four inputs are known before the graph is built and the
-	 * fourth is not. */
-	uint32_t  mi;
 	/* What this function costs to replace with a mock (HLR-221).
 	 *
 	 * A property of the function's own signature and of nothing else, so
@@ -675,7 +646,6 @@ typedef enum {
 	MEASURE_FAN_OUT = 0,       /* per function   (HLR-086)  */
 	MEASURE_FAN_IN,            /* per function   (HLR-186)  */
 	MEASURE_COMPLEXITY,        /* per function   (HLR-185)  */
-	MEASURE_MAINTAINABILITY,   /* per function   (HLR-192)  */
 	MEASURE_CALL_DEPTH,        /* per project    (HLR-087)  */
 	MEASURE_RECURSION,         /* per cycle      (HLR-089)  */
 	MEASURE_COMPONENT_CYCLE,   /* per cycle      (HLR-083)  */

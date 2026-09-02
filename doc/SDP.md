@@ -74,7 +74,7 @@ release readiness — is ready to start, and is the last.
 | [30](#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
 | [31](#phase-31--interactive-html-reporting--semantic-zooming) | The `.html` report format: layers containing files containing functions, opened collapsed | ✅ Complete |
 | [32](#phase-32--the-terminal-report-and-the-10-release) | The terminal report: three tiers, 128 columns, and `v1.0.0` | ✅ Complete |
-| [33](#phase-33--automated-weighted-test-burden-index-wtbi) | Mock Burden Score from parsed signatures, weighted fan-out, and the Testing Burden Index | ⬜ Not started |
+| [33](#phase-33--automated-weighted-test-burden-index-wtbi) | Mock Burden Score from parsed signatures, weighted fan-out, and the Testing Burden Index replacing the Adapted Maintainability Index | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -3407,7 +3407,8 @@ path.
     and the phase must say so out loud, because it means a project that calls
     the C library heavily reads as cheaper to test than one that centralises
     the same calls behind its own wrappers, which is the artefact
-    LLR-BLD-23 already records against the Maintainability Index.
+    LLR-BLD-23 recorded twice against the Maintainability Index this phase
+    retires.
 
 3.  **The Testing Burden Index** (HLR-223).
 
@@ -3425,11 +3426,10 @@ path.
     that is the only shape this index is meant to condemn.
 
     That is a deliberate correction of the direction the Adapted
-    Maintainability Index takes (HLR-191), whose information-flow term is the
-    *product* of the two degrees and therefore cannot tell a widely shared
-    leaf from a hub. This index does not replace it and does not amend it;
-    the two are reported side by side, and where they disagree about a
-    function the disagreement is informative.
+    Maintainability Index took, whose information-flow term was the *product*
+    of the two degrees and therefore could not tell a widely shared leaf from
+    a hub. **It replaces that index rather than standing beside it** — see
+    deliverable 6.
 
 4.  **Bands, and their status** (HLR-224). **Healthy** below 20, **Warning**
     at 20 or above, **Critical** at 45 or above. Like every band in
@@ -3441,6 +3441,29 @@ path.
     of `"healthy"`, `"warning"`, or `"critical"`, so the Cytoscape view can
     colour a node by the band without recomputing anything the C already
     decided.
+
+6.  **The Adapted Maintainability Index is retired** — from the requirements,
+    from the delivered documents, from the vision's Appendix A.6, and from
+    the code. It was `elc`'s per-function composite and this index replaces
+    it in that role: the `mi` column leaves the table, the CSV and the
+    threshold listing, `calltree_maintainability` and its catalogue row go
+    with it, and the self-analysis ratchet of LLR-BLD-23 is re-based on the
+    testing burden.
+
+    **The reason is the one this phase's own arithmetic makes plain.** The
+    retired index scored `diag_printf` — ten effective lines, complexity two,
+    calling one function — at 51, inside its critical band, and described it
+    as a rigid, fragile monolith. It scored that way for being called from
+    eighty-two places, which is to say for being well factored. The same
+    function scores 2.50 here and is healthy, while `symname_reduce`, which
+    is genuinely entangled at five callers and five callees, moves the other
+    way. Two measurements that disagree about which functions are the
+    problem are not complementary, and keeping both would have meant
+    publishing a number the project had stopped believing.
+
+    The vision's Appendix A.6 goes with it, under the PVD's own rule that a
+    change conflicting with the vision is a signal to update the vision
+    rather than to diverge from it quietly (PVD §10).
 
 #### The two passes, and where they live
 

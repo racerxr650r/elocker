@@ -574,7 +574,7 @@ done:
  *
  * Gathered as one thing because each is derived from the same pair — the
  * graph and the report — and threading six of them separately through the
- * assembly is what put it below the maintainability band `elc` holds its own
+ * assembly is what put it over the testing-burden band `elc` holds its own
  * source to (LLR-BLD-23). The band is computed over the information flowing
  * through a function's interface (HLR-191), so this is the shape of that
  * measurement rather than a cosmetic tidy.

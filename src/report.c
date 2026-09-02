@@ -359,46 +359,27 @@ static void order_collections(Report *out)
 		      sizeof *out->routes.items, by_route_target);
 }
 
-/* Derive every function's Maintainability Index from what is known of it.
- *
- * Called twice, and that is deliberate rather than wasteful. `report_assemble`
- * calls it before the threshold listing is built, when the graph does not yet
- * exist and both degrees are zero; `report_attach_flow` calls it again once
- * they are joined. Both figures are honest — a zero degree is what a function
- * at the end of the call graph carries anyway — and computing it in both
- * places is what stops `mi` ever being read as the zero of an uninitialised
- * field, which for this metric is not a neutral value but the worst one there
- * is (HLR-191).
- */
-static void set_maintainability(Report *out)
-{
-	for (size_t i = 0; i < out->file_count; i++) {
-		FileMetrics *f = out->files[i];
-
-		for (size_t j = 0; j < f->function_count; j++) {
-			FunctionMetric *fn = &f->functions[j];
-
-			fn->mi = calltree_maintainability(fn->eloc,
-			                                  fn->complexity,
-			                                  fn->fan_in,
-			                                  fn->fan_out);
-		}
-	}
-}
-
 /* The severity a function's own measurements put it in, or SEVERITY_INFO
  * where all three sit inside their accepted bands.
  *
  * The bands are read from the catalogue rather than from constants of this
  * module's own: `thresholds.c` is the only place a line is drawn, and a
  * listing that drew its own would be a second opinion wearing the first's
- * name (HLR-099, HLR-185, HLR-186, HLR-192).
+ * name (HLR-099, HLR-185, HLR-186, HLR-224).
+ *
+ * The fourth kind was the Adapted Maintainability Index until it was retired;
+ * the Testing Burden Index took the slot rather than the listing shrinking to
+ * three, because what this listing is for is the per-function composite — the
+ * measurement that answers a question the other three answer only in parts.
+ * It is truncated to meet the catalogue for the reason `apply_testing_burden`
+ * truncates: both bounds are inclusive, and truncation is the reduction that
+ * preserves them.
  */
 static Severity function_severity(const FunctionMetric *fn)
 {
 	static const MeasurementKind KINDS[] = {
 		MEASURE_COMPLEXITY, MEASURE_FAN_IN, MEASURE_FAN_OUT,
-		MEASURE_MAINTAINABILITY
+		MEASURE_TESTING_BURDEN
 	};
 	Severity worst = SEVERITY_INFO;
 
@@ -410,8 +391,8 @@ static Severity function_severity(const FunctionMetric *fn)
 		case MEASURE_COMPLEXITY:      value = fn->complexity; break;
 		case MEASURE_FAN_IN:          value = fn->fan_in;     break;
 		case MEASURE_FAN_OUT:         value = fn->fan_out;    break;
-		case MEASURE_MAINTAINABILITY:
-		default:                      value = fn->mi;         break;
+		case MEASURE_TESTING_BURDEN:
+		default:                      value = (uint32_t)fn->tbi; break;
 		}
 
 		if (!thresholds_band(KINDS[k], value, &band))
@@ -536,7 +517,6 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
 	 * The degrees are zero here and the figure rests on length and
 	 * branching; `report_attach_flow` recomputes it once the graph has
 	 * supplied them. */
-	set_maintainability(out);
 
 	/* Both of these read the model *after* it is ordered, so the listing
 	 * comes out in presentation order and the callouts break their ties by
@@ -962,11 +942,6 @@ int report_attach_flow(Report *report)
 		fn->tbi     = calltree_burden(fn->complexity, fn->fan_in,
 		                              fn->wf_out);
 	}
-
-	/* Again, now that the degrees are real. Deriving the index here rather
-	 * than in a renderer is what makes the figure the report prints and
-	 * the figure `thresholds.c` banded the same one (HLR-191). */
-	set_maintainability(report);
 
 	/* Rebuilt, not extended: two of the three measurements the listing
 	 * unites did not exist when `report_assemble` first built it

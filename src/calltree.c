@@ -50,58 +50,6 @@ static int calltree_by_node_id(const void *a, const void *b)
 	return x < y ? -1 : x > y;
 }
 
-/* ------------------------------------------------------ information flow --
- *
- * Fan-out is the number of *distinct* subroutines a function invokes, and
- * fan-in the number of distinct functions that invoke it. The graph is simple
- * and its call edges already collapsed, so the two are the out-degree and the
- * in-degree over call edges — the counting was done when the graph was built,
- * and doing it again here from call sites would be a second answer to one
- * question (HLR-085, HLR-156, LLR-CTR-01, LLR-CTR-10).
- *
- * `kind == EDGE_CALL` is the whole of the rule, and it governs both
- * directions. A global-state edge runs from a function that writes an object
- * to one that reads it; counting it would make a writer's fan-out include a
- * function it never calls, and a reader's fan-in include a function that
- * never called it (LLR-CTR-07).
- *
- * The two degrees are reported as they are measured. An earlier revision
- * combined them with the function's length into a Henry-Kafura value here;
- * Phase 24 withdrew that metric, and what is left is the pair of counts the
- * report presents beside the function's own figures (HLR-183).
- */
-
-uint32_t calltree_maintainability(uint32_t eloc, uint32_t complexity,
-                                  uint32_t fan_in, uint32_t fan_out)
-{
-	/* Widened before the multiplication rather than at the assignment,
-	 * for the reason any squared term is: the product of two degrees is
-	 * comfortable in 32 bits and its square is not, and a value that
-	 * wrapped would enter the logarithm as an ordinary-looking number. */
-	double flow   = (double)fan_in * (double)fan_out;
-	double length = eloc ? (double)eloc : 1.0;
-	double mi;
-
-	flow *= flow;
-
-	/* `log1p(x)` is `ln(x + 1)` computed without forming the sum, which
-	 * matters at the bottom of the range: for a function with a single
-	 * caller and a single callee the sum is 2 and the addition is exact,
-	 * but for one at the end of the graph it is 1 and `log(1.0 + 0.0)`
-	 * throws away the precision `log1p` keeps. */
-	mi = 171.0 - 5.2 * log1p(flow)
-	           - 0.23 * (double)complexity
-	           - 16.2 * log(length);
-
-	mi = mi / 171.0 * 100.0;
-	if (mi <= 0.0)
-		return 0;
-	if (mi >= 100.0)
-		return 100;
-
-	return (uint32_t)lround(mi);
-}
-
 static int compute_flow(const Sdg *g, TreeResults *out)
 {
 	size_t n = g->node_count ? g->node_count : 1;

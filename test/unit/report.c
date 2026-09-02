@@ -198,14 +198,19 @@ Test(report, the_listing_unites_the_configured_threshold_with_the_bands)
 	metrics_free(&acc);
 }
 
-/* Verifies LLR-RPT-40: the index is derived onto the metrics in both assembly
- * paths, so the field is never read as the zero of an uninitialised value.
+/* Verifies LLR-RPT-40: the Testing Burden Index is derived onto the metrics
+ * when the degrees are attached, and is zero before that.
  *
- * For this measurement that zero is not neutral — it is the worst score on
- * the scale — so a listing built between the two derivations would report
- * every function in the project as critically unmaintainable.
+ * The Adapted Maintainability Index stood here and had to be derived in *both*
+ * assembly paths, because its unset zero was the worst score on its scale and
+ * a listing built between the two derivations would have called every function
+ * critically unmaintainable. This index inverts that: zero is the bottom of
+ * its scale and means "no burden measured yet", which is the honest reading of
+ * a report with no graph behind it. So one derivation is correct where two
+ * were needed, and this test pins down that the value before it is zero rather
+ * than something that bands.
  */
-Test(report, the_maintainability_index_is_derived_in_both_paths)
+Test(report, the_testing_burden_index_is_derived_when_the_degrees_are)
 {
 	MetricsAccumulator acc    = { 0 };
 	Report             report = { 0 };
@@ -225,12 +230,11 @@ Test(report, the_maintainability_index_is_derived_in_both_paths)
 	cr_assert_eq(metrics_add(&acc, a), 0);
 	cr_assert_eq(report_assemble(&acc, NULL, &opts, &report), 0);
 
-	/* Assembled before any graph exists: both degrees are zero, the flow
-	 * term vanishes, and the figure rests on length and branching. */
-	cr_assert_eq(report.files[0]->functions[0].mi, 71);
+	/* Assembled before any graph exists: no degrees, so no burden. */
+	cr_assert_float_eq(report.files[0]->functions[0].tbi, 0.0, 1e-9);
 	cr_assert_eq(report.over_threshold.count, 0,
-	             "a score of 71 is inside the accepted band, so nothing "
-	             "is listed — the field was not read as an unset zero");
+	             "an unmeasured burden is zero, which is healthy, so "
+	             "nothing is listed — the field was not read as a band");
 
 	/* And again once the degrees are real: one caller, two callees. */
 	report.fan_out = calloc(1, sizeof *report.fan_out);
@@ -241,10 +245,12 @@ Test(report, the_maintainability_index_is_derived_in_both_paths)
 	report.fan_out[0].line     = 10;
 	report.fan_out[0].fan_in   = 1;
 	report.fan_out[0].fan_out  = 2;
+	report.fan_out[0].wf_out   = 2.0;
 
 	cr_assert_eq(report_attach_flow(&report), 0);
-	cr_assert_eq(report.files[0]->functions[0].mi, 66,
-	             "the flow term now costs it five points");
+	/* complexity 5, and the lesser degree is the fan-in of 1. */
+	cr_assert_float_eq(report.files[0]->functions[0].tbi, 10.0, 1e-9,
+	             "the degrees are real now, so the burden is too");
 
 	report_free(&report);
 	metrics_free(&acc);
