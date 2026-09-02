@@ -47,6 +47,12 @@ typedef struct {
 	uint32_t    line_end;
 	uint32_t    eloc;
 	uint32_t    complexity;
+	/* What this function costs to mock (HLR-221), copied from the report
+	 * model exactly as the two measurements above it are. It rides on the
+	 * node because the weighted fan-out of LLR-CTR-13 is a sum over what
+	 * an edge *points at*, so the walk needs the target's score in hand at
+	 * the moment it crosses the edge. */
+	double      mock_burden;
 	bool        address_taken; /* a reachability root (HLR-096)     */
 } SdgNode;
 

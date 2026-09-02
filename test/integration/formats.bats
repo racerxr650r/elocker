@@ -51,7 +51,7 @@ setup() {
 	run bash -c '"$0" -f csv "$1" 2>/dev/null | tr -d "\r"' "$ELC" "$TREE"
 	assert_success
 	assert_line --index 0 \
-		"file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi"
+		"file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi,mock_burden,wf_out,tbi,tbi_status"
 	# And the location is the table's location: `path:line`, which an
 	# editor acts on, with the extent beside it as a count (HLR-210).
 	assert_output --regexp "$TREE/a\.c:[0-9]+,c,f,public,[0-9]+,"

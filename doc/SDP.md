@@ -646,7 +646,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 1
 from §8.
 ```
@@ -701,7 +701,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 2
 from §8.
 ```
@@ -764,7 +764,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 3
 from §8.
 ```
@@ -826,7 +826,7 @@ Phase 8:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 4
 from §8.
 ```
@@ -872,7 +872,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 5
 from §8.
 ```
@@ -926,7 +926,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 6
 from §8.
 ```
@@ -974,7 +974,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 7
 from §8.
 ```
@@ -1025,7 +1025,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 8
 from §8.
 ```
@@ -1088,7 +1088,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 9
 from §8.
 ```
@@ -1144,7 +1144,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 10
 from §8.
 ```
@@ -1231,7 +1231,7 @@ And for the intra-procedural half, where the danger is the opposite one:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 11
 from §8.
 ```
@@ -1288,7 +1288,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 12
 from §8.
 ```
@@ -1348,7 +1348,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 13
 from §8.
 ```
@@ -1391,7 +1391,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 14
 from §8.
 ```
@@ -1440,7 +1440,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 15
 from §8.
 ```
@@ -1509,7 +1509,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 16
 from §8.
 ```
@@ -1588,7 +1588,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 17
 from §8.
 ```
@@ -1868,7 +1868,7 @@ merely holds.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 19 from §8.
 ```
 
@@ -1957,7 +1957,7 @@ bring it to 152 or below. *(It closed at 151.)*
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 20 from §8.
 ```
 
@@ -2073,7 +2073,7 @@ bring it to 148 or below.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 21 from §8.
 ```
 
@@ -2155,7 +2155,7 @@ HLRs this phase closes must bring it seven lower. Phase 20 left it at 148.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 22 from §8.
 ```
 
@@ -2243,7 +2243,7 @@ HLRs this phase closes must bring it seven lower. Phase 21 left it at 141.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 23 from §8.
 ```
 
@@ -2346,7 +2346,7 @@ phase closes must bring it six lower. Phase 22 left it at 134.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 24 from §8.
 ```
 
@@ -2474,7 +2474,7 @@ requirement is removed with it.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. No further phase is specified: in place of step 12, cut a
 release per §5.5, or open the issue for whatever is specified after this one.
 ```
@@ -2583,7 +2583,7 @@ reduction — cover it with a test whatever your reading of the code says.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -2709,7 +2709,7 @@ file that included it is worse than the parse error this phase removes.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -2782,7 +2782,7 @@ than nothing rather than trustworthy.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -2858,7 +2858,7 @@ tables for readers, and the round-trip test will tell you if you forget.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -2973,7 +2973,7 @@ expanded. The 11 ISRs are what deliverable 2 should recover.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -3118,7 +3118,7 @@ opens showing four boxes.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 

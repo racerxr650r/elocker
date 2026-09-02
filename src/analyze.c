@@ -910,6 +910,178 @@ static int visibility_add(VisibilitySet *set, uint32_t offset, Visibility v)
 	return 0;
 }
 
+/* What a function costs to replace with a mock, accumulated per function
+ * (HLR-221, LLR-MBS-01).
+ *
+ * Keyed by the byte offset at which the function's *name* starts, which is the
+ * key `VisibilitySet` uses and for the same reason: `signature.scm` captures
+ * @function.name on the node `functions.scm` captures, so the two queries agree
+ * on what a function is without either knowing how the other identifies one.
+ *
+ * Unlike visibility, a function accumulates several marks — one return and one
+ * per parameter — so an entry is added to rather than decided once.
+ */
+typedef struct {
+	uint32_t offset;
+	double   score;
+} BurdenMark;
+
+typedef struct {
+	BurdenMark *items;
+	size_t      count;
+	size_t      capacity;
+} BurdenSet;
+
+static int by_burden_offset(const void *a, const void *b)
+{
+	uint32_t x = ((const BurdenMark *)a)->offset;
+	uint32_t y = ((const BurdenMark *)b)->offset;
+
+	return (x > y) - (x < y);
+}
+
+/* Add `weight` to the function whose name starts at `offset`. */
+static int burden_add(BurdenSet *set, uint32_t offset, double weight)
+{
+	for (size_t i = 0; i < set->count; i++)
+		if (set->items[i].offset == offset) {
+			set->items[i].score += weight;
+			return 0;
+		}
+
+	if (set->count == set->capacity &&
+	    analyze_grow((void **)&set->items, &set->capacity,
+	                 sizeof *set->items) != 0)
+		return -1;
+
+	set->items[set->count].offset = offset;
+	set->items[set->count].score  = weight;
+	set->count++;
+	return 0;
+}
+
+/* The weight a capture name carries, or -1.0 where the name is not one of
+ * this query's (an internal `@_` capture, or `@function.name` itself).
+ *
+ * **This is the whole of what `elc` knows about a C type**, and the table is
+ * the reason LLR-MBS-02 can say the binary holds no language knowledge: a
+ * capture name is a fact about the query, not about C, and `avr_reg_t` is
+ * charged as a primitive because `signature.scm` said so rather than because
+ * anything here has heard of it (HLR-009).
+ */
+static double capture_weight(const char *cap, uint32_t len)
+{
+	static const struct {
+		const char *name;
+		double      weight;
+	} WEIGHTS[] = {
+		{ "return.void",      ELC_MBS_RETURN_VOID },
+		{ "return.primitive", ELC_MBS_RETURN_PRIM },
+		{ "return.aggregate", ELC_MBS_RETURN_AGG  },
+		{ "param.primitive",  ELC_MBS_PARAM_PRIM  },
+		{ "param.aggregate",  ELC_MBS_PARAM_AGG   },
+	};
+
+	for (size_t i = 0; i < sizeof WEIGHTS / sizeof *WEIGHTS; i++)
+		if (strlen(WEIGHTS[i].name) == len &&
+		    memcmp(cap, WEIGHTS[i].name, len) == 0)
+			return WEIGHTS[i].weight;
+
+	return -1.0;
+}
+
+/* The offset `@function.name` was captured at in this match, or false where
+ * the match carries none — which a well-formed pattern never does, and a
+ * malformed one must not be allowed to attribute a weight from. */
+static bool match_function_offset(const TSQuery *query,
+                                  const TSQueryMatch *match, uint32_t *out)
+{
+	for (uint16_t i = 0; i < match->capture_count; i++) {
+		uint32_t    len;
+		const char *cap = ts_query_capture_name_for_id(
+			query, match->captures[i].index, &len);
+
+		if (len == sizeof "function.name" - 1 &&
+		    memcmp(cap, "function.name", len) == 0) {
+			*out = ts_node_start_byte(match->captures[i].node);
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/* Run the language's signature query, where it has one (HLR-221).
+ *
+ * A module supplying none leaves the set empty, and every function then scores
+ * the base tax alone — which is the floor of the scale and not an absence, so
+ * nothing has to distinguish "unscored" from "scored zero" downstream.
+ */
+static int collect_mock_burden(const LanguageModule *module, Registry *reg,
+                               const char *data, TSNode root, BurdenSet *out)
+{
+	TSQuery      *query = module->queries[QUERY_SIGNATURE];
+	TSQueryMatch  match;
+
+	if (!query)
+		return 0;
+
+	ts_query_cursor_exec(reg->cursor, query, root);
+
+	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		uint32_t offset;
+
+		if (!predicates_hold(query, &match, data))
+			continue;
+		if (!match_function_offset(query, &match, &offset))
+			continue;
+
+		for (uint16_t i = 0; i < match.capture_count; i++) {
+			uint32_t    len;
+			const char *cap = ts_query_capture_name_for_id(
+				query, match.captures[i].index, &len);
+			double      w   = capture_weight(cap, len);
+
+			if (w < 0.0)
+				continue;   /* @function.name, or an @_ capture */
+
+			if (burden_add(out, offset, w) != 0)
+				return -1;
+		}
+	}
+
+	if (out->count > 1)
+		qsort(out->items, out->count, sizeof *out->items,
+		      by_burden_offset);
+	return 0;
+}
+
+/* The Mock Burden Score of the function whose name starts here (HLR-221).
+ *
+ * The base mocking tax is added here rather than accumulated by the query,
+ * because it is charged to every analysed function and a query that had to
+ * emit it would charge it once per pattern that matched.
+ */
+static double burden_of(const BurdenSet *set, uint32_t offset)
+{
+	size_t lo = 0;
+	size_t hi = set->count;
+
+	while (lo < hi) {
+		size_t mid = lo + (hi - lo) / 2;
+
+		if (set->items[mid].offset < offset)
+			lo = mid + 1;
+		else
+			hi = mid;
+	}
+
+	if (lo < set->count && set->items[lo].offset == offset)
+		return ELC_MBS_BASE_TAX + set->items[lo].score;
+
+	return ELC_MBS_BASE_TAX;
+}
+
 /* Run the language's visibility query, where it has one.
  *
  * A module supplying none leaves the set empty, and every function then reports
@@ -986,7 +1158,8 @@ static Visibility visibility_of(const VisibilitySet *set, uint32_t offset)
  */
 static int record_function(FileMetrics *metrics, FnRangeIndex *ranges,
                            const char *data, TSNode name_node,
-                           TSNode body_node, const VisibilitySet *visible)
+                           TSNode body_node, const VisibilitySet *visible,
+                           const BurdenSet *burden)
 {
 	FunctionMetric *fn = &metrics->functions[metrics->function_count];
 
@@ -998,6 +1171,11 @@ static int record_function(FileMetrics *metrics, FnRangeIndex *ranges,
 
 	fn->visibility = visibility_of(visible,
 	                               ts_node_start_byte(name_node));
+
+	/* A property of this function's own signature, so it is known here and
+	 * needs no graph (HLR-221). The degrees beside it are not, and stay
+	 * zero until `report_attach_flow` runs. */
+	fn->mock_burden = burden_of(burden, ts_node_start_byte(name_node));
 
 	/* The reported span runs from the name to the end of the body,
 	 * not from the body's opening brace. A reader asked where
@@ -1051,7 +1229,11 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 	size_t        capacity = 0;
 	TSQueryMatch  match;
 	VisibilitySet visible  = { 0 };
+	BurdenSet     burden   = { 0 };
 	int           status   = -1;
+
+	if (collect_mock_burden(module, reg, data, root, &burden) != 0)
+		goto done;
 
 	if (collect_visibility(module, reg, data, root, &visible) != 0)
 		goto done;
@@ -1082,7 +1264,7 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 			goto done;
 
 		if (record_function(metrics, ranges, data, name_node,
-		                    body_node, &visible) != 0)
+		                    body_node, &visible, &burden) != 0)
 			goto done;
 	}
 
@@ -1090,6 +1272,7 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 
 done:
 	free(visible.items);
+	free(burden.items);
 	return status;
 }
 

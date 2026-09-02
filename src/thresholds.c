@@ -101,6 +101,30 @@ static const Threshold CATALOGUE[] = {
 	  ELC_MI_WARNING, ELC_MI_CRITICAL,
 	  true, SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
 
+	/* Testing burden: `elc`'s own, and with no calibration anywhere to
+	 * borrow — the index is unpublished, so unlike the Maintainability row
+	 * above there is not even a figure that had to be rejected. Twenty is
+	 * where a mock suite stops being incidental to writing the test, and
+	 * forty-five is where isolating the function costs more than the test
+	 * is worth. Both are judgements and the row says so (HLR-224, HLR-099).
+	 *
+	 * **Higher is worse here**, unlike the row above it, so this one is
+	 * not inverted. The two sit adjacent in this catalogue reading in
+	 * opposite directions, which is exactly why `inverted` is a field
+	 * rather than a convention. */
+	/* **The bounds are one below the requirement's, and derived rather
+	 * than written.** HLR-224 states them inclusively — a warning *at* 20
+	 * and critical *at* 45 — while `band_of` tests a non-inverted row with
+	 * a strict `>`, so a row's bound is the highest acceptable value. For
+	 * the whole numbers this catalogue compares, `tbi >= 20` and
+	 * `trunc(tbi) > 19` are the same set. Subtracting here keeps the
+	 * requirement's own figures as the only place 20 and 45 are written:
+	 * spelling 19 and 44 as literals would be a second statement of the
+	 * bands that could drift from the first. */
+	{ MEASURE_TESTING_BURDEN, "testing burden",
+	  (uint32_t)ELC_TBI_WARNING - 1, (uint32_t)ELC_TBI_CRITICAL - 1,
+	  false, SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
+
 	/* Depth: an embedded constraint rather than a numbered rule. Beyond 8
 	 * to 12 layers the stack risks colliding with the heap on a target
 	 * with a couple of kilobytes of SRAM. */
@@ -474,6 +498,51 @@ static int apply_complexity(const Sdg *g, FindingList *out)
  * What a low score warrants is the reader's judgement, not `elc`'s
  * (HLR-101).
  */
+/* The Testing Burden Index, banded upwards (HLR-224, LLR-THR-20).
+ *
+ * The value comes from `calltree_burden`, which is also what fills the
+ * report's own column — one definition of the formula, so the score a finding
+ * names and the score the table prints cannot disagree (HLR-223).
+ *
+ * **The index is truncated, not rounded, before it meets the bounds**, and the
+ * direction is load-bearing rather than incidental. Both bounds are inclusive
+ * lower bounds, so truncation is the reduction that preserves them: 44.6
+ * truncates to 44 and stays a warning, where rounding would carry it to 45 and
+ * report a critical finding against a function that is not one. The catalogue
+ * holds whole numbers because every other measurement in it is a count, and
+ * this is the conversion that lets a fractional measurement join them without
+ * the row having to grow a second pair of bounds.
+ */
+static int apply_testing_burden(const TreeResults *tree, const Sdg *g,
+                                FindingList *out)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_TESTING_BURDEN);
+
+	if (!t || !tree->fan_in || !tree->wf_out)
+		return 0;
+
+	for (size_t i = 0; i < tree->node_count && i < g->node_count; i++) {
+		Severity severity;
+		char     detail[80];
+		double   tbi = calltree_burden(g->nodes[i].complexity,
+		                               tree->fan_in[i],
+		                               tree->wf_out[i]);
+
+		if (!band_of(t, (uint32_t)tbi, &severity))
+			continue;
+
+		snprintf(detail, sizeof detail,
+		         "testing burden %.2f (weighted fan-out %.2f)",
+		         tbi, tree->wf_out[i]);
+		if (finding_add(out, MEASURE_TESTING_BURDEN, severity,
+		                g->nodes[i].name, g->nodes[i].file,
+		                g->nodes[i].line_start, detail) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
 static int apply_maintainability(const TreeResults *tree, const Sdg *g,
                                  FindingList *out)
 {
@@ -758,6 +827,7 @@ static int apply_calltree_rows(const TreeResults *tree, const Sdg *g,
 	return (apply_fan_out(tree, g, out) != 0 ||
 	        apply_fan_in(tree, g, out) != 0 ||
 	        apply_maintainability(tree, g, out) != 0 ||
+	        apply_testing_burden(tree, g, out) != 0 ||
 	        apply_depth(tree, out) != 0 ||
 	        apply_recursion(tree, g, out) != 0) ? -1 : 0;
 }

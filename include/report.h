@@ -39,6 +39,10 @@ typedef struct {
 	uint32_t  line;
 	uint32_t  fan_out;
 	uint32_t  fan_in;
+	/* The weighted third degree (HLR-222), carried beside the two counts
+	 * because `report_attach_flow` needs all three to reach the function
+	 * record in one pass over these rows. */
+	double    wf_out;
 	uint32_t  eloc;
 } FanOutRow;
 

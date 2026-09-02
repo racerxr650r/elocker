@@ -119,11 +119,20 @@ finding_rows() {
 	elc --verbose --entry bands_entry "$TREE/bands.c"
 	assert_success
 
-	# Fan-out is the column before the Maintainability Index, which is last.
+	# The column is found by *name* in the header rather than counted from
+	# either end of the row. It used to be read as `NF-1`, on the grounds
+	# that the Maintainability Index was last — which stopped being true
+	# the moment a column was added after it, and would stop being true
+	# again on the next such change. What this test is about is the value
+	# under `Fan-out`, so that is what it looks up.
 	local fanout
 	fanout="$(printf '%s\n' "$output" |
-		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $3 == "band_acceptable_high" { print $(NF-1) }')"
+		awk '/^Functions$/ { f = 1; next }
+		     f && /^$/    { f = 0 }
+		     f && !col    { for (i = 1; i <= NF; i++)
+		                            if ($i == "Fan-out") col = i
+		                    next }
+		     f && col && $3 == "band_acceptable_high" { print $col }')"
 	assert_equal "$fanout" "10"
 }
 

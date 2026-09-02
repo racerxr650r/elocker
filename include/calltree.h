@@ -88,6 +88,11 @@ typedef struct {
 	 * calling it, so none of them is counted here (HLR-156, LLR-CTR-07).
 	 */
 	uint32_t       *fan_in;       /* per node id; owned (HLR-156)      */
+	/* The third degree: the sum of the Mock Burden Scores of the functions
+	 * this one calls (HLR-222). Accumulated in the same single walk of the
+	 * call edges as the two counts above, so all three describe the same
+	 * set of edges and cannot disagree about which exist (LLR-CTR-13). */
+	double         *wf_out;       /* per node id; owned (HLR-222)      */
 	size_t          node_count;
 
 	RecursiveCycle *cycles;       /* owned (HLR-089)                   */
@@ -119,6 +124,19 @@ int calltree_analyse(const Sdg *g, const ElcOptions *opts, TreeResults *out);
  * established acyclicity: on a cyclic graph the longest path has no finite
  * answer, and this function would not terminate.
  */
+/* The Testing Burden Index of one function (HLR-223).
+ *
+ *     TBI = v(G) x (1 + min(Fan-In, WF-out))
+ *
+ * A pure function of three measurements and the only definition of the
+ * formula, for the reason every derived figure in this module is defined once:
+ * the report prints it and `thresholds.c` bands it, and two computations are
+ * two figures. The lesser of the degrees is what separates this index from a
+ * product — a widely shared leaf and a lone coordinator both collapse to their
+ * complexity, and only a function large in both is charged for both.
+ */
+double calltree_burden(uint32_t complexity, uint32_t fan_in, double wf_out);
+
 int longest_path_dag(const Sdg *g, const uint32_t *entries, size_t count,
                      Chain *out);
 

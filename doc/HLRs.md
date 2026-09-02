@@ -1,6 +1,6 @@
 # High-Level Requirements
 
-**Version:** 3.17
+**Version:** 3.18
 **Date:** 2026-09-01
 **Author(s):** John Anderson
 
@@ -1490,7 +1490,7 @@ The requirements here weight the edge by what the thing it points at costs to mo
     *   An empty or `(void)` parameter list has no parameters and shall contribute nothing beyond the base tax and the return.
     *   A pointer to a pointer, or a `struct` passed by pointer, shall be charged once at the pointer rate. The score taxes the *kind* of a type, not the count of its tokens, and a rate that grew with indirection would put the weights beyond a reader's ability to reason about them.
 
-    The weights above are `elc`'s own heuristics and shall be labelled as such wherever they are published (HLR-099, HLR-193).
+    The weights above are `elc`'s own heuristics and shall be labelled as such wherever they are published (HLR-099).
     *Trace:* [SDD Section 6](SDD.md), [SDD Section 7](SDD.md).
 
 *   <a id="HLR-222"></a>**HLR-222: Weighted Fan-Out.**
@@ -1524,7 +1524,7 @@ The requirements here weight the edge by what the thing it points at costs to mo
 
     The bands shall be evaluated in descending order so that a Critical index is not also reported as a Warning, and the classification shall be a property of the one threshold catalogue that carries every other band (HLR-098), rather than a second table beside it.
 
-    **These bounds are `elc`'s own and shall be labelled as such** — *elc heuristic — not a published standard* — for the reason HLR-193 gives for the Maintainability bands: the index is unpublished, so no published calibration describes it, and attaching a citation would put an opinion of `elc`'s own under someone else's name.
+    **These bounds are `elc`'s own and shall be labelled as such** — *elc heuristic — not a published standard* — under the attribution HLR-099 requires of every threshold. The index is unpublished, so no calibration for it exists anywhere to borrow, and attaching a citation would put an opinion of `elc`'s own under someone else's name.
 
     A band shall be a prompt to look rather than an instruction to comply (HLR-099).
     *Trace:* [SDD Section 12](SDD.md).

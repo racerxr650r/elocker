@@ -201,6 +201,55 @@ reports where the
 .I low
 value is the bad one.
 .PP
+.B The Weighted Test Burden Index
+estimates what a function costs to put under a unit test on a target with no
+operating system, where that cost is very largely the cost of standing up its
+dependencies \(em every callee becomes a mock, and every mock is written to a
+signature.
+.PP
+.RS 4
+.I "WTBI = C \(mu (1 + min(Fan\-In, WF\-out))"
+.RE
+.PP
+.I C
+is the cyclomatic complexity and
+.I WF\-out
+the
+.BR "weighted fan-out" :
+the sum, over everything the function calls, of a
+.B Mock Burden Score
+computed from the callee's parsed signature. That score is a base mocking tax
+of 0.25, plus 0.00, 0.10 or 0.25 for a
+.BR void ,
+primitive, or pointer-or-struct return, plus 0.10 or 0.25 for each primitive
+or pointer-or-array parameter. Nothing is free: even a leaf needs a symbol
+defined and linked.
+.PP
+.B The lesser of the two degrees is the point of the formula.
+A function many others call but which itself calls almost nothing \(em a
+logging wrapper, a shared reduction \(em has a large fan-in and a weighted
+fan-out near zero, so its index collapses towards its complexity, which is the
+honest answer: testing it needs no mocks. A function calling a great deal but
+called from one place is the mirror of that. Only a function large in
+.I both
+degrees is charged for both, and that shape is the only one this measurement
+condemns.
+.PP
+An index below 20 draws no comment; 20 or above is a
+.BR warning ,
+and 45 or above is
+.BR critical .
+.B These bounds are elc's own
+and their rows say so. Unlike the index above it there is not even a published
+figure that had to be rejected: the measurement is
+.BR elc 's
+and no calibration for it exists anywhere.
+.PP
+A language module supplying no
+.I signature.scm
+scores every function at the base tax alone, so the index then rests on
+complexity and fan-in and never on what a callee costs to mock.
+.PP
 .B Recursion
 is detected statically, direct and mutual alike, in accordance with MISRA C
 Rule 17.2 \(em under which recursion is forbidden because it makes worst-case

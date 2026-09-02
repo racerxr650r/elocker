@@ -96,7 +96,8 @@ int format_csv(const Report *report, FILE *out)
 {
 	static const char *const header[] = {
 		"file", "language", "function", "visibility", "lines", "eloc",
-		"complexity", "fan_in", "fan_out", "mi"
+		"complexity", "fan_in", "fan_out", "mi",
+		"mock_burden", "wf_out", "tbi", "tbi_status"
 	};
 	const size_t columns = sizeof header / sizeof *header;
 
@@ -112,10 +113,12 @@ int format_csv(const Report *report, FILE *out)
 			char where[4096];
 			char lines[16], eloc[16], complexity[16];
 			char fan_in[16], fan_out[16], mi[16];
+			char burden[32], wf_out[32], tbi[32];
 			const char *fields[] = {
 				where, f->language ? f->language : "",
 				fn->name, csv_visibility(fn->visibility),
-				lines, eloc, complexity, fan_in, fan_out, mi
+				lines, eloc, complexity, fan_in, fan_out, mi,
+				burden, wf_out, tbi, elc_tbi_status(fn->tbi)
 			};
 
 			/* `path:line`, the same field the table carries. The
@@ -133,6 +136,12 @@ int format_csv(const Report *report, FILE *out)
 			snprintf(fan_out, sizeof fan_out, "%" PRIu32,
 			         fn->fan_out);
 			snprintf(mi, sizeof mi, "%" PRIu32, fn->mi);
+			/* Two decimals: the weights are quarters and tenths,
+			 * so two places carry every value the scale can take
+			 * exactly and no more (HLR-032). */
+			snprintf(burden, sizeof burden, "%.2f", fn->mock_burden);
+			snprintf(wf_out, sizeof wf_out, "%.2f", fn->wf_out);
+			snprintf(tbi, sizeof tbi, "%.2f", fn->tbi);
 
 			write_record(out, columns, fields);
 		}

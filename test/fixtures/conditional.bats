@@ -287,14 +287,18 @@ report() {
 	report "$FACTS" --entry caller
 	assert_success
 
-	# Fan-out is the column before the Maintainability Index, which is
-	# last. Counted from the right rather than the left because the path
-	# in column one contains no spaces but the table may gain columns on
-	# either side of it.
+	# The column is found by *name* in the header. Counting from the right
+	# was tried and was wrong for the same reason counting from the left
+	# would be: the table gains columns on both sides, and a count from
+	# either end silently starts reading a different measurement rather
+	# than failing. The name is the only part of this that is stable.
 	local fanout
 	fanout="$(awk '/^Functions$/ {s=1; next}
-	               s && /^$/ {exit}
-	               s && $3 == "caller" {print $(NF-1)}' "$OUT")"
+	               s && /^$/     {exit}
+	               s && !col     {for (i = 1; i <= NF; i++)
+	                                      if ($i == "Fan-out") col = i
+	                              next}
+	               s && col && $3 == "caller" {print $col}' "$OUT")"
 	assert_equal "$fanout" "0"
 }
 

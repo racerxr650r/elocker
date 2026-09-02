@@ -780,6 +780,7 @@ static int set_flow_rows(Report *report, const TreeResults *tree, const Sdg *g)
 		row->line    = g->nodes[i].line_start;
 		row->fan_out = tree->fan_out[i];
 		row->fan_in  = tree->fan_in ? tree->fan_in[i] : 0;
+		row->wf_out  = tree->wf_out ? tree->wf_out[i] : 0.0;
 		row->eloc    = g->nodes[i].eloc;
 		report->fan_out_count++;
 	}
@@ -954,6 +955,12 @@ int report_attach_flow(Report *report)
 			continue;
 		fn->fan_in  = r->fan_in;
 		fn->fan_out = r->fan_out;
+		fn->wf_out  = r->wf_out;
+		/* Derived here, with the degrees, for the same reason the index
+		 * beside it is: the figure the report prints and the figure
+		 * `thresholds.c` bands must be the one figure (HLR-223). */
+		fn->tbi     = calltree_burden(fn->complexity, fn->fan_in,
+		                              fn->wf_out);
 	}
 
 	/* Again, now that the degrees are real. Deriving the index here rather

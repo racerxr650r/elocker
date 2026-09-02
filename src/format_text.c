@@ -40,8 +40,14 @@
 
 /* The widest table this file renders, which is the Functions tier. Raised
  * with it: `grid_begin` writes one entry per column, so a tier declaring more
- * columns than this holds runs past three fixed-size arrays. */
-#define GRID_MAX_COLUMNS 10
+ * columns than this holds runs past three fixed-size arrays.
+ *
+ * Fourteen since the testing-burden columns joined that tier (HLR-223). The
+ * compiler catches the mistake — a constant left behind turns the header loop
+ * into one the optimiser can prove runs off the end, and says so — but it
+ * catches it as a warning about iteration counts rather than as anything
+ * naming this line, so the reason it must move is written here. */
+#define GRID_MAX_COLUMNS 14
 
 /* The widest line the aligned table puts on a terminal (HLR-219).
  *
@@ -941,6 +947,7 @@ static int functions_section(const Report *report, Style style,
 	char d[32];
 	char e[32];
 	char f2[32];
+	char g2[32], h2[32], i2[32];
 
 	char where[4096];
 
@@ -962,12 +969,16 @@ static int functions_section(const Report *report, Style style,
 	static const char *const names[]   = { "File", "Language", "Function",
 	                                       "Visibility", "Lines", "ELOC",
 	                                       "Complexity", "Fan-in",
-	                                       "Fan-out", "MI" };
+	                                       "Fan-out", "MI", "MBS",
+	                                       "WF-out", "TBI", "Burden" };
+	/* The band is a word and is left-aligned with the other words; the
+	 * three figures beside it are numbers and are not wrapped, since a
+	 * number divided across two lines is not a number (HLR-219). */
 	static const bool        numeric[] = { false, false, false, false,
 	                                       true, true, true, true, true,
-	                                       true };
+	                                       true, true, true, true, false };
 
-	grid_begin(&grid, "Functions", 10, names, numeric);
+	grid_begin(&grid, "Functions", 14, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -983,13 +994,20 @@ static int functions_section(const Report *report, Style style,
 			snprintf(d, sizeof d, "%" PRIu32, fn->fan_in);
 			snprintf(e, sizeof e, "%" PRIu32, fn->fan_out);
 			snprintf(f2, sizeof f2, "%" PRIu32, fn->mi);
+			/* Two decimals: the weights are quarters and tenths,
+			 * so two places carry every value the scale can take
+			 * exactly and no more (HLR-221, HLR-032). */
+			snprintf(g2, sizeof g2, "%.2f", fn->mock_burden);
+			snprintf(h2, sizeof h2, "%.2f", fn->wf_out);
+			snprintf(i2, sizeof i2, "%.2f", fn->tbi);
 			/* The absence is rendered as the Files table renders
 			 * it, because the two say the same thing about the
 			 * same file and a reader comparing them should not
 			 * meet two spellings of one blank. */
 			grid_row(&grid, where, f->language ? f->language : "",
 			         fn->name, visibility_name(fn->visibility),
-			         a, b, c, d, e, f2);
+			         a, b, c, d, e, f2, g2, h2, i2,
+			         elc_tbi_status(fn->tbi));
 		}
 	}
 	if (grid_render(&grid, style, out, empty) != 0)

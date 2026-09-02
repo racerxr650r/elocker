@@ -162,11 +162,22 @@ static void write_files(const Report *report, FILE *out)
 			 * (HLR-014). Visibility rides along so a report
 			 * regenerated from this record says what the direct
 			 * run said (HLR-056, HLR-209). */
+			/* The Mock Burden Score rides along for the same
+			 * reason visibility does: it is a property of the
+			 * source, and regeneration has no source to recover it
+			 * from (HLR-152, HLR-221). The index built on it is
+			 * *not* written — it is recomputed by
+			 * `report_attach_flow` from the complexity here and
+			 * the two degrees on the `fanout` element, and a
+			 * derived figure stored beside its inputs is a figure
+			 * that can contradict them. */
 			fprintf(out, " start-line=\"%" PRIu32 "\" end-line=\"%"
 			        PRIu32 "\" eloc=\"%" PRIu32 "\" complexity=\"%"
-			        PRIu32 "\" visibility=\"%d\"/>\n",
+			        PRIu32 "\" visibility=\"%d\""
+			        " mock-burden=\"%.2f\"/>\n",
 			        fn->start_line, fn->end_line,
-			        fn->eloc, fn->complexity, (int)fn->visibility);
+			        fn->eloc, fn->complexity, (int)fn->visibility,
+			        fn->mock_burden);
 		}
 
 		fputs("    </file>\n", out);
@@ -211,9 +222,11 @@ static void write_calltree(const Report *report, FILE *out)
 		write_attribute(out, "function", report->fan_out[i].function);
 		write_attribute(out, "file", report->fan_out[i].file);
 		fprintf(out, " line=\"%" PRIu32 "\" value=\"%" PRIu32 "\""
-		        " fan-in=\"%" PRIu32 "\" eloc=\"%" PRIu32 "\"/>\n",
+		        " fan-in=\"%" PRIu32 "\" wf-out=\"%.2f\""
+		        " eloc=\"%" PRIu32 "\"/>\n",
 		        report->fan_out[i].line, report->fan_out[i].fan_out,
-		        report->fan_out[i].fan_in, report->fan_out[i].eloc);
+		        report->fan_out[i].fan_in, report->fan_out[i].wf_out,
+		        report->fan_out[i].eloc);
 	}
 	for (size_t i = 0; i < report->cycle_count; i++) {
 		fputs("    <cycle>\n", out);
@@ -1012,6 +1025,7 @@ static void on_fanout(ReadState *state, const XML_Char **atts)
 	 * with no callers has anyway — and the alternative, rejecting the
 	 * record, would break the compatibility the version number promises. */
 	const char *in   = attribute(atts, "fan-in");
+	const char *wf   = attribute(atts, "wf-out");
 	const char *eloc = attribute(atts, "eloc");
 
 	if (!fn || !file || !line || !val) {
@@ -1041,6 +1055,7 @@ static void on_fanout(ReadState *state, const XML_Char **atts)
 	row->line    = (uint32_t)strtoul(line, NULL, 10);
 	row->fan_out = (uint32_t)strtoul(val, NULL, 10);
 	row->fan_in  = in ? (uint32_t)strtoul(in, NULL, 10) : 0;
+	row->wf_out  = wf ? strtod(wf, NULL) : 0.0;
 	row->eloc    = eloc ? (uint32_t)strtoul(eloc, NULL, 10) : 0;
 	state->fan_out_count++;
 	return;
@@ -2079,6 +2094,14 @@ static void on_function(ReadState *state, const XML_Char **atts)
 	fn->end_line   = uint_attribute(state, atts, "end-line");
 	fn->eloc       = uint_attribute(state, atts, "eloc");
 	fn->complexity = uint_attribute(state, atts, "complexity");
+	{
+		/* Optional, like every attribute added after a format version
+		 * was cut: absent means the base tax was never measured, and
+		 * zero is the value that says so (LLR-XRD-04). */
+		const char *mb = attribute(atts, "mock-burden");
+
+		fn->mock_burden = mb ? strtod(mb, NULL) : 0.0;
+	}
 	/* Absent in a record written before the field existed, which reads back
 	 * as unknown — the honest answer for a run that could not have
 	 * determined one (HLR-209). */

@@ -108,17 +108,27 @@ static int compute_flow(const Sdg *g, TreeResults *out)
 
 	out->fan_out = calloc(n, sizeof *out->fan_out);
 	out->fan_in  = calloc(n, sizeof *out->fan_in);
-	if (!out->fan_out || !out->fan_in)
+	out->wf_out  = calloc(n, sizeof *out->wf_out);
+	if (!out->fan_out || !out->fan_in || !out->wf_out)
 		return -1;
 	out->node_count = g->node_count;
 
+	/* One walk, three degrees (LLR-CTR-13). The weighted one is the same
+	 * traversal read a fourth way: where fan-out counts the edge, this
+	 * adds what the edge points *at*. A second walk to accumulate it would
+	 * be a second place the `EDGE_CALL` test could be forgotten, leaving a
+	 * function whose weighted degree counted edges its fan-out did not. */
 	for (size_t i = 0; i < g->edge_count; i++) {
 		const SdgEdge *edge = &g->edges[i];
 
 		if (edge->kind != EDGE_CALL)
 			continue;
-		if (edge->from < g->node_count)
+		if (edge->from < g->node_count) {
 			out->fan_out[edge->from]++;
+			if (edge->to < g->node_count)
+				out->wf_out[edge->from] +=
+					g->nodes[edge->to].mock_burden;
+		}
 		if (edge->to < g->node_count)
 			out->fan_in[edge->to]++;
 	}
@@ -329,6 +339,34 @@ static uint32_t deepest_entry(const Sdg *g, const uint32_t *entries,
  * function would not terminate otherwise, and the guarantee is what makes the
  * memoisation valid.
  */
+/* The Testing Burden Index of one function (HLR-223, LLR-TBI-01).
+ *
+ * A pure function of three measurements and the only definition of the
+ * formula: the report needs the figure for its function table and
+ * `thresholds.c` needs it to band, and a second computation is a second place
+ * it could be computed differently.
+ *
+ * **The lesser of the two degrees, and not their product.** A function many
+ * others call but which itself calls almost nothing has a large fan-in and a
+ * weighted fan-out near zero, so the index collapses towards its cyclomatic
+ * complexity — which is the honest answer, because testing it needs no mocks.
+ * A function calling a great deal but called from one place is the mirror of
+ * that and collapses too. Only a function large in *both* degrees — the God
+ * Object — yields a large index, and that is the only shape this measurement
+ * is meant to condemn.
+ *
+ * The count is widened to compare rather than the weight truncated.
+ * Truncating would make every weighted fan-out below 1.0 compare equal to
+ * zero and return the bare complexity across the whole lower half of the
+ * range, which no assertion about ordering would catch.
+ */
+double calltree_burden(uint32_t complexity, uint32_t fan_in, double wf_out)
+{
+	double reach = (double)fan_in < wf_out ? (double)fan_in : wf_out;
+
+	return (double)complexity * (1.0 + reach);
+}
+
 int longest_path_dag(const Sdg *g, const uint32_t *entries, size_t count,
                      Chain *out)
 {
@@ -502,5 +540,6 @@ void tree_results_free(TreeResults *r)
 	free(r->deepest.nodes);
 	free(r->fan_out);
 	free(r->fan_in);
+	free(r->wf_out);
 	memset(r, 0, sizeof *r);
 }

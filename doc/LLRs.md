@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.19
+**Version:** 2.20
 **Date:** 2026-09-01
 **Author(s):** John Anderson
 
@@ -1085,10 +1085,10 @@ Evaluation of every measurement against the published threshold catalogue, and a
 
     The bounds shall live in the one threshold catalogue this module already holds rather than in a table beside it, for the reason every other band in it is there: a catalogue that some measurements are in and others are not is a catalogue a reader cannot trust to be complete.
 
-    The band shall carry the *elc heuristic — not a published standard* label (HLR-193). The index is `elc`'s own and unpublished, so no published calibration describes it, and a citation would put an opinion of `elc`'s own under another name.
+    The band shall carry the *elc heuristic — not a published standard* label (HLR-099). The index is `elc`'s own and unpublished, so no published calibration describes it, and a citation would put an opinion of `elc`'s own under another name.
 
     **Unlike the Maintainability Index, a high value is the bad one here**, so the comparison shall be the ordinary one rather than the inverted comparison LLR-THR-16 makes for a score out of a hundred. That difference is the reason the two are separate entries in the catalogue and not one parameterised by a bound.
-    *Trace:* HLR-224 (Testing Burden Threshold Classification), HLR-099, HLR-193.
+    *Trace:* HLR-224 (Testing Burden Threshold Classification), HLR-099 (Threshold Attribution).
 
 ## 35. `report_assemble` ([src/report.c](../src/report.c))
 
