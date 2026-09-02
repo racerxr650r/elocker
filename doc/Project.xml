@@ -12,14 +12,14 @@
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
     <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.27" date="2026-09-02" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.20" date="2026-09-02" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.22" date="2026-09-02" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.29" date="2026-09-02" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.29" date="2026-09-02" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.21" date="2026-09-02" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.23" date="2026-09-02" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.31" date="2026-09-02" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.31" date="2026-09-02" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="220"/>
       <count name="llrs"       value="604"/>
-      <count name="tests"      value="1322"/>
+      <count name="tests"      value="1324"/>
       <count name="test_files" value="60"/>
     </counts>
   </metadata>
@@ -2985,6 +2985,8 @@ The option shall govern presentation alone. It shall not change any measurement,
 **Colour shall carry no information that the text does not.** A reader whose terminal renders none of it, or who is reading a redirected copy, shall lose nothing but ease: every band a colour stands for is written in the cell as a word beside it. Colour is a way of finding a row, never the only way of reading one.
 
 **An escape sequence occupies no columns**, so the limit of HLR-219 shall continue to be measured over what is displayed rather than over the bytes emitted. A line whose displayed width is within the limit conforms however many sequences it carries.
+
+**Colour shall reach the aligned table and no other format.** Markdown in particular shall stay plain, whatever it is written to. It has no styling of its own, so a coloured Markdown table would have to be an HTML one carrying inline styles — which would stop the output being the GitHub-Flavored Markdown HLR-029 requires, and would still render uncoloured on the platform that format is named after, since GitHub strips those attributes from Markdown. A format defined by a published dialect is not the place to add a presentation that dialect cannot express. The HTML report of HLR-213 is where a coloured rendering already exists and is the answer for a reader who wants one.
 
 **The alternation shall be per row and not per line.** A row continued over several lines by the wrapping of HLR-219 shall carry one background across all of them, so that a wrapped row reads as one row rather than as several of alternating colour.]]></text>
         <traces>
@@ -7679,7 +7681,9 @@ The label column was the length of one label written out and the value column th
 
 The question shall be asked through a predicate of its own rather than by reading the width `table_limit` returns. That function answers the same question for the same reason, but answers it as a *number*, and a caller reading 128 to mean "a terminal" is a caller that breaks the day the limit moves.
 
-Each data row shall take the background its index selects, alternating between the two; the header shall take neither, being the legend for the block rather than the first row of it. Every physical line of a wrapped row shall carry that row's background, so a row continued over four lines reads as one row.]]></text>
+Each data row shall take the background its index selects, alternating between the two and **beginning with the dark grey**, so the first row of the body is plainly a row rather than the rule above it continued. The header shall take neither, being the legend for the block rather than the first row of it. Every physical line of a wrapped row shall carry that row's background, so a row continued over four lines reads as one row.
+
+**Every line shall run the full set of columns while colouring**, empty cells included. A line otherwise stops at the last column with anything left in it, which keeps a trailing blank cell from putting two spaces at the end of a line; but a line that stops early stops its background with it, and a row whose ground is a ragged staircase down the right-hand side reads as a rendering fault rather than as one row.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-226" name="Colour on a Terminal"/>
           <trace target="HLR" ref="HLR-219"/>
@@ -14397,7 +14401,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
 </file>
 
-  <file path="test/integration/terminal.bats" role="integration" count="17">
+  <file path="test/integration/terminal.bats" role="integration" count="19">
     <test name="HLR-219: no line of a terminal report exceeds 128 columns">
       <purpose><![CDATA[The width itself, over a target whose paths are long enough to force the narrowing rather than merely permit it. Run on a pseudo-terminal allocated with script(1), because Bats captures output through a pipe and the limit would otherwise never fire — a test written the ordinary way would assert the unwrapped table and pass for the wrong reason forever. There is deliberately no environment variable in src/ to force the behaviour: that would be a test seam in the product, and the seam would be the only thing most runs exercised.]]></purpose>
       <traces>
@@ -14519,6 +14523,21 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       <traces>
         <trace target="LLR" ref="LLR-SUM-25"/>
         <trace target="HLR" ref="HLR-226"/>
+      </traces>
+    </test>
+    <test name="HLR-226: Markdown stays plain even on a terminal">
+      <purpose><![CDATA[Markdown written to a pty carries no escape sequence and is still a pipe table. Colour reaches the aligned table and no other format: a coloured Markdown table would have to be HTML with inline styles, which would stop it being the GitHub-Flavored Markdown HLR-029 requires and would render uncoloured on GitHub regardless. Asserted on a terminal, since the destination is exactly what would have made the difference had the rule been the table's.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-226"/>
+        <trace target="HLR" ref="HLR-029"/>
+        <trace target="LLR" ref="LLR-SUM-24"/>
+      </traces>
+    </test>
+    <test name="HLR-226: every line of a coloured row is the full width">
+      <purpose><![CDATA[Every line of the coloured body has the same displayed width. A wrapped row's continuation lines carry cells that have run out, and a line stopping at the last column with anything left in it would stop its background there too, leaving a ragged staircase down the right of the table.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-226"/>
+        <trace target="LLR" ref="LLR-SUM-24"/>
       </traces>
     </test>
   </file>

@@ -69,8 +69,10 @@
  * keeps every consumer of the table, and every test that reads it, working.
  *
  * Rows alternate so a long row can be followed across a wide table without a
- * finger on the screen; the foreground is white on both grounds so the text
- * does not change weight from row to row. The band words are the exception
+ * finger on the screen, beginning with the dark grey so the first row of the
+ * body is plainly a row rather than the rule above it continued; the
+ * foreground is white on both grounds so the text does not change weight from
+ * row to row. The band words are the exception
  * and are coloured by what they say, because they are the one part of a row
  * a reader scans *for* rather than reads.
  *
@@ -78,8 +80,8 @@
  * coloured inside a row and the row's ground continues underneath it.
  */
 #define SGR_RESET     "\033[0m"
-#define SGR_ROW_EVEN  "\033[40;97m"    /* white on black                  */
-#define SGR_ROW_ODD   "\033[100;97m"   /* white on dark grey              */
+#define SGR_ROW_FIRST "\033[100;97m"   /* white on dark grey              */
+#define SGR_ROW_OTHER "\033[40;97m"    /* white on black                  */
 #define SGR_FG_ROW    "\033[97m"       /* back to the row's own white     */
 #define SGR_HEALTHY   "\033[92m"       /* light green                     */
 #define SGR_WARNING   "\033[93m"       /* yellow                          */
@@ -593,6 +595,42 @@ static void table_cell(const Grid *grid, const int *width, size_t c,
  * cell continues under itself and not under the column beside it, which is the
  * whole reason for keeping the table aligned rather than reflowing it.
  */
+/* How many columns this line of a row prints, or 0 where the row is spent.
+ *
+ * Split out of `table_row` rather than left inline, and the reason is the one
+ * `elc` holds its own source to: the three questions below are three decision
+ * points, and with them in place the caller stood at sixteen against the
+ * threshold of fifteen it enforces on everyone else (LLR-BLD-23). The
+ * decomposition is along the seam that was already there — *how wide is this
+ * line* is a different question from *what goes in it*.
+ */
+static size_t row_line_columns(const Grid *grid, const char *const *rest,
+                               size_t line, bool colour)
+{
+	size_t last = 0;
+
+	for (size_t c = grid->column_count; c-- > 0; )
+		if (rest[c][0]) {
+			last = c + 1;
+			break;
+		}
+
+	if (last == 0 && line > 0)
+		return 0;
+
+	/* The first line always prints every column, because it carries the
+	 * row's leading cells whether or not they continue. Under colour every
+	 * line does, empty columns included: a line that stopped early would
+	 * stop its background with it, and a row whose ground is a ragged
+	 * staircase down the right-hand side reads as a rendering fault rather
+	 * than as one row.
+	 */
+	if (line == 0 || colour)
+		return grid->column_count;
+
+	return last;
+}
+
 static void table_row(const Grid *grid, const int *width,
                       const char *const *cells, bool colour, size_t index,
                       FILE *out)
@@ -605,26 +643,19 @@ static void table_row(const Grid *grid, const int *width,
 		rest[c] = cells[c] ? cells[c] : "";
 
 	for (size_t line = 0; more; line++) {
-		size_t last = 0;
+		size_t last = row_line_columns(grid, rest, line, colour);
 
 		more = false;
 
-		for (c = grid->column_count; c-- > 0; )
-			if (rest[c][0]) {
-				last = c + 1;
-				break;
-			}
-
-		if (line == 0)
-			last = grid->column_count;
-		else if (last == 0)
+		if (last == 0)
 			break;
 
 		/* Every physical line of a wrapped row carries the row's own
 		 * ground, so a row continued over four lines reads as one
 		 * block rather than as four rows of alternating colour. */
 		if (colour)
-			fputs(index % 2 ? SGR_ROW_ODD : SGR_ROW_EVEN, out);
+			fputs(index % 2 ? SGR_ROW_OTHER : SGR_ROW_FIRST,
+			      out);
 
 		fputs("  ", out);
 		for (c = 0; c < last; c++) {

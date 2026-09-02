@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.22
+**Version:** 2.23
 **Date:** 2026-09-02
 **Author(s):** John Anderson
 
@@ -1349,7 +1349,9 @@ The single place every reported collection is ordered. The audit point for deter
 
     The question shall be asked through a predicate of its own rather than by reading the width `table_limit` returns. That function answers the same question for the same reason, but answers it as a *number*, and a caller reading 128 to mean "a terminal" is a caller that breaks the day the limit moves.
 
-    Each data row shall take the background its index selects, alternating between the two; the header shall take neither, being the legend for the block rather than the first row of it. Every physical line of a wrapped row shall carry that row's background, so a row continued over four lines reads as one row.
+    Each data row shall take the background its index selects, alternating between the two and **beginning with the dark grey**, so the first row of the body is plainly a row rather than the rule above it continued. The header shall take neither, being the legend for the block rather than the first row of it. Every physical line of a wrapped row shall carry that row's background, so a row continued over four lines reads as one row.
+
+    **Every line shall run the full set of columns while colouring**, empty cells included. A line otherwise stops at the last column with anything left in it, which keeps a trailing blank cell from putting two spaces at the end of a line; but a line that stops early stops its background with it, and a row whose ground is a ragged staircase down the right-hand side reads as a rendering fault rather than as one row.
     *Trace:* HLR-226 (Colour on a Terminal), HLR-219.
 
 *   <a id="LLR-SUM-25"></a>**LLR-SUM-25** — `table_cell` shall write a cell whose content is a band name in that band's colour — green for `healthy`, yellow for `warning`, red for `critical` — and shall then restore the row's own foreground rather than resetting, so the background the line was opened with continues underneath the rest of the row (HLR-226).

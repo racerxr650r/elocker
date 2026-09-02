@@ -284,6 +284,30 @@ widest() {
 		{ echo "no black-ground row" >&2; false; }
 	[[ "$raw_output" == *$'\e[100;97m'* ]] ||
 		{ echo "no grey-ground row" >&2; false; }
+
+	# The first row of a body is the dark grey one. Read off the Functions
+	# table, whose first row is the line after its rule.
+	local first
+	first="$(printf '%s\n' "$raw_output" |
+		sed -n '/^Functions$/,$p' | sed -n '4p')"
+	[[ "$first" == $'\e[100;97m'* ]] ||
+		{ echo "the body did not begin with the dark ground" >&2
+		  printf '%s\n' "$first" | cat -v >&2; false; }
+}
+
+@test "HLR-226: every line of a coloured row is the full width" {
+	# A wrapped row's continuation lines carry cells that have run out, and
+	# a line that stopped at the last one with anything left in it would
+	# stop its background there too — a ragged staircase down the right of
+	# the table. Every line of the body is the same displayed width.
+	on_a_terminal "$TREE"
+	assert_success
+
+	local widths
+	widths="$(printf '%s\n' "$output" |
+		sed -n '/^Functions$/,/^$/p' | sed -n '4,$p' |
+		awk 'NF { print length($0) }' | sort -u | wc -l)"
+	assert_equal "$widths" "1"
 }
 
 @test "HLR-226: a redirected report carries no escape sequence at all" {
@@ -321,4 +345,19 @@ widest() {
 	assert_output --partial "warning"
 	assert_output --partial "healthy"
 	refute_output --partial $'\e['
+}
+
+@test "HLR-226: Markdown stays plain even on a terminal" {
+	# Colour reaches the aligned table and nothing else. Markdown has no
+	# styling of its own, so a coloured one would have to be HTML carrying
+	# inline styles — which would stop it being the GitHub-Flavored
+	# Markdown HLR-029 requires, and would render uncoloured on GitHub
+	# anyway. Asserted on a pty, because the destination is exactly what
+	# would have made the difference had the rule been the table's.
+	on_a_terminal -f md "$TREE"
+	assert_success
+	[[ "$raw_output" != *$'\e['* ]] ||
+		{ echo "Markdown carried an escape sequence" >&2; false; }
+	# And it is still a pipe table rather than an HTML one.
+	assert_output --partial "| File "
 }

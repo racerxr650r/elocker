@@ -1,6 +1,6 @@
 # Software Test Plan
 
-**Version:** 0.29
+**Version:** 0.31
 **Date:** 2026-09-02
 **Author(s):** John Anderson
 
@@ -142,7 +142,7 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1322 test(s)** across
+Snapshot: **1324 test(s)** across
 **60 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
@@ -1020,7 +1020,7 @@ Role: **integration**. **32 test(s).**
 
 ### 3.30. [test/integration/terminal.bats](../test/integration/terminal.bats)
 
-Role: **integration**. **17 test(s).**
+Role: **integration**. **19 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1041,6 +1041,8 @@ Role: **integration**. **17 test(s).**
 | 15 | <a id="HLR-226: a redirected report carries no escape sequence at all"></a>`HLR-226: a redirected report carries no escape sequence at all` | `LLR-SUM-24` | The aligned table and the CSV, written to a pipe, contain no escape byte. This is the property every consumer of those bytes depends on, and the one that keeps every other test in the suite reading what it always read. |
 | 16 | <a id="HLR-226: a band name is coloured by what it says"></a>`HLR-226: a band name is coloured by what it says` | `LLR-SUM-25` | A warning is yellow and a healthy is green, matched on the word rather than on the column, since the Severity column and the Burden column carry the same vocabulary. |
 | 17 | <a id="HLR-226: colour says nothing the text does not"></a>`HLR-226: colour says nothing the text does not` | `LLR-SUM-25` | With the escapes stripped, every band is still written as a word. Colour is a way of finding a row and never the only way of reading one, so a reader whose terminal renders none of it loses nothing but ease. |
+| 18 | <a id="HLR-226: Markdown stays plain even on a terminal"></a>`HLR-226: Markdown stays plain even on a terminal` | `LLR-SUM-24` | Markdown written to a pty carries no escape sequence and is still a pipe table. Colour reaches the aligned table and no other format: a coloured Markdown table would have to be HTML with inline styles, which would stop it being the GitHub-Flavored Markdown HLR-029 requires and would render uncoloured on GitHub regardless. Asserted on a terminal, since the destination is exactly what would have made the difference had the rule been the table's. |
+| 19 | <a id="HLR-226: every line of a coloured row is the full width"></a>`HLR-226: every line of a coloured row is the full width` | `LLR-SUM-24` | Every line of the coloured body has the same displayed width. A wrapped row's continuation lines carry cells that have run out, and a line stopping at the last column with anything left in it would stop its background there too, leaving a ragged staircase down the right of the table. |
 
 ### 3.31. [test/integration/verbosity.bats](../test/integration/verbosity.bats)
 
@@ -2269,7 +2271,7 @@ verified by code review — see
 | `LLR-SUM-22` | `render_summary` | `HLR-219`, `HLR-032`, `HLR-027` | `a_cell_wider_than_the_wrap_limit_survives_an_unwrapped_table`, `HLR-032: two runs to the same destination are byte-identical` |
 | `LLR-SUM-23` | `render_summary` | `HLR-027`, `HLR-024` | `the_project_summary_columns_are_sized_from_its_rows` |
 | `LLR-SUM-18` | `render_summary` | `HLR-223`, `HLR-221`, `HLR-183`, `HLR-187` | `HLR-223: the function table carries the weighted test burden` |
-| `LLR-SUM-24` | `render_summary` | `HLR-226`, `HLR-219` | `HLR-226: a terminal report alternates two backgrounds with white text`, `HLR-226: a redirected report carries no escape sequence at all` |
+| `LLR-SUM-24` | `render_summary` | `HLR-226`, `HLR-219` | `HLR-226: a terminal report alternates two backgrounds with white text`, `HLR-226: a redirected report carries no escape sequence at all`, `HLR-226: Markdown stays plain even on a terminal`, `HLR-226: every line of a coloured row is the full width` |
 | `LLR-SUM-25` | `render_summary` | `HLR-226` | `HLR-226: a band name is coloured by what it says`, `HLR-226: colour says nothing the text does not` |
 | `LLR-CSV-01` | `format_csv` | `HLR-028` | `the_header_row_is_written`, `an_empty_report_is_a_header_alone`, `a_write_failure_is_reported` |
 | `LLR-CSV-02` | `format_csv` | `HLR-028`, `HLR-031` | `HLR-028: csv produces one record per function`, `HLR-028: csv is unfiltered by the threshold` |
