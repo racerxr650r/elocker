@@ -48,10 +48,23 @@ setup() {
 	# The carriage return is RFC 4180's record terminator and is taken off
 	# here rather than written into every expectation; that the terminator
 	# is CRLF is asserted in test/unit/format_csv.c, where the bytes are.
+	# **Derived from the table rather than written out here.** A hardcoded
+	# header only records what the CSV said on the day it was written: when
+	# the table's columns were renamed, this expectation was updated to the
+	# CSV's spelling and went on passing while the two names differed —
+	# asserting the opposite of what it is called. Taking the table's own
+	# header and lowercasing it means the two cannot drift without this
+	# failing, which is the property the test's name claims.
+	local want
+	want="$("$ELC" --verbose "$TREE" 2>/dev/null |
+		sed -n '/^Functions$/,$p' | sed -n '2p' |
+		tr -s ' ' | sed 's/^ //; s/ $//' | tr ' ' ',' |
+		tr '[:upper:]' '[:lower:]')"
+	[ -n "$want" ]
+
 	run bash -c '"$0" -f csv "$1" 2>/dev/null | tr -d "\r"' "$ELC" "$TREE"
 	assert_success
-	assert_line --index 0 \
-		"file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi"
+	assert_line --index 0 "$want"
 	# And the location is the table's location: `path:line`, which an
 	# editor acts on, with the extent beside it as a count (HLR-210).
 	assert_output --regexp "$TREE/a\.c:[0-9]+,c,f,public,[0-9]+,"

@@ -249,64 +249,6 @@ Test(calltree, fan_in_ignores_global_edges)
 
 /* ----------------------------------------------------- information flow -- */
 
-/* Verifies LLR-CTR-12: the formula, computed by hand from the definition.
- *
- * MI = 171 - 5.2 ln(IF+1) - 0.23 v(G) - 16.2 ln(ELOC), normalised over 171
- * and rounded. A function of 20 effective lines, complexity 5, one caller and
- * two callees:
- *
- *   IF  = (1 x 2)^2 = 4
- *   MI  = 171 - 5.2 ln(5) - 0.23 x 5 - 16.2 ln(20)
- *       = 171 - 8.3699 - 1.15 - 48.5285 = 112.9516
- *   MI' = 112.9516 / 171 x 100 = 66.05  -> 66
- */
-Test(calltree, the_maintainability_index_matches_the_formula)
-{
-	cr_assert_eq(calltree_maintainability(20, 5, 1, 2), 66);
-}
-
-/* Verifies LLR-CTR-12 for the three edge cases the formula reaches. */
-Test(calltree, the_maintainability_index_handles_its_edges)
-{
-	/* No effective lines: the length term would be ln(0). The length is
-	 * taken as 1 so the term vanishes — a function with nothing in it has
-	 * nothing to maintain. 171 - 0.23 = 170.77, over 171, is 99.9 -> 100.
-	 */
-	cr_assert_eq(calltree_maintainability(0, 1, 0, 0), 100);
-
-	/* Either degree zero puts ln(1) in the flow term, so it vanishes and
-	 * the figure rests on length and branching alone. An entry point is
-	 * not coupled by being an entry point.
-	 *
-	 * 171 - 0 - 0.23 - 16.2 ln(20) = 122.24; /171 x 100 = 71.5 -> 71. */
-	cr_assert_eq(calltree_maintainability(20, 1, 0, 99), 71,
-	             "a fan-out of ninety-nine costs nothing with no callers");
-	cr_assert_eq(calltree_maintainability(20, 1, 99, 0), 71,
-	             "and the converse, for the same reason");
-
-	/* The clamp. A function of some millions of effective lines drives the
-	 * index negative, and the scale is a scale rather than a deficit. */
-	cr_assert_eq(calltree_maintainability(50000000, 200, 500, 500), 0);
-}
-
-/* The index falls as a function gets longer, branchier or more entangled, and
- * never rises. The direction is the whole of what the metric asserts; a sign
- * error in any term would leave the arithmetic plausible and the meaning
- * inverted. */
-Test(calltree, the_maintainability_index_falls_as_a_function_worsens)
-{
-	uint32_t base = calltree_maintainability(20, 5, 2, 2);
-
-	cr_assert_lt(calltree_maintainability(40, 5, 2, 2), base,
-	             "longer is worse");
-	cr_assert_lt(calltree_maintainability(20, 40, 2, 2), base,
-	             "branchier is worse");
-	cr_assert_lt(calltree_maintainability(20, 5, 8, 8), base,
-	             "more entangled is worse");
-	cr_assert_leq(base, 100u);
-}
-
-
 Test(calltree, the_degrees_are_counted_over_a_wide_hub)
 {
 	/* Both degrees at a size no fixture tree reaches, and at a size the
@@ -759,4 +701,195 @@ Test(calltree, tree_results_free_is_safe_on_null_and_twice)
 	tree_results_free(&tree);
 	tree_results_free(&tree);
 	cr_assert(1, "teardown is unconditional on every exit path");
+}
+
+/* --------------------------------- the weighted fan-out and the index --
+ *
+ * The weighted degree needs a graph, because it is a sum over edges. The
+ * index does not: it is a pure function of three numbers, and testing it
+ * through a graph would put the graph's behaviour into every assertion about
+ * the arithmetic. So these are two groups, and only the first builds one.
+ */
+#define TBI_EPSILON 1e-9
+
+/* Verifies LLR-CTR-13: the weighted degree sums what the edges point at,
+ * where the plain degree counts the edges. */
+Test(calltree, weighted_fan_out_sums_the_burden_of_what_a_function_calls)
+{
+	static const char *const names[] = { "caller", "a", "b", "c", "d" };
+	FileMetrics  *m     = file_with("/t/a.c", names, 5);
+	FileMetrics  *files[1];
+	FileFacts    *f     = facts_for("/t/a.c");
+	FactList      facts = { 0 };
+	Report        report;
+	Sdg           g     = { 0 };
+	TreeResults   tree  = { 0 };
+	ElcOptions    opts  = { 0 };
+	size_t        caller;
+
+	/* Four callees, each costing the base tax and nothing more. */
+	for (size_t i = 1; i < 5; i++)
+		m->functions[i].mock_burden = 0.25;
+
+	files[0] = m;
+	report   = report_of(files, 1);
+
+	add_call(f, "a", 0);
+	add_call(f, "b", 0);
+	add_call(f, "c", 0);
+	add_call(f, "d", 0);
+	facts.items = &f;
+	facts.count = 1;
+
+	cr_assert_eq(graph_build(&facts, &report, &g), 0);
+	cr_assert_eq(calltree_analyse(&g, &opts, &tree), 0);
+
+	caller = node_of(&g, "caller");
+	cr_assert_neq(caller, SIZE_MAX);
+	cr_assert_eq(tree.fan_out[caller], 4,
+	             "four edges leave the caller");
+	cr_assert_float_eq(tree.wf_out[caller], 1.00, TBI_EPSILON,
+	             "and they weigh a quarter each, which is one — not four, "
+	             "and not zero, which is what an integer accumulator "
+	             "would have reported");
+
+	tree_results_free(&tree);
+	graph_free(&g);
+	report_free(&report);
+	filefacts_free(f);
+}
+
+/* Verifies LLR-CTR-13: an unresolvable call produces no edge, so it reaches
+ * neither degree. This is where the consequence HLR-222 names is pinned
+ * down — a project calling the C library reads as cheaper to test than one
+ * wrapping it, because the first set of calls leaves the graph. */
+Test(calltree, an_unresolved_call_contributes_to_neither_degree)
+{
+	static const char *const names[] = { "caller", "a" };
+	FileMetrics  *m     = file_with("/t/a.c", names, 2);
+	FileMetrics  *files[1];
+	FileFacts    *f     = facts_for("/t/a.c");
+	FactList      facts = { 0 };
+	Report        report;
+	Sdg           g     = { 0 };
+	TreeResults   tree  = { 0 };
+	ElcOptions    opts  = { 0 };
+	size_t        caller;
+
+	m->functions[1].mock_burden = 0.25;
+	files[0] = m;
+	report   = report_of(files, 1);
+
+	add_call(f, "a", 0);
+	add_call(f, "memcpy", 0);   /* nothing analysed defines it */
+	facts.items = &f;
+	facts.count = 1;
+
+	cr_assert_eq(graph_build(&facts, &report, &g), 0);
+	cr_assert_eq(calltree_analyse(&g, &opts, &tree), 0);
+
+	caller = node_of(&g, "caller");
+	cr_assert_eq(tree.fan_out[caller], 1);
+	cr_assert_float_eq(tree.wf_out[caller], 0.25, TBI_EPSILON,
+	             "the library call weighs nothing because it is not an "
+	             "edge, which is the same reason it is not counted");
+
+	tree_results_free(&tree);
+	graph_free(&g);
+	report_free(&report);
+	filefacts_free(f);
+}
+
+/* Verifies LLR-CTR-13: the accumulator's type is the whole of the risk. An
+ * integer one would truncate every callee below 1.0 and report the entire
+ * lower half of the range as no burden at all. */
+Test(calltree, fractional_burdens_accumulate_without_being_rounded)
+{
+	static const char *const names[] = { "caller", "a", "b" };
+	FileMetrics  *m     = file_with("/t/a.c", names, 3);
+	FileMetrics  *files[1];
+	FileFacts    *f     = facts_for("/t/a.c");
+	FactList      facts = { 0 };
+	Report        report;
+	Sdg           g     = { 0 };
+	TreeResults   tree  = { 0 };
+	ElcOptions    opts  = { 0 };
+
+	m->functions[1].mock_burden = 0.35;
+	m->functions[2].mock_burden = 0.40;
+	files[0] = m;
+	report   = report_of(files, 1);
+
+	add_call(f, "a", 0);
+	add_call(f, "b", 0);
+	facts.items = &f;
+	facts.count = 1;
+
+	cr_assert_eq(graph_build(&facts, &report, &g), 0);
+	cr_assert_eq(calltree_analyse(&g, &opts, &tree), 0);
+	cr_assert_float_eq(tree.wf_out[node_of(&g, "caller")], 0.75,
+	                   TBI_EPSILON,
+	                   "two callees under one apiece still sum to more "
+	                   "than either");
+
+	tree_results_free(&tree);
+	graph_free(&g);
+	report_free(&report);
+	filefacts_free(f);
+}
+
+/* Verifies LLR-TBI-01: the case the index exists for. A function many others
+ * call but which calls nothing needs no mocks, so its burden is its logic.
+ *
+ * These are `diag_printf`'s own figures: fan-in 82, weighted fan-out 0,
+ * complexity 2. The Adapted Maintainability Index scores that function 51 and
+ * calls it a rigid, fragile monolith; this index scores it 2. The two
+ * disagreeing about it is the intended outcome and not a defect in either.
+ */
+Test(calltree, a_widely_shared_leaf_collapses_to_its_cyclomatic_complexity)
+{
+	cr_assert_float_eq(calltree_burden(2, 82, 0.0), 2.0, TBI_EPSILON);
+}
+
+/* Verifies LLR-TBI-01: the mirror of the leaf, asserted separately because a
+ * formula taking the *larger* degree would pass the leaf case and fail this
+ * one. */
+Test(calltree, a_coordinator_called_from_one_place_collapses_likewise)
+{
+	cr_assert_float_eq(calltree_burden(4, 1, 12.0), 8.0, TBI_EPSILON);
+}
+
+/* Verifies LLR-TBI-01: the God Object is the one shape this index condemns,
+ * and this asserts it is the only one. */
+Test(calltree, only_a_function_large_in_both_degrees_produces_a_large_index)
+{
+	cr_assert_float_eq(calltree_burden(5, 10, 9.0), 50.0, TBI_EPSILON,
+	                   "large in both: over the critical bound");
+	cr_assert_float_eq(calltree_burden(5, 10, 0.0), 5.0, TBI_EPSILON,
+	                   "large in one only: nowhere near it");
+	cr_assert_float_eq(calltree_burden(5, 0, 9.0), 5.0, TBI_EPSILON,
+	                   "large in the other only: likewise");
+}
+
+/* Verifies LLR-TBI-01: the count is widened to compare, not the weight
+ * truncated. Truncating would make every weighted fan-out below 1.0 compare
+ * equal to zero and return the bare complexity across the whole lower half of
+ * the range — a defect no assertion about ordering would catch. */
+Test(calltree, the_degrees_are_compared_without_truncating_the_weight)
+{
+	cr_assert_float_eq(calltree_burden(4, 3, 0.75), 7.0, TBI_EPSILON,
+	                   "0.75 is the lesser degree and must be used as "
+	                   "0.75, not as 0");
+}
+
+/* Verifies LLR-TBI-02: a pure function of its three arguments, reading no
+ * graph, so the figure the report prints and the figure the catalogue bands
+ * are produced by one call and cannot diverge. */
+Test(calltree, the_index_is_a_pure_function_of_its_three_measurements)
+{
+	cr_assert_float_eq(calltree_burden(7, 4, 2.5), calltree_burden(7, 4, 2.5),
+	                   TBI_EPSILON);
+	cr_assert_float_eq(calltree_burden(0, 9, 9.0), 0.0, TBI_EPSILON,
+	                   "a complexity of zero falls out of the "
+	                   "multiplication rather than needing a guard");
 }

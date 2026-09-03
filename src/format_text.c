@@ -40,8 +40,15 @@
 
 /* The widest table this file renders, which is the Functions tier. Raised
  * with it: `grid_begin` writes one entry per column, so a tier declaring more
- * columns than this holds runs past three fixed-size arrays. */
-#define GRID_MAX_COLUMNS 10
+ * columns than this holds runs past three fixed-size arrays.
+ *
+ * Eleven since the testing-burden column joined that tier and the two
+ * figures it is built from left it again (HLR-223). The
+ * compiler catches the mistake — a constant left behind turns the header loop
+ * into one the optimiser can prove runs off the end, and says so — but it
+ * catches it as a warning about iteration counts rather than as anything
+ * naming this line, so the reason it must move is written here. */
+#define GRID_MAX_COLUMNS 11
 
 /* The widest line the aligned table puts on a terminal (HLR-219).
  *
@@ -53,6 +60,32 @@
  * table and fits a maximised terminal on any modern display.
  */
 #define TABLE_TERMINAL_WIDTH 128
+
+/* The aligned table's colours, and **the destination decides whether they are
+ * used at all** — the same rule the wrap of HLR-219 follows, and for the same
+ * reason. A file has no colours and a pipe has none; a terminal does, and the
+ * destination has already said which it is. A report redirected or piped is
+ * byte-identical to what it was before any of this existed, which is what
+ * keeps every consumer of the table, and every test that reads it, working.
+ *
+ * Rows alternate so a long row can be followed across a wide table without a
+ * finger on the screen, beginning with the dark grey so the first row of the
+ * body is plainly a row rather than the rule above it continued; the
+ * foreground is white on both grounds so the text does not change weight from
+ * row to row. The band words are the exception
+ * and are coloured by what they say, because they are the one part of a row
+ * a reader scans *for* rather than reads.
+ *
+ * A foreground change does not disturb the background, so a band word can be
+ * coloured inside a row and the row's ground continues underneath it.
+ */
+#define SGR_RESET     "\033[0m"
+#define SGR_ROW_FIRST "\033[100;97m"   /* white on dark grey              */
+#define SGR_ROW_OTHER "\033[40;97m"    /* white on black                  */
+#define SGR_FG_ROW    "\033[97m"       /* back to the row's own white     */
+#define SGR_HEALTHY   "\033[92m"       /* light green                     */
+#define SGR_WARNING   "\033[93m"       /* yellow                          */
+#define SGR_CRITICAL  "\033[91m"       /* light red                       */
 
 /* The narrowest a text column is squeezed to before the table is given up on.
  *
@@ -336,6 +369,43 @@ static int table_limit(FILE *out)
 	return fd >= 0 && isatty(fd) ? TABLE_TERMINAL_WIDTH : 0;
 }
 
+/* Whether this stream gets colour, decided the way its width is (HLR-219).
+ *
+ * `table_limit` answers the same question for the same reason and could have
+ * been reused, but it answers it as a *width*, and a caller reading "128" to
+ * mean "a terminal" is a caller that breaks the day the limit changes. Two
+ * predicates over one fact, each saying what it means.
+ */
+static bool table_colour(FILE *out)
+{
+	int fd = fileno(out);
+
+	return fd >= 0 && isatty(fd);
+}
+
+/* The colour a band word is written in, or NULL where the cell is not one.
+ *
+ * Matched on the word rather than on the column, so the Severity column and
+ * the Burden column are coloured by one rule — they carry the same vocabulary
+ * and a reader scanning for red should not have to know which column he is
+ * looking at. A cell holding anything else is left in the row's own white.
+ */
+static const char *band_colour(const char *text, size_t length)
+{
+	static const struct { const char *word; const char *sgr; } BANDS[] = {
+		{ "healthy",  SGR_HEALTHY  },
+		{ "warning",  SGR_WARNING  },
+		{ "critical", SGR_CRITICAL },
+	};
+
+	for (size_t i = 0; i < sizeof BANDS / sizeof *BANDS; i++)
+		if (strlen(BANDS[i].word) == length &&
+		    memcmp(text, BANDS[i].word, length) == 0)
+			return BANDS[i].sgr;
+
+	return NULL;
+}
+
 /* The rendered width of one line with the text columns capped at `cap`.
  *
  * Two leading spaces, then two more before every column after the first. A
@@ -464,9 +534,16 @@ static size_t table_break(const char *text, size_t width, size_t *skip)
  * strips it.
  */
 static void table_cell(const Grid *grid, const int *width, size_t c,
-                       size_t last, const char *text, size_t length, FILE *out)
+                       size_t last, const char *text, size_t length,
+                       bool colour, FILE *out)
 {
-	bool unpadded = c + 1 == last && !grid->numeric[c];
+	/* The final text column is normally left unpadded, so a row whose last
+	 * cell is blank does not end in two spaces. Under colour it *is*
+	 * padded: the row's ground is what makes the alternation readable, and
+	 * a ground that stopped at the last character would leave a ragged
+	 * right edge that reads as a rendering fault rather than as a row. */
+	bool unpadded = c + 1 == last && !grid->numeric[c] && !colour;
+	const char *band = colour ? band_colour(text, length) : NULL;
 
 	/* An empty final cell contributes nothing at all — not even the
 	 * separator that would precede it. Leaving the separator in put two
@@ -486,12 +563,20 @@ static void table_cell(const Grid *grid, const int *width, size_t c,
 	 * path is bounded only by the filesystem — and one sized to the wrap
 	 * limit would silently truncate every unwrapped table wider than the
 	 * limit, which is the case the limit is not supposed to touch. */
+	if (band)
+		fputs(band, out);
+
 	if (unpadded)
 		fwrite(text, 1, length, out);
 	else
 		fprintf(out, "%*.*s",
 		        grid->numeric[c] ? width[c] : -width[c],
 		        (int)length, text);
+
+	/* Back to the row's own foreground rather than a full reset, so the
+	 * ground set for the line survives the rest of the row. */
+	if (band)
+		fputs(SGR_FG_ROW, out);
 }
 
 /* Emit one row, continuing each cell that outran its column onto further
@@ -510,8 +595,45 @@ static void table_cell(const Grid *grid, const int *width, size_t c,
  * cell continues under itself and not under the column beside it, which is the
  * whole reason for keeping the table aligned rather than reflowing it.
  */
+/* How many columns this line of a row prints, or 0 where the row is spent.
+ *
+ * Split out of `table_row` rather than left inline, and the reason is the one
+ * `elc` holds its own source to: the three questions below are three decision
+ * points, and with them in place the caller stood at sixteen against the
+ * threshold of fifteen it enforces on everyone else (LLR-BLD-23). The
+ * decomposition is along the seam that was already there — *how wide is this
+ * line* is a different question from *what goes in it*.
+ */
+static size_t row_line_columns(const Grid *grid, const char *const *rest,
+                               size_t line, bool colour)
+{
+	size_t last = 0;
+
+	for (size_t c = grid->column_count; c-- > 0; )
+		if (rest[c][0]) {
+			last = c + 1;
+			break;
+		}
+
+	if (last == 0 && line > 0)
+		return 0;
+
+	/* The first line always prints every column, because it carries the
+	 * row's leading cells whether or not they continue. Under colour every
+	 * line does, empty columns included: a line that stopped early would
+	 * stop its background with it, and a row whose ground is a ragged
+	 * staircase down the right-hand side reads as a rendering fault rather
+	 * than as one row.
+	 */
+	if (line == 0 || colour)
+		return grid->column_count;
+
+	return last;
+}
+
 static void table_row(const Grid *grid, const int *width,
-                      const char *const *cells, FILE *out)
+                      const char *const *cells, bool colour, size_t index,
+                      FILE *out)
 {
 	const char *rest[GRID_MAX_COLUMNS];
 	bool        more = true;
@@ -521,20 +643,19 @@ static void table_row(const Grid *grid, const int *width,
 		rest[c] = cells[c] ? cells[c] : "";
 
 	for (size_t line = 0; more; line++) {
-		size_t last = 0;
+		size_t last = row_line_columns(grid, rest, line, colour);
 
 		more = false;
 
-		for (c = grid->column_count; c-- > 0; )
-			if (rest[c][0]) {
-				last = c + 1;
-				break;
-			}
-
-		if (line == 0)
-			last = grid->column_count;
-		else if (last == 0)
+		if (last == 0)
 			break;
+
+		/* Every physical line of a wrapped row carries the row's own
+		 * ground, so a row continued over four lines reads as one
+		 * block rather than as four rows of alternating colour. */
+		if (colour)
+			fputs(index % 2 ? SGR_ROW_OTHER : SGR_ROW_FIRST,
+			      out);
 
 		fputs("  ", out);
 		for (c = 0; c < last; c++) {
@@ -542,7 +663,8 @@ static void table_row(const Grid *grid, const int *width,
 			size_t take = table_break(rest[c], (size_t)width[c],
 			                          &skip);
 
-			table_cell(grid, width, c, last, rest[c], take, out);
+			table_cell(grid, width, c, last, rest[c], take,
+			           colour, out);
 
 			rest[c] += take + skip;
 			while (*rest[c] == ' ')
@@ -550,19 +672,25 @@ static void table_row(const Grid *grid, const int *width,
 			if (*rest[c])
 				more = true;
 		}
+		if (colour)
+			fputs(SGR_RESET, out);
 		fputc('\n', out);
 	}
 }
 
 static void grid_render_table(const Grid *grid, FILE *out)
 {
-	int width[GRID_MAX_COLUMNS];
+	int  width[GRID_MAX_COLUMNS];
+	bool colour = table_colour(out);
 
 	table_fit(grid, width, table_limit(out));
 
 	fprintf(out, "\n%s\n", grid->heading);
 
-	table_row(grid, width, grid->columns, out);
+	/* The header is not one of the alternating rows and is not coloured
+	 * with them: it is the legend for the block below it, and giving it a
+	 * ground of its own would make it read as the first row. */
+	table_row(grid, width, grid->columns, false, 0, out);
 
 	fputs("  ", out);
 	for (size_t c = 0; c < grid->column_count; c++) {
@@ -576,7 +704,7 @@ static void grid_render_table(const Grid *grid, FILE *out)
 		table_row(grid, width,
 		          (const char *const *)
 		                  &grid->cells[r * grid->column_count],
-		          out);
+		          colour, r, out);
 }
 
 /* Emit the grid in the requested style, then release it.
@@ -916,8 +1044,18 @@ static int files_section(const Report *report, Style style,
  */
 /* What the report calls a visibility.
  *
+ * **Reported as `public` and `private`.** The column is headed `Scope`, which
+ * is the shorter word, but the values are the ones a reader of any of the
+ * supported languages already has for the idea: `pub` in Rust and a leading
+ * underscore in Python are conventions about a public and a private name, and
+ * C's `static` is how C spells the same intent. What C actually has is
+ * linkage, which is a harder guarantee than a convention and a different
+ * question from C++ class access control — the delivered documentation says
+ * so, because that is a distinction prose can draw and a one-word cell
+ * cannot.
+ *
  * The unknown state is rendered as an em dash rather than left blank or
- * resolved to "public": a language whose module supplies no visibility query
+ * resolved to `public`: a language whose module supplies no visibility query
  * has not been asked, and that is a different claim from having answered
  * (HLR-209).
  */
@@ -940,7 +1078,7 @@ static int functions_section(const Report *report, Style style,
 	char c[32];
 	char d[32];
 	char e[32];
-	char f2[32];
+	char i2[32];
 
 	char where[4096];
 
@@ -960,14 +1098,17 @@ static int functions_section(const Report *report, Style style,
 	 * the question in, and sending them to another table to answer it costs
 	 * more than the repetition does (HLR-007, HLR-014). */
 	static const char *const names[]   = { "File", "Language", "Function",
-	                                       "Visibility", "Lines", "ELOC",
-	                                       "Complexity", "Fan-in",
-	                                       "Fan-out", "MI" };
+	                                       "Scope", "Lines", "ELOC",
+	                                       "CC", "In", "Out",
+	                                       "WTBI", "Burden" };
+	/* The band is a word and is left-aligned with the other words; the
+	 * figure beside it is a number and is not wrapped, since a number
+	 * divided across two lines is not a number (HLR-219). */
 	static const bool        numeric[] = { false, false, false, false,
 	                                       true, true, true, true, true,
-	                                       true };
+	                                       true, false };
 
-	grid_begin(&grid, "Functions", 10, names, numeric);
+	grid_begin(&grid, "Functions", 11, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -982,14 +1123,18 @@ static int functions_section(const Report *report, Style style,
 			snprintf(c, sizeof c, "%" PRIu32, fn->complexity);
 			snprintf(d, sizeof d, "%" PRIu32, fn->fan_in);
 			snprintf(e, sizeof e, "%" PRIu32, fn->fan_out);
-			snprintf(f2, sizeof f2, "%" PRIu32, fn->mi);
+			/* Two decimals: the weights the index is built from
+			 * are quarters and tenths, so two places carry every
+			 * value it can take exactly and no more (HLR-032). */
+			snprintf(i2, sizeof i2, "%.2f", fn->wtbi);
 			/* The absence is rendered as the Files table renders
 			 * it, because the two say the same thing about the
 			 * same file and a reader comparing them should not
 			 * meet two spellings of one blank. */
 			grid_row(&grid, where, f->language ? f->language : "",
 			         fn->name, visibility_name(fn->visibility),
-			         a, b, c, d, e, f2);
+			         a, b, c, d, e, i2,
+			         elc_wtbi_status(fn->wtbi));
 		}
 	}
 	if (grid_render(&grid, style, out, empty) != 0)
@@ -1023,14 +1168,14 @@ static int threshold_listing_section(const Report *report, Style style,
 
 	static const char *const names[]   = { "File", "Function",
 	                                       "Complexity", "Fan-in",
-	                                       "Fan-out", "MI", "Severity" };
+	                                       "Fan-out", "WTBI", "Severity" };
 	static const bool        numeric[] = { false, false, true, true,
 	                                       true, true, false };
 	char                     heading[160];
 
 	snprintf(heading, sizeof heading,
 	         "At or over a threshold (complexity listed at %" PRIu32
-	         "; complexity, fan-in, fan-out and maintainability banded)",
+	         "; complexity, fan-in, fan-out and weighted test burden banded)",
 	         report->complexity_threshold);
 
 	grid_begin(&grid, heading, 7, names, numeric);
@@ -1040,7 +1185,7 @@ static int threshold_listing_section(const Report *report, Style style,
 		snprintf(a, sizeof a, "%" PRIu32, e->function->complexity);
 		snprintf(b, sizeof b, "%" PRIu32, e->function->fan_in);
 		snprintf(c, sizeof c, "%" PRIu32, e->function->fan_out);
-		snprintf(d, sizeof d, "%" PRIu32, e->function->mi);
+		snprintf(d, sizeof d, "%.2f", e->function->wtbi);
 		/* Blank rather than "info" for a function present only
 		 * because it met the listing threshold. `info` is a severity
 		 * and this row has none: printing one would turn a listing
@@ -2058,9 +2203,10 @@ static int image_filter_section(const Report *report, Style style,
  * and repair cannot reach it, because repair does not know the macro *defines*
  * one (HLR-212).
  *
- * **Three columns, and the absence of the other six is the requirement.** The
+ * **Three columns, and the absence of the others is the requirement.** The
  * Functions table carries a visibility, a line count, an ELOC, a complexity,
- * two degrees and a maintainability index, and `elc` has none of them here: it
+ * two degrees and three testing-burden figures, and `elc` has none of them
+ * here: it
  * has a name and a line, from the image, and no body at all. A row with zeroes
  * in those columns would report an absence as a measurement, which is what
  * HLR-133 refuses for an undecidable condition and HLR-138 for a language with

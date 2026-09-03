@@ -164,42 +164,62 @@ resolve by name, a
 helper defined in several files gives the winning definition every caller's
 fan-in and the losers none.
 .PP
-.B The Adapted Maintainability Index
-combines the two degrees above with the function's cyclomatic complexity and
-its effective lines into a single score out of a hundred:
+.B The Weighted Test Burden Index
+estimates what a function costs to put under a unit test on a target with no
+operating system, where that cost is very largely the cost of standing up its
+dependencies \(em every callee becomes a mock, and every mock is written to a
+signature.
 .PP
 .RS 4
-.I "IF = (Fan\-In \(mu Fan\-Out)\(ha2"
-.br
-.I "MI = 171 \- 5.2 ln(IF + 1) \- 0.23 v(G) \- 16.2 ln(ELOC)"
-.br
-.I "MI' = max(0, MI \(di 171 \(mu 100)"
+.I "WTBI = C \(mu (1 + min(Fan\-In, WF\-out))"
 .RE
 .PP
-This is Coleman and Oman's index with one substitution: their third term is
-the logarithm of a function's Halstead Volume, and this one uses the
-information flow through it, so the score falls when a function is entangled
-with its neighbours and not only when it is long or branchy. The one added to
-the information flow keeps a function at either end of the call graph defined
-rather than infinite; a function with no effective lines is taken as having
-one, for the same reason.
+.I C
+is the cyclomatic complexity and
+.I WF\-out
+the
+.BR "weighted fan-out" :
+the sum, over everything the function calls, of a
+.B Mock Burden Score
+computed from the callee's parsed signature. That score is a base mocking tax
+of 0.25, plus 0.00, 0.10 or 0.25 for a
+.BR void ,
+primitive, or pointer-or-struct return, plus 0.10 or 0.25 for each primitive
+or pointer-or-array parameter. Nothing is free: even a leaf needs a symbol
+defined and linked.
 .PP
-A score of 65 or above draws no comment; below 65 is a
+.B The lesser of the two degrees is the point of the formula.
+A function many others call but which itself calls almost nothing \(em a
+logging wrapper, a shared reduction \(em has a large fan-in and a weighted
+fan-out near zero, so its index collapses towards its complexity, which is the
+honest answer: testing it needs no mocks. A function calling a great deal but
+called from one place is the mirror of that. Only a function large in
+.I both
+degrees is charged for both, and that shape is the only one this measurement
+condemns.
+.PP
+The Mock Burden Score and the weighted fan-out are
+.I not
+columns of the report. They are the terms the index is built from, and neither
+is something you act on \(em a score of 0.85 against one callee tells you
+nothing to do, and the sum of such scores tells you less. The report gives you
+the index and its band; both terms stay in the XML record, for a consumer that
+wants to recompute or re\-band them.
+.PP
+An index below 20 draws no comment; 20 or above is a
 .BR warning ,
-and below 55 is
+and 45 or above is
 .BR critical .
-.B These thresholds are elc's own
-and their rows say so. The index is published and so are thresholds for it \(em
-the Software Engineering Institute's 85 and 65 \(em but those were calibrated
-against the Halstead term this adaptation replaces, and carried across
-unchanged they band four functions in five. A citation is not transitive:
-adapting a metric does not inherit the thresholds drawn for the original.
+.B These bounds are elc's own
+and their rows say so. Unlike the index above it there is not even a published
+figure that had to be rejected: the measurement is
+.BR elc 's
+and no calibration for it exists anywhere.
 .PP
-It is the only measurement
-.B elc
-reports where the
-.I low
-value is the bad one.
+A language module supplying no
+.I signature.scm
+scores every function at the base tax alone, so the index then rests on
+complexity and fan-in and never on what a callee costs to mock.
 .PP
 .B Recursion
 is detected statically, direct and mutual alike, in accordance with MISRA C
@@ -554,8 +574,8 @@ The columns are the ones the
 table of a human\-readable report carries, in its order:
 .IP
 .EX
-file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
-/src/a.c:12,c,measure,public,9,4,2,3,1,84
+file,language,function,scope,lines,eloc,cc,in,out,wtbi,burden
+/src/a.c:12,c,measure,public,9,4,2,3,1,6.00,healthy
 .EE
 .IP
 .B file
@@ -1144,7 +1164,7 @@ Exactly three thresholds are
 .BR elc 's
 own rather than published standards \(em the bottleneck of
 .BR \-\-bottleneck\-threshold ,
-the fan-in band, and the maintainability bands \(em and their rows say so where
+the fan-in band, and the testing-burden bands \(em and their rows say so where
 they are read. That label is what lets a reader tell a standard from a
 choice.
 .PP
@@ -1208,17 +1228,29 @@ path is absolute: a relative one would resolve against whatever directory the
 reader's terminal happens to be in, which is the one thing a navigable
 reference must not depend on.
 .PP
-.B Visibility
+.B Scope
 is
 .B public
 or
-.BR private ,
-and says whether the language exposes the function outside the file or module
-that defines it \(em
+.BR private .
+It has nothing to do with
+.BR \-\-scope ,
+which declares an
+.I execution
+scope \(em a named set of files sharing a memory map, used to find the calls by
+which one reaches another. This column is a property of a symbol rather than of
+a file, and a function reported
+.B public
+is in no declared scope by virtue of it.
+.PP
+The column says whether the language exposes the function outside the file or
+module that defines it \(em
 .B static
 in C and C++,
 .B pub
-in Rust, a leading underscore in Python. These are not the same kind of fact.
+in Rust, a leading underscore in Python. These are not the same kind of fact,
+and the two words do not claim they are: what C has is linkage rather than an
+access rule, which the paragraph below sets out.
 C and C++ report
 .IR linkage ,
 which is a harder guarantee than Python's convention and a different question
@@ -1395,7 +1427,7 @@ Files
   /home/u/proj/src/a.c  c            18    12          2
   /home/u/proj/src/b.c  c            24     6          1
 
-At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and maintainability banded)
+At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and testing burden banded)
   File                  Function  Complexity  Fan-in  Fan-out  MI  Severity
   --------------------  --------  ----------  ------  -------  --  --------
   /home/u/proj/src/a.c  parse              7       1        2  62
@@ -1433,8 +1465,8 @@ the functions are in view.
 There is
 .I one
 per-function table. Its columns are the function's line range, its effective
-lines, its cyclomatic complexity, its two degrees, and its Adapted
-Maintainability Index. Earlier releases split
+lines, its cyclomatic complexity, its two degrees, and its Weighted Test
+Burden Index with the band beside it. Earlier releases split
 these across three tables enumerating the same functions in the same order,
 which was three places to look to answer one question about one function.
 .PP
@@ -1597,8 +1629,8 @@ the tiers the aligned table also holds back until then:
 .RS
 .IP \(bu 2
 Functions \(em one row per analysed function, carrying its line range, ELOC,
-cyclomatic complexity, fan\-in, fan\-out and its Adapted Maintainability
-Index.
+cyclomatic complexity, fan\-in, fan\-out, and its Weighted Test Burden Index
+with the band beside it.
 .IP \(bu 2
 Recursion, the deepest call chain, component coupling, component dependency
 cycles, and layering \(em the measurements taken over the dependence graph,
@@ -1917,7 +1949,7 @@ Such a function is reported, on a filtered run, under
 .B Functions the image places that the parse did not reach
 \(em with its name and its location, and with no figure of any kind beside it.
 .B elc
-has no body for it, so it has no ELOC, no complexity, no maintainability index
+has no body for it, so it has no ELOC, no complexity, no testing burden
 and no call sites, and reporting a zero for any of those would state an absence
 as a measurement. For the same reason such a function enters no call graph, is
 counted in no total, and is named by no threshold; a call

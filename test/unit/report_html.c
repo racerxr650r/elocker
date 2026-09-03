@@ -962,3 +962,93 @@ Test(report_html, pointing_at_a_function_lights_the_calls_it_takes_part_in)
 	free(page);
 	scene_free(&s);
 }
+
+/* --------------------------------------------------- the testing burden --
+ *
+ * The page is given the *decision*, not the bounds. Emitting the index and
+ * letting the stylesheet compare it against 20 and 45 would put the
+ * thresholds in a second place, in a script, where nothing checks them
+ * against the catalogue that decided the text report's finding — and the two
+ * would disagree the first time a bound moved (LLR-CYT-06).
+ */
+
+/* Set the burden figures on the function of `report` whose name is `name`. */
+static void set_burden(Report *report, const char *name, double mbs,
+                       double wtbi)
+{
+	for (size_t i = 0; i < report->file_count; i++) {
+		FileMetrics *f = report->files[i];
+
+		for (size_t j = 0; j < f->function_count; j++)
+			if (strcmp(f->functions[j].name, name) == 0) {
+				f->functions[j].mock_burden = mbs;
+				f->functions[j].wtbi         = wtbi;
+				return;
+			}
+	}
+	cr_assert_fail("no function named %s", name);
+}
+
+/* Verifies LLR-CYT-06: all three fields reach the node's `data` object. */
+Test(report_html, a_function_node_carries_the_index_and_its_band)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page, *payload, *node;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	set_burden(&s.report, "app_fn", 0.85, 21.5);
+	page    = page_of(&s.report, &s.graph, &opts);
+	payload = payload_of(page);
+
+	node = element_with(payload, "app_fn");
+	cr_assert_not_null(strstr(node, "\"wtbi\":21.5"),
+	                   "the index was not carried: %s", node);
+	cr_assert_not_null(strstr(node, "\"wtbi_status\":\"warning\""),
+	                   "the band was not carried: %s", node);
+	free(node);
+
+	free(page);
+	scene_free(&s);
+}
+
+/* Verifies LLR-CYT-06: the string is the band the catalogue would decide, on
+ * both sides of both bounds — so a page cannot colour a node differently from
+ * the way the report describes it. */
+Test(report_html, the_status_string_agrees_with_the_band_the_catalogue_decided)
+{
+	static const struct {
+		double      wtbi;
+		const char *status;
+	} CASES[] = {
+		{  0.0, "healthy"  },
+		{ 19.9, "healthy"  },   /* under the warning bound        */
+		{ 20.0, "warning"  },   /* exactly on it, and inclusive   */
+		{ 44.9, "warning"  },   /* under the critical bound       */
+		{ 45.0, "critical" },   /* exactly on it, and inclusive   */
+	};
+
+	for (size_t i = 0; i < sizeof CASES / sizeof *CASES; i++) {
+		Scene       s;
+		ElcOptions  opts = { 0 };
+		char       *page, *payload, *node;
+		char        needle[64];
+
+		scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+		set_burden(&s.report, "app_fn", 0.25, CASES[i].wtbi);
+		page    = page_of(&s.report, &s.graph, &opts);
+		payload = payload_of(page);
+
+		snprintf(needle, sizeof needle, "\"wtbi_status\":\"%s\"",
+		         CASES[i].status);
+		node = element_with(payload, "app_fn");
+		cr_assert_not_null(strstr(node, needle),
+		                   "%.1f should be %s, and the node said: %s",
+		                   CASES[i].wtbi, CASES[i].status, node);
+		cr_assert_str_eq(elc_wtbi_status(CASES[i].wtbi), CASES[i].status,
+		                 "the page and the catalogue must agree");
+		free(node);
+		free(page);
+		scene_free(&s);
+	}
+}

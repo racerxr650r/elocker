@@ -349,10 +349,15 @@ below is an analysis over that graph.
 
 ### 7.2 Out of Scope
 
-*   Per-function metrics other than ELOC and cyclomatic complexity —
-    Halstead measures, cognitive complexity, maintainability index,
-    and duplication detection. (Coupling *is* in scope, but as a
-    property of the graph rather than of a function; see §7.1.)
+*   Per-function metrics measuring a function *in isolation*, beyond
+    ELOC and cyclomatic complexity — Halstead measures, cognitive
+    complexity, maintainability index, and duplication detection.
+    (Coupling *is* in scope, but as a property of the graph rather
+    than of a function; see §7.1. A figure derived from a function's
+    place in that graph — the Weighted Test Burden Index, and the
+    mocking cost and weighted degree it is built from — is therefore
+    in scope and is reported per function: what it measures is the
+    entanglement, and the function is only where it is attributed.)
 *   Aggregation of line and complexity totals between the file and
     whole-project levels: no per-directory, per-module, per-class, or
     per-package ELOC rollups. (The project-wide total in §7.1 is the
@@ -429,7 +434,7 @@ below is an analysis over that graph.
 | **Provable dead code** | Functions reported as unreachable are unreachable by graph reachability from the declared entry points and from every address-taken function — never a heuristic guess, never fooled by dead functions that call one another, and never claiming a callback or interrupt handler is dead merely because nothing calls it directly. |
 | **Determinism** | Repeated runs over the same tree produce byte-identical output. |
 | **Coverage** | Every requirement in [HLRs.md](HLRs.md) and [LLRs.md](LLRs.md) is bound to at least one test in [STP.md](STP.md), per [Traceability.md](Traceability.md). Coverage gaps are documented, not silent. |
-| **Self-quality** | `elc` run against its own source reports no function exceeding a cyclomatic complexity of 15, and no critical finding from a band other than recursion, fan-out and maintainability. Two debts are recorded rather than gated: some sixty functions sit in §A.3's warning band between 11 and 15, and sixteen fall below §A.6's critical maintainability score — four of those being the artefact §A.6 describes, three from routing every diagnostic through one function and one from routing every name comparison through one reduction, which HLR-200 requires. The second is ratcheted — it may fall but not rise. Both are new bands meeting old code, and clearing them is a refactor of the source tree rather than a step in the phase that drew them. |
+| **Self-quality** | `elc` run against its own source reports no function exceeding a cyclomatic complexity of 15, and no critical finding from a band other than recursion and fan-out. One debt is recorded rather than gated: some sixty functions sit in §A.3's warning band between 11 and 15, and seventy-odd sit in the warning band of the Testing Burden Index. No function is in that index's critical band, and that figure is ratcheted at zero — it may not rise. A warning band meeting old code is cleared by a refactor of the source tree rather than by a step in the phase that drew it. |
 
 ## 9. Roadmap Themes
 
@@ -647,61 +652,3 @@ single function*.
     disconnected domains, it is flagged as a **hidden channel**:
     dangerous temporal coupling in which the order of function
     execution silently dictates system stability.
-
-### A.6 Adapted Maintainability Index
-
-Sections A.2 and A.3 measure two properties separately, and effective
-lines of code a third. None of them answers the question a maintainer
-actually asks, which is *how hard will this be to change*. Coleman and
-Oman's Maintainability Index combines size, branching and vocabulary
-into one score; `elc` reports an **adaptation** of it, substituting the
-information flow through a function for its Halstead Volume:
-
-```text
-IF  = (Fan-In × Fan-Out)²
-MI  = 171 − 5.2 ln(IF + 1) − 0.23 v(G) − 16.2 ln(ELOC)
-MI′ = max(0, MI ÷ 171 × 100)
-```
-
-The one added to the information flow keeps a function at either end of
-the call graph defined rather than infinite; a function with no
-effective lines is taken as having one, for the same reason. The
-normalisation puts the figure on a 0–100 scale so a monolith reports a
-floor rather than a negative score.
-
-| Range | Interpretation |
-| ----- | -------------- |
-| 65–100 | No finding. |
-| < 65 | **Warning** — moderate structural risk. |
-| < 55 | **Critical** — a rigid, fragile monolith. |
-
-**These thresholds are `elc`'s own, and the reason is worth stating
-plainly.** The index is published and so are thresholds for it — the
-Software Engineering Institute's 85 and 65. But those were calibrated
-against the Halstead term this adaptation replaces. Dropping that term
-removes some thirty to forty-five points of range, and the
-normalisation above rescales what remains; carried across unchanged,
-the published numbers put four functions in five into a band, which is
-a measurement that has stopped discriminating. So the bands here are
-drawn for the adapted formula, and they carry the *elc heuristic — not
-a published standard* label rather than a citation.
-
-**A citation is not transitive.** Adapting a metric does not inherit
-the thresholds calibrated for the original, and saying otherwise would
-put an opinion of `elc`'s own under someone else's name — which is the
-one thing this appendix exists to prevent.
-
-This is also the only measurement in the appendix where the *low* value
-is the bad one.
-
-Two properties of the adapted formula are worth stating, because a
-reader who does not know them will misread a figure rather than merely
-fail to act on it. The information-flow term squares the product of the
-degrees, so **a small, simple function that many others call scores
-badly for being widely shared** — good factoring reads as fragility.
-And because a library call cannot be resolved into the call graph while
-a call to your own function can, **centralising something lowers the
-score of every caller** while leaving the code simpler than it was.
-Both are properties of the metric rather than defects to be corrected,
-and both are reasons a low score is a question worth asking rather than
-a verdict.

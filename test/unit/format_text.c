@@ -572,9 +572,9 @@ Test(format_text, the_function_table_carries_the_degrees_beside_the_metrics)
 
 	header = strstr(out, "\nFunctions\n");
 	cr_assert_not_null(header);
-	cr_assert_not_null(strstr(header, "Fan-in"));
-	cr_assert_not_null(strstr(header, "Fan-out"));
-	cr_assert_not_null(strstr(header, "Complexity"));
+	cr_assert_not_null(strstr(header, "In"));
+	cr_assert_not_null(strstr(header, "Out"));
+	cr_assert_not_null(strstr(header, "CC"));
 
 	/* And the tables the figures used to live in are gone, not merely
 	 * moved: two tables listing the same functions are two chances to

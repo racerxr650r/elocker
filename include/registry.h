@@ -44,6 +44,7 @@ typedef enum {
 	QUERY_DEADCODE = QUERY_REQUIRED_COUNT, /* optional (HLR-139) */
 	QUERY_CONDITIONALS,                    /* optional (HLR-134) */
 	QUERY_VISIBILITY,                      /* optional (HLR-209) */
+	QUERY_SIGNATURE,                       /* optional (HLR-221) */
 	QUERY_COUNT
 } QueryKind;
 

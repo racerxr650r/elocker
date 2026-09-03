@@ -98,7 +98,7 @@ setup() {
 	header="$(awk '/^Functions$/ { f = 1; next }
 	               f && $1 == "File" { print $1, $2, $3, $4; exit }' \
 	          <<<"$output")"
-	assert_equal "$header" "File Language Function Visibility"
+	assert_equal "$header" "File Language Function Scope"
 }
 
 @test "HLR-033: functions are presented in start-line order" {

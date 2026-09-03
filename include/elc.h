@@ -108,26 +108,51 @@ typedef struct {
 #define ELC_COMPLEXITY_WARNING  10u
 #define ELC_COMPLEXITY_CRITICAL 15u
 
-/* The Adapted Maintainability Index bands (HLR-192), and **the third
- * threshold `elc` invented**.
+/* The Mock Burden Score weights (HLR-221), and the Testing Burden bands
+ * (HLR-224) — **the third and fourth thresholds `elc` invented**.
  *
- * The index itself is Coleman and Oman's, adapted: their third term is the
- * logarithm of a function's Halstead Volume, and this one substitutes the
- * information flow through it (HLR-191). That substitution is what makes the
- * bands `elc`'s own rather than inherited. The figures usually quoted with
- * the Maintainability Index — 85 and 65, from the Software Engineering
- * Institute — were calibrated for the *unadapted* formula on its own 0-171
- * scale, and neither half of that survives here: replacing the Halstead term
- * removes some thirty to forty-five points of range, and the normalisation of
- * HLR-191 then rescales what is left. Carrying those numbers across
- * unchanged would flag four functions in five, which is a measurement that
- * has stopped discriminating.
+ * The base tax is charged to every analysed function: on a target with no
+ * operating system, even a mock that does nothing is a symbol that has to be
+ * defined and linked, so nothing is free. The return and parameter weights
+ * charge what a mock must *decide* — nothing for a `void` return, a scalar
+ * for a primitive one, and storage that outlives the call for a pointer or an
+ * aggregate.
  *
- * So the bands below are drawn for the adapted formula, and the catalogue row
- * says whose they are. **Lower is worse here**, which no other row in the
- * catalogue is: a value strictly *below* the bound falls in the band. */
-#define ELC_MI_WARNING         65u  /* below this, moderate structural risk */
-#define ELC_MI_CRITICAL        55u  /* below this, a rigid monolith         */
+ * The weights live here and the *kinds* live in `signature.scm`. That split
+ * is what lets LLR-MBS-02 say the binary holds no language knowledge: this
+ * header knows that an aggregate costs 0.25 and knows nothing whatever about
+ * which C spellings are aggregates.
+ *
+ * The bands are `elc`'s own, like the two above them, and for a sharper
+ * reason: the index is unpublished, so there is no calibration anywhere to
+ * borrow — not even a published figure that had to be rejected, which is what
+ * the Adapted Maintainability Index had before it was retired. */
+#define ELC_MBS_BASE_TAX        0.25
+#define ELC_MBS_RETURN_VOID     0.00
+#define ELC_MBS_RETURN_PRIM     0.10
+#define ELC_MBS_RETURN_AGG      0.25
+#define ELC_MBS_PARAM_PRIM      0.10
+#define ELC_MBS_PARAM_AGG       0.25
+
+#define ELC_WTBI_WARNING        20.0  /* at or above, heavier mock management */
+#define ELC_WTBI_CRITICAL       45.0  /* at or above, refactoring indicated   */
+
+/* The band a Testing Burden Index falls in, as the string the report prints
+ * and the interactive payload carries (HLR-224, HLR-225).
+ *
+ * Tested downwards so that an index at the critical bound yields one band and
+ * not two, and defined once here so that the text report, the record and the
+ * drawing are given the same decision rather than each comparing the bounds
+ * again (LLR-CYT-06).
+ */
+static inline const char *elc_wtbi_status(double wtbi)
+{
+	if (wtbi >= ELC_WTBI_CRITICAL)
+		return "critical";
+	if (wtbi >= ELC_WTBI_WARNING)
+		return "warning";
+	return "healthy";
+}
 
 /* The fan-in band (HLR-186), and **the second threshold `elc` invented**.
  *
@@ -422,15 +447,27 @@ typedef struct {
 	 * HLR-156). */
 	uint32_t  fan_in;
 	uint32_t  fan_out;
-	/* The Adapted Maintainability Index, 0-100 (HLR-191).
+	/* What this function costs to replace with a mock (HLR-221).
 	 *
-	 * Derived from the four fields above it rather than measured, and
-	 * derived *here* rather than at render time, so that the figure the
-	 * report prints and the figure `thresholds.c` banded are the same
-	 * one. Filled by `report_attach_flow` with the degrees, since three
-	 * of its four inputs are known before the graph is built and the
-	 * fourth is not. */
-	uint32_t  mi;
+	 * A property of the function's own signature and of nothing else, so
+	 * unlike the degrees above it this one *is* known from one file's
+	 * syntax and is filled here, by `analyze.c`, as the function is
+	 * extracted. It is the callee's figure: what a caller pays is the sum
+	 * of this field over everything it calls, which is `wf_out`.
+	 *
+	 * Never zero for an analysed function — the base mocking tax is
+	 * charged to every one of them — so zero means "not measured", which
+	 * is what a function recovered from debug information rather than
+	 * parsed reports (HLR-171). */
+	double    mock_burden;
+	/* The weighted fan-out and the Testing Burden Index formed from it
+	 * (HLR-222, HLR-223). Both are properties of the whole-project graph,
+	 * so both are zero until `report_attach_flow` runs, exactly as the
+	 * degrees above are — and for `wf_out` zero is also the measured value
+	 * for a function that calls nothing resolvable, the two being
+	 * indistinguishable here for the same reason and by the same rule. */
+	double    wf_out;
+	double    wtbi;
 } FunctionMetric;
 
 /* One function the source defines and the linked image does not (HLR-143).
@@ -609,7 +646,6 @@ typedef enum {
 	MEASURE_FAN_OUT = 0,       /* per function   (HLR-086)  */
 	MEASURE_FAN_IN,            /* per function   (HLR-186)  */
 	MEASURE_COMPLEXITY,        /* per function   (HLR-185)  */
-	MEASURE_MAINTAINABILITY,   /* per function   (HLR-192)  */
 	MEASURE_CALL_DEPTH,        /* per project    (HLR-087)  */
 	MEASURE_RECURSION,         /* per cycle      (HLR-089)  */
 	MEASURE_COMPONENT_CYCLE,   /* per cycle      (HLR-083)  */
@@ -618,6 +654,7 @@ typedef enum {
 	MEASURE_INSTABILITY,       /* per component  (HLR-082)  */
 	MEASURE_BOTTLENECK,        /* per component  (HLR-081)  */
 	MEASURE_MISRA_LIBRARY,     /* per call site  (HLR-207)  */
+	MEASURE_WEIGHTED_TEST_BURDEN,    /* per function   (HLR-224)  */
 	MEASURE_KIND_COUNT
 } MeasurementKind;
 

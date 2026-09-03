@@ -356,8 +356,63 @@ static int append_files(json_t *elements, const Sdg *g, const size_t *stratum,
  * equivalent to short-circuiting on the one path where they differ — an
  * allocation failure, after which the whole document is discarded anyway.
  */
+/* The report's record of the function this node stands for, or NULL.
+ *
+ * Matched on the definition site — file and start line — rather than on the
+ * name, because a name is not unique across translation units and a `static`
+ * helper repeated in three files would otherwise take the first one's figures
+ * (HLR-075, LLR-BLD-25).
+ */
+static const FunctionMetric *metric_for(const Report *r, const SdgNode *n)
+{
+	if (!r || !n->file)
+		return NULL;
+
+	for (size_t i = 0; i < r->file_count; i++) {
+		const FileMetrics *f = r->files[i];
+
+		if (!f->path || strcmp(f->path, n->file) != 0)
+			continue;
+
+		for (size_t j = 0; j < f->function_count; j++)
+			if (f->functions[j].start_line == n->line_start)
+				return &f->functions[j];
+	}
+
+	return NULL;
+}
+
+/* The testing-burden fields of one function node (HLR-225, LLR-CYT-06).
+ *
+ * **The band is carried as the string the C already decided**, not as the
+ * bounds for the page to compare against. Emitting the index and letting the
+ * stylesheet test it against 20 and 45 would put the thresholds in a second
+ * place — in a script, where nothing checks them against the catalogue that
+ * decided the text report's finding — and the two would disagree the first
+ * time a bound moved. That is the disagreement HLR-149 refuses between two
+ * spellings of a format, arriving between two spellings of a threshold.
+ *
+ * A node with no record — one recovered from debug information rather than
+ * parsed (HLR-171) — carries no burden fields at all rather than zeroed ones,
+ * since a zero here would draw as "healthy" and claim a measurement that was
+ * never taken.
+ */
+static int burden_fields(json_t *data, const Report *r, const SdgNode *n)
+{
+	const FunctionMetric *fn = metric_for(r, n);
+	int                   rc = 0;
+
+	if (!fn)
+		return 0;
+
+	rc |= set_new(data, "wtbi", json_real(fn->wtbi));
+	rc |= set_new(data, "wtbi_status", json_string(elc_wtbi_status(fn->wtbi)));
+	return rc;
+}
+
 static int function_fields(json_t *data, const SdgNode *n, size_t index,
-                           size_t component_count, const Annotation *a)
+                           size_t component_count, const Annotation *a,
+                           const Report *r)
 {
 	char id[64], parent[64];
 	int  rc = 0;
@@ -374,6 +429,7 @@ static int function_fields(json_t *data, const SdgNode *n, size_t index,
 	rc |= set_new(data, "complexity",
 	              json_integer((json_int_t)n->complexity));
 	rc |= annotation_fields(data, a);
+	rc |= burden_fields(data, r, n);
 
 	/* Unreachable by construction, and handled rather than asserted: the
 	 * failure it would otherwise produce is a `parent` naming a node that
@@ -390,7 +446,7 @@ static int function_fields(json_t *data, const SdgNode *n, size_t index,
 }
 
 static int append_functions(json_t *elements, const Sdg *g,
-                            const Annotation *nodes)
+                            const Annotation *nodes, const Report *r)
 {
 	for (size_t i = 0; i < g->node_count; i++) {
 		json_t *data = append_element(elements);
@@ -398,7 +454,7 @@ static int append_functions(json_t *elements, const Sdg *g,
 		if (!data)
 			return -1;
 		if (function_fields(data, &g->nodes[i], i, g->component_count,
-		                    nodes ? &nodes[i] : NULL) != 0)
+		                    nodes ? &nodes[i] : NULL, r) != 0)
 			return -1;
 	}
 	return 0;
@@ -517,7 +573,7 @@ done:
  *
  * Gathered as one thing because each is derived from the same pair — the
  * graph and the report — and threading six of them separately through the
- * assembly is what put it below the maintainability band `elc` holds its own
+ * assembly is what put it over the testing-burden band `elc` holds its own
  * source to (LLR-BLD-23). The band is computed over the information flowing
  * through a function's interface (HLR-191), so this is the shape of that
  * measurement rather than a cosmetic tidy.
@@ -574,7 +630,7 @@ static int append_tiers(json_t *elements, const Sdg *g, const Report *r,
 {
 	if (append_layers(elements, opts) != 0 ||
 	    append_files(elements, g, d->stratum, d->comps, d->drawn) != 0 ||
-	    append_functions(elements, g, d->nodes) != 0 ||
+	    append_functions(elements, g, d->nodes, r) != 0 ||
 	    append_edges(elements, g, d->chain, r->deepest_count) != 0)
 		return -1;
 	return 0;

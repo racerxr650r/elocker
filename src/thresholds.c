@@ -50,11 +50,13 @@
  * translated from its source would be a catalogue nobody could check against
  * it.
  *
- * One row runs the other way and says so in its `inverted` flag: the
- * Maintainability Index is a score, and a value strictly *below* its bound
- * falls in the band. The flag is what keeps the numbers in this table
- * readable as the numbers a reader is looking for rather than as their
- * complements.
+ * No row runs the other way today. The `inverted` flag stays, because a
+ * measurement whose *low* value is the bad one is a shape this catalogue must
+ * be able to hold — the Adapted Maintainability Index was one until it was
+ * retired, and the flag is what kept its bounds readable as the numbers a
+ * reader was looking for rather than as their complements. Keeping it is the
+ * difference between a catalogue that can be extended for the next such
+ * measurement and one that has to be rewritten for it.
  */
 static const Threshold CATALOGUE[] = {
 	/* Fan-out: 0–2 below healthy, 3–7 healthy, 8–10 acceptable, all
@@ -88,18 +90,30 @@ static const Threshold CATALOGUE[] = {
 	  ELC_COMPLEXITY_WARNING, ELC_COMPLEXITY_CRITICAL,
 	  false, SEVERITY_INFO, false, "McCabe (NIST SP 500-235)", false },
 
-	/* Maintainability: **the third row `elc` invented**, and the only one
-	 * that runs downwards. Coleman and Oman's index with the information
-	 * flow through a function substituted for its Halstead Volume, so the
-	 * formula is an adaptation and the bands drawn for the original no
-	 * longer fit it — the Software Engineering Institute's 85 and 65 were
-	 * calibrated against a term this formula does not have, and carrying
-	 * them across would flag four functions in five. These two are drawn
-	 * for the adapted formula, which makes them a judgement rather than a
-	 * citation (HLR-192, HLR-099). */
-	{ MEASURE_MAINTAINABILITY, "maintainability",
-	  ELC_MI_WARNING, ELC_MI_CRITICAL,
-	  true, SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
+		/* Testing burden: `elc`'s own, and with no calibration anywhere to
+	 * borrow — the index is unpublished, so unlike the Adapted
+	 * Maintainability Index this replaced, there is not even a published
+	 * figure that had to be rejected. Twenty is
+	 * where a mock suite stops being incidental to writing the test, and
+	 * forty-five is where isolating the function costs more than the test
+	 * is worth. Both are judgements and the row says so (HLR-224, HLR-099).
+	 *
+	 * **Higher is worse here**, unlike the row above it, so this one is
+	 * not inverted. The two sit adjacent in this catalogue reading in
+	 * opposite directions, which is exactly why `inverted` is a field
+	 * rather than a convention. */
+	/* **The bounds are one below the requirement's, and derived rather
+	 * than written.** HLR-224 states them inclusively — a warning *at* 20
+	 * and critical *at* 45 — while `band_of` tests a non-inverted row with
+	 * a strict `>`, so a row's bound is the highest acceptable value. For
+	 * the whole numbers this catalogue compares, `wtbi >= 20` and
+	 * `trunc(wtbi) > 19` are the same set. Subtracting here keeps the
+	 * requirement's own figures as the only place 20 and 45 are written:
+	 * spelling 19 and 44 as literals would be a second statement of the
+	 * bands that could drift from the first. */
+	{ MEASURE_WEIGHTED_TEST_BURDEN, "weighted test burden",
+	  (uint32_t)ELC_WTBI_WARNING - 1, (uint32_t)ELC_WTBI_CRITICAL - 1,
+	  false, SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
 
 	/* Depth: an embedded constraint rather than a numbered rule. Beyond 8
 	 * to 12 layers the stack risks colliding with the heap on a target
@@ -460,50 +474,6 @@ static int apply_complexity(const Sdg *g, FindingList *out)
 	return 0;
 }
 
-/* The Adapted Maintainability Index, banded downwards.
- *
- * The value comes from `calltree_maintainability`, which is also what fills
- * the report's own column — one definition of the formula, so the score a
- * finding names and the score the table prints cannot disagree (HLR-191).
- *
- * Read off the graph's nodes and the call-tree results together, because the
- * index needs all four: length and branching from the node table, the two
- * degrees from the analysis over it.
- *
- * The detail states the figure and the scale it is out of, and stops there.
- * What a low score warrants is the reader's judgement, not `elc`'s
- * (HLR-101).
- */
-static int apply_maintainability(const TreeResults *tree, const Sdg *g,
-                                 FindingList *out)
-{
-	const Threshold *t = thresholds_lookup(MEASURE_MAINTAINABILITY);
-
-	if (!t || !tree->fan_in || !tree->fan_out)
-		return 0;
-
-	for (size_t i = 0; i < tree->node_count && i < g->node_count; i++) {
-		Severity severity;
-		char     detail[64];
-		uint32_t mi = calltree_maintainability(g->nodes[i].eloc,
-		                                       g->nodes[i].complexity,
-		                                       tree->fan_in[i],
-		                                       tree->fan_out[i]);
-
-		if (!band_of(t, mi, &severity))
-			continue;
-
-		snprintf(detail, sizeof detail,
-		         "maintainability index %" PRIu32 " of 100", mi);
-		if (finding_add(out, MEASURE_MAINTAINABILITY, severity,
-		                g->nodes[i].name, g->nodes[i].file,
-		                g->nodes[i].line_start, detail) != 0)
-			return -1;
-	}
-
-	return 0;
-}
-
 static int apply_depth(const TreeResults *tree, FindingList *out)
 {
 	const Threshold *t = thresholds_lookup(MEASURE_CALL_DEPTH);
@@ -752,12 +722,56 @@ static int apply_bottlenecks(const ArchResults *arch, const Sdg *g,
 }
 
 /* The catalogue rows read off the call-tree results. */
+/* The Testing Burden Index, banded upwards (HLR-224, LLR-THR-20).
+ *
+ * The value comes from `calltree_burden`, which is also what fills the
+ * report's own column — one definition of the formula, so the score a finding
+ * names and the score the table prints cannot disagree (HLR-223).
+ *
+ * **The index is truncated, not rounded, before it meets the bounds**, and the
+ * direction is load-bearing rather than incidental. Both bounds are inclusive
+ * lower bounds, so truncation is the reduction that preserves them: 44.6
+ * truncates to 44 and stays a warning, where rounding would carry it to 45 and
+ * report a critical finding against a function that is not one. The catalogue
+ * holds whole numbers because every other measurement in it is a count, and
+ * this is the conversion that lets a fractional measurement join them without
+ * the row having to grow a second pair of bounds.
+ */
+static int apply_weighted_test_burden(const TreeResults *tree, const Sdg *g,
+                                FindingList *out)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_WEIGHTED_TEST_BURDEN);
+
+	if (!t || !tree->fan_in || !tree->wf_out)
+		return 0;
+
+	for (size_t i = 0; i < tree->node_count && i < g->node_count; i++) {
+		Severity severity;
+		char     detail[80];
+		double   wtbi = calltree_burden(g->nodes[i].complexity,
+		                               tree->fan_in[i],
+		                               tree->wf_out[i]);
+
+		if (!band_of(t, (uint32_t)wtbi, &severity))
+			continue;
+
+		snprintf(detail, sizeof detail,
+		         "weighted test burden %.2f", wtbi);
+		if (finding_add(out, MEASURE_WEIGHTED_TEST_BURDEN, severity,
+		                g->nodes[i].name, g->nodes[i].file,
+		                g->nodes[i].line_start, detail) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
 static int apply_calltree_rows(const TreeResults *tree, const Sdg *g,
                                FindingList *out)
 {
 	return (apply_fan_out(tree, g, out) != 0 ||
 	        apply_fan_in(tree, g, out) != 0 ||
-	        apply_maintainability(tree, g, out) != 0 ||
+	        apply_weighted_test_burden(tree, g, out) != 0 ||
 	        apply_depth(tree, out) != 0 ||
 	        apply_recursion(tree, g, out) != 0) ? -1 : 0;
 }

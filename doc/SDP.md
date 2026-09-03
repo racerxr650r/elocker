@@ -74,6 +74,7 @@ release readiness — is ready to start, and is the last.
 | [30](#phase-30--deciding-conditionals-from-the-build-and-recovering-macro-generated-functions) | Conditional regions decided from the image, functions recovered from its debug information, CSV columns matched to the table | ✅ Complete |
 | [31](#phase-31--interactive-html-reporting--semantic-zooming) | The `.html` report format: layers containing files containing functions, opened collapsed | ✅ Complete |
 | [32](#phase-32--the-terminal-report-and-the-10-release) | The terminal report: three tiers, 128 columns, and `v1.0.0` | ✅ Complete |
+| [33](#phase-33--automated-weighted-test-burden-index-wtbi) | Mock Burden Score from parsed signatures, weighted fan-out, and the Testing Burden Index replacing the Adapted Maintainability Index | ✅ Complete |
 
 ## 0. Required Tools for Development
 
@@ -645,7 +646,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 1
 from §8.
 ```
@@ -700,7 +701,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 2
 from §8.
 ```
@@ -763,7 +764,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 3
 from §8.
 ```
@@ -825,7 +826,7 @@ Phase 8:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 4
 from §8.
 ```
@@ -871,7 +872,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 5
 from §8.
 ```
@@ -925,7 +926,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 6
 from §8.
 ```
@@ -973,7 +974,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 7
 from §8.
 ```
@@ -1024,7 +1025,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 8
 from §8.
 ```
@@ -1087,7 +1088,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 9
 from §8.
 ```
@@ -1143,7 +1144,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 10
 from §8.
 ```
@@ -1230,7 +1231,7 @@ And for the intra-procedural half, where the danger is the opposite one:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 11
 from §8.
 ```
@@ -1287,7 +1288,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 12
 from §8.
 ```
@@ -1347,7 +1348,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 13
 from §8.
 ```
@@ -1390,7 +1391,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 14
 from §8.
 ```
@@ -1439,7 +1440,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 15
 from §8.
 ```
@@ -1508,7 +1509,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 16
 from §8.
 ```
@@ -1587,7 +1588,7 @@ Watch for:
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 17
 from §8.
 ```
@@ -1867,7 +1868,7 @@ merely holds.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 19 from §8.
 ```
 
@@ -1956,7 +1957,7 @@ bring it to 152 or below. *(It closed at 151.)*
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 20 from §8.
 ```
 
@@ -2072,7 +2073,7 @@ bring it to 148 or below.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 21 from §8.
 ```
 
@@ -2154,7 +2155,7 @@ HLRs this phase closes must bring it seven lower. Phase 20 left it at 148.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 22 from §8.
 ```
 
@@ -2242,7 +2243,7 @@ HLRs this phase closes must bring it seven lower. Phase 21 left it at 141.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 23 from §8.
 ```
 
@@ -2345,7 +2346,7 @@ phase closes must bring it six lower. Phase 22 left it at 134.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. Close by opening the issue for Phase 24 from §8.
 ```
 
@@ -2473,7 +2474,7 @@ requirement is removed with it.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push. No further phase is specified: in place of step 12, cut a
 release per §5.5, or open the issue for whatever is specified after this one.
 ```
@@ -2582,7 +2583,7 @@ reduction — cover it with a test whatever your reading of the code says.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -2708,7 +2709,7 @@ file that included it is worse than the parse error this phase removes.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -2781,7 +2782,7 @@ than nothing rather than trustworthy.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -2857,7 +2858,7 @@ tables for readers, and the round-trip test will tell you if you forget.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -2972,7 +2973,7 @@ expanded. The 11 ISRs are what deliverable 2 should recover.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -3117,7 +3118,7 @@ opens showing four boxes.
 When the work is done, follow the Phase Execution Protocol in §5.4 —
 including step 6 (updating `doc/Project.xml` with everything this phase
 discovered), step 7 (the manual and man page), step 8's gap-baseline
-update, and step 9's Status update in both `doc/SDP.md` and `README.md`,
+update, and step 9's Status update in `doc/SDP.md`,
 before you push.
 ```
 
@@ -3363,6 +3364,153 @@ alone entirely.
 Then cut the release: §5.5, `v1.0.0`, with the Traceability matrix at the
 tagged commit as its evidence.
 ```
+
+### Phase 33 — Automated Weighted Test Burden Index (WTBI)
+
+Every metric `elc` reports so far answers a question about the code as
+written. This one answers a question about the code as *tested*: what does it
+cost, mechanically, to put this function under a unit test on a target with no
+operating system and no process isolation? On bare metal that cost is almost
+entirely the cost of standing up its dependencies — every function it calls
+must be replaced by a mock, and every mock must be written to a signature.
+
+**Fan-out already counts those dependencies, and counts them all alike.** A
+call to a function taking nothing and returning `void` is one unit of fan-out,
+and so is a call to one taking three pointers and returning a `struct`. The
+first is a mock nobody has to think about; the second has to be written,
+populated, and kept in step with a type. Counting them equally is what makes
+fan-out a proxy for testing cost rather than a measure of it.
+
+**So the phase weights the edge by what the callee costs to mock.** A Mock
+Burden Score is computed for every function from its parsed signature, and a
+function's outgoing call edges are summed *by the score of what they point at*
+rather than counted. That weighted fan-out enters a Testing Burden Index
+alongside cyclomatic complexity, which is the other half of the cost — a mock
+suite is written once per dependency, but a test case is written once per
+path.
+
+#### Deliverables
+
+1.  **A Mock Burden Score per function, from the parse** (HLR-221). A new
+    Tree-sitter query extracts each function's return type, its parameter
+    list, and the pointer and array tokens within them. The score is a fixed
+    sum: a base mocking tax of **0.25**, plus the return contribution — `void`
+    **0.0**, a primitive **0.1**, a pointer or `struct` **0.25** — plus one
+    contribution per parameter, **0.1** for a primitive and **0.25** for a
+    pointer or array. The weights are `elc` heuristics and shall be labelled
+    as such wherever they are published, exactly as HLR-192's bands are.
+
+2.  **Weighted fan-out over the call graph** (HLR-222). For each function,
+    *WF*~out~ is the sum of the Mock Burden Scores of the functions its
+    resolved call edges point at. An unresolvable call contributes nothing,
+    for the same reason it contributes nothing to fan-out today (HLR-077) —
+    and the phase must say so out loud, because it means a project that calls
+    the C library heavily reads as cheaper to test than one that centralises
+    the same calls behind its own wrappers, which is the artefact
+    LLR-BLD-23 recorded twice against the Maintainability Index this phase
+    retires.
+
+3.  **The Testing Burden Index** (HLR-223).
+
+    `TBI = v(G) × (1 + min(Fan-In, WF_out))`
+
+    **The `min` is the whole design and is not a detail of scaling.** A
+    function that many others call but which calls almost nothing — a logging
+    wrapper, a shared reduction — has a large fan-in and a *WF*~out~ near
+    zero, and `min` returns the small one: its burden collapses to its
+    cyclomatic complexity, which is the honest answer, because testing it
+    requires no mocks at all. A function that calls a great deal but is called
+    from one place is a coordinator, and `min` again returns the small
+    one. Only a function that is *both* widely depended upon *and* deeply
+    dependent — the shape a God Object takes — makes both terms large, and
+    that is the only shape this index is meant to condemn.
+
+    That is a deliberate correction of the direction the Adapted
+    Maintainability Index took, whose information-flow term was the *product*
+    of the two degrees and therefore could not tell a widely shared leaf from
+    a hub. **It replaces that index rather than standing beside it** — see
+    deliverable 6.
+
+4.  **Bands, and their status** (HLR-224). **Healthy** below 20, **Warning**
+    at 20 or above, **Critical** at 45 or above. Like every band in
+    Appendix A.6 of the vision, these are `elc`'s own and carry the *elc
+    heuristic — not a published standard* label rather than a citation.
+
+5.  **The scores reach the interactive report** (HLR-225). The JSON payload
+    each function node carries gains `mock_burden`, `tbi`, and a `tbi_status`
+    of `"healthy"`, `"warning"`, or `"critical"`, so the Cytoscape view can
+    colour a node by the band without recomputing anything the C already
+    decided.
+
+6.  **The Adapted Maintainability Index is retired** — from the requirements,
+    from the delivered documents, from the vision's Appendix A.6, and from
+    the code. It was `elc`'s per-function composite and this index replaces
+    it in that role: the `mi` column leaves the table, the CSV and the
+    threshold listing, `calltree_maintainability` and its catalogue row go
+    with it, and the self-analysis ratchet of LLR-BLD-23 is re-based on the
+    testing burden.
+
+    **The reason is the one this phase's own arithmetic makes plain.** The
+    retired index scored `diag_printf` — ten effective lines, complexity two,
+    calling one function — at 51, inside its critical band, and described it
+    as a rigid, fragile monolith. It scored that way for being called from
+    eighty-two places, which is to say for being well factored. The same
+    function scores 2.50 here and is healthy, while `symname_reduce`, which
+    is genuinely entangled at five callers and five callees, moves the other
+    way. Two measurements that disagree about which functions are the
+    problem are not complementary, and keeping both would have meant
+    publishing a number the project had stopped believing.
+
+    The vision's Appendix A.6 goes with it, under the PVD's own rule that a
+    change conflicting with the vision is a signal to update the vision
+    rather than to diverge from it quietly (PVD §10).
+
+#### The two passes, and where they live
+
+**The score is carried on the SDG node, not on an `igraph` vertex attribute**,
+and the reason is the same one this project gives every time a number could be
+stored twice. `Sdg` is the graph; the `igraph` views built in `graph.c` are
+read-only projections of it, created in one shot from a finished `Report` and
+indexed by the same node identifiers. Functions are never "added to `igraph`"
+incrementally, so there is no point in the code where Pass 1 could attach an
+attribute as a function is discovered. Storing the score on the node puts it
+where ELOC, complexity and fan-in already are; storing it on a projection
+would require installing a process-global `igraph` attribute handler that
+every other `igraph` call in `purify.c`, `recover.c` and `arch.c` would then
+run under, in exchange for holding a `double` in a second place.
+
+*   **Pass 1 — the parse.** The signature query runs in the traversal that
+    already extracts each function, and the score is computed and stored on
+    the function's record as it is built. No second traversal of the AST.
+
+*   **Pass 2 — the graph.** `compute_flow` in `calltree.c` already walks every
+    `EDGE_CALL` once to accumulate fan-in and fan-out. *WF*~out~ is one more
+    accumulation in that same loop — `wf_out[e.from] += mbs[e.to]` — so the
+    weighted degree costs one array and no additional traversal.
+
+#### What the signature grammar has to settle
+
+Three cases decide themselves in the implementation if the requirements do not
+decide them first, and each would be a silent difference between two builds:
+
+*   **A variadic `...`** is not a parameter and contributes nothing. It cannot
+    be mocked per-argument, so charging it as one would be arbitrary.
+*   **An empty or `(void)` parameter list** has no parameters and therefore no
+    parameter contribution — a function taking nothing costs the base tax and
+    its return alone.
+*   **A pointer-to-pointer, or a `struct` passed by pointer**, is charged once
+    at the pointer rate. The score is a tax on *kind*, not a count of tokens,
+    and a rate that grew with indirection would make the weights impossible to
+    reason about.
+
+**Acceptance:** `elc src/` reports a Mock Burden Score, a Testing Burden Index
+and a band for every function. A `void f(void)` scores exactly 0.25; a
+`struct S *g(uint8_t a, char *b)` scores 0.25 + 0.25 + 0.1 + 0.25 = 0.85. A
+function with a fan-in of eighty and a *WF*~out~ of zero has a TBI equal to its
+cyclomatic complexity. The `.html` report colours a node by its band, and the
+`tbi_status` string in the payload agrees with the band the text report prints
+for the same function.
+
 
 ## 9. Risks & Open Questions
 

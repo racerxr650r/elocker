@@ -1176,3 +1176,128 @@ Test(analyze, a_language_with_no_dead_code_query_is_unanalysed_not_clean)
 	filefacts_free(facts);
 	registry_close(&reg);
 }
+
+/* ------------------------------------------------- the Mock Burden Score --
+ *
+ * The weights are stated in HLR-221 as exact numbers, so these assert exact
+ * numbers. An ordering assertion — "a pointer costs more than a primitive" —
+ * would pass against a weighting that ranked correctly and put every band
+ * somewhere other than where HLR-224 draws it.
+ *
+ * Compared with a tolerance rather than for equality because the figures are
+ * sums of tenths and quarters in binary floating point: 0.25 + 0.10 is not
+ * exactly 0.35, and a test demanding that it were would be asserting
+ * something about IEEE 754 rather than about the weighting.
+ */
+#define MBS_EPSILON 1e-9
+
+static double burden_of_source(const char *contents, const char *name)
+{
+	Registry              reg;
+	FileMetrics          *m = NULL;
+	const FunctionMetric *fn;
+	double                score;
+
+	registry_for_tests(&reg);
+	cr_assert_eq(analyze_metrics(&reg, source_holding(contents), &m), 0);
+	fn = function_named(m, name);
+	cr_assert_not_null(fn, "%s was not reported", name);
+	score = fn->mock_burden;
+	filemetrics_free(m);
+	registry_close(&reg);
+	return score;
+}
+
+/* Verifies LLR-MBS-01 and LLR-MBS-03: the floor of the scale. */
+Test(analyze, a_void_function_taking_nothing_scores_the_base_tax_alone)
+{
+	cr_assert_float_eq(burden_of_source("void f(void) { }\n", "f"),
+	                   0.25, MBS_EPSILON,
+	                   "a function needing no return decided and no "
+	                   "parameter mocked still costs the base tax");
+}
+
+/* Verifies LLR-MBS-01: the return contribution, across all three kinds. */
+Test(analyze, a_pointer_return_is_charged_more_than_a_primitive_return)
+{
+	const char *src =
+		"struct S { int a; };\n"
+		"void      r_void(void)  { }\n"
+		"int       r_prim(void)  { return 0; }\n"
+		"struct S *r_ptr(void)   { return 0; }\n";
+
+	cr_assert_float_eq(burden_of_source(src, "r_void"), 0.25, MBS_EPSILON);
+	cr_assert_float_eq(burden_of_source(src, "r_prim"), 0.35, MBS_EPSILON);
+	cr_assert_float_eq(burden_of_source(src, "r_ptr"),  0.50, MBS_EPSILON);
+}
+
+/* Verifies LLR-MBS-01: one signature exercising the return contribution and
+ * both parameter rates at once, against the arithmetic written out. */
+Test(analyze, each_parameter_is_charged_by_kind)
+{
+	/* 0.25 base + 0.25 pointer return + 0.10 primitive + 0.25 pointer. */
+	cr_assert_float_eq(burden_of_source(
+		"struct S { int a; };\n"
+		"struct S *g(int a, char *b) { (void)a; (void)b; return 0; }\n",
+		"g"), 0.85, MBS_EPSILON);
+}
+
+/* Verifies LLR-MBS-03: a variadic ellipsis cannot be mocked per-argument, so
+ * charging it as a parameter would be arbitrary. This is the shape of the
+ * logging function the measurement most often meets. */
+Test(analyze, a_variadic_ellipsis_is_not_charged_as_a_parameter)
+{
+	/* 0.25 base + 0.00 void return + 0.25 pointer; the "..." is free. */
+	cr_assert_float_eq(burden_of_source(
+		"void v(const char *fmt, ...) { (void)fmt; }\n", "v"),
+		0.50, MBS_EPSILON);
+}
+
+/* Verifies LLR-MBS-03: the score taxes the *kind* of a type and does not
+ * count its tokens, so a rate that grew with indirection would be wrong. */
+Test(analyze, indirection_is_charged_once_not_per_token)
+{
+	const char *src =
+		"void one(char *p)  { (void)p; }\n"
+		"void two(char **p) { (void)p; }\n";
+
+	cr_assert_float_eq(burden_of_source(src, "one"), 0.50, MBS_EPSILON);
+	cr_assert_float_eq(burden_of_source(src, "two"), 0.50, MBS_EPSILON,
+	                   "a second star is more indirection, not a second "
+	                   "parameter to mock");
+}
+
+/* Verifies LLR-MBS-02: the kind of a type comes from the query's captures and
+ * never from a name compiled into the binary.
+ *
+ * `avr_reg_t` is a name no C in elc mentions. It is charged at the primitive
+ * rate because the grammar calls it a type identifier — which is the whole
+ * claim: a list of built-in spellings in the binary would be a language fact
+ * where Principle 2 forbids one, and would be wrong for the first project
+ * that types its own integers. On the bare-metal targets this measurement
+ * exists for, that is every project.
+ */
+Test(analyze, a_projects_own_integer_type_is_scored_from_the_query)
+{
+	cr_assert_float_eq(burden_of_source(
+		"typedef unsigned char avr_reg_t;\n"
+		"void w(avr_reg_t r) { (void)r; }\n", "w"),
+		0.35, MBS_EPSILON,
+		"a typedef'd scalar is a primitive because the grammar says "
+		"so, not because elc has heard of it");
+}
+
+/* Verifies LLR-MBS-04: a function the signature query cannot match is scored
+ * at the base tax rather than omitted. A function absent from a score column
+ * is indistinguishable from one that scored zero, which is the reading a
+ * silent omission would produce. */
+Test(analyze, a_function_the_query_cannot_match_still_scores_the_base_tax)
+{
+	/* A K&R definition: the grammar parses it, and none of the signature
+	 * patterns — which are written against prototype-style declarators —
+	 * matches its parameter list. */
+	double score = burden_of_source("int k(a) int a; { return a; }\n", "k");
+
+	cr_assert_geq(score, 0.25 - MBS_EPSILON,
+	              "no analysed function scores below the base tax");
+}

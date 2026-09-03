@@ -53,9 +53,9 @@
  * measurement, and `inverted` says which side of them the band lies on. For
  * an ordinary row a value strictly *greater* than the bound falls in the
  * band — "> 15 is a god function". For an inverted row a value strictly
- * *below* it does, because the measurement runs the other way: the
- * Maintainability Index of HLR-192 is a score out of a hundred, and a low one
- * is the bad one.
+ * *below* it does, because the measurement runs the other way — a score out
+ * of a hundred, say, where a low one is the bad one. No row is inverted at
+ * present; the retired Adapted Maintainability Index was the one that was.
  *
  * The flag exists rather than a second pair of fields, or a row storing the
  * complement of its bound, because either of those would leave the catalogue

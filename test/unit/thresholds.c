@@ -230,6 +230,7 @@ Test(thresholds, fan_in_is_banded_on_elcs_own_authority_and_says_so)
 	cr_assert_not_null(t);
 	cr_assert_eq(t->warning_bound, 25);
 	cr_assert(threshold_is_elc_own(MEASURE_FAN_IN));
+	cr_assert(threshold_is_elc_own(MEASURE_WEIGHTED_TEST_BURDEN));
 	cr_assert_not_null(strstr(threshold_attribution(MEASURE_FAN_IN),
 	                          "not a published standard"));
 
@@ -240,47 +241,6 @@ Test(thresholds, fan_in_is_banded_on_elcs_own_authority_and_says_so)
 	cr_assert_eq(band, SEVERITY_WARNING,
 	             "no fan-in reaches a critical band, because there is "
 	             "none to reach");
-}
-
-Test(thresholds, maintainability_is_banded_downwards_on_elcs_own_authority)
-{
-	const Threshold *t = thresholds_lookup(MEASURE_MAINTAINABILITY);
-	Severity         band;
-
-	/* The one row that runs the other way: a score, where the low value is
-	 * the bad one. The bounds read as the numbers a reader is looking for
-	 * rather than as their complements, which is what `inverted` buys
-	 * (HLR-192). */
-	cr_assert_not_null(t);
-	cr_assert(t->inverted);
-	cr_assert_eq(t->warning_bound, 65);
-	cr_assert_eq(t->critical_bound, 55);
-
-	/* Adapted from Coleman and Oman, so the bands are elc's own and say
-	 * so — the SEI's 85 and 65 were calibrated for a formula with a
-	 * Halstead term this one does not have (HLR-099). */
-	cr_assert(threshold_is_elc_own(MEASURE_MAINTAINABILITY));
-	cr_assert_not_null(
-		strstr(threshold_attribution(MEASURE_MAINTAINABILITY),
-		       "not a published standard"));
-
-	cr_assert_not(thresholds_band(MEASURE_MAINTAINABILITY, 65, &band),
-	              "sixty-five is inside the accepted range, not below it");
-	cr_assert(thresholds_band(MEASURE_MAINTAINABILITY, 64, &band));
-	cr_assert_eq(band, SEVERITY_WARNING);
-	cr_assert(thresholds_band(MEASURE_MAINTAINABILITY, 55, &band));
-	cr_assert_eq(band, SEVERITY_WARNING,
-	             "fifty-five is the floor of the warning band, not the "
-	             "top of the critical one");
-	cr_assert(thresholds_band(MEASURE_MAINTAINABILITY, 54, &band));
-	cr_assert_eq(band, SEVERITY_CRITICAL);
-	cr_assert(thresholds_band(MEASURE_MAINTAINABILITY, 0, &band));
-	cr_assert_eq(band, SEVERITY_CRITICAL);
-
-	/* And the direction is not shared: a high fan-out is still the bad
-	 * one, so an inverted row must not have inverted the others. */
-	cr_assert_not(thresholds_band(MEASURE_FAN_OUT, 0, &band));
-	cr_assert(thresholds_band(MEASURE_FAN_OUT, 99, &band));
 }
 
 Test(thresholds, an_occurrence_row_bands_no_counted_value)
@@ -310,9 +270,10 @@ Test(thresholds, exactly_three_thresholds_are_elcs_own_and_say_so)
 		}
 
 	/* Three: the bottleneck heuristic, the fan-in band, and the
-	 * maintainability bands. If a fourth ever appears it must be a
-	 * deliberate decision rather than a drift, which is what makes the
-	 * exact count worth asserting.
+	 * testing-burden bands. It was four until the maintainability bands
+	 * were retired with the index they banded. If a fourth ever appears
+	 * it must be a deliberate decision rather than a drift, which is what
+	 * makes the exact count worth asserting.
 	 *
 	 * A measurement arriving without a published band is not a fourth: the
 	 * honest treatment is to report it with no severity, not to invent one
@@ -320,7 +281,6 @@ Test(thresholds, exactly_three_thresholds_are_elcs_own_and_say_so)
 	cr_assert_eq(own, 3);
 	cr_assert(threshold_is_elc_own(MEASURE_BOTTLENECK));
 	cr_assert(threshold_is_elc_own(MEASURE_FAN_IN));
-	cr_assert(threshold_is_elc_own(MEASURE_MAINTAINABILITY));
 }
 
 Test(thresholds, the_published_thresholds_are_not_marked_as_elcs_own)
@@ -507,4 +467,68 @@ Test(thresholds, findinglist_free_is_safe_on_null_and_twice)
 	findinglist_free(&f);
 	findinglist_free(&f);
 	cr_assert(1, "releasing an empty finding list must not fault");
+}
+
+/* ------------------------------------------------ the testing-burden band --
+
+/* Verifies LLR-THR-20: both bounds are inclusive and are tested downwards, so
+ * an index at the critical bound yields one band and not two.
+ *
+ * Asserted at the exact bounds rather than away from them: an ordering
+ * written with the wrong comparison passes everywhere except the edge, which
+ * is the only place it can be caught.
+ */
+Test(thresholds, the_testing_burden_bands_are_evaluated_in_descending_order)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_WEIGHTED_TEST_BURDEN);
+	Severity         band;
+
+	cr_assert_not_null(t);
+	cr_assert_not(t->inverted,
+	              "higher is worse here, unlike the maintainability row "
+	              "beside it — which is why `inverted` is a field and not "
+	              "a convention");
+	/* One below the requirement's inclusive bounds, because `band_of`
+	 * tests a non-inverted row with a strict `>`: a row's bound is the
+	 * highest *acceptable* value, so 19 is how "a warning at 20" is
+	 * spelled here. The behaviour either side of both lines is what the
+	 * rest of this test pins down. */
+	cr_assert_eq(t->warning_bound, 19);
+	cr_assert_eq(t->critical_bound, 44);
+
+	cr_assert(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 20, &band));
+	cr_assert_eq(band, SEVERITY_WARNING,
+	             "twenty is the floor of the warning band, not below it");
+	cr_assert(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 44, &band));
+	cr_assert_eq(band, SEVERITY_WARNING);
+	cr_assert(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 45, &band));
+	cr_assert_eq(band, SEVERITY_CRITICAL,
+	             "forty-five is critical and is not also a warning");
+	cr_assert(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 1000, &band));
+	cr_assert_eq(band, SEVERITY_CRITICAL);
+}
+
+/* Verifies LLR-THR-20: a band a reader is expected to act on must be silent
+ * where there is nothing to act on. Asserted one below the bound rather than
+ * far from it. */
+Test(thresholds, an_index_below_twenty_yields_no_finding)
+{
+	Severity band;
+
+	cr_assert_not(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 19, &band),
+	              "nineteen is healthy");
+	cr_assert_not(thresholds_band(MEASURE_WEIGHTED_TEST_BURDEN, 0, &band),
+	              "and so is a function that calls nothing");
+}
+
+/* Verifies LLR-THR-20: the bounds are elc's own, and with no calibration
+ * anywhere to borrow — unlike the maintainability row, where a published
+ * figure existed and had to be rejected. */
+Test(thresholds, the_testing_burden_band_carries_the_elc_heuristic_label)
+{
+	cr_assert(threshold_is_elc_own(MEASURE_WEIGHTED_TEST_BURDEN));
+	cr_assert_not_null(
+		strstr(threshold_attribution(MEASURE_WEIGHTED_TEST_BURDEN),
+		       "not a published standard"),
+		"an elc threshold must say so where it is read");
 }

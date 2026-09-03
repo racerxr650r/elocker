@@ -45,6 +45,13 @@ on_a_terminal() {
 	require_tool script "HLR-219 terminal width unverified on this platform"
 	run script -qec "$ELC $*" /dev/null
 	output="$(printf '%s' "$output" | tr -d '\r')"
+	# The raw bytes, kept for the tests that are *about* the colour.
+	raw_output="$output"
+	# And the report as displayed. HLR-219 bounds the width of a line in
+	# columns, and an SGR sequence occupies none of them — a test measuring
+	# the bytes would be asserting something about the escapes rather than
+	# about the table, and would fail on a report that fits perfectly.
+	output="$(printf '%s' "$output" | sed 's/\x1b\[[0-9;]*m//g')"
 	lines=()
 	while IFS= read -r line; do lines+=("$line"); done <<<"$output"
 }
@@ -122,9 +129,30 @@ widest() {
 	*)	echo "the File cell broke mid-segment: '$cell'" >&2; false ;;
 	esac
 
-	# And the file's own name, which is the part a reader is looking for,
-	# is never split down the middle.
-	assert_output --partial "src/a.c:"
+	# And nothing is lost in the breaking: the File column, read down and
+	# rejoined with its padding removed, is the path exactly.
+	#
+	# This used to assert that the substring "src/a.c:" appeared somewhere
+	# in the output, on the grounds that the last segment should survive
+	# intact. That depended on where the breaks happened to fall, which
+	# depends on both the width of the table and the length of the
+	# temporary directory — the very fragility the comment above warns
+	# about, and it duly broke when a column was removed. Reassembling the
+	# column asserts the property that was actually meant, and asserts it
+	# whatever the width.
+	local rejoined
+	rejoined="$(sed -n '/^Functions$/,$p' <<<"$output" |
+		sed -n '4,$p' |
+		cut -c3-$((2 + width)) |
+		sed 's/ *$//' |
+		tr -d '\n')"
+	case "$rejoined" in
+	*"$TREE/a.c:"*)	;;
+	*)	echo "the File column did not reassemble to the path" >&2
+		echo "  wanted to find: $TREE/a.c:" >&2
+		echo "  rejoined:       $rejoined" >&2
+		false ;;
+	esac
 }
 
 @test "HLR-219: a numeric column is never wrapped" {
@@ -133,7 +161,7 @@ widest() {
 	# split across two is the visible symptom.
 	on_a_terminal "$TREE"
 	assert_success
-	assert_output --regexp "Lines +ELOC +Complexity +Fan-in +Fan-out +MI"
+	assert_output --regexp "Lines +ELOC +CC +In +Out +WTBI"
 }
 
 @test "HLR-219: a cell with no separator in it is broken hard" {
@@ -238,4 +266,98 @@ widest() {
 	elc --version --format nonsense /nonexistent
 	assert_success
 	assert_output --regexp "^elc [0-9]+\.[0-9]+\.[0-9]+$"
+}
+
+# --- colour (HLR-226) ------------------------------------------------------
+#
+# `on_a_terminal` strips the escapes from `$output`, because every other test
+# here is about the table rather than about how it is painted. These four read
+# `$raw_output`, which is what was actually written.
+
+@test "HLR-226: a terminal report alternates two backgrounds with white text" {
+	on_a_terminal "$TREE"
+	assert_success
+
+	# Both grounds appear, and both carry the same foreground — the text
+	# must not change weight from one row to the next.
+	[[ "$raw_output" == *$'\e[40;97m'* ]] ||
+		{ echo "no black-ground row" >&2; false; }
+	[[ "$raw_output" == *$'\e[100;97m'* ]] ||
+		{ echo "no grey-ground row" >&2; false; }
+
+	# The first row of a body is the dark grey one. Read off the Functions
+	# table, whose first row is the line after its rule.
+	local first
+	first="$(printf '%s\n' "$raw_output" |
+		sed -n '/^Functions$/,$p' | sed -n '4p')"
+	[[ "$first" == $'\e[100;97m'* ]] ||
+		{ echo "the body did not begin with the dark ground" >&2
+		  printf '%s\n' "$first" | cat -v >&2; false; }
+}
+
+@test "HLR-226: every line of a coloured row is the full width" {
+	# A wrapped row's continuation lines carry cells that have run out, and
+	# a line that stopped at the last one with anything left in it would
+	# stop its background there too — a ragged staircase down the right of
+	# the table. Every line of the body is the same displayed width.
+	on_a_terminal "$TREE"
+	assert_success
+
+	local widths
+	widths="$(printf '%s\n' "$output" |
+		sed -n '/^Functions$/,/^$/p' | sed -n '4,$p' |
+		awk 'NF { print length($0) }' | sort -u | wc -l)"
+	assert_equal "$widths" "1"
+}
+
+@test "HLR-226: a redirected report carries no escape sequence at all" {
+	# The property every consumer of these bytes depends on, and the one
+	# that keeps every other test in the suite reading what it always read.
+	elc "$TREE"
+	assert_success
+	refute_output --partial $'\e['
+
+	run bash -c '"$0" -f csv "$1" 2>/dev/null' "$ELC" "$TREE"
+	assert_success
+	refute_output --partial $'\e['
+}
+
+@test "HLR-226: a band name is coloured by what it says" {
+	on_a_terminal "$TREE"
+	assert_success
+
+	# busy() is over the complexity band, so the report carries a warning
+	# severity; every function carries a burden word, and on this tree they
+	# are all healthy. Two of the three bands, which is what this fixture
+	# can show — the third is asserted in the unit tests, where a band can
+	# be chosen rather than provoked.
+	[[ "$raw_output" == *$'\e[93mwarning'* ]] ||
+		{ echo "warning was not yellow" >&2; false; }
+	[[ "$raw_output" == *$'\e[92mhealthy'* ]] ||
+		{ echo "healthy was not green" >&2; false; }
+}
+
+@test "HLR-226: colour says nothing the text does not" {
+	# The words survive the escapes being removed, which is what makes the
+	# colour an aid rather than the only way to read the report.
+	on_a_terminal "$TREE"
+	assert_success
+	assert_output --partial "warning"
+	assert_output --partial "healthy"
+	refute_output --partial $'\e['
+}
+
+@test "HLR-226: Markdown stays plain even on a terminal" {
+	# Colour reaches the aligned table and nothing else. Markdown has no
+	# styling of its own, so a coloured one would have to be HTML carrying
+	# inline styles — which would stop it being the GitHub-Flavored
+	# Markdown HLR-029 requires, and would render uncoloured on GitHub
+	# anyway. Asserted on a pty, because the destination is exactly what
+	# would have made the difference had the rule been the table's.
+	on_a_terminal -f md "$TREE"
+	assert_success
+	[[ "$raw_output" != *$'\e['* ]] ||
+		{ echo "Markdown carried an escape sequence" >&2; false; }
+	# And it is still a pipe table rather than an HTML one.
+	assert_output --partial "| File "
 }

@@ -308,6 +308,7 @@ static int build_nodes(const Report *report, Sdg *g)
 			n->line_end   = fm->functions[i].end_line;
 			n->eloc       = fm->functions[i].eloc;
 			n->complexity = fm->functions[i].complexity;
+			n->mock_burden = fm->functions[i].mock_burden;
 		}
 	}
 

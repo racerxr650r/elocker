@@ -173,7 +173,7 @@ chain() {
 	elc --verbose --entry flow_entry "$TREE/flow.c"
 	assert_success
 
-	assert_output --regexp "Function +Visibility +Lines +ELOC +Complexity +Fan-in +Fan-out"
+	assert_output --regexp "Function +Scope +Lines +ELOC +CC +In +Out"
 	refute_output --partial "Fan-out (distinct callees)"
 	refute_output --partial "Information flow"
 }

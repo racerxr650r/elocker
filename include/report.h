@@ -39,6 +39,10 @@ typedef struct {
 	uint32_t  line;
 	uint32_t  fan_out;
 	uint32_t  fan_in;
+	/* The weighted third degree (HLR-222), carried beside the two counts
+	 * because `report_attach_flow` needs all three to reach the function
+	 * record in one pass over these rows. */
+	double    wf_out;
 	uint32_t  eloc;
 } FanOutRow;
 
@@ -99,7 +103,7 @@ typedef struct {
  * macro.
  *
  * **Name and location, and deliberately nothing else.** `elc` has no body for
- * it, so it has no ELOC, no complexity, no maintainability index and no edges,
+ * it, so it has no ELOC, no complexity, no weighted test burden and no edges,
  * and a row carrying zeroes for those would report an absence as a
  * measurement — which is the thing HLR-133 and HLR-138 both exist to refuse.
  * The record has no fields for them, so none can be invented later.

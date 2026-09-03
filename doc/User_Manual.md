@@ -286,17 +286,17 @@ Files
   /home/u/proj/src/a.c  c            18    12          2
   /home/u/proj/src/b.c  c            24     6          1
 
-At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and maintainability banded)
-  File                  Function  Complexity  Fan-in  Fan-out  MI  Severity
-  --------------------  --------  ----------  ------  -------  --  --------
-  /home/u/proj/src/a.c  parse              7       1        2  62
+At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and weighted test burden banded)
+  File                  Function  Complexity  Fan-in  Fan-out   WTBI  Severity
+  --------------------  --------  ----------  ------  -------  -----  --------
+  /home/u/proj/src/a.c  parse              7       1        2  14.00
 
 Functions
-  File                     Language  Function  Visibility  Lines  ELOC  Complexity  Fan-in  Fan-out   MI
-  -----------------------  --------  --------  ----------  -----  ----  ----------  ------  -------  ---
-  /home/u/proj/src/a.c:5   c         parse     public         15     9           7       1        2   77
-  /home/u/proj/src/a.c:21  c         emit      public          4     3           1       1        0   90
-  /home/u/proj/src/b.c:3   c         main      public          9     6           2       0        1   83
+  File                     Language  Function  Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
+  -----------------------  --------  --------  ------  -----  ----  --  ------  -------  -----  -------
+  /home/u/proj/src/a.c:5   c         parse     public     15     9   7       1        2  14.00  healthy
+  /home/u/proj/src/a.c:21  c         emit      public      4     3   1       1        0   1.00  healthy
+  /home/u/proj/src/b.c:3   c         main      public      9     6   2       0        1   2.00  healthy
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
@@ -465,10 +465,10 @@ elc -c 1 src/           # list everything
 ```
 
 ```
-At or over a threshold (complexity listed at 10; complexity, fan-in, fan-out and maintainability banded)
-  File                  Function  Complexity  Fan-in  Fan-out  MI  Severity
-  --------------------  --------  ----------  ------  -------  --  --------
-  /home/u/proj/src/a.c  parse             17       2        4  58  critical
+At or over a threshold (complexity listed at 10; complexity, fan-in, fan-out and weighted test burden banded)
+  File                  Function  Complexity  Fan-in  Fan-out   WTBI  Severity
+  --------------------  --------  ----------  ------  -------  -----  --------
+  /home/u/proj/src/a.c  parse             17       2        4  51.00  critical
 ```
 
 That table holds two kinds of row. A function is listed because its complexity
@@ -550,7 +550,7 @@ the lines beneath them:
 ```console
 $ elc src/
 Functions
-  File                                    Language  Function  Lines  ELOC  Complexity
+  File                                    Language  Function  Lines  ELOC  CC
   --------------------------------------  --------  --------  -----  ----  ----------
   /home/you/very/long/path/to/a/project/  c         measure       9     4           2
   src/measure.c:12
@@ -589,7 +589,7 @@ They carry the same columns, in the same order:
 
 ```console
 $ elc -f csv src/ | head -3
-file,language,function,visibility,lines,eloc,complexity,fan_in,fan_out,mi
+file,language,function,scope,lines,eloc,cc,in,out,wtbi,burden
 /home/you/src/measure.c:12,c,measure,public,9,4,2,3,1,84
 /home/you/src/measure.c:24,c,scale,private,6,3,1,1,0,91
 ```
@@ -620,9 +620,9 @@ behind it:
 <details>
 <summary>639 rows (click to expand)</summary>
 
-| File                    | Language | Function | Visibility | Lines | ELOC | Complexity | Fan-in | Fan-out | MI |
-| ----------------------- | -------- | -------- | ---------- | ----: | ---: | ---------: | -----: | ------: | -: |
-| /home/u/proj/src/a.c:21 | c        | parse    | public     |    50 |   31 |          9 |      3 |       7 | 62 |
+| File                    | Language | Function | Scope  | Lines | ELOC | CC | Fan-in | Fan-out |  WTBI | Burden  |
+| ----------------------- | -------- | -------- | ------ | ----: | ---: | -: | -----: | ------: | ----: | ------- |
+| /home/u/proj/src/a.c:21 | c        | parse    | public |    50 |   31 |  9 |      3 |       7 | 27.00 | warning |
 
 </details>
 ```
@@ -959,11 +959,11 @@ the function's two degrees:
 
 ```text
 Functions
-  File                     Language  Function  Visibility  Lines  ELOC  Complexity  Fan-in  Fan-out   MI
-  -----------------------  --------  --------  ----------  -----  ----  ----------  ------  -------  ---
-  /home/u/proj/src/a.c:5   c         main      public         15    12           3       0        4   84
-  /home/u/proj/src/a.c:21  c         parse     public         50    31           9       3        7   62
-  /home/u/proj/src/a.c:72  c         chomp     public          7     4           1       6        0   93
+  File                     Language  Function  Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
+  -----------------------  --------  --------  ------  -----  ----  --  ------  -------  -----  -------
+  /home/u/proj/src/a.c:5   c         main      public     15    12   3       0        4   3.00  healthy
+  /home/u/proj/src/a.c:21  c         parse     public     50    31   9       3        7  27.00  warning
+  /home/u/proj/src/a.c:72  c         chomp     public      7     4   1       6        0   1.00  healthy
 ```
 
 **Fan-out** is the number of *distinct subroutines a function invokes*.
@@ -1003,69 +1003,6 @@ them: that definition collects every caller's fan-in and the others collect
 none. Since fan-in is banded, an error of that shape can put a function over
 the line or hide one that is. `elc` diagnoses duplicate definitions on
 standard error; read the two together.
-
-### The Adapted Maintainability Index
-
-The last column of the Functions table is a single score out of a hundred,
-combining everything else on the row:
-
-```text
-IF  = (Fan-In × Fan-Out)²
-MI  = 171 − 5.2 ln(IF + 1) − 0.23 v(G) − 16.2 ln(ELOC)
-MI′ = max(0, MI ÷ 171 × 100)
-```
-
-It is Coleman and Oman's Maintainability Index with one substitution: their
-third term is the logarithm of a function's Halstead Volume, and `elc` uses
-the information flow through it instead. That is what makes the score fall
-when a function is *entangled* and not only when it is long or branchy — a
-short function that forty things call and that calls twenty more is hard to
-change, and no measure of its size says so.
-
-Two details keep the arithmetic defined. **One is added to the information
-flow** before the logarithm, so a function at either end of the call graph
-scores on length and branching alone rather than on an infinity — an entry
-point is not coupled by being an entry point. **A function with no effective
-lines is taken as having one**, for the same reason: it has nothing to
-maintain, so it sits at the top of the scale.
-
-| Score | Meaning |
-| ----- | ------- |
-| 65–100 | No finding. |
-| below 65 | **Warning** — moderate structural risk. |
-| below 55 | **Critical** — a rigid, fragile monolith. |
-
-> **These thresholds are `elc`'s own**, and it is the third of the three that
-> are. The index is published and so are thresholds for it — the Software
-> Engineering Institute's 85 and 65 — but those were calibrated against the
-> Halstead term this adaptation replaces. Dropping it removes thirty to
-> forty-five points of range, and the normalisation rescales what is left;
-> carried across unchanged, the published numbers flag four functions in five.
-> **A citation is not transitive.** Adapting a metric does not inherit the
-> thresholds drawn for the original, so `elc` draws its own and says so.
-
-This is the only measurement in `elc` where the **low** value is the bad one.
-Everywhere else a finding means a number got too big.
-
-> **One caveat, and it is the metric's rather than your code's.** The
-> information-flow term squares the product of the two degrees, so a small,
-> simple helper that many functions call scores badly *for being widely
-> shared*. `elc`'s own `diag_printf` is ten effective lines with a complexity
-> of two and scores 51, because seventy-nine functions call it — which is
-> good factoring, not a fragile monolith.
->
-> A related surprise: routing calls through one of your own functions rather
-> than a library one *lowers* the scores of every caller, because a library
-> call cannot be resolved into the graph and yours can. Centralising something
-> can therefore make the number worse while making the code simpler.
->
-> Read a low score as *a question worth asking*, not a verdict. That is why
-> the finding says where the score fell and stops.
-
-And as with every other finding, the row says where the score fell and who
-drew the line. It does not tell you to refactor anything — what a low score
-warrants is your call, and a metric whose name sounds like a verdict is the
-last place `elc` would start giving advice.
 
 > **The Henry–Kafura value is gone.** Earlier releases reported
 > `HK = ELOC × (Fan-In × Fan-Out)²` per function and summed across the
@@ -2067,6 +2004,107 @@ clusters red, and a recursive cycle is drawn onto every function sharing that
 name. Check standard error alongside any picture before you show it to
 someone else.
 
+## Weighted Test Burden Index (WTBI)
+
+The Weighted Test Burden Index (WTBI) is a composite architectural metric
+generated by the analyzer to quantify the mechanical and cognitive cost of unit
+testing a specific function.
+
+Traditional static analysis relies on Cyclomatic Complexity (`C`), which
+measures internal logical paths but ignores the architectural environment.
+Conversely, coupling metrics (fan-in and fan-out) ignore internal logic. WTBI
+fuses both dimensions, automatically evaluating the mechanical difficulty of
+mocking dependencies for a custom overlapping-memory test loader.
+
+### How WTBI is calculated
+
+WTBI is calculated using the following formula:
+
+```text
+WTBI = C × (1 + min(Fan-In, WF-out))
+```
+
+*   **`C` (Cyclomatic Complexity)** — the number of linearly independent paths
+    through a function's logic.
+*   **Fan-In** — the total number of unique functions that call this target
+    function.
+*   **WF-out (Weighted Fan-Out)** — the sum of the Mock Burden Score (MBS) for
+    every outgoing function call.
+*   **min(Fan-In, WF-out)** — the architectural entanglement score, which
+    isolates "God Objects" while exonerating highly reused pure utilities.
+
+The MBS and the weighted fan-out are **not columns of the report**. They are
+the terms the index is built from, and neither is something you act on: a
+score of 0.85 against one callee tells you nothing to do, and the sum of such
+scores tells you less. What the report gives you is the index and its band.
+Both terms are kept in the XML record, so a consumer that wants to recompute
+or re-band can read them from there.
+
+### The Mock Burden Score
+
+In a bare-metal environment using a custom unit test loader with overlapping
+memory boundaries, no hardware or subsystem dependency is completely "free."
+Even for a dead-end leaf node, the linker forces you to declare an overlapping
+symbol and provide a stub body.
+
+To account for this, the analyzer's parser inspects the signature of every
+outgoing function call to calculate its MBS. The harder a function's signature
+is to mock, the higher the penalty applied to the caller's WF-out.
+
+| Signature component | Weight penalty | Justification |
+| :--- | :--- | :--- |
+| **Base setup tax** | **+0.25** | The minimum mechanical boilerplate required to write an overlapping symbol or stub. |
+| **Return: `void`** | **+0.00** | No return state to simulate. |
+| **Return: primitive** | **+0.10** | Requires returning a simple fake scalar (e.g. `uint8_t`, `int`). |
+| **Return: pointer or struct** | **+0.25** | Requires allocating and tracking dummy memory or state in the test framework. |
+| **Parameter: primitive** | **+0.10** | Requires a simple value assertion inside the mock. |
+| **Parameter: pointer or array** | **+0.25** | Requires buffer inspection or simulated data mutation. |
+
+**Example:** calling `uint16_t spi_transfer(uint8_t *tx, uint8_t *rx)` incurs a
+severe MBS of **0.95** (base 0.25 + return 0.10 + pointer 0.25 + pointer 0.25).
+A function heavily reliant on `spi_transfer` will see its WTBI spike,
+accurately reflecting the difficult testing environment.
+
+### Evaluation thresholds
+
+The analyzer maps the final WTBI score against limits for logic and coupling,
+categorizing functions into three distinct health states. These states are
+colour-coded in the HTML report.
+
+| Status | WTBI score | Interpretation and required action |
+| :--- | :--- | :--- |
+| **Healthy** | **below 20** | **None.** The function is easily testable. Even if internal logic is moderately high, it lacks structural entanglement, meaning zero or very shallow mocks are required. |
+| **Warning** | **20 to 44** | **Review recommended.** The function is approaching the limits of comfortable testing. It balances moderate logic with external dependencies, forcing developers into heavier mock management. |
+| **Critical** | **45 and above** | **Refactoring mandatory.** An active threat to the code's continued maintenance. This is typically a "God Object" or a highly entangled middle-manager where test isolation via overlapping symbols is overwhelmingly difficult. |
+
+These bounds are `elc`'s own. They are labelled *elc heuristic — not a
+published standard* wherever the report prints them, for the reason every
+invented threshold in this manual carries that label: the index is `elc`'s and
+no published calibration describes it.
+
+### Using WTBI to improve your architecture
+
+When the analyzer flags a function with a Warning or Critical WTBI, use the
+following strategies to refactor the source and reduce the testing burden:
+
+*   **Split logic from side-effects.** The most common cause of a WTBI spike is
+    a single function calculating application state (complexity above 10) and
+    immediately pushing that state to hardware drivers (WF-out above 2.0).
+    Split this into a *formatter* — pure logic, returning a struct — and a
+    *dispatcher*, which has no logic and writes the struct to hardware. The
+    formatter's WF-out drops to 0 and the dispatcher's complexity drops to 1,
+    returning both to a Healthy state.
+*   **Simplify function signatures.** If an internal API requires passing large
+    pointers or arrays, it inflates the MBS for every function that calls it.
+    Where possible, pass primitive state by value. Reducing reliance on
+    pointer-based APIs lowers the WTBI across the entire calling architecture.
+*   **Flatten deep subsystems.** A function routing logic to many deep internal
+    modules racks up a high WF-out, because internal modules typically require
+    complex structural returns. Promote these calls up to the main application
+    loop, where fan-in is low, so that the min(Fan-In, WF-out) term safely
+    absorbs the architectural cost.
+
+
 ## The call tree
 
 Graphviz is a widely used tool for drawing graphs from a plain-text
@@ -2519,7 +2557,7 @@ Functions the image places that the parse did not reach (11; no figures are meas
 
 **Three columns, and the absence of the other six is deliberate.** `elc` has a
 name and a location, from the image, and no body at all — so it has no ELOC, no
-complexity, no maintainability index and no fan-in or fan-out. A row carrying
+complexity, no testing burden and no fan-in or fan-out. A row carrying
 zeroes for those would state an absence as a measurement, which is the one
 thing `elc` will not do. For the same reason such a function:
 
@@ -2795,12 +2833,15 @@ runs to the end of the file.
 
 Drop a grammar and its query files into `runtime/` and add one line to
 `runtime/extensions.map`. No rebuild, no patch, no upstream release to wait
-for. Six query files are required and three are optional — a module that omits
+for. Six query files are required and four are optional — a module that omits
 `conditionals.scm` has no conditional compilation, one that omits
 `deadcode.scm` is analysed for everything else while the report states that
-dead-code analysis was not performed for that language, and one that omits
+dead-code analysis was not performed for that language, one that omits
 `visibility.scm` reports every function's visibility as unknown rather than
-guessing that it is public. The contract a module
+guessing that it is public, and one that omits `signature.scm` scores every
+function at the base mocking tax alone, so its Weighted Test Burden Index
+rests on complexity and fan-in and never on what its callees cost to mock.
+The contract a module
 must satisfy — the file names, the capture names, and what each means — is
 `runtime/queries/README.md` in the distribution.
 
@@ -3166,7 +3207,7 @@ Where a threshold *is* `elc`'s own, the column says so in as many words:
 > `elc heuristic — not a published standard`
 
 There are exactly three such thresholds today: the **bottleneck**, the
-**fan-in** band, and the **maintainability** bands. If you disagree with a published threshold, take it up with
+**fan-in** band, and the **testing-burden** bands. If you disagree with a published threshold, take it up with
 the standard it comes from; if you disagree with one of these two, it is only
 `elc`'s opinion, and it is labelled as such so you know that's all it is.
 
@@ -3175,7 +3216,7 @@ the standard it comes from; if you disagree with one of these two, it is only
 | Measurement | Bands | Source |
 | ----------- | ----- | ------ |
 | Cyclomatic complexity | ≤10 silent; 11–15 **warning**; >15 **critical** | McCabe (NIST SP 500-235) |
-| Adapted Maintainability Index | ≥65 silent; <65 **warning**; <55 **critical** — the one that runs *downwards* | `elc` heuristic |
+| Testing Burden Index | <20 silent; ≥20 **warning**; ≥45 **critical** | `elc` heuristic |
 | Function fan-out | 0–2 below healthy, 3–7 healthy, 8–10 acceptable — all silent; 11–15 **warning**; >15 **critical** | Henry–Kafura |
 | Function fan-in | ≤25 silent; >25 **warning**, with no critical band | `elc` heuristic |
 | Call depth | >8 **warning**; >12 **critical** | embedded practice |
@@ -3196,14 +3237,14 @@ finding, and moving the option moves neither. If it did, the number in the
 Source column would be yours rather than McCabe's.
 
 **Three rows are `elc`'s own**, and each says so where you read them: the
-bottleneck, the fan-in band, and the maintainability bands. Nobody has
+bottleneck, the fan-in band, and the testing-burden bands. Nobody has
 published a fan-in threshold, so 25 is this project's judgement — and there is
 no critical band, because `elc` has no published basis for a first line and
-none whatever for a second. The maintainability bands are `elc`'s for a
-subtler reason, set out under
-[The Adapted Maintainability Index](#the-adapted-maintainability-index): the
-index is published, but this build adapts the formula, and the published
-thresholds were calibrated for the term the adaptation replaced.
+none whatever for a second. The testing-burden bands are `elc`'s for a
+starker reason, set out under
+[Weighted Test Burden Index](#weighted-test-burden-index-wtbi): the index is
+this project's own formula, so no published calibration for it exists anywhere
+to borrow.
 
 ### The threshold listing
 
@@ -3211,7 +3252,7 @@ Every function a band names is collected into one table, alongside the
 functions at or over the complexity threshold `--complexity-threshold` sets:
 
 ```text
-At or over a threshold (complexity listed at 15; complexity, fan-in and fan-out banded)
+At or over a threshold (complexity listed at 15; complexity, fan-in, fan-out and weighted test burden banded)
   File                  Function  Complexity  Fan-in  Fan-out  Severity
   --------------------  --------  ----------  ------  -------  --------
   /home/u/proj/src/a.c  parse             12       3        7  warning
@@ -3496,7 +3537,7 @@ asked.
 
 ```text
 Functions
-  File                     Language  Function          Visibility  Lines  ELOC  Complexity  Fan-in  Fan-out   MI
+  File                     Language  Function          Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
   -----------------------  --------  ----------------  ----------  -----  ----  ----------  ------  -------  ---
   /home/u/proj/src/a.c:21  c         parse             public         50    31           9       3        7   62
   /home/u/proj/src/a.c:88  c         parse_one_header  private        14     9           3       1        2   81
@@ -3515,10 +3556,19 @@ sending you to the Files table to answer it costs you more than the repetition
 costs the page. It sits immediately after the location, which is where the
 Files table has put it all along.
 
-**Visibility says whether the language exposes the function** outside the file
+**Scope says whether the language exposes the function** outside the file
 or module that defines it. It is the first thing anyone asks of an unfamiliar
 module — which of these are the interface, and which are its internals — and
 the source already states it:
+
+> **This column has nothing to do with `--scope`.** That option declares an
+> *execution* scope: a named set of **files** sharing a memory map, used to
+> find the calls by which one reaches another (see
+> [Cross-scope access](#cross-scope-access)). This column is a property of a
+> **symbol** — whether the linker can see its name from another translation
+> unit — and a function reported `public` here is in no declared scope by
+> virtue of that. The two are unrelated and the report never mixes them: the
+> option's findings are a section of their own and are never a column.
 
 | language | `private` when | basis |
 |---|---|---|

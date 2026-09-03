@@ -23,49 +23,6 @@
 #include "graph.h"
 #include "report.h"
 
-/* The Adapted Maintainability Index of one function, normalised to 0-100
- * (HLR-191).
- *
- *     IF  = (Fan-In x Fan-Out)^2
- *     MI  = 171 - 5.2 ln(IF + 1) - 0.23 v(G) - 16.2 ln(ELOC)
- *     MI' = max(0, MI / 171 x 100)
- *
- * Coleman and Oman's index with the information flow through a function
- * substituted for its Halstead Volume: the two other terms are theirs
- * unchanged, and what the substitution buys is a figure that falls when a
- * function is entangled with its neighbours and not only when it is long or
- * branchy.
- *
- * **A pure function of four measurements, and the only definition of the
- * formula.** The report needs the value for its function table and
- * `thresholds.c` needs it to band; computing it twice would be two places it
- * could be computed differently, which is the failure the module comments
- * throughout this project keep naming. It is declared here because this is
- * the module that owns the two degrees the adaptation turns on.
- *
- * Three edge cases, all of them reachable:
- *
- *   * **A function with no effective lines** would put `ln(0)` in the third
- *     term. Its length is taken as 1, so the term vanishes: a function with
- *     nothing in it has nothing to maintain, and 100 is the honest answer
- *     rather than an infinity.
- *   * **A function at either end of the call graph** has an information flow
- *     of zero, and `ln(1)` is zero — so the first term vanishes and the
- *     figure rests on length and branching alone. That is the intended
- *     reading, not a gap: an entry point is not coupled by being an entry
- *     point.
- *   * **The clamp at zero** is what stops a monolith reporting a negative
- *     score. It is reached only by a function of some millions of effective
- *     lines, and exists so that the scale is a scale rather than an
- *     unbounded deficit.
- *
- * Returned rounded to the integer the report presents, so that the value a
- * reader sees is the value that was banded. A band read off a figure other
- * than the printed one is a band nobody can check against the table.
- */
-uint32_t calltree_maintainability(uint32_t eloc, uint32_t complexity,
-                                  uint32_t fan_in, uint32_t fan_out);
-
 /* An ordered call chain, entry point first (HLR-088). */
 typedef struct {
 	uint32_t *nodes;   /* node identifiers into Sdg.nodes; owned */
@@ -88,6 +45,11 @@ typedef struct {
 	 * calling it, so none of them is counted here (HLR-156, LLR-CTR-07).
 	 */
 	uint32_t       *fan_in;       /* per node id; owned (HLR-156)      */
+	/* The third degree: the sum of the Mock Burden Scores of the functions
+	 * this one calls (HLR-222). Accumulated in the same single walk of the
+	 * call edges as the two counts above, so all three describe the same
+	 * set of edges and cannot disagree about which exist (LLR-CTR-13). */
+	double         *wf_out;       /* per node id; owned (HLR-222)      */
 	size_t          node_count;
 
 	RecursiveCycle *cycles;       /* owned (HLR-089)                   */
@@ -119,6 +81,19 @@ int calltree_analyse(const Sdg *g, const ElcOptions *opts, TreeResults *out);
  * established acyclicity: on a cyclic graph the longest path has no finite
  * answer, and this function would not terminate.
  */
+/* The Weighted Test Burden Index of one function (HLR-223).
+ *
+ *     WTBI = v(G) x (1 + min(Fan-In, WF-out))
+ *
+ * A pure function of three measurements and the only definition of the
+ * formula, for the reason every derived figure in this module is defined once:
+ * the report prints it and `thresholds.c` bands it, and two computations are
+ * two figures. The lesser of the degrees is what separates this index from a
+ * product — a widely shared leaf and a lone coordinator both collapse to their
+ * complexity, and only a function large in both is charged for both.
+ */
+double calltree_burden(uint32_t complexity, uint32_t fan_in, double wf_out);
+
 int longest_path_dag(const Sdg *g, const uint32_t *entries, size_t count,
                      Chain *out);
 
