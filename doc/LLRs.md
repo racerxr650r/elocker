@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.26
+**Version:** 2.27
 **Date:** 2026-09-03
 **Author(s):** John Anderson
 

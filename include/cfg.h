@@ -16,8 +16,6 @@
 
 #include <tree_sitter/api.h>
 
-#include "registry.h"
-
 /* One basic block: a run of statements with a single entry, and the blocks
  * control may reach from its end. */
 typedef struct {
@@ -43,16 +41,28 @@ typedef struct {
 	const char *unmodelled;
 } Cfg;
 
+/* Where a critical section is acquired and released, as byte offsets.
+ *
+ * **Gathered by the caller, not by this module.** Running the query here meant
+ * `cfg.c` calling back into `analyze.c` for the predicate evaluation every
+ * query needs, and `analyze.c` already calls into `cfg.c` — a dependency cycle
+ * between the two, which `elc`'s own acyclicity gate refused (LLR-BLD-24).
+ * Taking the marks as input leaves this module about control flow and nothing
+ * else, which is the layering the cycle was pointing at.
+ */
+typedef struct {
+	const uint32_t *acquire;
+	size_t          acquire_count;
+	const uint32_t *release;
+	size_t          release_count;
+} CfgMarks;
+
 /* Build the control-flow graph of one function body (LLR-CFG-01).
  *
- * `body` is the function's compound statement. Acquisitions and releases are
- * located with the language's synchronisation query, which may be absent — a
- * module supplying none yields a graph with no marks, and no finding.
- *
- * Returns 0 with `out` populated, or -1 on allocation failure.
+ * `body` is the function's compound statement. Returns 0 with `out` populated,
+ * or -1 on allocation failure.
  */
-int cfg_build(TSNode body, const LanguageModule *lang, Registry *reg,
-              const char *data, Cfg *out);
+int cfg_build(TSNode body, const CfgMarks *marks, Cfg *out);
 
 /* Whether some path from an acquisition reaches an exit still holding it
  * (LLR-CFG-03).

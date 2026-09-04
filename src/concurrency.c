@@ -112,19 +112,6 @@ int concurrency_roots(const Sdg *g, const ElcOptions *opts,
 
 	memset(out, 0, sizeof *out);
 
-	/* **The refusal LLR-ASY-02 exists for.** With no image and no pattern
-	 * there is no evidence that any function is asynchronous, and the
-	 * alternative — treating every function of in-degree zero as one —
-	 * would put a library's whole public interface into the asynchronous
-	 * tree. Every finding of HLR-228 through HLR-231 would inherit that
-	 * and would read as though it had been measured. An omission a reader
-	 * can see is worth more than a wrong answer wearing a measured one's
-	 * shape (HLR-115). */
-	if (!image && !opts->isr_regex) {
-		out->state = ROOTS_NO_EVIDENCE;
-		return 0;
-	}
-
 	if (opts->isr_regex) {
 		if (regcomp(&pattern, opts->isr_regex,
 		            REG_EXTENDED | REG_NOSUB) != 0) {
@@ -150,7 +137,26 @@ int concurrency_roots(const Sdg *g, const ElcOptions *opts,
 			goto cleanup;
 	}
 
-	out->state = out->count ? ROOTS_IDENTIFIED : ROOTS_NONE_FOUND;
+	/* **Three outcomes, and the third is the one LLR-ASY-02 exists for.**
+	 *
+	 * A function whose address is taken is evidence in itself, and it is
+	 * evidence the source carries — the image only says what survived the
+	 * linker, so a run without one can still identify handlers, just less
+	 * confidently. So the walk always runs.
+	 *
+	 * What must never happen is a root set invented from in-degree alone,
+	 * which would put a library's whole public interface into the
+	 * asynchronous tree and leave every finding of HLR-228 through
+	 * HLR-231 inheriting the error while reading as though it had been
+	 * measured. Where nothing was found *and* nothing was supplied to look
+	 * with, the state says so and the caller reports an omission a reader
+	 * can see (HLR-115). */
+	if (out->count)
+		out->state = ROOTS_IDENTIFIED;
+	else if (!image && !opts->isr_regex)
+		out->state = ROOTS_NO_EVIDENCE;
+	else
+		out->state = ROOTS_NONE_FOUND;
 	status     = 0;
 
 cleanup:
@@ -290,7 +296,7 @@ static int report_shared(const Sdg *g, size_t object, const bool *main_tree,
 	                    g->global_names[object], "", 0, detail);
 }
 
-int concurrency_qualifiers(const Sdg *g, const bool *main_tree,
+int concurrency_qualifiers(Sdg *g, const bool *main_tree,
                            const bool *async_tree, FindingList *out)
 {
 	for (size_t o = 0; o < g->global_name_count; o++) {
@@ -307,7 +313,11 @@ int concurrency_qualifiers(const Sdg *g, const bool *main_tree,
 		 * compiler may cache it in a register across the very sequence
 		 * the other thread modifies it in, and the failure is
 		 * intermittent and frequently absent under a debugger. */
+		g->global_shared[o] = in_main && in_async;
+
 		if (in_main && in_async && !g->global_volatile[o]) {
+			g->global_status[o] =
+				GLOBAL_QUALIFIER_MISSING_CRITICAL;
 			if (report_shared(g, o, main_tree, async_tree,
 			                  out) != 0)
 				return -1;
@@ -332,6 +342,9 @@ int concurrency_qualifiers(const Sdg *g, const bool *main_tree,
 			 * register. */
 			if (g->global_mmio[o])
 				continue;
+
+			g->global_status[o] =
+				GLOBAL_QUALIFIER_UNNECESSARY_WARNING;
 
 			snprintf(detail, sizeof detail,
 			         "declared volatile and reached only from %s; "

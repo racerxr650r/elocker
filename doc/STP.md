@@ -1,6 +1,6 @@
 # Software Test Plan
 
-**Version:** 0.33
+**Version:** 0.34
 **Date:** 2026-09-03
 **Author(s):** John Anderson
 
@@ -1887,10 +1887,10 @@ Role: **unit**. **26 test(s).**
 | 24 | <a id="no_two_file_boxes_may_overlap"></a>`no_two_file_boxes_may_overlap` | `LLR-HTM-08` | Verifies that the page carries the separation pass, that it runs after a file is opened or closed, and that it runs when the reader drops a dragged box — the case the displacement alone does not cover. |
 | 25 | <a id="a_box_says_what_was_found_about_it_on_hover"></a>`a_box_says_what_was_found_about_it_on_hover` | `LLR-HTM-09` | Verifies that the page carries the element that reports a box's definition site, figures and findings while the reader points at it, and that the element takes no pointer event of its own. |
 | 26 | <a id="pointing_at_a_function_lights_the_calls_it_takes_part_in"></a>`pointing_at_a_function_lights_the_calls_it_takes_part_in` | `LLR-HTM-10` | Verifies that the page marks the pointed-at function and the edges it takes part in, in both directions, and lifts the marked edges above the boxes so a call into an opened file is not hidden by it. |
-| 27 | <a id="a_function_node_carries_mock_burden_tbi_and_status"></a>`a_function_node_carries_mock_burden_tbi_and_status` | `LLR-CYT-06` | All three fields are present in the node's `data` object, with the score and the index as JSON numbers and the status as one of the three permitted strings. |
+| 27 | <a id="a_function_node_carries_the_index_and_its_band"></a>`a_function_node_carries_the_index_and_its_band` | `LLR-CYT-06` | All three fields are present in the node's `data` object, with the score and the index as JSON numbers and the status as one of the three permitted strings. |
 | 28 | <a id="the_status_string_agrees_with_the_band_the_catalogue_decided"></a>`the_status_string_agrees_with_the_band_the_catalogue_decided` | `LLR-CYT-06`, `LLR-THR-20` | For an index either side of both bounds, the emitted `wtbi_status` matches the band `thresholds_apply` produced for the same function. The page is given the decision rather than the bounds, so a threshold moved in the catalogue cannot leave the drawing disagreeing with the report. |
 | 29 | <a id="a_function_node_carries_its_concurrency_marks"></a>`a_function_node_carries_its_concurrency_marks` | `LLR-CYT-07` | `is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` naming what was found, each the value the C decided rather than one the page derives. |
-| 30 | <a id="an_absent_mark_and_an_empty_violation_list_are_omitted"></a>`an_absent_mark_and_an_empty_violation_list_are_omitted` | `LLR-CYT-07` | Presence is what the stylesheet tests, so a false mark and an empty list say the same thing in several times the bytes. |
+| 30 | <a id="an_absent_concurrency_mark_and_an_empty_list_are_omitted"></a>`an_absent_concurrency_mark_and_an_empty_list_are_omitted` | `LLR-CYT-07` | Presence is what the stylesheet tests, so a false mark and an empty list say the same thing in several times the bytes. |
 
 ### 3.62. [test/fixtures/html.bats](../test/fixtures/html.bats)
 
@@ -2517,8 +2517,8 @@ verified by code review — see
 | `LLR-CYT-03` | `html_elements` | `HLR-213`, `HLR-032` | `a_function_names_the_file_that_defines_it` |
 | `LLR-CYT-04` | `html_elements` | `HLR-214`, `HLR-074`, `HLR-032` | `edges_join_functions_and_never_containers` |
 | `LLR-CYT-05` | `html_elements` | `HLR-217`, `HLR-099`, `HLR-088` | `a_finding_reaches_the_node_it_describes`, `an_absent_mark_is_an_absent_key` |
-| `LLR-CYT-06` | `html_elements` | `HLR-225`, `HLR-213` | `a_function_node_carries_mock_burden_tbi_and_status`, `the_status_string_agrees_with_the_band_the_catalogue_decided` |
-| `LLR-CYT-07` | `html_elements` | `HLR-232`, `HLR-213` | `a_function_node_carries_its_concurrency_marks`, `an_absent_mark_and_an_empty_violation_list_are_omitted` |
+| `LLR-CYT-06` | `html_elements` | `HLR-225`, `HLR-213` | `a_function_node_carries_the_index_and_its_band`, `the_status_string_agrees_with_the_band_the_catalogue_decided` |
+| `LLR-CYT-07` | `html_elements` | `HLR-232`, `HLR-213` | `a_function_node_carries_its_concurrency_marks`, `an_absent_concurrency_mark_and_an_empty_list_are_omitted` |
 | `LLR-HTM-01` | `format_html` | `HLR-215`, `HLR-148`, `HLR-149` | `the_html_extension_selects_the_html_format`, `there_is_no_option_requesting_the_html_format`, `the_format_option_spells_html` |
 | `LLR-HTM-02` | `format_html` | `HLR-215`, `HLR-040` | `the_page_loads_the_viewer_and_opens_collapsed`, `an_empty_graph_still_produces_a_page` |
 | `LLR-HTM-03` | `format_html` | `HLR-215`, `HLR-064` | `no_raw_angle_bracket_or_ampersand_reaches_the_payload`, `the_javascript_line_terminators_are_escaped` |

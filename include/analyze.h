@@ -151,15 +151,4 @@ int collect_dead_code(const LanguageModule *module, Registry *reg,
  */
 char *component_directory(const char *path);
 
-/* Whether every predicate on a match's pattern holds (HLR-009).
- *
- * Public because `cfg.c` runs a query of its own and must evaluate the same
- * `#eq?` and `#any-of?` filters the rest of the analysis does. A consumer that
- * skipped them would see every pattern match everything the shape allows —
- * which for the synchronisation query means every call is both an acquisition
- * and a release, and the two cancel to nothing.
- */
-bool analyze_predicates_hold(const TSQuery *query, const TSQueryMatch *match,
-                             const char *data);
-
 #endif /* ELC_ANALYZE_H */

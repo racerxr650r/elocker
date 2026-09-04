@@ -11,11 +11,11 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.29" date="2026-09-03" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.22" date="2026-09-03" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.26" date="2026-09-03" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.33" date="2026-09-03" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.33" date="2026-09-03" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.30" date="2026-09-03" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.23" date="2026-09-03" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.27" date="2026-09-03" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.34" date="2026-09-03" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.34" date="2026-09-03" author="John Anderson"/>
     <counts>
       <count name="hlrs"       value="226"/>
       <count name="llrs"       value="617"/>
@@ -19259,7 +19259,7 @@ The exception is not a nicety. The qualifier is also how a peripheral register i
           <trace target="LLR" ref="LLR-HTM-10"/>
         </traces>
       </test>
-    <test name="a_function_node_carries_mock_burden_tbi_and_status">
+    <test name="a_function_node_carries_the_index_and_its_band">
       <purpose><![CDATA[All three fields are present in the node's `data` object, with the score and the index as JSON numbers and the status as one of the three permitted strings.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CYT-06"/>
@@ -19281,7 +19281,7 @@ The exception is not a nicety. The qualifier is also how a peripheral register i
         <trace target="HLR" ref="HLR-232"/>
       </traces>
     </test>
-    <test name="an_absent_mark_and_an_empty_violation_list_are_omitted">
+    <test name="an_absent_concurrency_mark_and_an_empty_list_are_omitted">
       <purpose><![CDATA[Presence is what the stylesheet tests, so a false mark and an empty list say the same thing in several times the bytes.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CYT-07"/>

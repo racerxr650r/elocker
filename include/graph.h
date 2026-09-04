@@ -77,6 +77,13 @@ typedef struct {
 /* One call site that resolved to nothing — an external library, a system
  * call, or a call through a pointer. Retained rather than discarded so the
  * reader can judge the graph's completeness (HLR-077). */
+/* What the qualifier analysis concluded about one global (HLR-230, HLR-231). */
+typedef enum {
+	GLOBAL_QUALIFIER_HEALTHY = 0,
+	GLOBAL_QUALIFIER_MISSING_CRITICAL,
+	GLOBAL_QUALIFIER_UNNECESSARY_WARNING
+} GlobalQualifierStatus;
+
 typedef struct {
 	const char *callee;   /* into the graph's own name table            */
 	const char *file;     /* borrowed from the report model             */
@@ -172,6 +179,12 @@ typedef struct {
 	 * hold the same answer once per access and could hold two. */
 	bool          *global_volatile;
 	bool          *global_mmio;
+	/* What the concurrency analysis concluded about each object, so the
+	 * drawing carries the decision rather than deriving it (HLR-232,
+	 * LLR-CYT-07): a rule spelled once in the binary and once in a script
+	 * is two rules, and the page is the copy nothing checks. */
+	bool          *global_shared;   /* touched from both trees          */
+	uint8_t       *global_status;   /* GlobalQualifierStatus            */
 	GlobalTouch   *touches;         /* sorted by object then node, and
 	                                 * de-duplicated; owned (HLR-091)   */
 	size_t         touch_count;

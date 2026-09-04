@@ -14,7 +14,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "analyze.h"
 #include "cfg.h"
 
 #define CFG_NO_BLOCK UINT32_MAX
@@ -22,16 +21,8 @@
 /* The marks found in the body, as byte offsets, so a statement can be asked
  * what it contains without re-running the query per statement. */
 typedef struct {
-	uint32_t *acquire;
-	size_t    acquire_count;
-	uint32_t *release;
-	size_t    release_count;
-} Marks;
-
-typedef struct {
-	Cfg         *g;
-	const Marks *marks;
-	const char  *data;
+	Cfg            *g;
+	const CfgMarks *marks;
 	/* Where `break` and `continue` go, innermost first. */
 	uint32_t     break_to;
 	uint32_t     continue_to;
@@ -90,7 +81,7 @@ static bool in_range(const uint32_t *offsets, size_t count, uint32_t from,
 /* The net effect of one statement on the number held. A statement holding both
  * an acquisition and a release nets to zero, which is what a scoped pair
  * inside one expression is. */
-static int statement_delta(const Marks *m, TSNode node)
+static int statement_delta(const CfgMarks *m, TSNode node)
 {
 	uint32_t from = ts_node_start_byte(node);
 	uint32_t to   = ts_node_end_byte(node);
@@ -125,140 +116,185 @@ static uint32_t build_sequence(Builder *b, TSNode parent, uint32_t next)
 	return entry;
 }
 
-/* One statement, and where control goes after it. */
+/* An `if`, with both arms.
+ *
+ * The missing `else` goes to the statement after, and that matters more than
+ * it looks: an `if` with no `else` is a path that skips the body entirely, and
+ * it is frequently the path on which a lock is not released.
+ */
+static uint32_t build_branch(Builder *b, TSNode node, uint32_t next)
+{
+	TSNode   then_n = ts_node_child_by_field_name(node, "consequence", 11);
+	TSNode   else_n = ts_node_child_by_field_name(node, "alternative", 11);
+	uint32_t here   = block_new(b->g);
+	uint32_t t, e;
+
+	if (here == CFG_NO_BLOCK)
+		return CFG_NO_BLOCK;
+
+	t = ts_node_is_null(then_n) ? next : build_statement(b, then_n, next);
+	e = ts_node_is_null(else_n) ? next : build_statement(b, else_n, next);
+
+	if (block_link(b->g, here, t) != 0 || block_link(b->g, here, e) != 0)
+		return CFG_NO_BLOCK;
+	return here;
+}
+
+/* `while` and `for`: a head that goes into the body and past it. A loop whose
+ * condition is false on the first test runs no iteration, and that is a path
+ * like any other. */
+static uint32_t build_loop(Builder *b, TSNode node, uint32_t next)
+{
+	TSNode   body_n = ts_node_child_by_field_name(node, "body", 4);
+	uint32_t here   = block_new(b->g);
+	uint32_t saved_break, saved_cont, body_entry;
+
+	if (here == CFG_NO_BLOCK)
+		return CFG_NO_BLOCK;
+
+	saved_break    = b->break_to;
+	saved_cont     = b->continue_to;
+	b->break_to    = next;
+	b->continue_to = here;
+	body_entry = ts_node_is_null(body_n) ? here
+	                                     : build_statement(b, body_n, here);
+	b->break_to    = saved_break;
+	b->continue_to = saved_cont;
+
+	if (block_link(b->g, here, body_entry) != 0 ||
+	    block_link(b->g, here, next) != 0)
+		return CFG_NO_BLOCK;
+	return here;
+}
+
+/* `do`: the body runs before the test, so the entry is the body. */
+static uint32_t build_do_loop(Builder *b, TSNode node, uint32_t next)
+{
+	TSNode   body_n = ts_node_child_by_field_name(node, "body", 4);
+	uint32_t head   = block_new(b->g);
+	uint32_t saved_break, saved_cont, here;
+
+	if (head == CFG_NO_BLOCK)
+		return CFG_NO_BLOCK;
+
+	saved_break    = b->break_to;
+	saved_cont     = b->continue_to;
+	b->break_to    = next;
+	b->continue_to = head;
+	here = ts_node_is_null(body_n) ? head
+	                               : build_statement(b, body_n, head);
+	b->break_to    = saved_break;
+	b->continue_to = saved_cont;
+
+	if (block_link(b->g, head, here) != 0 ||
+	    block_link(b->g, head, next) != 0)
+		return CFG_NO_BLOCK;
+	return here;
+}
+
+/* `switch`: every case is reachable from the head, and so is the path that
+ * matches none of them. Fallthrough falls out of the sequence chaining. */
+static uint32_t build_switch(Builder *b, TSNode node, uint32_t next)
+{
+	TSNode   body_n = ts_node_child_by_field_name(node, "body", 4);
+	uint32_t here   = block_new(b->g);
+	uint32_t saved_break, entry;
+
+	if (here == CFG_NO_BLOCK)
+		return CFG_NO_BLOCK;
+
+	saved_break = b->break_to;
+	b->break_to = next;
+	entry = ts_node_is_null(body_n) ? next
+	                                : build_sequence(b, body_n, next);
+	b->break_to = saved_break;
+
+	if (block_link(b->g, here, entry) != 0 ||
+	    block_link(b->g, here, next) != 0)
+		return CFG_NO_BLOCK;
+	return here;
+}
+
+/* A statement-shaped wrapper, so every entry in the dispatch table below has
+ * one signature and the table needs no special cases. */
+static uint32_t build_sequence_stmt(Builder *b, TSNode node, uint32_t next)
+{
+	return build_sequence(b, node, next);
+}
+
+/* `return`: control leaves the function here. */
+static uint32_t build_return(Builder *b, TSNode node, uint32_t next)
+{
+	uint32_t here = block_new(b->g);
+
+	(void)next;
+	if (here == CFG_NO_BLOCK)
+		return CFG_NO_BLOCK;
+	b->g->blocks[here].delta   = statement_delta(b->marks, node);
+	b->g->blocks[here].is_exit = true;
+	return here;
+}
+
+/* `break` and `continue`: control goes where the enclosing construct said. */
+static uint32_t build_goes_to(Builder *b, uint32_t to)
+{
+	uint32_t here = block_new(b->g);
+
+	if (here == CFG_NO_BLOCK)
+		return CFG_NO_BLOCK;
+	if (to != CFG_NO_BLOCK && block_link(b->g, here, to) != 0)
+		return CFG_NO_BLOCK;
+	return here;
+}
+
+static uint32_t build_break(Builder *b, TSNode node, uint32_t next)
+{
+	(void)node; (void)next;
+	return build_goes_to(b, b->break_to);
+}
+
+static uint32_t build_continue(Builder *b, TSNode node, uint32_t next)
+{
+	(void)node; (void)next;
+	return build_goes_to(b, b->continue_to);
+}
+
+/* `case` bodies chain like any other statement list. */
+static uint32_t build_case(Builder *b, TSNode node, uint32_t next)
+{
+	return build_sequence(b, node, next);
+}
+
+/* One statement, and where control goes after it.
+ *
+ * A table rather than a chain of comparisons, and not only for tidiness: as a
+ * chain this function was one decision point per construct and stood at
+ * thirty-seven against the threshold `elc` holds its own source to. The table
+ * makes adding a construct an entry rather than a branch (LLR-BLD-23).
+ */
 static uint32_t build_statement(Builder *b, TSNode node, uint32_t next)
 {
+	static const struct {
+		const char *type;
+		uint32_t  (*build)(Builder *, TSNode, uint32_t);
+	} FORMS[] = {
+		{ "compound_statement", build_sequence_stmt },
+		{ "case_statement",     build_case          },
+		{ "if_statement",       build_branch        },
+		{ "while_statement",    build_loop          },
+		{ "for_statement",      build_loop          },
+		{ "do_statement",       build_do_loop       },
+		{ "switch_statement",   build_switch        },
+		{ "return_statement",   build_return        },
+		{ "break_statement",    build_break         },
+		{ "continue_statement", build_continue      },
+	};
 	const char *type = ts_node_type(node);
 	uint32_t    here;
 
-	if (strcmp(type, "compound_statement") == 0)
-		return build_sequence(b, node, next);
-
-	if (strcmp(type, "if_statement") == 0) {
-		TSNode   then_n = ts_node_child_by_field_name(node,
-		                                              "consequence", 11);
-		TSNode   else_n = ts_node_child_by_field_name(node,
-		                                              "alternative", 11);
-		uint32_t t, e;
-
-		here = block_new(b->g);
-		if (here == CFG_NO_BLOCK)
-			return CFG_NO_BLOCK;
-
-		t = ts_node_is_null(then_n) ? next
-		                            : build_statement(b, then_n, next);
-		/* **Both arms, and the missing one goes to `next`.** An `if`
-		 * with no `else` is a path that skips the body entirely, and
-		 * that is frequently the path on which a lock is not
-		 * released. */
-		e = ts_node_is_null(else_n) ? next
-		                            : build_statement(b, else_n, next);
-
-		if (block_link(b->g, here, t) != 0 ||
-		    block_link(b->g, here, e) != 0)
-			return CFG_NO_BLOCK;
-		return here;
-	}
-
-	if (strcmp(type, "while_statement") == 0 ||
-	    strcmp(type, "for_statement") == 0) {
-		TSNode   body = ts_node_child_by_field_name(node, "body", 4);
-		uint32_t body_entry;
-		uint32_t saved_break = b->break_to;
-		uint32_t saved_cont  = b->continue_to;
-
-		here = block_new(b->g);
-		if (here == CFG_NO_BLOCK)
-			return CFG_NO_BLOCK;
-
-		b->break_to    = next;
-		b->continue_to = here;
-		body_entry = ts_node_is_null(body) ? here
-		                                   : build_statement(b, body,
-		                                                     here);
-		b->break_to    = saved_break;
-		b->continue_to = saved_cont;
-
-		/* The head goes into the body and past it: a loop whose
-		 * condition is false on the first test runs no iteration, and
-		 * that is a path like any other. */
-		if (block_link(b->g, here, body_entry) != 0 ||
-		    block_link(b->g, here, next) != 0)
-			return CFG_NO_BLOCK;
-		return here;
-	}
-
-	if (strcmp(type, "do_statement") == 0) {
-		TSNode   body = ts_node_child_by_field_name(node, "body", 4);
-		uint32_t head;
-		uint32_t saved_break = b->break_to;
-		uint32_t saved_cont  = b->continue_to;
-
-		head = block_new(b->g);
-		if (head == CFG_NO_BLOCK)
-			return CFG_NO_BLOCK;
-
-		b->break_to    = next;
-		b->continue_to = head;
-		here = ts_node_is_null(body) ? head
-		                             : build_statement(b, body, head);
-		b->break_to    = saved_break;
-		b->continue_to = saved_cont;
-
-		/* The body runs before the test, so the entry is the body. */
-		if (block_link(b->g, head, here) != 0 ||
-		    block_link(b->g, head, next) != 0)
-			return CFG_NO_BLOCK;
-		return here;
-	}
-
-	if (strcmp(type, "switch_statement") == 0) {
-		TSNode   body = ts_node_child_by_field_name(node, "body", 4);
-		uint32_t saved_break = b->break_to;
-		uint32_t entry;
-
-		here = block_new(b->g);
-		if (here == CFG_NO_BLOCK)
-			return CFG_NO_BLOCK;
-
-		b->break_to = next;
-		entry = ts_node_is_null(body) ? next
-		                              : build_sequence(b, body, next);
-		b->break_to = saved_break;
-
-		/* Every case is reachable from the head, and so is the path
-		 * that matches none of them. Fallthrough falls out of the
-		 * sequence chaining for free. */
-		if (block_link(b->g, here, entry) != 0 ||
-		    block_link(b->g, here, next) != 0)
-			return CFG_NO_BLOCK;
-		return here;
-	}
-
-	if (strcmp(type, "case_statement") == 0)
-		return build_sequence(b, node, next);
-
-	if (strcmp(type, "return_statement") == 0) {
-		here = block_new(b->g);
-		if (here == CFG_NO_BLOCK)
-			return CFG_NO_BLOCK;
-		b->g->blocks[here].delta   = statement_delta(b->marks, node);
-		b->g->blocks[here].is_exit = true;
-		return here;
-	}
-
-	if (strcmp(type, "break_statement") == 0 ||
-	    strcmp(type, "continue_statement") == 0) {
-		uint32_t to = strcmp(type, "break_statement") == 0
-		                      ? b->break_to : b->continue_to;
-
-		here = block_new(b->g);
-		if (here == CFG_NO_BLOCK)
-			return CFG_NO_BLOCK;
-		if (to != CFG_NO_BLOCK && block_link(b->g, here, to) != 0)
-			return CFG_NO_BLOCK;
-		return here;
-	}
+	for (size_t i = 0; i < sizeof FORMS / sizeof *FORMS; i++)
+		if (strcmp(type, FORMS[i].type) == 0)
+			return FORMS[i].build(b, node, next);
 
 	/* **`goto` is not modelled, and saying so is the point.** Following it
 	 * needs a label table and a second pass, and a graph that silently
@@ -280,91 +316,11 @@ static uint32_t build_statement(Builder *b, TSNode node, uint32_t next)
 	return here;
 }
 
-/* ------------------------------------------------------------ the marks */
-
-/* **A cursor of its own, and that is not an optimisation to be undone.** This
- * runs inside the caller's own iteration over the functions query, and a
- * cursor holds the position of exactly one traversal: executing the registry's
- * cursor here restarts it, and the loop that called us then walks whatever
- * this query left behind. It cost every function after the first in each file
- * — elc's own source fell from 792 functions to 27 — and it did so silently,
- * because a report of 27 functions is a perfectly well-formed report.
- */
-static int marks_collect(TSNode body, const LanguageModule *lang,
-                         Registry *reg, const char *data, Marks *out)
-{
-	TSQuery         *query = lang->queries[QUERY_SYNC];
-	TSQueryCursor   *cursor;
-	TSQueryMatch     match;
-	int              status = -1;
-
-	(void)reg;
-	memset(out, 0, sizeof *out);
-	if (!query)
-		return 0;
-
-	cursor = ts_query_cursor_new();
-	if (!cursor)
-		return -1;
-
-	ts_query_cursor_exec(cursor, query, body);
-
-	while (ts_query_cursor_next_match(cursor, &match)) {
-		/* Without this every call matches both patterns and
-		 * the two cancel, so nothing is ever held. */
-		if (!analyze_predicates_hold(query, &match, data))
-			continue;
-
-		for (uint16_t i = 0; i < match.capture_count; i++) {
-			uint32_t     len;
-			const char  *cap = ts_query_capture_name_for_id(
-				query, match.captures[i].index, &len);
-			uint32_t   **list;
-			size_t      *count;
-			uint32_t    *grown;
-
-			if (len == sizeof "sync.acquire" - 1 &&
-			    memcmp(cap, "sync.acquire", len) == 0) {
-				list  = &out->acquire;
-				count = &out->acquire_count;
-			} else if (len == sizeof "sync.release" - 1 &&
-			           memcmp(cap, "sync.release", len) == 0) {
-				list  = &out->release;
-				count = &out->release_count;
-			} else {
-				continue;
-			}
-
-			grown = realloc(*list, (*count + 1) * sizeof *grown);
-			if (!grown) {
-				ts_query_cursor_delete(cursor);
-				return -1;
-			}
-			*list           = grown;
-			(*list)[*count] = ts_node_start_byte(
-				match.captures[i].node);
-			(*count)++;
-		}
-	}
-
-	status = 0;
-	ts_query_cursor_delete(cursor);
-	return status;
-}
-
-static void marks_free(Marks *m)
-{
-	free(m->acquire);
-	free(m->release);
-}
-
 /* -------------------------------------------------------------- the build */
 
-int cfg_build(TSNode body, const LanguageModule *lang, Registry *reg,
-              const char *data, Cfg *out)
+int cfg_build(TSNode body, const CfgMarks *marks, Cfg *out)
 {
 	Builder  b;
-	Marks    marks;
 	uint32_t exit_block;
 	int      status = -1;
 
@@ -372,17 +328,13 @@ int cfg_build(TSNode body, const LanguageModule *lang, Registry *reg,
 	out->complete = true;
 	out->entry    = CFG_NO_BLOCK;
 
-	if (marks_collect(body, lang, reg, data, &marks) != 0)
-		return -1;
-
 	exit_block = block_new(out);
 	if (exit_block == CFG_NO_BLOCK)
 		goto cleanup;
 	out->blocks[exit_block].is_exit = true;
 
 	b.g           = out;
-	b.marks       = &marks;
-	b.data        = data;
+	b.marks       = marks;
 	b.break_to    = CFG_NO_BLOCK;
 	b.continue_to = CFG_NO_BLOCK;
 
@@ -393,7 +345,6 @@ int cfg_build(TSNode body, const LanguageModule *lang, Registry *reg,
 	status = 0;
 
 cleanup:
-	marks_free(&marks);
 	return status;
 }
 

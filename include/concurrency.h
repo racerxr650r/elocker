@@ -82,7 +82,7 @@ int concurrency_reentrant(const Sdg *g, const uint32_t *entries,
  * warning, except where the declaration has the shape of a memory-mapped
  * address. Returns 0, or -1 on allocation failure.
  */
-int concurrency_qualifiers(const Sdg *g, const bool *main_tree,
+int concurrency_qualifiers(Sdg *g, const bool *main_tree,
                            const bool *async_tree, FindingList *out);
 
 /* The critical sections of every re-entrant function (HLR-229).

@@ -1,6 +1,6 @@
 # High-Level Requirements
 
-**Version:** 3.22
+**Version:** 3.23
 **Date:** 2026-09-03
 **Author(s):** John Anderson
 

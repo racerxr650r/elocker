@@ -1,6 +1,6 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.29
+**Version:** 2.30
 **Date:** 2026-09-03
 **Author(s):** John Anderson
 

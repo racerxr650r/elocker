@@ -427,7 +427,65 @@ static int concurrency_fields(json_t *data, const SdgNode *n)
 	if (n->is_reentrant)
 		rc |= set_new(data, "is_reentrant", json_true());
 
+	/* The violations as a list, and omitted where there are none: the
+	 * stylesheet tests for presence, and an empty array on every node says
+	 * the same thing in several times the bytes (LLR-CYT-07). */
+	if (n->is_reentrant && (!n->cfg_complete || n->leaks_lock)) {
+		json_t *list = json_array();
+
+		if (!list)
+			return -1;
+		if (n->leaks_lock)
+			json_array_append_new(list,
+			                      json_string("dangling_lock"));
+		if (!n->cfg_complete)
+			json_array_append_new(list,
+			                      json_string("not_analysed"));
+		rc |= set_new(data, "concurrency_violations", list);
+	}
+
 	return rc;
+}
+
+/* Every global object, with what the qualifier analysis concluded (HLR-232).
+ *
+ * A second array beside the elements rather than more elements: the objects
+ * are not drawn as nodes, and Cytoscape is given an array of what it draws.
+ * Each carries the decision the C made rather than the inputs to it, for the
+ * reason every other field here does.
+ */
+static json_t *html_globals(const Sdg *g)
+{
+	static const char *const STATUS[] = {
+		"healthy", "missing_critical", "unnecessary_warning"
+	};
+	json_t *list = json_array();
+
+	if (!list)
+		return NULL;
+
+	for (size_t i = 0; i < g->global_name_count; i++) {
+		json_t *o = json_object();
+		uint8_t st = g->global_status[i];
+
+		if (!o) {
+			json_decref(list);
+			return NULL;
+		}
+		if (set_new(o, "name", json_string(g->global_names[i])) != 0 ||
+		    set_new(o, "is_volatile_shared",
+		            g->global_shared[i] ? json_true()
+		                                : json_false()) != 0 ||
+		    set_new(o, "volatile_status",
+		            json_string(st < 3 ? STATUS[st]
+		                               : "healthy")) != 0 ||
+		    json_array_append_new(list, o) != 0) {
+			json_decref(list);
+			return NULL;
+		}
+	}
+
+	return list;
 }
 
 static int function_fields(json_t *data, const SdgNode *n, size_t index,
@@ -1260,9 +1318,11 @@ static void write_glue(FILE *out)
 int format_html(const Report *report, const Sdg *g, const ElcOptions *opts,
                 FILE *out)
 {
-	json_t *elements = NULL;
-	char   *payload  = NULL;
-	int     status   = -1;
+	json_t *elements       = NULL;
+	json_t *globals_json   = NULL;
+	char   *payload        = NULL;
+	char   *global_payload = NULL;
+	int     status         = -1;
 
 	/* Serialised before anything is written, so a failure leaves a stream
 	 * the caller can still report on rather than a half-page. A partially
@@ -1281,9 +1341,16 @@ int format_html(const Report *report, const Sdg *g, const ElcOptions *opts,
 		goto done;
 	}
 
+	globals_json = html_globals(g);
+	global_payload = globals_json
+		? json_dumps(globals_json, JSON_COMPACT | JSON_SORT_KEYS)
+		: NULL;
+
 	write_head(out);
 	fputs("<script>\nconst graphData = ", out);
 	write_payload(out, payload);
+	fputs(";\nconst globalData = ", out);
+	write_payload(out, global_payload ? global_payload : "[]");
 	fputs(";\n</script>\n", out);
 	write_glue(out);
 
@@ -1295,6 +1362,8 @@ int format_html(const Report *report, const Sdg *g, const ElcOptions *opts,
 	status = ferror(out) ? -1 : 0;
 
 done:
+	json_decref(globals_json);
+	free(global_payload);
 	free(payload);
 	json_decref(elements);
 	return status;

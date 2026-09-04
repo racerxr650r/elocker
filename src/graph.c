@@ -481,14 +481,29 @@ static size_t declared_globals(const FactList *facts, const char **into)
 	return count;
 }
 
+/* The five tables the global objects need, one entry per name.
+ *
+ * Split out because five allocations and their one check are five decision
+ * points in a function whose job is de-duplication, and together they carried
+ * it to fifteen against the threshold `elc` holds its own source to.
+ */
+static int alloc_global_tables(Sdg *out, size_t n)
+{
+	out->global_names    = calloc(n, sizeof *out->global_names);
+	out->global_volatile = calloc(n, sizeof *out->global_volatile);
+	out->global_mmio     = calloc(n, sizeof *out->global_mmio);
+	out->global_shared   = calloc(n, sizeof *out->global_shared);
+	out->global_status   = calloc(n, sizeof *out->global_status);
+
+	return (out->global_names && out->global_volatile &&
+	        out->global_mmio && out->global_shared &&
+	        out->global_status) ? 0 : -1;
+}
+
 /* One owned copy per distinct name, over an already-sorted list. */
 static int intern_distinct(const char *const *declared, size_t count, Sdg *out)
 {
-	out->global_names = calloc(count ? count : 1, sizeof *out->global_names);
-	out->global_volatile = calloc(count ? count : 1,
-	                              sizeof *out->global_volatile);
-	out->global_mmio = calloc(count ? count : 1, sizeof *out->global_mmio);
-	if (!out->global_names || !out->global_volatile || !out->global_mmio)
+	if (alloc_global_tables(out, count ? count : 1) != 0)
 		return -1;
 
 	for (size_t i = 0; i < count; i++) {
@@ -984,6 +999,8 @@ void graph_free(Sdg *g)
 	free(g->global_names);
 	free(g->global_volatile);
 	free(g->global_mmio);
+	free(g->global_shared);
+	free(g->global_status);
 	free(g->touches);
 	for (size_t i = 0; i < g->unresolved_name_count; i++)
 		free(g->unresolved_names[i]);

@@ -1052,3 +1052,66 @@ Test(report_html, the_status_string_agrees_with_the_band_the_catalogue_decided)
 		scene_free(&s);
 	}
 }
+
+/* ------------------------------------------------ the second thread (232) --*/
+
+/* Verifies LLR-CYT-07: the marks and the violation list reach the node, each
+ * the value the C decided rather than one the page derives. */
+Test(report_html, a_function_node_carries_its_concurrency_marks)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page, *payload, *node;
+	size_t      n;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	n = 0;
+	while (n < s.graph.node_count &&
+	       strcmp(s.graph.nodes[n].name, "app_fn") != 0)
+		n++;
+	cr_assert_lt(n, s.graph.node_count);
+
+	s.graph.nodes[n].is_async_root = true;
+	s.graph.nodes[n].is_reentrant  = true;
+	s.graph.nodes[n].cfg_complete  = true;
+	s.graph.nodes[n].leaks_lock    = true;
+
+	page    = page_of(&s.report, &s.graph, &opts);
+	payload = payload_of(page);
+	node    = element_with(payload, "app_fn");
+
+	cr_assert_not_null(strstr(node, "\"is_async_root\":true"),
+	                   "the root mark was not carried: %s", node);
+	cr_assert_not_null(strstr(node, "\"is_reentrant\":true"),
+	                   "the re-entrancy mark was not carried: %s", node);
+	cr_assert_not_null(strstr(node, "\"concurrency_violations\":"
+	                                "[\"dangling_lock\"]"),
+	                   "the violation was not carried: %s", node);
+	free(node);
+	free(page);
+	scene_free(&s);
+}
+
+/* Verifies LLR-CYT-07: presence is what the stylesheet tests, so a node with
+ * nothing to say says nothing — a false mark and an empty list on every node
+ * are the same claim in several times the bytes. */
+Test(report_html, an_absent_concurrency_mark_and_an_empty_list_are_omitted)
+{
+	Scene       s;
+	ElcOptions  opts = { 0 };
+	char       *page, *payload, *node;
+
+	scene_build(&s, PATHS, FUNCTIONS, 3, NULL, NULL, 0);
+	page    = page_of(&s.report, &s.graph, &opts);
+	payload = payload_of(page);
+	node    = element_with(payload, "app_fn");
+
+	cr_assert_null(strstr(node, "is_async_root"),
+	               "a node that is not a root said so at length");
+	cr_assert_null(strstr(node, "is_reentrant"));
+	cr_assert_null(strstr(node, "concurrency_violations"));
+
+	free(node);
+	free(page);
+	scene_free(&s);
+}
