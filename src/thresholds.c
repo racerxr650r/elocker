@@ -115,6 +115,30 @@ static const Threshold CATALOGUE[] = {
 	  (uint32_t)ELC_WTBI_WARNING - 1, (uint32_t)ELC_WTBI_CRITICAL - 1,
 	  false, SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
 
+	/* Shared state without the qualifier: the one row in this group with a
+	 * standard behind it. C11 §6.7.3 is what makes the qualifier mean
+	 * anything, and §7.14.1.1 is the standard saying in as many words that
+	 * an object a handler and the rest of the program share must carry it.
+	 * The finding is the occurrence; there is nothing to band. */
+	{ MEASURE_SHARED_UNQUALIFIED, "shared state",
+	  0, 0, false, SEVERITY_CRITICAL, true,
+	  "C11 §6.7.3, §7.14.1.1", false },
+
+	/* The converse, and `elc`'s own, because it is a judgement rather than
+	 * a rule: nothing published says a qualifier confined to one thread of
+	 * control is wrong, and it may be required for a reason outside what
+	 * `elc` can see. The row is a warning and the finding says so
+	 * (HLR-231). */
+	{ MEASURE_VOLATILE_CONFINED, "confined qualifier",
+	  0, 0, false, SEVERITY_WARNING, true, ELC_OWN_HEURISTIC, true },
+
+	/* A lock held on a path that leaves the function. Also `elc`'s own:
+	 * the defect is real and uncontroversial, but no published source
+	 * bands it, and inventing a citation for a judgement is the thing the
+	 * label exists to prevent (HLR-099). */
+	{ MEASURE_CRITICAL_SECTION, "critical section",
+	  0, 0, false, SEVERITY_CRITICAL, true, ELC_OWN_HEURISTIC, true },
+
 	/* Depth: an embedded constraint rather than a numbered rule. Beyond 8
 	 * to 12 layers the stack risks colliding with the heap on a target
 	 * with a couple of kilobytes of SRAM. */
@@ -329,9 +353,9 @@ bool thresholds_band(MeasurementKind kind, uint32_t value, Severity *out)
 
 /* ------------------------------------------------------------- findings -- */
 
-static int finding_add(FindingList *out, MeasurementKind kind,
-                       Severity severity, const char *subject,
-                       const char *where, uint32_t line, const char *detail)
+int findings_add(FindingList *out, MeasurementKind kind,
+                 Severity severity, const char *subject,
+                 const char *where, uint32_t line, const char *detail)
 {
 	if (out->count == out->capacity) {
 		size_t   next   = out->capacity ? out->capacity * 2 : 16;
@@ -403,7 +427,7 @@ static int apply_fan_out(const TreeResults *tree, const Sdg *g,
 
 		snprintf(detail, sizeof detail, "calls %" PRIu32
 		         " distinct subroutines", tree->fan_out[i]);
-		if (finding_add(out, MEASURE_FAN_OUT, severity,
+		if (findings_add(out, MEASURE_FAN_OUT, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -431,7 +455,7 @@ static int apply_fan_in(const TreeResults *tree, const Sdg *g,
 
 		snprintf(detail, sizeof detail, "called by %" PRIu32
 		         " distinct functions", tree->fan_in[i]);
-		if (finding_add(out, MEASURE_FAN_IN, severity,
+		if (findings_add(out, MEASURE_FAN_IN, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -465,7 +489,7 @@ static int apply_complexity(const Sdg *g, FindingList *out)
 		snprintf(detail, sizeof detail,
 		         "cyclomatic complexity %" PRIu32,
 		         g->nodes[i].complexity);
-		if (finding_add(out, MEASURE_COMPLEXITY, severity,
+		if (findings_add(out, MEASURE_COMPLEXITY, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -492,7 +516,7 @@ static int apply_depth(const TreeResults *tree, FindingList *out)
 	snprintf(detail, sizeof detail,
 	         "%" PRIu32 " layers deep; a lower bound, %zu calls unresolved",
 	         tree->depth, tree->unresolved_calls);
-	return finding_add(out, MEASURE_CALL_DEPTH, severity, "call graph", "",
+	return findings_add(out, MEASURE_CALL_DEPTH, severity, "call graph", "",
 	                   0, detail);
 }
 
@@ -526,7 +550,7 @@ static int apply_recursion(const TreeResults *tree, const Sdg *g,
 			line = g->nodes[tree->cycles[i].members[0]].line_start;
 		}
 
-		if (finding_add(out, MEASURE_RECURSION, t->fixed, members, file,
+		if (findings_add(out, MEASURE_RECURSION, t->fixed, members, file,
 		                line, detail) != 0)
 			return -1;
 	}
@@ -576,7 +600,7 @@ static int apply_cycles(const ArchResults *arch, const Sdg *g,
 		                            ? g->component_paths[cycle->members[0]]
 		                            : "";
 
-		if (finding_add(out, MEASURE_COMPONENT_CYCLE, t->fixed, first,
+		if (findings_add(out, MEASURE_COMPONENT_CYCLE, t->fixed, first,
 		                first, 0, detail) != 0)
 			return -1;
 	}
@@ -612,7 +636,7 @@ static int apply_globals(const StateResults *state, FindingList *out)
 
 		if (!t)
 			continue;
-		if (finding_add(out, kind, t->fixed, row->object, "", 0,
+		if (findings_add(out, kind, t->fixed, row->object, "", 0,
 		                detail) != 0)
 			return -1;
 	}
@@ -683,7 +707,7 @@ static int apply_instability(const ArchResults *arch, const Sdg *g,
 		         "instability %.2f, but declared in layer %s, which the "
 		         "declaration places at %.2f",
 		         k->instability, opts->strata.items[layer].name, expected);
-		if (finding_add(out, MEASURE_INSTABILITY, t->fixed,
+		if (findings_add(out, MEASURE_INSTABILITY, t->fixed,
 		                g->component_paths[c], g->component_paths[c], 0,
 		                detail) != 0)
 			return -1;
@@ -712,7 +736,7 @@ static int apply_bottlenecks(const ArchResults *arch, const Sdg *g,
 		         "the threshold of %" PRIu32,
 		         arch->coupling[c].ca, arch->coupling[c].ce,
 		         opts->bottleneck_threshold);
-		if (finding_add(out, MEASURE_BOTTLENECK, t->fixed,
+		if (findings_add(out, MEASURE_BOTTLENECK, t->fixed,
 		                g->component_paths[c], g->component_paths[c], 0,
 		                detail) != 0)
 			return -1;
@@ -757,7 +781,7 @@ static int apply_weighted_test_burden(const TreeResults *tree, const Sdg *g,
 
 		snprintf(detail, sizeof detail,
 		         "weighted test burden %.2f", wtbi);
-		if (finding_add(out, MEASURE_WEIGHTED_TEST_BURDEN, severity,
+		if (findings_add(out, MEASURE_WEIGHTED_TEST_BURDEN, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -807,7 +831,7 @@ static int apply_misra_library(const Sdg *g, FindingList *out)
 		snprintf(detail, sizeof detail,
 		         "%s is not available to a compliant program (Rule %s)",
 		         c->callee, rule);
-		if (finding_add(out, MEASURE_MISRA_LIBRARY, SEVERITY_WARNING,
+		if (findings_add(out, MEASURE_MISRA_LIBRARY, SEVERITY_WARNING,
 		                c->callee, c->file ? c->file : "", c->line,
 		                detail) != 0)
 			return -1;

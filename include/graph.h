@@ -153,6 +153,16 @@ typedef struct {
 	                                 * use-after-free that renders as
 	                                 * plausible garbage                */
 	size_t         global_name_count;
+	/* The qualifier each named object was declared with, and whether its
+	 * declaration has the shape of a memory-mapped address — one entry per
+	 * name, parallel to `global_names` (HLR-230, HLR-231).
+	 *
+	 * Kept beside the names rather than on the touches, because both are
+	 * properties of the *declaration*: an object is volatile or it is not,
+	 * however many functions reach it, and a table indexed by access would
+	 * hold the same answer once per access and could hold two. */
+	bool          *global_volatile;
+	bool          *global_mmio;
 	GlobalTouch   *touches;         /* sorted by object then node, and
 	                                 * de-duplicated; owned (HLR-091)   */
 	size_t         touch_count;
@@ -184,6 +194,11 @@ int graph_build(const FactList *facts, const Report *report, Sdg *out);
 
 /* The number of call sites with no resolvable target (HLR-077). */
 size_t graph_unresolved_count(const Sdg *g);
+
+/* The declared entry points as node identifiers; the caller frees `*out`.
+ * A name matching no analysed function is skipped (HLR-095). */
+int graph_entry_nodes(const Sdg *g, const ElcOptions *opts, uint32_t **out,
+                      size_t *out_count);
 
 /* Release the graph, node table, edge table and projection. Safe on NULL. */
 void graph_free(Sdg *g);

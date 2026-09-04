@@ -150,4 +150,16 @@ int report_set_findings(Report *report, const FindingList *findings);
 /* Release every finding and the strings each owns. Safe on NULL. */
 void findinglist_free(FindingList *f);
 
+/* Append one finding (HLR-098).
+ *
+ * Public because the analyses of `concurrency.c` produce findings that are not
+ * a band over a counted value — a lock left held on one path is a defect, not
+ * a measurement outside a range — and they must still arrive through the one
+ * list every other finding arrives through, carrying the same severity
+ * vocabulary and the same attribution.
+ */
+int findings_add(FindingList *out, MeasurementKind kind, Severity severity,
+                 const char *subject, const char *where, uint32_t line,
+                 const char *detail);
+
 #endif /* ELC_THRESHOLDS_H */

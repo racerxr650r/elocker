@@ -271,6 +271,17 @@ typedef struct {
 	 * would allocate two strings for a decision `registry.c` has to make
 	 * anyway — it is the module that knows which languages exist. */
 	const char  **rules;
+	/* A pattern naming the functions that begin an asynchronous thread of
+	 * control, for a build that installs its handlers by a means the
+	 * source does not show (HLR-227).
+	 *
+	 * The second of the two ways a root can be admitted, and the weaker
+	 * one: an address taken is a fact about the program, a name matching a
+	 * pattern is a fact about a naming convention. The report says which
+	 * supplied each root for that reason. NULL where none was given, which
+	 * with no image is what makes the whole analysis an omission rather
+	 * than a guess. */
+	const char   *isr_regex;
 	size_t        rule_count;
 	size_t        rule_capacity;
 	/* The conditional-compilation symbols in force, each as given: `NAME`
@@ -655,6 +666,9 @@ typedef enum {
 	MEASURE_BOTTLENECK,        /* per component  (HLR-081)  */
 	MEASURE_MISRA_LIBRARY,     /* per call site  (HLR-207)  */
 	MEASURE_WEIGHTED_TEST_BURDEN,    /* per function   (HLR-224)  */
+	MEASURE_SHARED_UNQUALIFIED,      /* per global     (HLR-230)  */
+	MEASURE_VOLATILE_CONFINED,       /* per global     (HLR-231)  */
+	MEASURE_CRITICAL_SECTION,        /* per function   (HLR-229)  */
 	MEASURE_KIND_COUNT
 } MeasurementKind;
 
@@ -720,7 +734,19 @@ typedef struct {
 typedef enum {
 	GLOBAL_DECLARATION = 0,
 	GLOBAL_READ,
-	GLOBAL_WRITE
+	GLOBAL_WRITE,
+	/* A declaration that also carries the language's qualifier for an
+	 * object changed outside the current thread of control, and a
+	 * declaration whose shape says it is a memory-mapped address rather
+	 * than a variable (HLR-230, HLR-231).
+	 *
+	 * Both arrive as *additional* captures on the same identifier the
+	 * declaration captured, so a qualified global is recorded twice and
+	 * the second record carries the qualifier. That keeps the declaration
+	 * patterns untouched and keeps every spelling of the qualifier in the
+	 * query where the language's facts live (HLR-009). */
+	GLOBAL_VOLATILE,
+	GLOBAL_MMIO
 } GlobalAccessKind;
 
 typedef struct {

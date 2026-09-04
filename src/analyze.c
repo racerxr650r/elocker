@@ -47,6 +47,8 @@
 #define CAPTURE_GLOBAL_DECL   "global.declaration"
 #define CAPTURE_GLOBAL_READ   "global.read"
 #define CAPTURE_GLOBAL_WRITE  "global.write"
+#define CAPTURE_GLOBAL_VOL    "global.volatile"
+#define CAPTURE_GLOBAL_MMIO   "global.mmio"
 #define CAPTURE_DEAD_TERM     "dead.terminator"
 #define CAPTURE_DEAD_REENTRY  "dead.reentry"
 #define CAPTURE_DEAD_BRANCH   "dead.branch"
@@ -2023,6 +2025,10 @@ static int collect_globals(const LanguageModule *module, Registry *reg,
 				kind = GLOBAL_READ;
 			else if (capture_is(query, index, CAPTURE_GLOBAL_WRITE))
 				kind = GLOBAL_WRITE;
+			else if (capture_is(query, index, CAPTURE_GLOBAL_VOL))
+				kind = GLOBAL_VOLATILE;
+			else if (capture_is(query, index, CAPTURE_GLOBAL_MMIO))
+				kind = GLOBAL_MMIO;
 			else
 				continue;
 

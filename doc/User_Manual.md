@@ -2869,6 +2869,7 @@ comparable.
 | `--core-depth` | `N` | `2` | Core depth below which a function is peripheral and left out of the recovery view |
 | `-D`, `--define` | `NAME[=VALUE]` | none | Define a conditional-compilation symbol, so the metrics describe that configuration; repeatable |
 | `--elf` | `FILE` | none | Restrict every measurement to the functions the linked image `FILE` defines |
+| `--isr-regex` | `PATTERN` | none | Treat a function whose name matches `PATTERN` as the start of an asynchronous thread of control |
 | `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `--dsm` | — | off | Also write the dependency structure matrix as CSV, named from `--output` |

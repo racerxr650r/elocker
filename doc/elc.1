@@ -953,6 +953,27 @@ nothing is filtered. See
 .B FILTERING BY A LINKED IMAGE
 below.
 .TP
+.BI \-\-isr\-regex " PATTERN"
+Treat a function whose name matches
+.I PATTERN
+as the start of an asynchronous thread of control \(em an interrupt handler,
+or the entry function of a task a scheduler resumes.
+.IP
+.B elc
+otherwise identifies such a function by what it can see: nothing in the source
+calls it, the linker kept its symbol, and its address is taken without being
+called, which is what installing a handler in a vector table is. Where a build
+installs its handlers by a means the source does not show, this option supplies
+the set instead. A root admitted by this pattern is reported as such, because a
+name matching a convention is a weaker claim than an address taken.
+.IP
+With neither this nor
+.BR \-\-elf ,
+the re-entrancy and concurrency analysis is omitted and the omission stated.
+It is not guessed at: every function nothing calls is not an interrupt handler,
+and a root set built that way would put a library's whole interface into the
+asynchronous tree.
+.TP
 .BI \-\-rules " LANG:PATH"
 Check the analysed source against the custom rule query in
 .IR PATH ,

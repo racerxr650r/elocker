@@ -162,6 +162,40 @@ cleanup:
 	return status;
 }
 
+/* The public form of the walk above (LLR-RNT-01).
+ *
+ * `concurrency.c` needs the same reachability from two different root sets,
+ * and a second implementation of "what does this reach" would be a second
+ * answer to one question — the one that drifts being the one nothing else
+ * checks. `seen` is the caller's, one bool per node, and is marked rather than
+ * cleared: a caller wanting two sets keeps two arrays.
+ */
+int state_reachable(const Sdg *g, const uint32_t *roots, size_t count,
+                    bool *seen)
+{
+	uint32_t *queue;
+	size_t    tail = 0;
+	int       status;
+
+	if (!g->node_count)
+		return 0;
+
+	queue = calloc(g->node_count, sizeof *queue);
+	if (!queue)
+		return -1;
+
+	for (size_t i = 0; i < count; i++) {
+		if (roots[i] >= g->node_count || seen[roots[i]])
+			continue;
+		seen[roots[i]] = true;
+		queue[tail++]  = roots[i];
+	}
+
+	status = walk_reachable(g, seen, queue, tail);
+	free(queue);
+	return status;
+}
+
 /* ------------------------------------------------------------ traversal --
  *
  * Breadth-first over the *call* view. The complement of what is visited is the

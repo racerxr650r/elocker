@@ -17,6 +17,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "concurrency.h"
 #include "diag.h"
 #include "analyze.h"
 #include "arch.h"
@@ -94,6 +95,12 @@ typedef struct {
 	PurifyResults      purify;
 	RecoveryResults    recovery;
 	FindingList        findings;
+	/* The second thread of control (HLR-227, HLR-228). `async_roots`
+	 * carries its own state, so an empty set says whether it is empty
+	 * because nothing was found or because nothing was supplied to look
+	 * with — which are different claims and are reported differently. */
+	RootSet            async_roots;
+	bool              *reentrant;
 	RouteList          routes;
 	MetricsAccumulator acc;
 	Report             report;
@@ -113,6 +120,8 @@ static void run_free(Run *run)
 	if (run->out && run->out != stdout)
 		fclose(run->out);
 	findinglist_free(&run->findings);
+	rootset_free(&run->async_roots);
+	free(run->reentrant);
 	recovery_results_free(&run->recovery);
 	purify_results_free(&run->purify);
 	manifest_free(&run->manifest);
@@ -389,6 +398,102 @@ static int analyse_recovery(Run *run)
  *
  * Returns 0, or -1 with the diagnostic already written.
  */
+/* The two reachability sets and the re-entrant marking (HLR-228).
+ *
+ * Split from the caller because the two do different jobs — this one answers
+ * *what does each thread reach*, and the caller decides what to report from
+ * that — and because with them together the caller stood at fifteen against
+ * the threshold `elc` enforces on everyone else (LLR-BLD-23).
+ */
+static int concurrency_trees(Run *run, const RootSet *roots, bool *from_main,
+                             bool *from_async, bool *reentrant)
+{
+	uint32_t *entries     = NULL;
+	uint32_t *root_nodes  = NULL;
+	size_t    entry_count = 0;
+	int       status      = -1;
+
+	root_nodes = calloc(roots->count, sizeof *root_nodes);
+	if (!root_nodes)
+		return -1;
+	for (size_t i = 0; i < roots->count; i++)
+		root_nodes[i] = roots->items[i].node;
+
+	if (graph_entry_nodes(&run->sdg, &run->opts, &entries,
+	                      &entry_count) != 0)
+		goto cleanup;
+
+	if (concurrency_reentrant(&run->sdg, entries, entry_count, roots,
+	                          reentrant) != 0)
+		goto cleanup;
+
+	if (state_reachable(&run->sdg, entries, entry_count, from_main) != 0)
+		goto cleanup;
+	if (state_reachable(&run->sdg, root_nodes, roots->count,
+	                    from_async) != 0)
+		goto cleanup;
+
+	status = 0;
+
+cleanup:
+	free(entries);
+	free(root_nodes);
+	return status;
+}
+
+/* The second thread of control (HLR-227 - HLR-231).
+ *
+ * Runs after the thresholds because it adds to the same finding list, and
+ * before the report is given that list.
+ *
+ * **An empty root set is not a clean bill of health**, and the two ways of
+ * having one are not the same claim. Where no evidence was supplied the whole
+ * analysis is omitted; where evidence was supplied and matched nothing, the
+ * program has no asynchronous roots and there is nothing to report. Reporting
+ * silence for both would tell a reader who forgot `--elf` that their program
+ * is concurrency-clean (HLR-115).
+ */
+static int analyse_concurrency(Run *run)
+{
+	const SymbolSet *image = run->opts.image_path ? &run->image : NULL;
+	bool            *reentrant  = NULL;
+	bool            *from_main  = NULL;
+	bool            *from_async = NULL;
+	size_t           n          = run->sdg.node_count;
+	int              status     = -1;
+
+	if (concurrency_roots(&run->sdg, &run->opts, image,
+	                      &run->async_roots) != 0)
+		return -1;
+
+	if (run->async_roots.state != ROOTS_IDENTIFIED || !n)
+		return 0;
+
+	reentrant  = calloc(n, sizeof *reentrant);
+	from_main  = calloc(n, sizeof *from_main);
+	from_async = calloc(n, sizeof *from_async);
+	if (!reentrant || !from_main || !from_async)
+		goto cleanup;
+
+	if (concurrency_trees(run, &run->async_roots, from_main, from_async,
+	                      reentrant) != 0)
+		goto cleanup;
+
+	if (concurrency_qualifiers(&run->sdg, from_main, from_async,
+	                           &run->findings) != 0)
+		goto cleanup;
+
+	run->reentrant = reentrant;
+	reentrant      = NULL;
+	status         = 0;
+
+cleanup:
+	free(reentrant);
+	free(from_main);
+	free(from_async);
+	return status;
+}
+
 static int analyse_graph(Run *run)
 {
 	if (build_dependence_graph(run) != 0 ||
@@ -398,6 +503,7 @@ static int analyse_graph(Run *run)
 
 	if (thresholds_apply(&run->arch, &run->tree, &run->state, &run->sdg,
 	                     &run->opts, &run->findings) != 0 ||
+	    analyse_concurrency(run) != 0 ||
 	    report_set_findings(&run->report, &run->findings) != 0) {
 		diag_printf("elc: out of memory evaluating thresholds\n");
 		return -1;

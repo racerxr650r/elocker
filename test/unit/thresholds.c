@@ -231,6 +231,10 @@ Test(thresholds, fan_in_is_banded_on_elcs_own_authority_and_says_so)
 	cr_assert_eq(t->warning_bound, 25);
 	cr_assert(threshold_is_elc_own(MEASURE_FAN_IN));
 	cr_assert(threshold_is_elc_own(MEASURE_WEIGHTED_TEST_BURDEN));
+	cr_assert(threshold_is_elc_own(MEASURE_VOLATILE_CONFINED));
+	cr_assert(threshold_is_elc_own(MEASURE_CRITICAL_SECTION));
+	cr_assert_not(threshold_is_elc_own(MEASURE_SHARED_UNQUALIFIED),
+	              "the shared-state row carries C11, not an opinion");
 	cr_assert_not_null(strstr(threshold_attribution(MEASURE_FAN_IN),
 	                          "not a published standard"));
 
@@ -256,7 +260,7 @@ Test(thresholds, an_occurrence_row_bands_no_counted_value)
 	                              &band));
 }
 
-Test(thresholds, exactly_three_thresholds_are_elcs_own_and_say_so)
+Test(thresholds, exactly_five_thresholds_are_elcs_own_and_say_so)
 {
 	int own = 0;
 
@@ -269,16 +273,21 @@ Test(thresholds, exactly_three_thresholds_are_elcs_own_and_say_so)
 				"an elc threshold must say so where it is read");
 		}
 
-	/* Three: the bottleneck heuristic, the fan-in band, and the
-	 * testing-burden bands. It was four until the maintainability bands
-	 * were retired with the index they banded. If a fourth ever appears
-	 * it must be a deliberate decision rather than a drift, which is what
-	 * makes the exact count worth asserting.
+	/* Five: the bottleneck heuristic, the fan-in band, the testing-burden
+	 * bands, and the two concurrency rows Phase 34 added — a qualifier
+	 * confined to one thread of control, and a lock held on a path that
+	 * leaves the function. Both are judgements: the defects are real and
+	 * uncontroversial, but nothing published bands them, and inventing a
+	 * citation for a judgement is what this label exists to prevent.
+	 *
+	 * The shared-state row is *not* among them and must not be: C11
+	 * §6.7.3 and §7.14.1.1 are what make the qualifier mean anything, so
+	 * that row carries a standard rather than an opinion.
 	 *
 	 * A measurement arriving without a published band is not a fourth: the
 	 * honest treatment is to report it with no severity, not to invent one
 	 * and mark it as elc's (HLR-098). */
-	cr_assert_eq(own, 3);
+	cr_assert_eq(own, 5);
 	cr_assert(threshold_is_elc_own(MEASURE_BOTTLENECK));
 	cr_assert(threshold_is_elc_own(MEASURE_FAN_IN));
 }
