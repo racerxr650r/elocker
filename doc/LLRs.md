@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.25
-**Date:** 2026-09-02
+**Version:** 2.26
+**Date:** 2026-09-03
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -2319,6 +2319,13 @@ The compound-node data model: three tiers of nodes joined by a `parent` referenc
     The numbers shall be emitted through the same serialiser as every other numeric field on the node, so that a score is written in the locale-independent form the payload requires and a reader of the JSON sees `0.85` on every machine.
     *Trace:* HLR-225 (Testing Burden in the Interactive Report Payload), HLR-213.
 
+*   <a id="LLR-CYT-07"></a>**LLR-CYT-07** — `html_elements` shall carry, on each function node, `is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` as a list of strings naming what was found against the function; and shall carry, for each global object, whether it is shared across threads of control and the state of its qualifier (HLR-232).
+
+    Each shall be the value the C decided rather than one the page derives, for the reason this module's other fields are: a rule spelled once in the binary and once in a script is two rules, and the page is the copy nothing checks.
+
+    An absent mark and an empty violation list shall be omitted rather than emitted false and empty, as the marks of LLR-CYT-05 are: the stylesheet tests for presence, and stating an absence on every node says the same thing in several times the bytes.
+    *Trace:* HLR-232 (Concurrency Facts in the Interactive Payload), HLR-213.
+
 ## 73. `format_html` ([src/report_html.c](../src/report_html.c))
 
 The page itself: when it is written, what its shell contains, how the payload survives being embedded in it, and what the viewer is told to do with it.
@@ -2517,3 +2524,67 @@ Placing a run's findings on the graph they describe, once, for every drawing tha
 
     A function whose cyclomatic complexity is recorded as zero — which no analysed function has, every path count being at least one — shall yield an index of zero rather than a special case, the multiplication doing the work without a guard.
     *Trace:* HLR-223.
+
+## 77. `concurrency_roots` ([src/concurrency.c](../src/concurrency.c))
+
+*   <a id="LLR-ASY-01"></a>**LLR-ASY-01** — `concurrency_roots` shall admit a node as an asynchronous root only where it is not a declared entry point, its in-degree over call edges is zero, its name is defined in the supplied image, and either its address is taken without being directly called or its name matches the supplied pattern (HLR-227).
+
+    **All four, and the fourth is not redundant.** The image says what survived the linker, not what is asynchronous: in-degree zero with a live symbol is equally an exported function nothing in the library calls, a function reached only through a pointer, and a function whose caller was not among the files analysed. Taking an address without calling is what installing a handler or registering a callback is.
+    *Trace:* HLR-227.
+
+*   <a id="LLR-ASY-02"></a>**LLR-ASY-02** — `concurrency_roots` shall return an empty set, with the reason recorded, where neither an image nor a pattern was supplied, and shall never substitute the set of all functions of in-degree zero for the root set (HLR-227, HLR-115).
+
+    That substitution is the one this function exists to refuse. It would place a library's whole public interface in the asynchronous tree, and HLR-228's intersection, HLR-229's paths and HLR-230's sharing would each inherit the error while reading as though they had been measured — a wrong answer wearing the shape of a measured one, which is worse than an omission a reader can see.
+    *Trace:* HLR-227, HLR-115.
+
+*   <a id="LLR-ASY-03"></a>**LLR-ASY-03** — `concurrency_roots` shall record, for each root, whether it was admitted by its address being taken or by matching the pattern, and the report shall carry that distinction (HLR-227).
+
+    A root inferred from a pattern is a claim about a naming convention; a root inferred from an address is a claim about the program. A reader deciding what to do about a finding built on either needs to know which they have.
+    *Trace:* HLR-227.
+
+## 78. `concurrency_reentrant` ([src/concurrency.c](../src/concurrency.c))
+
+*   <a id="LLR-RNT-01"></a>**LLR-RNT-01** — `concurrency_reentrant` shall mark exactly the functions reachable both from the declared entry points and from some asynchronous root, and shall obtain each reachability from the traversal `state.c` already performs, run against a different root set (HLR-228).
+
+    One walk run twice, not two walks. Two implementations of "what does this reach" are two answers to one question, and the one that drifts is the one nothing else checks.
+    *Trace:* HLR-228.
+
+*   <a id="LLR-RNT-02"></a>**LLR-RNT-02** — `concurrency_reentrant` shall follow call edges alone. A global-state edge joins a function that writes an object to one that reads it, which is not an invocation: a function sharing an object with a handler is not thereby entered by it, and counting such an edge would mark most of a program re-entrant on the strength of one shared counter (HLR-156).
+    *Trace:* HLR-228, HLR-156.
+
+*   <a id="LLR-RNT-03"></a>**LLR-RNT-03** — `concurrency_reentrant` shall not mark a function reachable from an asynchronous root alone. Nothing interrupts such a function in the middle of itself; it is the *intersection* that is the property, one thread of control being able to begin a function while another is already inside it.
+    *Trace:* HLR-228.
+
+## 79. `cfg_build` ([src/cfg.c](../src/cfg.c))
+
+*   <a id="LLR-CFG-01"></a>**LLR-CFG-01** — `cfg_build` shall construct the control-flow graph of one function from its parse, modelling `if` and `else`, the three loop forms, `switch` including fallthrough between labels, `goto` and its labels, `break`, `continue`, and every `return` (HLR-229).
+
+    The early `return` is the case the analysis exists to find: it is the commonest way a lock is leaked, and a graph that treated a function as one block would report every function safe.
+    *Trace:* HLR-229.
+
+*   <a id="LLR-CFG-02"></a>**LLR-CFG-02** — `cfg_build` shall mark the graph incomplete, rather than returning a partial one as though it were whole, where it meets a construct the language module does not describe (HLR-138).
+
+    A graph missing an edge answers a path question *wrongly* rather than not at all: the path that would have failed is the one the missing edge carried. The caller reports such a function as not analysed.
+    *Trace:* HLR-229, HLR-138.
+
+## 80. `cfg_leaks` ([src/cfg.c](../src/cfg.c))
+
+*   <a id="LLR-CFG-03"></a>**LLR-CFG-03** — `cfg_leaks` shall report whether any path from an acquisition reaches an exit block without passing a release, and shall return one such path (HLR-229).
+
+    **The visited set shall be keyed on the block together with the number of acquisitions held, not on the block alone.** A lock taken inside a loop and released after it is not a leak, and a search that has already visited a block in a different lock state must visit it again or it will answer from the state it happened to arrive in first.
+    *Trace:* HLR-229.
+
+*   <a id="LLR-CFG-04"></a>**LLR-CFG-04** — `cfg_leaks` shall cause one finding per function naming the primitive and a failing path, not one per failing path. The routes to a single early return are combinatorial in the branches above it, and a defect reported once per route buries itself.
+    *Trace:* HLR-229.
+
+## 81. `concurrency_qualifiers` ([src/concurrency.c](../src/concurrency.c))
+
+*   <a id="LLR-VOL-01"></a>**LLR-VOL-01** — `concurrency_qualifiers` shall report at critical severity every global object touched from both trees whose declaration lacks the language's qualifier for objects changed outside the current thread of control, and shall name the object, a function on each side, and the access kinds (HLR-230, HLR-091).
+
+    The qualifier shall be read from the parse through the language's own query and never from a keyword list in the binary (HLR-009).
+    *Trace:* HLR-230, HLR-009.
+
+*   <a id="LLR-VOL-02"></a>**LLR-VOL-02** — `concurrency_qualifiers` shall report at warning severity a qualified global whose accesses are confined to one tree, **except where the declaration has the shape of a memory-mapped register** — an initialiser casting an integer to a pointer, a declaration through a pointer to a qualified type, or an object placed at an address the build supplies (HLR-231).
+
+    The exception is not a nicety. The qualifier is also how a peripheral register is declared and how an object surviving a non-local jump is declared, and neither involves two threads of control; a finding advising the removal of a qualifier whose absence is a miscompile is worse than no finding. The text shall state that a cause outside `elc`'s view may still require it, and shall not advise removal (HLR-101).
+    *Trace:* HLR-231, HLR-101.

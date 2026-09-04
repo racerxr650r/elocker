@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.28" date="2026-09-02" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.21" date="2026-09-02" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.25" date="2026-09-02" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.32" date="2026-09-02" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.32" date="2026-09-02" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.29" date="2026-09-03" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.22" date="2026-09-03" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.26" date="2026-09-03" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.33" date="2026-09-03" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.33" date="2026-09-03" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="220"/>
-      <count name="llrs"       value="604"/>
-      <count name="tests"      value="1324"/>
-      <count name="test_files" value="60"/>
+      <count name="hlrs"       value="226"/>
+      <count name="llrs"       value="617"/>
+      <count name="tests"      value="1345"/>
+      <count name="test_files" value="62"/>
     </counts>
   </metadata>
 
@@ -1649,6 +1649,47 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
           <dep><![CDATA[`graph.h` and `report.h` for the two collections it walks, and `thresholds.h` for the severity ranking and the catalogue lookups — the judgement it places and never forms (HLR-099).]]></dep>
           <dep><![CDATA[Depended upon by `format_graph.c` and `report_html.c`, which is the whole reason it exists: two drawings of one graph reading one set of answers rather than deriving two (HLR-217).]]></dep>
         </dependencies>
+      </module>
+
+      <module path="src/cfg.c">
+        <purpose><![CDATA[builds a control-flow graph for one function from its parse, and answers path questions over it. The first analysis in `elc` that is about the routes *through* a function rather than a count over it.]]></purpose>
+        <responsibility><![CDATA[Construct basic blocks and the edges between them from a function's syntax tree, covering `if`/`else`, the three loop forms, `switch` with its fallthrough, `goto` and its labels, `break`, `continue`, and every `return` (HLR-229).]]></responsibility>
+        <responsibility><![CDATA[Answer, for a set of marked acquisitions and releases, whether every path from an acquisition reaches every exit through a release — and name a path that does not.]]></responsibility>
+        <responsibility><![CDATA[Report a function whose control flow cannot be constructed as *not analysed*, never as safe. A silent pass claims a proof that was not attempted, which is the failure mode this module most has to avoid (HLR-138).]]></responsibility>
+        <functions>
+          <function signature="int cfg_build(TSNode body, const LanguageModule *lang, const char *data, Cfg *out)" summary="Construct the control-flow graph of one function body. Blocks are spans of the source; edges carry the condition that selects them where a construct has one. A construct the language module does not describe leaves the graph incomplete and marked so, since a graph missing an edge answers path questions wrongly rather than not at all."/>
+          <function signature="bool cfg_leaks(const Cfg *g, const MarkSet *acquire, const MarkSet *release, CfgPath *out)" summary="Whether any path from an acquisition reaches an exit without a release, and the first such path found. Depth-first with the visited set keyed on (block, held count), so a loop is entered once per distinct lock state rather than once — a lock taken inside a loop and released after it is not a leak, and a search keyed on the block alone cannot tell the two apart."/>
+          <function signature="void cfg_free(Cfg *g)" summary="Release the blocks, the edges, and the retained path."/>
+        </functions>
+        <dependencies>
+          <dep><![CDATA[The parser, for the syntax tree the graph is built from.]]></dep>
+          <dep><![CDATA[`src/registry.c`, for the language's control-flow and synchronisation queries.]]></dep>
+        </dependencies>
+        <error_handling>
+          <case name="A construct the module does not describe"><![CDATA[The graph is marked incomplete and the function is reported as not analysed, with the construct named (HLR-138).]]></case>
+        </error_handling>
+      </module>
+
+      <module path="src/concurrency.c">
+        <purpose><![CDATA[identifies the asynchronous roots, marks the functions both threads of control can be inside, validates their critical sections over the control flow, and checks the qualifier on the state they share.]]></purpose>
+        <responsibility><![CDATA[Identify asynchronous roots by the four conditions of HLR-227, and record which of them supplied each root, since a root inferred from a pattern is a weaker claim than one inferred from an address.]]></responsibility>
+        <responsibility><![CDATA[Mark as re-entrant the intersection of what the declared entry points reach and what the asynchronous roots reach, over call edges alone (HLR-228).]]></responsibility>
+        <responsibility><![CDATA[Declare the analysis omitted, with the reason, where no root set could be identified — never substituting every function of in-degree zero for one (HLR-115, HLR-227).]]></responsibility>
+        <responsibility><![CDATA[Classify each global object's qualifier against the trees that reach it (HLR-230, HLR-231).]]></responsibility>
+        <functions>
+          <function signature="int concurrency_roots(const Sdg *g, const ElcOptions *opts, const SymbolSet *image, RootSet *out)" summary="The asynchronous roots, by HLR-227's four conditions: not a declared entry point, in-degree zero, live in the image, and either address-taken or matching the supplied pattern. Returns an empty set with its reason recorded where no image and no pattern were given — which the caller reports as an omission rather than as a finding of none."/>
+          <function signature="int concurrency_reentrant(const Sdg *g, const NodeSet *entries, const RootSet *async, NodeSet *out)" summary="The intersection of what each root set reaches over call edges. The traversal is `state.c`'s, run twice against different roots rather than reimplemented: two walks that could disagree about what an edge is are two answers to one question."/>
+          <function signature="int concurrency_qualifiers(const Sdg *g, const NodeSet *main_tree, const NodeSet *async_tree, FindingList *out)" summary="Each global object classified by the trees that touch it: shared and unqualified is critical (HLR-230); qualified and confined to one tree is a warning, except where the declaration has the shape of a memory-mapped register (HLR-231)."/>
+        </functions>
+        <dependencies>
+          <dep><![CDATA[`src/graph.c`, for the call view and the address-taken fact.]]></dep>
+          <dep><![CDATA[`src/elfsyms.c`, for the symbols that survived the linker.]]></dep>
+          <dep><![CDATA[`src/cfg.c`, for the path questions of HLR-229.]]></dep>
+        </dependencies>
+        <error_handling>
+          <case name="No image and no pattern"><![CDATA[The whole analysis is omitted and the omission stated, naming what would supply the root set (HLR-115).]]></case>
+          <case name="A re-entrant function whose control flow is incomplete"><![CDATA[Reported as not analysed rather than as safe (HLR-138).]]></case>
+        </error_handling>
       </module>
 
     </modules>
@@ -4762,6 +4803,101 @@ A band shall be a prompt to look rather than an instruction to comply (HLR-099).
 The band shall be carried as the string the C already decided rather than recomputed in the page from the index and the bounds. A threshold spelled once in the binary and once in a script is two places it can be spelled differently, and the page would be the copy nobody checks — the same reason HLR-149 admits only one spelling of a format.
 
 The figures shall reach every other format that reports per-function detail on the terms those formats already set (HLR-031), so that the interactive report presents what the others present rather than a measurement available in one place only.]]></text>
+        <traces>
+          <trace target="SDD" ref="27"/>
+        </traces>
+      </hlr>
+    </section>
+
+    <section number="33" title="Re-entrancy and Concurrency Safety">
+      <intro><![CDATA[Requirements governing a second thread of control (PVD §4 "embedded / bare-metal developer", §6 Principle 1).
+
+Every measurement in the sections above assumes one. On a bare-metal target there are at least two — the application, and whatever the hardware calls without asking — and a function on both paths is re-entered. The defects that follow are among the hardest to reproduce after shipping and are invisible to every other analysis `elc` performs: a global torn between a read and a write, a lock acquired on one path and not released on another, a shared object the compiler cached in a register because nothing told it not to.
+
+**Nothing in C says "this is an interrupt".** A vector table entry is a function like any other; the attribute that installs it is compiler-specific and the section that holds it is target-specific, and `elc` may use neither (HLR-009, PVD §6 Principle 2). The root set is therefore *inferred*, and these requirements are written so that the inference is stated, is narrow, and is declared where it could not be made.]]></intro>
+
+      <hlr id="HLR-227" name="Asynchronous Root Identification">
+        <text><![CDATA[`elc` shall identify the functions that begin an asynchronous thread of control — interrupt handlers, and the entry functions of tasks a scheduler resumes — and shall identify them from facts it already derives rather than from any compiler attribute, pragma, or linker section name (HLR-009).
+
+A function shall be an **asynchronous root** where all of the following hold:
+
+*   it is not one of the entry points declared under HLR-095;
+*   its in-degree in the call view of the SDG is zero — nothing in the analysed source calls it;
+*   its name is defined in the linked image supplied by `--elf` (HLR-141), so that it survived the linker;
+*   **and** either its address is taken without being directly called (HLR-096), or its name matches a pattern supplied by a new command-line option.
+
+**The fourth condition is what makes the set worth reporting from, and it is not redundant.** The image tells `elc` what survived the linker, not what is asynchronous. In-degree zero together with a live symbol is equally the shape of an exported API function that nothing in the library calls itself, of a function reached only through a pointer — which `elc` already reports as an unresolved call (HLR-077) — and of a function whose only caller lives in a file this run was not given. On a library that is most of the public interface. Taking a function's address without calling it is what installing a handler in a vector table or registering a callback *is*, and it is a fact `elc` already computes as half of HLR-096's root set.
+
+**Where the root set cannot be identified the analysis shall be omitted and the omission stated**, naming what would supply it, exactly as depth is omitted where no entry point is declared (HLR-115). It shall not fall back to treating every function of in-degree zero as asynchronous: that root set would place a library's whole interface in the asynchronous tree, and every finding of HLR-228 through HLR-231 would inherit the error while reading as though it had been measured.
+
+**The report shall state how the root set was obtained** — from addresses, from the supplied pattern, or both — since a root inferred from a pattern is a weaker claim than one inferred from an address, and a reader deciding what to do about a finding needs to know which they have.]]></text>
+        <traces>
+          <trace target="SDD" ref="18"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-228" name="Re-entrancy by Reachability">
+        <text><![CDATA[`elc` shall mark as **re-entrant** every function reachable both from the declared entry points (HLR-095) and from any asynchronous root (HLR-227), and shall report the mark per function.
+
+The two reachabilities shall be the traversal of the call view `elc` already performs for HLR-096, run against two root sets, rather than a second implementation of the same walk. Reachability shall follow call edges alone: a global-state edge joins a writer to a reader and is not an invocation, so a function that merely shares an object with a handler is not thereby re-entered (HLR-156).
+
+**A function reachable from an asynchronous root alone is not re-entrant and shall not be marked**, since nothing interrupts it in the middle of itself. It is the *intersection* that is the property: a function is re-entered only where one thread of control can begin it while another is already inside it.
+
+The mark shall be a measurement and not a finding. Re-entrancy is a fact about a program's structure, frequently an intended one; what is reportable is a re-entrant function that is *unsafe*, which is what HLR-229 and HLR-230 measure.]]></text>
+        <traces>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-229" name="Critical Section Validation over the Control Flow">
+        <text><![CDATA[For every function marked re-entrant (HLR-228), `elc` shall determine whether each acquisition of a synchronisation primitive is released on every path from that acquisition to every exit of the function, and shall report a finding against a function on which any path acquires without releasing.
+
+**This requires a control-flow graph, which `elc` does not have.** Every analysis to this point counts over a syntax tree; this one is about the *paths through* a function. The graph shall be constructed from the parse and shall model `if` and `else`, the three loop forms, `switch` including fallthrough, `goto` and its labels, `break`, `continue`, and every `return` — an early return being the commonest way a lock is leaked and therefore the case the analysis exists to find.
+
+**Which calls are synchronisation primitives is a project's fact and not a language's**, and shall be supplied as a query in the runtime location like every other language-specific decision (HLR-009, HLR-107). A name compiled into the binary would be wrong for the first project whose primitives are named differently, which on the targets this analysis exists for is most of them.
+
+A function shall be reported once, naming the primitive and a path that fails to release it. Reporting each failing path separately would bury a single defect under the combinatorial count of the routes to it.
+
+Where a function's control flow cannot be constructed — a computed `goto`, or a construct the language module does not describe — the function shall be reported as not analysed rather than as safe, and the reason stated (HLR-138). A silent pass here is the failure mode that matters: it claims a proof that was never attempted.]]></text>
+        <traces>
+          <trace target="SDD" ref="29"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-230" name="Shared State Without volatile">
+        <text><![CDATA[`elc` shall report at **critical** severity every global object that is accessed by at least one function reachable from a declared entry point *and* by at least one function reachable from an asynchronous root, and whose declaration does not carry the qualifier by which the language marks an object subject to change outside the current thread of control.
+
+The qualifier shall be read from the parse through the language's own query (HLR-009); for C and C++ it is `volatile`.
+
+**This direction is sound whatever else is true of the object.** Two threads of control sharing an unqualified object is a defect independent of the target, the compiler and the optimisation level: the compiler is entitled to cache the object in a register across the very sequence the other thread modifies it in, and the resulting failure is intermittent, timing-dependent, and frequently disappears under the debugger.
+
+The finding shall name the object, the function on each side that reaches it, and the access kinds involved (HLR-091), so that a reader can see the pair that makes it shared rather than being told only that it is.]]></text>
+        <traces>
+          <trace target="SDD" ref="7"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-231" name="volatile Confined to One Thread of Control">
+        <text><![CDATA[`elc` shall report at **warning** severity every global object declared with the qualifier of HLR-230 whose accesses are confined to one thread of control — reachable from the declared entry points alone, or from the asynchronous roots alone — since the qualifier then forbids optimisations that nothing requires to be forbidden.
+
+**This direction is not sound in the way HLR-230's is, and shall be constrained rather than reported plainly.** The qualifier is also how a memory-mapped peripheral register is declared, and how an object that must survive a non-local jump is declared, and neither involves two threads of control. Advising the removal of a qualifier whose absence is a miscompile would be worse than not reporting at all.
+
+Therefore: the finding shall not be raised where the declaration has the shape of a memory-mapped register — an initialiser that casts an integer to a pointer, a declaration through a pointer to a qualified type, or an object placed at an address the build supplies — and shall state, where it is raised, that a cause outside `elc`'s view may still require the qualifier. It shall report the measurement and shall not advise removal (HLR-101).]]></text>
+        <traces>
+          <trace target="SDD" ref="7"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-232" name="Concurrency Facts in the Interactive Payload">
+        <text><![CDATA[The JSON payload each function node carries (HLR-213) shall include whether the function is an asynchronous root, whether it is re-entrant, and the concurrency violations found against it as a list of strings; and the payload shall carry, for each global object, whether it is shared across threads of control and the state of its qualifier.
+
+Each shall be the value `elc` decided rather than a figure for the page to derive, for the reason LLR-CYT-06 gives: a rule spelled once in the binary and once in a script is two rules, and the page is the copy nothing checks.
+
+An empty violation list shall be omitted rather than emitted empty, as the marks of LLR-CYT-05 are: the stylesheet tests for presence, and stating an absence on every node says the same thing in several times the bytes.]]></text>
         <traces>
           <trace target="SDD" ref="27"/>
         </traces>
@@ -9551,6 +9687,18 @@ The numbers shall be emitted through the same serialiser as every other numeric 
           <trace target="HLR" ref="HLR-213"/>
         </traces>
       </llr>
+
+      <llr id="LLR-CYT-07">
+        <text><![CDATA[`html_elements` shall carry, on each function node, `is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` as a list of strings naming what was found against the function; and shall carry, for each global object, whether it is shared across threads of control and the state of its qualifier (HLR-232).
+
+Each shall be the value the C decided rather than one the page derives, for the reason this module's other fields are: a rule spelled once in the binary and once in a script is two rules, and the page is the copy nothing checks.
+
+An absent mark and an empty violation list shall be omitted rather than emitted false and empty, as the marks of LLR-CYT-05 are: the stylesheet tests for presence, and stating an absence on every node says the same thing in several times the bytes.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-232" name="Concurrency Facts in the Interactive Payload"/>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="73" title="`format_html` ([src/report_html.c](../src/report_html.c))" name="format_html" source="src/report_html.c">
@@ -9835,6 +9983,116 @@ The two degrees shall be compared as the same type before the lesser is taken. F
 A function whose cyclomatic complexity is recorded as zero — which no analysed function has, every path count being at least one — shall yield an index of zero rather than a special case, the multiplication doing the work without a guard.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-223"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="77" name="concurrency_roots" source="src/concurrency.c" title="`concurrency_roots` ([src/concurrency.c](../src/concurrency.c))">
+      <llr id="LLR-ASY-01">
+        <text><![CDATA[`concurrency_roots` shall admit a node as an asynchronous root only where it is not a declared entry point, its in-degree over call edges is zero, its name is defined in the supplied image, and either its address is taken without being directly called or its name matches the supplied pattern (HLR-227).
+
+**All four, and the fourth is not redundant.** The image says what survived the linker, not what is asynchronous: in-degree zero with a live symbol is equally an exported function nothing in the library calls, a function reached only through a pointer, and a function whose caller was not among the files analysed. Taking an address without calling is what installing a handler or registering a callback is.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-227"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ASY-02">
+        <text><![CDATA[`concurrency_roots` shall return an empty set, with the reason recorded, where neither an image nor a pattern was supplied, and shall never substitute the set of all functions of in-degree zero for the root set (HLR-227, HLR-115).
+
+That substitution is the one this function exists to refuse. It would place a library's whole public interface in the asynchronous tree, and HLR-228's intersection, HLR-229's paths and HLR-230's sharing would each inherit the error while reading as though they had been measured — a wrong answer wearing the shape of a measured one, which is worse than an omission a reader can see.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-227"/>
+          <trace target="HLR" ref="HLR-115"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ASY-03">
+        <text><![CDATA[`concurrency_roots` shall record, for each root, whether it was admitted by its address being taken or by matching the pattern, and the report shall carry that distinction (HLR-227).
+
+A root inferred from a pattern is a claim about a naming convention; a root inferred from an address is a claim about the program. A reader deciding what to do about a finding built on either needs to know which they have.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-227"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="78" name="concurrency_reentrant" source="src/concurrency.c" title="`concurrency_reentrant` ([src/concurrency.c](../src/concurrency.c))">
+      <llr id="LLR-RNT-01">
+        <text><![CDATA[`concurrency_reentrant` shall mark exactly the functions reachable both from the declared entry points and from some asynchronous root, and shall obtain each reachability from the traversal `state.c` already performs, run against a different root set (HLR-228).
+
+One walk run twice, not two walks. Two implementations of "what does this reach" are two answers to one question, and the one that drifts is the one nothing else checks.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-228"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RNT-02">
+        <text><![CDATA[`concurrency_reentrant` shall follow call edges alone. A global-state edge joins a function that writes an object to one that reads it, which is not an invocation: a function sharing an object with a handler is not thereby entered by it, and counting such an edge would mark most of a program re-entrant on the strength of one shared counter (HLR-156).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-228"/>
+          <trace target="HLR" ref="HLR-156"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RNT-03">
+        <text><![CDATA[`concurrency_reentrant` shall not mark a function reachable from an asynchronous root alone. Nothing interrupts such a function in the middle of itself; it is the *intersection* that is the property, one thread of control being able to begin a function while another is already inside it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-228"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="79" name="cfg_build" source="src/cfg.c" title="`cfg_build` ([src/cfg.c](../src/cfg.c))">
+      <llr id="LLR-CFG-01">
+        <text><![CDATA[`cfg_build` shall construct the control-flow graph of one function from its parse, modelling `if` and `else`, the three loop forms, `switch` including fallthrough between labels, `goto` and its labels, `break`, `continue`, and every `return` (HLR-229).
+
+The early `return` is the case the analysis exists to find: it is the commonest way a lock is leaked, and a graph that treated a function as one block would report every function safe.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-229"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CFG-02">
+        <text><![CDATA[`cfg_build` shall mark the graph incomplete, rather than returning a partial one as though it were whole, where it meets a construct the language module does not describe (HLR-138).
+
+A graph missing an edge answers a path question *wrongly* rather than not at all: the path that would have failed is the one the missing edge carried. The caller reports such a function as not analysed.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-229"/>
+          <trace target="HLR" ref="HLR-138"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="80" name="cfg_leaks" source="src/cfg.c" title="`cfg_leaks` ([src/cfg.c](../src/cfg.c))">
+      <llr id="LLR-CFG-03">
+        <text><![CDATA[`cfg_leaks` shall report whether any path from an acquisition reaches an exit block without passing a release, and shall return one such path (HLR-229).
+
+**The visited set shall be keyed on the block together with the number of acquisitions held, not on the block alone.** A lock taken inside a loop and released after it is not a leak, and a search that has already visited a block in a different lock state must visit it again or it will answer from the state it happened to arrive in first.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-229"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CFG-04">
+        <text><![CDATA[`cfg_leaks` shall cause one finding per function naming the primitive and a failing path, not one per failing path. The routes to a single early return are combinatorial in the branches above it, and a defect reported once per route buries itself.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-229"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="81" name="concurrency_qualifiers" source="src/concurrency.c" title="`concurrency_qualifiers` ([src/concurrency.c](../src/concurrency.c))">
+      <llr id="LLR-VOL-01">
+        <text><![CDATA[`concurrency_qualifiers` shall report at critical severity every global object touched from both trees whose declaration lacks the language's qualifier for objects changed outside the current thread of control, and shall name the object, a function on each side, and the access kinds (HLR-230, HLR-091).
+
+The qualifier shall be read from the parse through the language's own query and never from a keyword list in the binary (HLR-009).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-230"/>
+          <trace target="HLR" ref="HLR-009"/>
+        </traces>
+      </llr>
+      <llr id="LLR-VOL-02">
+        <text><![CDATA[`concurrency_qualifiers` shall report at warning severity a qualified global whose accesses are confined to one tree, **except where the declaration has the shape of a memory-mapped register** — an initialiser casting an integer to a pointer, a declaration through a pointer to a qualified type, or an object placed at an address the build supplies (HLR-231).
+
+The exception is not a nicety. The qualifier is also how a peripheral register is declared and how an object surviving a non-local jump is declared, and neither involves two threads of control; a finding advising the removal of a qualifier whose absence is a miscompile is worse than no finding. The text shall state that a cause outside `elc`'s view may still require it, and shall not advise removal (HLR-101).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-231"/>
+          <trace target="HLR" ref="HLR-101"/>
         </traces>
       </llr>
     </function>
@@ -18636,6 +18894,148 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
   </file>
 
+  <file path="test/unit/concurrency.c" role="unit" count="14">
+    <test name="an_address_taken_function_of_in_degree_zero_is_an_async_root">
+      <purpose><![CDATA[The shape a vector-table entry has: nothing calls it, its address is installed somewhere, and the linker kept it. All four conditions hold and it is admitted.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="an_exported_function_never_called_is_not_an_async_root">
+      <purpose><![CDATA[The false positive the fourth condition exists to exclude, and the reason this test matters more than the one above it. An exported API function has in-degree zero and a live symbol and is not asynchronous; without the address-taken condition a library's whole interface would be a root set.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="a_function_absent_from_the_image_is_not_an_async_root">
+      <purpose><![CDATA[A function the linker discarded is not entered by anything, whatever its in-degree. The image is what says so.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="the_declared_entry_point_is_never_an_async_root">
+      <purpose><![CDATA[`main` has in-degree zero by construction and would otherwise satisfy every other condition, making the intersection of HLR-228 the whole program.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="a_name_matching_the_pattern_is_a_root_without_an_address">
+      <purpose><![CDATA[Where the build installs handlers by a means the source does not show, the pattern supplies the root set. Recorded as pattern-derived, since that is a weaker claim than an address.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="LLR" ref="LLR-ASY-03"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="no_image_and_no_pattern_yields_an_omission_not_a_root_set">
+      <purpose><![CDATA[The substitution this function exists to refuse: every function of in-degree zero treated as asynchronous. The set is empty and the reason recorded, so the caller reports an omission a reader can see rather than findings that inherited an invented root set.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-02"/>
+        <trace target="HLR" ref="HLR-227"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="a_function_both_trees_reach_is_re_entrant">
+      <purpose><![CDATA[The intersection is the property. A function the main tree reaches and a handler's tree also reaches can be begun by one thread while another is inside it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RNT-01"/>
+        <trace target="HLR" ref="HLR-228"/>
+      </traces>
+    </test>
+    <test name="a_function_only_the_async_tree_reaches_is_not_re_entrant">
+      <purpose><![CDATA[Nothing interrupts it in the middle of itself. Asserted separately because an implementation taking the union rather than the intersection passes the test above and fails this one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RNT-03"/>
+        <trace target="HLR" ref="HLR-228"/>
+      </traces>
+    </test>
+    <test name="a_global_edge_does_not_make_a_function_re_entrant">
+      <purpose><![CDATA[Sharing an object with a handler is not being called by it. Counting global edges would mark most of a program re-entrant on the strength of one shared counter.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RNT-02"/>
+        <trace target="HLR" ref="HLR-156"/>
+      </traces>
+    </test>
+    <test name="a_shared_global_without_the_qualifier_is_critical">
+      <purpose><![CDATA[Written by a handler, read by the main loop, and not volatile. Sound whatever else is true of the object: the compiler may cache it across the sequence the other thread modifies it in.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-01"/>
+        <trace target="HLR" ref="HLR-230"/>
+      </traces>
+    </test>
+    <test name="a_shared_global_with_the_qualifier_yields_no_finding">
+      <purpose><![CDATA[The same object correctly declared produces nothing, so the finding marks the defect rather than the sharing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-01"/>
+        <trace target="HLR" ref="HLR-230"/>
+      </traces>
+    </test>
+    <test name="a_qualified_global_confined_to_one_tree_is_a_warning">
+      <purpose><![CDATA[The qualifier forbids optimisations nothing requires to be forbidden, and the cost is real.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-02"/>
+        <trace target="HLR" ref="HLR-231"/>
+      </traces>
+    </test>
+    <test name="a_memory_mapped_register_is_never_reported_unnecessary">
+      <purpose><![CDATA[A qualified object initialised by casting an integer to a pointer is a peripheral register, is confined to one tree by construction, and must keep its qualifier. Advising its removal would be advising a miscompile, so the exemption is asserted rather than assumed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-02"/>
+        <trace target="HLR" ref="HLR-231"/>
+      </traces>
+    </test>
+    <test name="the_unnecessary_finding_states_the_measurement_and_advises_nothing">
+      <purpose><![CDATA[Neither remove nor refactor appears: the finding says what was measured and that a cause outside elc's view may still require the qualifier (HLR-101).]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-02"/>
+        <trace target="HLR" ref="HLR-101"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/cfg.c" role="unit" count="5">
+    <test name="an_early_return_between_acquire_and_release_leaks">
+      <purpose><![CDATA[The case the analysis exists for, and the one a single-block model reports safe: a lock taken, a guard clause returning, and the release below it never reached.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-01"/>
+        <trace target="LLR" ref="LLR-CFG-03"/>
+        <trace target="HLR" ref="HLR-229"/>
+      </traces>
+    </test>
+    <test name="a_release_on_every_path_does_not_leak">
+      <purpose><![CDATA[Both arms of a branch release, so no path reaches an exit holding the lock. The converse of the test above, and what keeps the analysis from reporting every function that locks at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-03"/>
+        <trace target="HLR" ref="HLR-229"/>
+      </traces>
+    </test>
+    <test name="a_lock_taken_and_released_inside_a_loop_does_not_leak">
+      <purpose><![CDATA[The case the visited set's key decides. A search keyed on the block alone revisits the loop head in whatever lock state it first arrived in and reports a leak that is not there; keyed on the block and the held count, it does not.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-03"/>
+        <trace target="HLR" ref="HLR-229"/>
+      </traces>
+    </test>
+    <test name="a_function_is_reported_once_however_many_paths_fail">
+      <purpose><![CDATA[Ten branches above one early return are a thousand failing routes and one defect. The finding names the primitive and one path.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-04"/>
+        <trace target="HLR" ref="HLR-229"/>
+      </traces>
+    </test>
+    <test name="a_construct_the_module_does_not_describe_is_not_analysed">
+      <purpose><![CDATA[The graph is marked incomplete and the function reported as not analysed rather than as safe. A silent pass here claims a proof that was never attempted, which is the failure mode that matters most.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-02"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+  </file>
+
     <file path="test/unit/annotate.c" role="unit" count="9">
       <test name="a_finding_lands_on_the_definition_site_not_the_name">
         <purpose><![CDATA[Verifies that a finding reaches the node at the definition site it names and not a second function sharing that name, which is what separates matching a site from matching a name.]]></purpose>
@@ -18696,7 +19096,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
         </traces>
       </test>
 </file>
-    <file path="test/unit/report_html.c" role="unit" count="24">
+    <file path="test/unit/report_html.c" role="unit" count="26">
       <test name="a_node_is_emitted_for_each_declared_layer">
         <purpose><![CDATA[Verifies that one node is emitted per declared stratum, identified by its ordinal, and that no layer is emitted for a directory nobody declared.]]></purpose>
         <traces>
@@ -18872,6 +19272,20 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
         <trace target="LLR" ref="LLR-CYT-06"/>
         <trace target="LLR" ref="LLR-THR-20"/>
         <trace target="HLR" ref="HLR-225"/>
+      </traces>
+    </test>
+    <test name="a_function_node_carries_its_concurrency_marks">
+      <purpose><![CDATA[`is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` naming what was found, each the value the C decided rather than one the page derives.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYT-07"/>
+        <trace target="HLR" ref="HLR-232"/>
+      </traces>
+    </test>
+    <test name="an_absent_mark_and_an_empty_violation_list_are_omitted">
+      <purpose><![CDATA[Presence is what the stylesheet tests, so a false mark and an empty list say the same thing in several times the bytes.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYT-07"/>
+        <trace target="HLR" ref="HLR-232"/>
       </traces>
     </test>
 </file>

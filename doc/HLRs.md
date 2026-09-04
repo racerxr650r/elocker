@@ -1,7 +1,7 @@
 # High-Level Requirements
 
-**Version:** 3.21
-**Date:** 2026-09-02
+**Version:** 3.22
+**Date:** 2026-09-03
 **Author(s):** John Anderson
 
 ## 1. Target Discovery and Input Routing
@@ -1519,4 +1519,77 @@ The requirements here weight the edge by what the thing it points at costs to mo
     The band shall be carried as the string the C already decided rather than recomputed in the page from the index and the bounds. A threshold spelled once in the binary and once in a script is two places it can be spelled differently, and the page would be the copy nobody checks — the same reason HLR-149 admits only one spelling of a format.
 
     The figures shall reach every other format that reports per-function detail on the terms those formats already set (HLR-031), so that the interactive report presents what the others present rather than a measurement available in one place only.
+    *Trace:* [SDD Section 27](SDD.md).
+
+## 33. Re-entrancy and Concurrency Safety
+
+Requirements governing a second thread of control (PVD §4 "embedded / bare-metal developer", §6 Principle 1).
+
+Every measurement in the sections above assumes one. On a bare-metal target there are at least two — the application, and whatever the hardware calls without asking — and a function on both paths is re-entered. The defects that follow are among the hardest to reproduce after shipping and are invisible to every other analysis `elc` performs: a global torn between a read and a write, a lock acquired on one path and not released on another, a shared object the compiler cached in a register because nothing told it not to.
+
+**Nothing in C says "this is an interrupt".** A vector table entry is a function like any other; the attribute that installs it is compiler-specific and the section that holds it is target-specific, and `elc` may use neither (HLR-009, PVD §6 Principle 2). The root set is therefore *inferred*, and these requirements are written so that the inference is stated, is narrow, and is declared where it could not be made.
+
+*   <a id="HLR-227"></a>**HLR-227: Asynchronous Root Identification.**
+    `elc` shall identify the functions that begin an asynchronous thread of control — interrupt handlers, and the entry functions of tasks a scheduler resumes — and shall identify them from facts it already derives rather than from any compiler attribute, pragma, or linker section name (HLR-009).
+
+    A function shall be an **asynchronous root** where all of the following hold:
+
+    *   it is not one of the entry points declared under HLR-095;
+    *   its in-degree in the call view of the SDG is zero — nothing in the analysed source calls it;
+    *   its name is defined in the linked image supplied by `--elf` (HLR-141), so that it survived the linker;
+    *   **and** either its address is taken without being directly called (HLR-096), or its name matches a pattern supplied by a new command-line option.
+
+    **The fourth condition is what makes the set worth reporting from, and it is not redundant.** The image tells `elc` what survived the linker, not what is asynchronous. In-degree zero together with a live symbol is equally the shape of an exported API function that nothing in the library calls itself, of a function reached only through a pointer — which `elc` already reports as an unresolved call (HLR-077) — and of a function whose only caller lives in a file this run was not given. On a library that is most of the public interface. Taking a function's address without calling it is what installing a handler in a vector table or registering a callback *is*, and it is a fact `elc` already computes as half of HLR-096's root set.
+
+    **Where the root set cannot be identified the analysis shall be omitted and the omission stated**, naming what would supply it, exactly as depth is omitted where no entry point is declared (HLR-115). It shall not fall back to treating every function of in-degree zero as asynchronous: that root set would place a library's whole interface in the asynchronous tree, and every finding of HLR-228 through HLR-231 would inherit the error while reading as though it had been measured.
+
+    **The report shall state how the root set was obtained** — from addresses, from the supplied pattern, or both — since a root inferred from a pattern is a weaker claim than one inferred from an address, and a reader deciding what to do about a finding needs to know which they have.
+    *Trace:* [SDD Section 18](SDD.md), [SDD Section 30](SDD.md).
+
+*   <a id="HLR-228"></a>**HLR-228: Re-entrancy by Reachability.**
+    `elc` shall mark as **re-entrant** every function reachable both from the declared entry points (HLR-095) and from any asynchronous root (HLR-227), and shall report the mark per function.
+
+    The two reachabilities shall be the traversal of the call view `elc` already performs for HLR-096, run against two root sets, rather than a second implementation of the same walk. Reachability shall follow call edges alone: a global-state edge joins a writer to a reader and is not an invocation, so a function that merely shares an object with a handler is not thereby re-entered (HLR-156).
+
+    **A function reachable from an asynchronous root alone is not re-entrant and shall not be marked**, since nothing interrupts it in the middle of itself. It is the *intersection* that is the property: a function is re-entered only where one thread of control can begin it while another is already inside it.
+
+    The mark shall be a measurement and not a finding. Re-entrancy is a fact about a program's structure, frequently an intended one; what is reportable is a re-entrant function that is *unsafe*, which is what HLR-229 and HLR-230 measure.
+    *Trace:* [SDD Section 30](SDD.md).
+
+*   <a id="HLR-229"></a>**HLR-229: Critical Section Validation over the Control Flow.**
+    For every function marked re-entrant (HLR-228), `elc` shall determine whether each acquisition of a synchronisation primitive is released on every path from that acquisition to every exit of the function, and shall report a finding against a function on which any path acquires without releasing.
+
+    **This requires a control-flow graph, which `elc` does not have.** Every analysis to this point counts over a syntax tree; this one is about the *paths through* a function. The graph shall be constructed from the parse and shall model `if` and `else`, the three loop forms, `switch` including fallthrough, `goto` and its labels, `break`, `continue`, and every `return` — an early return being the commonest way a lock is leaked and therefore the case the analysis exists to find.
+
+    **Which calls are synchronisation primitives is a project's fact and not a language's**, and shall be supplied as a query in the runtime location like every other language-specific decision (HLR-009, HLR-107). A name compiled into the binary would be wrong for the first project whose primitives are named differently, which on the targets this analysis exists for is most of them.
+
+    A function shall be reported once, naming the primitive and a path that fails to release it. Reporting each failing path separately would bury a single defect under the combinatorial count of the routes to it.
+
+    Where a function's control flow cannot be constructed — a computed `goto`, or a construct the language module does not describe — the function shall be reported as not analysed rather than as safe, and the reason stated (HLR-138). A silent pass here is the failure mode that matters: it claims a proof that was never attempted.
+    *Trace:* [SDD Section 29](SDD.md), [SDD Section 30](SDD.md).
+
+*   <a id="HLR-230"></a>**HLR-230: Shared State Without volatile.**
+    `elc` shall report at **critical** severity every global object that is accessed by at least one function reachable from a declared entry point *and* by at least one function reachable from an asynchronous root, and whose declaration does not carry the qualifier by which the language marks an object subject to change outside the current thread of control.
+
+    The qualifier shall be read from the parse through the language's own query (HLR-009); for C and C++ it is `volatile`.
+
+    **This direction is sound whatever else is true of the object.** Two threads of control sharing an unqualified object is a defect independent of the target, the compiler and the optimisation level: the compiler is entitled to cache the object in a register across the very sequence the other thread modifies it in, and the resulting failure is intermittent, timing-dependent, and frequently disappears under the debugger.
+
+    The finding shall name the object, the function on each side that reaches it, and the access kinds involved (HLR-091), so that a reader can see the pair that makes it shared rather than being told only that it is.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 30](SDD.md).
+
+*   <a id="HLR-231"></a>**HLR-231: volatile Confined to One Thread of Control.**
+    `elc` shall report at **warning** severity every global object declared with the qualifier of HLR-230 whose accesses are confined to one thread of control — reachable from the declared entry points alone, or from the asynchronous roots alone — since the qualifier then forbids optimisations that nothing requires to be forbidden.
+
+    **This direction is not sound in the way HLR-230's is, and shall be constrained rather than reported plainly.** The qualifier is also how a memory-mapped peripheral register is declared, and how an object that must survive a non-local jump is declared, and neither involves two threads of control. Advising the removal of a qualifier whose absence is a miscompile would be worse than not reporting at all.
+
+    Therefore: the finding shall not be raised where the declaration has the shape of a memory-mapped register — an initialiser that casts an integer to a pointer, a declaration through a pointer to a qualified type, or an object placed at an address the build supplies — and shall state, where it is raised, that a cause outside `elc`'s view may still require the qualifier. It shall report the measurement and shall not advise removal (HLR-101).
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 30](SDD.md).
+
+*   <a id="HLR-232"></a>**HLR-232: Concurrency Facts in the Interactive Payload.**
+    The JSON payload each function node carries (HLR-213) shall include whether the function is an asynchronous root, whether it is re-entrant, and the concurrency violations found against it as a list of strings; and the payload shall carry, for each global object, whether it is shared across threads of control and the state of its qualifier.
+
+    Each shall be the value `elc` decided rather than a figure for the page to derive, for the reason LLR-CYT-06 gives: a rule spelled once in the binary and once in a script is two rules, and the page is the copy nothing checks.
+
+    An empty violation list shall be omitted rather than emitted empty, as the marks of LLR-CYT-05 are: the stylesheet tests for presence, and stating an absence on every node says the same thing in several times the bytes.
     *Trace:* [SDD Section 27](SDD.md).

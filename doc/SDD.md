@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.28
-**Date:** 2026-09-02
+**Version:** 2.29
+**Date:** 2026-09-03
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -107,8 +107,10 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   Section 26: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
 *   Section 27: Detailed design for [src/report_html.c](../src/report_html.c).
 *   Section 28: Detailed design for [src/annotate.c](../src/annotate.c).
-*   Section 29: Data Dictionary.
-*   Section 30: Traceability.
+*   Section 29: Detailed design for [src/cfg.c](../src/cfg.c).
+*   Section 30: Detailed design for [src/concurrency.c](../src/concurrency.c).
+*   Section 31: Data Dictionary.
+*   Section 32: Traceability.
 
 ## 2. System Overview
 
@@ -2023,7 +2025,60 @@ The pigment. This module says a node is critical; `format_graph.c` decides that 
 *   `graph.h` and `report.h` for the two collections it walks, and `thresholds.h` for the severity ranking and the catalogue lookups — the judgement it places and never forms (HLR-099).
 *   Depended upon by `format_graph.c` and `report_html.c`, which is the whole reason it exists: two drawings of one graph reading one set of answers rather than deriving two (HLR-217).
 
-## 29. Data Dictionary
+
+## 29. Detailed Design for [src/cfg.c](../src/cfg.c)
+
+### 29.1 Purpose and Responsibilities
+[src/cfg.c](../src/cfg.c) builds a control-flow graph for one function from its parse, and answers path questions over it. The first analysis in `elc` that is about the routes *through* a function rather than a count over it.
+
+*   Construct basic blocks and the edges between them from a function's syntax tree, covering `if`/`else`, the three loop forms, `switch` with its fallthrough, `goto` and its labels, `break`, `continue`, and every `return` (HLR-229).
+*   Answer, for a set of marked acquisitions and releases, whether every path from an acquisition reaches every exit through a release — and name a path that does not.
+*   Report a function whose control flow cannot be constructed as *not analysed*, never as safe. A silent pass claims a proof that was not attempted, which is the failure mode this module most has to avoid (HLR-138).
+
+
+### 29.3 Internal Structure
+#### 29.3.1 Key Functions
+
+*   **`int cfg_build(TSNode body, const LanguageModule *lang, const char *data, Cfg *out)`** — Construct the control-flow graph of one function body. Blocks are spans of the source; edges carry the condition that selects them where a construct has one. A construct the language module does not describe leaves the graph incomplete and marked so, since a graph missing an edge answers path questions wrongly rather than not at all.
+*   **`bool cfg_leaks(const Cfg *g, const MarkSet *acquire, const MarkSet *release, CfgPath *out)`** — Whether any path from an acquisition reaches an exit without a release, and the first such path found. Depth-first with the visited set keyed on (block, held count), so a loop is entered once per distinct lock state rather than once — a lock taken inside a loop and released after it is not a leak, and a search keyed on the block alone cannot tell the two apart.
+*   **`void cfg_free(Cfg *g)`** — Release the blocks, the edges, and the retained path.
+### 29.4 Dependencies
+
+*   The parser, for the syntax tree the graph is built from.
+*   `src/registry.c`, for the language's control-flow and synchronisation queries.
+
+### 29.5 Error Handling and Logging
+
+*   **A construct the module does not describe** The graph is marked incomplete and the function is reported as not analysed, with the construct named (HLR-138).
+
+## 30. Detailed Design for [src/concurrency.c](../src/concurrency.c)
+
+### 30.1 Purpose and Responsibilities
+[src/concurrency.c](../src/concurrency.c) identifies the asynchronous roots, marks the functions both threads of control can be inside, validates their critical sections over the control flow, and checks the qualifier on the state they share.
+
+*   Identify asynchronous roots by the four conditions of HLR-227, and record which of them supplied each root, since a root inferred from a pattern is a weaker claim than one inferred from an address.
+*   Mark as re-entrant the intersection of what the declared entry points reach and what the asynchronous roots reach, over call edges alone (HLR-228).
+*   Declare the analysis omitted, with the reason, where no root set could be identified — never substituting every function of in-degree zero for one (HLR-115, HLR-227).
+*   Classify each global object's qualifier against the trees that reach it (HLR-230, HLR-231).
+
+
+### 30.3 Internal Structure
+#### 30.3.1 Key Functions
+
+*   **`int concurrency_roots(const Sdg *g, const ElcOptions *opts, const SymbolSet *image, RootSet *out)`** — The asynchronous roots, by HLR-227's four conditions: not a declared entry point, in-degree zero, live in the image, and either address-taken or matching the supplied pattern. Returns an empty set with its reason recorded where no image and no pattern were given — which the caller reports as an omission rather than as a finding of none.
+*   **`int concurrency_reentrant(const Sdg *g, const NodeSet *entries, const RootSet *async, NodeSet *out)`** — The intersection of what each root set reaches over call edges. The traversal is `state.c`'s, run twice against different roots rather than reimplemented: two walks that could disagree about what an edge is are two answers to one question.
+*   **`int concurrency_qualifiers(const Sdg *g, const NodeSet *main_tree, const NodeSet *async_tree, FindingList *out)`** — Each global object classified by the trees that touch it: shared and unqualified is critical (HLR-230); qualified and confined to one tree is a warning, except where the declaration has the shape of a memory-mapped register (HLR-231).
+### 30.4 Dependencies
+
+*   `src/graph.c`, for the call view and the address-taken fact.
+*   `src/elfsyms.c`, for the symbols that survived the linker.
+*   `src/cfg.c`, for the path questions of HLR-229.
+
+### 30.5 Error Handling and Logging
+
+*   **No image and no pattern** The whole analysis is omitted and the omission stated, naming what would supply the root set (HLR-115).
+*   **A re-entrant function whose control flow is incomplete** Reported as not analysed rather than as safe (HLR-138).
+## 31. Data Dictionary
 
 *   **`ElcOptions`** (defined in [include/elc.h](../include/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
 
@@ -2545,7 +2600,7 @@ The failure is recorded here rather than merely fixed because nothing about it i
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.
-## 30. Traceability
+## 32. Traceability
 
 The following table maps the high-level requirements in
 [doc/HLRs.md](HLRs.md) and the low-level requirements in

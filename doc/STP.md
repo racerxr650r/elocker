@@ -1,7 +1,7 @@
 # Software Test Plan
 
-**Version:** 0.32
-**Date:** 2026-09-02
+**Version:** 0.33
+**Date:** 2026-09-03
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -142,8 +142,8 @@ The sanitized gate of §2.1 needs stating separately, because it would otherwise
 
 ## 3. Test Catalogue
 
-Snapshot: **1324 test(s)** across
-**60 file(s)**.
+Snapshot: **1345 test(s)** across
+**62 file(s)**.
 
 ### 3.1. [test/unit/purify.c](../test/unit/purify.c)
 
@@ -1806,7 +1806,40 @@ Role: **instrumented**. **8 test(s).**
 | 7 | <a id="LLR-BLD-14: no source file of elc is skipped for want of a module"></a>`LLR-BLD-14: no source file of elc is skipped for want of a module` | `LLR-BLD-14` | The other half of the same claim: a file measured around damage and a file never measured at all are different failures, and neither is acceptable in the delivered source. |
 | 8 | <a id="HLR-181: the self-analysis is the ordinary run, not a special mode"></a>`HLR-181: the self-analysis is the ordinary run, not a special mode` | — | Nothing above passes an option that relaxes anything, and the absence of such an option is part of the claim: a tool that needed one to measure itself cleanly would have measured nothing. |
 
-### 3.58. [test/unit/annotate.c](../test/unit/annotate.c)
+### 3.58. [test/unit/concurrency.c](../test/unit/concurrency.c)
+
+Role: **unit**. **14 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="an_address_taken_function_of_in_degree_zero_is_an_async_root"></a>`an_address_taken_function_of_in_degree_zero_is_an_async_root` | `LLR-ASY-01` | The shape a vector-table entry has: nothing calls it, its address is installed somewhere, and the linker kept it. All four conditions hold and it is admitted. |
+| 2 | <a id="an_exported_function_never_called_is_not_an_async_root"></a>`an_exported_function_never_called_is_not_an_async_root` | `LLR-ASY-01` | The false positive the fourth condition exists to exclude, and the reason this test matters more than the one above it. An exported API function has in-degree zero and a live symbol and is not asynchronous; without the address-taken condition a library's whole interface would be a root set. |
+| 3 | <a id="a_function_absent_from_the_image_is_not_an_async_root"></a>`a_function_absent_from_the_image_is_not_an_async_root` | `LLR-ASY-01` | A function the linker discarded is not entered by anything, whatever its in-degree. The image is what says so. |
+| 4 | <a id="the_declared_entry_point_is_never_an_async_root"></a>`the_declared_entry_point_is_never_an_async_root` | `LLR-ASY-01` | `main` has in-degree zero by construction and would otherwise satisfy every other condition, making the intersection of HLR-228 the whole program. |
+| 5 | <a id="a_name_matching_the_pattern_is_a_root_without_an_address"></a>`a_name_matching_the_pattern_is_a_root_without_an_address` | `LLR-ASY-01`, `LLR-ASY-03` | Where the build installs handlers by a means the source does not show, the pattern supplies the root set. Recorded as pattern-derived, since that is a weaker claim than an address. |
+| 6 | <a id="no_image_and_no_pattern_yields_an_omission_not_a_root_set"></a>`no_image_and_no_pattern_yields_an_omission_not_a_root_set` | `LLR-ASY-02` | The substitution this function exists to refuse: every function of in-degree zero treated as asynchronous. The set is empty and the reason recorded, so the caller reports an omission a reader can see rather than findings that inherited an invented root set. |
+| 7 | <a id="a_function_both_trees_reach_is_re_entrant"></a>`a_function_both_trees_reach_is_re_entrant` | `LLR-RNT-01` | The intersection is the property. A function the main tree reaches and a handler's tree also reaches can be begun by one thread while another is inside it. |
+| 8 | <a id="a_function_only_the_async_tree_reaches_is_not_re_entrant"></a>`a_function_only_the_async_tree_reaches_is_not_re_entrant` | `LLR-RNT-03` | Nothing interrupts it in the middle of itself. Asserted separately because an implementation taking the union rather than the intersection passes the test above and fails this one. |
+| 9 | <a id="a_global_edge_does_not_make_a_function_re_entrant"></a>`a_global_edge_does_not_make_a_function_re_entrant` | `LLR-RNT-02` | Sharing an object with a handler is not being called by it. Counting global edges would mark most of a program re-entrant on the strength of one shared counter. |
+| 10 | <a id="a_shared_global_without_the_qualifier_is_critical"></a>`a_shared_global_without_the_qualifier_is_critical` | `LLR-VOL-01` | Written by a handler, read by the main loop, and not volatile. Sound whatever else is true of the object: the compiler may cache it across the sequence the other thread modifies it in. |
+| 11 | <a id="a_shared_global_with_the_qualifier_yields_no_finding"></a>`a_shared_global_with_the_qualifier_yields_no_finding` | `LLR-VOL-01` | The same object correctly declared produces nothing, so the finding marks the defect rather than the sharing. |
+| 12 | <a id="a_qualified_global_confined_to_one_tree_is_a_warning"></a>`a_qualified_global_confined_to_one_tree_is_a_warning` | `LLR-VOL-02` | The qualifier forbids optimisations nothing requires to be forbidden, and the cost is real. |
+| 13 | <a id="a_memory_mapped_register_is_never_reported_unnecessary"></a>`a_memory_mapped_register_is_never_reported_unnecessary` | `LLR-VOL-02` | A qualified object initialised by casting an integer to a pointer is a peripheral register, is confined to one tree by construction, and must keep its qualifier. Advising its removal would be advising a miscompile, so the exemption is asserted rather than assumed. |
+| 14 | <a id="the_unnecessary_finding_states_the_measurement_and_advises_nothing"></a>`the_unnecessary_finding_states_the_measurement_and_advises_nothing` | `LLR-VOL-02` | Neither remove nor refactor appears: the finding says what was measured and that a cause outside elc's view may still require the qualifier (HLR-101). |
+
+### 3.59. [test/unit/cfg.c](../test/unit/cfg.c)
+
+Role: **unit**. **5 test(s).**
+
+| # | Test | Verifies | Purpose |
+| - | ---- | -------- | ------- |
+| 1 | <a id="an_early_return_between_acquire_and_release_leaks"></a>`an_early_return_between_acquire_and_release_leaks` | `LLR-CFG-01`, `LLR-CFG-03` | The case the analysis exists for, and the one a single-block model reports safe: a lock taken, a guard clause returning, and the release below it never reached. |
+| 2 | <a id="a_release_on_every_path_does_not_leak"></a>`a_release_on_every_path_does_not_leak` | `LLR-CFG-03` | Both arms of a branch release, so no path reaches an exit holding the lock. The converse of the test above, and what keeps the analysis from reporting every function that locks at all. |
+| 3 | <a id="a_lock_taken_and_released_inside_a_loop_does_not_leak"></a>`a_lock_taken_and_released_inside_a_loop_does_not_leak` | `LLR-CFG-03` | The case the visited set's key decides. A search keyed on the block alone revisits the loop head in whatever lock state it first arrived in and reports a leak that is not there; keyed on the block and the held count, it does not. |
+| 4 | <a id="a_function_is_reported_once_however_many_paths_fail"></a>`a_function_is_reported_once_however_many_paths_fail` | `LLR-CFG-04` | Ten branches above one early return are a thousand failing routes and one defect. The finding names the primitive and one path. |
+| 5 | <a id="a_construct_the_module_does_not_describe_is_not_analysed"></a>`a_construct_the_module_does_not_describe_is_not_analysed` | `LLR-CFG-02` | The graph is marked incomplete and the function reported as not analysed rather than as safe. A silent pass here claims a proof that was never attempted, which is the failure mode that matters most. |
+
+### 3.60. [test/unit/annotate.c](../test/unit/annotate.c)
 
 Role: **unit**. **9 test(s).**
 
@@ -1822,9 +1855,9 @@ Role: **unit**. **9 test(s).**
 | 8 | <a id="only_consecutive_pairs_are_steps_of_the_chain"></a>`only_consecutive_pairs_are_steps_of_the_chain` | `LLR-ANN-01` | Verifies that an edge is a step of the deepest chain only where its endpoints are consecutive in it, and that the chain is read in the direction the calls run. |
 | 9 | <a id="a_global_finding_lands_once_per_function_not_once_per_access"></a>`a_global_finding_lands_once_per_function_not_once_per_access` | `LLR-ANN-02` | Verifies that a finding about a global reaches a function that both writes and reads it once rather than twice, the touch set being deduplicated by direction as well as by object and node. |
 
-### 3.59. [test/unit/report_html.c](../test/unit/report_html.c)
+### 3.61. [test/unit/report_html.c](../test/unit/report_html.c)
 
-Role: **unit**. **24 test(s).**
+Role: **unit**. **26 test(s).**
 
 | # | Test | Verifies | Purpose |
 | - | ---- | -------- | ------- |
@@ -1856,8 +1889,10 @@ Role: **unit**. **24 test(s).**
 | 26 | <a id="pointing_at_a_function_lights_the_calls_it_takes_part_in"></a>`pointing_at_a_function_lights_the_calls_it_takes_part_in` | `LLR-HTM-10` | Verifies that the page marks the pointed-at function and the edges it takes part in, in both directions, and lifts the marked edges above the boxes so a call into an opened file is not hidden by it. |
 | 27 | <a id="a_function_node_carries_mock_burden_tbi_and_status"></a>`a_function_node_carries_mock_burden_tbi_and_status` | `LLR-CYT-06` | All three fields are present in the node's `data` object, with the score and the index as JSON numbers and the status as one of the three permitted strings. |
 | 28 | <a id="the_status_string_agrees_with_the_band_the_catalogue_decided"></a>`the_status_string_agrees_with_the_band_the_catalogue_decided` | `LLR-CYT-06`, `LLR-THR-20` | For an index either side of both bounds, the emitted `wtbi_status` matches the band `thresholds_apply` produced for the same function. The page is given the decision rather than the bounds, so a threshold moved in the catalogue cannot leave the drawing disagreeing with the report. |
+| 29 | <a id="a_function_node_carries_its_concurrency_marks"></a>`a_function_node_carries_its_concurrency_marks` | `LLR-CYT-07` | `is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` naming what was found, each the value the C decided rather than one the page derives. |
+| 30 | <a id="an_absent_mark_and_an_empty_violation_list_are_omitted"></a>`an_absent_mark_and_an_empty_violation_list_are_omitted` | `LLR-CYT-07` | Presence is what the stylesheet tests, so a false mark and an empty list say the same thing in several times the bytes. |
 
-### 3.60. [test/fixtures/html.bats](../test/fixtures/html.bats)
+### 3.62. [test/fixtures/html.bats](../test/fixtures/html.bats)
 
 Role: **fixture**. **25 test(s).**
 
@@ -2483,6 +2518,7 @@ verified by code review — see
 | `LLR-CYT-04` | `html_elements` | `HLR-214`, `HLR-074`, `HLR-032` | `edges_join_functions_and_never_containers` |
 | `LLR-CYT-05` | `html_elements` | `HLR-217`, `HLR-099`, `HLR-088` | `a_finding_reaches_the_node_it_describes`, `an_absent_mark_is_an_absent_key` |
 | `LLR-CYT-06` | `html_elements` | `HLR-225`, `HLR-213` | `a_function_node_carries_mock_burden_tbi_and_status`, `the_status_string_agrees_with_the_band_the_catalogue_decided` |
+| `LLR-CYT-07` | `html_elements` | `HLR-232`, `HLR-213` | `a_function_node_carries_its_concurrency_marks`, `an_absent_mark_and_an_empty_violation_list_are_omitted` |
 | `LLR-HTM-01` | `format_html` | `HLR-215`, `HLR-148`, `HLR-149` | `the_html_extension_selects_the_html_format`, `there_is_no_option_requesting_the_html_format`, `the_format_option_spells_html` |
 | `LLR-HTM-02` | `format_html` | `HLR-215`, `HLR-040` | `the_page_loads_the_viewer_and_opens_collapsed`, `an_empty_graph_still_produces_a_page` |
 | `LLR-HTM-03` | `format_html` | `HLR-215`, `HLR-064` | `no_raw_angle_bracket_or_ampersand_reaches_the_payload`, `the_javascript_line_terminators_are_escaped` |
@@ -2502,6 +2538,18 @@ verified by code review — see
 | `LLR-MBS-04` | `collect_mock_burden` | `HLR-221`, `HLR-070` | `a_function_the_query_cannot_match_still_scores_the_base_tax` |
 | `LLR-WTB-01` | `calltree_burden` | `HLR-223` | `a_widely_shared_leaf_collapses_to_its_cyclomatic_complexity`, `a_coordinator_called_from_one_place_collapses_likewise`, `only_a_function_large_in_both_degrees_produces_a_large_index`, `the_degrees_are_compared_without_truncating_the_weight` |
 | `LLR-WTB-02` | `calltree_burden` | `HLR-223` | `the_index_is_a_pure_function_of_its_three_measurements` |
+| `LLR-ASY-01` | `concurrency_roots` | `HLR-227` | `an_address_taken_function_of_in_degree_zero_is_an_async_root`, `an_exported_function_never_called_is_not_an_async_root`, `a_function_absent_from_the_image_is_not_an_async_root`, `the_declared_entry_point_is_never_an_async_root`, `a_name_matching_the_pattern_is_a_root_without_an_address` |
+| `LLR-ASY-02` | `concurrency_roots` | `HLR-227`, `HLR-115` | `no_image_and_no_pattern_yields_an_omission_not_a_root_set` |
+| `LLR-ASY-03` | `concurrency_roots` | `HLR-227` | `a_name_matching_the_pattern_is_a_root_without_an_address` |
+| `LLR-RNT-01` | `concurrency_reentrant` | `HLR-228` | `a_function_both_trees_reach_is_re_entrant` |
+| `LLR-RNT-02` | `concurrency_reentrant` | `HLR-228`, `HLR-156` | `a_global_edge_does_not_make_a_function_re_entrant` |
+| `LLR-RNT-03` | `concurrency_reentrant` | `HLR-228` | `a_function_only_the_async_tree_reaches_is_not_re_entrant` |
+| `LLR-CFG-01` | `cfg_build` | `HLR-229` | `an_early_return_between_acquire_and_release_leaks` |
+| `LLR-CFG-02` | `cfg_build` | `HLR-229`, `HLR-138` | `a_construct_the_module_does_not_describe_is_not_analysed` |
+| `LLR-CFG-03` | `cfg_leaks` | `HLR-229` | `an_early_return_between_acquire_and_release_leaks`, `a_release_on_every_path_does_not_leak`, `a_lock_taken_and_released_inside_a_loop_does_not_leak` |
+| `LLR-CFG-04` | `cfg_leaks` | `HLR-229` | `a_function_is_reported_once_however_many_paths_fail` |
+| `LLR-VOL-01` | `concurrency_qualifiers` | `HLR-230`, `HLR-009` | `a_shared_global_without_the_qualifier_is_critical`, `a_shared_global_with_the_qualifier_yields_no_finding` |
+| `LLR-VOL-02` | `concurrency_qualifiers` | `HLR-231`, `HLR-101` | `a_qualified_global_confined_to_one_tree_is_a_warning`, `a_memory_mapped_register_is_never_reported_unnecessary`, `the_unnecessary_finding_states_the_measurement_and_advises_nothing` |
 
 ## 5. Integration Test Environment
 
