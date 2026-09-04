@@ -398,6 +398,54 @@ static int analyse_recovery(Run *run)
  *
  * Returns 0, or -1 with the diagnostic already written.
  */
+/* Copy the roots and the re-entrant set into the report (HLR-227, HLR-228).
+ *
+ * Out of the graph and into the model, because the report outlives the graph:
+ * a row holding a borrowed node name renders as plausible garbage once the
+ * graph is released, which is the worst way for it to be wrong (LLR-SDG-12).
+ */
+static int publish_concurrency(Run *run, const bool *reentrant,
+                               ConcurrencyState state)
+{
+	AsyncRootRow *rows  = NULL;
+	char        **names = NULL;
+	size_t        count = 0;
+
+	if (run->async_roots.count) {
+		rows = calloc(run->async_roots.count, sizeof *rows);
+		if (!rows)
+			return -1;
+		for (size_t i = 0; i < run->async_roots.count; i++) {
+			const AsyncRoot *r = &run->async_roots.items[i];
+			const SdgNode   *n = &run->sdg.nodes[r->node];
+
+			rows[i].function   = strdup(n->name);
+			rows[i].file       = strdup(n->file ? n->file : "");
+			rows[i].by_address = r->origin == ROOT_BY_ADDRESS;
+			if (!rows[i].function || !rows[i].file)
+				return -1;
+		}
+	}
+
+	if (reentrant) {
+		names = calloc(run->sdg.node_count ? run->sdg.node_count : 1,
+		               sizeof *names);
+		if (!names)
+			return -1;
+		for (size_t i = 0; i < run->sdg.node_count; i++)
+			if (reentrant[i]) {
+				names[count] = strdup(run->sdg.nodes[i].name);
+				if (!names[count])
+					return -1;
+				count++;
+			}
+	}
+
+	report_set_concurrency(&run->report, state, rows,
+	                       run->async_roots.count, names, count);
+	return 0;
+}
+
 /* The two reachability sets and the re-entrant marking (HLR-228).
  *
  * Split from the caller because the two do different jobs — this one answers
@@ -441,6 +489,23 @@ cleanup:
 	return status;
 }
 
+/* The marks onto the nodes, and the rows into the report (HLR-228, HLR-232).
+ *
+ * Both are "publish what was found", and separating them from the analysis
+ * above keeps that function under the complexity threshold `elc` enforces on
+ * everyone else (LLR-BLD-23).
+ */
+static int record_concurrency(Run *run, const bool *reentrant, size_t n)
+{
+	for (size_t i = 0; i < run->async_roots.count; i++)
+		run->sdg.nodes[run->async_roots.items[i].node]
+		        .is_async_root = true;
+	for (size_t i = 0; i < n; i++)
+		run->sdg.nodes[i].is_reentrant = reentrant[i];
+
+	return publish_concurrency(run, reentrant, CONCURRENCY_MEASURED);
+}
+
 /* The second thread of control (HLR-227 - HLR-231).
  *
  * Runs after the thresholds because it adds to the same finding list, and
@@ -466,8 +531,15 @@ static int analyse_concurrency(Run *run)
 	                      &run->async_roots) != 0)
 		return -1;
 
+	/* **Published before the early return, not after it.** The state is
+	 * the whole point of this analysis where there are no roots: a run
+	 * given no evidence has not looked, and a reader who sees nothing must
+	 * be told which of the two happened (HLR-115, HLR-227). */
 	if (run->async_roots.state != ROOTS_IDENTIFIED || !n)
-		return 0;
+		return publish_concurrency(run, NULL,
+			run->async_roots.state == ROOTS_NO_EVIDENCE
+			        ? CONCURRENCY_OMITTED_NO_EVIDENCE
+			        : CONCURRENCY_NO_ROOTS);
 
 	reentrant  = calloc(n, sizeof *reentrant);
 	from_main  = calloc(n, sizeof *from_main);
@@ -480,7 +552,11 @@ static int analyse_concurrency(Run *run)
 		goto cleanup;
 
 	if (concurrency_qualifiers(&run->sdg, from_main, from_async,
-	                           &run->findings) != 0)
+	                           &run->findings) != 0 ||
+	    concurrency_sections(&run->sdg, reentrant, &run->findings) != 0)
+		goto cleanup;
+
+	if (record_concurrency(run, reentrant, n) != 0)
 		goto cleanup;
 
 	run->reentrant = reentrant;

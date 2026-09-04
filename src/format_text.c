@@ -2395,6 +2395,59 @@ static bool reach_omitted(const Report *report)
 	return report->reach_state != REACH_MEASURED;
 }
 
+/* The asynchronous roots and the functions both threads can be inside
+ * (HLR-227, HLR-228).
+ *
+ * **The heading carries the state, because an empty table means two different
+ * things.** A run given an image and finding no handler has looked; a run
+ * given neither an image nor a pattern has not. Rendering both as an empty
+ * section would tell a reader who forgot `--elf` that their program is free of
+ * the defects this analysis exists to find, which is the one reading it must
+ * not admit (HLR-115).
+ */
+static int concurrency_section(const Report *report, Style style, FILE *out,
+                               EmptyTables *empty)
+{
+	Grid grid;
+
+	static const char *const names[] = { "Function", "File", "Role",
+	                                     "Root by" };
+	char                     heading[200];
+
+	if (report->concurrency_state == CONCURRENCY_OMITTED_NO_EVIDENCE)
+		snprintf(heading, sizeof heading,
+		         "Concurrency (omitted: no --elf and no --isr-regex, "
+		         "so asynchronous roots cannot be identified)");
+	else if (report->concurrency_state == CONCURRENCY_NO_ROOTS)
+		snprintf(heading, sizeof heading,
+		         "Concurrency (no asynchronous root found)");
+	else
+		snprintf(heading, sizeof heading,
+		         "Concurrency (%zu asynchronous root%s, %zu re-entrant "
+		         "function%s)",
+		         report->async_root_count,
+		         report->async_root_count == 1 ? "" : "s",
+		         report->reentrant_count,
+		         report->reentrant_count == 1 ? "" : "s");
+
+	grid_begin(&grid, heading, 4, names, NULL);
+	for (size_t i = 0; i < report->async_root_count; i++)
+		grid_row(&grid, report->async_roots[i].function,
+		         report->async_roots[i].file, "asynchronous root",
+		         report->async_roots[i].by_address ? "address taken"
+		                                           : "--isr-regex");
+	for (size_t i = 0; i < report->reentrant_count; i++)
+		grid_row(&grid, report->reentrant[i], "", "re-entrant", "");
+
+	return grid_render(&grid, style, out, empty);
+}
+
+/* Whether the concurrency analysis was omitted rather than finding nothing. */
+static bool concurrency_omitted(const Report *report)
+{
+	return report->concurrency_state == CONCURRENCY_OMITTED_NO_EVIDENCE;
+}
+
 static bool scopes_omitted(const Report *report)
 {
 	return report->scope_state != SCOPES_MEASURED;
@@ -2481,6 +2534,7 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		{ unreachable_globals_section,   D,   D,   NULL            },
 		{ dead_code_section,             D,   D,   NULL            },
 		{ cross_scope_section,           D,   D,   scopes_omitted  },
+		{ concurrency_section,           D,   D,   concurrency_omitted },
 		{ definitions_section,           S,   D,   NULL            },
 		{ image_filter_section,          S,   D,   NULL            },
 		{ rule_matches_section,          D,   D,   NULL            },

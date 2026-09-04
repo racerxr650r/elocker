@@ -62,6 +62,46 @@ static bool is_declared_entry(const Sdg *g, const ElcOptions *opts,
 	return false;
 }
 
+/* HLR-227's four conditions, in one place.
+ *
+ * Split from the loop below because the four are the requirement and the loop
+ * is bookkeeping — and because with them inline the caller stood at seventeen
+ * against the threshold `elc` enforces on everyone else (LLR-BLD-23).
+ */
+static bool admits_root(const Sdg *g, const ElcOptions *opts,
+                        const bool *called, const SymbolSet *image,
+                        const regex_t *pattern, uint32_t node,
+                        RootOrigin *origin)
+{
+	if (is_declared_entry(g, opts, node))
+		return false;
+	if (called[node])
+		return false;
+
+	/* The image says what survived the linker. A function it does not
+	 * define is entered by nothing, whatever its in-degree. */
+	if (image && !elfsyms_defines(image, g->nodes[node].name))
+		return false;
+
+	/* **The fourth condition, and the one that makes the set worth
+	 * reporting from.** The three above are equally true of an exported
+	 * function nothing in the library calls, of a function reached only
+	 * through a pointer, and of one whose caller was not among the files
+	 * analysed. Taking an address without calling is what installing a
+	 * handler in a vector table or registering a callback *is*. */
+	if (g->nodes[node].address_taken) {
+		*origin = ROOT_BY_ADDRESS;
+		return true;
+	}
+	if (pattern &&
+	    regexec(pattern, g->nodes[node].name, 0, NULL, 0) == 0) {
+		*origin = ROOT_BY_PATTERN;
+		return true;
+	}
+
+	return false;
+}
+
 int concurrency_roots(const Sdg *g, const ElcOptions *opts,
                       const SymbolSet *image, RootSet *out)
 {
@@ -102,31 +142,10 @@ int concurrency_roots(const Sdg *g, const ElcOptions *opts,
 	for (size_t i = 0; i < g->node_count; i++) {
 		RootOrigin origin;
 
-		if (is_declared_entry(g, opts, (uint32_t)i))
+		if (!admits_root(g, opts, called, image,
+		                 have_pattern ? &pattern : NULL,
+		                 (uint32_t)i, &origin))
 			continue;
-		if (called[i])
-			continue;
-
-		/* The image says what survived the linker. A function it does
-		 * not define is entered by nothing, whatever its in-degree. */
-		if (image && !elfsyms_defines(image, g->nodes[i].name))
-			continue;
-
-		/* **The fourth condition, and the one that makes the set worth
-		 * reporting from.** The three above are equally true of an
-		 * exported function nothing in the library calls, of a
-		 * function reached only through a pointer, and of one whose
-		 * caller was not among the files analysed. Taking an address
-		 * without calling is what installing a handler in a vector
-		 * table or registering a callback *is*. */
-		if (g->nodes[i].address_taken)
-			origin = ROOT_BY_ADDRESS;
-		else if (have_pattern &&
-		         regexec(&pattern, g->nodes[i].name, 0, NULL, 0) == 0)
-			origin = ROOT_BY_PATTERN;
-		else
-			continue;
-
 		if (root_add(out, (uint32_t)i, origin) != 0)
 			goto cleanup;
 	}
@@ -249,35 +268,48 @@ static void naming_pair(const Sdg *g, size_t object, const bool *main_tree,
 	}
 }
 
+/* The critical half of the classification: shared and unqualified (HLR-230).
+ *
+ * Split from its converse because the two are not the same kind of claim —
+ * this one is sound whatever else is true of the object, and the other is
+ * hedged — and because together they put the caller at fifteen against the
+ * threshold `elc` holds its own source to (LLR-BLD-23).
+ */
+static int report_shared(const Sdg *g, size_t object, const bool *main_tree,
+                         const bool *async_tree, FindingList *out)
+{
+	char        detail[256];
+	const char *a, *b;
+
+	naming_pair(g, object, main_tree, async_tree, &a, &b);
+	snprintf(detail, sizeof detail,
+	         "reached from %s and from %s, and not declared volatile",
+	         a ? a : "the application", b ? b : "an asynchronous root");
+
+	return findings_add(out, MEASURE_SHARED_UNQUALIFIED, SEVERITY_CRITICAL,
+	                    g->global_names[object], "", 0, detail);
+}
+
 int concurrency_qualifiers(const Sdg *g, const bool *main_tree,
                            const bool *async_tree, FindingList *out)
 {
 	for (size_t o = 0; o < g->global_name_count; o++) {
 		bool        in_main, in_async;
 		char        detail[256];
-		const char *a, *b;
 
 		touched_by(g, o, main_tree, async_tree, &in_main, &in_async);
 		if (!in_main && !in_async)
 			continue;
 
+		/* **Sound whatever else is true of the object.** Two threads
+		 * of control sharing an unqualified object is a defect
+		 * independent of target, compiler and optimisation level: the
+		 * compiler may cache it in a register across the very sequence
+		 * the other thread modifies it in, and the failure is
+		 * intermittent and frequently absent under a debugger. */
 		if (in_main && in_async && !g->global_volatile[o]) {
-			/* **Sound whatever else is true of the object.** Two
-			 * threads of control sharing an unqualified object is
-			 * a defect independent of target, compiler and
-			 * optimisation level: the compiler may cache it in a
-			 * register across the very sequence the other thread
-			 * modifies it in, and the failure is intermittent and
-			 * frequently absent under a debugger (HLR-230). */
-			naming_pair(g, o, main_tree, async_tree, &a, &b);
-			snprintf(detail, sizeof detail,
-			         "reached from %s and from %s, and not "
-			         "declared volatile",
-			         a ? a : "the application",
-			         b ? b : "an asynchronous root");
-			if (findings_add(out, MEASURE_SHARED_UNQUALIFIED,
-			                 SEVERITY_CRITICAL, g->global_names[o],
-			                 "", 0, detail) != 0)
+			if (report_shared(g, o, main_tree, async_tree,
+			                  out) != 0)
 				return -1;
 			continue;
 		}
@@ -312,6 +344,51 @@ int concurrency_qualifiers(const Sdg *g, const bool *main_tree,
 			                 "", 0, detail) != 0)
 				return -1;
 		}
+	}
+
+	return 0;
+}
+
+/* ---------------------------------------------------- the critical section */
+
+int concurrency_sections(const Sdg *g, const bool *reentrant,
+                         FindingList *out)
+{
+	for (size_t i = 0; i < g->node_count; i++) {
+		const SdgNode *n = &g->nodes[i];
+
+		/* **Only the re-entrant ones.** A lock released on one path
+		 * and not another is a defect wherever it is, but the finding
+		 * this requirement makes is about a function two threads can
+		 * be inside: reporting every function that ever locks would
+		 * bury the ones that matter under the ones that cannot race
+		 * (HLR-229). */
+		if (!reentrant[i])
+			continue;
+
+		/* **Not analysed is not safe.** A function whose control flow
+		 * could not be built is reported as such, because a silent
+		 * pass here claims a proof that was never attempted — which
+		 * is the failure mode this analysis most has to avoid
+		 * (HLR-138, LLR-CFG-02). */
+		if (!n->cfg_complete) {
+			if (findings_add(out, MEASURE_CRITICAL_SECTION,
+			                 SEVERITY_INFO, n->name,
+			                 n->file ? n->file : "", n->line_start,
+			                 "re-entrant, and its critical sections "
+			                 "were not analysed: its control flow "
+			                 "could not be built") != 0)
+				return -1;
+			continue;
+		}
+
+		if (n->leaks_lock &&
+		    findings_add(out, MEASURE_CRITICAL_SECTION,
+		                 SEVERITY_CRITICAL, n->name,
+		                 n->file ? n->file : "", n->line_start,
+		                 "re-entrant, and a path leaves it holding a "
+		                 "critical section it acquired") != 0)
+			return -1;
 	}
 
 	return 0;

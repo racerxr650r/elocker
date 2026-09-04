@@ -258,8 +258,10 @@ static void write_calltree(const Report *report, FILE *out)
  * citation that disagrees with a live run's (LLR-GLB-04). */
 static void write_state(const Report *report, FILE *out)
 {
-	fprintf(out, "  <state reach-state=\"%d\" scope-state=\"%d\">\n",
-	        (int)report->reach_state, (int)report->scope_state);
+	fprintf(out, "  <state reach-state=\"%d\" scope-state=\"%d\""
+	        " concurrency-state=\"%d\">\n",
+	        (int)report->reach_state, (int)report->scope_state,
+	        (int)report->concurrency_state);
 	for (size_t i = 0; i < report->global_state_count; i++) {
 		const GlobalStateRow *r = &report->global_state[i];
 
@@ -293,6 +295,24 @@ static void write_state(const Report *report, FILE *out)
 		write_attribute(out, "object", r->object ? r->object : "");
 		fputs("/>\n", out);
 	}
+	/* The second thread of control, in the record because it cannot be
+	 * recomputed from one: regeneration has no graph and no image, so a
+	 * regenerated report that recomputed this would report every program
+	 * as having no asynchronous roots (HLR-152, HLR-056). */
+	for (size_t i = 0; i < report->async_root_count; i++) {
+		fputs("    <async-root", out);
+		write_attribute(out, "function",
+		                report->async_roots[i].function);
+		write_attribute(out, "file", report->async_roots[i].file);
+		fprintf(out, " by-address=\"%d\"/>\n",
+		        report->async_roots[i].by_address ? 1 : 0);
+	}
+	for (size_t i = 0; i < report->reentrant_count; i++) {
+		fputs("    <reentrant", out);
+		write_attribute(out, "function", report->reentrant[i]);
+		fputs("/>\n", out);
+	}
+
 	fputs("  </state>\n", out);
 }
 
@@ -718,6 +738,11 @@ typedef struct {
 	size_t              deepest_count;
 	ReachState          reach_state;
 	ScopeState          scope_state;
+	ConcurrencyState    concurrency_state;
+	AsyncRootRow       *async_roots;
+	size_t              async_root_count;
+	char              **reentrant;
+	size_t              reentrant_count;
 	GlobalStateRow     *global_state;
 	size_t              global_state_count;
 	UnreachableRow     *unreachable;
@@ -1156,7 +1181,77 @@ static void on_state(ReadState *state, const XML_Char **atts)
 	}
 	state->reach_state = (ReachState)strtol(reach, NULL, 10);
 	state->scope_state = (ScopeState)strtol(scope, NULL, 10);
+
+	/* Optional, like every attribute added after a format version was cut:
+	 * a record written by an older build carries none, and its absence
+	 * reads as the measured state, which is what such a record described
+	 * (LLR-XRD-04). */
+	{
+		const char *conc = attribute(atts, "concurrency-state");
+
+		state->concurrency_state = conc
+			? (ConcurrencyState)strtol(conc, NULL, 10)
+			: CONCURRENCY_MEASURED;
+	}
 	return;
+}
+
+static void on_async_root(ReadState *state, const XML_Char **atts)
+{
+	const char   *fn   = attribute(atts, "function");
+	const char   *file = attribute(atts, "file");
+	const char   *addr = attribute(atts, "by-address");
+	AsyncRootRow *grown;
+
+	if (!fn) {
+		fail(state, "an async-root element is incomplete");
+		return;
+	}
+
+	grown = realloc(state->async_roots,
+	                (state->async_root_count + 1) * sizeof *grown);
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->async_roots = grown;
+
+	AsyncRootRow *row = &state->async_roots[state->async_root_count];
+
+	memset(row, 0, sizeof *row);
+	row->function   = strdup(fn);
+	row->file       = strdup(file ? file : "");
+	row->by_address = addr && strtol(addr, NULL, 10) != 0;
+	if (!row->function || !row->file) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->async_root_count++;
+}
+
+static void on_reentrant(ReadState *state, const XML_Char **atts)
+{
+	const char *fn = attribute(atts, "function");
+	char      **grown;
+
+	if (!fn) {
+		fail(state, "a reentrant element is incomplete");
+		return;
+	}
+
+	grown = realloc(state->reentrant,
+	                (state->reentrant_count + 1) * sizeof *grown);
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->reentrant = grown;
+	state->reentrant[state->reentrant_count] = strdup(fn);
+	if (!state->reentrant[state->reentrant_count]) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->reentrant_count++;
 }
 
 static void on_global(ReadState *state, const XML_Char **atts)
@@ -2128,6 +2223,8 @@ static const struct {
 	{ "unreachable-function", on_unreachable_function },
 	{ "unreachable-global",  on_unreachable_global },
 	{ "cross-scope",         on_cross_scope },
+	{ "async-root",          on_async_root },
+	{ "reentrant",           on_reentrant },
 	{ "unanalysed",          on_unanalysed },
 	{ "span",                on_span },
 	{ "image",               on_image },
@@ -2415,6 +2512,11 @@ static void move_to_report(ReadState *state, Report *out)
 
 	out->reach_state              = state->reach_state;
 	out->scope_state              = state->scope_state;
+	out->concurrency_state        = state->concurrency_state;
+	out->async_roots              = state->async_roots;
+	out->async_root_count         = state->async_root_count;
+	out->reentrant                = state->reentrant;
+	out->reentrant_count          = state->reentrant_count;
 	out->global_state             = state->global_state;
 	out->global_state_count       = state->global_state_count;
 	out->unreachable              = state->unreachable;

@@ -54,6 +54,15 @@ typedef struct {
 	 * the moment it crosses the edge. */
 	double      mock_burden;
 	bool        address_taken; /* a reachability root (HLR-096)     */
+	/* The second thread of control (HLR-227, HLR-228). Written by
+	 * `concurrency.c` after the graph is built, as the measurements of
+	 * `report_attach_flow` are written after it: both are properties *of*
+	 * the graph, discovered by walking it, and the node is where every
+	 * other per-function fact already lives. */
+	bool        is_async_root;
+	bool        is_reentrant;
+	bool        leaks_lock;   /* a path leaves a section held        */
+	bool        cfg_complete; /* its control flow could be built     */
 } SdgNode;
 
 typedef struct {

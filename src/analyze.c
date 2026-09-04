@@ -31,6 +31,7 @@
 #include "preproc.h"
 #include "repair.h"
 #include "analyze.h"
+#include "cfg.h"
 #include "elc.h"
 #include "elfsyms.h"
 #include "registry.h"
@@ -620,8 +621,8 @@ static bool predicate_holds(const TSQuery *query, const TSQueryMatch *match,
 }
 
 /* Whether every predicate on the match's pattern holds. */
-static bool predicates_hold(const TSQuery *query, const TSQueryMatch *match,
-                            const char *data)
+bool analyze_predicates_hold(const TSQuery *query,
+                             const TSQueryMatch *match, const char *data)
 {
 	uint32_t                    step_count = 0;
 	const TSQueryPredicateStep *steps =
@@ -796,7 +797,7 @@ static int collect_absent_functions(const LanguageModule *module, Registry *reg,
 		TSNode name_node;
 		TSNode body_node;
 
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 		if (!function_match(query, &match, &name_node, &body_node))
 			continue;
@@ -1033,7 +1034,7 @@ static int collect_mock_burden(const LanguageModule *module, Registry *reg,
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
 		uint32_t offset;
 
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 		if (!match_function_offset(query, &match, &offset))
 			continue;
@@ -1103,7 +1104,7 @@ static int collect_visibility(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 
 		for (uint16_t i = 0; i < match.capture_count; i++) {
@@ -1161,7 +1162,8 @@ static Visibility visibility_of(const VisibilitySet *set, uint32_t offset)
 static int record_function(FileMetrics *metrics, FnRangeIndex *ranges,
                            const char *data, TSNode name_node,
                            TSNode body_node, const VisibilitySet *visible,
-                           const BurdenSet *burden)
+                           const BurdenSet *burden,
+                           const LanguageModule *module, Registry *reg)
 {
 	FunctionMetric *fn = &metrics->functions[metrics->function_count];
 
@@ -1178,6 +1180,21 @@ static int record_function(FileMetrics *metrics, FnRangeIndex *ranges,
 	 * needs no graph (HLR-221). The degrees beside it are not, and stay
 	 * zero until `report_attach_flow` runs. */
 	fn->mock_burden = burden_of(burden, ts_node_start_byte(name_node));
+
+	/* The control flow, answered now because the tree is open now
+	 * (HLR-229). Whether the answer is *reported* depends on re-entrancy,
+	 * which is not known until the whole graph exists — by which time this
+	 * tree is gone, and re-parsing to ask would be the second parse
+	 * PVD Principle 7 forbids. */
+	{
+		Cfg cfg;
+
+		if (cfg_build(body_node, module, reg, data, &cfg) == 0) {
+			fn->cfg_complete = cfg.complete;
+			fn->leaks_lock   = cfg.complete && cfg_leaks(&cfg);
+			cfg_free(&cfg);
+		}
+	}
 
 	/* The reported span runs from the name to the end of the body,
 	 * not from the body's opening brace. A reader asked where
@@ -1243,7 +1260,7 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 
 		TSNode name_node;
@@ -1266,7 +1283,8 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 			goto done;
 
 		if (record_function(metrics, ranges, data, name_node,
-		                    body_node, &visible, &burden) != 0)
+		                    body_node, &visible, &burden,
+		                    module, reg) != 0)
 			goto done;
 	}
 
@@ -1288,7 +1306,7 @@ static int collect_comments(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 
 		for (uint16_t i = 0; i < match.capture_count; i++) {
@@ -1549,7 +1567,7 @@ static int gather_cond_regions(const TSQuery *query, Registry *reg,
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
 		CondRegion region = { 0 };
 
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 
 		if (!read_cond_region(query, &match, &region))
@@ -1805,7 +1823,7 @@ static int collect_statements(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 
 		for (uint16_t i = 0; i < match.capture_count; i++) {
@@ -1875,7 +1893,7 @@ static int collect_complexity(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 
 		for (uint16_t i = 0; i < match.capture_count; i++) {
@@ -1931,7 +1949,7 @@ static int collect_calls(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 
 		for (uint16_t i = 0; i < match.capture_count; i++) {
@@ -2006,7 +2024,7 @@ static int collect_globals(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 
 		for (uint16_t i = 0; i < match.capture_count; i++) {
@@ -2201,7 +2219,7 @@ static int collect_dead_captures(const TSQuery *query, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		if (!predicates_hold(query, &match, data))
+		if (!analyze_predicates_hold(query, &match, data))
 			continue;
 
 		for (uint16_t i = 0; i < match.capture_count; i++) {
@@ -2337,7 +2355,7 @@ static int collect_rule_matches(const LanguageModule *module, Registry *reg,
 		ts_query_cursor_exec(reg->cursor, rule->query, root);
 
 		while (ts_query_cursor_next_match(reg->cursor, &match)) {
-			if (!predicates_hold(rule->query, &match, data))
+			if (!analyze_predicates_hold(rule->query, &match, data))
 				continue;
 
 			for (uint16_t i = 0; i < match.capture_count; i++) {

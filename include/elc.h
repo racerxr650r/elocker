@@ -479,6 +479,16 @@ typedef struct {
 	 * indistinguishable here for the same reason and by the same rule. */
 	double    wf_out;
 	double    wtbi;
+	/* Whether some path out of this function leaves a critical section
+	 * held, and whether its control flow could be built at all (HLR-229).
+	 *
+	 * Decided here, during the one parse, rather than when re-entrancy is
+	 * known — which is only after the whole graph exists, by which time
+	 * the syntax tree is gone. PVD Principle 7 admits one parse and no
+	 * copies, so the question is answered for every function and the
+	 * answer reported only for the ones it matters for. */
+	bool      leaks_lock;
+	bool      cfg_complete;
 } FunctionMetric;
 
 /* One function the source defines and the linked image does not (HLR-143).
@@ -628,6 +638,20 @@ typedef enum {
 	SCOPES_MEASURED = 0,
 	SCOPES_OMITTED_NONE_DECLARED
 } ScopeState;
+
+/* Whether the second thread of control was found, and where it was not, why
+ * (HLR-227, HLR-115).
+ *
+ * **The two ways of having no asynchronous roots are different claims and are
+ * reported as such.** A run given an image and finding no handler has looked
+ * and found none; a run given neither an image nor a pattern has not looked.
+ * Rendering both as silence would tell a reader who forgot `--elf` that their
+ * program is free of the defects this analysis exists to find. */
+typedef enum {
+	CONCURRENCY_MEASURED = 0,
+	CONCURRENCY_NO_ROOTS,        /* looked, and the program has none    */
+	CONCURRENCY_OMITTED_NO_EVIDENCE /* neither --elf nor --isr-regex    */
+} ConcurrencyState;
 
 /* The severity of a finding: a closed, ordered set, exactly one per finding
  * (HLR-123).

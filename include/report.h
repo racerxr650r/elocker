@@ -153,6 +153,16 @@ typedef struct {
 	char *object;        /* the shared global, or NULL for a call; owned */
 } CrossScopeRow;
 
+/* One asynchronous root, and how it came to be one. The origin is reported
+ * because a name matching a convention is a weaker claim than an address
+ * taken, and a reader deciding what to do about a finding built on it needs
+ * to know which they have (HLR-227). */
+typedef struct {
+	char *function;   /* owned                                        */
+	char *file;       /* owned                                        */
+	bool  by_address; /* false where a pattern admitted it            */
+} AsyncRootRow;
+
 /* One component's coupling as the report presents it, by path rather than by
  * index (HLR-080 – HLR-082).
  *
@@ -438,6 +448,14 @@ typedef struct {
 	char          **unreachable_globals; /* sorted; owned (HLR-096)     */
 	size_t          unreachable_global_count;
 	ScopeState      scope_state;
+	/* The second thread of control (HLR-227, HLR-228). The roots and the
+	 * re-entrant functions are rows; the state says whether an empty set
+	 * of rows means "none" or "not looked for". */
+	ConcurrencyState concurrency_state;
+	AsyncRootRow   *async_roots;    /* sorted by name; owned            */
+	size_t          async_root_count;
+	char          **reentrant;      /* sorted; owned                    */
+	size_t          reentrant_count;
 	CrossScopeRow  *cross_scope;    /* sorted; owned (HLR-094)          */
 	size_t          cross_scope_count;
 
@@ -622,6 +640,19 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
  * so the count does not exist yet when report_assemble runs (HLR-077).
  */
 void report_set_unresolved(Report *report, size_t unresolved);
+
+/* Carry the second thread of control into the report (HLR-227, HLR-228).
+ *
+ * Takes ownership of both arrays, which the caller has already built out of
+ * the graph — the report outlives the graph, as it does for every other row in
+ * this model. `report.h` is deliberately not given sight of `RootSet`: the
+ * report is the model every renderer reads, and a model that had to include an
+ * analysis's header to describe its own fields would tie the two together for
+ * nothing.
+ */
+void report_set_concurrency(Report *report, ConcurrencyState state,
+                            AsyncRootRow *roots, size_t root_count,
+                            char **reentrant, size_t reentrant_count);
 
 /* Record the image the run was filtered by, and the count of linkage names it
  * could not resolve.

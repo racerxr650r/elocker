@@ -410,6 +410,26 @@ static int burden_fields(json_t *data, const Report *r, const SdgNode *n)
 	return rc;
 }
 
+/* The second thread of control, on one function node (HLR-232, LLR-CYT-07).
+ *
+ * **Absent marks are omitted rather than emitted false.** The stylesheet tests
+ * for presence, as it does for the marks of LLR-CYT-05, and stating an absence
+ * on every node says the same thing in several times the bytes — on a project
+ * where a handful of functions are re-entrant, that is the whole payload
+ * carrying a `false` to say nothing.
+ */
+static int concurrency_fields(json_t *data, const SdgNode *n)
+{
+	int rc = 0;
+
+	if (n->is_async_root)
+		rc |= set_new(data, "is_async_root", json_true());
+	if (n->is_reentrant)
+		rc |= set_new(data, "is_reentrant", json_true());
+
+	return rc;
+}
+
 static int function_fields(json_t *data, const SdgNode *n, size_t index,
                            size_t component_count, const Annotation *a,
                            const Report *r)
@@ -430,6 +450,7 @@ static int function_fields(json_t *data, const SdgNode *n, size_t index,
 	              json_integer((json_int_t)n->complexity));
 	rc |= annotation_fields(data, a);
 	rc |= burden_fields(data, r, n);
+	rc |= concurrency_fields(data, n);
 
 	/* Unreachable by construction, and handled rather than asserted: the
 	 * failure it would otherwise produce is a `parent` naming a node that

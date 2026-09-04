@@ -1701,6 +1701,17 @@ static int by_severity(const void *a, const void *b)
 	return strcmp(x->detail, y->detail);
 }
 
+void report_set_concurrency(Report *report, ConcurrencyState state,
+                            AsyncRootRow *roots, size_t root_count,
+                            char **reentrant, size_t reentrant_count)
+{
+	report->concurrency_state = state;
+	report->async_roots       = roots;
+	report->async_root_count  = root_count;
+	report->reentrant         = reentrant;
+	report->reentrant_count   = reentrant_count;
+}
+
 int report_set_findings(Report *report, const FindingList *findings)
 {
 	if (!findings || findings->count == 0)
@@ -2060,6 +2071,15 @@ static void free_state_rows(Report *report)
 		free(report->cross_scope[i].object);
 	}
 	free(report->cross_scope);
+
+	for (size_t i = 0; i < report->async_root_count; i++) {
+		free(report->async_roots[i].function);
+		free(report->async_roots[i].file);
+	}
+	free(report->async_roots);
+	for (size_t i = 0; i < report->reentrant_count; i++)
+		free(report->reentrant[i]);
+	free(report->reentrant);
 	report->cross_scope       = NULL;
 	report->cross_scope_count = 0;
 

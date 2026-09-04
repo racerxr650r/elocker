@@ -309,6 +309,8 @@ static int build_nodes(const Report *report, Sdg *g)
 			n->eloc       = fm->functions[i].eloc;
 			n->complexity = fm->functions[i].complexity;
 			n->mock_burden = fm->functions[i].mock_burden;
+			n->leaks_lock   = fm->functions[i].leaks_lock;
+			n->cfg_complete = fm->functions[i].cfg_complete;
 		}
 	}
 

@@ -85,6 +85,15 @@ int concurrency_reentrant(const Sdg *g, const uint32_t *entries,
 int concurrency_qualifiers(const Sdg *g, const bool *main_tree,
                            const bool *async_tree, FindingList *out);
 
+/* The critical sections of every re-entrant function (HLR-229).
+ *
+ * The path question was answered during the parse and rides on the node; this
+ * decides which answers are reportable. A function whose control flow could
+ * not be built is reported as *not analysed* rather than as safe.
+ */
+int concurrency_sections(const Sdg *g, const bool *reentrant,
+                         FindingList *out);
+
 void rootset_free(RootSet *r);
 
 #endif /* ELC_CONCURRENCY_H */

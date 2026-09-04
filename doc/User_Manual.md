@@ -2838,7 +2838,9 @@ for. Six query files are required and four are optional — a module that omits
 `deadcode.scm` is analysed for everything else while the report states that
 dead-code analysis was not performed for that language, one that omits
 `visibility.scm` reports every function's visibility as unknown rather than
-guessing that it is public, and one that omits `signature.scm` scores every
+guessing that it is public, and one that omits `sync.scm` reports no critical section
+(the names of the primitives being a project's fact, not a language's), and one
+that omits `signature.scm` scores every
 function at the base mocking tax alone, so its Weighted Test Burden Index
 rests on complexity and fan-in and never on what its callees cost to mock.
 The contract a module
