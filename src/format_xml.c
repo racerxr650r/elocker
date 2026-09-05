@@ -174,10 +174,10 @@ static void write_files(const Report *report, FILE *out)
 			fprintf(out, " start-line=\"%" PRIu32 "\" end-line=\"%"
 			        PRIu32 "\" eloc=\"%" PRIu32 "\" complexity=\"%"
 			        PRIu32 "\" visibility=\"%d\""
-			        " mock-burden=\"%.2f\"/>\n",
+			        " mock-burden=\"%.2f\" reentrant=\"%d\"/>\n",
 			        fn->start_line, fn->end_line,
 			        fn->eloc, fn->complexity, (int)fn->visibility,
-			        fn->mock_burden);
+			        fn->mock_burden, fn->is_reentrant ? 1 : 0);
 		}
 
 		fputs("    </file>\n", out);
@@ -2194,8 +2194,10 @@ static void on_function(ReadState *state, const XML_Char **atts)
 		 * was cut: absent means the base tax was never measured, and
 		 * zero is the value that says so (LLR-XRD-04). */
 		const char *mb = attribute(atts, "mock-burden");
+		const char *re = attribute(atts, "reentrant");
 
-		fn->mock_burden = mb ? strtod(mb, NULL) : 0.0;
+		fn->mock_burden  = mb ? strtod(mb, NULL) : 0.0;
+		fn->is_reentrant = re && strtol(re, NULL, 10) != 0;
 	}
 	/* Absent in a record written before the field existed, which reads back
 	 * as unknown — the honest answer for a run that could not have

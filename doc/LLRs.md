@@ -1,6 +1,6 @@
 # Low-Level Requirements
 
-**Version:** 2.27
+**Version:** 2.28
 **Date:** 2026-09-03
 **Author(s):** John Anderson
 
@@ -1275,9 +1275,11 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SUM-13"></a>**LLR-SUM-13** — `render_summary` shall present the recovered layering as a detail tier in both human-facing formats, stating in its heading that what follows is a proposal and never the baseline conformance is measured against, and shall present the proposal itself as the argument list `--stratum` and `--stratum-order` accept rather than as prose. A table of layers printed under an architecture report is otherwise easy to read as a verdict; and rendering the proposal as arguments is what makes adoption a copy rather than a transcription, and is the boundary HLR-173 draws in the one form a reader cannot mistake for a measurement. Where no layering could be read the heading shall say which of the two reasons applied, and where the view was cyclic the mutually reachable groups shall be listed in place of the layers.
     *Trace:* HLR-173 (A Recovered Layering Is a Proposal, Never a Baseline), HLR-172, HLR-150, HLR-031.
 
-*   <a id="LLR-SUM-14"></a>**LLR-SUM-14** — `render_summary` shall present every analysed function in one table carrying its file, name, scope, line range, effective lines, cyclomatic complexity, fan-in, fan-out, Weighted Test Burden Index and the band of that index, and shall present no second table enumerating one row per function for any of those measurements.
+*   <a id="LLR-SUM-14"></a>**LLR-SUM-14** — `render_summary` shall present every analysed function in one table carrying its file, language, name, scope, whether it is re-entrant, line range, effective lines, cyclomatic complexity, fan-in, fan-out, Weighted Test Burden Index and the band of that index, and shall present no second table enumerating one row per function for any of those measurements.
 
-    The column headings shall be short enough that the file's path keeps the width. On a terminal the table is held to 128 columns (HLR-219) and the path is the cell that pays for every heading longer than its column needs: `Complexity`, `Visibility`, `Fan-in` and `Fan-out` each cost the path more than they told a reader, and are `CC`, `Scope`, `In` and `Out`.
+    **Re-entrancy is shown as a mark or as nothing, never as a word in every row.** The column is scanned down for the few functions two threads of control can be inside; spelling an answer on every other row would be a column of noise with the signal hidden in it (HLR-228).
+
+    The column headings shall be short enough that the file's path keeps the width. On a terminal the table is held to 128 columns (HLR-219) and the path is the cell that pays for every heading longer than its column needs: `Complexity`, `Visibility`, `Fan-in`, `Fan-out` and `Language` each cost the path more than they told a reader, and are `CC`, `Scope`, `In`, `Out` and `Lang`.
 
     **A heading is not the vocabulary under it.** The scope column is headed `Scope` for width, and the values in it stay the `public` and `private` HLR-209 requires: the heading names the question and the cells answer it, and shortening the one does not re-word the other.
 
@@ -2319,7 +2321,7 @@ The compound-node data model: three tiers of nodes joined by a `parent` referenc
     The numbers shall be emitted through the same serialiser as every other numeric field on the node, so that a score is written in the locale-independent form the payload requires and a reader of the JSON sees `0.85` on every machine.
     *Trace:* HLR-225 (Testing Burden in the Interactive Report Payload), HLR-213.
 
-*   <a id="LLR-CYT-07"></a>**LLR-CYT-07** — `html_elements` shall carry, on each function node, `is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` as a list of strings naming what was found against the function; and shall carry, for each global object, whether it is shared across threads of control and the state of its qualifier (HLR-232).
+*   <a id="LLR-CYT-07"></a>**LLR-CYT-07** — `html_elements` shall append ` (R)` to the label of a re-entrant function, the drawing having no columns to put a flag in and a box with a name in it being the only place a reader scanning the graph can look; and shall carry, on each function node, `is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` as a list of strings naming what was found against the function; and shall carry, for each global object, whether it is shared across threads of control and the state of its qualifier (HLR-232).
 
     Each shall be the value the C decided rather than one the page derives, for the reason this module's other fields are: a rule spelled once in the binary and once in a script is two rules, and the page is the copy nothing checks.
 

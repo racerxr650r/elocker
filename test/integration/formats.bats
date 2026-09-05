@@ -35,7 +35,7 @@ setup() {
 @test "HLR-028: csv produces one record per function" {
 	elc -f csv "$TREE"
 	assert_success
-	assert_output --partial "file,language,function"
+	assert_output --partial "file,lang,function"
 	assert_output --partial ",f,"
 }
 
@@ -67,7 +67,7 @@ setup() {
 	assert_line --index 0 "$want"
 	# And the location is the table's location: `path:line`, which an
 	# editor acts on, with the extent beside it as a count (HLR-210).
-	assert_output --regexp "$TREE/a\.c:[0-9]+,c,f,public,[0-9]+,"
+	assert_output --regexp "$TREE/a\.c:[0-9]+,c,f,public,,[0-9]+,"
 }
 
 @test "HLR-029: md produces GitHub-Flavored Markdown" {
@@ -261,7 +261,7 @@ setup() {
 	# to say it twice. Each file is identified by a marker only that format
 	# produces.
 	for pair in "txt:Project summary" "md:## Project summary" \
-	            "csv:file,language,function" "xml:<?xml"; do
+	            "csv:file,lang,function" "xml:<?xml"; do
 		local extension="${pair%%:*}" marker="${pair#*:}"
 		local file="$BATS_TEST_TMPDIR/named.$extension"
 
@@ -342,7 +342,7 @@ setup() {
 	# keeps a machine-readable format available to a caller that pipes.
 	elc -f csv "$TREE"
 	assert_success
-	assert_output --partial "file,language,function"
+	assert_output --partial "file,lang,function"
 }
 
 @test "HLR-148: the companion artefacts keep their own extensions" {

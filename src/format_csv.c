@@ -101,7 +101,7 @@ int format_csv(const Report *report, FILE *out)
 	 * drifted once already, which is why the whole header is asserted in
 	 * test/integration/formats.bats rather than a prefix of it. */
 	static const char *const header[] = {
-		"file", "language", "function", "scope", "lines", "eloc",
+		"file", "lang", "function", "scope", "reent", "lines", "eloc",
 		"cc", "in", "out", "wtbi", "burden"
 	};
 	const size_t columns = sizeof header / sizeof *header;
@@ -122,6 +122,7 @@ int format_csv(const Report *report, FILE *out)
 			const char *fields[] = {
 				where, f->language ? f->language : "",
 				fn->name, csv_visibility(fn->visibility),
+				fn->is_reentrant ? "R" : "",
 				lines, eloc, complexity, fan_in, fan_out,
 				wtbi, elc_wtbi_status(fn->wtbi)
 			};

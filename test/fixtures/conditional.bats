@@ -292,13 +292,13 @@ report() {
 	# would be: the table gains columns on both sides, and a count from
 	# either end silently starts reading a different measurement rather
 	# than failing. The name is the only part of this that is stable.
+	# Counted from the right: a blank cell before this column collapses
+	# under awk's field splitting, so a header index does not land on the
+	# row. Out, WTBI and Burden are populated on every row.
 	local fanout
 	fanout="$(awk '/^Functions$/ {s=1; next}
 	               s && /^$/     {exit}
-	               s && !col     {for (i = 1; i <= NF; i++)
-	                                      if ($i == "Out") col = i
-	                              next}
-	               s && col && $3 == "caller" {print $col}' "$OUT")"
+	               s && $3 == "caller" {print $(NF-2)}' "$OUT")"
 	assert_equal "$fanout" "0"
 }
 

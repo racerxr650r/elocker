@@ -499,7 +499,20 @@ static int function_fields(json_t *data, const SdgNode *n, size_t index,
 		return -1;
 
 	rc |= set_new(data, "id", json_string(id));
-	rc |= set_new(data, "label", json_string(n->name));
+	/* **The mark is in the label, not a column, because the drawing has no
+	 * columns.** A node is a box with a name in it, and a reader scanning
+	 * the graph for the functions two threads can be inside has nowhere
+	 * else to look. `is_reentrant` is carried as well, for a stylesheet
+	 * that wants to select on it rather than read it (HLR-228, HLR-232).
+	 */
+	if (n->is_reentrant) {
+		char label[512];
+
+		snprintf(label, sizeof label, "%s (R)", n->name);
+		rc |= set_new(data, "label", json_string(label));
+	} else {
+		rc |= set_new(data, "label", json_string(n->name));
+	}
 	rc |= set_new(data, "tier", json_string("function"));
 	rc |= set_new(data, "file", json_string(n->file ? n->file : ""));
 	rc |= set_new(data, "line", json_integer((json_int_t)n->line_start));

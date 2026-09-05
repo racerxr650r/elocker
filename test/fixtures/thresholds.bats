@@ -125,14 +125,18 @@ finding_rows() {
 	# the moment a column was added after it, and would stop being true
 	# again on the next such change. What this test is about is the value
 	# under `Fan-out`, so that is what it looks up.
+	# **Counted from the right, and the reason has changed.** Looking the
+	# column up by name in the header stopped working when a column that is
+	# blank for most rows was added before it: awk splits on whitespace, so
+	# a row with an empty cell has fewer fields than the header and the
+	# header's index lands on the wrong one. The trailing columns are always
+	# populated — Out, WTBI and Burden every row has — so an offset from the
+	# end is what is stable here.
 	local fanout
 	fanout="$(printf '%s\n' "$output" |
 		awk '/^Functions$/ { f = 1; next }
 		     f && /^$/    { f = 0 }
-		     f && !col    { for (i = 1; i <= NF; i++)
-		                            if ($i == "Out") col = i
-		                    next }
-		     f && col && $3 == "band_acceptable_high" { print $col }')"
+		     f && $3 == "band_acceptable_high" { print $(NF-2) }')"
 	assert_equal "$fanout" "10"
 }
 

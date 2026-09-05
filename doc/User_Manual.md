@@ -292,11 +292,11 @@ At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and 
   /home/u/proj/src/a.c  parse              7       1        2  14.00
 
 Functions
-  File                     Language  Function  Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
-  -----------------------  --------  --------  ------  -----  ----  --  ------  -------  -----  -------
-  /home/u/proj/src/a.c:5   c         parse     public     15     9   7       1        2  14.00  healthy
-  /home/u/proj/src/a.c:21  c         emit      public      4     3   1       1        0   1.00  healthy
-  /home/u/proj/src/b.c:3   c         main      public      9     6   2       0        1   2.00  healthy
+  File                     Lang  Function  Scope   Reent  Lines  ELOC  CC  In  Out   WTBI  Burden
+  -----------------------  ----  --------  ------  -----  -----  ----  --  --  ---  -----  -------
+  /home/u/proj/src/a.c:5   c     parse     public  R         15     9   7   1    2  14.00  healthy
+  /home/u/proj/src/a.c:21  c     emit      public             4     3   1   1    0   1.00  healthy
+  /home/u/proj/src/b.c:3   c     main      public             9     6   2   0    1   2.00  healthy
 
 Skipped files (no language module)
   /home/u/proj/src/notes.md
@@ -550,9 +550,9 @@ the lines beneath them:
 ```console
 $ elc src/
 Functions
-  File                                    Language  Function  Lines  ELOC  CC
-  --------------------------------------  --------  --------  -----  ----  ----------
-  /home/you/very/long/path/to/a/project/  c         measure       9     4           2
+  File                                    Lang  Function  Lines  ELOC  CC
+  --------------------------------------  ----  --------  -----  ----  --
+  /home/you/very/long/path/to/a/project/  c     measure       9     4   2
   src/measure.c:12
 ```
 
@@ -589,7 +589,7 @@ They carry the same columns, in the same order:
 
 ```console
 $ elc -f csv src/ | head -3
-file,language,function,scope,lines,eloc,cc,in,out,wtbi,burden
+file,lang,function,scope,reent,lines,eloc,cc,in,out,wtbi,burden
 /home/you/src/measure.c:12,c,measure,public,9,4,2,3,1,84
 /home/you/src/measure.c:24,c,scale,private,6,3,1,1,0,91
 ```
@@ -959,11 +959,11 @@ the function's two degrees:
 
 ```text
 Functions
-  File                     Language  Function  Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
-  -----------------------  --------  --------  ------  -----  ----  --  ------  -------  -----  -------
-  /home/u/proj/src/a.c:5   c         main      public     15    12   3       0        4   3.00  healthy
-  /home/u/proj/src/a.c:21  c         parse     public     50    31   9       3        7  27.00  warning
-  /home/u/proj/src/a.c:72  c         chomp     public      7     4   1       6        0   1.00  healthy
+  File                     Lang  Function  Scope   Reent  Lines  ELOC  CC  In  Out   WTBI  Burden
+  -----------------------  ----  --------  ------  -----  -----  ----  --  --  ---  -----  -------
+  /home/u/proj/src/a.c:5   c     main      public             15    12   3   0    4   3.00  healthy
+  /home/u/proj/src/a.c:21  c     parse     public  R          50    31   9   3    7  27.00  warning
+  /home/u/proj/src/a.c:72  c     chomp     public             7      4   1   6    0   1.00  healthy
 ```
 
 **Fan-out** is the number of *distinct subroutines a function invokes*.
@@ -3540,9 +3540,9 @@ asked.
 
 ```text
 Functions
-  File                     Language  Function          Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
+  File                     Lang  Function          Scope   Reent  Lines  ELOC  CC  In  Out   WTBI  Burden
   -----------------------  --------  ----------------  ----------  -----  ----  ----------  ------  -------  ---
-  /home/u/proj/src/a.c:21  c         parse             public         50    31           9       3        7   62
+  /home/u/proj/src/a.c:21  c         parse             public              50    31           9       3        7   62
   /home/u/proj/src/a.c:88  c         parse_one_header  private        14     9           3       1        2   81
 ```
 

@@ -1078,7 +1078,8 @@ Test(report_html, a_function_node_carries_its_concurrency_marks)
 
 	page    = page_of(&s.report, &s.graph, &opts);
 	payload = payload_of(page);
-	node    = element_with(payload, "app_fn");
+	/* The label carries the mark, so that is what it is found by. */
+	node    = element_with(payload, "app_fn (R)");
 
 	cr_assert_not_null(strstr(node, "\"is_async_root\":true"),
 	                   "the root mark was not carried: %s", node);

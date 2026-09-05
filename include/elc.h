@@ -487,6 +487,10 @@ typedef struct {
 	 * the syntax tree is gone. PVD Principle 7 admits one parse and no
 	 * copies, so the question is answered for every function and the
 	 * answer reported only for the ones it matters for. */
+	/* Whether both threads of control can be inside this function
+	 * (HLR-228). On the record as well as on the graph node, because the
+	 * table renders from the report and the report outlives the graph. */
+	bool      is_reentrant;
 	bool      leaks_lock;
 	bool      cfg_complete;
 } FunctionMetric;

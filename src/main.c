@@ -489,6 +489,40 @@ cleanup:
 	return status;
 }
 
+/* Mark the re-entrant functions on the per-function records (HLR-228).
+ *
+ * Here rather than in `report.c` because it needs both the report and the
+ * graph, and `report.h` is deliberately not given sight of the graph: the
+ * report is the model every renderer reads, and one that had to include an
+ * analysis's header to describe its own fields would tie the two together for
+ * nothing.
+ *
+ * Matched on the definition site — file and start line — rather than on the
+ * name, because a name is not unique across translation units and a `static`
+ * helper repeated in three files would otherwise take the first one's mark
+ * (HLR-075, LLR-BLD-25).
+ */
+static void mark_reentrant_records(Run *run, const bool *reentrant)
+{
+	for (size_t n = 0; n < run->sdg.node_count; n++) {
+		const SdgNode *node = &run->sdg.nodes[n];
+
+		if (!reentrant[n] || !node->file)
+			continue;
+
+		for (size_t i = 0; i < run->report.file_count; i++) {
+			FileMetrics *f = run->report.files[i];
+
+			if (!f->path || strcmp(f->path, node->file) != 0)
+				continue;
+			for (size_t j = 0; j < f->function_count; j++)
+				if (f->functions[j].start_line ==
+				    node->line_start)
+					f->functions[j].is_reentrant = true;
+		}
+	}
+}
+
 /* The marks onto the nodes, and the rows into the report (HLR-228, HLR-232).
  *
  * Both are "publish what was found", and separating them from the analysis
@@ -502,6 +536,8 @@ static int record_concurrency(Run *run, const bool *reentrant, size_t n)
 		        .is_async_root = true;
 	for (size_t i = 0; i < n; i++)
 		run->sdg.nodes[i].is_reentrant = reentrant[i];
+
+	mark_reentrant_records(run, reentrant);
 
 	return publish_concurrency(run, reentrant, CONCURRENCY_MEASURED);
 }

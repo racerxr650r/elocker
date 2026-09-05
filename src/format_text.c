@@ -42,13 +42,12 @@
  * with it: `grid_begin` writes one entry per column, so a tier declaring more
  * columns than this holds runs past three fixed-size arrays.
  *
- * Eleven since the testing-burden column joined that tier and the two
- * figures it is built from left it again (HLR-223). The
+ * Twelve since the re-entrancy flag joined that tier (HLR-228). The
  * compiler catches the mistake — a constant left behind turns the header loop
  * into one the optimiser can prove runs off the end, and says so — but it
  * catches it as a warning about iteration counts rather than as anything
  * naming this line, so the reason it must move is written here. */
-#define GRID_MAX_COLUMNS 11
+#define GRID_MAX_COLUMNS 12
 
 /* The widest line the aligned table puts on a terminal (HLR-219).
  *
@@ -1097,18 +1096,19 @@ static int functions_section(const Report *report, Style style,
 	 * anyway, because this is the table a reader of a polyglot project asks
 	 * the question in, and sending them to another table to answer it costs
 	 * more than the repetition does (HLR-007, HLR-014). */
-	static const char *const names[]   = { "File", "Language", "Function",
-	                                       "Scope", "Lines", "ELOC",
-	                                       "CC", "In", "Out",
+	static const char *const names[]   = { "File", "Lang", "Function",
+	                                       "Scope", "Reent", "Lines",
+	                                       "ELOC", "CC", "In", "Out",
 	                                       "WTBI", "Burden" };
 	/* The band is a word and is left-aligned with the other words; the
 	 * figure beside it is a number and is not wrapped, since a number
-	 * divided across two lines is not a number (HLR-219). */
+	 * divided across two lines is not a number (HLR-219). `Reent` is a
+	 * flag rather than a count and sits with the words. */
 	static const bool        numeric[] = { false, false, false, false,
-	                                       true, true, true, true, true,
-	                                       true, false };
+	                                       false, true, true, true, true,
+	                                       true, true, false };
 
-	grid_begin(&grid, "Functions", 11, names, numeric);
+	grid_begin(&grid, "Functions", 12, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -1131,8 +1131,13 @@ static int functions_section(const Report *report, Style style,
 			 * it, because the two say the same thing about the
 			 * same file and a reader comparing them should not
 			 * meet two spellings of one blank. */
+			/* **Present or blank, not "R" or "-".** The column is
+			 * scanned down for the few functions two threads can
+			 * be inside; a mark on every other row would be a
+			 * column of noise with the signal hidden in it. */
 			grid_row(&grid, where, f->language ? f->language : "",
 			         fn->name, visibility_name(fn->visibility),
+			         fn->is_reentrant ? "R" : "",
 			         a, b, c, d, e, i2,
 			         elc_wtbi_status(fn->wtbi));
 		}
