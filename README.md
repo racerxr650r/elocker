@@ -11,7 +11,7 @@ In this day ans age of AI generated code, `elc` is an excellent way to keep your
 Point `elc` at a file, directory, or Git repository to generate a detailed report.
 
 *   **Project Summary:** Overview of the project provided. Information provided includes; Number of files, Physical lines, ELOC, Number of functions, Critical findings count, and Warning findings count.
-*   **Findings:** See [Every finding elc can report](google.com) below.
+*   **Findings:** See [Every finding elc can report](https://github.com/racerxr650r/elocker/blob/develop/README.md#every-finding-elc-can-report) below.
 *   **File-Level Metrics:** Overview of the source files included in the project.
 *   **Function-Level Metrics:** Identifies where your complexity lives. Reports include function name, source file, line number, language, visibility, complexity, fan-in, fan-out, and maintainability index.
 *   **System Architecture:** Maps how your project fits together. By combining per-file syntax trees into a single System Dependence Graph, `elc` identifies dependency cycles, architectural bottlenecks, call stack depths, and unreachable code.
