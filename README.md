@@ -2,7 +2,8 @@
 
 `elc` provides an accurate calculation of your application's effective lines of code (ELOC) and so much more. It analyzes your source code to
 measure its scale, quality, and architecture. Instead of relying on guesswork or pattern matching, `elc` parses the code directly to generate
-per-function metrics and whole-project analysis for C, C++, Rust, and Python.
+per-function metrics and whole-project analysis for C, C++, Rust, and Python. It presents this information in tabular and graphic forms with
+a variety of output formats.
 
 In this day ans age of AI generated code, `elc` is an excellent way to keep your finger on the pulse of your source project as AI contributes.
 
