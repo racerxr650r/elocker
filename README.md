@@ -42,7 +42,296 @@ interest much easier.
 Here's an example of a default report to stdout.
 
 ```console
-Insert screen grab here...
+$ elc --entry main --elf build/main.elf ../../drv ../../sys ../../srv . 
+Parsing Notifications
+--------------------------------------------------------------------------------------------------------------------------------
+elc: /home/john/Projects/avrOS/app/avrOS_example/avrOS.x: no usable language module; skipped
+elc: /home/john/Projects/avrOS/app/avrOS_example/makefile: no usable language module; skipped
+elc: /home/john/Projects/avrOS/drv/uart.c:112: 3 lines could not be parsed; the rest of the file is measured
+elc: /home/john/Projects/avrOS/srv/btn.c_: no usable language module; skipped
+elc: /home/john/Projects/avrOS/srv/btn.h_: no usable language module; skipped
+elc: /home/john/Projects/avrOS/srv/cli.c:94: 1 line could not be parsed; the rest of the file is measured
+elc: /home/john/Projects/avrOS/sys/queue.c:170: 1 line could not be parsed; the rest of the file is measured
+
+Project Summary
+--------------------------------------------------------------------------------------------------------------------------------
+  Files                   44
+  Physical lines       12488
+  ELOC                   438
+  Functions               93
+  Skipped                  4
+  Unparsed lines           5
+  Critical findings        1
+  Warnings                 9
+  Unresolved calls        35
+  Undecided regions       56
+  Files expanded           0
+  Measured as written     44
+
+Findings (10)
+  Severity  Measurement                 Subject                       Detail                        Source
+  --------  --------------------------  ----------------------------  ----------------------------  ----------------------------
+  critical  component dependency cycle  /home/john/Projects/avrOS/    /home/john/Projects/avrOS/    Martin, acyclic dependencies
+                                        sys/queue.c                   sys/queue.c ->                                            
+                                                                      /home/john/Projects/avrOS/                                
+                                                                      sys/queue.h ->                                            
+                                                                      /home/john/Projects/avrOS/                                
+                                                                      sys/queue.c                                               
+  warning   confined qualifier          Ready                         declared volatile and         elc heuristic — not a     
+                                                                      reached only from the         published standard          
+                                                                      application; a cause outside                              
+                                                                      elc's view may still require                              
+                                                                      it                                                        
+  warning   confined qualifier          currStateMachine              declared volatile and         elc heuristic — not a     
+                                                                      reached only from the         published standard          
+                                                                      application; a cause outside                              
+                                                                      elc's view may still require                              
+                                                                      it                                                        
+  warning   confined qualifier          sysTicks                      declared volatile and         elc heuristic — not a     
+                                                                      reached only from an          published standard          
+                                                                      asynchronous handler; a                                   
+                                                                      cause outside elc's view may                              
+                                                                      still require it                                          
+  warning   fan-out                     sysInit                       calls 13 distinct             Henry-Kafura                
+                                                                      subroutines                                               
+  warning   single-function global      Ready                         named by one function;        MISRA C Rule 8.9            
+                                                                      belongs at block scope                                    
+  warning   single-function global      Wait                          named by one function;        MISRA C Rule 8.9            
+                                                                      belongs at block scope                                    
+  warning   single-function global      currStateMachine              named by one function;        MISRA C Rule 8.9            
+                                                                      belongs at block scope                                    
+  warning   single-function global      scanCycle                     named by one function;        MISRA C Rule 8.9            
+                                                                      belongs at block scope                                    
+  warning   single-function global      sysTicks                      named by one function;        MISRA C Rule 8.9            
+                                                                      belongs at block scope                                    
+
+Files (44)
+  File                                                       Language  Lines  ELOC  Functions
+  ---------------------------------------------------------  --------  -----  ----  ---------
+  /home/john/Projects/avrOS/app/avrOS_example/avrOSConfig.h  c           140     0          0
+  /home/john/Projects/avrOS/app/avrOS_example/main.c         c           153    36          5
+  /home/john/Projects/avrOS/drv/ac.h                         c           336     0          0
+  /home/john/Projects/avrOS/drv/adc.h                        c           472     0          0
+  /home/john/Projects/avrOS/drv/clk.h                        c           348     8          7
+  /home/john/Projects/avrOS/drv/cpu.c                        c            99    18          2
+  /home/john/Projects/avrOS/drv/cpu.h                        c            83     0          0
+  /home/john/Projects/avrOS/drv/dac.h                        c           172     0          0
+  /home/john/Projects/avrOS/drv/evt.h                        c           206     0          0
+  /home/john/Projects/avrOS/drv/gpio.c                       c           325    32         10
+  /home/john/Projects/avrOS/drv/gpio.h                       c           218     0          0
+  /home/john/Projects/avrOS/drv/int.h                        c           259     0          0
+  /home/john/Projects/avrOS/drv/mem.c                        c           145    11          1
+  /home/john/Projects/avrOS/drv/mem.h                        c           168     8          8
+  /home/john/Projects/avrOS/drv/nvm.h                        c           227     0          0
+  /home/john/Projects/avrOS/drv/pio.h                        c           367    11         10
+  /home/john/Projects/avrOS/drv/pmux.h                       c           269     0          0
+  /home/john/Projects/avrOS/drv/rst.h                        c           118     0          0
+  /home/john/Projects/avrOS/drv/rtc.h                        c           604     0          0
+  /home/john/Projects/avrOS/drv/slp.h                        c           165     9          4
+  /home/john/Projects/avrOS/drv/spi.h                        c           319     0          0
+  /home/john/Projects/avrOS/drv/tca.h                        c           892     0          0
+  /home/john/Projects/avrOS/drv/tcb.h                        c           416     6          6
+  /home/john/Projects/avrOS/drv/twi.h                        c           643     0          0
+  /home/john/Projects/avrOS/drv/uart.c                       c           416    19          8
+  /home/john/Projects/avrOS/drv/uart.h                       c           633     4          4
+  /home/john/Projects/avrOS/drv/vref.h                       c           148     0          0
+  /home/john/Projects/avrOS/drv/wdt.h                        c           221     0          0
+  /home/john/Projects/avrOS/drv/zcd.h                        c           186     0          0
+  /home/john/Projects/avrOS/srv/cli.c                        c           396     5          0
+  /home/john/Projects/avrOS/srv/cli.h                        c           158     0          0
+  /home/john/Projects/avrOS/srv/log.c                        c            63     0          0
+  /home/john/Projects/avrOS/srv/log.h                        c           200     0          0
+  /home/john/Projects/avrOS/srv/pcm.c                        c           162     3          0
+  /home/john/Projects/avrOS/sys/event.c                      c           412    79          7
+  /home/john/Projects/avrOS/sys/event.h                      c           325     0          0
+  /home/john/Projects/avrOS/sys/fio.h                        c           150     0          0
+  /home/john/Projects/avrOS/sys/fsm.c                        c           542    96         10
+  /home/john/Projects/avrOS/sys/fsm.h                        c           378     0          0
+  /home/john/Projects/avrOS/sys/list.h                       c            52     0          0
+  /home/john/Projects/avrOS/sys/queue.c                      c           181    48          3
+  /home/john/Projects/avrOS/sys/queue.h                      c           363     5          3
+  /home/john/Projects/avrOS/sys/sys.c                        c           243    40          5
+  /home/john/Projects/avrOS/sys/sys.h                        c           115     0          0
+
+Functions (93)
+  File                                    Lang  Function                Scope    Reent  Lines  ELOC  CC  In  Out   WTBI  Burden
+  --------------------------------------  ----  ----------------------  -------  -----  -----  ----  --  --  ---  -----  -------
+  /home/john/Projects/avrOS/app/          c     ledsInit                public             16     6   2   0    2   2.00  healthy
+  avrOS_example/main.c:79                                                                                                       
+  /home/john/Projects/avrOS/app/          c     ledsMeter               public             16     6   2   0    2   2.00  healthy
+  avrOS_example/main.c:96                                                                                                       
+  /home/john/Projects/avrOS/app/          c     ledsFlash               public             15     6   2   0    2   2.00  healthy
+  avrOS_example/main.c:113                                                                                                      
+  /home/john/Projects/avrOS/app/          c     main                    public             16     5   1   0    5   1.00  healthy
+  avrOS_example/main.c:130                                                                                                      
+  /home/john/Projects/avrOS/app/          c     btnHandler              public              6     1   1   0    0   1.00  healthy
+  avrOS_example/main.c:147                                                                                                      
+  /home/john/Projects/avrOS/drv/clk.h:91  c     clkSetSource            private             5     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/clk.h:    c     clkGetSource            private             4     1   1   1    0   1.00  healthy
+  102                                                                                                                           
+  /home/john/Projects/avrOS/drv/clk.h:    c     clkSetPrescaler         private             5     2   2   1    0   2.00  healthy
+  132                                                                                                                           
+  /home/john/Projects/avrOS/drv/clk.h:    c     clkPrescalerEnabled     private             4     1   1   1    0   1.00  healthy
+  145                                                                                                                           
+  /home/john/Projects/avrOS/drv/clk.h:    c     clkGetPrescaler         private             4     1   1   1    0   1.00  healthy
+  157                                                                                                                           
+  /home/john/Projects/avrOS/drv/clk.h:    c     clkSetOscHFFrequency    private             5     1   1   1    0   1.00  healthy
+  220                                                                                                                           
+  /home/john/Projects/avrOS/drv/clk.h:    c     clkGetOscHFFrequency    private             4     1   1   1    0   1.00  healthy
+  231                                                                                                                           
+  /home/john/Projects/avrOS/drv/cpu.c:56  c     cpuSetOSCHF             public              9     3   1   1    3   2.00  healthy
+  /home/john/Projects/avrOS/drv/cpu.c:67  c     cpuGetFrequency         public             27    12   7   1    4  14.00  healthy
+  /home/john/Projects/avrOS/drv/gpio.c:   c     PORTA_PORT_vect         public   I          4     1   1   0    1   1.00  healthy
+  32                                                                                                                            
+  /home/john/Projects/avrOS/drv/gpio.c:   c     PORTC_PORT_vect         public   I          4     1   1   0    1   1.00  healthy
+  38                                                                                                                            
+  /home/john/Projects/avrOS/drv/gpio.c:   c     PORTD_PORT_vect         public   I          4     1   1   0    1   1.00  healthy
+  44                                                                                                                            
+  /home/john/Projects/avrOS/drv/gpio.c:   c     PORTF_PORT_vect         public   I          4     1   1   0    1   1.00  healthy
+  50                                                                                                                            
+  /home/john/Projects/avrOS/drv/gpio.c:   c     isrInput                private            26     8   5   4    3  14.50  healthy
+  56                                                                                                                            
+  /home/john/Projects/avrOS/drv/gpio.c:   c     gpioInit                public             38    13   6   0    4   6.00  healthy
+  253                                                                                                                           
+  /home/john/Projects/avrOS/drv/gpio.c:   c     gpioSetOutput           public              4     1   1   1    1   1.60  healthy
+  293                                                                                                                           
+  /home/john/Projects/avrOS/drv/gpio.c:   c     gpioClearOutput         public              4     1   1   1    1   1.60  healthy
+  298                                                                                                                           
+  /home/john/Projects/avrOS/drv/gpio.c:   c     gpioToggleOutput        public              4     1   1   1    1   1.60  healthy
+  303                                                                                                                           
+  /home/john/Projects/avrOS/drv/gpio.c:   c     gpioWriteOutput         public              8     4   1   2    2   2.20  healthy
+  308                                                                                                                           
+  /home/john/Projects/avrOS/drv/mem.c:55  c     memStackFill            public             26     8   4   1    0   4.00  healthy
+  /home/john/Projects/avrOS/drv/mem.h:32  c     memProgramRomSize       private             4     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/mem.h:42  c     memConstRomSize         private             4     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/mem.h:52  c     memTextSize             private             4     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/mem.h:72  c     memRodataSize           private             4     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/mem.h:82  c     memOsTableSize          private             4     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/mem.h:92  c     memDataSize             private             4     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/mem.h:    c     memHeapSize             private             4     1   2   1    0   2.00  healthy
+  102                                                                                                                           
+  /home/john/Projects/avrOS/drv/mem.h:    c     memRamSize              private             4     1   1   1    0   1.00  healthy
+  134                                                                                                                           
+  /home/john/Projects/avrOS/drv/pio.h:95  c     pioSetOutput            private             4     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/pio.h:    c     pioSetInput             private             4     1   1   1    0   1.00  healthy
+  108                                                                                                                           
+  /home/john/Projects/avrOS/drv/pio.h:    c     pioSet                  private             4     1   1   1    0   1.00  healthy
+  157                                                                                                                           
+  /home/john/Projects/avrOS/drv/pio.h:    c     pioClear                private             4     1   1   1    0   1.00  healthy
+  170                                                                                                                           
+  /home/john/Projects/avrOS/drv/pio.h:    c     pioToggle               private             4     1   1   1    0   1.00  healthy
+  183                                                                                                                           
+  /home/john/Projects/avrOS/drv/pio.h:    c     pioWrite                private             4     1   1   1    0   1.00  healthy
+  194                                                                                                                           
+  /home/john/Projects/avrOS/drv/pio.h:    c     pioReadOutput           private             4     1   1   1    0   1.00  healthy
+  208                                                                                                                           
+  /home/john/Projects/avrOS/drv/pio.h:    c     pioGetInterruptFlags    private             4     1   1   1    0   1.00  healthy
+  234                                                                                                                           
+  /home/john/Projects/avrOS/drv/pio.h:    c     pioClearInterruptFlags  private             4     1   1   1    0   1.00  healthy
+  248                                                                                                                           
+  /home/john/Projects/avrOS/drv/pio.h:    c     pioConfigPins           private             5     2   1   1    0   1.00  healthy
+  359                                                                                                                           
+  /home/john/Projects/avrOS/drv/slp.h:72  c     slpSetMode              private             4     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/slp.h:96  c     slpEnable               private             7     3   2   1    0   2.00  healthy
+  /home/john/Projects/avrOS/drv/slp.h:    c     slpEnter                private             4     1   1   1    0   1.00  healthy
+  111                                                                                                                           
+  /home/john/Projects/avrOS/drv/slp.h:    c     slpSleep                private             7     4   1   1    3   1.95  healthy
+  125                                                                                                                           
+  /home/john/Projects/avrOS/drv/tcb.h:98  c     tcbSetMode              private             4     1   1   1    0   1.00  healthy
+  /home/john/Projects/avrOS/drv/tcb.h:    c     tcbSetClock             private             4     1   1   1    0   1.00  healthy
+  113                                                                                                                           
+  /home/john/Projects/avrOS/drv/tcb.h:    c     tcbEnable               private             4     1   1   1    0   1.00  healthy
+  127                                                                                                                           
+  /home/john/Projects/avrOS/drv/tcb.h:    c     tcbSetCompare           private             4     1   1   1    0   1.00  healthy
+  228                                                                                                                           
+  /home/john/Projects/avrOS/drv/tcb.h:    c     tcbEnableInterrupt      private             4     1   1   1    0   1.00  healthy
+  277                                                                                                                           
+  /home/john/Projects/avrOS/drv/tcb.h:    c     tcbClearInterruptFlags  private             4     1   1   1    0   1.00  healthy
+  319                                                                                                                           
+  /home/john/Projects/avrOS/drv/uart.c:   c     USART0_DRE_vect         public   I          5     2   2   0    1   2.00  healthy
+  36                                                                                                                            
+  /home/john/Projects/avrOS/drv/uart.c:   c     USART1_DRE_vect         public   I          5     2   2   0    1   2.00  healthy
+  42                                                                                                                            
+  /home/john/Projects/avrOS/drv/uart.c:   c     USART2_DRE_vect         public   I          5     2   2   0    1   2.00  healthy
+  48                                                                                                                            
+  /home/john/Projects/avrOS/drv/uart.c:   c     USART0_RXC_vect         public   I          5     2   2   0    1   2.00  healthy
+  54                                                                                                                            
+  /home/john/Projects/avrOS/drv/uart.c:   c     USART1_RXC_vect         public   I          5     2   2   0    1   2.00  healthy
+  60                                                                                                                            
+  /home/john/Projects/avrOS/drv/uart.c:   c     USART2_RXC_vect         public   I          5     2   2   0    1   2.00  healthy
+  66                                                                                                                            
+  /home/john/Projects/avrOS/drv/uart.c:   c     isrUsartDRE             private            19     3   2   3    3   6.10  healthy
+  74                                                                                                                            
+  /home/john/Projects/avrOS/drv/uart.c:   c     isrUsartRXC             private            25     3   2   3    3   5.80  healthy
+  95                                                                                                                            
+  /home/john/Projects/avrOS/drv/uart.h:   c     usartDisableInterrupt   private             4     1   1   1    0   1.00  healthy
+  375                                                                                                                           
+  /home/john/Projects/avrOS/drv/uart.h:   c     usartWriteData          private             4     1   1   1    0   1.00  healthy
+  390                                                                                                                           
+  /home/john/Projects/avrOS/drv/uart.h:   c     usartReadData           private             4     1   1   1    0   1.00  healthy
+  404                                                                                                                           
+  /home/john/Projects/avrOS/drv/uart.h:   c     usartReadRxStatus       private             4     1   1   1    0   1.00  healthy
+  420                                                                                                                           
+  /home/john/Projects/avrOS/sys/event.c:  c     evntListRemoveHead      public             18     8   4   1    0   4.00  healthy
+  62                                                                                                                            
+  /home/john/Projects/avrOS/sys/event.c:  c     evntListAdd             public   R         21    10   4   4    0   4.00  healthy
+  81                                                                                                                            
+  /home/john/Projects/avrOS/sys/event.c:  c     evntListRemove          public   R         38    20  10   3    0  10.00  healthy
+  103                                                                                                                           
+  /home/john/Projects/avrOS/sys/event.c:  c     evntArmSystem           public   R         33     7   3   2    2   8.10  healthy
+  192                                                                                                                           
+  /home/john/Projects/avrOS/sys/event.c:  c     evntTrigger             public             29     6   2   4    2   5.40  healthy
+  261                                                                                                                           
+  /home/john/Projects/avrOS/sys/event.c:  c     evntInit                public             15     7   2   1    1   3.70  healthy
+  344                                                                                                                           
+  /home/john/Projects/avrOS/sys/event.c:  c     evntDispatch            public             52    17   6   1    3  12.00  healthy
+  361                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     fsmLstAdd               private  R         56    22   7   3    0   7.00  healthy
+  139                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     fsmLstRemove            private            43    16   6   2    0   6.00  healthy
+  196                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     fsmInit                 public             30     7   3   1    1   5.55  healthy
+  289                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     initGetInstance         public              4     1   1   1    0   1.00  healthy
+  352                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     fsmSetNextStateVerbose  public             10     5   2   0    0   2.00  healthy
+  398                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     fsmWait                 public             13     3   2   1    2   4.00  healthy
+  427                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     fsmReady                public             17     6   3   1    2   6.00  healthy
+  442                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     fsmUpdateWaitTicks      public             19     7   4   1    1   6.40  healthy
+  461                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     fsmWaitTicks            public              5     2   1   3    1   1.60  healthy
+  482                                                                                                                           
+  /home/john/Projects/avrOS/sys/fsm.c:    c     fsmDispatch             public             46    20   6   1    1   8.10  healthy
+  497                                                                                                                           
+  /home/john/Projects/avrOS/sys/queue.c:  c     queGetSize              public             21    11   5   1    2  10.00  healthy
+  50                                                                                                                            
+  /home/john/Projects/avrOS/sys/queue.c:  c     queGet                  public             45    16   7   1    1  11.90  healthy
+  72                                                                                                                            
+  /home/john/Projects/avrOS/sys/queue.c:  c     quePut                  public             57    20   9   1    2  18.00  healthy
+  118                                                                                                                           
+  /home/john/Projects/avrOS/sys/queue.h:  c     queIsEmpty              private             9     2   2   1    0   2.00  healthy
+  131                                                                                                                           
+  /home/john/Projects/avrOS/sys/queue.h:  c     queIsFull               private             9     2   2   1    0   2.00  healthy
+  147                                                                                                                           
+  /home/john/Projects/avrOS/sys/queue.h:  c     quePutByte              private             4     1   1   1    1   1.85  healthy
+  310                                                                                                                           
+  /home/john/Projects/avrOS/sys/sys.c:44  c     SYS_TICK_INT_VECT       public   I         12     4   1   0    2   1.00  healthy
+  /home/john/Projects/avrOS/sys/sys.c:    c     sysUpdateWaitTicks      private            16     6   2   0    2   2.00  healthy
+  103                                                                                                                           
+  /home/john/Projects/avrOS/sys/sys.c:    c     sysInitTick             public             36    13   2   1    7   4.00  healthy
+  120                                                                                                                           
+  /home/john/Projects/avrOS/sys/sys.c:    c     sysInit                 public             32    12   1   1   13   2.00  healthy
+  159                                                                                                                           
+  /home/john/Projects/avrOS/sys/sys.c:    c     sysSleep                public              5     2   1   1    1   1.35  healthy
+  239                                                                                                                           
+
+Nothing To Report
+  2 tables above were empty and omitted:
+    - Layering (omitted: no architectural strata declared, see --stratum)
+    - Cross-Scope Access (omitted: no execution scopes declared, see --scope)
 ```
 
 ## License
