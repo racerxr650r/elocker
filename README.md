@@ -94,7 +94,7 @@ No finding severity ever reaches the exit status. `elc` reports; what to do
 about it is yours.
 
 
-## What the output looks like
+## What `elc` output looks like
 
 Reports render as an aligned table to stdout (default), CSV, XML, HTML, or GitHub-Flavored
 Markdown, with a Graphviz `.dot` call tree written with the same filename. 
