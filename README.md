@@ -5,6 +5,12 @@ measure its scale, quality, and architecture. Instead of relying on guesswork or
 per-function metrics and whole-project analysis for C, C++, Rust, and Python. It presents this information in tabular and graphic forms with
 a variety of output formats.
 
+`elc` really shines when you provide an elf filename generated from the provided source files. The tool will prune functions and conditionally
+compiled lines of source that aren't in the generated binary. If the elf contains debug information, the tool can parse additional information
+to allow it to expand the code using the gcc pre-compiler for applicable languages. If you are analyzing a library that was linked with the
+application code, just provide the source files/directories of the library along with the elf file. The tool will prune those source and analyze
+the appropriate sources, ignoring the rest of the binary.
+
 In this day ans age of AI generated code, `elc` is an excellent way to keep your finger on the pulse of your source project as AI contributes.
 
 ## What it does
