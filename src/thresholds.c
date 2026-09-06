@@ -181,7 +181,28 @@ static const Threshold CATALOGUE[] = {
 	 * MISRA's name (HLR-099, HLR-207). */
 	{ MEASURE_MISRA_LIBRARY, "misra library", 0, 0, false,
 	  SEVERITY_WARNING, true,
-	  "MISRA C:2012", false }
+	  "MISRA C:2012", false },
+
+	/* A call offending against the layering the *user* declared, which is
+	 * what makes this row's authority theirs rather than `elc`'s or a
+	 * published source's. The rule broken is `--stratum` and its ordering;
+	 * `elc` measured the call and compared it against the declaration, and
+	 * the attribution says exactly that (HLR-079, HLR-118, HLR-099).
+	 *
+	 * Occurrence is the finding. There is no acceptable number of calls
+	 * that run against a declared direction, and the *proportion* that
+	 * conform is a separate measurement with a section of its own
+	 * (HLR-162, HLR-163). */
+	{ MEASURE_LAYERING_VIOLATION, "layering violation", 0, 0, false,
+	  SEVERITY_WARNING, true, ELC_DECLARED_ARCHITECTURE, false },
+
+	/* An edge by which one declared execution scope reaches another. The
+	 * declaration is the user's for the same reason, and the severity is
+	 * the same: `elc` cannot know whether a given crossing is the one the
+	 * design intends, only that the declaration says the two are separate
+	 * (HLR-094, HLR-101). */
+	{ MEASURE_CROSS_SCOPE, "cross-scope access", 0, 0, false,
+	  SEVERITY_WARNING, true, ELC_DECLARED_SCOPES, false }
 };
 
 /* The C library facilities MISRA C:2012 §21 forbids, with the rule that
@@ -608,6 +629,59 @@ static int apply_cycles(const ArchResults *arch, const Sdg *g,
 	return 0;
 }
 
+/* One finding per edge by which a declared execution scope reaches another
+ * (HLR-094).
+ *
+ * A call and a global-state edge are both crossings and both reported, the
+ * detail naming which — a scope reached through a shared object is the harder
+ * one to see in the source, and the one a reader most needs told.
+ *
+ * Reported at warning rather than critical because the declaration cannot say
+ * which crossings are intended: `elc` knows the two scopes were declared
+ * separate, not that this particular edge is a defect (HLR-101).
+ */
+static int apply_cross_scope(const StateResults *state, const Sdg *g,
+                             const ElcOptions *opts, FindingList *out)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_CROSS_SCOPE);
+
+	if (!t || state->scope_state != SCOPES_MEASURED)
+		return 0;
+
+	for (size_t i = 0; i < state->violation_count; i++) {
+		const ScopeViolation *v = &state->violations[i];
+		char                  detail[256];
+		const char           *file;
+
+		if (v->from >= g->node_count || v->to >= g->node_count ||
+		    v->from_scope >= opts->scopes.count ||
+		    v->to_scope >= opts->scopes.count)
+			continue;
+
+		file = g->nodes[v->from].file;
+
+		if (v->object && *v->object)
+			snprintf(detail, sizeof detail,
+			         "in scope %s, shares %s with %s in scope %s",
+			         opts->scopes.items[v->from_scope].name,
+			         v->object, g->nodes[v->to].name,
+			         opts->scopes.items[v->to_scope].name);
+		else
+			snprintf(detail, sizeof detail,
+			         "in scope %s, calls %s in scope %s",
+			         opts->scopes.items[v->from_scope].name,
+			         g->nodes[v->to].name,
+			         opts->scopes.items[v->to_scope].name);
+
+		if (findings_add(out, MEASURE_CROSS_SCOPE, t->fixed,
+		                 g->nodes[v->from].name, file ? file : "",
+		                 g->nodes[v->from].line_start, detail) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
 static int apply_globals(const StateResults *state, FindingList *out)
 {
 	for (size_t i = 0; i < state->global_count; i++) {
@@ -801,10 +875,61 @@ static int apply_calltree_rows(const TreeResults *tree, const Sdg *g,
 }
 
 /* The catalogue rows read off the architecture results. */
+/* One finding per call offending against the declared layering (HLR-079,
+ * HLR-118).
+ *
+ * **The Layering section states the same thing, and that is not a duplication
+ * to be removed.** A finding is what a reader is expected to act on, and the
+ * findings table is where they are expected to find all of it — recursion,
+ * dependency cycles and the global-state verdicts each appear both as a
+ * finding and in a section of their own, and these two were the anomaly. A
+ * reader who has to assemble the list of what is wrong from six tables will
+ * miss one of them, which is how a report loses information it plainly holds.
+ *
+ * The section keeps its columns: it carries the two strata, the two functions,
+ * and the ordinal distance, which is more than a finding's detail can hold.
+ */
+static int apply_layering(const ArchResults *arch, const Sdg *g,
+                          FindingList *out)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_LAYERING_VIOLATION);
+
+	if (!t || arch->strata_state != STRATA_MEASURED)
+		return 0;
+
+	for (size_t i = 0; i < arch->violation_count; i++) {
+		const LayerViolation *v = &arch->violations[i];
+		char                  detail[256];
+		const char           *from, *to, *file;
+
+		if (v->from >= g->node_count || v->to >= g->node_count)
+			continue;
+
+		from = g->nodes[v->from].name;
+		to   = g->nodes[v->to].name;
+		file = g->nodes[v->from].file;
+
+		snprintf(detail, sizeof detail,
+		         "calls %s, %s %zu layer%s", to,
+		         v->kind == LAYER_SKIP_LEVEL ? "bypassing"
+		                                     : "running against the "
+		                                       "declared direction over",
+		         v->layers_crossed, v->layers_crossed == 1 ? "" : "s");
+
+		if (findings_add(out, MEASURE_LAYERING_VIOLATION, t->fixed,
+		                 from, file ? file : "",
+		                 g->nodes[v->from].line_start, detail) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
 static int apply_arch_rows(const ArchResults *arch, const Sdg *g,
                            const ElcOptions *opts, FindingList *out)
 {
 	return (apply_cycles(arch, g, out) != 0 ||
+	        apply_layering(arch, g, out) != 0 ||
 	        apply_instability(arch, g, opts, out) != 0 ||
 	        apply_bottlenecks(arch, g, opts, out) != 0) ? -1 : 0;
 }
@@ -856,6 +981,7 @@ int thresholds_apply(const ArchResults *arch, const TreeResults *tree,
 	    apply_misra_library(g, out) != 0 ||
 	    (tree && apply_calltree_rows(tree, g, out) != 0) ||
 	    (state && apply_globals(state, out) != 0) ||
+	    (state && apply_cross_scope(state, g, opts, out) != 0) ||
 	    (arch && apply_arch_rows(arch, g, opts, out) != 0)) {
 		findinglist_free(out);
 		return -1;

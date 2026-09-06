@@ -19,7 +19,9 @@ setup() {
 
 # The headings of a report, in order: a section's heading is its presence.
 headings() {
-	printf '%s\n' "$output" | awk '/^[A-Z]/ { print }'
+	printf '%s\n' "$output" |
+		grep -v '^Parsing Notifications$' |
+		awk '/^[A-Z]/ { sub(/ \([0-9]+\)$/, ""); print }'
 }
 
 has_heading() {
@@ -40,18 +42,14 @@ reaches() {
 # --- the summary tiers (HLR-150) -------------------------------------------
 
 @test "HLR-150: the summary tiers are present by default" {
-	# Asserted against Markdown. HLR-150's partition is a document's rule,
-	# and since HLR-218 the aligned table answers with its own — the three
-	# tests below this one are where that answer is asserted.
+	# The four HLR-150 enumerates, and no fifth. Asserted against Markdown
+	# because the claim used to be a document's alone; since HLR-218 there
+	# is one composition, and the test below asserts the aligned table
+	# answers identically.
 	elc -f md "$TREE"
 	assert_success
 
-	# Every tier HLR-150 enumerates, printed where it found rows and named
-	# in the closing statement where it did not.
-	for heading in "Project summary" "Callouts" "Discovery" "Languages" \
-	               "Files" "At or over a threshold" \
-	               "Findings" "Conditional-compilation definitions" \
-	               "Partially parsed files" "Skipped files"; do
+	for heading in "Project Summary" "Findings" "Files" "Functions"; do
 		reaches "$heading" || {
 			echo "the summary omitted '$heading'" >&2
 			false
@@ -59,17 +57,38 @@ reaches() {
 	done
 }
 
+@test "HLR-218: both formats present the same tiers by default" {
+	# One composition, asserted as an equality rather than as two lists:
+	# a tier that reached one format and not the other is what this must
+	# catch, and neither format's list on its own would catch it.
+	elc "$TREE"
+	local table
+	table="$(headings | sort -u)"
+
+	elc -f md "$TREE"
+	local markdown
+	markdown="$(printf '%s\n' "$output" |
+		awk '/^## / { sub(/^## /, ""); print }' | sort -u)"
+
+	assert_equal "$markdown" "$table"
+}
+
 @test "HLR-150: the detail tiers are absent by default" {
 	elc -f md "$TREE"
 	assert_success
 
-	# One row per function, per global object, per graph edge, per
-	# unreachable statement, per custom-rule match: none of them by
-	# default.
-	for heading in "Functions" "Recursion" "Component coupling" \
-	               "Component dependency" "Global state" \
-	               "Unreachable globals" "Dead code within functions" \
-	               "Custom rule matches"; do
+	# "Functions" is deliberately absent from this list: it is the one
+	# detail-shaped tier every default report presents, and the test above
+	# asserts that it is there. The aggregates beside it — the callouts,
+	# the routes, the languages, the threshold listing — are here because
+	# they are evidence for a finding rather than one of the four questions
+	# a default report answers.
+	for heading in "Callouts" "Discovery" "Languages" \
+	               "At Or Over A Threshold" "Architecture Conformance" \
+	               "Recursion" "Component Coupling" \
+	               "Component Dependency" "Global State" \
+	               "Unreachable Globals" "Dead Code Within Functions" \
+	               "Custom Rule Matches"; do
 		if reaches "$heading"; then
 			echo "the summary presented the detail tier '$heading'" >&2
 			false
@@ -108,7 +127,64 @@ reaches() {
 	elc "$TREE/branchy.c"
 	assert_success
 	assert_equal "$(headings | sed -n '1,2p' | tr '\n' '|')" \
-	             "Project summary|Findings|"
+	             "Project Summary|Findings|"
+}
+
+# --- the size in the heading (HLR-235) -------------------------------------
+
+@test "HLR-235: the three tables of the minimum state their size" {
+	# `a.c` holds two functions, and the tree holds one file. The figures
+	# are counted here rather than read back from the table, so a renderer
+	# printing the heading and the rows from different places fails.
+	elc "$TREE"
+	assert_success
+	assert_output --partial "Files (1)"
+	assert_output --partial "Functions (2)"
+}
+
+@test "HLR-235: the size is the number of rows presented" {
+	# The property that makes the figure worth printing: it and the table
+	# beneath it cannot disagree. Counted off the body rather than asserted
+	# as a literal, so a second file in the fixture cannot make this pass
+	# against a hard-coded number.
+	elc --verbose "$TREE"
+	assert_success
+
+	local stated counted
+	stated="$(printf '%s\n' "$output" |
+		sed -nE 's/^Functions \(([0-9]+)\)$/\1/p')"
+	counted="$(printf '%s\n' "$output" |
+		awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && /^  \// { n++ } END { print n + 0 }')"
+	assert_equal "$stated" "$counted"
+}
+
+@test "HLR-235: a table that was not rendered is named without a size" {
+	# HLR-188 prints no empty table and HLR-189 names it instead, where a
+	# size would describe something that was never a table.
+	elc --verbose "$TREE"
+	assert_success
+	assert_output --partial "    - Recursion"
+	refute_output --regexp "- Recursion \\([0-9]+\\)"
+}
+
+@test "HLR-235: a heading that already carries a clause grows no second one" {
+	# The two never appear together: a tier stating thresholds or the
+	# reason it was omitted does not ask for a size.
+	elc --verbose "$TREE"
+	assert_success
+	refute_output --regexp "^Component Coupling .*\\) \\([0-9]+\\)$"
+	refute_output --regexp "^Unreachable Functions .*\\) \\([0-9]+\\)$"
+}
+
+@test "HLR-235: Markdown states the same size in its own idiom" {
+	# One fact in two decorations, which is the line HLR-218 draws: the
+	# disclosure summary carries the figure the aligned heading carries.
+	elc -f md "$TREE"
+	assert_success
+	assert_output --partial "## Functions"
+	assert_output --partial "<summary>2 rows (click to expand)</summary>"
+	refute_output --partial "## Functions (2)"
 }
 
 # --- empty tables (HLR-188, HLR-189) ---------------------------------------
@@ -122,7 +198,7 @@ reaches() {
 @test "HLR-189: the closing statement names every table that was empty" {
 	elc --verbose "$TREE"
 	assert_success
-	assert_output --partial "Nothing to report"
+	assert_output --partial "Nothing To Report"
 	assert_output --partial "    - Recursion"
 }
 
@@ -131,7 +207,7 @@ reaches() {
 	# section that appears only sometimes is the problem it solves.
 	elc --verbose "$TREE"
 	assert_success
-	assert_output --partial "Nothing to report"
+	assert_output --partial "Nothing To Report"
 }
 
 @test "HLR-115: the reason survives the table being omitted" {
@@ -150,10 +226,10 @@ reaches() {
 	# thing the reader must be told, at either verbosity.
 	elc "$TREE"
 	assert_success
-	assert_output --partial "Unreachable functions (omitted: no entry points declared"
-	assert_output --partial "Deepest call chain (omitted: no entry points declared"
+	assert_output --partial "Unreachable Functions (omitted: no entry points declared"
+	assert_output --partial "Deepest Call Chain (omitted: no entry points declared"
 	assert_output --partial "Layering (omitted: no architectural strata declared"
-	assert_output --partial "Cross-scope access (omitted: no execution scopes declared"
+	assert_output --partial "Cross-Scope Access (omitted: no execution scopes declared"
 }
 
 @test "HLR-183: the function table carries the degrees beside the metrics" {
@@ -173,8 +249,8 @@ reaches() {
 	# passing against a renderer that simply always emits the section.
 	elc --entry main "$TREE"
 	assert_success
-	refute_output --partial "Unreachable functions (omitted"
-	refute_output --partial "Deepest call chain (omitted"
+	refute_output --partial "Unreachable Functions (omitted"
+	refute_output --partial "Deepest Call Chain (omitted"
 }
 
 # --- the verbose report (HLR-151) ------------------------------------------
@@ -183,10 +259,10 @@ reaches() {
 	elc --verbose "$TREE"
 	assert_success
 
-	for heading in "Functions" "Recursion" "Component coupling" \
-	               "Component dependency" "Global state" \
-	               "Unreachable globals" "Dead code within functions" \
-	               "Custom rule matches"; do
+	for heading in "Functions" "Recursion" "Component Coupling" \
+	               "Component Dependency" "Global State" \
+	               "Unreachable Globals" "Dead Code Within Functions" \
+	               "Custom Rule Matches"; do
 		reaches "$heading" || {
 			echo "the verbose report omitted '$heading'" >&2
 			false
@@ -252,6 +328,9 @@ reaches() {
 	local markdown
 	markdown="$(printf '%s\n' "$output" |
 		awk '/^## / { sub(/^## /, ""); print }')"
+
+	# The counts of HLR-235 are a decoration of the aligned style and are
+	# stripped from both sides by `headings`, so this compares the tiers.
 
 	assert_equal "$markdown" "$table"
 }

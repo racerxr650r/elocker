@@ -436,9 +436,29 @@ typedef enum {
 typedef struct {
 	char     *name;       /* copied out of the mapping before it is
 	                       * released, since the name outlives it        */
+	/* The name the linker knows this function by, where the image names it
+	 * something other than the source does; NULL otherwise, which is every
+	 * ordinary function and every run with no image (HLR-233).
+	 *
+	 * A function-shaped macro that writes a definition frequently renames
+	 * it — `ISR(TCB0_INT_vect)` defines `__vector_12` — so the source name
+	 * and the linkage name are two different strings for one function, and
+	 * a filter matching on the name alone discards it as absent. The join is
+	 * by *where the definition begins*, which the image's debug information
+	 * records and the parse also knows, rather than by name (HLR-193). */
+	char     *linkage_name;
 	uint32_t  start_line; /* 1-based; TSPoint.row is 0-based and
 	                       * converted exactly once                      */
 	uint32_t  end_line;   /* 1-based                                     */
+	/* Whether the definition was written through a function-shaped macro
+	 * rather than spelled out (HLR-233).
+	 *
+	 * A fact about the *syntax*, taken from the language's own query, and
+	 * the evidence HLR-227 admits an interrupt handler on: a macro that
+	 * writes a definition nothing calls exists to attach that body to
+	 * something the source never names, which is what installing a handler
+	 * is. */
+	bool      macro_defined;
 	/* What the language says about this function's reach, from that
 	 * language's own visibility query. Unknown where the module supplies
 	 * none, which the report states rather than resolving (HLR-209). */
@@ -491,9 +511,51 @@ typedef struct {
 	 * (HLR-228). On the record as well as on the graph node, because the
 	 * table renders from the report and the report outlives the graph. */
 	bool      is_reentrant;
+	/* Whether this function *begins* the second thread of control — an
+	 * asynchronous root admitted on evidence that names it a handler rather
+	 * than merely an uncalled function (HLR-233).
+	 *
+	 * Beside re-entrancy rather than folded into it because the two are
+	 * opposite ends of one relation and are mutually exclusive by
+	 * construction: a root has an in-degree of zero, so nothing on the
+	 * application's side can reach it, so it is never in the intersection
+	 * HLR-228 marks. One column carries both without ambiguity. */
+	bool      is_interrupt;
 	bool      leaks_lock;
 	bool      cfg_complete;
+	/* Whether a critical section was found in this function at all — a
+	 * scoped guard included, which acquires nothing an acquisition/release
+	 * pair would show (HLR-234). False also means "no synchronisation query
+	 * for this language", which the report distinguishes by whether any
+	 * function in the run has one. */
+	bool      has_critical_section;
 } FunctionMetric;
+
+/* What one column says about a function's relation to the second thread of
+ * control (HLR-228, HLR-233).
+ *
+ * **One column and not two, because the two answers cannot both be true.** An
+ * asynchronous root has an in-degree of zero — nothing in the analysed source
+ * calls it — so nothing on the application's side reaches it, so it is never in
+ * the intersection that marks a function re-entrant. A second column would
+ * therefore be a column that is blank on every row the first one fills.
+ *
+ * Blank is the third answer and the common one. The column is scanned down for
+ * the few functions the analysis has something to say about, and a mark on
+ * every row would bury them (HLR-219).
+ *
+ * Defined once, here, so that the aligned table, the Markdown, the CSV and the
+ * drawing are given one decision rather than each spelling it again — the same
+ * reason `elc_wtbi_status` lives beside it (LLR-CYT-06).
+ */
+static inline const char *concurrency_mark(const FunctionMetric *fn)
+{
+	if (fn->is_interrupt)
+		return "I";
+	if (fn->is_reentrant)
+		return "R";
+	return "";
+}
 
 /* One function the source defines and the linked image does not (HLR-143).
  *
@@ -697,6 +759,8 @@ typedef enum {
 	MEASURE_SHARED_UNQUALIFIED,      /* per global     (HLR-230)  */
 	MEASURE_VOLATILE_CONFINED,       /* per global     (HLR-231)  */
 	MEASURE_CRITICAL_SECTION,        /* per function   (HLR-229)  */
+	MEASURE_LAYERING_VIOLATION,      /* per call edge  (HLR-079, HLR-118) */
+	MEASURE_CROSS_SCOPE,             /* per edge       (HLR-094)  */
 	MEASURE_KIND_COUNT
 } MeasurementKind;
 

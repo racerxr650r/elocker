@@ -24,7 +24,7 @@ setup() {
 # next.
 layer_of() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Architecture recovery \(/ { f = 1; next }
+		awk -v want="$1" '/^Architecture Recovery \(/ { f = 1; next }
 		                  f && /^$/ { f = 0 }
 		                  f && $2 ~ ("/" want "$") { print $1 }'
 }
@@ -36,7 +36,7 @@ proposal() {
 
 recovery_heading() {
 	printf '%s\n' "$output" |
-		awk '/^Architecture recovery \(/ { print; exit }'
+		awk '/^Architecture Recovery \(/ { print; exit }'
 }
 
 # ------------------------------------------------------ the recovered layering
@@ -71,7 +71,7 @@ recovery_heading() {
 	assert_equal "$(layer_of app)" "0"
 	refute_output --partial "svc_leaf, "
 	printf '%s\n' "$output" |
-		awk '/^Architecture recovery \(/ { f = 1; next }
+		awk '/^Architecture Recovery \(/ { f = 1; next }
 		     f && /^$/ { exit } f && /svc_open/ { exit 1 }'
 }
 
@@ -95,7 +95,7 @@ recovery_heading() {
 	assert_success
 	local cycle
 	cycle="$(printf '%s\n' "$output" |
-		awk '/^Architecture recovery \(/ { f = 1; next }
+		awk '/^Architecture Recovery \(/ { f = 1; next }
 		     f && /^$/ { f = 0 } f && $1 == "cycle" { print }')"
 	[ -n "$cycle" ]
 	refute [ -n "$(printf '%s\n' "$cycle" | grep -- '->')" ]
@@ -122,7 +122,7 @@ recovery_heading() {
 	assert_success
 	assert_output --partial "3 layers over 3 directories"
 	assert_output --partial \
-		"Architecture conformance (omitted: no architectural strata declared"
+		"Architecture Conformance (omitted: no architectural strata declared"
 	refute_output --partial "Layering violations"
 }
 
@@ -135,7 +135,7 @@ recovery_heading() {
 	elc --verbose "$TREE"
 	assert_success
 	assert_output --partial \
-		"Dependency structure matrix (directories: no strata declared"
+		"Dependency Structure Matrix (directories: no strata declared"
 }
 
 @test "HLR-173: the proposal is rendered as arguments" {
@@ -181,8 +181,8 @@ recovery_heading() {
 	run bash -c "\"$ELC\" --verbose $line \"$TREE\""
 	assert_success
 	refute_output --partial \
-		"Architecture conformance (omitted: no architectural strata declared"
-	assert_output --partial "Architecture conformance (over"
+		"Architecture Conformance (omitted: no architectural strata declared"
+	assert_output --partial "Architecture Conformance (over"
 }
 
 # ------------------------------------------------------------- the manifest --
@@ -439,11 +439,11 @@ identical to its absence"
 @test "HLR-031: both human formats present the recovered layering" {
 	elc --verbose "$TREE"
 	assert_success
-	assert_output --partial "Architecture recovery"
+	assert_output --partial "Architecture Recovery"
 
 	elc --verbose -f md "$TREE"
 	assert_success
-	assert_output --partial "## Architecture recovery"
+	assert_output --partial "## Architecture Recovery"
 }
 
 @test "HLR-054: the record carries the proposal and regenerates it" {
@@ -464,7 +464,7 @@ identical to its absence"
 	assert_output --partial "3 layers over 3 directories"
 	assert_output --partial "--stratum-order"
 	assert_output --partial \
-		"Architecture conformance (omitted: no architectural strata declared"
+		"Architecture Conformance (omitted: no architectural strata declared"
 }
 
 @test "HLR-179: two runs over the same tree propose one layering" {
@@ -486,5 +486,5 @@ identical to its absence"
 	run bash -c '"$0" --verbose -o "$1" "$2"' "$ELC" "$out" "$TREE"
 	assert_success
 	assert_output ""
-	grep -q "^Architecture recovery" "$out"
+	grep -q "^Architecture Recovery" "$out"
 }

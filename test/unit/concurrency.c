@@ -113,6 +113,32 @@ static void scene_free(Scene *s)
 	filefacts_free(s->facts);
 }
 
+/* A symbol set naming exactly `kept`, which must be given in ascending order:
+ * `elfsyms_defines` binary-searches it, and an unsorted set answers at random
+ * rather than failing. */
+static void image_of(SymbolSet *image, const char *const *kept, size_t count)
+{
+	memset(image, 0, sizeof *image);
+	image->names = calloc(count, sizeof *image->names);
+	cr_assert_not_null(image->names);
+	for (size_t i = 0; i < count; i++) {
+		image->names[i] = strdup(kept[i]);
+		cr_assert_not_null(image->names[i]);
+		if (i)
+			cr_assert(strcmp(kept[i - 1], kept[i]) < 0,
+			          "the set is searched, so it must be sorted");
+	}
+	image->count = count;
+}
+
+static void image_free(SymbolSet *image)
+{
+	for (size_t i = 0; i < image->count; i++)
+		free(image->names[i]);
+	free(image->names);
+	memset(image, 0, sizeof *image);
+}
+
 /* Options declaring `main` as the entry point. */
 static ElcOptions with_main(void)
 {
@@ -215,6 +241,88 @@ Test(concurrency, a_name_matching_the_pattern_is_a_root_without_an_address)
 	scene_free(&s);
 }
 
+/* Verifies LLR-ASY-04: the shape an interrupt handler has on a target whose
+ * handlers are declared by a macro — nothing calls it, and the definition was
+ * written through a function-shaped macro rather than spelled out.
+ *
+ * **The case that carried the whole analysis on a bare-metal target and was
+ * missed entirely.** Without it the handler is not even a function, so there is
+ * no second thread of control to intersect with and every finding of HLR-228
+ * through HLR-231 measures an application talking to itself. */
+Test(concurrency, a_macro_written_definition_nothing_calls_is_a_root)
+{
+	static const char *const names[] = { "main", "TIMER_vect", "helper" };
+	static const size_t      from[]  = { 0, 1 };
+	static const char *const to[]    = { "helper", "helper" };
+	Scene      s;
+	ElcOptions o = with_main();
+	RootSet    r;
+
+	/* No address taken and no pattern given: the macro shape is the only
+	 * evidence, which is the point. */
+	scene(&s, names, 3, from, to, 2, NULL);
+	s.graph.nodes[node_of(&s.graph, "TIMER_vect")].macro_defined = true;
+
+	cr_assert_eq(concurrency_roots(&s.graph, &o, NULL, &r), 0);
+	cr_assert_eq(r.count, 1, "exactly the macro-written definition");
+	cr_assert_eq(r.items[0].node, node_of(&s.graph, "TIMER_vect"));
+	cr_assert_eq(r.items[0].origin, ROOT_BY_WRAPPER);
+	cr_assert(root_is_handler(r.items[0].origin),
+	          "a macro that writes a definition nothing calls names a "
+	          "handler, not merely something uncalled");
+
+	rootset_free(&r);
+	scene_free(&s);
+}
+
+/* Verifies LLR-ASY-05: the three origins are not one claim.
+ *
+ * An address taken is equally the shape of a callback the application's own
+ * loop dispatches, so it is the one origin that does not name a handler — and
+ * every consumer that treats a root as a second thread of control turns on
+ * exactly this. */
+Test(concurrency, an_address_taken_root_is_not_claimed_to_be_a_handler)
+{
+	cr_assert_not(root_is_handler(ROOT_BY_ADDRESS));
+	cr_assert(root_is_handler(ROOT_BY_PATTERN));
+	cr_assert(root_is_handler(ROOT_BY_WRAPPER));
+}
+
+/* Verifies LLR-ASY-04: the image is asked about the name the *linker* knows.
+ *
+ * A macro that writes a definition renames it, so the source spells one name
+ * and the image another. Asking under the source name alone rejects the handler
+ * as absent from its own image — and a rejected root empties every analysis
+ * below it without saying so. */
+Test(concurrency, a_renamed_handler_is_matched_against_the_image_by_linkage)
+{
+	static const char *const names[] = { "main", "TIMER_vect" };
+	static const char *const kept[]  = { "__vector_12", "main" };
+	Scene      s;
+	ElcOptions o = with_main();
+	SymbolSet  image;
+	RootSet    r;
+
+	scene(&s, names, 2, NULL, NULL, 0, NULL);
+	s.graph.nodes[node_of(&s.graph, "TIMER_vect")].macro_defined = true;
+	image_of(&image, kept, 2);
+
+	/* Without the linkage name the image has never heard of it. */
+	cr_assert_eq(concurrency_roots(&s.graph, &o, &image, &r), 0);
+	cr_assert_eq(r.count, 0, "the source name is absent from the image");
+	rootset_free(&r);
+
+	s.graph.nodes[node_of(&s.graph, "TIMER_vect")].linkage_name =
+		"__vector_12";
+	cr_assert_eq(concurrency_roots(&s.graph, &o, &image, &r), 0);
+	cr_assert_eq(r.count, 1,
+	             "and present under the name the linker kept it by");
+
+	rootset_free(&r);
+	image_free(&image);
+	scene_free(&s);
+}
+
 /* Verifies LLR-ASY-02: **the substitution this function exists to refuse.**
  *
  * With no image and no pattern there is no evidence that any function is
@@ -262,7 +370,8 @@ Test(concurrency, a_function_both_trees_reach_is_re_entrant)
 	entry  = (uint32_t)node_of(&s.graph, "main");
 	marked = calloc(s.graph.node_count, sizeof *marked);
 	cr_assert_not_null(marked);
-	cr_assert_eq(concurrency_reentrant(&s.graph, &entry, 1, &r, marked), 0);
+	cr_assert_eq(concurrency_reentrant(&s.graph, &entry, 1, &r, marked,
+	                                   NULL), 0);
 
 	cr_assert(marked[node_of(&s.graph, "shared")]);
 
@@ -293,7 +402,8 @@ Test(concurrency, a_function_only_the_async_tree_reaches_is_not_re_entrant)
 	entry  = (uint32_t)node_of(&s.graph, "main");
 	marked = calloc(s.graph.node_count, sizeof *marked);
 	cr_assert_not_null(marked);
-	cr_assert_eq(concurrency_reentrant(&s.graph, &entry, 1, &r, marked), 0);
+	cr_assert_eq(concurrency_reentrant(&s.graph, &entry, 1, &r, marked,
+	                                   NULL), 0);
 
 	cr_assert_not(marked[node_of(&s.graph, "isr_only")],
 	              "reached from one thread only, so never re-entered");
@@ -319,21 +429,28 @@ static void add_global(FileFacts *f, const char *name, size_t function,
 	f->global_capacity = f->global_count;
 }
 
-/* main and isr, with `obj` touched by whichever of them the flags say, and
- * declared with the qualifiers given. Returns the findings. */
+/* main, isr and cb, with `obj` touched by whichever of them the flags say, and
+ * declared with the qualifiers given. Returns the findings.
+ *
+ * `isr` stands in the handler tree and `cb` in the callback tree, which is the
+ * distinction HLR-231 turns on: a handler is a second thread of control, and a
+ * function registered by its address may be dispatched from the application's
+ * own loop. The trees are built here rather than walked, so each test states
+ * exactly which of the three reaches the object.
+ */
 static void qualifier_scene(Scene *s, FindingList *out, bool volatil,
-                            bool mmio, bool touch_main, bool touch_async)
+                            bool mmio, bool touch_main, bool touch_async,
+                            bool touch_callback)
 {
-	static const char *const names[] = { "main", "isr" };
+	static const char *const names[] = { "main", "isr", "cb" };
 	MetricsAccumulator acc  = { 0 };
 	ElcOptions         none = { 0 };
 	FactList           list = { 0 };
-	bool              *from_main, *from_async;
-	size_t             m_node, i_node;
+	bool              *from_main, *from_handler, *from_callback;
 
 	memset(s, 0, sizeof *s);
 	memset(out, 0, sizeof *out);
-	s->file  = file_with("/t/a.c", names, 2);
+	s->file  = file_with("/t/a.c", names, 3);
 	s->facts = facts_for("/t/a.c");
 
 	cr_assert_eq(metrics_add(&acc, s->file), 0);
@@ -349,24 +466,28 @@ static void qualifier_scene(Scene *s, FindingList *out, bool volatil,
 		add_global(s->facts, "obj", 0, GLOBAL_WRITE);
 	if (touch_async)
 		add_global(s->facts, "obj", 1, GLOBAL_READ);
+	if (touch_callback)
+		add_global(s->facts, "obj", 2, GLOBAL_READ);
 
 	list.items = &s->facts;
 	list.count = 1;
 	cr_assert_eq(graph_build(&list, &s->report, &s->graph), 0);
 
-	m_node = node_of(&s->graph, "main");
-	i_node = node_of(&s->graph, "isr");
-	from_main  = calloc(s->graph.node_count, sizeof *from_main);
-	from_async = calloc(s->graph.node_count, sizeof *from_async);
+	from_main     = calloc(s->graph.node_count, sizeof *from_main);
+	from_handler  = calloc(s->graph.node_count, sizeof *from_handler);
+	from_callback = calloc(s->graph.node_count, sizeof *from_callback);
 	cr_assert_not_null(from_main);
-	cr_assert_not_null(from_async);
-	from_main[m_node]  = true;
-	from_async[i_node] = true;
+	cr_assert_not_null(from_handler);
+	cr_assert_not_null(from_callback);
+	from_main[node_of(&s->graph, "main")]     = true;
+	from_handler[node_of(&s->graph, "isr")]   = true;
+	from_callback[node_of(&s->graph, "cb")]   = true;
 
-	cr_assert_eq(concurrency_qualifiers(&s->graph, from_main, from_async,
-	                                    out), 0);
+	cr_assert_eq(concurrency_qualifiers(&s->graph, from_main, from_handler,
+	                                    from_callback, out), 0);
 	free(from_main);
-	free(from_async);
+	free(from_handler);
+	free(from_callback);
 }
 
 static size_t findings_of(const FindingList *f, MeasurementKind kind)
@@ -387,7 +508,7 @@ Test(concurrency, a_shared_global_without_the_qualifier_is_critical)
 	Scene       s;
 	FindingList f;
 
-	qualifier_scene(&s, &f, false, false, true, true);
+	qualifier_scene(&s, &f, false, false, true, true, false);
 	cr_assert_eq(findings_of(&f, MEASURE_SHARED_UNQUALIFIED), 1);
 
 	findinglist_free(&f);
@@ -401,7 +522,7 @@ Test(concurrency, a_shared_global_with_the_qualifier_yields_no_finding)
 	Scene       s;
 	FindingList f;
 
-	qualifier_scene(&s, &f, true, false, true, true);
+	qualifier_scene(&s, &f, true, false, true, true, false);
 	cr_assert_eq(findings_of(&f, MEASURE_SHARED_UNQUALIFIED), 0);
 	cr_assert_eq(findings_of(&f, MEASURE_VOLATILE_CONFINED), 0,
 	             "shared is not confined");
@@ -417,7 +538,7 @@ Test(concurrency, a_qualified_global_confined_to_one_tree_is_a_warning)
 	Scene       s;
 	FindingList f;
 
-	qualifier_scene(&s, &f, true, false, true, false);
+	qualifier_scene(&s, &f, true, false, true, false, false);
 	cr_assert_eq(findings_of(&f, MEASURE_VOLATILE_CONFINED), 1);
 
 	findinglist_free(&f);
@@ -435,7 +556,7 @@ Test(concurrency, a_memory_mapped_register_is_never_reported_unnecessary)
 	Scene       s;
 	FindingList f;
 
-	qualifier_scene(&s, &f, true, true, true, false);
+	qualifier_scene(&s, &f, true, true, true, false, false);
 	cr_assert_eq(findings_of(&f, MEASURE_VOLATILE_CONFINED), 0,
 	             "a register must keep its qualifier and must not be "
 	             "told to drop it");
@@ -453,7 +574,7 @@ Test(concurrency, the_unnecessary_finding_states_the_measurement_and_advises_not
 	FindingList f;
 	const char *detail = NULL;
 
-	qualifier_scene(&s, &f, true, false, true, false);
+	qualifier_scene(&s, &f, true, false, true, false, false);
 	for (size_t i = 0; i < f.count; i++)
 		if (f.items[i].kind == MEASURE_VOLATILE_CONFINED)
 			detail = f.items[i].detail;
@@ -466,6 +587,137 @@ Test(concurrency, the_unnecessary_finding_states_the_measurement_and_advises_not
 	                   "reason a qualifier is needed");
 
 	findinglist_free(&f);
+	scene_free(&s);
+}
+
+/* Verifies LLR-VOL-03: **the false positive that advised removing a qualifier
+ * the program depends on.**
+ *
+ * An object reached from the application and from a *callback* is not shown to
+ * be confined to one thread of control: the callback may be dispatched from the
+ * application's own loop, or from an interrupt, and `elc` cannot tell which. On
+ * `avrOS` this fired on a tick counter written by the timer interrupt and
+ * drained by a scheduler-resumed state machine — reported as reached from an
+ * asynchronous root alone, with its `volatile` called unnecessary. */
+Test(concurrency, a_global_a_callback_touches_is_not_reported_confined)
+{
+	Scene       s;
+	FindingList f;
+
+	/* Qualified, touched by the application and by the callback, and by no
+	 * handler: the shape that used to read as confined to one tree. */
+	qualifier_scene(&s, &f, true, false, true, false, true);
+	cr_assert_eq(findings_of(&f, MEASURE_VOLATILE_CONFINED), 0,
+	             "a callback's thread of control is unknown, so neither "
+	             "confinement nor sharing is established");
+
+	findinglist_free(&f);
+	scene_free(&s);
+}
+
+/* Verifies LLR-VOL-03: the converse, so the case above is not passed by an
+ * implementation that has simply stopped reporting confinement. A handler tree
+ * still establishes it. */
+Test(concurrency, a_global_confined_away_from_the_application_is_still_a_warning)
+{
+	Scene       s;
+	FindingList f;
+
+	qualifier_scene(&s, &f, true, false, false, true, false);
+	cr_assert_eq(findings_of(&f, MEASURE_VOLATILE_CONFINED), 1,
+	             "a handler is a second thread of control, so an object "
+	             "only it reaches is confined");
+
+	findinglist_free(&f);
+	scene_free(&s);
+}
+
+/* Verifies LLR-VOL-03: shared with a callback and unqualified is reported, and
+ * reported as the weaker claim it is. The case is real — an interrupt-dispatched
+ * callback is exactly this shape — but the second thread was not established,
+ * so it is a warning and its text says which half is missing. */
+Test(concurrency, a_global_shared_with_a_callback_is_a_warning_not_a_critical)
+{
+	Scene       s;
+	FindingList f;
+	const char *detail = NULL;
+
+	qualifier_scene(&s, &f, false, false, true, false, true);
+	cr_assert_eq(findings_of(&f, MEASURE_SHARED_UNQUALIFIED), 1);
+
+	for (size_t i = 0; i < f.count; i++)
+		if (f.items[i].kind == MEASURE_SHARED_UNQUALIFIED) {
+			cr_assert_eq(f.items[i].severity, SEVERITY_WARNING,
+			             "elc has not established a second thread "
+			             "of control, so it must not claim one");
+			detail = f.items[i].detail;
+		}
+
+	cr_assert_not_null(detail);
+	cr_assert_not_null(strstr(detail, "cannot place"),
+	                   "the text names what is missing, so the reader can "
+	                   "settle what elc cannot");
+
+	findinglist_free(&f);
+	scene_free(&s);
+}
+
+/* Verifies LLR-VOL-01 and LLR-VOL-03: the *handler* tree still raises the
+ * critical finding, which is what keeps the stratification from being a way of
+ * reporting nothing. */
+Test(concurrency, a_global_shared_with_a_handler_is_still_critical)
+{
+	Scene       s;
+	FindingList f;
+
+	qualifier_scene(&s, &f, false, false, true, true, false);
+	for (size_t i = 0; i < f.count; i++)
+		if (f.items[i].kind == MEASURE_SHARED_UNQUALIFIED)
+			cr_assert_eq(f.items[i].severity, SEVERITY_CRITICAL);
+
+	findinglist_free(&f);
+	scene_free(&s);
+}
+
+/* Verifies LLR-RNT-04: the mark is attributed to the strongest root that
+ * reaches it, so a reader meets the claim they would act on rather than
+ * whichever root the traversal met first. */
+Test(concurrency, a_mark_reachable_from_both_kinds_is_attributed_to_the_handler)
+{
+	static const char *const names[] = { "main", "cb", "vect", "shared" };
+	static const size_t      from[]  = { 0, 1, 2 };
+	static const char *const to[]    = { "shared", "shared", "shared" };
+	Scene      s;
+	ElcOptions o = with_main();
+	RootSet    r;
+	uint32_t   entry;
+	bool      *marked;
+	uint32_t  *via;
+	size_t     shared;
+
+	scene(&s, names, 4, from, to, 3, "cb");
+	s.graph.nodes[node_of(&s.graph, "vect")].macro_defined = true;
+
+	cr_assert_eq(concurrency_roots(&s.graph, &o, NULL, &r), 0);
+	cr_assert_eq(r.count, 2, "one callback and one handler");
+
+	entry  = (uint32_t)node_of(&s.graph, "main");
+	marked = calloc(s.graph.node_count, sizeof *marked);
+	via    = calloc(s.graph.node_count, sizeof *via);
+	cr_assert_not_null(marked);
+	cr_assert_not_null(via);
+	cr_assert_eq(concurrency_reentrant(&s.graph, &entry, 1, &r, marked,
+	                                   via), 0);
+
+	shared = node_of(&s.graph, "shared");
+	cr_assert(marked[shared]);
+	cr_assert_eq(via[shared], node_of(&s.graph, "vect"),
+	             "attributed to the vector, not to the callback that also "
+	             "reaches it");
+
+	free(marked);
+	free(via);
+	rootset_free(&r);
 	scene_free(&s);
 }
 
@@ -483,14 +735,15 @@ Test(concurrency, a_global_edge_does_not_make_a_function_re_entrant)
 
 	/* main writes and isr reads, so a global edge joins them — and no call
 	 * edge does. */
-	qualifier_scene(&s, &f, true, false, true, true);
+	qualifier_scene(&s, &f, true, false, true, true, false);
 	s.graph.nodes[node_of(&s.graph, "isr")].address_taken = true;
 
 	cr_assert_eq(concurrency_roots(&s.graph, &o, NULL, &r), 0);
 	entry  = (uint32_t)node_of(&s.graph, "main");
 	marked = calloc(s.graph.node_count, sizeof *marked);
 	cr_assert_not_null(marked);
-	cr_assert_eq(concurrency_reentrant(&s.graph, &entry, 1, &r, marked), 0);
+	cr_assert_eq(concurrency_reentrant(&s.graph, &entry, 1, &r, marked,
+	                                   NULL), 0);
 
 	cr_assert_not(marked[node_of(&s.graph, "main")]);
 	cr_assert_not(marked[node_of(&s.graph, "isr")]);

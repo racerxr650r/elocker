@@ -73,29 +73,52 @@ static bool admits_root(const Sdg *g, const ElcOptions *opts,
                         const regex_t *pattern, uint32_t node,
                         RootOrigin *origin)
 {
+	const SdgNode *n = &g->nodes[node];
+
 	if (is_declared_entry(g, opts, node))
 		return false;
 	if (called[node])
 		return false;
 
 	/* The image says what survived the linker. A function it does not
-	 * define is entered by nothing, whatever its in-degree. */
-	if (image && !elfsyms_defines(image, g->nodes[node].name))
+	 * define is entered by nothing, whatever its in-degree.
+	 *
+	 * **Asked of the linkage name where there is one.** A macro that writes
+	 * a definition renames it, so the source spells `TCB0_INT_vect` where
+	 * the image spells `__vector_12`; comparing the source name alone would
+	 * reject every handler on this target as absent from its own image —
+	 * the single condition that most has to be right, because rejecting a
+	 * root silently empties HLR-228 through HLR-231 (HLR-233). */
+	if (image && !elfsyms_defines(image, n->linkage_name ? n->linkage_name
+	                                                     : n->name))
 		return false;
 
 	/* **The fourth condition, and the one that makes the set worth
 	 * reporting from.** The three above are equally true of an exported
 	 * function nothing in the library calls, of a function reached only
 	 * through a pointer, and of one whose caller was not among the files
-	 * analysed. Taking an address without calling is what installing a
-	 * handler in a vector table or registering a callback *is*. */
-	if (g->nodes[node].address_taken) {
-		*origin = ROOT_BY_ADDRESS;
+	 * analysed.
+	 *
+	 * Three shapes satisfy it, and they are tried strongest first because
+	 * the origin is reported and a reader acts on which one they have.
+	 *
+	 * A definition written through a function-shaped macro that nothing
+	 * calls is a handler: the macro exists to attach the body to a table
+	 * the source never names, and it is why the body has no caller to find.
+	 * Taking an address without calling is the weaker claim — it is equally
+	 * what registering an ordinary callback looks like, and a callback may
+	 * be dispatched from the application's own loop. */
+	if (n->macro_defined) {
+		*origin = ROOT_BY_WRAPPER;
 		return true;
 	}
 	if (pattern &&
-	    regexec(pattern, g->nodes[node].name, 0, NULL, 0) == 0) {
+	    regexec(pattern, n->name, 0, NULL, 0) == 0) {
 		*origin = ROOT_BY_PATTERN;
+		return true;
+	}
+	if (n->address_taken) {
+		*origin = ROOT_BY_ADDRESS;
 		return true;
 	}
 
@@ -178,38 +201,77 @@ void rootset_free(RootSet *r)
 
 /* ------------------------------------------------------------- re-entrancy */
 
-int concurrency_reentrant(const Sdg *g, const uint32_t *entries,
-                          size_t entry_count, const RootSet *async,
-                          bool *out)
+/* The root each marked function is reached from, strongest evidence first.
+ *
+ * One walk per root rather than one walk over all of them, because the question
+ * is *which* root — and a walk from the whole set answers only that some root
+ * reaches it. Handlers are walked first and a function keeps the first root that
+ * claims it, so a function a handler and a callback both reach is attributed to
+ * the handler: the mark rests on the stronger of the two, which is the one a
+ * reader would act on (HLR-233).
+ */
+static int attribute_roots(const Sdg *g, const RootSet *async,
+                           const bool *marked, uint32_t *via)
 {
-	bool     *from_main  = NULL;
-	bool     *from_async = NULL;
-	uint32_t *roots      = NULL;
-	size_t    n          = g->node_count ? g->node_count : 1;
-	int       status     = -1;
+	bool *seen = calloc(g->node_count ? g->node_count : 1, sizeof *seen);
 
-	memset(out, 0, g->node_count * sizeof *out);
-	if (!async->count || !entry_count)
-		return 0;
+	if (!seen)
+		return -1;
 
-	from_main  = calloc(n, sizeof *from_main);
-	from_async = calloc(n, sizeof *from_async);
-	roots      = calloc(async->count, sizeof *roots);
-	if (!from_main || !from_async || !roots)
+	for (size_t i = 0; i < g->node_count; i++)
+		via[i] = UINT32_MAX;
+
+	for (int pass = 0; pass < 2; pass++)
+		for (size_t r = 0; r < async->count; r++) {
+			uint32_t root = async->items[r].node;
+
+			if (root_is_handler(async->items[r].origin) !=
+			    (pass == 0))
+				continue;
+
+			memset(seen, 0, g->node_count * sizeof *seen);
+			if (state_reachable(g, &root, 1, seen) != 0) {
+				free(seen);
+				return -1;
+			}
+			for (size_t i = 0; i < g->node_count; i++)
+				if (marked[i] && seen[i] &&
+				    via[i] == UINT32_MAX)
+					via[i] = root;
+		}
+
+	free(seen);
+	return 0;
+}
+
+/* The functions both root sets reach, over call edges alone (LLR-RNT-01).
+ *
+ * One walk, twice. `state_reachable` is the traversal HLR-096 already uses; a
+ * second implementation here would be a second answer to "what does this
+ * reach", and the one that drifts is the one nothing else checks. Both follow
+ * call edges alone: a global-state edge joins a writer to a reader and is not
+ * an invocation, so sharing an object with a handler is not being entered by it
+ * (LLR-RNT-02).
+ *
+ * Split from its caller because the caller stood at sixteen against the
+ * threshold `elc` enforces on everyone else, which `elc` reported of its own
+ * source before this existed (LLR-BLD-23).
+ */
+static int intersect_trees(const Sdg *g, const uint32_t *entries,
+                           size_t entry_count, const uint32_t *roots,
+                           size_t root_count, bool *out)
+{
+	size_t n          = g->node_count ? g->node_count : 1;
+	bool  *from_main  = calloc(n, sizeof *from_main);
+	bool  *from_async = calloc(n, sizeof *from_async);
+	int    status     = -1;
+
+	if (!from_main || !from_async)
 		goto cleanup;
 
-	for (size_t i = 0; i < async->count; i++)
-		roots[i] = async->items[i].node;
-
-	/* One walk, twice. `state_reachable` is the traversal HLR-096 already
-	 * uses; a second implementation here would be a second answer to "what
-	 * does this reach", and the one that drifts is the one nothing else
-	 * checks (LLR-RNT-01). Both follow call edges alone: a global-state
-	 * edge joins a writer to a reader and is not an invocation, so sharing
-	 * an object with a handler is not being entered by it (LLR-RNT-02). */
 	if (state_reachable(g, entries, entry_count, from_main) != 0)
 		goto cleanup;
-	if (state_reachable(g, roots, async->count, from_async) != 0)
+	if (state_reachable(g, roots, root_count, from_async) != 0)
 		goto cleanup;
 
 	/* **The intersection, not the union.** A function only a handler
@@ -224,6 +286,38 @@ int concurrency_reentrant(const Sdg *g, const uint32_t *entries,
 cleanup:
 	free(from_main);
 	free(from_async);
+	return status;
+}
+
+int concurrency_reentrant(const Sdg *g, const uint32_t *entries,
+                          size_t entry_count, const RootSet *async,
+                          bool *out, uint32_t *via)
+{
+	uint32_t *roots  = NULL;
+	int       status = -1;
+
+	memset(out, 0, g->node_count * sizeof *out);
+	if (via)
+		for (size_t i = 0; i < g->node_count; i++)
+			via[i] = UINT32_MAX;
+	if (!async->count || !entry_count)
+		return 0;
+
+	roots = calloc(async->count, sizeof *roots);
+	if (!roots)
+		return -1;
+	for (size_t i = 0; i < async->count; i++)
+		roots[i] = async->items[i].node;
+
+	if (intersect_trees(g, entries, entry_count, roots, async->count,
+	                    out) != 0)
+		goto cleanup;
+	if (via && attribute_roots(g, async, out, via) != 0)
+		goto cleanup;
+
+	status = 0;
+
+cleanup:
 	free(roots);
 	return status;
 }
@@ -290,74 +384,141 @@ static int report_shared(const Sdg *g, size_t object, const bool *main_tree,
 	naming_pair(g, object, main_tree, async_tree, &a, &b);
 	snprintf(detail, sizeof detail,
 	         "reached from %s and from %s, and not declared volatile",
-	         a ? a : "the application", b ? b : "an asynchronous root");
+	         a ? a : "the application", b ? b : "an asynchronous handler");
 
 	return findings_add(out, MEASURE_SHARED_UNQUALIFIED, SEVERITY_CRITICAL,
 	                    g->global_names[object], "", 0, detail);
 }
 
-int concurrency_qualifiers(Sdg *g, const bool *main_tree,
-                           const bool *async_tree, FindingList *out)
+/* The qualifier is unnecessary only where the object is provably confined
+ * (HLR-231).
+ *
+ * **Which needs the callback tree to be empty of it, and that is the whole of
+ * this refinement.** A root admitted by an address alone may be a handler or may
+ * be a callback the application dispatches from its own loop, and `elc` cannot
+ * tell which from the source. An object such a function touches is therefore
+ * not shown to be confined to one thread of control *or* shared between two:
+ * warning that its qualifier is unnecessary would advise removing a `volatile`
+ * whose absence is a miscompile, on evidence that does not reach the claim.
+ *
+ * Measured on `avrOS`, this is not a corner: a tick counter written by the
+ * timer interrupt and drained by a state machine the scheduler resumes was
+ * reported as reachable from an asynchronous root alone, and its qualifier —
+ * the one thing keeping the drain loop correct — as unnecessary.
+ */
+static bool confined_to_one_tree(bool in_main, bool in_handler,
+                                 bool in_callback)
 {
-	for (size_t o = 0; o < g->global_name_count; o++) {
-		bool        in_main, in_async;
-		char        detail[256];
+	if (in_callback)
+		return false;
 
-		touched_by(g, o, main_tree, async_tree, &in_main, &in_async);
-		if (!in_main && !in_async)
-			continue;
+	return in_main != in_handler;
+}
 
-		/* **Sound whatever else is true of the object.** Two threads
-		 * of control sharing an unqualified object is a defect
-		 * independent of target, compiler and optimisation level: the
-		 * compiler may cache it in a register across the very sequence
-		 * the other thread modifies it in, and the failure is
-		 * intermittent and frequently absent under a debugger. */
-		g->global_shared[o] = in_main && in_async;
+static int report_confined(const Sdg *g, size_t object, bool in_main,
+                           FindingList *out)
+{
+	char detail[256];
 
-		if (in_main && in_async && !g->global_volatile[o]) {
-			g->global_status[o] =
-				GLOBAL_QUALIFIER_MISSING_CRITICAL;
-			if (report_shared(g, o, main_tree, async_tree,
-			                  out) != 0)
-				return -1;
-			continue;
-		}
+	snprintf(detail, sizeof detail,
+	         "declared volatile and reached only from %s; "
+	         "a cause outside elc's view may still require it",
+	         in_main ? "the application" : "an asynchronous handler");
 
-		if (g->global_volatile[o] && (in_main != in_async)) {
-			/* **Not sound in the way the case above is, which is
-			 * why the exemption is here and not a refinement for
-			 * later.** The qualifier is also how a memory-mapped
-			 * peripheral register is declared and how an object
-			 * surviving a non-local jump is declared, and neither
-			 * involves two threads of control. A register is
-			 * confined to one tree *by construction*, so without
-			 * the exemption this finding would fire on every one
-			 * of them and advise removing a qualifier whose
-			 * absence is a miscompile (HLR-231).
-			 *
-			 * The shape that says "this is an address, not a
-			 * variable" is recognised by the language's own query,
-			 * not here: it is a fact about how C spells a
-			 * register. */
-			if (g->global_mmio[o])
-				continue;
+	return findings_add(out, MEASURE_VOLATILE_CONFINED, SEVERITY_WARNING,
+	                    g->global_names[object], "", 0, detail);
+}
 
-			g->global_status[o] =
-				GLOBAL_QUALIFIER_UNNECESSARY_WARNING;
+/* Shared with a callback, unqualified: a defect if the callback runs on a
+ * second thread of control, and nothing at all if it does not (HLR-230).
+ *
+ * Reported, because the case it covers is real — an interrupt-dispatched
+ * callback is exactly this shape — and reported at warning rather than at
+ * critical, because `elc` has not established the second thread. The detail
+ * says which half is missing so the reader can settle it in a way `elc` cannot.
+ */
+static int report_maybe_shared(const Sdg *g, size_t object,
+                               const bool *main_tree, const bool *cb_tree,
+                               FindingList *out)
+{
+	char        detail[256];
+	const char *a, *b;
 
-			snprintf(detail, sizeof detail,
-			         "declared volatile and reached only from %s; "
-			         "a cause outside elc's view may still "
-			         "require it",
-			         in_main ? "the application"
-			                 : "an asynchronous root");
-			if (findings_add(out, MEASURE_VOLATILE_CONFINED,
-			                 SEVERITY_WARNING, g->global_names[o],
-			                 "", 0, detail) != 0)
-				return -1;
-		}
+	naming_pair(g, object, main_tree, cb_tree, &a, &b);
+	snprintf(detail, sizeof detail,
+	         "reached from %s and from %s, a registered callback whose "
+	         "thread of control elc cannot place, and not declared volatile",
+	         a ? a : "the application", b ? b : "a callback");
+
+	return findings_add(out, MEASURE_SHARED_UNQUALIFIED, SEVERITY_WARNING,
+	                    g->global_names[object], "", 0, detail);
+}
+
+/* One object against the three trees. Split out because the classification is
+ * four exclusive outcomes and the loop below is bookkeeping — and because
+ * together they stand at seventeen against the threshold `elc` enforces on
+ * everyone else (LLR-BLD-23). */
+static int classify_object(Sdg *g, size_t o, const bool *main_tree,
+                           const bool *handler_tree, const bool *cb_tree,
+                           FindingList *out)
+{
+	bool in_main, in_handler, in_cb, unused;
+
+	touched_by(g, o, main_tree, handler_tree, &in_main, &in_handler);
+	touched_by(g, o, main_tree, cb_tree, &unused, &in_cb);
+
+	if (!in_main && !in_handler && !in_cb)
+		return 0;
+
+	/* **Sound whatever else is true of the object.** Two threads of
+	 * control sharing an unqualified object is a defect independent of
+	 * target, compiler and optimisation level: the compiler may cache it in
+	 * a register across the very sequence the other thread modifies it in,
+	 * and the failure is intermittent and frequently absent under a
+	 * debugger. Only the *handler* tree carries that claim; the callback
+	 * tree may be the application's own thread under another name. */
+	g->global_shared[o] = in_main && in_handler;
+
+	if (g->global_volatile[o]) {
+		/* The exemption, and it is here rather than a refinement for
+		 * later. The qualifier is also how a memory-mapped peripheral
+		 * register is declared and how an object surviving a non-local
+		 * jump is declared, and neither involves two threads of
+		 * control. A register is confined to one tree *by
+		 * construction*, so without the exemption this finding would
+		 * fire on every one of them and advise removing a qualifier
+		 * whose absence is a miscompile.
+		 *
+		 * The shape that says "this is an address, not a variable" is
+		 * recognised by the language's own query, not here: it is a
+		 * fact about how C spells a register. */
+		if (g->global_mmio[o] ||
+		    !confined_to_one_tree(in_main, in_handler, in_cb))
+			return 0;
+
+		g->global_status[o] = GLOBAL_QUALIFIER_UNNECESSARY_WARNING;
+		return report_confined(g, o, in_main, out);
 	}
+
+	if (in_main && in_handler) {
+		g->global_status[o] = GLOBAL_QUALIFIER_MISSING_CRITICAL;
+		return report_shared(g, o, main_tree, handler_tree, out);
+	}
+
+	if (in_main && in_cb)
+		return report_maybe_shared(g, o, main_tree, cb_tree, out);
+
+	return 0;
+}
+
+int concurrency_qualifiers(Sdg *g, const bool *main_tree,
+                           const bool *handler_tree, const bool *callback_tree,
+                           FindingList *out)
+{
+	for (size_t o = 0; o < g->global_name_count; o++)
+		if (classify_object(g, o, main_tree, handler_tree,
+		                    callback_tree, out) != 0)
+			return -1;
 
 	return 0;
 }

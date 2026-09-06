@@ -283,13 +283,19 @@ Requirements governing how `elc` renders its computed results for human and mach
     *Trace:* [SDD Section 3](SDD.md), [SDD Section 4](SDD.md).
 
 *   <a id="HLR-150"></a>**HLR-150: Summary Report by Default.**
-    By default, a report `elc` renders in a human-readable format shall present the **summary** tiers alone: the project summary (HLR-024 through HLR-026), the discovery route of each directory target (HLR-127), the per-language breakdown (HLR-025), each file's totals (HLR-019), the threshold listing of HLR-021 and HLR-187, the findings ranked by severity (HLR-098, HLR-123) — which HLR-182 places directly after the project summary — the files skipped for want of a language module (HLR-012), any analysis omitted for want of a declaration (HLR-115), any partly unparsed files (HLR-035), and the provenance a run carries — the configuration in force (HLR-136) and the image filtered by (HLR-147).
+    By default, a report `elc` renders in a human-readable format shall present **four tiers and no others**: the project summary (HLR-024 through HLR-026), the findings ranked by severity (HLR-098, HLR-123) — which HLR-182 places directly after the project summary — each file's totals (HLR-019), and the per-function table (HLR-014, HLR-015, HLR-017, HLR-183). Every remaining tier shall be presented on the verbose request of HLR-151, which restores them in full.
 
-    It shall omit by default the **detail** tiers: every section presenting one row per function, per global object, per unreachable statement, per graph edge, or per custom-rule match. The partition rule is that a tier reporting a project-level or file-level aggregate, or a finding a reader is expected to act on, is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Which tier each section belongs to shall be stated in the delivered documentation (HLR-129), so that the partition is a published property of the report rather than an artefact of how a renderer was written.
+    Those four are the questions every reader of every report has: what was measured, what is wrong with it, what it is made of, and what its functions cost. Everything else is evidence for one of the four, and evidence is what `--verbose` is for.
+
+    **The composition is the same in every human-readable format** (HLR-218). A reader who has to know which format they asked for before knowing whether an answer is in front of them is being served by the partition rather than by it.
+
+    The **detail** tiers a default report omits are every section presenting one row per global object, per unreachable statement, per graph edge, or per custom-rule match, together with the aggregates that are evidence rather than answer — the callouts, the discovery routes, the per-language breakdown, the threshold listing, the conformance indices, and the provenance a run carries. The partition rule is that a tier answering one of the four questions above is a summary tier and every other tier is a detail tier. Which tier each section belongs to shall be stated in the delivered documentation (HLR-129), so that the partition is a published property of the report rather than an artefact of how a renderer was written.
+
+    **The per-function table is presented although it is one row per analysed entity**, which is the shape every other detail tier has. It is the table the tool exists to produce, and a default report that omitted it would answer every question a reader has except the one they ran the command for. The exception is stated here rather than obtained by calling the table something it is not.
+
+    **An analysis omitted for want of a declaration still says so** (HLR-115). The section carrying such a notice is a detail tier and produces no rows, so it is named in the closing statement of HLR-189 with the reason in its heading — at either verbosity, in every format.
 
     The default changed with this requirement, and that is deliberate: the full report grew past the length at which it can be read in a terminal, and a default nobody reads is a default that serves nobody. Nothing is lost, because HLR-151 restores it in full and HLR-152 exempts the formats whose whole purpose is completeness.
-
-    **This is the partition for a report that is saved and read as a document.** The aligned table, which is read once in a terminal, has its own and narrower one: HLR-218 states it, states why the same rule does not serve both readers, and states the boundary the two share — which tiers a format presents by default may differ, and what a tier says may not.
     *Trace:* [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
 
 *   <a id="HLR-151"></a>**HLR-151: Verbose Report on Request.**
@@ -298,18 +304,16 @@ Requirements governing how `elc` renders its computed results for human and mach
     The option shall govern presentation alone. It shall not change any measurement, any finding, any severity, or the process exit status, and a value absent from a summary report shall be absent because it was not printed rather than because it was not computed.
     *Trace:* [SDD Section 4](SDD.md), [SDD Section 13](SDD.md), [SDD Section 14](SDD.md).
 
-*   <a id="HLR-218"></a>**HLR-218: The Terminal Report's Own Composition.**
-    The aligned table (HLR-027) shall present, by default, the project summary (HLR-024 through HLR-026), the findings ranked by severity (HLR-098, HLR-123), and the per-function table (HLR-014, HLR-015, HLR-017, HLR-183) — and no other tier. Every remaining tier shall be presented on the verbose request of HLR-151, which restores them in full.
+*   <a id="HLR-218"></a>**HLR-218: One Composition for Every Human-Readable Format.**
+    The aligned table (HLR-027) and Markdown (HLR-028) shall present, at the default verbosity, **the same tiers** — the four of HLR-150 — and shall differ only in how those tiers are decorated.
 
-    **There are two summary partitions because there are two readers, and neither is a special case of the other.** HLR-150 fixes one partition for every human-readable format, and its rule is a document's rule: a saved report is read by *searching* it, so a long table costs its reader nothing and the tiers worth defaulting to are the aggregates. A report on a terminal is read once, by scrolling back through what a command left behind, and there the aggregate is the cheapest thing to recover — it is a dozen lines and it is at the top — while the per-function figures are the reason the command was run. A reader who types the command with no options wants to know which of their functions are heavy; sending them back with a second option to find out, after a dozen tables they did not ask for, is a default serving the format rather than the reader.
+    **This requirement previously stated the opposite, and the reversal is the point of it.** It gave the aligned table a narrower default of its own, on the reasoning that there are two readers and neither is a special case of the other: a saved report is read by *searching* it, so a long table costs its reader nothing and the tiers worth defaulting to are the aggregates; a terminal report is read once, by scrolling back, so the per-function figures are what a reader wants and the aggregates are the cheapest thing to recover.
 
-    **The per-function table therefore crosses the partition, and only in this format.** By HLR-150's rule it is a detail tier by construction, enumerating one row per analysed entity. That rule is right for the document and wrong for the terminal, and this requirement states the exception rather than weakening the rule that produces it.
+    That reasoning was sound about how the two are read and wrong about what follows from it. What it produced was two default reports to keep in agreement — a tier could be classified in one and left unclassified in the other, and the omission would be invisible until a reader noticed a missing table — and a reader who had to know which format they had asked for before knowing whether an answer was in front of them. The narrower default was the better one; the mistake was applying it to one format and not to both. HLR-150 now states it for every format, and this requirement states that there is nothing left for a format to decide.
 
-    **What is given up is stated rather than glossed.** The file totals, the languages, the discovery routes, the threshold listing, the conformance indices and the image provenance all leave this format's default. Every one remains a verbose request away, and every one remains in a report saved in any other format at any verbosity — nothing is removed from the tool, and this requirement removes nothing from any other format.
+    **The classification shall be a property of the one shared traversal**, and a single classification per section rather than one per format. A second classification that must always equal the first is a second place the composition is written down, and the one that drifts is the one nothing compiles.
 
-    **The difference shall be in which tiers a format presents and never in what a tier says.** A tier presented in two formats shall present the same rows carrying the same figures, taken from the same model. That is the boundary that keeps this from becoming two reports to be kept in agreement, which is the failure HLR-031 exists to prevent; a divergence in the content of a tier is a defect and not a format difference.
-
-    **The classification shall be a property of the one shared traversal**, as HLR-150's already is: a second list of sections beside the first would let a tier be classified in one format and left unclassified in the other, which is the construction HLR-031 and HLR-151 are made safe by.
+    **What a tier says shall not differ between formats.** A tier presented in two formats shall present the same rows carrying the same figures, taken from the same model — which is the guarantee HLR-031 exists for and which this requirement no longer has to defend against a second default. Decoration may differ: the aligned table states a table's size in its heading and Markdown states it in the disclosure summary, which is one fact in two idioms rather than two facts (HLR-235).
     *Trace:* [SDD Section 14](SDD.md).
 
 *   <a id="HLR-219"></a>**HLR-219: A Line the Terminal Can Hold.**
@@ -660,6 +664,18 @@ Requirements governing how `elc` evaluates its measurements against published in
 *   <a id="HLR-098"></a>**HLR-098: Evaluation Against Published Thresholds.**
     `elc` shall evaluate each architectural measurement it computes against the published academic and safety-critical industry thresholds recorded in PVD Appendix A, and shall report where the measurement falls relative to the accepted range, so that a value is presented with the context needed to act on it rather than as a bare figure.
     *Trace:* [SDD Section 12](SDD.md).
+
+*   <a id="HLR-237"></a>**HLR-237: The Findings Table Is the Whole List.**
+    Every defect `elc` reports shall appear in the findings table. A reader shall be able to learn everything the run found wrong by reading that one table, without assembling it from the sections beneath.
+
+    **A report that scatters its conclusions loses them.** A section states a measurement; a finding states that a measurement crossed a line somebody drew. Where a defect appears only in a section of its own, a reader working from the findings table is told the run is clean of it — and the more sections a report grows, the more certain it is that one of them will be missed. Recursion, dependency cycles and the global-state verdicts have always appeared both as a finding and in a section of their own; the layering violations of HLR-079 and HLR-118 and the cross-scope crossings of HLR-094 did not, and shall.
+
+    **The section is kept, and is not a duplication to be removed.** The two present different things: a finding is one line a reader acts on, ranked among every other line they must act on, and a section carries the columns the finding's detail cannot hold — the two strata and the ordinal distance for a layering violation, the two scopes and the edge kind for a crossing. The finding is how a defect is *found*; the section is where it is *read*.
+
+    **Both shall be attributed to the declaration they were judged against** (HLR-099). Neither is a published standard and neither is a judgement of `elc`'s own: the rule broken is the user's `--stratum` or `--scope`, and a reader deciding what to do about one needs to know that the line it crossed is a line they drew. A third kind of authority is stated as plainly as the second.
+
+    Both shall be reported at **warning** severity. `elc` establishes that a call crosses a boundary the declaration draws, not that this particular crossing is a defect — an architecture states an intent, and an intended exception to it is a thing `elc` cannot see (HLR-101).
+    *Trace:* [SDD Section 11](SDD.md), [SDD Section 12](SDD.md).
 
 *   <a id="HLR-099"></a>**HLR-099: Threshold Attribution.**
     Every threshold `elc` reports against shall be attributed to its external source — for example MISRA C and its rule number, Robert C. Martin's Instability metric, McCabe's complexity limits as NIST SP 500-235 records them, or the Henry-Kafura information-flow metrics — so that the reader can distinguish a published standard from a choice made by `elc`.
@@ -1593,3 +1609,85 @@ Every measurement in the sections above assumes one. On a bare-metal target ther
 
     An empty violation list shall be omitted rather than emitted empty, as the marks of LLR-CYT-05 are: the stylesheet tests for presence, and stating an absence on every node says the same thing in several times the bytes.
     *Trace:* [SDD Section 27](SDD.md).
+
+*   <a id="HLR-233"></a>**HLR-233: The Handler Written Through a Macro.**
+    `elc` shall recognise a function definition written through a function-shaped macro, shall admit such a definition as an asynchronous root under HLR-227 where nothing calls it, and shall join it to the linked image by the position of its definition rather than by its name.
+
+    **This is the condition on which the whole of HLR-227 through HLR-231 rests on a bare-metal target, and without it every one of them measured nothing.** `elc` expands no macros (HLR-135), and the idiom that declares an interrupt handler is a macro taking the vector's name — `ISR(TCB0_INT_vect) { ... }`. Unexpanded, that parses without error as a definition whose *type* is the macro's name and whose *declarator* is parenthesised, which no ordinary function-definition pattern matches. The consequences compound: the body's statements fall outside every function and inflate file-scope ELOC (HLR-145); the calls it makes have no caller and are unresolved (HLR-077); the functions it calls are reported as dead code (HLR-096); and the second thread of control does not exist in the graph at all, so the intersection of HLR-228 is empty and the sharing of HLR-230 cannot be seen. Measured on an AVR build of `avrOS`, eleven interrupt vectors and the entire event and queue subsystem beneath them were reported unreachable, while the same run reported the application's own main-loop callbacks as the asynchronous roots.
+
+    Three requirements follow, and each is separately necessary:
+
+    *   **The definition shall be reported as a function**, named as the source names it, with its statements, decision points, calls and global accesses attributed to it exactly as any other definition's are. The language's own query supplies the shape and marks the match as macro-written (HLR-009); no macro name is written into `elc`.
+
+    *   **The image filter shall join it by place.** A macro that writes a definition renames it — `ISR(TCB0_INT_vect)` defines `__vector_12` — so the source name and the linkage name have nothing in common, and the filter of HLR-140 discards a definition the linker plainly kept. Where the image's debug information places a kept symbol inside a parsed definition, and neither the symbol nor the definition is claimed by another, that symbol's name shall be recorded as the definition's linkage name and the definition treated as one the image defines (HLR-193, HLR-212). Ambiguity shall leave the function absent rather than resolve to a guess.
+
+    *   **It shall be admitted as an asynchronous root**, as a third origin beside the two of HLR-227 and reported as such. A macro that writes a definition nothing calls exists to attach that body to a table the source never names, which is what installing a handler *is* — the same argument HLR-227 makes for an address taken without a call, on a shape that carries it more strongly.
+
+    **The evidence classes are not equal and shall not be merged.** An address taken without a call is equally the shape of a callback the application dispatches from its own loop, on its own thread; a macro-written definition and a name matching a pattern the user supplied for interrupts are claims about a *handler*. `elc` shall record which class admitted each root, shall report the distinction, and shall carry it into every finding built on it (HLR-231).
+
+    Two presentations follow from the distinction. The per-function table shall mark a function `I` where `elc` identified it as a handler and `R` where it is re-entrant (HLR-228) — one column, since a root has an in-degree of zero and is therefore never in the re-entrant intersection, so the two answers cannot both be true. And the re-entrancy of HLR-228 shall be reported with the root it is attributed to, preferring a handler's over a callback's, since a function re-entered from an interrupt vector and one re-entered from an application callback are the same mark and not the same claim.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 18](SDD.md), [SDD Section 30](SDD.md).
+
+*   <a id="HLR-234"></a>**HLR-234: The Scoped Critical Section.**
+    `elc` shall recognise a critical section written as a scoped guard — one construct that acquires on entry to a region and releases on every exit from it — from the language's own synchronisation query, and shall treat it as balanced rather than as an acquisition.
+
+    **Treating it as an acquisition would report a leak on the one idiom that cannot leak.** The construct releases on every path out of the region, `return` included, which is the reason to use one; recorded as an acquire/release pair, the release would fall after the return on that path and HLR-229 would find a section held at an exit on every such function.
+
+    In C the idiom is a macro taking a block, and unexpanded it has a shape of its own — the same shape HLR-233 governs, distinguished from it by occurring inside a function body rather than at file scope. Recognising it is what makes HLR-229 answerable on a code base that uses one: `avrOS` guards every critical section with `ATOMIC_BLOCK`, and `elc` measured it as acquiring nothing anywhere while its own query file named that macro among the acquisitions — a name that, being matched as a call, could never match anything.
+
+    The function record shall carry whether any critical section was found in it at all, the scoped ones included, so that a section invisible to the acquire/release pair is not mistaken for the absence of one.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 30](SDD.md).
+
+*   <a id="HLR-238"></a>**HLR-238: Include Paths From the Image.**
+    Where a linked image is supplied (HLR-141) and carries debug information, `elc` shall read the compile-time include directories from its line-number programme and pass them to the preprocessor as search paths, so that naming an image improves the *expansion* of the source as well as narrowing the measurement.
+
+    **This is the product's first principle applied to the one thing an image can say about how the build was made.** `elc` is to extract everything the files it was given will yield, without asking the user to restate what those files already record. A cross-compiled target's headers are not beside its sources — they are in the toolchain's own tree — so before this, expanding such a project meant discovering every `-I` the build used and repeating it on the command line, and a user who did not was silently given a report measured from unexpanded source. The directory table is written by every build with `-g`, needs no extra compiler switch, and is already open in front of `elc`.
+
+    `DW_AT_producer` shall **not** be read for this purpose. It carries the build's command line only where the build was made with `-grecord-gcc-switches`, which no toolchain does by default — so a rule keyed on it would work on the builds that least need the help, and would require the user to change their build to benefit, which is the thing this requirement exists to avoid.
+
+    The paths shall be **absolute**, a relative entry being joined to its unit's compilation directory, so that they are usable from whatever directory `elc` was invoked in. They shall be **de-duplicated in the order first seen** rather than sorted: search order is significant to a preprocessor, and a sorted list is a different search path from the one the build used. Two runs over one image shall pass the same paths in the same order (HLR-032).
+
+    They shall be appended **after** the flags the user supplied, so that where the two disagree the user's declaration wins — the same order of authority a `-D` already has over a region the image would otherwise decide (HLR-208).
+
+    An image with no debug information yields no paths and is not a failure, exactly as it yields no line coverage: the absence costs the expansion and nothing else (HLR-141).
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-239"></a>**HLR-239: What the Image Was Built For, in the Project Summary.**
+    The project summary (HLR-024 – HLR-026) shall state three things about the linked image a run was given: the **image** by the path the user named, the **target** it was built for, and whether it carried **debug information**.
+
+    **Every figure in the report describes a different program when an image is in force**, and a reader who does not know which image — or whether it carried the debug information three of the analyses depend on — cannot tell an analysis that found nothing from one that could not look. The summary is where a reader is given what they need before the tables, and these belong there rather than in a section further down.
+
+    The target shall be the most specific description the image carries: the **device name** where a toolchain recorded one in a note section — `avr128da28`, which is the string a build needs as `-mmcu` — and the **architecture** from the ELF header otherwise, with both stated where both are known. A machine `elc` has no name for shall be reported by its ELF machine number rather than guessed at.
+
+    Where no image was supplied, each of the three shall read **`N/A`** rather than being omitted. A run with no image and a run whose image said nothing are different claims, and a row that appears only sometimes is a row a reader stops looking for (HLR-188 governs empty *tables*, not the summary's own rows).
+
+    A summary row's value may therefore be a word rather than a figure. A word shall be left-aligned, where a figure is right-aligned against the other figures: a path is sixty characters, and letting it set the value column's width would push every number across the page to line up with nothing.
+    *Trace:* [SDD Section 13](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-236"></a>**HLR-236: The Framed Terminal Report.**
+    Where `elc` renders the aligned table (HLR-027), the run shall be presented as two banner-headed blocks: the diagnostics it emitted while reading the source, and the report.
+
+    **The diagnostic block** shall be headed `Parsing Notifications` with a rule of 128 `-` beneath it, matching the width the aligned table is held to on a terminal (HLR-219), so the two blocks are ruled to one width and read as one page.
+
+    The banner shall be written **to standard error, with the diagnostics it heads**. It is a heading for that block, and HLR-038 forbids the block from moving to the results stream; written to standard output instead it would head nothing, since a redirected report would carry a title with no messages beneath it while the messages went elsewhere. In a terminal, where both streams land, the two arrive in the order a reader expects.
+
+    The banner shall be written **once, before the first diagnostic, and not at all where a run emits none** — a heading over nothing being the shape HLR-188 refuses everywhere else — and shall not head a usage error, which is diagnosed before a format is known and before any file is read.
+
+    **The report block** shall begin with a blank line, the title `Project Summary`, and a rule of the same width, so that the report is separated from the diagnostics above it by something a reader can see. The blank line and both rules belong to the format; a run whose report is Markdown, a record, a companion or a drawing has no terminal session to frame and shall be given neither banner.
+
+    **Every word of every section title shall begin with a capital letter** — `Project Summary`, `At Or Over A Threshold`, `Functions The Image Does Not Define`.
+
+    The rule is the title alone. A clause following it is prose — stating a threshold, a count, or the reason an analysis was omitted — and is left as written, whether it is parenthesised or set off by an em dash: `Architecture Recovery — the proposal as arguments (elc never applies it)` carries two such clauses and one title. Column headings and the labels of the project summary's own rows are not titles and are unaffected.
+
+    The rule is stated as *every* word rather than as conventional title case, which lowercases short function words, because a rule with exceptions is a rule two authors apply differently — and the titles are matched exactly by the closing statement of HLR-189, which names an empty section by its heading.
+    *Trace:* [SDD Section 14](SDD.md), [SDD Section 25](SDD.md).
+
+*   <a id="HLR-235"></a>**HLR-235: The Size of a Table in Its Heading.**
+    Each of the three tables of HLR-150's default composition — the **findings**, the **files**, and the **functions** — shall state its size in its heading where the aligned table renders it: the count of rows, in parentheses after the heading text, as `Findings (34)`.
+
+    The figure is the one thing a reader of a long table reaches for first and the one thing the table itself cannot tell them without being counted. The project summary, the fourth tier, needs none — it is a list of counts already.
+
+    Two constraints on that count, each of which the figure is wrong without. It shall be the number of rows *presented*, so that it and the table beneath it can never disagree. And a table with no rows shall be named without one: HLR-188 prints no such table and HLR-189 names it in the closing statement instead, where `Findings (0)` would state a size for something that was never rendered.
+
+    **This is a decoration and not a difference in what a tier says** (HLR-218). Markdown already states the same figure in its own idiom — the disclosure summary of a rendered table reads "N rows" — so the requirement is that both formats state the size, not that both spell it the same way.
+    *Trace:* [SDD Section 14](SDD.md).

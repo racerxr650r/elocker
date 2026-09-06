@@ -60,7 +60,7 @@ static char *render(Report *report)
  */
 static size_t line_length(const char *text, const char *needle)
 {
-	const char *section = strstr(text, "\nFiles\n");
+	const char *section = strstr(text, "\nFiles (");
 	const char *hit     = section ? strstr(section, needle) : NULL;
 
 	if (!hit)
@@ -125,7 +125,7 @@ Test(format_text, the_table_carries_the_summary_and_every_file)
 	Report       report  = report_of(files, 2);
 	char        *out     = render(&report);
 
-	cr_assert_not_null(strstr(out, "Project summary"));
+	cr_assert_not_null(strstr(out, "Project Summary"));
 	cr_assert_not_null(strstr(out, "Physical lines"));
 	cr_assert_not_null(strstr(out, "/tree/a.c"));
 	cr_assert_not_null(strstr(out, "/tree/bb.c"));
@@ -160,7 +160,7 @@ Test(format_text, an_empty_report_still_renders_a_table)
 	Report report = report_of(NULL, 0);
 	char  *out    = render(&report);
 
-	cr_assert_not_null(strstr(out, "Project summary"),
+	cr_assert_not_null(strstr(out, "Project Summary"),
 	                   "a run that analysed nothing still renders a "
 	                   "well-formed report (HLR-066)");
 	cr_assert_not_null(strstr(out, "Files"));
@@ -247,8 +247,8 @@ static bool reaches(const char *text, Style style, const char *name)
 {
 	char        needle[160];
 	const char *tail = strstr(text, style == STYLE_MARKDOWN
-	                                        ? "\n## Nothing to report\n"
-	                                        : "\nNothing to report\n");
+	                                        ? "\n## Nothing To Report\n"
+	                                        : "\nNothing To Report\n");
 
 	if (has_heading(text, style, name))
 		return true;
@@ -311,9 +311,16 @@ Test(format_text, the_project_summary_columns_are_sized_from_its_rows)
 	cr_assert_not_null(line);
 	line++;
 
-	/* Every row of the tier, to the blank line that ends it. */
-	for (; *line == ' '; ) {
+	/* Every row whose value is a *figure*, to the first whose value is a
+	 * word. The figures are right-aligned against each other and must
+	 * therefore share a width; a word is left-aligned and its row is as
+	 * long as the word (HLR-239). Stopping at "Linked image" is stopping
+	 * at the first of the three, which the traversal emits last. */
+	for (; *line == ' ' && !strncmp(line, "  ", 2); ) {
 		const char *end = strchr(line, '\n');
+
+		if (strncmp(line, "  Linked image", 14) == 0)
+			break;
 
 		cr_assert_not_null(end);
 		if (width == 0)
@@ -326,11 +333,24 @@ Test(format_text, the_project_summary_columns_are_sized_from_its_rows)
 	}
 	cr_assert_gt(width, 0);
 
+	/* And the words did not widen the column the figures line up in: a
+	 * value column sized from a sixty-character path would push every
+	 * figure across the page to line up with nothing. */
+	cr_assert_lt(width, 40);
+
 	free(text);
 	report_free(&report);
 }
 
-Test(format_text, the_markdown_summary_omits_the_per_function_tier)
+/* Verifies HLR-235 and LLR-SUM-19: the Markdown summary keeps the per-function
+ * tier, and still omits the tiers HLR-150's rule sends to the detail side.
+ *
+ * The Functions table is a detail tier under that rule — one row per analysed
+ * entity — and is presented anyway, which is the exception HLR-150 states. The
+ * global-state tier is checked absent beside it, so this cannot pass against a
+ * renderer that had lost the partition altogether.
+ */
+Test(format_text, the_markdown_summary_keeps_the_per_function_tier)
 {
 	FileMetrics *a       = metrics_for("/tree/a.c", 3);
 	FileMetrics *files[] = { a };
@@ -343,22 +363,24 @@ Test(format_text, the_markdown_summary_omits_the_per_function_tier)
 	summary = render_as(&report, STYLE_MARKDOWN, VERBOSITY_SUMMARY);
 	verbose = render_as(&report, STYLE_MARKDOWN, VERBOSITY_VERBOSE);
 
-	/* The Files tier is a file's own totals and stays; the Functions tier
-	 * is one row per analysed entity and goes (HLR-150). Asserted against
-	 * Markdown, which is the format HLR-150's partition is a document's
-	 * rule for; the aligned table answers differently and the test below
-	 * is where that is stated. */
 	cr_assert_not_null(strstr(summary, "\n## Files\n"));
-	cr_assert_null(strstr(summary, "\n## Functions\n"));
+	cr_assert_not_null(strstr(summary, "\n## Functions\n"));
 	cr_assert_not_null(strstr(verbose, "\n## Functions\n"));
+
+	/* Still a detail tier, and still absent: one row per global object is
+	 * what the rule sends away, and the exception is the function table
+	 * alone. */
+	cr_assert(!reaches(summary, STYLE_MARKDOWN, "Global State"));
+	cr_assert(reaches(verbose, STYLE_MARKDOWN, "Global State"));
 
 	free(summary);
 	free(verbose);
 	report_free(&report);
 }
 
-/* Verifies HLR-218 and LLR-SUM-19: the aligned table's default is the project
- * summary, the findings, and the function table, and nothing else.
+/* Verifies HLR-218, HLR-235 and LLR-SUM-19: the aligned table's default is the
+ * project summary, the findings, the file totals and the function table, and
+ * nothing else.
  *
  * The converse of the test above, against the same model, so the two together
  * say that the difference is the format's and not the fixture's. The tiers
@@ -366,11 +388,11 @@ Test(format_text, the_markdown_summary_omits_the_per_function_tier)
  * the absence of a tier that was never a summary tier anywhere would pass
  * against a renderer that had lost the second partition entirely.
  */
-Test(format_text, the_terminal_summary_is_the_summary_the_findings_and_the_functions)
+Test(format_text, the_terminal_summary_is_the_four_shared_tiers)
 {
 	static const char *const gone[] = {
-		"Callouts", "Discovery", "Languages", "Files",
-		"Architecture conformance"
+		"Callouts", "Discovery", "Languages",
+		"Architecture Conformance"
 	};
 	FileMetrics *a       = metrics_for("/tree/a.c", 3);
 	FileMetrics *files[] = { a };
@@ -383,9 +405,11 @@ Test(format_text, the_terminal_summary_is_the_summary_the_findings_and_the_funct
 	summary = render_as(&report, STYLE_TABLE, VERBOSITY_SUMMARY);
 	verbose = render_as(&report, STYLE_TABLE, VERBOSITY_VERBOSE);
 
-	cr_assert_not_null(strstr(summary, "Project summary"));
+	cr_assert_not_null(strstr(summary, "Project Summary"));
 	cr_assert(has_heading(summary, STYLE_TABLE, "Functions"),
 	          "the terminal default dropped the per-function table");
+	cr_assert(has_heading(summary, STYLE_TABLE, "Files"),
+	          "the terminal default dropped the file totals");
 
 	for (size_t i = 0; i < sizeof gone / sizeof *gone; i++) {
 		cr_assert(!reaches(summary, STYLE_TABLE, gone[i]),
@@ -410,7 +434,7 @@ Test(format_text, the_findings_follow_the_project_summary)
 	Report       report;
 	char        *summary;
 	const char  *findings;
-	const char  *callouts;
+	const char  *files_at;
 
 	add_function(a, "dispatch", 1, 2, 0, 16);
 	report = report_of(files, 1);
@@ -425,24 +449,38 @@ Test(format_text, the_findings_follow_the_project_summary)
 	report.findings[0].detail       = strdup("calls 16 distinct subroutines");
 	report.findings[0].source       = strdup("Henry-Kafura");
 
-	/* Rendered as Markdown, whose summary still carries the Callouts tier
-	 * the ordering is asserted against. The order under test is the one
-	 * traversal's and is the same in both styles; the aligned table's
-	 * summary no longer contains a second section to place the findings
-	 * ahead of, so asserting it there would be asserting nothing
+	/* Asserted against the Files tier, which the default composition
+	 * presents and which follows the findings in the one traversal. The
+	 * order under test is that traversal's and is the same in both styles
 	 * (HLR-182, HLR-218). */
 	summary  = render_as(&report, STYLE_MARKDOWN, VERBOSITY_SUMMARY);
 	findings = strstr(summary, "\n## Findings\n");
-	callouts = strstr(summary, "\n## Callouts\n");
+	files_at = strstr(summary, "\n## Files\n");
 
 	cr_assert_not_null(findings);
-	cr_assert_not_null(callouts);
-	cr_assert_lt(findings, callouts,
+	cr_assert_not_null(files_at);
+	cr_assert_lt(findings, files_at,
 	             "the findings precede every table beneath them");
-	cr_assert_lt(strstr(summary, "Project summary"), findings,
+	cr_assert_lt(strstr(summary, "Project Summary"), findings,
 	             "and follow the project summary, which heads the report");
 
 	free(summary);
+
+	/* And ahead of the evidence tiers a verbose run restores, which is the
+	 * broader claim: a finding is read without the tables and the tables
+	 * are found from it. */
+	{
+		char       *verbose  = render_as(&report, STYLE_MARKDOWN,
+		                                 VERBOSITY_VERBOSE);
+		const char *at       = strstr(verbose, "\n## Findings\n");
+		const char *callouts = strstr(verbose, "\n## Callouts\n");
+
+		cr_assert_not_null(at);
+		cr_assert_not_null(callouts);
+		cr_assert_lt(at, callouts);
+		free(verbose);
+	}
+
 	report_free(&report);
 }
 
@@ -463,7 +501,7 @@ Test(format_text, an_empty_table_is_omitted_and_named_at_the_end)
 
 	cr_assert_null(strstr(verbose, "\nRecursion\n"),
 	               "a run with no recursion prints no recursion table");
-	cr_assert_not_null(strstr(verbose, "\nNothing to report\n"));
+	cr_assert_not_null(strstr(verbose, "\nNothing To Report\n"));
 	cr_assert_not_null(strstr(verbose, "- Recursion\n"),
 	                   "and says so, by name, at the end");
 
@@ -486,7 +524,7 @@ Test(format_text, the_closing_statement_is_present_even_with_nothing_empty)
 	Report report = report_of(NULL, 0);
 	char  *out    = render_as(&report, STYLE_MARKDOWN, VERBOSITY_SUMMARY);
 
-	cr_assert_not_null(strstr(out, "## Nothing to report\n"));
+	cr_assert_not_null(strstr(out, "## Nothing To Report\n"));
 
 	free(out);
 	report_free(&report);
@@ -570,7 +608,7 @@ Test(format_text, the_function_table_carries_the_degrees_beside_the_metrics)
 	report = report_of(files, 1);
 	out    = render_as(&report, STYLE_TABLE, VERBOSITY_VERBOSE);
 
-	header = strstr(out, "\nFunctions\n");
+	header = strstr(out, "\nFunctions (");
 	cr_assert_not_null(header);
 	cr_assert_not_null(strstr(header, "In"));
 	cr_assert_not_null(strstr(header, "Out"));
@@ -620,11 +658,11 @@ Test(format_text, the_verbose_report_is_a_superset_of_the_summary)
 Test(format_text, every_tier_is_reached_at_the_verbose_verbosity_in_both_styles)
 {
 	static const char *const tiers[] = {
-		"Project summary", "Callouts", "Discovery", "Languages",
-		"Files", "Architecture conformance", "Findings",
-		"Skipped files", "Functions", "Recursion", "Global state",
-		"Dependency structure matrix",
-		"Dead code within functions", "Custom rule matches"
+		"Project Summary", "Callouts", "Discovery", "Languages",
+		"Files", "Architecture Conformance", "Findings",
+		"Skipped Files", "Functions", "Recursion", "Global State",
+		"Dependency Structure Matrix",
+		"Dead Code Within Functions", "Custom Rule Matches"
 	};
 	FileMetrics *a       = metrics_for("/tree/a.c", 3);
 	FileMetrics *files[] = { a };
@@ -648,33 +686,38 @@ Test(format_text, every_tier_is_reached_at_the_verbose_verbosity_in_both_styles)
 	report_free(&report);
 }
 
-/* Verifies HLR-218: the two summary partitions differ, and differ only in
- * *which* tiers are presented.
+/* Verifies HLR-218 and HLR-150: one composition, and it is the same one under
+ * either decoration.
  *
- * The pair of lists below is the partition itself, asserted as data. A tier
- * classified summary in one column and detail in the other must be present in
- * exactly one of the two summaries — which is a stronger claim than either
- * summary made on its own, and the one that fails if a future section is
- * given the same classification in both columns by copy-paste.
+ * The table below is the partition itself, asserted as data against both
+ * styles. Every row must answer identically in the two, which is the claim
+ * HLR-218 was rewritten to make — and it is a stronger claim than either
+ * summary makes on its own: a section classified for one format and not the
+ * other cannot exist, because there is only one classification, and this is
+ * what fails if a second is ever reintroduced.
  */
-Test(format_text, the_two_summary_partitions_differ_by_format)
+Test(format_text, one_summary_composition_serves_both_formats)
 {
 	static const struct {
 		const char *tier;
-		bool        in_markdown;
-		bool        in_table;
+		bool        in_summary;
 	} PARTITION[] = {
-		{ "Findings",                 true,  true  },
-		{ "Functions",                false, true  },
-		{ "Callouts",                 true,  false },
-		{ "Discovery",                true,  false },
-		{ "Languages",                true,  false },
-		{ "Files",                    true,  false },
-		{ "Architecture conformance", true,  false },
-		{ "Skipped files",            true,  false },
-		{ "Recursion",                false, false },
-		{ "Global state",             false, false },
-		{ "Custom rule matches",      false, false }
+		/* The four of HLR-150's composition. */
+		{ "Findings",                 true  },
+		{ "Files",                    true  },
+		{ "Functions",                true  },
+		/* Evidence for one of the four, and so detail: each of these
+		 * was a summary tier of a document while HLR-150 admitted
+		 * every project-level aggregate. */
+		{ "Callouts",                 false },
+		{ "Discovery",                false },
+		{ "Languages",                false },
+		{ "Architecture Conformance", false },
+		{ "Skipped Files",            false },
+		/* Detail by every reading of the rule, then and now. */
+		{ "Recursion",                false },
+		{ "Global State",             false },
+		{ "Custom Rule Matches",      false }
 	};
 	FileMetrics *a       = metrics_for("/tree/a.c", 3);
 	FileMetrics *files[] = { a };
@@ -690,11 +733,11 @@ Test(format_text, the_two_summary_partitions_differ_by_format)
 	for (size_t i = 0; i < sizeof PARTITION / sizeof *PARTITION; i++) {
 		cr_assert_eq(reaches(markdown, STYLE_MARKDOWN,
 		                     PARTITION[i].tier),
-		             PARTITION[i].in_markdown,
+		             PARTITION[i].in_summary,
 		             "the markdown summary disagrees about '%s'",
 		             PARTITION[i].tier);
 		cr_assert_eq(reaches(table, STYLE_TABLE, PARTITION[i].tier),
-		             PARTITION[i].in_table,
+		             PARTITION[i].in_summary,
 		             "the terminal summary disagrees about '%s'",
 		             PARTITION[i].tier);
 	}
@@ -742,10 +785,10 @@ Test(format_text, recovery_is_a_detail_tier_and_says_it_is_a_proposal)
 
 		/* One row per directory, so the partition rule of HLR-150 puts
 		 * it with the other per-entity tables. */
-		cr_assert_null(strstr(summary, "Architecture recovery"),
+		cr_assert_null(strstr(summary, "Architecture Recovery"),
 		               "style %d presented a detail tier in the "
 		               "summary", s);
-		cr_assert_not_null(strstr(verbose, "Architecture recovery"),
+		cr_assert_not_null(strstr(verbose, "Architecture Recovery"),
 		                   "style %d", s);
 		cr_assert_not_null(strstr(verbose, "never the baseline"),
 		                   "style %d dropped the boundary the section "
@@ -793,10 +836,10 @@ Test(format_text, purification_is_a_detail_tier_and_names_elcs_own_thresholds)
 
 		/* One row per classified function, so the partition rule of
 		 * HLR-150 puts it with the other per-entity tables. */
-		cr_assert_null(strstr(summary, "Graph purification"),
+		cr_assert_null(strstr(summary, "Graph Purification"),
 		               "style %d presented a detail tier in the "
 		               "summary", s);
-		cr_assert_not_null(strstr(verbose, "Graph purification"),
+		cr_assert_not_null(strstr(verbose, "Graph Purification"),
 		                   "style %d", s);
 
 		/* **The label is load-bearing** (HLR-171, HLR-099). None of the
@@ -822,31 +865,33 @@ Test(format_text, purification_is_a_detail_tier_and_names_elcs_own_thresholds)
 	report_free(&report);
 }
 
-Test(format_text, conformance_is_a_summary_tier_and_the_matrix_a_detail_tier)
+/* Verifies HLR-150 and HLR-218: conformance and the matrix are both detail
+ * tiers, in every format.
+ *
+ * Conformance was a summary tier while HLR-150's partition admitted every
+ * project-level aggregate. It is evidence for a finding rather than one of the
+ * four questions a default report answers, so it now waits for --verbose along
+ * with the matrix — and it does so in both styles, there being one composition.
+ */
+Test(format_text, conformance_and_the_matrix_are_both_detail_tiers)
 {
 	FileMetrics *files[] = { metrics_for("/tree/a.c", 3) };
 	Report       report  = report_of(files, 1);
 
-	/* Asserted against Markdown, whose partition is the one this claim is
-	 * about: conformance is a project-level aggregate and so a summary
-	 * tier of a document, and the matrix enumerates the graph and so is
-	 * not. The aligned table classifies both as detail, which HLR-218
-	 * decides and the partition test above states. */
 	{
 		char *summary = render_as(&report, STYLE_MARKDOWN,
 		                          VERBOSITY_SUMMARY);
 		char *verbose = render_as(&report, STYLE_MARKDOWN,
 		                          VERBOSITY_VERBOSE);
 
-		cr_assert_not_null(strstr(summary, "Architecture conformance"),
-		                   "dropped a project-level aggregate from "
-		                   "the summary");
-		cr_assert_null(strstr(summary, "Dependency structure matrix"),
+		cr_assert_null(strstr(summary, "Architecture Conformance"),
+		               "presented a detail tier in the summary");
+		cr_assert_null(strstr(summary, "Dependency Structure Matrix"),
 		               "presented a detail tier in the summary");
 		cr_assert_not_null(strstr(verbose,
-		                          "Architecture conformance"));
+		                          "Architecture Conformance"));
 		cr_assert_not_null(strstr(verbose,
-		                          "Dependency structure matrix"));
+		                          "Dependency Structure Matrix"));
 
 		free(summary);
 		free(verbose);

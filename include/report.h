@@ -160,8 +160,29 @@ typedef struct {
 typedef struct {
 	char *function;   /* owned                                        */
 	char *file;       /* owned                                        */
-	bool  by_address; /* false where a pattern admitted it            */
+	bool  by_address; /* false where a pattern or a macro admitted it */
+	/* Which of the other two admitted it, where `by_address` is false.
+	 * Three origins need two bits, and they are carried apart rather than
+	 * as an enum so that a record written by an older `elc` — which knew
+	 * two — still reads back as the two it meant (HLR-233). */
+	bool  by_wrapper;
 } AsyncRootRow;
+
+/* One function two threads of control can be inside, and the root that puts it
+ * there (HLR-228, HLR-233).
+ *
+ * **The attributing root is the row's whole value beyond the name.** A function
+ * re-entered from an interrupt vector and one re-entered from a callback the
+ * application itself dispatches are marked identically and are not the same
+ * claim, and a reader deciding whether to add a critical section needs to know
+ * which they have — the same reason HLR-227 reports how each root was admitted.
+ */
+typedef struct {
+	char *function;   /* owned                                        */
+	char *file;       /* owned; empty where the graph knew none       */
+	char *via;        /* owned; the attributing root, or empty        */
+	bool  via_handler; /* the root's evidence names it a handler      */
+} ReentrantRow;
 
 /* One component's coupling as the report presents it, by path rather than by
  * index (HLR-080 – HLR-082).
@@ -454,7 +475,7 @@ typedef struct {
 	ConcurrencyState concurrency_state;
 	AsyncRootRow   *async_roots;    /* sorted by name; owned            */
 	size_t          async_root_count;
-	char          **reentrant;      /* sorted; owned                    */
+	ReentrantRow   *reentrant;      /* sorted; owned                    */
 	size_t          reentrant_count;
 	CrossScopeRow  *cross_scope;    /* sorted; owned (HLR-094)          */
 	size_t          cross_scope_count;
@@ -566,6 +587,13 @@ typedef struct {
 	 * nothing (HLR-031, HLR-145).
 	 */
 	char          *image;            /* owned                            */
+	/* What the image says it was built for, and whether it carried debug
+	 * information — both read off the image and both stated in the project
+	 * summary, since every figure beneath them describes a different
+	 * program when an image is in force (HLR-239). NULL and false on a run
+	 * with no image, which the summary renders as "N/A". */
+	char          *image_target;     /* owned                            */
+	bool           image_debug_info;
 	/* Linkage names carrying a mangling this build does not decode. The
 	 * first direction of mismatch: it states the completeness of the
 	 * filter, as the unresolved-call count states the completeness of the
@@ -652,7 +680,7 @@ void report_set_unresolved(Report *report, size_t unresolved);
  */
 void report_set_concurrency(Report *report, ConcurrencyState state,
                             AsyncRootRow *roots, size_t root_count,
-                            char **reentrant, size_t reentrant_count);
+                            ReentrantRow *reentrant, size_t reentrant_count);
 
 /* Record the image the run was filtered by, and the count of linkage names it
  * could not resolve.

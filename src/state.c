@@ -96,9 +96,20 @@ int collect_roots(const Sdg *g, const ElcOptions *opts, uint32_t **out,
 	/* **The half that makes the claim sound.** Phase 8 resolved each
 	 * `@call.address_taken` capture against the whole-project symbol table
 	 * and marked the node; reading the field is all this needs, and
-	 * nothing new is asked of any query file (LLR-RTS-02). */
+	 * nothing new is asked of any query file (LLR-RTS-02).
+	 *
+	 * An asynchronous root joins them, and for the same reason. Nothing in
+	 * the analysed source calls an interrupt handler — that is half of what
+	 * makes it one — so the traversal cannot reach it, and without this
+	 * every handler and everything below it is reported dead code. `elc`
+	 * said so of its own accord on a bare-metal target: eleven vectors and
+	 * the entire queue and event subsystem beneath them, listed unreachable
+	 * on one page while listed as asynchronous roots on the next (HLR-233).
+	 *
+	 * The roots are identified before this runs, which is what lets the
+	 * field be read here rather than recomputed (LLR-STA-05). */
 	for (size_t n = 0; n < g->node_count; n++)
-		if (g->nodes[n].address_taken)
+		if (g->nodes[n].address_taken || g->nodes[n].is_async_root)
 			roots[count++] = (uint32_t)n;
 
 	if (count > 1) {

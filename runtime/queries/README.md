@@ -94,6 +94,7 @@ a language name, a file extension, or a grammar node type — if you are typing
 | ---- | ------- | ------- |
 | `functions.scm` | `@function.name` | The identifier reported as the function's name |
 | | `@function.body` | The function's body: the node against which `complexity.scm` is run, and whose last line ends the reported span |
+| | `@function.wrapper` | Optional. The name of the function-shaped **macro** that wrote this definition, where the language has that idiom. Its presence is what marks the definition macro-written, and `elc` admits such a definition — uncalled — as an interrupt handler (HLR-233). Anchor the pattern so it cannot match the same shape *inside* a body, which is a scoped guard rather than a definition |
 | `comments.scm` | `@comment` | One comment span. Spans may overlap and nest; `elc` coalesces them |
 | `eloc.scm` | `@eloc.statement` | One statement counting toward ELOC. Capture the statement node, not its lines — a multi-line statement counts once, at its start line (HLR-053) |
 | `complexity.scm` | `@complexity.decision` | One decision point. Do **not** capture the function: the `1 +` base is added by `elc`, and capturing it double-counts |
@@ -113,6 +114,9 @@ a language name, a file extension, or a grammar node type — if you are typing
 | | `@dead.branch` | A branch a literal condition excludes |
 | `visibility.scm` | `@function.public` | The language exposes this function outside its file or module |
 | | `@function.private` | It does not. Captured on the same node `functions.scm` captures as `@function.name` |
+| `sync.scm` | `@sync.acquire` | A construct that takes a critical section and does not give it back |
+| | `@sync.release` | One that gives it back. `elc` walks the control flow between the two and reports a path that leaves one held (HLR-229) |
+| | `@sync.scoped` | A **scoped guard**: one construct that acquires on entry to a region and releases on every exit from it. Held apart from the pair above and never recorded as an acquisition — it releases on `return` too, so a pair would report a leak on the one idiom that cannot leak (HLR-234) |
 
 ## Predicates
 

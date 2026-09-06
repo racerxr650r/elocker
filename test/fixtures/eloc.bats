@@ -13,7 +13,7 @@ setup() {
 # The file-level and function-level figures elc reports for one fixture.
 totals() {
 	elc "$1"
-	awk '/^Project summary/ { s = 1 } s && /^  ELOC/ { print $2; exit }' \
+	awk '/^Project Summary/ { s = 1 } s && /^  ELOC/ { print $2; exit }' \
 		<<<"$output"
 }
 
@@ -21,14 +21,14 @@ totals() {
 # the default composition omits.
 subject_row() {
 	elc --verbose "$1"
-	awk -v want="$2" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+	awk -v want="$2" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
 	                  f && $3 == want { print $6, $7 }' <<<"$output"
 }
 
 # The ELOC figure elc reports for a named function.
 function_eloc() {
 	elc --verbose "$SUBJECT"
-	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+	awk -v want="$1" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
 	                  f && $3 == want { print $6 }' <<<"$output"
 }
 

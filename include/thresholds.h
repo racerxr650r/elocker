@@ -47,6 +47,17 @@
  */
 #define ELC_OWN_HEURISTIC "elc heuristic — not a published standard"
 
+/* The attribution of a finding judged against something the *user* declared
+ * rather than against a published source or a judgement of `elc`'s own.
+ *
+ * A third kind of authority, and it needs saying as plainly as the second
+ * does. A layering violation is not `elc`'s opinion and is not Martin's — it
+ * is the run's own measurement compared against the architecture the user
+ * stated on the command line, and a reader deciding what to do about it needs
+ * to know that the rule it broke is theirs (HLR-099). */
+#define ELC_DECLARED_ARCHITECTURE "your --stratum declaration"
+#define ELC_DECLARED_SCOPES       "your --scope declaration"
+
 /* One row of the catalogue.
  *
  * `warning_bound` and `critical_bound` are exclusive bounds on a counted

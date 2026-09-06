@@ -134,7 +134,7 @@ finding_rows() {
 	# end is what is stable here.
 	local fanout
 	fanout="$(printf '%s\n' "$output" |
-		awk '/^Functions$/ { f = 1; next }
+		awk '/^Functions [(]/ { f = 1; next }
 		     f && /^$/    { f = 0 }
 		     f && $3 == "band_acceptable_high" { print $(NF-2) }')"
 	assert_equal "$fanout" "10"

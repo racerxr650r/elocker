@@ -43,7 +43,7 @@ setup() {
 @test "HLR-022: the threshold defaults to 15" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --partial "At or over a threshold (complexity listed at 15"
+	assert_output --partial "At Or Over A Threshold (complexity listed at 15"
 }
 
 @test "HLR-021: a function at or over the threshold is listed for its file" {
@@ -51,7 +51,7 @@ setup() {
 	assert_success
 
 	local listed
-	listed="$(awk '/^At or over/ { f = 1; next } f && /^$/ { f = 0 }
+	listed="$(awk '/^At Or Over/ { f = 1; next } f && /^$/ { f = 0 }
 	                f && /^  \// { print $2 }' <<<"$output")"
 	assert_equal "$listed" "branchy"
 }
@@ -66,7 +66,7 @@ setup() {
 	assert_success
 
 	local listed
-	listed="$(awk '/^At or over/ { f = 1; next } f && /^$/ { f = 0 }
+	listed="$(awk '/^At Or Over/ { f = 1; next } f && /^$/ { f = 0 }
 	                f && /^  \// { print $2 }' <<<"$output")"
 	assert_equal "$listed" ""
 }
@@ -76,7 +76,7 @@ setup() {
 	assert_success
 
 	local count
-	count="$(awk '/^At or over/ { f = 1; next } f && /^$/ { f = 0 }
+	count="$(awk '/^At Or Over/ { f = 1; next } f && /^$/ { f = 0 }
 	              f && /^  \// { n++ } END { print n + 0 }' <<<"$output")"
 	assert_equal "$count" "2"
 }
@@ -102,16 +102,20 @@ setup() {
 	# is named there, which is the listing changing and nothing else
 	# (HLR-189).
 	#
-	# Rendered as Markdown, where the listing is still a summary tier
-	# (HLR-150) and is therefore followed by nothing this fixture prints.
-	# The aligned table has no listing to compare at its default since
-	# HLR-218, and --verbose puts a dozen detail sections after it — which
-	# would make the two truncations cut at different depths and the
-	# comparison meaningless.
-	run bash -c '"$0" -f md -c 1 "$1" 2>/dev/null | sed "/^## At or over/,\$d"' \
+	# Run with --verbose, because the listing is a detail tier: it is
+	# evidence for a finding rather than one of the four questions a
+	# default report answers, so a default run has no listing to compare
+	# (HLR-150).
+	#
+	# Each run is cut at the first heading below the listing, which is the
+	# listing itself where it has rows and `## Functions` where it does not
+	# — the tier that follows it in the traversal. Cutting both at the same
+	# *place* is what makes this a comparison of everything above the
+	# listing rather than of two different depths.
+	run bash -c '"$0" --verbose -f md -c 1 "$1" 2>/dev/null | sed "/^## At Or Over/,\$d"' \
 		"$ELC" "$TREE/pair.c"
 	local low="$output"
-	run bash -c '"$0" -f md -c 100 "$1" 2>/dev/null | sed "/^## Nothing to report/,\$d"' \
+	run bash -c '"$0" --verbose -f md -c 100 "$1" 2>/dev/null | sed "/^## Functions/,\$d"' \
 		"$ELC" "$TREE/pair.c"
 
 	assert_equal "$output" "$low"
@@ -158,12 +162,12 @@ setup() {
 	mkdir -p "$BATS_TEST_TMPDIR/empty"
 	elc --verbose "$BATS_TEST_TMPDIR/empty"
 	assert_success
-	assert_output --partial "Project summary"
+	assert_output --partial "Project Summary"
 	# Every table is empty, so every table is named rather than printed —
 	# which is a report that still says what it looked for (HLR-188,
 	# HLR-189).
-	assert_output --partial "Nothing to report"
-	assert_output --partial "- At or over a threshold"
+	assert_output --partial "Nothing To Report"
+	assert_output --partial "- At Or Over A Threshold"
 }
 
 # --- the bands (HLR-185, HLR-186, HLR-187) ---------------------------------
@@ -196,7 +200,7 @@ setup() {
 	elc --verbose "$TREE/ten.c"
 	assert_success
 	refute_output --partial "cyclomatic complexity"
-	assert_output --partial "- At or over a threshold"
+	assert_output --partial "- At Or Over A Threshold"
 }
 
 @test "HLR-187: a banded function is listed whatever the listing threshold" {

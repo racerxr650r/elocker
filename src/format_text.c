@@ -123,6 +123,16 @@ typedef struct {
 	size_t      row_count;
 	size_t      capacity;                  /* in rows                   */
 	bool        failed;                    /* an allocation gave out    */
+	/* Whether the aligned table states this table's size in its heading
+	 * (HLR-235).
+	 *
+	 * A flag rather than a count built into the heading string, because the
+	 * count is not known when the heading is: rows are added after
+	 * `grid_begin`. It is also why the *empty* heading recorded for the
+	 * closing statement carries no count — a table with no rows is named
+	 * rather than printed, and "Findings (0)" would be a size for something
+	 * that was never a table. */
+	bool        show_size;
 } Grid;
 
 /* The headings of the tables a run had nothing to put in.
@@ -178,6 +188,22 @@ static void empty_tables_free(EmptyTables *empty)
 		free(empty->headings[i]);
 	free(empty->headings);
 	memset(empty, 0, sizeof *empty);
+}
+
+/* State this table's size in its heading when the aligned table renders it
+ * (HLR-235).
+ *
+ * Called by the tiers a default report presents, which are the ones read
+ * without a scrollback to count: how many findings there are, how many files
+ * were measured, and how many functions were reported are each a figure the
+ * reader would otherwise arrive at by counting rows. Markdown states the same
+ * figure in its own idiom — the disclosure summary already says "N rows" — so
+ * this is one fact in two decorations rather than a difference in what a tier
+ * says (HLR-218).
+ */
+static void grid_show_size(Grid *grid)
+{
+	grid->show_size = true;
 }
 
 static void grid_begin(Grid *grid, const char *heading, size_t columns,
@@ -277,6 +303,21 @@ static void grid_rule(FILE *out, int width, char fill)
 {
 	for (int i = 0; i < width; i++)
 		fputc(fill, out);
+}
+
+/* A titled banner: the title, and a rule the width of the terminal bound
+ * beneath it (HLR-236).
+ *
+ * Used for the two banners a run writes — the diagnostic block's and the
+ * report's — and used for those alone. A section heading is followed by its
+ * column rule, which is already the line beneath it; a second, wider one would
+ * be a second rule with nothing between them.
+ */
+static void title_banner(FILE *out, const char *title)
+{
+	fprintf(out, "%s\n", title);
+	grid_rule(out, TABLE_TERMINAL_WIDTH, '-');
+	fputc('\n', out);
 }
 
 /* One Markdown cell, right-aligned where the column holds numbers. */
@@ -684,7 +725,14 @@ static void grid_render_table(const Grid *grid, FILE *out)
 
 	table_fit(grid, width, table_limit(out));
 
-	fprintf(out, "\n%s\n", grid->heading);
+	/* The size in the heading, where the tier asked for one (HLR-235). A
+	 * heading that already carries a parenthesised clause — the thresholds
+	 * in force, the reason an analysis was omitted — does not ask, so the
+	 * two never appear together and no heading grows a second bracket. */
+	if (grid->show_size)
+		fprintf(out, "\n%s (%zu)\n", grid->heading, grid->row_count);
+	else
+		fprintf(out, "\n%s\n", grid->heading);
 
 	/* The header is not one of the alternating rows and is not coloured
 	 * with them: it is the legend for the block below it, and giving it a
@@ -754,8 +802,21 @@ static int width_of(uint64_t value)
 /* The project summary is a list of pairs rather than a table of rows, and
  * reads as one in both styles. */
 static void summary_pair(FILE *out, Style style, int label, int value,
-                         const char *name, uint64_t number)
+                         const char *name, uint64_t number, const char *text)
 {
+	/* A row's value is a figure or a word (HLR-239). A word is
+	 * *left*-aligned where a figure is right-aligned: a path and a "yes"
+	 * read from their first character, and right-aligning them would push
+	 * every short answer against a column that exists for digits. */
+	if (text) {
+		if (style == STYLE_MARKDOWN)
+			fprintf(out, "| %-*s | %-*s |\n", label, name, value,
+			        text);
+		else
+			fprintf(out, "  %-*s  %s\n", label, name, text);
+		return;
+	}
+
 	if (style == STYLE_MARKDOWN)
 		fprintf(out, "| %-*s | %*" PRIu64 " |\n", label, name, value,
 		        number);
@@ -808,48 +869,68 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	 * states a row count, and a count written down separately from the
 	 * rows it counts is a count that drifts (HLR-190).
 	 */
+	/* A row's value is a figure or a word, and never both. The image's
+	 * name and whether it carried debug information are the two things a
+	 * reader most needs before the figures beneath them mean anything —
+	 * every one of those figures describes a different program when an
+	 * image is in force — and neither is a number (HLR-239). `text` wins
+	 * where it is set, which keeps the common row a plain figure. */
 	const struct {
 		const char *name;
 		uint64_t    value;
+		const char *text;
 	} rows[] = {
-		{ "Files",          (uint64_t)sum->file_count },
-		{ "Physical lines", sum->physical_lines },
-		{ "ELOC",           sum->eloc },
-		{ "Functions",      sum->function_count },
-		{ "Skipped",        (uint64_t)report->skipped_files.count },
+		{ "Files",          (uint64_t)sum->file_count, NULL },
+		{ "Physical lines", sum->physical_lines, NULL },
+		{ "ELOC",           sum->eloc, NULL },
+		{ "Functions",      sum->function_count, NULL },
+		{ "Skipped",        (uint64_t)report->skipped_files.count, NULL },
 		/* Beside the totals it qualifies, not buried below them. Every
 		 * figure above covers the file *minus* these lines, and a
 		 * reader comparing ELOC against a line count of their own needs
 		 * to know that before they start looking for the discrepancy
 		 * (HLR-035). */
-		{ "Unparsed lines", unparsed_total(report) },
+		{ "Unparsed lines", unparsed_total(report), NULL },
 		/* Counted in the summary so the shape of the run is visible
 		 * before the tables. A severity is a label and moves no exit
 		 * status, so these are figures to read rather than gates to
 		 * pass (HLR-100). */
-		{ "Critical findings", severity_total(report, "critical") },
-		{ "Warnings",          severity_total(report, "warning") },
+		{ "Critical findings", severity_total(report, "critical"), NULL },
+		{ "Warnings",          severity_total(report, "warning"), NULL },
 		/* Not a failure and not a defect — a measure of how complete
 		 * the graph is. A project calling into libc has unresolved
 		 * calls by definition, and a reader comparing fan-out against
 		 * the source needs to know how many calls the graph could not
 		 * represent (HLR-077). */
-		{ "Unresolved calls", (uint64_t)report->unresolved_calls },
+		{ "Unresolved calls", (uint64_t)report->unresolved_calls, NULL },
 		/* The completeness of the pruning, stated for the reason the
 		 * unresolved-call count is: a region elc could not decide is
 		 * left whole and counted here, so a reader can tell a
 		 * configuration that was cut cleanly from one that mostly was
 		 * not (HLR-133). */
-		{ "Undecided regions", report->undecided_regions },
+		{ "Undecided regions", report->undecided_regions, NULL },
 		/* How this run's files reached the parser. Two files in one
 		 * report may have been measured two different ways and nothing
 		 * in the figures above says which: an expanded file's macros
 		 * are resolved, a fallen-back file's are not, and its unparsed
 		 * count may be non-zero for a reason that has nothing to do
 		 * with the code (HLR-206). */
-		{ "Files expanded",    expanded_total(report) },
+		{ "Files expanded",    expanded_total(report), NULL },
 		{ "Measured as written", (uint64_t)report->file_count -
-		                         expanded_total(report) },
+		                         expanded_total(report), NULL },
+		/* The three that describe the *program* rather than the run,
+		 * and they come last because a reader meets them after the
+		 * figures they qualify rather than before (HLR-239).
+		 *
+		 * "N/A" rather than an omitted row: a run with no image is a
+		 * different claim from one whose image said nothing, and a row
+		 * that appears only sometimes is a row a reader stops looking
+		 * for. */
+		{ "Linked image",  0, report->image ? report->image : "N/A" },
+		{ "Target CPU",    0, report->image_target
+		                              ? report->image_target : "N/A" },
+		{ "Debug info",    0, !report->image ? "N/A"
+		                      : report->image_debug_info ? "yes" : "no" },
 	};
 	const size_t row_count = sizeof rows / sizeof *rows;
 
@@ -866,7 +947,13 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	 */
 	for (size_t i = 0; i < row_count; i++) {
 		int name  = (int)strlen(rows[i].name);
-		int digits = width_of(rows[i].value);
+		/* **A text row does not widen the value column.** The figures
+		 * are right-aligned against each other, and a linked image's
+		 * path is sixty characters: letting it set the width would
+		 * push every number sixty columns from its label to line up
+		 * with nothing (HLR-239). A word is left-aligned and needs no
+		 * width at all. */
+		int digits = rows[i].text ? 0 : width_of(rows[i].value);
 
 		if (name > label)
 			label = name;
@@ -875,7 +962,7 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	}
 
 	if (style == STYLE_MARKDOWN) {
-		fputs("\n## Project summary\n\n", out);
+		fputs("\n## Project Summary\n\n", out);
 		fprintf(out, "<details>\n<summary>%zu rows (click to expand)"
 		             "</summary>\n\n", row_count);
 		fprintf(out, "| %-*s | %*s |\n", label, "Metric", value, "Value");
@@ -885,12 +972,21 @@ static void summary_section(const Report *report, Style style, FILE *out)
 		grid_rule(out, value + 1, '-');
 		fputs(": |\n", out);
 	} else {
-		fputs("Project summary\n", out);
+		/* The report's own title, ruled the full width of the terminal
+		 * bound (HLR-236), so the two banners of a run are the same
+		 * rule and read as a pair.
+		 *
+		 * **The blank line above it belongs to the diagnostic block and
+		 * is written there.** A report that opened with one would open
+		 * with one wherever it was written, and a `-o report.txt` whose
+		 * diagnostics went to the terminal would begin with a blank
+		 * line separating it from nothing. */
+		title_banner(out, "Project Summary");
 	}
 
 	for (size_t i = 0; i < row_count; i++)
 		summary_pair(out, style, label, value, rows[i].name,
-		             rows[i].value);
+		             rows[i].value, rows[i].text);
 
 	if (style == STYLE_MARKDOWN)
 		fputs("\n</details>\n", out);
@@ -1004,6 +1100,7 @@ static int files_section(const Report *report, Style style,
 	                                       true, true };
 
 	grid_begin(&grid, "Files", 5, names, numeric);
+	grid_show_size(&grid);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -1109,6 +1206,7 @@ static int functions_section(const Report *report, Style style,
 	                                       true, true, false };
 
 	grid_begin(&grid, "Functions", 12, names, numeric);
+	grid_show_size(&grid);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -1131,13 +1229,14 @@ static int functions_section(const Report *report, Style style,
 			 * it, because the two say the same thing about the
 			 * same file and a reader comparing them should not
 			 * meet two spellings of one blank. */
-			/* **Present or blank, not "R" or "-".** The column is
-			 * scanned down for the few functions two threads can
-			 * be inside; a mark on every other row would be a
-			 * column of noise with the signal hidden in it. */
+			/* **Marked or blank, never a mark on every row.** The
+			 * column is scanned down for the few functions the
+			 * second thread of control touches; an answer on every
+			 * other row would be a column of noise with the signal
+			 * hidden in it. */
 			grid_row(&grid, where, f->language ? f->language : "",
 			         fn->name, visibility_name(fn->visibility),
-			         fn->is_reentrant ? "R" : "",
+			         concurrency_mark(fn),
 			         a, b, c, d, e, i2,
 			         elc_wtbi_status(fn->wtbi));
 		}
@@ -1179,7 +1278,7 @@ static int threshold_listing_section(const Report *report, Style style,
 	char                     heading[160];
 
 	snprintf(heading, sizeof heading,
-	         "At or over a threshold (complexity listed at %" PRIu32
+	         "At Or Over A Threshold (complexity listed at %" PRIu32
 	         "; complexity, fan-in, fan-out and weighted test burden banded)",
 	         report->complexity_threshold);
 
@@ -1267,24 +1366,24 @@ static int deepest_chain_section(const Report *report, Style style,
 	switch (report->depth_state) {
 	case DEPTH_MEASURED:
 		snprintf(heading, sizeof heading,
-		         "Deepest call chain (%" PRIu32 " layers; a lower "
+		         "Deepest Call Chain (%" PRIu32 " layers; a lower "
 		         "bound, %zu calls unresolved)",
 		         report->depth, report->unresolved_calls);
 		break;
 	case DEPTH_UNBOUNDED_RECURSION:
 		snprintf(heading, sizeof heading,
-		         "Deepest call chain (unbounded: the call graph "
+		         "Deepest Call Chain (unbounded: the call graph "
 		         "is recursive)");
 		break;
 	case DEPTH_OMITTED_ENTRY_UNRESOLVED:
 		snprintf(heading, sizeof heading,
-		         "Deepest call chain (omitted: no declared entry "
+		         "Deepest Call Chain (omitted: no declared entry "
 		         "point matches an analysed function)");
 		break;
 	case DEPTH_OMITTED_NO_ENTRY_POINTS:
 	default:
 		snprintf(heading, sizeof heading,
-		         "Deepest call chain (omitted: no entry points "
+		         "Deepest Call Chain (omitted: no entry points "
 		         "declared, see --entry)");
 		break;
 	}
@@ -1324,7 +1423,7 @@ static int coupling_section(const Report *report, Style style,
 	char                     heading[192];
 
 	snprintf(heading, sizeof heading,
-	         "Component coupling (I = Ce/(Ce+Ca), %s; bottleneck "
+	         "Component Coupling (I = Ce/(Ce+Ca), %s; bottleneck "
 	         "at Ca and Ce >= %" PRIu32 ")",
 	         threshold_attribution(MEASURE_INSTABILITY),
 	         report->bottleneck_threshold);
@@ -1362,7 +1461,7 @@ static int dependency_cycles_section(const Report *report, Style style,
 	static const char *const names[] = { "Components",
 	                                     "Example loop" };
 
-	grid_begin(&grid, "Component dependency cycles", 2, names, NULL);
+	grid_begin(&grid, "Component Dependency Cycles", 2, names, NULL);
 	for (size_t i = 0; i < report->dep_cycle_count; i++)
 		grid_row(&grid, report->dep_cycles[i].components,
 		         report->dep_cycles[i].path);
@@ -1451,12 +1550,12 @@ static int conformance_section(const Report *report, Style style,
 
 	if (measured)
 		snprintf(heading, sizeof heading,
-		         "Architecture conformance (over %" PRIu64
+		         "Architecture Conformance (over %" PRIu64
 		         " inter-layer call edges; undefined where there "
 		         "are none)", report->back_call.edges);
 	else
 		snprintf(heading, sizeof heading,
-		         "Architecture conformance (omitted: no "
+		         "Architecture Conformance (omitted: no "
 		         "architectural strata declared, see --stratum)");
 
 	grid_begin(&grid, heading, 4, names, numeric);
@@ -1528,7 +1627,7 @@ static int purification_section(const Report *report, Style style,
 	char                     heading[512];
 
 	snprintf(heading, sizeof heading,
-	         "Graph purification (recovery view only, no measurement above "
+	         "Graph Purification (recovery view only, no measurement above "
 	         "is taken over it; %s: sink at authority >= %" PRIu32
 	         "%% and hub <= %" PRIu32 "%%, god object at betweenness >= %"
 	         PRIu32 "%% and hub >= %" PRIu32 "%%, peripheral below core "
@@ -1590,7 +1689,7 @@ static int recovery_section(const Report *report, Style style,
 	switch (report->recovery_state) {
 	case RECOVERY_PROPOSED:
 		snprintf(heading, sizeof heading,
-		         "Architecture recovery (a proposal, never the baseline "
+		         "Architecture Recovery (a proposal, never the baseline "
 		         "conformance is measured against; %zu layers over %zu "
 		         "directories, %zu functions masked and %zu excluded)",
 		         report->recovery_strata, report->recovery_count,
@@ -1598,14 +1697,14 @@ static int recovery_section(const Report *report, Style style,
 		break;
 	case RECOVERY_CYCLIC:
 		snprintf(heading, sizeof heading,
-		         "Architecture recovery (omitted: the recovery view is "
+		         "Architecture Recovery (omitted: the recovery view is "
 		         "cyclic, so no ordering exists; the mutually reachable "
 		         "groups below are reported in its place)");
 		break;
 	case RECOVERY_OMITTED_EMPTY:
 	default:
 		snprintf(heading, sizeof heading,
-		         "Architecture recovery (omitted: no function survived "
+		         "Architecture Recovery (omitted: no function survived "
 		         "purification, so there is nothing to order)");
 		break;
 	}
@@ -1631,7 +1730,7 @@ static int recovery_section(const Report *report, Style style,
 	 * the requirement draws made visible: `elc` produces an argument list,
 	 * and it takes effect only when the user passes it back. */
 	grid_begin(&adopt,
-	           "Architecture recovery — the proposal as arguments (elc "
+	           "Architecture Recovery — the proposal as arguments (elc "
 	           "never applies it; passing it back is what declares it)",
 	           1, adopt_names, NULL);
 	if (report->recovery_proposal)
@@ -1659,7 +1758,7 @@ static int global_state_section(const Report *report, Style style,
 	static const char *const names[] = { "Object", "Writers",
 	                                     "Readers", "Finding" };
 
-	grid_begin(&grid, "Global state", 4, names, NULL);
+	grid_begin(&grid, "Global State", 4, names, NULL);
 	for (size_t i = 0; i < report->global_state_count; i++) {
 		const GlobalStateRow *r     = &report->global_state[i];
 		const char           *where =
@@ -1710,19 +1809,20 @@ static int unreachable_functions_section(const Report *report, Style style,
 	switch (report->reach_state) {
 	case REACH_MEASURED:
 		snprintf(heading, sizeof heading,
-		         "Unreachable functions (%zu; from the declared "
-		         "entry points and every address-taken "
-		         "function)", report->unreachable_count);
+		         "Unreachable Functions (%zu; from the declared "
+		         "entry points, every address-taken function, and "
+		         "every asynchronous root)",
+		         report->unreachable_count);
 		break;
 	case REACH_OMITTED_ENTRY_UNRESOLVED:
 		snprintf(heading, sizeof heading,
-		         "Unreachable functions (omitted: no declared "
+		         "Unreachable Functions (omitted: no declared "
 		         "entry point matches an analysed function)");
 		break;
 	case REACH_OMITTED_NO_ENTRY_POINTS:
 	default:
 		snprintf(heading, sizeof heading,
-		         "Unreachable functions (omitted: no entry "
+		         "Unreachable Functions (omitted: no entry "
 		         "points declared, see --entry)");
 		break;
 	}
@@ -1750,7 +1850,7 @@ static int unreachable_globals_section(const Report *report, Style style,
 	static const char *const names[] = { "Object" };
 
 	grid_begin(&grid,
-	           "Unreachable globals (touched only by unreachable "
+	           "Unreachable Globals (touched only by unreachable "
 	           "functions)", 1, names, NULL);
 	for (size_t i = 0; i < report->unreachable_global_count; i++)
 		grid_row(&grid, report->unreachable_globals[i]);
@@ -1795,11 +1895,11 @@ static int dead_code_section(const Report *report, Style style,
 
 	if (report->dead_unanalysed.count == 0)
 		snprintf(heading, sizeof heading,
-		         "Dead code within functions (every language "
+		         "Dead Code Within Functions (every language "
 		         "analysed)");
 	else
 		snprintf(heading, sizeof heading,
-		         "Dead code within functions (not analysed "
+		         "Dead Code Within Functions (not analysed "
 		         "for: %s)", langs);
 
 	grid_begin(&grid, heading, 4, names, NULL);
@@ -1834,11 +1934,11 @@ static int cross_scope_section(const Report *report, Style style,
 
 	if (report->scope_state == SCOPES_MEASURED)
 		snprintf(heading, sizeof heading,
-		         "Cross-scope access (%zu)",
+		         "Cross-Scope Access (%zu)",
 		         report->cross_scope_count);
 	else
 		snprintf(heading, sizeof heading,
-		         "Cross-scope access (omitted: no execution "
+		         "Cross-Scope Access (omitted: no execution "
 		         "scopes declared, see --scope)");
 
 	grid_begin(&grid, heading, 5, names, NULL);
@@ -1877,6 +1977,7 @@ static int findings_section(const Report *report, Style style,
 	                                       "Source" };
 
 	grid_begin(&grid, "Findings", 5, names, NULL);
+	grid_show_size(&grid);
 	for (size_t i = 0; i < report->finding_count; i++) {
 		const FindingRow *r = &report->findings[i];
 
@@ -1906,7 +2007,7 @@ static int definitions_section(const Report *report, Style style,
 	char                     heading[96];
 
 	snprintf(heading, sizeof heading,
-	         "Conditional-compilation definitions (%zu)",
+	         "Conditional-Compilation Definitions (%zu)",
 	         report->definition_count);
 	grid_begin(&grid, heading, 1, names, NULL);
 	for (size_t i = 0; i < report->definition_count; i++)
@@ -1938,7 +2039,7 @@ static int rule_matches_section(const Report *report, Style style,
 	 * different claims (HLR-031). */
 	static const char *const names[] = { "Rule", "File", "Lines" };
 
-	snprintf(a, sizeof a, "Custom rule matches (%zu)",
+	snprintf(a, sizeof a, "Custom Rule Matches (%zu)",
 	         report->rule_match_count);
 	grid_begin(&grid, a, 3, names, NULL);
 	for (size_t i = 0; i < report->rule_match_count; i++) {
@@ -1974,7 +2075,7 @@ static int partially_parsed_section(const Report *report, Style style,
 	static const bool        numeric[] = { false, true };
 
 	grid_begin(&grid,
-	           "Partially parsed files (measured except for these "
+	           "Partially Parsed Files (measured except for these "
 	           "lines)", 2, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
@@ -2011,7 +2112,7 @@ static int repaired_files_section(const Report *report, Style style,
 	static const bool        numeric[] = { false, false, true };
 
 	grid_begin(&grid,
-	           "Repaired regions (rewritten in elc's buffer to be "
+	           "Repaired Regions (rewritten in elc's buffer to be "
 	           "measured; the files are untouched)", 3, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
@@ -2047,7 +2148,7 @@ static int expansion_section(const Report *report, Style style,
 	 * exit status (HLR-100). */
 	static const char *const names[] = { "File", "Why" };
 
-	grid_begin(&grid, "Measured as written (macros not expanded)", 2,
+	grid_begin(&grid, "Measured As Written (macros not expanded)", 2,
 	           names, NULL);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
@@ -2087,7 +2188,7 @@ static int stdlib_section(const Report *report, Style style,
 	static const bool        numeric[] = { false, false, true, false };
 	char                     list[512];
 
-	grid_begin(&grid, "Standard-library dependence", 4, names, numeric);
+	grid_begin(&grid, "Standard-Library Dependence", 4, names, numeric);
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -2126,7 +2227,7 @@ static int skipped_files_section(const Report *report, Style style,
 
 	static const char *const names[] = { "File" };
 
-	grid_begin(&grid, "Skipped files (no language module)", 1,
+	grid_begin(&grid, "Skipped Files (no language module)", 1,
 	           names, NULL);
 	for (size_t i = 0; i < report->skipped_files.count; i++)
 		grid_row(&grid, report->skipped_files.paths[i]);
@@ -2165,7 +2266,7 @@ static int image_filter_section(const Report *report, Style style,
 	if (!report->image)
 		return 0;
 
-	grid_begin(&grid, "Linked-image filter", 2, names, numeric);
+	grid_begin(&grid, "Linked-Image Filter", 2, names, numeric);
 	grid_row(&grid, "Image", report->image);
 	snprintf(a, sizeof a, "%" PRIu64, report->image_unresolved);
 	grid_row(&grid, "Unresolved linkage names", a);
@@ -2238,7 +2339,7 @@ static int placed_functions_section(const Report *report, Style style,
 	 * together, and a reader comparing them should not have to reconcile
 	 * two column orders to do it. */
 	snprintf(heading, sizeof heading,
-	         "Functions the image places that the parse did not reach "
+	         "Functions The Image Places That The Parse Did Not Reach "
 	         "(%zu; no figures are measured for them)",
 	         report->placed_count);
 	grid_begin(&grid, heading, 3, names, NULL);
@@ -2278,7 +2379,7 @@ static int absent_functions_section(const Report *report, Style style,
 	char                     heading[96];
 
 	snprintf(heading, sizeof heading,
-	         "Functions the image does not define (%zu)",
+	         "Functions The Image Does Not Define (%zu)",
 	         report->absent_count);
 	grid_begin(&grid, heading, 3, names, NULL);
 	for (size_t i = 0; i < report->absent_count; i++) {
@@ -2313,9 +2414,9 @@ static void empty_tables_section(const EmptyTables *empty, Style style,
                                  FILE *out)
 {
 	if (style == STYLE_MARKDOWN)
-		fputs("\n## Nothing to report\n\n", out);
+		fputs("\n## Nothing To Report\n\n", out);
 	else
-		fputs("\nNothing to report\n", out);
+		fputs("\nNothing To Report\n", out);
 
 	if (empty->count == 0) {
 		fputs(style == STYLE_MARKDOWN
@@ -2419,10 +2520,16 @@ static int concurrency_section(const Report *report, Style style, FILE *out,
 	                                     "Root by" };
 	char                     heading[200];
 
+	/* The omission names all three sources of evidence, the source's own
+	 * shape included: naming only the two options would send a reader
+	 * looking for a switch when the source carried no handler either. Kept
+	 * short because this heading also appears as a "Nothing To Report"
+	 * entry, indented four columns inside the same 128-column bound every
+	 * other line is held to (HLR-219). */
 	if (report->concurrency_state == CONCURRENCY_OMITTED_NO_EVIDENCE)
 		snprintf(heading, sizeof heading,
-		         "Concurrency (omitted: no --elf and no --isr-regex, "
-		         "so asynchronous roots cannot be identified)");
+		         "Concurrency (omitted: no handler in the source, "
+		         "and no --elf or --isr-regex)");
 	else if (report->concurrency_state == CONCURRENCY_NO_ROOTS)
 		snprintf(heading, sizeof heading,
 		         "Concurrency (no asynchronous root found)");
@@ -2436,13 +2543,37 @@ static int concurrency_section(const Report *report, Style style, FILE *out,
 		         report->reentrant_count == 1 ? "" : "s");
 
 	grid_begin(&grid, heading, 4, names, NULL);
-	for (size_t i = 0; i < report->async_root_count; i++)
-		grid_row(&grid, report->async_roots[i].function,
-		         report->async_roots[i].file, "asynchronous root",
-		         report->async_roots[i].by_address ? "address taken"
-		                                           : "--isr-regex");
-	for (size_t i = 0; i < report->reentrant_count; i++)
-		grid_row(&grid, report->reentrant[i], "", "re-entrant", "");
+	for (size_t i = 0; i < report->async_root_count; i++) {
+		const AsyncRootRow *r = &report->async_roots[i];
+
+		/* Three origins, and a reader acts on which one they have: a
+		 * macro that writes a definition names a handler, a pattern
+		 * names one on the user's word, and an address taken is equally
+		 * the shape of a callback the application dispatches itself
+		 * (HLR-227, HLR-233). */
+		grid_row(&grid, r->function, r->file,
+		         r->by_address ? "asynchronous root"
+		                       : "interrupt handler",
+		         r->by_address  ? "address taken"
+		         : r->by_wrapper ? "macro definition"
+		                         : "--isr-regex");
+	}
+	for (size_t i = 0; i < report->reentrant_count; i++) {
+		const ReentrantRow *r = &report->reentrant[i];
+		char                via[128];
+
+		/* The attributing root, and whether its evidence names it a
+		 * handler — the same distinction the root rows above carry,
+		 * because a mark inherited from a callback is the weaker of the
+		 * two claims and reads identically without it. */
+		if (r->via[0])
+			snprintf(via, sizeof via, "via %s%s", r->via,
+			         r->via_handler ? "" : " (a callback)");
+		else
+			via[0] = '\0';
+
+		grid_row(&grid, r->function, r->file, "re-entrant", via);
+	}
 
 	return grid_render(&grid, style, out, empty);
 }
@@ -2459,11 +2590,9 @@ static bool scopes_omitted(const Report *report)
 }
 
 /* `S` and `D` rather than the enumerators spelled out, for the section table
- * below. That table is read *across*, comparing one section's two
- * classifications, and at fourteen characters each the pair no longer fits on
- * the line beside the section it classifies — a row that wraps is a row whose
- * two columns have stopped being comparable at a glance, which is the only
- * reason the second column is worth having rather than a list of its own.
+ * below: at fourteen characters the enumerator no longer fits on the line
+ * beside the section it classifies, and a row that wraps is a row whose
+ * classification has stopped being readable down the column.
  *
  * At file scope and not inside the declaration they serve, which would read
  * better and does not parse: a preprocessor directive between a struct body
@@ -2485,21 +2614,20 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 	 * other — there is nowhere to forget it, because a section is written
 	 * down once and classified once (LLR-SUM-02, LLR-SUM-09).
 	 *
-	 * **Two classifications per section, in two columns of the one list**
-	 * (HLR-218, LLR-SUM-19). The aligned table and Markdown default to
-	 * different tiers, and a second array beside this one would satisfy
-	 * that requirement while quietly giving up the guarantee above: the
-	 * next section added would be classified in whichever list its author
-	 * was looking at, and the omission would be invisible until a reader
-	 * noticed a missing table. A second *column* cannot be filled in
-	 * halfway, because the initialiser does not compile without it. */
+	 * **One classification per section, and one for every format**
+	 * (HLR-218, LLR-SUM-19). This carried two columns for a while — a
+	 * document's partition and a terminal's — on the reasoning that a saved
+	 * report is searched and a terminal report is scrolled. What that
+	 * produced was two default reports to keep in agreement and a reader
+	 * who had to know which format they had asked for before knowing
+	 * whether an answer was in front of them. One column is the whole of
+	 * the fix: there is one summary composition, and it cannot differ
+	 * between formats because there is nowhere for it to differ. */
 	static const struct {
 		int  (*render)(const Report *, Style, FILE *, EmptyTables *);
-		Tier   markdown;   /* HLR-150's partition, for a document */
-		Tier   table;      /* HLR-218's, for a terminal           */
+		Tier   tier;       /* HLR-150's partition, for every format */
 		bool (*omitted)(const Report *);
 	} SECTIONS[] = {
-		/*                              .md  tty                  */
 		/* **The findings come first**, ahead of every table that
 		 * supplies their evidence (HLR-182). They were twenty-second
 		 * for the reason everything else is in the order it is in —
@@ -2509,11 +2637,17 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		 * for this: a finding names its subject and its file, so it
 		 * is read without the tables and the tables are found from
 		 * it. */
-		{ findings_section,              S,   S,   NULL            },
-		{ callouts_section,              S,   D,   NULL            },
-		{ discovery_section,             S,   D,   NULL            },
-		{ languages_section,             S,   D,   NULL            },
-		{ files_section,                 S,   D,   NULL            },
+		{ findings_section,                S,   NULL                },
+		{ callouts_section,                D,   NULL                },
+		{ discovery_section,               D,   NULL                },
+		{ languages_section,               D,   NULL                },
+		/* One of the four tiers every default human-readable report
+		 * presents, whatever its format (HLR-235). A file's own totals
+		 * are a project-level aggregate under HLR-150's rule and were
+		 * always a summary tier for the document; the terminal report
+		 * gains them because a reader who asks what a tree is made of
+		 * is asking about its files before its functions. */
+		{ files_section,                   S,   NULL                },
 		/* From here to the recursion table the order is the reader's
 		 * descent, not the pipeline's: the component, then what is
 		 * wrong inside it, then the functions themselves, then the
@@ -2523,38 +2657,45 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		 * that everything depends on, and the threshold listing
 		 * before the function table because it is the short list the
 		 * long one is read through. */
-		{ coupling_section,              D,   D,   NULL            },
-		{ dependency_cycles_section,     D,   D,   NULL            },
-		{ threshold_listing_section,     S,   D,   NULL            },
-		{ functions_section,             D,   S,   NULL            },
-		{ deepest_chain_section,         D,   D,   depth_omitted   },
-		{ recursion_section,             D,   D,   NULL            },
-		{ layering_section,              D,   D,   strata_omitted  },
-		{ conformance_section,           S,   D,   NULL            },
-		{ dsm_section,                   D,   D,   NULL            },
-		{ purification_section,          D,   D,   NULL            },
-		{ recovery_section,              D,   D,   NULL            },
-		{ global_state_section,          D,   D,   NULL            },
-		{ unreachable_functions_section, D,   D,   reach_omitted   },
-		{ unreachable_globals_section,   D,   D,   NULL            },
-		{ dead_code_section,             D,   D,   NULL            },
-		{ cross_scope_section,           D,   D,   scopes_omitted  },
-		{ concurrency_section,           D,   D,   concurrency_omitted },
-		{ definitions_section,           S,   D,   NULL            },
-		{ image_filter_section,          S,   D,   NULL            },
-		{ rule_matches_section,          D,   D,   NULL            },
-		{ partially_parsed_section,      S,   D,   NULL            },
-		{ expansion_section,             S,   D,   NULL            },
-		{ repaired_files_section,        S,   D,   NULL            },
-		{ stdlib_section,                S,   D,   NULL            },
-		{ skipped_files_section,         S,   D,   NULL            },
+		{ coupling_section,                D,   NULL                },
+		{ dependency_cycles_section,       D,   NULL                },
+		{ threshold_listing_section,       D,   NULL                },
+		/* **A detail tier by HLR-150's rule and a default in both
+		 * formats regardless** (HLR-235). It enumerates one row per
+		 * analysed entity, which is what makes it detail; it is also
+		 * the tier the tool exists to produce, and a default report of
+		 * either kind that omitted it would answer every question but
+		 * the one it was run for. The exception is stated in the
+		 * requirement rather than smuggled in by reclassifying it. */
+		{ functions_section,               S,   NULL                },
+		{ deepest_chain_section,           D,   depth_omitted       },
+		{ recursion_section,               D,   NULL                },
+		{ layering_section,                D,   strata_omitted      },
+		{ conformance_section,             D,   NULL                },
+		{ dsm_section,                     D,   NULL                },
+		{ purification_section,            D,   NULL                },
+		{ recovery_section,                D,   NULL                },
+		{ global_state_section,            D,   NULL                },
+		{ unreachable_functions_section,   D,   reach_omitted       },
+		{ unreachable_globals_section,     D,   NULL                },
+		{ dead_code_section,               D,   NULL                },
+		{ cross_scope_section,             D,   scopes_omitted      },
+		{ concurrency_section,             D,   concurrency_omitted },
+		{ definitions_section,             D,   NULL                },
+		{ image_filter_section,            D,   NULL                },
+		{ rule_matches_section,            D,   NULL                },
+		{ partially_parsed_section,        D,   NULL                },
+		{ expansion_section,               D,   NULL                },
+		{ repaired_files_section,          D,   NULL                },
+		{ stdlib_section,                  D,   NULL                },
+		{ skipped_files_section,           D,   NULL                },
 		/* Last, and the only section after the files the run could not
 		 * measure. It is the longest table a filtered run produces —
 		 * one row per function the build dropped — and it answers a
 		 * question a reader asks after reading the report rather than
 		 * one they read the report to answer (HLR-184). */
-		{ placed_functions_section,      D,   D,   NULL            },
-		{ absent_functions_section,      D,   D,   NULL            },
+		{ placed_functions_section,        D,   NULL                },
+		{ absent_functions_section,        D,   NULL                },
 	};
 
 	EmptyTables empty;
@@ -2567,11 +2708,11 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 	summary_section(report, style, out);
 
 	for (size_t i = 0; i < sizeof SECTIONS / sizeof *SECTIONS; i++) {
-		/* The style picks the column, which is the whole of what
-		 * makes the terminal report a different document rather than
-		 * a different walk (HLR-218). */
-		Tier tier   = style == STYLE_MARKDOWN ? SECTIONS[i].markdown
-		                                      : SECTIONS[i].table;
+		/* The style does not enter into it. One composition serves
+		 * every human-readable format, so what a default report
+		 * presents is a property of the report and not of how it is
+		 * being written down (HLR-218, HLR-235). */
+		Tier tier   = SECTIONS[i].tier;
 		/* The omission predicate is asked about the *run* and not
 		 * about the format, so it applies under either column: a
 		 * detail section whose analysis was skipped for want of a

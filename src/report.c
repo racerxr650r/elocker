@@ -731,6 +731,15 @@ int report_set_image(Report *report, const SymbolSet *image)
 		return -1;
 	}
 	report->image_unresolved = elfsyms_unresolved(image);
+	report->image_debug_info = image->debug_info;
+	if (image->target) {
+		report->image_target = strdup(image->target);
+		if (!report->image_target) {
+			diag_printf("elc: out of memory recording the "
+			            "image\n");
+			return -1;
+		}
+	}
 
 	/* Here rather than in `report_assemble`, which has the option but not
 	 * the image: the rows are read off the debug information, and this is
@@ -1703,7 +1712,7 @@ static int by_severity(const void *a, const void *b)
 
 void report_set_concurrency(Report *report, ConcurrencyState state,
                             AsyncRootRow *roots, size_t root_count,
-                            char **reentrant, size_t reentrant_count)
+                            ReentrantRow *reentrant, size_t reentrant_count)
 {
 	report->concurrency_state = state;
 	report->async_roots       = roots;
@@ -2077,8 +2086,11 @@ static void free_state_rows(Report *report)
 		free(report->async_roots[i].file);
 	}
 	free(report->async_roots);
-	for (size_t i = 0; i < report->reentrant_count; i++)
-		free(report->reentrant[i]);
+	for (size_t i = 0; i < report->reentrant_count; i++) {
+		free(report->reentrant[i].function);
+		free(report->reentrant[i].file);
+		free(report->reentrant[i].via);
+	}
 	free(report->reentrant);
 	report->cross_scope       = NULL;
 	report->cross_scope_count = 0;
@@ -2124,7 +2136,9 @@ static void free_source_rows(Report *report)
 	report->placed_count = 0;
 
 	free(report->image);
-	report->image = NULL;
+	free(report->image_target);
+	report->image        = NULL;
+	report->image_target = NULL;
 }
 
 static void free_purification_rows(Report *report)

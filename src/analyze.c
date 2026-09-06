@@ -40,6 +40,7 @@
  * every language module, not a property of any language. */
 #define CAPTURE_FUNCTION_NAME "function.name"
 #define CAPTURE_FUNCTION_BODY "function.body"
+#define CAPTURE_FUNCTION_WRAP "function.wrapper"
 #define CAPTURE_COMMENT       "comment"
 #define CAPTURE_ELOC          "eloc.statement"
 #define CAPTURE_COMPLEXITY    "complexity.decision"
@@ -88,8 +89,10 @@ void filemetrics_free(FileMetrics *metrics)
 	if (!metrics)
 		return;
 
-	for (size_t i = 0; i < metrics->function_count; i++)
+	for (size_t i = 0; i < metrics->function_count; i++) {
 		free(metrics->functions[i].name);
+		free(metrics->functions[i].linkage_name);
+	}
 	free(metrics->functions);
 	for (size_t i = 0; i < metrics->absent_count; i++)
 		free(metrics->absent[i].name);
@@ -693,11 +696,19 @@ static char *name_from(const char *data, TSNode node)
  * functions the image lacks, then which functions to measure — and the two
  * must not be able to disagree about what a function is.
  */
+/* `macro` is optional and receives whether the match carried
+ * @function.wrapper — the language's way of saying this definition was written
+ * through a function-shaped macro rather than spelled out (HLR-233). A module
+ * that captures no wrapper leaves every function unmarked, which is the answer
+ * for a language whose definitions are always written out. */
 static bool function_match(const TSQuery *query, const TSQueryMatch *match,
-                           TSNode *name_node, TSNode *body_node)
+                           TSNode *name_node, TSNode *body_node, bool *macro)
 {
 	bool have_name = false;
 	bool have_body = false;
+
+	if (macro)
+		*macro = false;
 
 	for (uint16_t i = 0; i < match->capture_count; i++) {
 		uint32_t index = match->captures[i].index;
@@ -708,6 +719,9 @@ static bool function_match(const TSQuery *query, const TSQueryMatch *match,
 		} else if (capture_is(query, index, CAPTURE_FUNCTION_BODY)) {
 			*body_node = match->captures[i].node;
 			have_body  = true;
+		} else if (macro &&
+		           capture_is(query, index, CAPTURE_FUNCTION_WRAP)) {
+			*macro = true;
 		}
 	}
 
@@ -759,6 +773,125 @@ static int absent_add(FileMetrics *metrics, SpanList *spans, char *name,
 	return 0;
 }
 
+/* ------------------------------------------------------ the linkage join --
+ *
+ * One parsed definition the image may or may not have kept, held while the
+ * whole file's set is known. The join below asks a question about the *other*
+ * definitions in the file — is this image symbol claimed by more than one of
+ * them — which no one-match-at-a-time pass can answer (HLR-233).
+ */
+typedef struct {
+	char    *name;        /* owned until it moves to the absent list */
+	TSNode   name_node;
+	TSNode   body_node;
+	uint32_t line_start;  /* 1-based, the reported span              */
+	uint32_t line_end;
+	bool     defined;     /* the image names it, under either name   */
+	const char *linkage;  /* borrowed from the image's origin map    */
+} ParsedFn;
+
+typedef struct {
+	ParsedFn *items;
+	size_t    count;
+	size_t    capacity;
+} ParsedSet;
+
+/* One function's linkage name, keyed by the byte its name starts at, so
+ * `record_function` can look it up exactly as it looks up visibility. Empty
+ * on every run with no image and for every file whose names the image already
+ * matches — which is all of them but the macro-written ones. */
+typedef struct {
+	struct { uint32_t offset; const char *linkage; } *items;
+	size_t count;
+	size_t capacity;
+} AliasSet;
+
+static const char *alias_of(const AliasSet *set, uint32_t offset)
+{
+	for (size_t i = 0; i < set->count; i++)
+		if (set->items[i].offset == offset)
+			return set->items[i].linkage;
+	return NULL;
+}
+
+static int alias_add(AliasSet *set, uint32_t offset, const char *linkage)
+{
+	if (set->count == set->capacity &&
+	    analyze_grow((void **)&set->items, &set->capacity,
+	                 sizeof *set->items) != 0)
+		return -1;
+
+	set->items[set->count].offset  = offset;
+	set->items[set->count].linkage = linkage;
+	set->count++;
+	return 0;
+}
+
+/* How many of the file's parsed definitions contain this line. */
+static size_t claimants(const ParsedSet *set, uint32_t line)
+{
+	size_t n = 0;
+
+	for (size_t i = 0; i < set->count; i++)
+		if (line >= set->items[i].line_start &&
+		    line <= set->items[i].line_end)
+			n++;
+
+	return n;
+}
+
+/* The linkage name of a definition the image does not name in the source's
+ * spelling (HLR-233).
+ *
+ * **A function-shaped macro renames what it defines.** `ISR(TCB0_INT_vect)`
+ * writes `__vector_12`, so the source name and the linkage name share nothing,
+ * and a filter comparing them discards a definition the linker plainly kept —
+ * which on a bare-metal target discards every interrupt handler in the program,
+ * and with them the second thread of control HLR-227 exists to find.
+ *
+ * The join is by *position*: the image's debug information records the line
+ * each definition it kept was written on, and the parse knows which definition
+ * spans that line. Both halves are already computed — this asks them a
+ * question neither was asked before (HLR-193, HLR-212).
+ *
+ * **Ambiguity is refused rather than guessed.** An alias is taken only where
+ * exactly one kept symbol is placed inside this definition and exactly one
+ * definition in the file contains that symbol's line. Anything else — two
+ * symbols in one body, one line inside a nested pair — leaves the function
+ * absent, which is what it was before this existed and is an answer a reader
+ * can see rather than a guess they cannot.
+ */
+static const char *linkage_alias(const SymbolSet *image, const char *path,
+                                 const ParsedSet *set, const ParsedFn *fn)
+{
+	size_t      origins = dwarfline_origin_count(&image->origins);
+	const char *found   = NULL;
+
+	for (size_t i = 0; i < origins; i++) {
+		const FunctionOrigin *o = dwarfline_origin_at(&image->origins,
+		                                              i);
+
+		if (o->line == 0 || o->line < fn->line_start ||
+		    o->line > fn->line_end)
+			continue;
+		if (strcmp(o->file, path) != 0)
+			continue;
+		/* The symbol table governs: debug information describes
+		 * definitions a link that discards unused sections has already
+		 * removed, and an alias to one of those would resurrect a
+		 * function the image does not contain (HLR-140). */
+		if (!elfsyms_defines(image, o->name))
+			continue;
+		if (claimants(set, o->line) != 1)
+			continue;
+		if (found)
+			return NULL;   /* two kept symbols in one body */
+		found = o->name;
+	}
+
+	return found;
+}
+
 /* Record every function the image does not define, and exclude its bytes.
  *
  * **The filter joins the exclusion set rather than gating `collect_functions`
@@ -778,28 +911,30 @@ static int absent_add(FileMetrics *metrics, SpanList *spans, char *name,
  * the order the library matched, which is the rule HLR-032 draws everywhere
  * else.
  */
-static int collect_absent_functions(const LanguageModule *module, Registry *reg,
-                                    const SymbolSet *image, const char *data,
-                                    TSNode root, SpanList *excluded,
-                                    SpanList *kept, FileMetrics *metrics)
+/* Every definition the query reports, before any of them is judged.
+ *
+ * The judging needs the whole set — `linkage_alias` asks whether more than one
+ * definition claims a line — so the two are separate passes rather than one
+ * (HLR-233).
+ */
+static int parsed_collect(const LanguageModule *module, Registry *reg,
+                          const char *data, TSNode root,
+                          const SpanList *excluded, ParsedSet *out)
 {
-	TSQuery     *query  = module->queries[QUERY_FUNCTIONS];
-	SpanList     absent = { 0 };
+	TSQuery     *query = module->queries[QUERY_FUNCTIONS];
 	TSQueryMatch match;
-	int          status = -1;
-
-	if (!image)
-		return 0;
 
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
-		TSNode name_node;
-		TSNode body_node;
+		TSNode    name_node;
+		TSNode    body_node;
+		ParsedFn *fn;
+		uint32_t  name_row, body_row;
 
 		if (!predicates_hold(query, &match, data))
 			continue;
-		if (!function_match(query, &match, &name_node, &body_node))
+		if (!function_match(query, &match, &name_node, &body_node, NULL))
 			continue;
 
 		/* A function inside a region this configuration does not
@@ -809,35 +944,103 @@ static int collect_absent_functions(const LanguageModule *module, Registry *reg,
 		if (byte_is_excluded(excluded, ts_node_start_byte(name_node)))
 			continue;
 
-		char *name = name_from(data, name_node);
+		if (out->count == out->capacity &&
+		    analyze_grow((void **)&out->items, &out->capacity,
+		                 sizeof *out->items) != 0)
+			return -1;
 
-		if (!name)
-			goto cleanup;
+		fn = &out->items[out->count];
+		memset(fn, 0, sizeof *fn);
+		fn->name = name_from(data, name_node);
+		if (!fn->name)
+			return -1;
 
-		if (elfsyms_defines_in(image, name, metrics->path)) {
-			/* Kept by the link, so its extent is where the finer
-			 * filter may look. HLR-154 confines line pruning to
-			 * within a function the image defines: a line outside
-			 * every one of them is file-scope code, which the
-			 * image's *function* set says nothing about and which
-			 * HLR-145 requires be measured and reported on its own
-			 * (LLR-ANL-60). */
-			if (span_add(kept, ts_node_start_byte(body_node),
-			             ts_node_end_byte(body_node),
-			             ts_node_start_point(body_node).row + 1,
-			             ts_node_end_point(body_node).row + 1) != 0) {
-				free(name);
-				goto cleanup;
-			}
-			free(name);
+		name_row        = ts_node_start_point(name_node).row;
+		body_row        = ts_node_start_point(body_node).row;
+		fn->name_node   = name_node;
+		fn->body_node   = body_node;
+		fn->line_start  = (name_row < body_row ? name_row : body_row) + 1;
+		fn->line_end    = ts_node_end_point(body_node).row + 1;
+		out->count++;
+	}
+
+	return 0;
+}
+
+static void parsed_free(ParsedSet *set)
+{
+	for (size_t i = 0; i < set->count; i++)
+		free(set->items[i].name);
+	free(set->items);
+	set->items = NULL;
+	set->count = set->capacity = 0;
+}
+
+/* Which of the file's definitions the link kept, by name and then by place. */
+static void parsed_judge(const SymbolSet *image, const char *path,
+                         ParsedSet *set)
+{
+	for (size_t i = 0; i < set->count; i++) {
+		ParsedFn *fn = &set->items[i];
+
+		if (elfsyms_defines_in(image, fn->name, path)) {
+			fn->defined = true;
 			continue;
 		}
 
-		if (absent_add(metrics, &absent, name, name_node,
-		               body_node) != 0) {
-			free(name);
-			goto cleanup;
+		fn->linkage = linkage_alias(image, path, set, fn);
+		fn->defined = fn->linkage != NULL;
+	}
+}
+
+static int collect_absent_functions(const LanguageModule *module, Registry *reg,
+                                    const SymbolSet *image, const char *data,
+                                    TSNode root, SpanList *excluded,
+                                    SpanList *kept, AliasSet *aliases,
+                                    FileMetrics *metrics)
+{
+	SpanList  absent = { 0 };
+	ParsedSet parsed = { 0 };
+	int       status = -1;
+
+	if (!image)
+		return 0;
+
+	if (parsed_collect(module, reg, data, root, excluded, &parsed) != 0)
+		goto cleanup;
+
+	parsed_judge(image, metrics->path, &parsed);
+
+	for (size_t i = 0; i < parsed.count; i++) {
+		ParsedFn *fn = &parsed.items[i];
+
+		if (!fn->defined) {
+			/* The name moves into the absent list, which owns it
+			 * thereafter; clearing it here is what keeps
+			 * `parsed_free` from releasing it a second time. */
+			if (absent_add(metrics, &absent, fn->name,
+			               fn->name_node, fn->body_node) != 0)
+				goto cleanup;
+			fn->name = NULL;
+			continue;
 		}
+
+		/* Kept by the link, so its extent is where the finer filter may
+		 * look. HLR-154 confines line pruning to within a function the
+		 * image defines: a line outside every one of them is file-scope
+		 * code, which the image's *function* set says nothing about and
+		 * which HLR-145 requires be measured and reported on its own
+		 * (LLR-ANL-60). */
+		if (span_add(kept, ts_node_start_byte(fn->body_node),
+		             ts_node_end_byte(fn->body_node),
+		             ts_node_start_point(fn->body_node).row + 1,
+		             ts_node_end_point(fn->body_node).row + 1) != 0)
+			goto cleanup;
+
+		if (fn->linkage &&
+		    alias_add(aliases, ts_node_start_byte(fn->name_node),
+		              fn->linkage) != 0)
+			goto cleanup;
 	}
 
 	/* Merged into the excluded set only now the pass is over. Appending to
@@ -856,6 +1059,7 @@ static int collect_absent_functions(const LanguageModule *module, Registry *reg,
 	status = 0;
 
 cleanup:
+	parsed_free(&parsed);
 	free(absent.items);
 	return status;
 }
@@ -932,6 +1136,14 @@ typedef struct {
 	uint32_t *release;
 	size_t    release_count;
 	size_t    release_capacity;
+	/* Scoped guards, held apart from the pair above because they are
+	 * balanced by construction and an acquisition they are not: recording
+	 * one as an acquire/release pair would put the release after a `return`
+	 * inside the region and report a leak on the one idiom that cannot leak
+	 * (HLR-234). */
+	uint32_t *scoped;
+	size_t    scoped_count;
+	size_t    scoped_capacity;
 } SyncMarks;
 
 typedef struct {
@@ -1068,6 +1280,11 @@ static int collect_sync(const LanguageModule *module, Registry *reg,
 				list  = &out->release;
 				count = &out->release_count;
 				cap_n = &out->release_capacity;
+			} else if (len == sizeof "sync.scoped" - 1 &&
+			           memcmp(cap, "sync.scoped", len) == 0) {
+				list  = &out->scoped;
+				count = &out->scoped_count;
+				cap_n = &out->scoped_capacity;
 			} else {
 				continue;
 			}
@@ -1230,19 +1447,57 @@ static Visibility visibility_of(const VisibilitySet *set, uint32_t offset)
  * different extent from the one shown would let a statement count for a
  * function whose printed location does not contain it.
  */
+/* Whether any critical section at all was found inside this body (HLR-234).
+ *
+ * A scoped guard counts, and is the reason this cannot be read off the
+ * acquisition list: the construct releases on every exit, so it appears in
+ * neither half of the pair the leak analysis is built on and a function guarded
+ * entirely by one would otherwise read as holding no lock anywhere.
+ */
+static bool body_has_section(const SyncMarks *sync, TSNode body)
+{
+	uint32_t from = ts_node_start_byte(body);
+	uint32_t to   = ts_node_end_byte(body);
+
+	for (size_t i = 0; i < sync->acquire_count; i++)
+		if (sync->acquire[i] >= from && sync->acquire[i] < to)
+			return true;
+	for (size_t i = 0; i < sync->scoped_count; i++)
+		if (sync->scoped[i] >= from && sync->scoped[i] < to)
+			return true;
+
+	return false;
+}
+
 static int record_function(FileMetrics *metrics, FnRangeIndex *ranges,
                            const char *data, TSNode name_node,
                            TSNode body_node, const VisibilitySet *visible,
                            const BurdenSet *burden,
-                           const SyncMarks *sync)
+                           const SyncMarks *sync, const AliasSet *aliases,
+                           bool macro_defined)
 {
-	FunctionMetric *fn = &metrics->functions[metrics->function_count];
+	FunctionMetric *fn      = &metrics->functions[metrics->function_count];
+	const char     *linkage;
 
 	memset(fn, 0, sizeof *fn);
 
 	fn->name = name_from(data, name_node);
 	if (!fn->name)
 		return -1;
+
+	fn->macro_defined = macro_defined;
+
+	/* The name the linker knows it by, where the image named it something
+	 * else — copied rather than borrowed, because the image is released
+	 * before the report is rendered (HLR-233). */
+	linkage = alias_of(aliases, ts_node_start_byte(name_node));
+	if (linkage) {
+		fn->linkage_name = strdup(linkage);
+		if (!fn->linkage_name)
+			return -1;
+	}
+
+	fn->has_critical_section = body_has_section(sync, body_node);
 
 	fn->visibility = visibility_of(visible,
 	                               ts_node_start_byte(name_node));
@@ -1314,8 +1569,8 @@ static int record_function(FileMetrics *metrics, FnRangeIndex *ranges,
 
 static int collect_functions(const LanguageModule *module, Registry *reg,
                              const char *data, TSNode root,
-                             const SpanList *excluded, FileMetrics *metrics,
-                             FnRangeIndex *ranges)
+                             const SpanList *excluded, const AliasSet *aliases,
+                             FileMetrics *metrics, FnRangeIndex *ranges)
 {
 	TSQuery      *query    = module->queries[QUERY_FUNCTIONS];
 	size_t        capacity = 0;
@@ -1340,8 +1595,10 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 
 		TSNode name_node;
 		TSNode body_node;
+		bool   macro_defined;
 
-		if (!function_match(query, &match, &name_node, &body_node))
+		if (!function_match(query, &match, &name_node, &body_node,
+		                    &macro_defined))
 			continue;
 
 		/* A function the configuration does not compile is not
@@ -1359,7 +1616,7 @@ static int collect_functions(const LanguageModule *module, Registry *reg,
 
 		if (record_function(metrics, ranges, data, name_node,
 		                    body_node, &visible, &burden,
-		                    &sync) != 0)
+		                    &sync, aliases, macro_defined) != 0)
 			goto done;
 	}
 
@@ -1370,6 +1627,7 @@ done:
 	free(burden.items);
 	free(sync.acquire);
 	free(sync.release);
+	free(sync.scoped);
 	return status;
 }
 
@@ -2760,7 +3018,8 @@ static int build_exclusions(const LanguageModule *module, Registry *reg,
                             const ElcOptions *opts, const SymbolSet *image,
                             const char *data, size_t len, TSNode root,
                             const char *path, bool expanded,
-                            FileMetrics *metrics, SpanList *comments)
+                            FileMetrics *metrics, SpanList *comments,
+                            AliasSet *aliases)
 {
 	SpanList kept = { 0 };
 
@@ -2789,7 +3048,7 @@ static int build_exclusions(const LanguageModule *module, Registry *reg,
 	merge_comment_spans(comments);
 
 	if (collect_absent_functions(module, reg, image, data, root, comments,
-	                             &kept, metrics) != 0) {
+	                             &kept, aliases, metrics) != 0) {
 		diag_printf("elc: out of memory analysing %s\n", path);
 		free(kept.items);
 		return -1;
@@ -2812,11 +3071,12 @@ static int build_exclusions(const LanguageModule *module, Registry *reg,
  */
 static int collect_all(const LanguageModule *module, Registry *reg,
                        const char *data, TSNode root, const char *path,
-                       const SpanList *comments, FnRangeIndex *ranges,
+                       const SpanList *comments, const AliasSet *aliases,
+                       FnRangeIndex *ranges,
                        SiteList *sites, FileMetrics *metrics, FileFacts *facts)
 {
-	if (collect_functions(module, reg, data, root, comments, metrics,
-	                      ranges) != 0 ||
+	if (collect_functions(module, reg, data, root, comments, aliases,
+	                      metrics, ranges) != 0 ||
 	    collect_statements(module, reg, data, root, ranges, comments,
 	                       sites) != 0 ||
 	    collect_complexity(module, reg, data, root, ranges, comments,
@@ -2886,26 +3146,61 @@ static void measure_damage(TSNode root, const char *path, const char *data,
  * different configuration from the one reported is measured in a build nobody
  * asked for (HLR-132).
  */
+/* The include paths the image's debug information recorded, as `-I` flags
+ * (HLR-238).
+ *
+ * **Appended after the user's own flags**, never before: a `--cc-flag -I` is
+ * what the user said to search, and the image's paths are evidence about the
+ * build. Where the two disagree the user's wins, which is the same order of
+ * authority a `-D` and an image-decided region already have (HLR-208).
+ *
+ * Owned by the caller and freed with the rest of the flag list.
+ */
+static char *include_flag(const char *dir)
+{
+	size_t want = strlen(dir) + 3;
+	char  *flag = malloc(want);
+
+	if (flag)
+		snprintf(flag, want, "-I%s", dir);
+	return flag;
+}
+
 static int preproc_expand_configured(const char *path, const char *language,
                                      const ElcOptions *opts,
+                                     const SymbolSet *image,
                                      PreprocResult *out)
 {
-	const char **flags;
-	size_t       n = 0;
-	int          rc;
+	const IncludeDirs *dirs = image ? &image->include_dirs : NULL;
+	size_t             ndirs = dirs ? dirs->count : 0;
+	const char       **flags;
+	size_t             n = 0;
+	int                rc;
 
-	if (opts->define_count == 0)
+	if (opts->define_count == 0 && ndirs == 0)
 		return preproc_expand(path, language, opts->cc,
 		                      opts->cc_flags, opts->cc_flag_count,
 		                      out);
 
-	flags = calloc(opts->cc_flag_count + opts->define_count,
+	flags = calloc(opts->cc_flag_count + opts->define_count + ndirs,
 	               sizeof *flags);
 	if (!flags)
 		return -1;
 
 	for (size_t i = 0; i < opts->cc_flag_count; i++)
 		flags[n++] = opts->cc_flags[i];
+
+	for (size_t i = 0; i < ndirs; i++) {
+		char *flag = include_flag(dirs->paths[i]);
+
+		if (!flag) {
+			for (size_t k = opts->cc_flag_count; k < n; k++)
+				free((char *)flags[k]);
+			free(flags);
+			return -1;
+		}
+		flags[n++] = flag;
+	}
 
 	/* `elc` records a definition as the user wrote it — `NAME` or
 	 * `NAME=VALUE` — and the preprocessor wants it prefixed. Built here
@@ -2987,20 +3282,28 @@ static int measure_tree(const LanguageModule *module, Registry *reg,
                         FileFacts *facts, SpanList *comments,
                         FnRangeIndex *ranges, SiteList *sites)
 {
-	TSNode root = ts_tree_root_node(tree);
+	TSNode   root    = ts_tree_root_node(tree);
+	AliasSet aliases = { 0 };
+	int      status  = -1;
 
 	measure_damage(root, path, map, len, metrics);
 
+	/* Built by the image pass and read by the collection pass, so it is
+	 * owned here — the one scope both are inside (HLR-233). */
 	if (build_exclusions(module, reg, opts, image, map, len, root, path,
-	                     expanded, metrics, comments) != 0)
-		return -1;
+	                     expanded, metrics, comments, &aliases) != 0)
+		goto cleanup;
 
-	if (collect_all(module, reg, map, root, path, comments, ranges,
-	                sites, metrics, facts) != 0)
-		return -1;
+	if (collect_all(module, reg, map, root, path, comments, &aliases,
+	                ranges, sites, metrics, facts) != 0)
+		goto cleanup;
 
 	apply_eloc(metrics, sites);
-	return 0;
+	status = 0;
+
+cleanup:
+	free(aliases.items);
+	return status;
 }
 
 /* Give the caller the records and give up the cleanup path's claim on them.
@@ -3141,7 +3444,7 @@ static void expand_for_metrics(const LanguageModule *module, Registry *reg,
                                const char **map, size_t *len)
 {
 	if (preproc_expand_configured(path, module->language_name, opts,
-	                              out) != 0 || !out->text)
+	                              image, out) != 0 || !out->text)
 		return;
 
 	if (undecided_in(module, reg, opts, image, path, raw, raw_len,

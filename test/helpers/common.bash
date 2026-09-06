@@ -85,11 +85,16 @@ require_path() {
 # Only the leading words of a heading are kept — up to the first " (" — so a
 # heading carrying a count or a threshold compares equal across runs that
 # found different numbers of things.
+#
+# `Parsing Notifications` is dropped with the closing statement: it heads the
+# diagnostics rather than the report, and reaches $output only because bats
+# merges the two streams (HLR-236).
 report_shape() {
 	{
 		grep -E '^[A-Z]' <<<"$1"
-		sed -n '/^Nothing to report$/,$p' <<<"$1" | sed -n 's/^    - //p'
-	} | sed 's/ (.*$//' | grep -v '^Nothing to report$' | sort -u
+		sed -n '/^Nothing To Report$/,$p' <<<"$1" | sed -n 's/^    - //p'
+	} | sed 's/ (.*$//' |
+		grep -vE '^(Nothing To Report|Parsing Notifications)$' | sort -u
 }
 
 # heading_of <heading prefix>

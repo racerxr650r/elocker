@@ -190,7 +190,7 @@ report() {
 	report "$TREE" -DFEATURE -DLEAN
 	assert_success
 
-	run bash -c 'grep -c "^Conditional-compilation definitions (2)$" "$0"' \
+	run bash -c 'grep -c "^Conditional-Compilation Definitions (2)$" "$0"' \
 		"$OUT"
 	assert_output "1"
 }
@@ -205,7 +205,7 @@ report() {
 	# With none supplied the table has no rows, so it is named in the
 	# closing statement rather than printed — which is still the claim
 	# being made, in the same words (HLR-188, HLR-189).
-	run bash -c 'grep -c "^    - Conditional-compilation definitions (0)$" "$0"' \
+	run bash -c 'grep -c "^    - Conditional-Compilation Definitions (0)$" "$0"' \
 		"$OUT"
 	assert_output "1"
 }
@@ -296,7 +296,7 @@ report() {
 	# under awk's field splitting, so a header index does not land on the
 	# row. Out, WTBI and Burden are populated on every row.
 	local fanout
-	fanout="$(awk '/^Functions$/ {s=1; next}
+	fanout="$(awk '/^Functions [(]/ {s=1; next}
 	               s && /^$/     {exit}
 	               s && $3 == "caller" {print $(NF-2)}' "$OUT")"
 	assert_equal "$fanout" "0"
@@ -307,7 +307,7 @@ report() {
 	assert_success
 
 	local complexity
-	complexity="$(awk '/^Functions$/ {s=1; next}
+	complexity="$(awk '/^Functions [(]/ {s=1; next}
 	                   s && /^$/ {exit}
 	                   s && $3 == "caller" {print $7}' "$OUT")"
 	assert_equal "$complexity" "1"
@@ -320,7 +320,7 @@ report() {
 	# shared_flag is declared outside the region and read only inside it,
 	# so this build touches it nowhere and no row describes it.
 	local rows
-	rows="$(awk '/^Global state/ {s=1; next}
+	rows="$(awk '/^Global State/ {s=1; next}
 	             s && /^$/ {exit}
 	             s && /^  [^ -]/ && $1 != "Object" {print}' "$OUT" | wc -l)"
 	assert_equal "$rows" "0"

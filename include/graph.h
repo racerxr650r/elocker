@@ -54,12 +54,21 @@ typedef struct {
 	 * the moment it crosses the edge. */
 	double      mock_burden;
 	bool        address_taken; /* a reachability root (HLR-096)     */
+	/* Copied from the function record with the measurements above, because
+	 * the root test of HLR-227 is asked of the *graph* and these are the two
+	 * facts about a definition it needs: whether a macro wrote it, and what
+	 * the linker calls it (HLR-233). `linkage_name` is borrowed from the
+	 * report model like every other string here, and is NULL wherever the
+	 * source name is the linkage name. */
+	bool        macro_defined;
+	const char *linkage_name;
 	/* The second thread of control (HLR-227, HLR-228). Written by
 	 * `concurrency.c` after the graph is built, as the measurements of
 	 * `report_attach_flow` are written after it: both are properties *of*
 	 * the graph, discovered by walking it, and the node is where every
 	 * other per-function fact already lives. */
 	bool        is_async_root;
+	bool        is_interrupt;  /* a root, on handler evidence       */
 	bool        is_reentrant;
 	bool        leaks_lock;   /* a path leaves a section held        */
 	bool        cfg_complete; /* its control flow could be built     */

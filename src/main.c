@@ -398,52 +398,115 @@ static int analyse_recovery(Run *run)
  *
  * Returns 0, or -1 with the diagnostic already written.
  */
-/* Copy the roots and the re-entrant set into the report (HLR-227, HLR-228).
+/* The two row builders of `publish_concurrency`.
  *
- * Out of the graph and into the model, because the report outlives the graph:
- * a row holding a borrowed node name renders as plausible garbage once the
- * graph is released, which is the worst way for it to be wrong (LLR-SDG-12).
+ * Both copy out of the graph and into the model, because the report outlives
+ * the graph: a row holding a borrowed node name renders as plausible garbage
+ * once the graph is released, which is the worst way for it to be wrong
+ * (LLR-SDG-12).
+ *
+ * Both hand back whatever they managed to build and report success separately,
+ * so a failed `strdup` halfway through leaves the rows owned by exactly one
+ * party: the report frees them either way, and a builder that freed its own
+ * partial result on the way out would leave the caller holding a pointer to it
+ * (HLR-125).
  */
-static int publish_concurrency(Run *run, const bool *reentrant,
-                               ConcurrencyState state)
+static AsyncRootRow *build_root_rows(Run *run, int *status)
 {
-	AsyncRootRow *rows  = NULL;
-	char        **names = NULL;
+	AsyncRootRow *rows;
+
+	*status = 0;
+	if (!run->async_roots.count)
+		return NULL;
+
+	rows = calloc(run->async_roots.count, sizeof *rows);
+	if (!rows) {
+		*status = -1;
+		return NULL;
+	}
+
+	for (size_t i = 0; i < run->async_roots.count; i++) {
+		const AsyncRoot *r = &run->async_roots.items[i];
+		const SdgNode   *n = &run->sdg.nodes[r->node];
+
+		rows[i].function   = strdup(n->name);
+		rows[i].file       = strdup(n->file ? n->file : "");
+		rows[i].by_address = r->origin == ROOT_BY_ADDRESS;
+		rows[i].by_wrapper = r->origin == ROOT_BY_WRAPPER;
+		if (!rows[i].function || !rows[i].file)
+			*status = -1;
+	}
+
+	return rows;
+}
+
+/* One row per re-entrant function, carrying where it is and what puts it there
+ * (HLR-228, HLR-233).
+ *
+ * The attributing root travels with the name because the two together are the
+ * claim: a function re-entered from an interrupt vector and one re-entered from
+ * a callback the application dispatches itself are the same mark and not the
+ * same finding.
+ */
+static ReentrantRow *build_reentrant_rows(Run *run, const bool *reentrant,
+                                          const uint32_t *via, size_t *count,
+                                          int *status)
+{
+	ReentrantRow *rows;
+
+	*count  = 0;
+	*status = 0;
+	if (!reentrant)
+		return NULL;
+
+	rows = calloc(run->sdg.node_count ? run->sdg.node_count : 1,
+	              sizeof *rows);
+	if (!rows) {
+		*status = -1;
+		return NULL;
+	}
+
+	for (size_t i = 0; i < run->sdg.node_count; i++) {
+		const SdgNode *n = &run->sdg.nodes[i];
+		ReentrantRow  *row;
+		uint32_t       root;
+
+		if (!reentrant[i])
+			continue;
+
+		row  = &rows[(*count)++];
+		root = via ? via[i] : UINT32_MAX;
+
+		row->function    = strdup(n->name);
+		row->file        = strdup(n->file ? n->file : "");
+		row->via         = strdup(root < run->sdg.node_count
+		                          ? run->sdg.nodes[root].name : "");
+		row->via_handler = root < run->sdg.node_count &&
+		                   run->sdg.nodes[root].is_interrupt;
+		if (!row->function || !row->file || !row->via)
+			*status = -1;
+	}
+
+	return rows;
+}
+
+/* Copy the roots and the re-entrant set into the report (HLR-227, HLR-228). */
+static int publish_concurrency(Run *run, const bool *reentrant,
+                               const uint32_t *via, ConcurrencyState state)
+{
+	int           roots_ok, marks_ok;
+	AsyncRootRow *rows  = build_root_rows(run, &roots_ok);
 	size_t        count = 0;
+	ReentrantRow *marks = build_reentrant_rows(run, reentrant, via, &count,
+	                                           &marks_ok);
 
-	if (run->async_roots.count) {
-		rows = calloc(run->async_roots.count, sizeof *rows);
-		if (!rows)
-			return -1;
-		for (size_t i = 0; i < run->async_roots.count; i++) {
-			const AsyncRoot *r = &run->async_roots.items[i];
-			const SdgNode   *n = &run->sdg.nodes[r->node];
-
-			rows[i].function   = strdup(n->name);
-			rows[i].file       = strdup(n->file ? n->file : "");
-			rows[i].by_address = r->origin == ROOT_BY_ADDRESS;
-			if (!rows[i].function || !rows[i].file)
-				return -1;
-		}
-	}
-
-	if (reentrant) {
-		names = calloc(run->sdg.node_count ? run->sdg.node_count : 1,
-		               sizeof *names);
-		if (!names)
-			return -1;
-		for (size_t i = 0; i < run->sdg.node_count; i++)
-			if (reentrant[i]) {
-				names[count] = strdup(run->sdg.nodes[i].name);
-				if (!names[count])
-					return -1;
-				count++;
-			}
-	}
-
+	/* Handed over on every path, failure included: the rows are owned by
+	 * the report from here, and returning -1 without giving them up would
+	 * leak exactly what the failing allocation was short of. */
 	report_set_concurrency(&run->report, state, rows,
-	                       run->async_roots.count, names, count);
-	return 0;
+	                       run->async_roots.count, marks, count);
+
+	return roots_ok == 0 && marks_ok == 0 ? 0 : -1;
 }
 
 /* The two reachability sets and the re-entrant marking (HLR-228).
@@ -453,43 +516,123 @@ static int publish_concurrency(Run *run, const bool *reentrant,
  * that — and because with them together the caller stood at fifteen against
  * the threshold `elc` enforces on everyone else (LLR-BLD-23).
  */
-static int concurrency_trees(Run *run, const RootSet *roots, bool *from_main,
-                             bool *from_async, bool *reentrant)
+/* What each thread of control reaches, and the marking that falls out of it.
+ *
+ * Five arrays that are allocated together, freed together and always the same
+ * length, gathered into one name so that passing them does not put five
+ * parameters on every function between the analysis and its result.
+ */
+typedef struct {
+	bool     *from_main;
+	bool     *from_handler;   /* the interrupt/macro-admitted roots     */
+	bool     *from_callback;  /* the address-taken roots                */
+	bool     *reentrant;
+	uint32_t *via;            /* the root each mark is attributed to    */
+} ThreadTrees;
+
+static void trees_free(ThreadTrees *t)
+{
+	free(t->from_main);
+	free(t->from_handler);
+	free(t->from_callback);
+	free(t->reentrant);
+	free(t->via);
+	memset(t, 0, sizeof *t);
+}
+
+static int trees_alloc(ThreadTrees *t, size_t n)
+{
+	memset(t, 0, sizeof *t);
+
+	t->from_main     = calloc(n, sizeof *t->from_main);
+	t->from_handler  = calloc(n, sizeof *t->from_handler);
+	t->from_callback = calloc(n, sizeof *t->from_callback);
+	t->reentrant     = calloc(n, sizeof *t->reentrant);
+	t->via           = calloc(n, sizeof *t->via);
+
+	if (t->from_main && t->from_handler && t->from_callback &&
+	    t->reentrant && t->via)
+		return 0;
+
+	trees_free(t);
+	return -1;
+}
+
+/* The roots of one evidence class, as node identifiers the walk can take. */
+static uint32_t *roots_of_class(const RootSet *roots, bool handlers,
+                                size_t *count)
+{
+	uint32_t *nodes = calloc(roots->count ? roots->count : 1,
+	                         sizeof *nodes);
+
+	*count = 0;
+	if (!nodes)
+		return NULL;
+
+	for (size_t i = 0; i < roots->count; i++)
+		if (root_is_handler(roots->items[i].origin) == handlers)
+			nodes[(*count)++] = roots->items[i].node;
+
+	return nodes;
+}
+
+/* The three reachability sets and the re-entrant marking (HLR-228, HLR-231).
+ *
+ * **Three, because the roots are not one kind of thing.** A handler begins a
+ * second thread of control; a function registered by its address may equally be
+ * a callback the application's own loop dispatches, on the first. Re-entrancy is
+ * measured against both together, which is what HLR-228 asks for — but the
+ * qualifier findings are not, because a claim that two threads share an object
+ * cannot rest on a root that may not be a second thread at all.
+ *
+ * Split from the caller because the two do different jobs — this one answers
+ * *what does each thread reach*, and the caller decides what to report from
+ * that — and because with them together the caller stood at fifteen against the
+ * threshold `elc` enforces on everyone else (LLR-BLD-23).
+ */
+static int concurrency_trees(Run *run, const RootSet *roots, ThreadTrees *t)
 {
 	uint32_t *entries     = NULL;
-	uint32_t *root_nodes  = NULL;
+	uint32_t *handlers    = NULL;
+	uint32_t *callbacks   = NULL;
 	size_t    entry_count = 0;
+	size_t    n_handler   = 0;
+	size_t    n_callback  = 0;
 	int       status      = -1;
 
-	root_nodes = calloc(roots->count, sizeof *root_nodes);
-	if (!root_nodes)
-		return -1;
-	for (size_t i = 0; i < roots->count; i++)
-		root_nodes[i] = roots->items[i].node;
+	handlers  = roots_of_class(roots, true, &n_handler);
+	callbacks = roots_of_class(roots, false, &n_callback);
+	if (!handlers || !callbacks)
+		goto cleanup;
 
 	if (graph_entry_nodes(&run->sdg, &run->opts, &entries,
 	                      &entry_count) != 0)
 		goto cleanup;
 
 	if (concurrency_reentrant(&run->sdg, entries, entry_count, roots,
-	                          reentrant) != 0)
+	                          t->reentrant, t->via) != 0)
 		goto cleanup;
 
-	if (state_reachable(&run->sdg, entries, entry_count, from_main) != 0)
+	if (state_reachable(&run->sdg, entries, entry_count, t->from_main) != 0)
 		goto cleanup;
-	if (state_reachable(&run->sdg, root_nodes, roots->count,
-	                    from_async) != 0)
+	if (state_reachable(&run->sdg, handlers, n_handler,
+	                    t->from_handler) != 0)
+		goto cleanup;
+	if (state_reachable(&run->sdg, callbacks, n_callback,
+	                    t->from_callback) != 0)
 		goto cleanup;
 
 	status = 0;
 
 cleanup:
 	free(entries);
-	free(root_nodes);
+	free(handlers);
+	free(callbacks);
 	return status;
 }
 
-/* Mark the re-entrant functions on the per-function records (HLR-228).
+/* Mark the re-entrant and the handler functions on the per-function records
+ * (HLR-228, HLR-233).
  *
  * Here rather than in `report.c` because it needs both the report and the
  * graph, and `report.h` is deliberately not given sight of the graph: the
@@ -501,13 +644,18 @@ cleanup:
  * name, because a name is not unique across translation units and a `static`
  * helper repeated in three files would otherwise take the first one's mark
  * (HLR-075, LLR-BLD-25).
+ *
+ * **Each mark is set and never cleared**, which matters because the match is
+ * not one-to-one: two nodes can share a start line — a nested function declared
+ * on the line its enclosing body opens — and an assignment would let the second
+ * take back what the first established.
  */
-static void mark_reentrant_records(Run *run, const bool *reentrant)
+static void mark_records(Run *run, const bool *reentrant)
 {
 	for (size_t n = 0; n < run->sdg.node_count; n++) {
 		const SdgNode *node = &run->sdg.nodes[n];
 
-		if (!reentrant[n] || !node->file)
+		if (!node->file || (!reentrant[n] && !node->is_interrupt))
 			continue;
 
 		for (size_t i = 0; i < run->report.file_count; i++) {
@@ -515,10 +663,15 @@ static void mark_reentrant_records(Run *run, const bool *reentrant)
 
 			if (!f->path || strcmp(f->path, node->file) != 0)
 				continue;
-			for (size_t j = 0; j < f->function_count; j++)
-				if (f->functions[j].start_line ==
+			for (size_t j = 0; j < f->function_count; j++) {
+				if (f->functions[j].start_line !=
 				    node->line_start)
+					continue;
+				if (reentrant[n])
 					f->functions[j].is_reentrant = true;
+				if (node->is_interrupt)
+					f->functions[j].is_interrupt = true;
+			}
 		}
 	}
 }
@@ -529,17 +682,15 @@ static void mark_reentrant_records(Run *run, const bool *reentrant)
  * above keeps that function under the complexity threshold `elc` enforces on
  * everyone else (LLR-BLD-23).
  */
-static int record_concurrency(Run *run, const bool *reentrant, size_t n)
+static int record_concurrency(Run *run, const ThreadTrees *t, size_t n)
 {
-	for (size_t i = 0; i < run->async_roots.count; i++)
-		run->sdg.nodes[run->async_roots.items[i].node]
-		        .is_async_root = true;
 	for (size_t i = 0; i < n; i++)
-		run->sdg.nodes[i].is_reentrant = reentrant[i];
+		run->sdg.nodes[i].is_reentrant = t->reentrant[i];
 
-	mark_reentrant_records(run, reentrant);
+	mark_records(run, t->reentrant);
 
-	return publish_concurrency(run, reentrant, CONCURRENCY_MEASURED);
+	return publish_concurrency(run, t->reentrant, t->via,
+	                           CONCURRENCY_MEASURED);
 }
 
 /* The second thread of control (HLR-227 - HLR-231).
@@ -556,59 +707,79 @@ static int record_concurrency(Run *run, const bool *reentrant, size_t n)
  */
 static int analyse_concurrency(Run *run)
 {
-	const SymbolSet *image = run->opts.image_path ? &run->image : NULL;
-	bool            *reentrant  = NULL;
-	bool            *from_main  = NULL;
-	bool            *from_async = NULL;
-	size_t           n          = run->sdg.node_count;
-	int              status     = -1;
-
-	if (concurrency_roots(&run->sdg, &run->opts, image,
-	                      &run->async_roots) != 0)
-		return -1;
+	ThreadTrees t;
+	size_t      n      = run->sdg.node_count;
+	int         status = -1;
 
 	/* **Published before the early return, not after it.** The state is
 	 * the whole point of this analysis where there are no roots: a run
 	 * given no evidence has not looked, and a reader who sees nothing must
 	 * be told which of the two happened (HLR-115, HLR-227). */
 	if (run->async_roots.state != ROOTS_IDENTIFIED || !n)
-		return publish_concurrency(run, NULL,
+		return publish_concurrency(run, NULL, NULL,
 			run->async_roots.state == ROOTS_NO_EVIDENCE
 			        ? CONCURRENCY_OMITTED_NO_EVIDENCE
 			        : CONCURRENCY_NO_ROOTS);
 
-	reentrant  = calloc(n, sizeof *reentrant);
-	from_main  = calloc(n, sizeof *from_main);
-	from_async = calloc(n, sizeof *from_async);
-	if (!reentrant || !from_main || !from_async)
+	if (trees_alloc(&t, n) != 0)
+		return -1;
+
+	if (concurrency_trees(run, &run->async_roots, &t) != 0)
 		goto cleanup;
 
-	if (concurrency_trees(run, &run->async_roots, from_main, from_async,
-	                      reentrant) != 0)
+	if (concurrency_qualifiers(&run->sdg, t.from_main, t.from_handler,
+	                           t.from_callback, &run->findings) != 0 ||
+	    concurrency_sections(&run->sdg, t.reentrant, &run->findings) != 0)
 		goto cleanup;
 
-	if (concurrency_qualifiers(&run->sdg, from_main, from_async,
-	                           &run->findings) != 0 ||
-	    concurrency_sections(&run->sdg, reentrant, &run->findings) != 0)
+	if (record_concurrency(run, &t, n) != 0)
 		goto cleanup;
 
-	if (record_concurrency(run, reentrant, n) != 0)
-		goto cleanup;
-
-	run->reentrant = reentrant;
-	reentrant      = NULL;
+	run->reentrant = t.reentrant;
+	t.reentrant    = NULL;
 	status         = 0;
 
 cleanup:
-	free(reentrant);
-	free(from_main);
-	free(from_async);
+	trees_free(&t);
 	return status;
+}
+
+/* The asynchronous roots, identified as soon as the graph exists (HLR-227).
+ *
+ * **Before the measurements, not with the rest of the concurrency analysis,
+ * and the order is the fix rather than a tidying.** Reachability's root set
+ * includes them (LLR-STA-05), and reachability runs first — so identifying them
+ * afterwards left every handler and everything below it reported as dead code
+ * on one page while the next page listed the same functions as the roots of the
+ * second thread of control. Nothing here reads a measurement, so there is
+ * nothing to run it after.
+ */
+static int identify_async_roots(Run *run)
+{
+	const SymbolSet *image = run->opts.image_path ? &run->image : NULL;
+
+	if (concurrency_roots(&run->sdg, &run->opts, image,
+	                      &run->async_roots) != 0) {
+		diag_printf("elc: out of memory identifying asynchronous "
+		            "roots\n");
+		return -1;
+	}
+
+	for (size_t i = 0; i < run->async_roots.count; i++) {
+		const AsyncRoot *r = &run->async_roots.items[i];
+
+		run->sdg.nodes[r->node].is_async_root = true;
+		run->sdg.nodes[r->node].is_interrupt  =
+			root_is_handler(r->origin);
+	}
+
+	return 0;
 }
 
 static int analyse_graph(Run *run)
 {
 	if (build_dependence_graph(run) != 0 ||
+	    identify_async_roots(run) != 0 ||
 	    analyse_measurements(run) != 0 ||
 	    analyse_recovery(run) != 0)
 		return -1;
@@ -763,6 +934,11 @@ static int emit(Run *run)
 		}
 	}
 
+	/* The diagnostic block closes here, immediately before the report it
+	 * precedes: one blank line where anything was diagnosed, and nothing
+	 * where a clean run diagnosed nothing (HLR-236). */
+	diag_banner_end();
+
 	/* Results go to the selected destination and nothing else does; every
 	 * diagnostic above and below went to stderr (HLR-038, LLR-MAIN-12). */
 	if (render_to(&run->report, &run->sdg, &run->opts, run->out) != 0) {
@@ -817,6 +993,28 @@ static int open_debug_companion(Run *run, int argc, char *argv[])
 	return status;
 }
 
+/* Head this run's diagnostics, where the report they precede is the aligned
+ * table (HLR-236).
+ *
+ * The banner is a frame around a terminal session. A run whose report is a
+ * saved document, a record, a companion or a drawing has no such session to
+ * frame, and a heading on its standard error would be decoration nobody asked
+ * for. `diag` writes it on the first diagnostic, so a clean run heads nothing.
+ *
+ * Called after `cli_parse`, because a usage error is diagnosed before a format
+ * is known and before any file is read — heading that "Parsing Notifications"
+ * would describe work that never began.
+ *
+ * A function of its own rather than a test inline, because with it inline
+ * `main` stood at fifteen against the threshold `elc` enforces on everyone
+ * else, and said so of itself (LLR-BLD-23).
+ */
+static void arm_diagnostic_banner(const ElcOptions *opts)
+{
+	if (opts->format == FORMAT_TABLE)
+		diag_banner("Parsing Notifications");
+}
+
 int main(int argc, char *argv[])
 {
 	Run run    = { 0 };
@@ -848,6 +1046,8 @@ int main(int argc, char *argv[])
 
 	if (open_debug_companion(&run, argc, argv) != 0)
 		run.failures++;
+
+	arm_diagnostic_banner(&run.opts);
 
 	/* A saved record is its own input: no source file is read, no language
 	 * module is loaded, and nothing is discovered (HLR-055, LLR-MAIN-03).

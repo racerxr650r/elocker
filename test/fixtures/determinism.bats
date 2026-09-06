@@ -28,7 +28,7 @@ report() {
 	# a.c, then m/n.c, then z.c — z.c was written to the tree first.
 	local paths
 	# Scoped to the Files section; the Functions section repeats each path.
-	paths="$(awk '/^Files$/ { f = 1; next } f && /^$/ { f = 0 } f && /^  \// { print $1 }' <<<"$output")"
+	paths="$(awk '/^Files [(]/ { f = 1; next } f && /^$/ { f = 0 } f && /^  \// { print $1 }' <<<"$output")"
 	assert_equal "$paths" "$(sort <<<"$paths")"
 }
 

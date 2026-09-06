@@ -43,7 +43,7 @@ elc_with_runtime() {
 @test "HLR-036: an absent runtime directory is fatal before any file is read" {
 	elc_with_runtime "$BATS_TEST_TMPDIR/not-here" "$SUBJECT"
 	assert_equal "$status" 2
-	refute_output --partial "Project summary"
+	refute_output --partial "Project Summary"
 }
 
 @test "HLR-036: a runtime location that is a file is fatal" {
@@ -77,7 +77,7 @@ elc_with_runtime() {
 # not by itself make the exit status non-zero.
 assert_degraded_not_failed() {
 	assert_success
-	assert_output --partial "Skipped files"
+	assert_output --partial "Skipped Files"
 	assert_output --partial "subject.c"
 }
 

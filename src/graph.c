@@ -311,6 +311,11 @@ static int build_nodes(const Report *report, Sdg *g)
 			n->mock_burden = fm->functions[i].mock_burden;
 			n->leaks_lock   = fm->functions[i].leaks_lock;
 			n->cfg_complete = fm->functions[i].cfg_complete;
+			/* Borrowed like every other string here: the report
+			 * model outlives the graph, and NULL wherever the
+			 * source name is the linkage name (HLR-233). */
+			n->linkage_name  = fm->functions[i].linkage_name;
+			n->macro_defined = fm->functions[i].macro_defined;
 		}
 	}
 

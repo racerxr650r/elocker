@@ -106,7 +106,7 @@ setup() {
 @test "an accepted invocation writes its report to stdout" {
 	run bash -c '"$0" "$1" 2>/dev/null' "$ELC" "$REPO_ROOT/src/main.c"
 	assert_success
-	assert_output --partial "Project summary"
+	assert_output --partial "Project Summary"
 }
 
 # --- zero configuration (HLR-039) -----------------------------------------

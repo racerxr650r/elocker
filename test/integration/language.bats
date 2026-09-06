@@ -80,7 +80,7 @@ setup() {
 	assert_success
 
 	local langs
-	langs="$(awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+	langs="$(awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
 	              f && /^  \// { print $2 }' <<<"$output" | sort -u |
 	         tr '\n' ' ')"
 	assert_equal "$langs" "c python "
@@ -95,7 +95,7 @@ setup() {
 	assert_success
 
 	local header
-	header="$(awk '/^Functions$/ { f = 1; next }
+	header="$(awk '/^Functions [(]/ { f = 1; next }
 	               f && $1 == "File" { print $1, $2, $3, $4; exit }' \
 	          <<<"$output")"
 	assert_equal "$header" "File Lang Function Scope"
@@ -108,7 +108,7 @@ setup() {
 	assert_success
 
 	local names
-	names="$(awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+	names="$(awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
 	              f && /^  \// { print $3 }' <<<"$output")"
 	assert_equal "$names" "zeta
 alpha"
@@ -120,7 +120,7 @@ alpha"
 	printf '# not source\n' > "$TREE/notes.md"
 	elc --verbose "$TREE"
 	assert_success
-	assert_output --partial "Skipped files"
+	assert_output --partial "Skipped Files"
 	assert_output --partial "notes.md"
 }
 
@@ -195,7 +195,7 @@ alpha"
 	printf 'int sound(void) { return 0; }\nint broken(void) { ((( \n' \
 		> "$TREE/half.c"
 	run bash -c '"$0" --verbose "$1" 2>/dev/null' "$ELC" "$TREE/half.c"
-	assert_output --partial "Partially parsed files"
+	assert_output --partial "Partially Parsed Files"
 	assert_output --partial "half.c"
 	assert_output --regexp "Unparsed lines +[1-9]"
 }
@@ -209,7 +209,7 @@ alpha"
 
 	local rows
 	rows="$(printf '%s\n' "$output" |
-		awk '/^Partially parsed/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Partially Parsed/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /^  \// { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "0"
 }

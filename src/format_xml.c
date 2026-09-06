@@ -174,10 +174,26 @@ static void write_files(const Report *report, FILE *out)
 			fprintf(out, " start-line=\"%" PRIu32 "\" end-line=\"%"
 			        PRIu32 "\" eloc=\"%" PRIu32 "\" complexity=\"%"
 			        PRIu32 "\" visibility=\"%d\""
-			        " mock-burden=\"%.2f\" reentrant=\"%d\"/>\n",
+			        " mock-burden=\"%.2f\" reentrant=\"%d\"",
 			        fn->start_line, fn->end_line,
 			        fn->eloc, fn->complexity, (int)fn->visibility,
 			        fn->mock_burden, fn->is_reentrant ? 1 : 0);
+			/* Both facts about the second thread of control, and
+			 * neither recomputable from a record: regeneration has
+			 * no graph to walk and no image to join against, so a
+			 * regenerated report without them would disagree with a
+			 * direct one about which functions are handlers
+			 * (HLR-152, HLR-233). The linkage name goes with them
+			 * because it is what the join produced. */
+			fprintf(out, " interrupt=\"%d\" macro-defined=\"%d\""
+			        " critical-section=\"%d\"",
+			        fn->is_interrupt ? 1 : 0,
+			        fn->macro_defined ? 1 : 0,
+			        fn->has_critical_section ? 1 : 0);
+			if (fn->linkage_name)
+				write_attribute(out, "linkage",
+				                fn->linkage_name);
+			fputs("/>\n", out);
 		}
 
 		fputs("    </file>\n", out);
@@ -304,13 +320,17 @@ static void write_state(const Report *report, FILE *out)
 		write_attribute(out, "function",
 		                report->async_roots[i].function);
 		write_attribute(out, "file", report->async_roots[i].file);
-		fprintf(out, " by-address=\"%d\"/>\n",
-		        report->async_roots[i].by_address ? 1 : 0);
+		fprintf(out, " by-address=\"%d\" by-wrapper=\"%d\"/>\n",
+		        report->async_roots[i].by_address ? 1 : 0,
+		        report->async_roots[i].by_wrapper ? 1 : 0);
 	}
 	for (size_t i = 0; i < report->reentrant_count; i++) {
 		fputs("    <reentrant", out);
-		write_attribute(out, "function", report->reentrant[i]);
-		fputs("/>\n", out);
+		write_attribute(out, "function", report->reentrant[i].function);
+		write_attribute(out, "file", report->reentrant[i].file);
+		write_attribute(out, "via", report->reentrant[i].via);
+		fprintf(out, " via-handler=\"%d\"/>\n",
+		        report->reentrant[i].via_handler ? 1 : 0);
 	}
 
 	fputs("  </state>\n", out);
@@ -393,6 +413,15 @@ static void write_image(const Report *report, FILE *out)
 
 	fputs("  <image", out);
 	write_attribute(out, "path", report->image);
+	/* What the image was built for and whether it carried debug
+	 * information, both stated in the project summary and neither
+	 * recomputable from a record: regeneration has no image to read them
+	 * off, so a report rebuilt without them would name an image and then
+	 * say "N/A" about it (HLR-152, HLR-239). */
+	if (report->image_target)
+		write_attribute(out, "target", report->image_target);
+	fprintf(out, " debug-info=\"%d\"",
+	        report->image_debug_info ? 1 : 0);
 	/* The line-granularity counts travel with the image element rather
 	 * than with the per-file metrics, for the reason file-scope ELOC does:
 	 * they are properties of what the filter did to the run, and
@@ -741,7 +770,7 @@ typedef struct {
 	ConcurrencyState    concurrency_state;
 	AsyncRootRow       *async_roots;
 	size_t              async_root_count;
-	char              **reentrant;
+	ReentrantRow       *reentrant;
 	size_t              reentrant_count;
 	GlobalStateRow     *global_state;
 	size_t              global_state_count;
@@ -786,6 +815,8 @@ typedef struct {
 	uint64_t            undecided_regions;
 	char               *image;
 	uint64_t            image_unresolved;
+	char               *image_target;
+	bool                image_debug_info;
 	uint64_t            file_scope_eloc;
 	uint64_t            pruned_lines;
 	uint64_t            uncovered_files;
@@ -1201,6 +1232,7 @@ static void on_async_root(ReadState *state, const XML_Char **atts)
 	const char   *fn   = attribute(atts, "function");
 	const char   *file = attribute(atts, "file");
 	const char   *addr = attribute(atts, "by-address");
+	const char   *wrap = attribute(atts, "by-wrapper");
 	AsyncRootRow *grown;
 
 	if (!fn) {
@@ -1222,6 +1254,10 @@ static void on_async_root(ReadState *state, const XML_Char **atts)
 	row->function   = strdup(fn);
 	row->file       = strdup(file ? file : "");
 	row->by_address = addr && strtol(addr, NULL, 10) != 0;
+	/* Absent from a record an older `elc` wrote, which knew two origins.
+	 * False is the right reading of its absence: that `elc` admitted a root
+	 * by an address or by a pattern and never by a macro (HLR-056). */
+	row->by_wrapper = wrap && strtol(wrap, NULL, 10) != 0;
 	if (!row->function || !row->file) {
 		fail(state, "out of memory");
 		return;
@@ -1231,8 +1267,11 @@ static void on_async_root(ReadState *state, const XML_Char **atts)
 
 static void on_reentrant(ReadState *state, const XML_Char **atts)
 {
-	const char *fn = attribute(atts, "function");
-	char      **grown;
+	const char   *fn   = attribute(atts, "function");
+	const char   *file = attribute(atts, "file");
+	const char   *via  = attribute(atts, "via");
+	const char   *hand = attribute(atts, "via-handler");
+	ReentrantRow *grown;
 
 	if (!fn) {
 		fail(state, "a reentrant element is incomplete");
@@ -1246,8 +1285,15 @@ static void on_reentrant(ReadState *state, const XML_Char **atts)
 		return;
 	}
 	state->reentrant = grown;
-	state->reentrant[state->reentrant_count] = strdup(fn);
-	if (!state->reentrant[state->reentrant_count]) {
+
+	ReentrantRow *row = &state->reentrant[state->reentrant_count];
+
+	memset(row, 0, sizeof *row);
+	row->function    = strdup(fn);
+	row->file        = strdup(file ? file : "");
+	row->via         = strdup(via ? via : "");
+	row->via_handler = hand && strtol(hand, NULL, 10) != 0;
+	if (!row->function || !row->file || !row->via) {
 		fail(state, "out of memory");
 		return;
 	}
@@ -1481,6 +1527,23 @@ static void on_image(ReadState *state, const XML_Char **atts)
 		fail(state, "out of memory");
 		return;
 	}
+	const char *target = attribute(atts, "target");
+	const char *dbg    = attribute(atts, "debug-info");
+
+	free(state->image_target);
+	state->image_target = NULL;
+	if (target) {
+		state->image_target = strdup(target);
+		if (!state->image_target) {
+			fail(state, "out of memory");
+			return;
+		}
+	}
+	/* Absent from a record an older `elc` wrote, which read as no debug
+	 * information — the honest reading, that build having had no way to
+	 * establish otherwise (HLR-056). */
+	state->image_debug_info = dbg && strtol(dbg, NULL, 10) != 0;
+
 	state->image_unresolved = uint_attribute(state, atts,
 	                                         "unresolved");
 	state->file_scope_eloc  = uint_attribute(state, atts,
@@ -1837,6 +1900,32 @@ static void on_dsm_subject(ReadState *state, const XML_Char **atts)
  * document, so the order of the matrix is known before any index into it
  * arrives. A record whose cells preceded its subjects would name indices into
  * a grid of unknown size, and those cells are dropped rather than guessed at. */
+/* The matrix's grid, allocated once the subject count is known (LLR-XRD-25).
+ *
+ * **A record writes only its non-zero cells**, so a matrix of one subject that
+ * calls nothing — or of several that never call each other — carries subjects
+ * and no `dsm-cell` element at all. Allocated on the first cell alone, the grid
+ * of such a record stays NULL while its count says there are subjects, and the
+ * renderer walks a null pointer over `count * count` cells. A matrix over a
+ * single-component tree is the commonest shape there is, so this was reachable
+ * by `--from-xml --verbose` on almost any record.
+ *
+ * Returns 0 with `cells` allocated, or -1 having failed the parse.
+ */
+static int dsm_cells_ready(ReadState *state)
+{
+	if (state->dsm.cells)
+		return 0;
+
+	state->dsm.cells = calloc(state->dsm.count * state->dsm.count,
+	                          sizeof *state->dsm.cells);
+	if (!state->dsm.cells) {
+		fail(state, "out of memory");
+		return -1;
+	}
+	return 0;
+}
+
 static void on_dsm_cell(ReadState *state, const XML_Char **atts)
 {
 	uint64_t row   = uint_attribute(state, atts, "row");
@@ -1846,14 +1935,8 @@ static void on_dsm_cell(ReadState *state, const XML_Char **atts)
 	if (state->dsm.count == 0)
 		return;
 
-	if (!state->dsm.cells) {
-		state->dsm.cells = calloc(state->dsm.count * state->dsm.count,
-		                          sizeof *state->dsm.cells);
-		if (!state->dsm.cells) {
-			fail(state, "out of memory");
-			return;
-		}
-	}
+	if (dsm_cells_ready(state) != 0)
+		return;
 
 	if (row >= state->dsm.count || col >= state->dsm.count) {
 		fail(state, "a dsm-cell element names a cell outside the grid");
@@ -2193,11 +2276,25 @@ static void on_function(ReadState *state, const XML_Char **atts)
 		/* Optional, like every attribute added after a format version
 		 * was cut: absent means the base tax was never measured, and
 		 * zero is the value that says so (LLR-XRD-04). */
-		const char *mb = attribute(atts, "mock-burden");
-		const char *re = attribute(atts, "reentrant");
+		const char *mb   = attribute(atts, "mock-burden");
+		const char *re   = attribute(atts, "reentrant");
+		const char *irq  = attribute(atts, "interrupt");
+		const char *macd = attribute(atts, "macro-defined");
+		const char *link = attribute(atts, "linkage");
+		const char *sect = attribute(atts, "critical-section");
 
-		fn->mock_burden  = mb ? strtod(mb, NULL) : 0.0;
-		fn->is_reentrant = re && strtol(re, NULL, 10) != 0;
+		fn->mock_burden   = mb ? strtod(mb, NULL) : 0.0;
+		fn->is_reentrant  = re && strtol(re, NULL, 10) != 0;
+		fn->is_interrupt  = irq && strtol(irq, NULL, 10) != 0;
+		fn->macro_defined = macd && strtol(macd, NULL, 10) != 0;
+		fn->has_critical_section = sect && strtol(sect, NULL, 10) != 0;
+		if (link) {
+			fn->linkage_name = strdup(link);
+			if (!fn->linkage_name) {
+				fail(state, "out of memory");
+				return;
+			}
+		}
 	}
 	/* Absent in a record written before the field existed, which reads back
 	 * as unknown — the honest answer for a run that could not have
@@ -2430,6 +2527,7 @@ static void free_source_state(ReadState *state)
 	}
 	free(state->placed);
 	free(state->image);
+	free(state->image_target);
 	for (size_t i = 0; i < state->dead_unanalysed.count; i++)
 		free(state->dead_unanalysed.paths[i]);
 	free(state->dead_unanalysed.paths);
@@ -2539,6 +2637,12 @@ static void move_to_report(ReadState *state, Report *out)
 	out->layering_count           = state->layering_count;
 	out->back_call                = state->back_call;
 	out->skip_call                = state->skip_call;
+	/* A record whose matrix has subjects and no non-zero cell reaches here
+	 * with no grid allocated, no `dsm-cell` element having called for one.
+	 * The renderer reads `count * count` cells whatever they hold, so the
+	 * grid is made before the model is handed over (LLR-XRD-25). */
+	if (state->dsm.count && !state->dsm.cells)
+		(void)dsm_cells_ready(state);
 	out->dsm                      = state->dsm;
 	out->purification             = state->purification;
 	out->purification_count       = state->purification_count;
@@ -2570,6 +2674,8 @@ static void move_to_report(ReadState *state, Report *out)
 	 * record was written, and re-sorting a record's contents would let a
 	 * regenerated report disagree with the one it came from. */
 	out->image                      = state->image;
+	out->image_target               = state->image_target;
+	out->image_debug_info           = state->image_debug_info;
 	out->image_unresolved           = state->image_unresolved;
 	out->file_scope_eloc            = state->file_scope_eloc;
 	out->pruned_lines               = state->pruned_lines;
@@ -2608,6 +2714,7 @@ static void move_to_report(ReadState *state, Report *out)
 	state->definitions              = NULL;
 	state->definition_count         = 0;
 	state->image                    = NULL;
+	state->image_target             = NULL;
 	state->absent                   = NULL;
 	state->absent_count             = 0;
 	state->placed                   = NULL;

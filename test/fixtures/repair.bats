@@ -28,7 +28,7 @@ summary() {
 # One function's ELOC and complexity from the one function table.
 figures() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
+		awk -v want="$1" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
 		                  f && $3 == want { print $6, $7 }'
 }
 
@@ -110,7 +110,7 @@ figures() {
 	# artefact nobody opens.
 	elc --verbose --no-expand "$TREE/shapes.c"
 	assert_success
-	assert_output --partial "Repaired regions"
+	assert_output --partial "Repaired Regions"
 	assert_output --regexp "shapes\.c +macro adjacent to a string +1"
 	assert_output --regexp "shapes\.c +macro before a declaration +1"
 	assert_output --regexp "shapes\.c +macro as a declarator +1"
@@ -122,20 +122,21 @@ figures() {
 	elc --no-expand --format xml -o "$BATS_TEST_TMPDIR/r.xml" "$TREE/shapes.c"
 	assert_success
 	# A saved record regenerates as Markdown and no other format, so the
-	# rows come back inside a table rather than a column layout.
-	elc --no-expand --from-xml "$BATS_TEST_TMPDIR/r.xml"
+	# rows come back inside a table rather than a column layout — and
+	# verbosely, the repairs being a detail tier (HLR-150).
+	elc --no-expand --from-xml "$BATS_TEST_TMPDIR/r.xml" --verbose
 	assert_success
-	assert_output --partial "Repaired regions"
+	assert_output --partial "Repaired Regions"
 	assert_output --regexp "\| macro as a declarator +\| +1 \|"
 }
 
 @test "HLR-199: a sound file declares no repairs at all" {
 	elc --verbose --no-expand "$TREE/sound.c"
 	assert_success
-	refute_output --regexp "^Repaired regions"
+	refute_output --regexp "^Repaired Regions"
 	# Named among the tables that were empty, which is how the report
 	# distinguishes "none found" from "not looked for".
-	assert_output --partial "    - Repaired regions"
+	assert_output --partial "    - Repaired Regions"
 }
 
 @test "HLR-196: an expanded file is not repaired, an unexpanded one is" {
@@ -148,12 +149,12 @@ figures() {
 
 	elc --verbose "$TREE/shapes.c"
 	assert_success
-	refute_output --regexp "^Repaired regions"
-	assert_output --partial "    - Repaired regions"
+	refute_output --regexp "^Repaired Regions"
+	assert_output --partial "    - Repaired Regions"
 
 	elc --verbose --no-expand "$TREE/shapes.c"
 	assert_success
-	assert_output --partial "Repaired regions"
+	assert_output --partial "Repaired Regions"
 }
 
 @test "HLR-196: both paths measure the same functions" {
@@ -195,7 +196,7 @@ figures() {
 	elc --verbose "$BATS_TEST_TMPDIR/declined.c"
 	assert_success
 	assert_output --partial "a condition in it is undecidable"
-	assert_output --partial "Repaired regions"
+	assert_output --partial "Repaired Regions"
 	assert_equal "$(summary 'Unparsed lines')" "0" "the declined file was repaired"
 }
 

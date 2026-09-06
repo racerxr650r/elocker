@@ -21,8 +21,8 @@ setup() {
 @test "HLR-027: table is the format when none is selected" {
 	elc "$TREE"
 	assert_success
-	assert_output --partial "Project summary"
-	refute_output --partial "## Project summary"
+	assert_output --partial "Project Summary"
+	refute_output --partial "## Project Summary"
 }
 
 @test "HLR-027: table may also be selected explicitly" {
@@ -57,7 +57,7 @@ setup() {
 	# failing, which is the property the test's name claims.
 	local want
 	want="$("$ELC" --verbose "$TREE" 2>/dev/null |
-		sed -n '/^Functions$/,$p' | sed -n '2p' |
+		sed -n '/^Functions [(]/,$p' | sed -n '2p' |
 		tr -s ' ' | sed 's/^ //; s/ $//' | tr ' ' ',' |
 		tr '[:upper:]' '[:lower:]')"
 	[ -n "$want" ]
@@ -73,7 +73,7 @@ setup() {
 @test "HLR-029: md produces GitHub-Flavored Markdown" {
 	elc -f md "$TREE"
 	assert_success
-	assert_output --partial "## Project summary"
+	assert_output --partial "## Project Summary"
 	assert_output --partial "| File "
 }
 
@@ -108,9 +108,12 @@ setup() {
 	# both formats and says the same thing there; which tiers each shows
 	# *by default* is the second axis HLR-150 opened and HLR-218 widened,
 	# and it is asserted in verbosity.bats rather than here.
+	# The row counts of HLR-235 are a decoration of the aligned style, so
+	# they are stripped before the two lists of tiers are compared.
 	elc --verbose "$TREE"
 	local plain
-	plain="$(grep -E '^[A-Z]' <<<"$output")"
+	plain="$(grep -E '^[A-Z]' <<<"$output" |
+		grep -v '^Parsing Notifications$' | sed -E 's/ \([0-9]+\)$//')"
 
 	elc --verbose -f md "$TREE"
 	local marked
@@ -124,11 +127,11 @@ setup() {
 	# tier is not printed — and both formats say so, in the same words
 	# (HLR-188, HLR-189).
 	elc --verbose "$TREE"
-	refute_output --regexp "^At or over a threshold"
-	assert_output --partial "- At or over a threshold"
+	refute_output --regexp "^At Or Over A Threshold"
+	assert_output --partial "- At Or Over A Threshold"
 	elc --verbose -f md "$TREE"
-	refute_output --regexp "^## At or over a threshold"
-	assert_output --partial "- At or over a threshold"
+	refute_output --regexp "^## At Or Over A Threshold"
+	assert_output --partial "- At Or Over A Threshold"
 }
 
 @test "HLR-190: every Markdown table sits inside a disclosure element" {
@@ -260,7 +263,7 @@ setup() {
 	# The filename has already said what the format is; nothing should have
 	# to say it twice. Each file is identified by a marker only that format
 	# produces.
-	for pair in "txt:Project summary" "md:## Project summary" \
+	for pair in "txt:Project Summary" "md:## Project Summary" \
 	            "csv:file,lang,function" "xml:<?xml"; do
 		local extension="${pair%%:*}" marker="${pair#*:}"
 		local file="$BATS_TEST_TMPDIR/named.$extension"
@@ -271,7 +274,7 @@ setup() {
 		run head -1 "$file"
 		case "$extension" in
 		txt|csv|xml) assert_output --partial "$marker" ;;
-		md)          run grep -c "^## Project summary$" "$file"
+		md)          run grep -c "^## Project Summary$" "$file"
 		             assert_output "1" ;;
 		esac
 	done
@@ -333,7 +336,7 @@ setup() {
 	run bash -c '"$0" -f md -o "$1" "$2" 2>/dev/null' "$ELC" \
 		"$BATS_TEST_TMPDIR/agree.md" "$TREE"
 	assert_success
-	run grep -c "^## Project summary$" "$BATS_TEST_TMPDIR/agree.md"
+	run grep -c "^## Project Summary$" "$BATS_TEST_TMPDIR/agree.md"
 	assert_output "1"
 }
 
@@ -377,7 +380,7 @@ setup() {
 	run bash -c '"$0" --from-xml "$1" -o "$2" 2>/dev/null' "$ELC" \
 		"$BATS_TEST_TMPDIR/rec.xml" "$BATS_TEST_TMPDIR/out.md"
 	assert_success
-	run grep -c "^## Project summary$" "$BATS_TEST_TMPDIR/out.md"
+	run grep -c "^## Project Summary$" "$BATS_TEST_TMPDIR/out.md"
 	assert_output "1"
 }
 

@@ -122,7 +122,7 @@ int format_csv(const Report *report, FILE *out)
 			const char *fields[] = {
 				where, f->language ? f->language : "",
 				fn->name, csv_visibility(fn->visibility),
-				fn->is_reentrant ? "R" : "",
+				concurrency_mark(fn),
 				lines, eloc, complexity, fan_in, fan_out,
 				wtbi, elc_wtbi_status(fn->wtbi)
 			};

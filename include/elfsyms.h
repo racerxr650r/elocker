@@ -50,6 +50,31 @@ typedef struct {
 	 * information, which is what makes an ambiguous name fatal rather than
 	 * silently resolved (HLR-193). */
 	OriginMap    origins;
+	/* The compile-time include directories the same debug information
+	 * records, read from the same open for the reason the two above it
+	 * are (HLR-141, HLR-238). Handed to the preprocessor as `-I` paths, so
+	 * that naming an image improves the *expansion* as well as narrowing
+	 * the measurement — a cross-compiled target whose headers are not
+	 * beside its sources expands where it previously fell back. Empty
+	 * where the build wrote no debug information. */
+	IncludeDirs  include_dirs;
+	/* What the image says it was built for and built with — the two things
+	 * a reader needs before any figure beneath them means anything, since
+	 * every one of those figures describes a different program when an
+	 * image is in force (HLR-239).
+	 *
+	 * `target` is the most specific description the image carries: the
+	 * device where a toolchain recorded one, and the architecture from the
+	 * ELF header otherwise. NULL where the machine is one `elc` has no
+	 * name for, which the report states rather than guessing at.
+	 *
+	 * `debug_info` is whether the image carried any debug information at
+	 * all. It governs three of the analyses — line pruning, the placement
+	 * of macro-written definitions, and the include paths of HLR-238 — and
+	 * a reader who does not know an image was stripped cannot tell an
+	 * analysis that found nothing from one that could not look. */
+	char        *target;      /* owned */
+	bool         debug_info;
 } SymbolSet;
 
 /* Read the named image and populate its function set.

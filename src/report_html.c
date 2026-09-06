@@ -424,8 +424,16 @@ static int concurrency_fields(json_t *data, const SdgNode *n)
 
 	if (n->is_async_root)
 		rc |= set_new(data, "is_async_root", json_true());
+	if (n->is_interrupt)
+		rc |= set_new(data, "is_interrupt", json_true());
 	if (n->is_reentrant)
 		rc |= set_new(data, "is_reentrant", json_true());
+	/* What the linker calls it, where that is not what the source calls it.
+	 * Carried because the drawing is where a reader meets the handler by
+	 * its source name and the image's tables name it otherwise (HLR-233). */
+	if (n->linkage_name)
+		rc |= set_new(data, "linkage_name",
+		              json_string(n->linkage_name));
 
 	/* The violations as a list, and omitted where there are none: the
 	 * stylesheet tests for presence, and an empty array on every node says
@@ -501,14 +509,17 @@ static int function_fields(json_t *data, const SdgNode *n, size_t index,
 	rc |= set_new(data, "id", json_string(id));
 	/* **The mark is in the label, not a column, because the drawing has no
 	 * columns.** A node is a box with a name in it, and a reader scanning
-	 * the graph for the functions two threads can be inside has nowhere
-	 * else to look. `is_reentrant` is carried as well, for a stylesheet
-	 * that wants to select on it rather than read it (HLR-228, HLR-232).
+	 * the graph for the second thread of control has nowhere else to look.
+	 * The two marks are the ones the function table carries and are spelled
+	 * the same way, so a reader moving between the two forms meets one
+	 * vocabulary (HLR-228, HLR-232, HLR-233). The flags are carried as well,
+	 * for a stylesheet that wants to select on them rather than read them.
 	 */
-	if (n->is_reentrant) {
+	if (n->is_interrupt || n->is_reentrant) {
 		char label[512];
 
-		snprintf(label, sizeof label, "%s (R)", n->name);
+		snprintf(label, sizeof label, "%s (%s)", n->name,
+		         n->is_interrupt ? "I" : "R");
 		rc |= set_new(data, "label", json_string(label));
 	} else {
 		rc |= set_new(data, "label", json_string(n->name));

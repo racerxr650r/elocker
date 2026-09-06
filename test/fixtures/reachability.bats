@@ -18,30 +18,30 @@ setup() {
 # and terminated at its blank line: names appear in half a dozen others.
 unreachable() {
 	printf '%s\n' "$output" |
-		awk '/^Unreachable functions/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Unreachable Functions/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /^  \// { print $2 }'
 }
 
-reach_heading() { heading_of "Unreachable functions"; }
+reach_heading() { heading_of "Unreachable Functions"; }
 
 unreachable_globals() {
 	printf '%s\n' "$output" |
-		awk '/^Unreachable globals/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Unreachable Globals/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && NF && $1 != "Object" && $1 !~ /^-+$/ { print $1 }'
 }
 
-# One global's row from the Global state section: writers, readers, finding.
+# One global's row from the Global State section: writers, readers, finding.
 global_row() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Global state/ { f = 1; next } f && /^$/ { f = 0 }
+		awk -v want="$1" '/^Global State/ { f = 1; next } f && /^$/ { f = 0 }
 		                  f && $1 == want { $1 = ""; sub(/^ +/, ""); print }'
 }
 
-scope_heading() { heading_of "Cross-scope access"; }
+scope_heading() { heading_of "Cross-Scope Access"; }
 
 cross_scope() {
 	printf '%s\n' "$output" |
-		awk '/^Cross-scope access/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Cross-Scope Access/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && NF && $1 != "From" && $1 !~ /^-+$/ { print }'
 }
 
@@ -95,7 +95,7 @@ orphan"
 	assert_success
 	assert_equal "$(unreachable)" ""
 	assert_equal "$(reach_heading)" \
-		"Unreachable functions (omitted: no entry points declared, see --entry)"
+		"Unreachable Functions (omitted: no entry points declared, see --entry)"
 }
 
 @test "HLR-115: a declared entry point matching nothing says so differently" {
@@ -105,7 +105,7 @@ orphan"
 	assert_success
 	assert_equal "$(unreachable)" ""
 	assert_equal "$(reach_heading)" \
-		"Unreachable functions (omitted: no declared entry point matches an analysed function)"
+		"Unreachable Functions (omitted: no declared entry point matches an analysed function)"
 }
 
 @test "LLR-CTR-09: omitting reachability does not omit its neighbours" {
@@ -191,7 +191,7 @@ orphan"
 
 	local cited
 	cited="$(printf '%s\n' "$output" |
-		awk '/^Global state/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Global State/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /MISRA C Rule 8.9/ { n++ } END { print n + 0 }')"
 	assert_equal "$cited" "2"
 }
@@ -223,14 +223,55 @@ orphan"
 	local rows
 	rows="$(cross_scope | wc -l)"
 	assert_equal "$rows" "2"
-	assert_equal "$(scope_heading)" "Cross-scope access (2)"
+	assert_equal "$(scope_heading)" "Cross-Scope Access (2)"
+}
+
+@test "HLR-237: both crossings are findings, not only rows in a section" {
+	# The findings table is where a reader learns what is wrong. A defect
+	# living only in a section of its own tells anyone working from that
+	# table that the run is clean of it.
+	#
+	# Asserted at the *default* verbosity, where the section is not printed
+	# at all: the finding has to stand on its own there.
+	elc --scope "host:*/scopes/host/*" --scope "target:*/scopes/target/*" \
+		"$TREE/scopes"
+	assert_success
+
+	local found
+	found="$(printf '%s\n' "$output" |
+		awk '/^Findings [(]/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && /cross-scope access/ { n++ } END { print n + 0 }')"
+	assert_equal "$found" "2"
+
+	# The call and the shared object are distinguished, the second being
+	# the one a reader cannot see in the source.
+	assert_output --partial "in scope host, calls target_entry in scope target"
+	assert_output --partial "in scope host, shares mailbox with target_reads in scope target"
+}
+
+@test "HLR-099: a crossing is attributed to the declaration it broke" {
+	# Neither a published standard nor a judgement of elc's own: the rule
+	# broken is the user's, and the attribution says so.
+	elc --scope "host:*/scopes/host/*" --scope "target:*/scopes/target/*" \
+		"$TREE/scopes"
+	assert_success
+	assert_output --partial "your --scope declaration"
+	refute_output --regexp "cross-scope access.*elc heuristic"
+}
+
+@test "HLR-237: no scopes declared means no crossing findings" {
+	# The converse: an omitted analysis contributes no findings, and is
+	# stated as omitted rather than as clean (HLR-115).
+	elc "$TREE/scopes"
+	assert_success
+	refute_output --partial "cross-scope access"
 }
 
 @test "HLR-115: with no scopes declared the analysis is omitted with a reason" {
 	elc "$TREE/scopes"
 	assert_success
 	assert_equal "$(scope_heading)" \
-		"Cross-scope access (omitted: no execution scopes declared, see --scope)"
+		"Cross-Scope Access (omitted: no execution scopes declared, see --scope)"
 	assert_equal "$(cross_scope)" ""
 }
 

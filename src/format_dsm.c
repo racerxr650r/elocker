@@ -319,8 +319,8 @@ const char *format_dsm_heading(const Dsm *m)
 	 * below-diagonal cell a violation. Over directories the same cell is a
 	 * dependency and nothing more (HLR-165). */
 	return m->from_strata
-	               ? "Dependency structure matrix (declared layers)"
-	               : "Dependency structure matrix (directories: no "
+	               ? "Dependency Structure Matrix (declared layers)"
+	               : "Dependency Structure Matrix (directories: no "
 	                 "strata declared, see --stratum)";
 }
 

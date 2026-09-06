@@ -3,9 +3,9 @@
 #
 # Two properties, decided by two different things, and the split is the point:
 #
-#   * **What the aligned table presents** is a property of the *format*
-#     (HLR-218) and is the same wherever it is written. It is asserted through
-#     ordinary runs, here and in verbosity.bats.
+#   * **What a report presents** is a property of neither the format nor the
+#     destination (HLR-218): there is one composition, and it is the same
+#     wherever it is written and however it is decorated.
 #   * **How wide its lines are** is a property of the *destination* (HLR-219).
 #     A file has no width and a pipe has no width; a terminal does.
 #
@@ -30,7 +30,7 @@ setup() {
 	# One function over a published band, so the Findings tier has a row.
 	# A report with nothing to report would let the composition tests below
 	# pass against a renderer that had dropped the findings entirely, which
-	# is the one section of the three a reader is expected to act on.
+	# is the one section of the four a reader is expected to act on.
 	{
 		printf 'int busy(int n)\n{\n'
 		for _ in $(seq 1 11); do printf '\tif (n) n++;\n'; done
@@ -116,7 +116,7 @@ widest() {
 	# depended on that would pass or fail for reasons having nothing to do
 	# with the break rule.
 	local section width cell
-	section="$(sed -n '/^Functions$/,$p' <<<"$output")"
+	section="$(sed -n '/^Functions [(]/,$p' <<<"$output")"
 	width="$(awk '/^  -+ /{ print length($1); exit }' <<<"$section")"
 	[ -n "$width" ]
 
@@ -141,7 +141,7 @@ widest() {
 	# column asserts the property that was actually meant, and asserts it
 	# whatever the width.
 	local rejoined
-	rejoined="$(sed -n '/^Functions$/,$p' <<<"$output" |
+	rejoined="$(sed -n '/^Functions [(]/,$p' <<<"$output" |
 		sed -n '4,$p' |
 		cut -c3-$((2 + width)) |
 		sed 's/ *$//' |
@@ -181,15 +181,113 @@ widest() {
 	refute_output --partial "$name"
 }
 
-# --- the composition (HLR-218) ---------------------------------------------
+# --- the frame (HLR-236) ---------------------------------------------------
 
-@test "HLR-218: the report a terminal gets is three sections" {
+@test "HLR-236: the diagnostics are headed and ruled" {
+	# A file the runtime has no module for, so the run has something to
+	# notify. A clean run is the case the test below covers, and the two
+	# together are what make the heading conditional rather than absent.
+	printf 'notes\n' > "$TREE/notes.md"
+
+	elc "$TREE"
+	assert_success
+	assert_output --partial "Parsing Notifications"
+	assert_output --partial "elc: $TREE/notes.md: no usable language module"
+
+	# The rule is 128 columns, matching the width the table is held to on a
+	# terminal, so the two banners of a run read as a pair (HLR-219).
+	local rule
+	rule="$(printf -- '-%.0s' $(seq 1 128))"
+	assert_output --partial "$rule"
+}
+
+@test "HLR-236: a run with nothing to notify prints no heading" {
+	# The converse, and what keeps the test above from passing against a
+	# renderer that always prints the banner. HLR-188 refuses a heading over
+	# an empty table for the same reason.
+	elc "$TREE"
+	assert_success
+	refute_output --partial "Parsing Notifications"
+}
+
+@test "HLR-236: the report is headed and ruled beneath the notifications" {
+	printf 'notes\n' > "$TREE/notes.md"
+
 	on_a_terminal "$TREE"
 	assert_success
 
-	local sections
-	sections="$(grep -E '^[A-Z]' <<<"$output" | grep -v '^Nothing to report$')"
-	assert_equal "$sections" "$(printf 'Project summary\nFindings\nFunctions')"
+	# Notifications, a blank line, then the report's own banner. Read as an
+	# ordered sequence rather than as three separate presences, because the
+	# order is the whole of what the frame is.
+	local framed
+	framed="$(grep -nE '^(Parsing Notifications|Project Summary|-{128}$)$' \
+		<<<"$output" | cut -d: -f2 | tr '\n' '|')"
+	assert_equal "$framed" \
+		"Parsing Notifications|$(printf -- '-%.0s' $(seq 1 128))|Project Summary|$(printf -- '-%.0s' $(seq 1 128))|"
+
+	# And a blank line between the two blocks: the line above the report's
+	# banner is empty, which is what closes the diagnostic block.
+	run awk '/^Project Summary$/ { print (prev == "") ? "blank" : prev; exit }
+	         { prev = $0 }' <<<"$output"
+	assert_output "blank"
+}
+
+@test "HLR-236: the banner is on stderr, so a redirected report opens clean" {
+	# HLR-038's line, asserted where it now matters most: the banner heads
+	# the diagnostics, and a report captured to a file must carry neither it
+	# nor the blank line beneath it.
+	printf 'notes\n' > "$TREE/notes.md"
+
+	elc -o "$BATS_TEST_TMPDIR/report.txt" "$TREE"
+	assert_success
+	assert_output --partial "Parsing Notifications"
+
+	run head -1 "$BATS_TEST_TMPDIR/report.txt"
+	assert_output "Project Summary"
+}
+
+@test "HLR-236: Markdown is given no frame" {
+	# The frame belongs to the aligned table: a saved document has no
+	# terminal session to frame, and a banner on its stderr would be
+	# decoration nobody asked for.
+	printf 'notes\n' > "$TREE/notes.md"
+
+	elc -f md "$TREE"
+	assert_success
+	refute_output --partial "Parsing Notifications"
+	assert_output --partial "no usable language module"
+}
+
+@test "HLR-236: every word of a section title is capitalised" {
+	elc --verbose "$TREE"
+	assert_success
+
+	# Read off the report rather than asserted as a list, so a section
+	# added later is held to the rule without this test being edited. The
+	# title is the part before any clause that follows it — parenthesised,
+	# or set off by an em dash — which is prose either way.
+	local offenders
+	offenders="$(grep -E '^[A-Z]' <<<"$output" |
+		sed -E 's/ [(—].*$//' |
+		grep -E ' [a-z]' || true)"
+	assert_equal "$offenders" ""
+}
+
+# --- the composition (HLR-218) ---------------------------------------------
+
+# The section headings of a report, with the row counts of HLR-235 stripped,
+# so a composition is compared as a list of tiers rather than of figures.
+composition() {
+	grep -E '^[A-Z]' <<<"$output" |
+		grep -vE '^(Nothing To Report|Parsing Notifications)$' |
+		sed -E 's/ \([0-9]+\)$//'
+}
+
+@test "HLR-218: the report a terminal gets is four sections" {
+	on_a_terminal "$TREE"
+	assert_success
+	assert_equal "$(composition)" \
+		"$(printf 'Project Summary\nFindings\nFiles\nFunctions')"
 }
 
 @test "HLR-218: the aligned table composes the same way into a file" {
@@ -200,21 +298,52 @@ widest() {
 	assert_success
 	run cat "$BATS_TEST_TMPDIR/report.txt"
 
-	local sections
-	sections="$(grep -E '^[A-Z]' <<<"$output" | grep -v '^Nothing to report$')"
-	assert_equal "$sections" "$(printf 'Project summary\nFindings\nFunctions')"
+	assert_equal "$(composition)" \
+		"$(printf 'Project Summary\nFindings\nFiles\nFunctions')"
 }
 
-@test "HLR-218: Markdown keeps the tiers the terminal report drops" {
-	# Nothing is removed from the tool, only from one format's default.
+@test "HLR-218: Markdown drops the same tiers the terminal report drops" {
+	# Markdown kept its own wider default until HLR-218 was rewritten.
+	# Nothing is removed from the tool by that — every tier below is a
+	# --verbose away in either format — but neither format has a default of
+	# its own to keep them in any longer.
 	elc -o "$BATS_TEST_TMPDIR/report.md" "$TREE"
 	assert_success
 	run cat "$BATS_TEST_TMPDIR/report.md"
 
-	assert_output --partial "## Files"
+	refute_output --partial "## Languages"
+	refute_output --partial "## Discovery"
+	refute_output --partial "## Callouts"
+	refute_output --partial "## Global State"
+
+	elc --verbose -o "$BATS_TEST_TMPDIR/verbose.md" "$TREE"
+	assert_success
+	run cat "$BATS_TEST_TMPDIR/verbose.md"
 	assert_output --partial "## Languages"
 	assert_output --partial "## Discovery"
-	refute_output --partial "## Functions"
+	assert_output --partial "## Callouts"
+}
+
+@test "HLR-218: the two formats' defaults are the same four tiers exactly" {
+	# Equality rather than intersection. An intersection would still pass
+	# if one format quietly kept a fifth tier of its own, which is the
+	# state HLR-218 was rewritten to end.
+	elc -o "$BATS_TEST_TMPDIR/four.txt" "$TREE"
+	assert_success
+	run cat "$BATS_TEST_TMPDIR/four.txt"
+	local table
+	table="$(composition | sort)"
+
+	elc -o "$BATS_TEST_TMPDIR/four.md" "$TREE"
+	assert_success
+	run cat "$BATS_TEST_TMPDIR/four.md"
+	local markdown
+	markdown="$(grep -E '^## ' <<<"$output" | sed 's/^## //' |
+		grep -v '^Nothing To Report$' | sort)"
+
+	assert_equal "$table" \
+		"$(printf 'Files\nFindings\nFunctions\nProject Summary')"
+	assert_equal "$markdown" "$table"
 }
 
 @test "HLR-218: --verbose restores every tier to the terminal report" {
@@ -289,7 +418,7 @@ widest() {
 	# table, whose first row is the line after its rule.
 	local first
 	first="$(printf '%s\n' "$raw_output" |
-		sed -n '/^Functions$/,$p' | sed -n '4p')"
+		sed -n '/^Functions [(]/,$p' | sed -n '4p')"
 	[[ "$first" == $'\e[100;97m'* ]] ||
 		{ echo "the body did not begin with the dark ground" >&2
 		  printf '%s\n' "$first" | cat -v >&2; false; }
@@ -305,7 +434,7 @@ widest() {
 
 	local widths
 	widths="$(printf '%s\n' "$output" |
-		sed -n '/^Functions$/,/^$/p' | sed -n '4,$p' |
+		sed -n '/^Functions [(]/,/^$/p' | sed -n '4,$p' |
 		awk 'NF { print length($0) }' | sort -u | wc -l)"
 	assert_equal "$widths" "1"
 }
