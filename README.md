@@ -6,10 +6,10 @@ per-function metrics and whole-project analysis for C, C++, Rust, and Python. It
 a variety of output formats.
 
 `elc` really shines when you provide an elf filename generated from the provided source files. The tool will prune functions and conditionally
-compiled lines of source that aren't in the generated binary before generating the metrics. If the elf contains debug information, the tool can parse additional information
-to allow it to expand the code using the gcc pre-compiler for applicable languages. If you are analyzing a library that was linked with the
-application code, just provide the source files/directories of the library along with the elf file. The tool will prune those source and analyze
-the appropriate sources, ignoring the rest of the binary.
+compiled lines of source that aren't in the generated binary before performing analysis and generating the metrics. If the elf contains debug
+information, the tool can parse additional information to allow it to expand the code using the gcc pre-compiler for applicable languages. If
+you are analyzing a library that was linked with the application code, just provide the source files/directories of the library along with the
+elf file. The tool will prune those source and analyze the appropriate sources, ignoring the rest of the binary.
 
 In this day ans age of AI generated code, `elc` is an excellent way to keep your finger on the pulse of your source project as AI contributes.
 
