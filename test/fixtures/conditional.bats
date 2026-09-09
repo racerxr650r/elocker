@@ -295,7 +295,7 @@ report() {
 	# Counted from the right: a blank cell before this column collapses
 	# under awk's field splitting, so a header index does not land on the
 	# row. Out and WTBI are populated on every row; the burden band is a
-	# colour on the figure rather than a column of its own (HLR-227).
+	# colour on the figure rather than a column of its own (HLR-226).
 	local fanout
 	fanout="$(awk '/^Functions [(]/ {s=1; next}
 	               s && /^$/     {exit}

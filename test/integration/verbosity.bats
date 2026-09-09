@@ -180,7 +180,7 @@ reaches() {
 
 @test "HLR-235: Markdown states the same size as the aligned table" {
 	# One fact, now in one decoration. The figure rode on the disclosure
-	# summary until Phase 35 removed the fold; it rides on the heading now,
+	# summary until Phase 34 removed the fold; it rides on the heading now,
 	# which is where the aligned table always put it.
 	elc -f md "$TREE"
 	assert_success

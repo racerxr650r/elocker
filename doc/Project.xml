@@ -905,7 +905,7 @@ A cell that outran its column is continued on the lines beneath it, divided at a
 
 Determinism is unaffected (HLR-032). 128 is a constant rather than the terminal's own width, nothing is read from `COLUMNS` or the locale, and the stream is asked one yes-or-no question whose answer selects between two fixed presentations — so two runs to the same kind of destination produce identical bytes.
 
-**In the Markdown style each table stands open beneath its heading** (HLR-190). Each was folded behind a disclosure element until Phase 35, so that a reader opening a report of hundreds of rows chose which to look at. That cost two properties worth more than the brevity: text inside a closed `<details>` is reached by no browser's find and no host's search, so a reader was told a function was absent when it was present; and a fragment pointing into a hidden element scrolls to nothing, which made every cross-reference of HLR-241 a link that did not work. The row count moved to the `##` heading, where the aligned table already states it (HLR-235). The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
+**In the Markdown style each table stands open beneath its heading** (HLR-190). Each was folded behind a disclosure element until Phase 34, so that a reader opening a report of hundreds of rows chose which to look at. That cost two properties worth more than the brevity: text inside a closed `<details>` is reached by no browser's find and no host's search, so a reader was told a function was absent when it was present; and a fragment pointing into a hidden element scrolls to nothing, which made every cross-reference of HLR-241 a link that did not work. The row count moved to the `##` heading, where the aligned table already states it (HLR-235). The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
 
 The table is laid out in tiers, each introduced by a heading and indented beneath it:
 
@@ -2648,7 +2648,19 @@ The language is a property of the file and repeats down every row belonging to o
 
 **The XML record shall continue to report start and end line numbers as separate fields**, because it must remain the thing a report can be rebuilt from and a regenerated report needs both numbers as numbers (HLR-056).
 
-**The CSV record shall carry the same columns as the human-readable function table, in its order and with its meanings** — the language, the location as `path:line`, the extent as a count, and the visibility and flow degrees the table reports. CSV is that table for a consumer that loads it rather than reads it, and one view of one set of rows must be spelled one way. The two move together or they do not move: a column added to one and not the other is how they drifted apart in the first place.
+**The CSV record shall carry the function table's columns in the function table's order** — the language, the location as `path:line`, the extent as a count, and the visibility and flow degrees the table reports. CSV is that table for a consumer that loads it rather than reads it, and one view of one set of rows must be spelled one way. The two move together or they do not move: a column added to one and not the other is how they drifted apart in the first place. The *order* is what is asserted, derived from the table's own header rather than written down beside it, because order is the property that drifts.
+
+Three departures from that, each with a reason the table does not have, and each one the record adds rather than takes away:
+
+*   **A column naming the kind of row** (HLR-242). The record carries the declared globals as well as the functions, and two headers in one document is not a CSV any consumer can load — a strict reader fails at the second, a lenient one reads it as data. One flat record set, every row saying which kind it is, is the only shape that stays loadable.
+
+*   **The columns spelled in full where the table abbreviates.** `L` and `R` are what the aligned table can afford inside the bound of HLR-219; a document with no width has no such constraint, and a column named `l` is one no consumer can read.
+
+*   **The band column the aligned table no longer prints.** There the weighted burden is the colour of the figure beside it (HLR-226); here there is no colour to carry it, and dropping the column would delete the band outright for every consumer that loads this rather than reading it.
+
+*This widens what this requirement said between Phase 30 and Phase 34*, which was that the two carry the same columns with no exception. What retired it is that the table and the record answer to different constraints — one to a terminal's width and a reader's eye, the other to a parser — and a rule that let neither depart from the other made the record the worse of the two. The rule that replaces it is narrower and still bites: the columns they share are in one order, and that order comes from the table.
+
+**The CSV record shall keep the canonical absolute path**, though the table writes its location against the reader's directory (HLR-210). A record is loaded rather than clicked, and a path whose meaning depends on where the run happened is not one a consumer can resolve.
 
 **The XML record needs no language field of its own.** Its function elements are nested inside the file element that states it, so the fact is already there, recorded once for the file rather than once per function — and a second copy would be a second place for one fact to be written down and a second place for it to disagree.
 
@@ -3030,11 +3042,17 @@ That reasoning was sound about how the two are read and wrong about what follows
 
 **No option shall ask for colour and none shall suppress it.** That is the rule HLR-219 states for the width and it holds here for the same reason: an option would be a second spelling of a fact the program can observe, and the two can disagree. Nothing shall be read from the environment either — not a terminal's colour capability, not its palette, and not a variable naming one — since HLR-032 requires two runs to the same kind of destination to produce identical bytes, and a presentation varying with the environment would be a run whose output nobody else can reproduce.
 
-**Colour shall carry no information that the text does not.** A reader whose terminal renders none of it, or who is reading a redirected copy, shall lose nothing but ease: every band a colour stands for is written in the cell as a word beside it. Colour is a way of finding a row, never the only way of reading one.
+**Colour shall carry no information the report does not carry in words somewhere a reader without colour can find it.** A reader whose terminal renders none of it loses ease and never an answer.
+
+For every band but one that is the cell beside the figure, exactly as before. The exception is the weighted testing burden of HLR-224 in the function table, where the aligned style colours the figure and omits the word: the band was a twelfth column on the widest table in the report, and the width it cost was width the navigable location of HLR-210 needed in order to stay whole. *This narrows what this requirement said between Phase 32 and Phase 34*, which was that every band be written as a word in the cell beside it without exception.
+
+**What the aligned table renders as colour shall be a word in every format that has no colour to render.** Markdown and CSV keep the band as a column of its own, so a reader of a redirected report, of the Markdown, or of a loaded CSV has the band in words. Losing it in all of them at once is the regression this guards, and it is asserted as such.
+
+**The band shall be the one the catalogue assigned**, carried to the renderer rather than recomputed there from the figure as printed. A value a hundredth below a threshold rounds to a figure on the other side of it, and a colour derived from the rounded figure would contradict the findings table about the same measurement.
 
 **An escape sequence occupies no columns**, so the limit of HLR-219 shall continue to be measured over what is displayed rather than over the bytes emitted. A line whose displayed width is within the limit conforms however many sequences it carries.
 
-**Colour shall reach the aligned table and no other format.** Markdown in particular shall stay plain, whatever it is written to. It has no styling of its own, so a coloured Markdown table would have to be an HTML one carrying inline styles — which would stop the output being the GitHub-Flavored Markdown HLR-029 requires, and would still render uncoloured on the platform that format is named after, since GitHub strips those attributes from Markdown. A format defined by a published dialect is not the place to add a presentation that dialect cannot express. The HTML report of HLR-213 is where a coloured rendering already exists and is the answer for a reader who wants one.
+**Colour shall reach the aligned table and no other format.** Markdown in particular shall stay plain, whatever it is written to — plain of *colour*, which is not the same as plain of markup: the cross-references of HLR-241 are anchors and links, which the dialect carries natively and a reader without them still reads as text. It has no styling of its own, so a coloured Markdown table would have to be an HTML one carrying inline styles — which would stop the output being the GitHub-Flavored Markdown HLR-029 requires, and would still render uncoloured on the platform that format is named after, since GitHub strips those attributes from Markdown. A format defined by a published dialect is not the place to add a presentation that dialect cannot express. The HTML report of HLR-213 is where a coloured rendering already exists and is the answer for a reader who wants one.
 
 **The alternation shall be per row and not per line.** A row continued over several lines by the wrapping of HLR-219 shall carry one background across all of them, so that a wrapped row reads as one row rather than as several of alternating colour.]]></text>
         <traces>
@@ -4484,9 +4502,17 @@ Access control within a class — C++'s `private:` and `public:` sections — is
 
 **A location a reader cannot act on is a location they have to retype.** `path:line` is the form editors and terminals already parse — VS Code turns it into a jump to that line of that file — and it costs nothing: the column held the path already, and the line number was in the next column over.
 
-The path shall remain the canonical absolute path every other path in a report takes (HLR-042). A relative path would be shorter and would resolve against whatever directory the reader's terminal happens to be in, which is the one thing a navigable reference must not depend on.
+**The path shall be written against the directory the process is run from**, where the file lies beneath it, and shall be given in full where it does not.
 
-This governs the human-readable report alone. A complete-record format shall keep the path and the line as separate fields, because a consumer that has to split a string to recover a number has been handed a worse record than it was given before.]]></text>
+*This reverses what this requirement said between Phase 29 and Phase 34*, which was that the path remain the canonical absolute form of HLR-042, on the reasoning that a relative one resolves against whatever directory the reader's terminal happens to be in and a navigable reference must not depend on that. What retired it is that the dependency runs the other way: a terminal resolves a click against its own working directory, so writing the path against that directory is what makes the click land, and writing it in full is what makes an editor guess.
+
+The deciding argument is width, not brevity. The location is the widest cell in the widest table, and a line over the bound of HLR-219 has its text columns narrowed — which breaks the path across two lines, and half a path is a path no editor will open. Written against the reader's own directory the function table came inside the bound, and the reference works because it is whole.
+
+A path outside that directory is written in full rather than climbed to with `..`: a reference that leaves the tree is one a reader cannot check by eye, and the absolute form is both shorter to read and the form every other path in the report takes.
+
+**A navigable location shall not be narrowed to make a line fit** while any arrangement without narrowing it fits — the rule the numeric columns of HLR-219 already follow, for the same reason and a different kind of value. Where no such arrangement exists the location wraps at a separator like any other text: the bound is the bound, and a location long enough to breach it on its own is not made navigable by pushing the line past the limit (HLR-243).
+
+This governs the human-readable report alone. A complete-record format shall keep the canonical absolute path — a record is loaded rather than clicked, and a path that meant one thing in the directory it was written in and another in the directory it is read in is not a record. XML shall keep the path and the line as separate fields besides, because a consumer that has to split a string to recover a number has been handed a worse record than it was given before.]]></text>
       <traces>
         <trace target="SDD" ref="14"/>
       </traces>
@@ -4628,7 +4654,7 @@ The uniformity requirements are unchanged and are satisfied one level up. What H
       <hlr id="HLR-190" name="Markdown Tables Presented Open Beneath Their Headings">
         <text><![CDATA[In the Markdown report of HLR-029, `elc` shall present every table openly beneath its `##` heading, and shall place no table inside an HTML `<details>` element or any other construct that hides it until a reader acts.
 
-**This reverses what this requirement said between Phase 22 and Phase 35**, which was that every table be folded behind a disclosure element stating its row count, so that a reader expanded the tables they wanted rather than scrolling past the ones they did not. Two things retired that reasoning, and both are properties a report is *for*.
+**This reverses what this requirement said between Phase 22 and Phase 34**, which was that every table be folded behind a disclosure element stating its row count, so that a reader expanded the tables they wanted rather than scrolling past the ones they did not. Two things retired that reasoning, and both are properties a report is *for*.
 
 **A folded table cannot be searched.** Neither a browser's find nor a Markdown host's own search reaches text inside a closed `<details>`, so a reader looking for a function by name was told it was not in the report — the one question a code-metrics report exists to answer, answered wrongly. Scrolling past a section costs a moment; being told a thing is absent when it is present costs the reader the report.
 

@@ -550,7 +550,7 @@ Test(format_text, a_markdown_table_stands_open_under_its_heading)
 	out    = render_as(&report, STYLE_MARKDOWN, VERBOSITY_VERBOSE);
 
 	/* The table follows its heading directly. It was folded into a
-	 * `<details>` element until Phase 35, which cost more than it saved: a
+	 * `<details>` element until Phase 34, which cost more than it saved: a
 	 * folded table is not searchable, and a fragment pointing into one
 	 * scrolls to nothing — which made every cross-reference of HLR-241 a
 	 * link that did not work. */

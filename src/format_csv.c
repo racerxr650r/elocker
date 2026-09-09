@@ -109,7 +109,7 @@ int format_csv(const Report *report, FILE *out)
 	 * drifted once already, which is why the whole header is asserted in
 	 * test/integration/formats.bats rather than a prefix of it.
 	 *
-	 * **Spelled in full where the table abbreviates** (HLR-227). `L` and
+	 * **Spelled in full where the table abbreviates** (HLR-014). `L` and
 	 * `R` are what the aligned table can afford inside the bound of
 	 * HLR-219; a document with no width has no such reason, and a column
 	 * named `l` is one no consumer can read. The order is the fact the two

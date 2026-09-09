@@ -543,7 +543,7 @@ hal 1 2 0"
 @test "HLR-190: the Markdown matrix leads with its convention" {
 	# The convention comes before the grid: it is the sentence that makes a
 	# cell below the diagonal a back-call rather than a number, and it is
-	# read on the way in (HLR-166). It stood above a fold until Phase 35
+	# read on the way in (HLR-166). It stood above a fold until Phase 34
 	# removed the fold; the order it guaranteed is kept and asserted here
 	# directly, which is what the fold was standing in for.
 	elc --verbose -f md "${STRATA[@]}" "$TREE"

@@ -154,7 +154,7 @@ setup() {
 	elc --verbose -f md "$TREE"
 	assert_success
 
-	# The tables were folded into `<details>` until Phase 35. A folded table
+	# The tables were folded into `<details>` until Phase 34. A folded table
 	# is not searchable — neither a browser's find nor GitHub's renders what
 	# it hides — and a fragment pointing into one scrolls to nothing, which
 	# made every cross-reference of HLR-241 a link that did not work.

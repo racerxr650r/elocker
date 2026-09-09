@@ -148,7 +148,7 @@ typedef struct {
 	 * that was never a table. */
 	bool        show_size;
 	/* A final column carried for its band word alone: the aligned style
-	 * colours `band_target` with it and never prints it (HLR-227).
+	 * colours `band_target` with it and never prints it (HLR-226).
 	 *
 	 * **Carried rather than recomputed from the figure it colours.** The
 	 * band is decided once, by the catalogue, from the value itself; a
@@ -188,7 +188,7 @@ static void anchor_cell(char *out, size_t size, const char *id,
  * An anchor and a link target are addressed to the renderer rather than to
  * the reader, and padding a column by the bytes they occupy would align the
  * *source* of a table nobody reads that way while pulling the rendered table
- * out of true. The same reasoning HLR-227 gives for an escape sequence in the
+ * out of true. The same reasoning HLR-226 gives for an escape sequence in the
  * aligned table, applied to the format that has no escape sequences.
  *
  * Bytes rather than characters, which is what the widths have always counted:
@@ -433,7 +433,7 @@ static void grid_markdown_cell(const Grid *grid, size_t c, const char *text,
 /* A Markdown table's heading, and the size of the table under it.
  *
  * **A real `##` heading, and the table plainly beneath it.** The tables were
- * folded into `<details>` elements until Phase 35, on the reasoning that a
+ * folded into `<details>` elements until Phase 34, on the reasoning that a
  * long report is easier to scan collapsed. Two things retired that. A folded
  * table is not searchable — neither the browser's find nor GitHub's renders
  * what it hides — and a fragment pointing into one scrolls to nothing, which
@@ -1245,7 +1245,7 @@ static int languages_section(const Report *report, Style style,
  * state string where the process cannot name it.
  *
  * Asked of the process rather than declared by the user, which is the rule
- * HLR-219 and HLR-227 already follow for the width and the colour: an option
+ * HLR-219 and HLR-226 already follow for the width and the colour: an option
  * would be a second spelling of a fact `elc` can observe, and the two can
  * disagree.
  */
@@ -1630,7 +1630,7 @@ static int functions_section(const Report *report, Style style,
 	report_root(root, sizeof root);
 
 	/* The aligned table colours the figure and drops the word; every other
-	 * format keeps the word, having no colour to carry it (HLR-227). */
+	 * format keeps the word, having no colour to carry it (HLR-226). */
 	if (style == STYLE_TABLE) {
 		grid.band_trailing = true;
 		grid.band_target   = COLUMN_WTBI;
@@ -2547,7 +2547,7 @@ static int findings_section(const Report *report, Style style,
 	 * which standard places it outside the range — and stops
 	 * (HLR-101). */
 	/* **The place, beside the subject.** A finding names what was measured
-	 * and which standard places it outside the range, and until Phase 35
+	 * and which standard places it outside the range, and until Phase 34
 	 * it left the reader to find the subject again themselves. For most
 	 * measurements the cross-reference of HLR-241 answers that — but not
 	 * for every one, and the exception is not rare: a call to a library

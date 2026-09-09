@@ -346,7 +346,7 @@ composition() {
 		sed -E 's/ \([0-9]+\)$//' |
 		grep -v '^Nothing To Report$' | sort)"
 
-	# Globals joined them in Phase 35: what state a project declares is a
+	# Globals joined them in Phase 34: what state a project declares is a
 	# fact about the source, so it is reported wherever the source was read
 	# rather than only where a graph was built (HLR-242).
 	assert_equal "$table" \
@@ -370,7 +370,7 @@ composition() {
 	#
 	# The Markdown row carries one column the terminal's does not — the
 	# burden band, which the aligned table renders as the colour of the
-	# figure beside it rather than as a word (HLR-227). That is a
+	# figure beside it rather than as a word (HLR-226). That is a
 	# difference of presentation and not of measurement, so it is excluded
 	# here rather than asserted away.
 	elc "$TREE"
@@ -487,7 +487,7 @@ composition() {
 		{ echo "warning was not yellow" >&2; false; }
 	# The healthy band is no longer a word in this table: it is the colour
 	# of the weighted-burden figure, which is the one cell whose band the
-	# aligned table shows without spelling it (HLR-227).
+	# aligned table shows without spelling it (HLR-226).
 	[[ "$raw_output" =~ $'\e'\[92m[[:space:]]*[0-9] ]] ||
 		{ echo "a healthy figure was not green" >&2; false; }
 }
@@ -501,7 +501,7 @@ composition() {
 	refute_output --partial $'\e['
 }
 
-@test "HLR-227: the band the table colours is a word in every plain format" {
+@test "HLR-226: the band the table colours is a word in every plain format" {
 	# The one band the aligned table does not spell out, so the formats
 	# with no colour to carry it must. Losing it in all three at once is
 	# the regression this guards: a reader of a redirected report, of the
