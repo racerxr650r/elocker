@@ -59,6 +59,23 @@ typedef struct {
 	uint32_t  line;
 } ChainRow;
 
+/* One global object as the source declares it: where it is written down, what
+ * it is called, and the type it was given (HLR-242).
+ *
+ * **A different row from GlobalStateRow, and deliberately so.** That one is
+ * the *analysis* of an object — who writes it, who reads it, and the verdict
+ * on the pair — and it exists only where a graph was built. This one is what
+ * the parse saw, so it is there on any run that read the source at all, and
+ * it carries the one thing the analysis never needed and a reader always
+ * wants: the place to go and look.
+ */
+typedef struct {
+	char     *file;   /* the declaring file, canonical; owned */
+	char     *name;   /* the object's identifier; owned       */
+	char     *type;   /* as declared, or empty; owned         */
+	uint32_t  line;   /* 1-based                              */
+} DeclaredGlobal;
+
 /* One global object as the report presents it: by name, with the functions
  * that write it and the functions that read it (HLR-091).
  *
@@ -463,6 +480,10 @@ typedef struct {
 	 * point at (SDD §18). */
 	GlobalStateRow *global_state;   /* sorted by object; owned (HLR-091) */
 	size_t          global_state_count;
+	/* Every global the source declares, sorted by file then line, which is
+	 * the order they are written in (HLR-242). */
+	DeclaredGlobal      *globals;
+	size_t          global_count;
 	ReachState      reach_state;
 	UnreachableRow *unreachable;    /* sorted by file, line; owned      */
 	size_t          unreachable_count;
@@ -715,6 +736,15 @@ int report_check_image_ambiguity(const Report *report, const SymbolSet *image);
  * is why it is recorded during the parse and carried straight through
  * (HLR-137, LLR-DED-06). Must be called before the facts are released.
  */
+/* Record every global object the parse declared, with the file, line and type
+ * it was declared at (HLR-242).
+ *
+ * Taken from the facts rather than from the graph, so a run whose graph was
+ * never built still reports the objects the source declares — which is the
+ * run whose reader most needs to be told what state exists.
+ */
+int report_set_globals(Report *report, const FactList *facts);
+
 int report_set_dead(Report *report, const FactList *facts);
 
 /* Copy the custom-rule matches onto an assembled report, sorted for

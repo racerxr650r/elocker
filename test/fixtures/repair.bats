@@ -29,7 +29,7 @@ summary() {
 figures() {
 	printf '%s\n' "$output" |
 		awk -v want="$1" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && $3 == want { print $6, $7 }'
+		                  f && $2 == want { print $6, $7 }'
 }
 
 @test "HLR-196: each macro shape parses where it did not before" {
@@ -56,7 +56,7 @@ figures() {
 	# The location carries the start line, so the assertion is that the
 	# function below the repairs still begins where the file says it does.
 	# The language stands between the location and the name (HLR-014).
-	assert_output --regexp "shapes\.c:2[0-9] +c +report +"
+	assert_output --regexp "shapes\.c:2[0-9] +report +c +"
 }
 
 @test "LLR-RPR-01: a file with nothing to repair is untouched" {

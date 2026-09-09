@@ -74,8 +74,25 @@ typedef struct {
 	 * a reader who does not know an image was stripped cannot tell an
 	 * analysis that found nothing from one that could not look. */
 	char        *target;      /* owned */
+	/* The device on its own, as a toolchain spelled it, and the ELF
+	 * header's machine number. `target` above is the *display* of these
+	 * two and is not a flag; this is what a build needs told (HLR-240). */
+	char        *device;      /* owned; NULL where none was recorded */
+	unsigned int machine;
 	bool         debug_info;
 } SymbolSet;
+
+/* The compiler flag that selects the device this image was built for, as a
+ * fresh allocation the caller owns, or NULL where the image named no device or
+ * `elc` does not know how that machine's toolchain spells the option
+ * (HLR-240).
+ *
+ * **The flag's spelling is the toolchain's, and the mapping is a short table
+ * rather than a guess.** `avr-gcc` takes `-mmcu=`; a machine absent from the
+ * table yields nothing, because passing a flag a compiler does not accept
+ * turns a run that would have expanded into one that falls back.
+ */
+char *elfsyms_device_flag(const SymbolSet *set);
 
 /* Read the named image and populate its function set.
  *

@@ -204,6 +204,28 @@ static void write_files(const Report *report, FILE *out)
 /* A measurement of the run, so it lives in the record beside the others: it
  * cannot be recomputed later, since regeneration has no graph and no source to
  * build one from (HLR-054, HLR-056). */
+/* Every global object the source declares (HLR-242).
+ *
+ * A section of its own rather than an attribute of the file that declares it:
+ * the reader rebuilds it as one list, sorted, exactly as a live run builds it,
+ * and a record that scattered the objects across their files would have to
+ * re-sort them to regenerate the same report (HLR-032, HLR-056).
+ */
+static void write_globals(const Report *report, FILE *out)
+{
+	fputs("  <globals>\n", out);
+	for (size_t i = 0; i < report->global_count; i++) {
+		const DeclaredGlobal *g = &report->globals[i];
+
+		fputs("    <declared-global", out);
+		write_attribute(out, "file", g->file);
+		write_attribute(out, "name", g->name);
+		write_attribute(out, "type", g->type);
+		fprintf(out, " line=\"%" PRIu32 "\"/>\n", g->line);
+	}
+	fputs("  </globals>\n", out);
+}
+
 static void write_graph(const Report *report, FILE *out)
 {
 	fprintf(out, "  <graph unresolved-calls=\"%zu\"/>\n",
@@ -713,6 +735,7 @@ int xml_write_report(const Report *report, FILE *out)
 		write_summary,
 		write_languages,
 		write_files,
+		write_globals,
 		write_graph,
 		write_calltree,
 		write_state,
@@ -776,6 +799,8 @@ typedef struct {
 	size_t              global_state_count;
 	UnreachableRow     *unreachable;
 	size_t              unreachable_count;
+	DeclaredGlobal     *globals;
+	size_t              global_count;
 	char              **unreachable_globals;
 	size_t              unreachable_global_count;
 	CrossScopeRow      *cross_scope;
@@ -1338,6 +1363,45 @@ static void on_global(ReadState *state, const XML_Char **atts)
 	row->verdict = (GlobalVerdict)strtol(verdict, NULL, 10);
 	state->global_state_count++;
 	return;
+}
+
+static void on_declared_global(ReadState *state, const XML_Char **atts)
+{
+	const char *file = attribute(atts, "file");
+	const char *name = attribute(atts, "name");
+	const char *type = attribute(atts, "type");
+	const char *line = attribute(atts, "line");
+
+	/* `type` may be empty and must still be present: a language whose
+	 * module captures no type writes an empty attribute, and its absence
+	 * is a truncated record rather than an untyped object. */
+	if (!file || !name || !type || !line) {
+		fail(state, "a declared-global element is incomplete");
+		return;
+	}
+
+	DeclaredGlobal *grown = realloc(state->globals,
+	                                (state->global_count + 1)
+	                                        * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->globals = grown;
+
+	DeclaredGlobal *row = &state->globals[state->global_count];
+
+	memset(row, 0, sizeof *row);
+	row->file = strdup(file);
+	row->name = strdup(name);
+	row->type = strdup(type);
+	if (!row->file || !row->name || !row->type) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->line = (uint32_t)strtoul(line, NULL, 10);
+	state->global_count++;
 }
 
 static void on_unreachable_function(ReadState *state, const XML_Char **atts)
@@ -2319,6 +2383,7 @@ static const struct {
 	{ "step",                on_step },
 	{ "state",               on_state },
 	{ "global",              on_global },
+	{ "declared-global",     on_declared_global },
 	{ "unreachable-function", on_unreachable_function },
 	{ "unreachable-global",  on_unreachable_global },
 	{ "cross-scope",         on_cross_scope },
@@ -2434,6 +2499,12 @@ static void free_global_state(ReadState *state)
 		free(state->unreachable[i].file);
 	}
 	free(state->unreachable);
+	for (size_t i = 0; i < state->global_count; i++) {
+		free(state->globals[i].file);
+		free(state->globals[i].name);
+		free(state->globals[i].type);
+	}
+	free(state->globals);
 	for (size_t i = 0; i < state->unreachable_global_count; i++)
 		free(state->unreachable_globals[i]);
 	free(state->unreachable_globals);
@@ -2621,6 +2692,8 @@ static void move_to_report(ReadState *state, Report *out)
 	out->global_state_count       = state->global_state_count;
 	out->unreachable              = state->unreachable;
 	out->unreachable_count        = state->unreachable_count;
+	out->globals                  = state->globals;
+	out->global_count             = state->global_count;
 	out->unreachable_globals      = state->unreachable_globals;
 	out->unreachable_global_count = state->unreachable_global_count;
 	out->cross_scope              = state->cross_scope;
@@ -2690,6 +2763,12 @@ static void move_to_report(ReadState *state, Report *out)
 	state->global_state_count       = 0;
 	state->unreachable              = NULL;
 	state->unreachable_count        = 0;
+	/* Nulled with the rest: the handover moves ownership, and a pointer
+	 * left in the read state is freed twice when that state is released.
+	 * The count goes with it — the teardown walks the count, so a NULL
+	 * pointer beside a live count is a dereference of nothing. */
+	state->globals                  = NULL;
+	state->global_count             = 0;
 	state->unreachable_globals      = NULL;
 	state->unreachable_global_count = 0;
 	state->cross_scope              = NULL;

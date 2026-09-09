@@ -22,8 +22,8 @@ setup() {
 @test "HLR-017: complexity is reported per function" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --regexp "simple +public +4 +1 +1"
-	assert_output --regexp "branchy +public +8 +5 +4"
+	assert_output --regexp "simple +c +public +4 +1 +1"
+	assert_output --regexp "branchy +c +public +8 +5 +4"
 }
 
 @test "HLR-026: the summary names the most complex function and the largest file" {
@@ -185,8 +185,8 @@ setup() {
 
 	elc "$TREE/bands.c"
 	assert_success
-	assert_output --regexp "warning +complexity +warn +cyclomatic complexity 11"
-	assert_output --regexp "critical +complexity +crit +cyclomatic complexity 16"
+	assert_output --regexp "warning +complexity +warn +\\S+:[0-9]+ +cyclomatic complexity 11"
+	assert_output --regexp "critical +complexity +crit +\\S+:[0-9]+ +cyclomatic complexity 16"
 	assert_output --partial "McCabe"
 }
 
@@ -222,13 +222,13 @@ setup() {
 @test "HLR-223: the function table carries the testing burden" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --regexp "In +Out +WTBI +Burden"
+	assert_output --regexp "In +Out +WTBI"
 	# simple() is four lines, complexity 1, taking one int and returning
 	# one: the base tax of 0.25, plus 0.10 for the primitive return, plus
 	# 0.10 for the primitive parameter. It calls nothing, so there is
 	# nothing to mock, the weighted fan-out is zero, and the index is its
 	# complexity alone.
-	assert_output --regexp "simple +public +4 +1 +1 +0 +0 +1\.00 +healthy"
+	assert_output --regexp "simple +c +public +4 +1 +1 +0 +0 +1\.00"
 }
 
 @test "HLR-224: a high index is banded upwards and says whose line it is" {
@@ -245,7 +245,7 @@ setup() {
 
 	elc "$TREE/sink.c"
 	assert_success
-	assert_output --regexp "(warning|critical) +weighted test burden +sink +weighted test burden [0-9]+\.[0-9]+"
+	assert_output --regexp "(warning|critical) +weighted test burden +sink +\S+:[0-9]+ +weighted test burden [0-9]+\.[0-9]+"
 	assert_output --partial "elc heuristic — not a published standard"
 }
 

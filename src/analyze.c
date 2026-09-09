@@ -51,6 +51,7 @@
 #define CAPTURE_GLOBAL_WRITE  "global.write"
 #define CAPTURE_GLOBAL_VOL    "global.volatile"
 #define CAPTURE_GLOBAL_MMIO   "global.mmio"
+#define CAPTURE_GLOBAL_TYPE   "global.type"
 #define CAPTURE_DEAD_TERM     "dead.terminator"
 #define CAPTURE_DEAD_REENTRY  "dead.reentry"
 #define CAPTURE_DEAD_BRANCH   "dead.branch"
@@ -115,8 +116,10 @@ void filefacts_free(FileFacts *facts)
 	for (size_t i = 0; i < facts->call_count; i++)
 		free(facts->calls[i].callee);
 	free(facts->calls);
-	for (size_t i = 0; i < facts->global_count; i++)
+	for (size_t i = 0; i < facts->global_count; i++) {
 		free(facts->globals[i].name);
+		free(facts->globals[i].type);
+	}
 	free(facts->globals);
 	for (size_t i = 0; i < facts->address_taken_count; i++)
 		free(facts->address_taken[i]);
@@ -2348,6 +2351,50 @@ static int collect_calls(const LanguageModule *module, Registry *reg,
  * every file rather than only this one. A global declared in a header and
  * written in three translation units is the case that makes the difference.
  */
+/* The kind of access a capture records, or -1 where the capture is not one.
+ *
+ * A table rather than a chain of comparisons: the five names and the five
+ * kinds are one fact, and a chain states it twice — once in the order the
+ * branches are written and once in what each assigns.
+ */
+static int global_kind_of(const TSQuery *query, uint32_t index)
+{
+	static const struct { const char *capture; GlobalAccessKind kind; }
+	KINDS[] = {
+		{ CAPTURE_GLOBAL_DECL,  GLOBAL_DECLARATION },
+		{ CAPTURE_GLOBAL_READ,  GLOBAL_READ        },
+		{ CAPTURE_GLOBAL_WRITE, GLOBAL_WRITE       },
+		{ CAPTURE_GLOBAL_VOL,   GLOBAL_VOLATILE    },
+		{ CAPTURE_GLOBAL_MMIO,  GLOBAL_MMIO        }
+	};
+
+	for (size_t i = 0; i < sizeof KINDS / sizeof *KINDS; i++)
+		if (capture_is(query, index, KINDS[i].capture))
+			return (int)KINDS[i].kind;
+
+	return -1;
+}
+
+/* The declaration's type node within this match, or false where the match
+ * carries none.
+ *
+ * Found once for the match rather than looked for again at the identifier,
+ * which has no way back to it: the two arrive as separate captures on one
+ * pattern and are related only by belonging to the same match.
+ */
+static bool match_type_node(const TSQuery *query, const TSQueryMatch *match,
+                            TSNode *out)
+{
+	for (uint16_t i = 0; i < match->capture_count; i++)
+		if (capture_is(query, match->captures[i].index,
+		               CAPTURE_GLOBAL_TYPE)) {
+			*out = match->captures[i].node;
+			return true;
+		}
+
+	return false;
+}
+
 static int collect_globals(const LanguageModule *module, Registry *reg,
                            const char *data, TSNode root,
                            const FnRangeIndex *ranges,
@@ -2359,31 +2406,28 @@ static int collect_globals(const LanguageModule *module, Registry *reg,
 	ts_query_cursor_exec(reg->cursor, query, root);
 
 	while (ts_query_cursor_next_match(reg->cursor, &match)) {
+		/* Borrowed from `data`; copied only if a declaration in this
+		 * match actually claims it. */
+		TSNode type_node;
+		bool   typed;
+
 		if (!predicates_hold(query, &match, data))
 			continue;
 
+		typed = match_type_node(query, &match, &type_node);
+
 		for (uint16_t i = 0; i < match.capture_count; i++) {
-			uint32_t         index = match.captures[i].index;
-			TSNode           node  = match.captures[i].node;
-			GlobalAccessKind kind;
+			uint32_t index = match.captures[i].index;
+			TSNode   node  = match.captures[i].node;
+			int      kind  = global_kind_of(query, index);
 
 			/* Not compiled, not a fact about this build
 			 * (HLR-132). */
 			if (byte_is_excluded(excluded, ts_node_start_byte(node)))
 				continue;
 
-			if (capture_is(query, index, CAPTURE_GLOBAL_DECL))
-				kind = GLOBAL_DECLARATION;
-			else if (capture_is(query, index, CAPTURE_GLOBAL_READ))
-				kind = GLOBAL_READ;
-			else if (capture_is(query, index, CAPTURE_GLOBAL_WRITE))
-				kind = GLOBAL_WRITE;
-			else if (capture_is(query, index, CAPTURE_GLOBAL_VOL))
-				kind = GLOBAL_VOLATILE;
-			else if (capture_is(query, index, CAPTURE_GLOBAL_MMIO))
-				kind = GLOBAL_MMIO;
-			else
-				continue;
+			if (kind < 0)
+				continue;   /* the type, recorded below */
 
 			if (facts->global_count == facts->global_capacity &&
 			    analyze_grow((void **)&facts->globals,
@@ -2399,10 +2443,18 @@ static int collect_globals(const LanguageModule *module, Registry *reg,
 			access->name = name_from(data, node);
 			if (!access->name)
 				return -1;
+			access->type = NULL;
+			if (typed && kind == GLOBAL_DECLARATION) {
+				access->type = name_from(data, type_node);
+				if (!access->type) {
+					free(access->name);
+					return -1;
+				}
+			}
 			access->function = owner ? owner->index
 			                         : ELC_NO_FUNCTION;
 			access->line     = ts_node_start_point(node).row + 1;
-			access->kind     = kind;
+			access->kind     = (GlobalAccessKind)kind;
 			facts->global_count++;
 		}
 	}
@@ -3146,24 +3198,95 @@ static void measure_damage(TSNode root, const char *path, const char *data,
  * different configuration from the one reported is measured in a build nobody
  * asked for (HLR-132).
  */
-/* The include paths the image's debug information recorded, as `-I` flags
- * (HLR-238).
+
+/* The preprocessor's flags, every entry owned so one loop releases them.
  *
- * **Appended after the user's own flags**, never before: a `--cc-flag -I` is
- * what the user said to search, and the image's paths are evidence about the
- * build. Where the two disagree the user's wins, which is the same order of
- * authority a `-D` and an image-decided region already have (HLR-208).
- *
- * Owned by the caller and freed with the rest of the flag list.
+ * The user's own flags are *copied* rather than borrowed. That costs a handful
+ * of small allocations per file and removes the bookkeeping two borrowed
+ * ranges either side of an owned one would need — which is what the list
+ * became once a flag had to lead it rather than follow (HLR-240).
  */
-static char *include_flag(const char *dir)
+typedef struct {
+	const char **items;
+	size_t       count;
+	size_t       capacity;
+} FlagList;
+
+static void flaglist_free(FlagList *list)
 {
-	size_t want = strlen(dir) + 3;
+	for (size_t i = 0; i < list->count; i++)
+		free((char *)list->items[i]);
+	free(list->items);
+	memset(list, 0, sizeof *list);
+}
+
+/* Append one owned string, taking ownership even on failure so the caller
+ * never has to decide who frees what. */
+static int flag_add(FlagList *list, char *owned)
+{
+	if (!owned)
+		return -1;
+
+	if (list->count == list->capacity &&
+	    analyze_grow((void **)&list->items, &list->capacity,
+	                 sizeof *list->items) != 0) {
+		free(owned);
+		return -1;
+	}
+
+	list->items[list->count++] = owned;
+	return 0;
+}
+
+static char *flag_of(const char *prefix, const char *value)
+{
+	size_t want = strlen(prefix) + strlen(value) + 1;
 	char  *flag = malloc(want);
 
 	if (flag)
-		snprintf(flag, want, "-I%s", dir);
+		snprintf(flag, want, "%s%s", prefix, value);
 	return flag;
+}
+
+/* The whole flag list, in the order the preprocessor must see it.
+ *
+ * **The device flag leads.** `-mmcu` is last-wins, so a `--cc-flag -mmcu` of
+ * the user's must come *after* the image's to override it — the opposite
+ * placement from the include paths, where earlier means searched first and the
+ * user's must therefore lead. Both orderings say the same thing: where the
+ * user and the image disagree, the user wins (HLR-238, HLR-240).
+ */
+static int build_flags(const ElcOptions *opts, const SymbolSet *image,
+                       FlagList *out)
+{
+	memset(out, 0, sizeof *out);
+
+	if (image) {
+		char *device = elfsyms_device_flag(image);
+
+		if (device && flag_add(out, device) != 0)
+			return -1;
+	}
+
+	for (size_t i = 0; i < opts->cc_flag_count; i++)
+		if (flag_add(out, strdup(opts->cc_flags[i])) != 0)
+			return -1;
+
+	if (image)
+		for (size_t i = 0; i < image->include_dirs.count; i++)
+			if (flag_add(out, flag_of("-I",
+			                image->include_dirs.paths[i])) != 0)
+				return -1;
+
+	/* `elc` records a definition as the user wrote it — `NAME` or
+	 * `NAME=VALUE` — and the preprocessor wants it prefixed. Built here
+	 * rather than stored prefixed, because the bare form is what the
+	 * conditional evaluation compares against. */
+	for (size_t i = 0; i < opts->define_count; i++)
+		if (flag_add(out, flag_of("-D", opts->defines[i])) != 0)
+			return -1;
+
+	return 0;
 }
 
 static int preproc_expand_configured(const char *path, const char *language,
@@ -3171,59 +3294,17 @@ static int preproc_expand_configured(const char *path, const char *language,
                                      const SymbolSet *image,
                                      PreprocResult *out)
 {
-	const IncludeDirs *dirs = image ? &image->include_dirs : NULL;
-	size_t             ndirs = dirs ? dirs->count : 0;
-	const char       **flags;
-	size_t             n = 0;
-	int                rc;
+	FlagList flags;
+	int      rc;
 
-	if (opts->define_count == 0 && ndirs == 0)
-		return preproc_expand(path, language, opts->cc,
-		                      opts->cc_flags, opts->cc_flag_count,
-		                      out);
-
-	flags = calloc(opts->cc_flag_count + opts->define_count + ndirs,
-	               sizeof *flags);
-	if (!flags)
+	if (build_flags(opts, image, &flags) != 0) {
+		flaglist_free(&flags);
 		return -1;
-
-	for (size_t i = 0; i < opts->cc_flag_count; i++)
-		flags[n++] = opts->cc_flags[i];
-
-	for (size_t i = 0; i < ndirs; i++) {
-		char *flag = include_flag(dirs->paths[i]);
-
-		if (!flag) {
-			for (size_t k = opts->cc_flag_count; k < n; k++)
-				free((char *)flags[k]);
-			free(flags);
-			return -1;
-		}
-		flags[n++] = flag;
 	}
 
-	/* `elc` records a definition as the user wrote it — `NAME` or
-	 * `NAME=VALUE` — and the preprocessor wants it prefixed. Built here
-	 * rather than stored prefixed, because the bare form is what the
-	 * conditional evaluation compares against. */
-	for (size_t i = 0; i < opts->define_count; i++) {
-		size_t want = strlen(opts->defines[i]) + 3;
-		char  *flag = malloc(want);
-
-		if (!flag) {
-			for (size_t k = opts->cc_flag_count; k < n; k++)
-				free((char *)flags[k]);
-			free(flags);
-			return -1;
-		}
-		snprintf(flag, want, "-D%s", opts->defines[i]);
-		flags[n++] = flag;
-	}
-
-	rc = preproc_expand(path, language, opts->cc, flags, n, out);
-	for (size_t i = opts->cc_flag_count; i < n; i++)
-		free((char *)flags[i]);
-	free(flags);
+	rc = preproc_expand(path, language, opts->cc, flags.items,
+	                    flags.count, out);
+	flaglist_free(&flags);
 	return rc;
 }
 

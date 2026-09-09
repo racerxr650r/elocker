@@ -130,13 +130,13 @@ finding_rows() {
 	# blank for most rows was added before it: awk splits on whitespace, so
 	# a row with an empty cell has fewer fields than the header and the
 	# header's index lands on the wrong one. The trailing columns are always
-	# populated — Out, WTBI and Burden every row has — so an offset from the
+	# populated — Out and WTBI every row has — so an offset from the
 	# end is what is stable here.
 	local fanout
 	fanout="$(printf '%s\n' "$output" |
 		awk '/^Functions [(]/ { f = 1; next }
 		     f && /^$/    { f = 0 }
-		     f && $3 == "band_acceptable_high" { print $(NF-2) }')"
+		     f && $2 == "band_acceptable_high" { print $(NF-1) }')"
 	assert_equal "$fanout" "10"
 }
 

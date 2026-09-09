@@ -24,7 +24,11 @@ setup() {
 	# wrapping under test is provoked rather than hoped for.
 	TREE="$BATS_TEST_TMPDIR/a-project-with/a-deliberately-long/directory-path/src"
 	mkdir -p "$TREE"
-	printf 'int helper(int n)\n{\n\tif (n)\n\t\treturn 1;\n\treturn 0;\n}\n\nint main(void)\n{\n\treturn helper(1);\n}\n' \
+	# One global at file scope, so the Globals tier has a row. Without one
+	# that table is empty, is therefore not printed (HLR-188), and the
+	# composition tests below would compare four tiers against five and
+	# call the difference a defect.
+	printf 'int shared;\n\nint helper(int n)\n{\n\tif (n)\n\t\treturn 1;\n\treturn 0;\n}\n\nint main(void)\n{\n\treturn helper(1);\n}\n' \
 		> "$TREE/a.c"
 
 	# One function over a published band, so the Findings tier has a row.
@@ -283,11 +287,11 @@ composition() {
 		sed -E 's/ \([0-9]+\)$//'
 }
 
-@test "HLR-218: the report a terminal gets is four sections" {
+@test "HLR-218: the report a terminal gets is five sections" {
 	on_a_terminal "$TREE"
 	assert_success
 	assert_equal "$(composition)" \
-		"$(printf 'Project Summary\nFindings\nFiles\nFunctions')"
+		"$(printf 'Project Summary\nFindings\nFiles\nGlobals\nFunctions')"
 }
 
 @test "HLR-218: the aligned table composes the same way into a file" {
@@ -299,7 +303,7 @@ composition() {
 	run cat "$BATS_TEST_TMPDIR/report.txt"
 
 	assert_equal "$(composition)" \
-		"$(printf 'Project Summary\nFindings\nFiles\nFunctions')"
+		"$(printf 'Project Summary\nFindings\nFiles\nGlobals\nFunctions')"
 }
 
 @test "HLR-218: Markdown drops the same tiers the terminal report drops" {
@@ -324,7 +328,7 @@ composition() {
 	assert_output --partial "## Callouts"
 }
 
-@test "HLR-218: the two formats' defaults are the same four tiers exactly" {
+@test "HLR-218: the two formats' defaults are the same five tiers exactly" {
 	# Equality rather than intersection. An intersection would still pass
 	# if one format quietly kept a fifth tier of its own, which is the
 	# state HLR-218 was rewritten to end.
@@ -339,10 +343,14 @@ composition() {
 	run cat "$BATS_TEST_TMPDIR/four.md"
 	local markdown
 	markdown="$(grep -E '^## ' <<<"$output" | sed 's/^## //' |
+		sed -E 's/ \([0-9]+\)$//' |
 		grep -v '^Nothing To Report$' | sort)"
 
+	# Globals joined them in Phase 35: what state a project declares is a
+	# fact about the source, so it is reported wherever the source was read
+	# rather than only where a graph was built (HLR-242).
 	assert_equal "$table" \
-		"$(printf 'Files\nFindings\nFunctions\nProject Summary')"
+		"$(printf 'Files\nFindings\nFunctions\nGlobals\nProject Summary')"
 	assert_equal "$markdown" "$table"
 }
 
@@ -357,26 +365,41 @@ composition() {
 
 @test "HLR-218: a function's figures are the same in both compositions" {
 	# The line HLR-218 does not cross: which tiers a format presents may
-	# differ, what a tier says may not. The Functions row for `helper` is
-	# the same row in the terminal report and in the verbose Markdown one.
+	# differ, what a tier says may not. Every figure the terminal reports
+	# for `helper` is the figure the verbose Markdown reports.
+	#
+	# The Markdown row carries one column the terminal's does not — the
+	# burden band, which the aligned table renders as the colour of the
+	# figure beside it rather than as a word (HLR-227). That is a
+	# difference of presentation and not of measurement, so it is excluded
+	# here rather than asserted away.
 	elc "$TREE"
 	assert_success
 	local terminal
-	terminal="$(awk '$3 == "helper" { $1 = ""; print }' <<<"$output")"
+	terminal="$(awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+		f && $2 == "helper" {
+		for (i = 2; i <= NF; i++) printf "%s ", $i; print "" }' \
+		<<<"$output")"
 	[ -n "$terminal" ]
 
 	elc --verbose -f md "$TREE"
 	assert_success
 	local markdown
-	markdown="$(awk -F'|' '$4 ~ /^ *helper *$/ {
-		for (i = 5; i <= NF - 1; i++) printf "%s ", $i; print "" }' \
-		<<<"$output")"
+	# The Markdown name cell also carries the anchor a finding links to
+	# (HLR-241), which is addressed to the renderer and is not one of the
+	# figures being compared.
+	markdown="$(awk -F'|' '/^## / { f = ($0 ~ /^## Functions( \([0-9]+\))?$/) }
+		f && $3 ~ /(^| |>)helper *$/ {
+		for (i = 3; i <= NF - 2; i++) {
+			t = $i; gsub(/<[^>]*>/, "", t); printf "%s ", t
+		}
+		print "" }' <<<"$output")"
 	[ -n "$markdown" ]
 
 	# Same figures, whitespace normalised: the decoration differs and the
 	# measurements do not.
 	local a b
-	a="$(tr -s ' ' <<<"$terminal" | sed 's/^ *//; s/ *$//' | cut -d' ' -f3-)"
+	a="$(tr -s ' ' <<<"$terminal" | sed 's/^ *//; s/ *$//')"
 	b="$(tr -s ' ' <<<"$markdown" | sed 's/^ *//; s/ *$//')"
 	assert_equal "$a" "$b"
 }
@@ -462,8 +485,11 @@ composition() {
 	# be chosen rather than provoked.
 	[[ "$raw_output" == *$'\e[93mwarning'* ]] ||
 		{ echo "warning was not yellow" >&2; false; }
-	[[ "$raw_output" == *$'\e[92mhealthy'* ]] ||
-		{ echo "healthy was not green" >&2; false; }
+	# The healthy band is no longer a word in this table: it is the colour
+	# of the weighted-burden figure, which is the one cell whose band the
+	# aligned table shows without spelling it (HLR-227).
+	[[ "$raw_output" =~ $'\e'\[92m[[:space:]]*[0-9] ]] ||
+		{ echo "a healthy figure was not green" >&2; false; }
 }
 
 @test "HLR-226: colour says nothing the text does not" {
@@ -472,8 +498,25 @@ composition() {
 	on_a_terminal "$TREE"
 	assert_success
 	assert_output --partial "warning"
-	assert_output --partial "healthy"
 	refute_output --partial $'\e['
+}
+
+@test "HLR-227: the band the table colours is a word in every plain format" {
+	# The one band the aligned table does not spell out, so the formats
+	# with no colour to carry it must. Losing it in all three at once is
+	# the regression this guards: a reader of a redirected report, of the
+	# Markdown, or of the CSV would have no band at all.
+	on_a_terminal "$TREE"
+	assert_success
+	refute_output --partial "healthy"
+
+	elc --verbose -f md "$TREE"
+	assert_success
+	assert_output --partial "healthy"
+
+	elc -f csv "$TREE"
+	assert_success
+	assert_output --partial "healthy"
 }
 
 @test "HLR-226: Markdown stays plain even on a terminal" {

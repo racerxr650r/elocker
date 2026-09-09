@@ -540,33 +540,24 @@ hal 1 2 0"
 	assert_output --partial "$convention"
 }
 
-@test "HLR-190: the Markdown matrix folds the grid and keeps the convention out" {
-	# The grid goes behind a disclosure like every other Markdown table.
-	# The convention does not: it is the sentence that makes a cell below
-	# the diagonal a back-call rather than a number, and the reader who has
-	# not expanded the grid is the one deciding whether to (HLR-166).
-	local convention="Rows are callers, columns callees, in ascending order."
-
+@test "HLR-190: the Markdown matrix leads with its convention" {
+	# The convention comes before the grid: it is the sentence that makes a
+	# cell below the diagonal a back-call rather than a number, and it is
+	# read on the way in (HLR-166). It stood above a fold until Phase 35
+	# removed the fold; the order it guaranteed is kept and asserted here
+	# directly, which is what the fold was standing in for.
 	elc --verbose -f md "${STRATA[@]}" "$TREE"
 	assert_success
 
-	# heading, blank, convention, blank, <details> — in that order, with
-	# the convention above the fold.
+	# heading, blank, convention, blank, grid — in that order, and with no
+	# disclosure element anywhere between them.
 	local shape
-	shape="$(awk '/^## Dependency Structure Matrix/ { s = 1 }
-	              s && /^<details>$/ { print "details"; exit }
-	              s && /^<summary>/  { print "summary" }
-	              s && /Rows are callers/ { print "convention" }' <<<"$output")"
+	shape="$(awk '/^## Dependency Structure Matrix/ { s = 1; next }
+	              s && /^<details/ { print "details"; exit }
+	              s && /Rows are callers/ { print "convention" }
+	              s && /^\|/ { print "grid"; exit }' <<<"$output")"
 	assert_equal "$shape" "convention
-details"
-
-	assert_output --regexp "<summary>[0-9]+ rows? \(click to expand\)</summary>"
-
-	# The aligned rendering gains no element, and still carries the note.
-	elc --verbose "${STRATA[@]}" "$TREE"
-	assert_success
-	assert_output --partial "$convention"
-	refute_output --partial "<details>"
+grid"
 }
 
 @test "HLR-166: the CSV companion carries the grid the report shows" {

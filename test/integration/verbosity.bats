@@ -68,7 +68,8 @@ reaches() {
 	elc -f md "$TREE"
 	local markdown
 	markdown="$(printf '%s\n' "$output" |
-		awk '/^## / { sub(/^## /, ""); print }' | sort -u)"
+		awk '/^## / { sub(/^## /, ""); sub(/ \([0-9]+\)$/, ""); print }' |
+		sort -u)"
 
 	assert_equal "$markdown" "$table"
 }
@@ -177,14 +178,14 @@ reaches() {
 	refute_output --regexp "^Unreachable Functions .*\\) \\([0-9]+\\)$"
 }
 
-@test "HLR-235: Markdown states the same size in its own idiom" {
-	# One fact in two decorations, which is the line HLR-218 draws: the
-	# disclosure summary carries the figure the aligned heading carries.
+@test "HLR-235: Markdown states the same size as the aligned table" {
+	# One fact, now in one decoration. The figure rode on the disclosure
+	# summary until Phase 35 removed the fold; it rides on the heading now,
+	# which is where the aligned table always put it.
 	elc -f md "$TREE"
 	assert_success
-	assert_output --partial "## Functions"
-	assert_output --partial "<summary>2 rows (click to expand)</summary>"
-	refute_output --partial "## Functions (2)"
+	assert_line --regexp "^## Functions \([0-9]+\)$"
+	refute_output --partial "<summary>"
 }
 
 # --- empty tables (HLR-188, HLR-189) ---------------------------------------
@@ -238,7 +239,7 @@ reaches() {
 	elc --verbose "$TREE"
 	assert_success
 	has_heading "Functions"
-	assert_output --regexp "Function +Scope +Reent +Lines +ELOC +CC +In +Out +WTBI +Burden"
+	assert_output --regexp "Function +L +Scope +R +Lines +ELOC +CC +In +Out +WTBI"
 	! has_heading "Fan-out \\(distinct callees\\)"
 	! has_heading "Information flow"
 	refute_output --partial "Henry-Kafura;"
@@ -327,7 +328,7 @@ reaches() {
 	elc --verbose -f md "$TREE"
 	local markdown
 	markdown="$(printf '%s\n' "$output" |
-		awk '/^## / { sub(/^## /, ""); print }')"
+		awk '/^## / { sub(/^## /, ""); sub(/ \([0-9]+\)$/, ""); print }')"
 
 	# The counts of HLR-235 are a decoration of the aligned style and are
 	# stripped from both sides by `headings`, so this compares the tiers.

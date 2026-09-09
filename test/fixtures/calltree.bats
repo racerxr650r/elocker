@@ -20,8 +20,14 @@ undecorated() {
 	# dropped along with the decoration, and it has to be: the blank line
 	# after `<summary>` would otherwise terminate a section extractor at
 	# the very line the table begins on.
+	# The anchor a finding's subject links to (HLR-241) goes with the rest
+	# of the decoration: it is addressed to the renderer, occupies no
+	# column, and would otherwise be read as part of the name beside it.
+	# Only the anchor — `<details>` has to survive to be dropped by name
+	# below, since blanking it in place would leave a blank line, and a
+	# blank line is what terminates a section for every extractor here.
 	printf '%s\n' "$output" |
-		sed 's/^## /  /; s/|/ /g' |
+		sed 's/^## /  /; s/|/ /g; s|</\?a[^>]*>||g' |
 		grep -vE '^(<details>|<summary>|</details>)'
 }
 
@@ -44,7 +50,7 @@ function_of() {
 		awk -v want="$1" -v col="$2" \
 		    '/^ *Functions( \([0-9]+\))?$/ { f = 1; next }
 		     f && /^ *$/ { if (seen) f = 0; next }
-		     f { seen = 1; if ($3 == want) print $col }'
+		     f { seen = 1; if ($2 == want) print $col }'
 }
 
 fan_in_of()  { function_of "$1" 8; }
@@ -121,7 +127,7 @@ chain() {
 	assert_success
 
 	local rows
-	rows="$(function_section | awk '/^ *\// { n++ } END { print n + 0 }')"
+	rows="$(function_section | awk '/^ *[^ ]+:[0-9]+ / { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "24"
 }
 
@@ -160,7 +166,7 @@ chain() {
 	assert_success
 
 	local rows
-	rows="$(function_section | awk '/^ *\// { n++ } END { print n + 0 }')"
+	rows="$(function_section | awk '/^ *[^ ]+:[0-9]+ / { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "8"
 }
 
@@ -173,7 +179,7 @@ chain() {
 	elc --verbose --entry flow_entry "$TREE/flow.c"
 	assert_success
 
-	assert_output --regexp "Function +Scope +Reent +Lines +ELOC +CC +In +Out"
+	assert_output --regexp "Function +L +Scope +R +Lines +ELOC +CC +In +Out"
 	refute_output --partial "Fan-out (distinct callees)"
 	refute_output --partial "Information flow"
 }

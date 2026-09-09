@@ -363,9 +363,9 @@ Test(format_text, the_markdown_summary_keeps_the_per_function_tier)
 	summary = render_as(&report, STYLE_MARKDOWN, VERBOSITY_SUMMARY);
 	verbose = render_as(&report, STYLE_MARKDOWN, VERBOSITY_VERBOSE);
 
-	cr_assert_not_null(strstr(summary, "\n## Files\n"));
-	cr_assert_not_null(strstr(summary, "\n## Functions\n"));
-	cr_assert_not_null(strstr(verbose, "\n## Functions\n"));
+	cr_assert_not_null(strstr(summary, "\n## Files ("));
+	cr_assert_not_null(strstr(summary, "\n## Functions ("));
+	cr_assert_not_null(strstr(verbose, "\n## Functions ("));
 
 	/* Still a detail tier, and still absent: one row per global object is
 	 * what the rule sends away, and the exception is the function table
@@ -454,8 +454,8 @@ Test(format_text, the_findings_follow_the_project_summary)
 	 * order under test is that traversal's and is the same in both styles
 	 * (HLR-182, HLR-218). */
 	summary  = render_as(&report, STYLE_MARKDOWN, VERBOSITY_SUMMARY);
-	findings = strstr(summary, "\n## Findings\n");
-	files_at = strstr(summary, "\n## Files\n");
+	findings = strstr(summary, "\n## Findings (");
+	files_at = strstr(summary, "\n## Files (");
 
 	cr_assert_not_null(findings);
 	cr_assert_not_null(files_at);
@@ -472,8 +472,8 @@ Test(format_text, the_findings_follow_the_project_summary)
 	{
 		char       *verbose  = render_as(&report, STYLE_MARKDOWN,
 		                                 VERBOSITY_VERBOSE);
-		const char *at       = strstr(verbose, "\n## Findings\n");
-		const char *callouts = strstr(verbose, "\n## Callouts\n");
+		const char *at       = strstr(verbose, "\n## Findings (");
+		const char *callouts = strstr(verbose, "\n## Callouts (");
 
 		cr_assert_not_null(at);
 		cr_assert_not_null(callouts);
@@ -537,38 +537,36 @@ Test(format_text, the_closing_statement_is_present_even_with_nothing_empty)
  * makes the table render at all: GitHub-Flavored Markdown parses the contents
  * of an HTML block as Markdown only where a blank line separates them.
  */
-Test(format_text, markdown_tables_sit_inside_a_disclosure_element)
+Test(format_text, a_markdown_table_stands_open_under_its_heading)
 {
 	FileMetrics *a       = metrics_for("/tree/a.c", 30);
 	FileMetrics *files[] = { a };
 	Report       report;
 	char        *out;
-	const char  *files_at;
 
 	add_function(a, "one", 1, 2, 0, 0);
 	add_function(a, "two", 10, 2, 0, 0);
 	report = report_of(files, 1);
 	out    = render_as(&report, STYLE_MARKDOWN, VERBOSITY_VERBOSE);
 
-	/* The heading stays a heading and stays outside the element, so the
-	 * section keeps its anchor and the composition is still readable off
-	 * the `##` lines. */
-	files_at = strstr(out, "\n## Files\n\n<details>\n<summary>1 row "
-	                       "(click to expand)</summary>\n\n|");
-	cr_assert_not_null(files_at,
-	                   "the Files table opens a disclosure under its "
-	                   "heading, and says it holds one row");
+	/* The table follows its heading directly. It was folded into a
+	 * `<details>` element until Phase 35, which cost more than it saved: a
+	 * folded table is not searchable, and a fragment pointing into one
+	 * scrolls to nothing — which made every cross-reference of HLR-241 a
+	 * link that did not work. */
+	cr_assert_not_null(strstr(out, "\n## Files (1)\n\n|"),
+	                   "the Files table follows its heading with no "
+	                   "element between them");
+	cr_assert_not_null(strstr(out, "\n## Functions (2)\n\n|"),
+	                   "and so does the Functions table");
 
-	/* Plural where there is more than one, and the count is the rows
-	 * actually emitted rather than a number written down beside them. */
-	cr_assert_not_null(strstr(out, "\n## Functions\n\n<details>\n"
-	                               "<summary>2 rows (click to expand)"
-	                               "</summary>\n\n|"),
-	                   "two functions are two rows");
-
-	cr_assert_not_null(strstr(out, "|\n\n</details>\n"),
-	                   "and the element closes a blank line after the "
-	                   "last row");
+	/* The count the `<summary>` used to carry now rides on the heading,
+	 * where the aligned table already puts it (HLR-235), so nothing was
+	 * lost with the element that held it. */
+	cr_assert_null(strstr(out, "<details"),
+	               "no table is folded behind a disclosure element");
+	cr_assert_null(strstr(out, "<summary>"),
+	               "and none carries a disclosure summary");
 
 	free(out);
 	report_free(&report);

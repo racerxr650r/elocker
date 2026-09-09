@@ -247,9 +247,9 @@ staged_install() {
 	rm -f "$RT/queries/c/visibility.scm"
 	elc_with_runtime "$RT" --verbose "$SUBJECT"
 	assert_success
-	refute_output --regexp "only +public"
-	refute_output --regexp "only +private"
-	assert_output --regexp "only +—"
+	refute_output --regexp "only +\\S+ +public"
+	refute_output --regexp "only +\\S+ +private"
+	assert_output --regexp "only +\\S+ +—"
 }
 
 @test "LLR-VIS-03: losing the visibility query costs nothing else" {

@@ -17,10 +17,10 @@
     <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.34" date="2026-09-03" author="John Anderson"/>
     <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.34" date="2026-09-03" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="233"/>
-      <count name="llrs"       value="631"/>
-      <count name="tests"      value="1395"/>
-      <count name="test_files" value="63"/>
+      <count name="hlrs"       value="237"/>
+      <count name="llrs"       value="632"/>
+      <count name="tests"      value="1416"/>
+      <count name="test_files" value="64"/>
     </counts>
   </metadata>
 
@@ -854,7 +854,7 @@ The Weighted Test Burden Index has no such published ancestor to decline. It is 
         <responsibility><![CDATA[Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).]]></responsibility>
         <responsibility><![CDATA[Present every per-function figure in one table — lines, ELOC, complexity, fan-in, fan-out, the Mock Burden Score, the weighted fan-out and the Weighted Test Burden Index — rather than in three tables enumerating the same functions (HLR-183, HLR-223).]]></responsibility>
         <responsibility><![CDATA[Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).]]></responsibility>
-        <responsibility><![CDATA[In the Markdown style alone, place each table inside an HTML `<details>` element stating its row count, beneath a heading that stays a heading (HLR-190).]]></responsibility>
+        <responsibility><![CDATA[In the Markdown style alone, present each table openly beneath a `##` heading that states its row count, inside no disclosure element (HLR-190).]]></responsibility>
         <responsibility><![CDATA[Render Markdown with functions grouped under a per-file heading.]]></responsibility>
         <responsibility><![CDATA[Present every tier the uniform-composition rule requires, in both formats.]]></responsibility>
         <responsibility><![CDATA[Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).]]></responsibility>
@@ -905,9 +905,7 @@ A cell that outran its column is continued on the lines beneath it, divided at a
 
 Determinism is unaffected (HLR-032). 128 is a constant rather than the terminal's own width, nothing is read from `COLUMNS` or the locale, and the stream is asked one yes-or-no question whose answer selects between two fixed presentations — so two runs to the same kind of destination produce identical bytes.
 
-**In the Markdown style each table is folded behind a disclosure element** (HLR-190). The report runs to hundreds of rows on any real project, and a reader opening it wants to choose which of them to look at. The section's `##` heading stays a heading and stays outside the element — it is what anchors the section, what a table of contents is built from, and what the composition tests read the report's shape off — so the `<summary>` states the row count instead, which is the one thing the heading above it does not already say. The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
-
-The blank lines on either side of the table are load-bearing. GitHub-Flavored Markdown parses the contents of an HTML block as Markdown only where a blank line separates the two, and without them the table renders as its own source text.
+**In the Markdown style each table stands open beneath its heading** (HLR-190). Each was folded behind a disclosure element until Phase 35, so that a reader opening a report of hundreds of rows chose which to look at. That cost two properties worth more than the brevity: text inside a closed `<details>` is reached by no browser's find and no host's search, so a reader was told a function was absent when it was present; and a fragment pointing into a hidden element scrolls to nothing, which made every cross-reference of HLR-241 a link that did not work. The row count moved to the `##` heading, where the aligned table already states it (HLR-235). The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
 
 The table is laid out in tiers, each introduced by a heading and indented beneath it:
 
@@ -4627,14 +4625,20 @@ The uniformity requirements are unchanged and are satisfied one level up. What H
       </traces>
       </hlr>
 
-      <hlr id="HLR-190" name="Markdown Tables Presented Behind a Disclosure Element">
-        <text><![CDATA[In the Markdown report of HLR-029, `elc` shall present every table inside an HTML `<details>` element whose `<summary>` states how many rows the table holds, so that a reader expands the tables they want rather than scrolling past the ones they do not.
+      <hlr id="HLR-190" name="Markdown Tables Presented Open Beneath Their Headings">
+        <text><![CDATA[In the Markdown report of HLR-029, `elc` shall present every table openly beneath its `##` heading, and shall place no table inside an HTML `<details>` element or any other construct that hides it until a reader acts.
 
-**The section's `##` heading shall remain a heading**, outside the element. The heading is what anchors a section: a Markdown renderer derives a link target from it, a table of contents is built out of it, and the report's own composition is read off it. Folding the heading into the `<summary>` would trade a navigable document for a tidy one — so the summary states what is *inside* the element instead, which is the one thing a reader deciding whether to expand does not already know from the heading above it.
+**This reverses what this requirement said between Phase 22 and Phase 35**, which was that every table be folded behind a disclosure element stating its row count, so that a reader expanded the tables they wanted rather than scrolling past the ones they did not. Two things retired that reasoning, and both are properties a report is *for*.
 
-The row count in the summary shall be derived from the rows presented, never written down beside them. A count maintained separately from what it counts is a count that drifts.
+**A folded table cannot be searched.** Neither a browser's find nor a Markdown host's own search reaches text inside a closed `<details>`, so a reader looking for a function by name was told it was not in the report — the one question a code-metrics report exists to answer, answered wrongly. Scrolling past a section costs a moment; being told a thing is absent when it is present costs the reader the report.
 
-This requirement governs the Markdown report alone. The aligned table (HLR-027) has no disclosure to offer and is unchanged; CSV (HLR-028) and XML (HLR-054) are complete-record formats whose consumers parse them, and HTML in either would be a defect rather than a convenience. Uniform composition across formats (HLR-031) is unaffected: the tiers each format reaches, and the headings it presents them under, are the same as before.]]></text>
+**A folded table cannot be linked into.** A fragment identifier pointing inside a hidden element scrolls to nothing in most renderers, which made every cross-reference of HLR-241 a link that silently did not work. A report whose evidence can be pointed at is worth more than one that is short.
+
+**The row count shall move to the heading**, in the form the aligned table already uses (HLR-235), so that nothing is lost with the `<summary>` that used to carry it. It shall be derived from the rows presented, never written down beside them: a count maintained separately from what it counts is a count that drifts.
+
+A heading that already carries a parenthesised clause shall not take a second bracket. The dependency-structure matrix names its subjects that way (HLR-166), and its extent is the grid itself, which is square.
+
+This requirement governs the Markdown report alone. The aligned table (HLR-027) never had a disclosure to offer; CSV (HLR-028) and XML (HLR-054) are complete-record formats whose consumers parse them, and HTML in either would be a defect rather than a convenience. Uniform composition across formats (HLR-031) is unaffected: the tiers each format reaches, and the headings it presents them under, are unchanged.]]></text>
       <traces>
         <trace target="SDD" ref="14"/>
         <trace target="SDD" ref="22"/>
@@ -4996,6 +5000,74 @@ A summary row's value may therefore be a word rather than a figure. A word shall
         <traces>
           <trace target="SDD" ref="13"/>
           <trace target="SDD" ref="18"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-240" name="The Device the Image Was Built For">
+        <text><![CDATA[Where a linked image records the device it was built for, `elc` shall pass that device to the preprocessor as the option the machine's toolchain uses to select one, so that a target whose headers are chosen by device expands without the user restating what the image already records.
+
+**The same principle as HLR-238, applied to the other half of what a build needs.** The include paths tell the preprocessor *where* to look; on an embedded target they are not enough on their own, because the vendor headers select a register map from a device macro and refuse to compile without one. `avr-libc` fails with `#error "No SLEEP mode defined for this device."` — a diagnostic that has nothing to do with search paths, and that the image can answer: `.note.gnu.avr.deviceinfo` records the device name, needs no extra build switch, and is written by every build.
+
+**The device flag shall lead the flag list, where the include paths follow the user's.** The two orderings say the same thing by opposite means: `-mmcu` is last-wins, so the user's own must come *after* the image's to override it, while an include path earlier in the list is searched first, so the user's must come *before*. Where the user and the image disagree, the user's declaration wins (HLR-238).
+
+**The option's spelling is the toolchain's and shall be a table rather than a guess.** A machine `elc` has no spelling for shall contribute no flag: passing an option a compiler does not accept turns a run that would have expanded into one that falls back, which is worse than the fallback the feature exists to prevent. The table's honest size today is one entry, `avr-gcc` being the toolchain that writes the note this reads.
+
+The device shall be kept apart from the description the project summary states (HLR-239): `avr128da28 (AVR)` is a display and not a flag.]]></text>
+        <traces>
+          <trace target="SDD" ref="7"/>
+          <trace target="SDD" ref="18"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-241" name="Findings Cross-Referenced to the Rows That Describe Them">
+        <text><![CDATA[In the Markdown report of HLR-029, `elc` shall link each finding's subject to the row that describes it, and shall link that row back to the finding, so that a reader moves between a judgement and its evidence by following a reference rather than by searching for a name.
+
+**The findings table names its subject and stops** (HLR-101, HLR-182). That is deliberate — a finding says what was measured, where, and which standard places it outside the range — but it leaves the reader to find the subject again in a table of hundreds of rows. A reference costs nothing to follow and lets the finding stay as short as it is.
+
+**A link shall be emitted only where the row it names is present in that report.** A reference that lands nowhere is worse than a plain name: it tells the reader something exists and then fails to produce it. Two consequences follow. A subject that is a component, an external callee, a list of names forming a cycle, or the call graph itself is a row in no table and shall be left as text. And a table a composition does not print is not a destination for that composition (HLR-150, HLR-218) — which is why the objects a finding names are matched against the Globals table of HLR-242, a summary tier present in every composition, rather than against an analysis reached only where a graph was built.
+
+**An anchor shall name one row.** It shall be derived from the canonical absolute path and the identifier together, never from the rendered location (HLR-210) and never from the name alone: two translation units may define one static name, and an anchor naming both names neither. Where several findings share a subject the first shall carry the anchor — a name written twice is a duplicate anchor, which resolves to whichever copy the renderer saw first.
+
+**Both spellings of an anchor shall be written**, `id` and `name`. The first is what current renderers resolve a fragment against and the second is the older form some pipelines still emit; writing one and not the other makes a link work in some readers and silently fail in others.
+
+This requirement is why HLR-190 no longer folds a table: a fragment pointing inside a hidden element scrolls to nothing, so a folded destination is a reference that does not work. It governs the Markdown report alone — the aligned table has nothing to click, and the complete-record formats carry their relations as data.]]></text>
+        <traces>
+          <trace target="SDD" ref="14"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-242" name="The Global Objects a Project Declares">
+        <text><![CDATA[`elc` shall report every global object the source declares, giving for each the file and line it is declared at, the identifier, and the type it was declared with. The table shall be presented after the files it draws from, in every composition and in every format that carries a report.
+
+**State shared between functions is the first thing a reader of an embedded project asks about**, and until this table `elc` answered it only through the global-state analysis of HLR-091 — a detail tier, absent from a default report, and reached only where a graph was built. What objects a project declares is a fact about the source, established by the same parse that finds the functions, so it shall be reported wherever the source was read: on a run with no image, no entry point and no graph.
+
+**It is a different table from that analysis and shall not replace it** (HLR-091 – HLR-093). That one says who writes an object, who reads it, and what the pair amounts to. This one says what exists and where to go and look — the one thing the analysis never needed and a reader always wants.
+
+**The location shall be `path:line`**, the form an editor acts on, as the function table writes it and for the same reason (HLR-210).
+
+**The type shall be the type as the language module captured it**, and no more. Which shapes a declaration takes is the query's business and not `elc`'s (HLR-009); a module that captures no type shall leave the column empty rather than have the object dropped for want of it, since the object is declared either way.
+
+**The objects shall be ordered by file and then by line** — the order the source writes them in — so that two runs over one tree present one order (HLR-032).
+
+In the record formats the objects shall be carried as their own kind of row. CSV shall name the kind in a column of its own rather than begin a second table: two headers in one document is not a CSV any consumer can load, a strict reader failing at the second and a lenient one reading it as data. XML shall carry them as one list, so that a report regenerated from a record is ordered as a live run's is (HLR-056).]]></text>
+        <traces>
+          <trace target="SDD" ref="5"/>
+          <trace target="SDD" ref="14"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-243" name="Every Finding Reports Where It Is">
+        <text><![CDATA[`elc` shall report, beside each finding, the file and line the finding is about, in the `path:line` form of HLR-210, and shall leave the field empty where the finding has no single place rather than inventing one.
+
+**A finding a reader cannot locate is a finding they cannot act on.** The findings table named what was measured, the subject, and the standard that draws the line, and left the reader to find the subject again in a table of hundreds of rows. The cross-reference of HLR-241 answers that for a subject the report holds a row for — and the exception is neither rare nor marginal. A call to a library function the standard forbids is attributed to the *callee*: a name defined in no file this run analysed, a row in no table, and therefore beyond any reference. Measured on `avrOS`, sixty-five such findings named `printf` or `fprintf` in rows of identical text distinguished by nothing whatever, and one finding in three was of that kind.
+
+**The place was in the model throughout.** Every finding is recorded with the file and line its measurement was taken at, and the XML record has carried both since findings existed (HLR-056). Only the human-readable table dropped them, which made the record strictly more useful than the report a reader was given.
+
+**Empty is an answer.** A component's instability, a cycle's membership and the depth of a call graph are properties of a structure rather than of a line; a location invented for them would be one a reader could not act on, and the blank says truthfully that the finding is not about a place.
+
+**The location shall not be wrapped** (HLR-219). A path broken across two lines is not a path — a reader cannot click half of one, and reassembling it by hand is the work `path:line` exists to remove — so a column carrying a navigable location shall be exempt from the narrowing that fits a line to the bound, as the numeric columns already are and for the same reason. The remaining text columns absorb the difference; where they cannot, the table goes out wide, which is the failure HLR-219 already prefers to a mangled one.]]></text>
+        <traces>
+          <trace target="SDD" ref="14"/>
         </traces>
       </hlr>
 
@@ -8636,10 +8708,23 @@ Debug information shall be recorded as present where any of the three things the
         </traces>
       </llr>
 
-      <llr id="LLR-ANL-65">
-        <text><![CDATA[`preproc_expand_configured` shall append the image's include directories to the preprocessor's flags as search paths, after the flags the user supplied and after nothing else (HLR-238).
+      <llr id="LLR-ELF-10">
+        <text><![CDATA[`elfsyms_device_flag` shall return the option that selects the image's device, as a fresh allocation the caller owns, or NULL where the image named no device or the machine has no spelling in the table (HLR-240).
 
-After the user's own, so that where the two disagree the user's declaration wins — the order of authority a `-D` already has over a region the image would otherwise decide (HLR-208). A run with no image, or with an image carrying no directories, shall pass exactly the flags it passed before, so the feature costs a run that cannot use it nothing.]]></text>
+The spelling is the toolchain's, and a machine absent from the table shall yield nothing rather than a guessed option: a flag a compiler rejects turns a run that would have expanded into one that falls back, which is worse than the fallback this exists to prevent. The table is one entry today and is a table so that a second machine recording a device is a row rather than a rewrite.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-240"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-ANL-65">
+        <text><![CDATA[`build_flags` shall assemble the preprocessor's flags in one order: the image's device option, the flags the user supplied, the image's include paths, and the `-D` definitions (HLR-238, HLR-240).
+
+**The device option leads and the include paths follow.** The two placements say the same thing by opposite means, because the options behave differently: `-mmcu` is last-wins, so the user's own must come after the image's to override it, while an include path earlier in the list is searched first, so the user's must come before. Where the user and the image disagree, the user wins — the order of authority a `-D` already has over a region the image would otherwise decide (HLR-208).
+
+**Every entry shall be owned, the user's flags copied rather than borrowed.** That costs a handful of small allocations per file and removes the index bookkeeping two borrowed ranges either side of an owned one would need, which is what the list became once a flag had to lead it. One loop then releases the whole list, on every path (HLR-125).
+
+A run with no image shall pass exactly the flags it passed before, so the feature costs a run that cannot use it nothing.]]></text>
         <traces>
           <trace target="HLR" ref="HLR-238"/>
           <trace target="HLR" ref="HLR-208"/>
@@ -11175,7 +11260,28 @@ An object the application and a callback share without the qualifier shall be re
     </test>
   </file>
 
-  <file path="test/unit/elfsyms.c" role="unit" count="11">
+  <file path="test/unit/elfsyms.c" role="unit" count="14">
+    <test name="the_device_flag_is_the_toolchains_spelling">
+      <purpose><![CDATA[The option a build needs told, in the spelling its toolchain uses. Built against a hand-made set rather than an image, because what is under test is the mapping and an image would put a whole ELF reader between the claim and the assertion.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ELF-10"/>
+        <trace target="HLR" ref="HLR-240"/>
+      </traces>
+    </test>
+    <test name="a_machine_with_no_spelling_contributes_no_flag">
+      <purpose><![CDATA[The case that keeps the feature from making things worse: passing an option a compiler does not accept turns a run that would have expanded into one that falls back, so a machine absent from the table yields nothing at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ELF-10"/>
+        <trace target="HLR" ref="HLR-240"/>
+      </traces>
+    </test>
+    <test name="an_image_naming_no_device_contributes_no_flag">
+      <purpose><![CDATA[An image naming no device contributes nothing whatever its machine, which is every image but the few whose toolchain writes the note. NULL is accepted for the same reason every other accessor here accepts it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ELF-10"/>
+        <trace target="HLR" ref="HLR-240"/>
+      </traces>
+    </test>
     <test name="an_unencoded_name_is_returned_unchanged">
       <purpose><![CDATA[The C case and the `extern "C"` case alike: a linkage name nothing encoded is its source name, and returning it unchanged is the whole of the rule.]]></purpose>
       <traces>
@@ -17556,7 +17662,114 @@ An object the application and a callback share without the qualifier shall be re
     </test>
   </file>
 
-  <file path="test/fixtures/elf.bats" role="fixture" count="66">
+  <file path="test/fixtures/globals.bats" role="fixture" count="17">
+    <test name="HLR-242: every declared global is reported with its place and type">
+      <purpose><![CDATA[The three declaration shapes a C module captures differently — a plain object, an initialised one and an array — each reported at the line it is written on, in source order, with the type as written.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242: the table is present without a graph to build it from">
+      <purpose><![CDATA[No entry point and no image: what a project declares is a fact about the source rather than a product of the analysis, so it is reported wherever the source was read.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242: the table follows the files it draws from">
+      <purpose><![CDATA[The reader's descent — the files, then the state they hold, then the functions — asserted as an order rather than a presence.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242: the table is in both compositions">
+      <purpose><![CDATA[A summary tier, so it is not one of the sections --verbose restores; the objects a finding names must have somewhere to point in a default report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242: every format carries the objects">
+      <purpose><![CDATA[Markdown, CSV and XML each carry the objects, CSV naming the kind of row in a column of its own rather than starting a second table no consumer could load.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242, HLR-056: the objects survive a record round trip">
+      <purpose><![CDATA[A report regenerated from a record names the same objects in the same order, so the record is a complete account of the run.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="HLR-241: a finding about an object links to the row describing it">
+      <purpose><![CDATA[The reference a reader follows from a judgement to its evidence, on the subject class that is a row in no table of code.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: the row links back to the finding that names it">
+      <purpose><![CDATA[The reference is symmetric: an object reached from a finding can be read back to the finding that named it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: every link in the report resolves to an anchor">
+      <purpose><![CDATA[The property the scheme rests on, asserted at both verbosities: a reference that lands nowhere promises a row and then fails to produce one, which is worse than a plain name.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: no anchor is written twice">
+      <purpose><![CDATA[A duplicate anchor resolves to whichever copy the renderer saw first, which is a link that works by accident.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: an anchor carries both spellings">
+      <purpose><![CDATA[`id` is what current renderers resolve a fragment against and `name` is the older form; one without the other works in some readers and silently fails in others.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: a subject with no row of its own is left as text">
+      <purpose><![CDATA[A component, an external callee or the call graph itself is a row in no table, and is named rather than linked.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: the aligned table carries no markup">
+      <purpose><![CDATA[The references are the Markdown report's alone: a terminal has nothing to click, and an anchor there would be markup printed at a reader.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-243: the findings table has a column for the place">
+      <purpose><![CDATA[The column is present whether or not this run's findings have a place to put in it, so a reader never has to wonder whether the report would have said.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-243"/>
+      </traces>
+    </test>
+    <test name="HLR-243: a library call names its call site, not just the callee">
+      <purpose><![CDATA[The case the column exists for: the finding is attributed to a callee defined in no file this run analysed and a row in no table, so no cross-reference can reach it and the location is the only thing that says where the call is.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-243"/>
+      </traces>
+    </test>
+    <test name="HLR-243: a finding about no single place leaves the column empty">
+      <purpose><![CDATA[A component's instability and the depth of a call graph are properties of a structure rather than of a line; an invented location would be one a reader could not act on.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-243"/>
+      </traces>
+    </test>
+    <test name="HLR-243, HLR-219: the location is never wrapped">
+      <purpose><![CDATA[A path broken across two lines is not a path, so the column carrying it is exempt from the narrowing that fits a line to the bound, as the numeric columns already are.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-243"/>
+        <trace target="HLR" ref="HLR-219"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/elf.bats" role="fixture" count="67">
     <test name="HLR-239: the summary names the image, the target, and the debug info">
       <purpose><![CDATA[The three things a reader needs before any figure beneath them means anything, since every one of those figures describes a different program when an image is in force. The architecture is read off the header rather than asserted as a literal, so the case holds on whatever machine the suite runs on.]]></purpose>
       <traces>
@@ -17950,8 +18163,15 @@ An object the application and a callback share without the qualifier shall be re
         <trace target="LLR" ref="LLR-ANL-53"/>
       </traces>
     </test>
-    <test name="HLR-145: a file the image kept nothing from still reports its data">
-      <purpose><![CDATA[A file with no function left reports its one line of file-scope ELOC, so a reader can tell a file of retained functions from a file of retained data.]]></purpose>
+    <test name="HLR-145: a file the image kept nothing from is not listed, and is counted">
+      <purpose><![CDATA[A file the link kept no function from is absent from the Files table, and the statement beneath it accounts for how many were dropped — so the filter removes noise without removing the record that they existed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-145"/>
+        <trace target="LLR" ref="LLR-ANL-53"/>
+      </traces>
+    </test>
+    <test name="HLR-145: the filter alone prunes a file, never the walk">
+      <purpose><![CDATA[The same tree with no image lists the same file: with no filter in force a file with no functions is a header or a unit of data, and dropping it unasked would hide a file that was analysed.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-145"/>
         <trace target="LLR" ref="LLR-ANL-53"/>

@@ -17,7 +17,7 @@ In this day ans age of AI generated code, `elc` is an excellent way to keep your
 
 Point `elc` at a file, directory, or Git repository to generate a detailed report.
 
-*   **Project Summary:** Overview of the project provided. Information provided includes; Number of files, Physical lines, ELOC, Number of functions, Critical findings count, and Warning findings count.
+*   **Project Summary:** Overview of the project provided. Information provided includes; Number of files, Physical lines, ELOC, Number of functions, Critical findings count, and Warning findings count among other project details.
 *   **Findings:** See [Every finding elc can report](https://github.com/racerxr650r/elocker/blob/develop/README.md#every-finding-elc-can-report) below.
 *   **File-Level Metrics:** Overview of the source files included in the project.
 *   **Function-Level Metrics:** Identifies where your complexity lives. Reports include function name, source file, line number, language, visibility, complexity, fan-in, fan-out, and maintainability index.
@@ -40,10 +40,11 @@ Most metrics tools analyze code per file and per language. In polyglot repositor
 
 ## Every finding elc can report
 
-`elc` reports 15 kinds of findings. Each names the measurement,
-the subject it was taken from, and **the authority it is judged against** — so a
-published rule and one of `elc`'s own judgements can never be mistaken for each
-other.
+`elc` reports 17 kinds of findings, and **the findings table is the whole
+list** — you never have to assemble what is wrong from the sections beneath it.
+Each names the measurement, the subject it was taken from, and **the authority
+it is judged against** — so a published rule, a judgement of `elc`'s own, and a
+line you drew yourself can never be mistaken for one another.
 
 ### Banded — the value decides the severity
 
@@ -79,23 +80,32 @@ There is no acceptable number of these, so there is nothing to band.
 | `instability` | component | warning | its measured instability contradicts the layer you declared it in | Martin |
 | `bottleneck` | component | warning | Ca and Ce both at or above the threshold (default 5, `-b`) | elc heuristic |
 | `misra library` | call site | warning | a call to a C library function MISRA C:2012 §21 forbids | MISRA C:2012 |
+| `layering violation` | call | warning | a call bypasses a layer, or runs against the declared direction | your `--stratum` declaration |
+| `cross-scope access` | call or shared global | warning | one declared execution scope reaches another | your `--scope` declaration |
 
 ### What needs `elc` needs declared
 
-Four findings cannot be reported unless you provide `elc` information it cannot
-infer:
+Some findings cannot be reported unless you provide `elc` information it cannot
+infer. The report then says the analysis was *omitted*, never that it was clean:
 
 | Finding | Needs |
 | --- | --- |
 | `call depth` | `--entry` |
-| `instability` | `--stratum` |
+| `instability`, `layering violation` | `--stratum` |
+| `cross-scope access` | `--scope` (two or more) |
 | `shared state`, `confined qualifier`, `critical section` | an interrupt handler `elc` can identify — a macro-written definition, `--isr-regex`, or `--elf` |
 
-### `elc heuristic` means exactly what it says
+### Three kinds of authority, and the report says which
 
-Six of the fifteen are `elc`'s own judgement rather than a published rule, and
-every one of them is labelled **`elc heuristic — not a published standard`** in
-the `Source` column.
+* **A published standard** — MISRA, Martin, McCabe, Henry-Kafura, C11.
+* **`elc heuristic — not a published standard`** — six of the seventeen are
+  `elc`'s own judgement rather than a published rule, and every one of them
+  says so in the `Source` column. Presenting them beside MISRA and McCabe
+  without saying so would lend them an authority they have not got.
+* **`your --stratum declaration` / `your --scope declaration`** — the rule
+  broken is one *you* drew. `elc` establishes that a call crosses the boundary,
+  not that this particular crossing is a defect: an architecture states an
+  intent, and an intended exception to it is a thing `elc` cannot see.
 
 No finding severity ever reaches the exit status. `elc` reports; what to do
 about it is yours.

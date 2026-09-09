@@ -21,7 +21,7 @@ functions_of() {
 	awk '/^Functions/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "File" {next}
-	     s && /^  [^ -]/ {print $3}' "$1" | sort | tr '\n' ' '
+	     s && /^  [^ -]/ {print $2}' "$1" | sort | tr '\n' ' '
 }
 
 summary_of() {
@@ -294,11 +294,12 @@ report() {
 	# than failing. The name is the only part of this that is stable.
 	# Counted from the right: a blank cell before this column collapses
 	# under awk's field splitting, so a header index does not land on the
-	# row. Out, WTBI and Burden are populated on every row.
+	# row. Out and WTBI are populated on every row; the burden band is a
+	# colour on the figure rather than a column of its own (HLR-227).
 	local fanout
 	fanout="$(awk '/^Functions [(]/ {s=1; next}
 	               s && /^$/     {exit}
-	               s && $3 == "caller" {print $(NF-2)}' "$OUT")"
+	               s && $2 == "caller" {print $(NF-1)}' "$OUT")"
 	assert_equal "$fanout" "0"
 }
 
@@ -309,7 +310,7 @@ report() {
 	local complexity
 	complexity="$(awk '/^Functions [(]/ {s=1; next}
 	                   s && /^$/ {exit}
-	                   s && $3 == "caller" {print $7}' "$OUT")"
+	                   s && $2 == "caller" {print $7}' "$OUT")"
 	assert_equal "$complexity" "1"
 }
 

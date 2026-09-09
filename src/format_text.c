@@ -118,6 +118,20 @@ typedef struct {
 	size_t      column_count;
 	const char *columns[GRID_MAX_COLUMNS];
 	bool        numeric[GRID_MAX_COLUMNS]; /* right-aligned when aligned */
+	/* Columns that are never narrowed to make a line fit (HLR-219).
+	 *
+	 * The rule the numeric columns already follow, for the same reason and
+	 * a different kind of value: a navigable location broken across two
+	 * lines is not a location, exactly as a number broken across two lines
+	 * is not a number. A reader cannot click half a path, and reassembling
+	 * it by hand is the work `path:line` exists to remove (HLR-210).
+	 *
+	 * The other text columns absorb the squeeze. Where even they cannot,
+	 * the table goes out wide — which `table_fit` already treats as the
+	 * honest failure, a wide table being worse than a narrow one and
+	 * better than a mangled one.
+	 */
+	bool        keep[GRID_MAX_COLUMNS];
 	int         width[GRID_MAX_COLUMNS];
 	char      **cells;                     /* row-major, owned          */
 	size_t      row_count;
@@ -128,12 +142,90 @@ typedef struct {
 	 *
 	 * A flag rather than a count built into the heading string, because the
 	 * count is not known when the heading is: rows are added after
-	 * `grid_begin`. It is also why the *empty* heading recorded for the
+	 * `grid_begin`. It is also why the *state* heading recorded for the
 	 * closing statement carries no count — a table with no rows is named
 	 * rather than printed, and "Findings (0)" would be a size for something
 	 * that was never a table. */
 	bool        show_size;
+	/* A final column carried for its band word alone: the aligned style
+	 * colours `band_target` with it and never prints it (HLR-227).
+	 *
+	 * **Carried rather than recomputed from the figure it colours.** The
+	 * band is decided once, by the catalogue, from the value itself; a
+	 * renderer deriving it a second time from the *rendered* value would
+	 * decide it from a number rounded to two places, and a figure a
+	 * hundredth below a boundary would print in a colour the Findings
+	 * table disagrees with. One fact, established once.
+	 *
+	 * Set for the aligned style alone. Markdown and CSV have no colour to
+	 * carry it, so there the column stays a column and the word is read
+	 * rather than seen.
+	 */
+	bool        band_trailing;
+	int         band_target;   /* the column it colours, or -1 */
+	/* Whether cells may carry Markdown or HTML that occupies no column
+	 * (HLR-241). Set for the Markdown style alone, where a cell is an
+	 * anchor or a link; the aligned style is always plain text. */
+	bool        markup;
 } Grid;
+
+/* One cell that is a link target: the anchor, then the text it names.
+ *
+ * **Both spellings of the name.** `id` is what current renderers resolve a
+ * fragment against; `name` is the older form, which some Markdown pipelines
+ * still emit and older readers still honour. Writing one and not the other
+ * makes the link work in some readers and silently not in others, which is
+ * the failure this is for.
+ */
+static void anchor_cell(char *out, size_t size, const char *id,
+                        const char *text)
+{
+	snprintf(out, size, "<a id=\"%s\" name=\"%s\"></a>%s", id, id, text);
+}
+
+/* The columns a cell occupies once its markup is discounted.
+ *
+ * An anchor and a link target are addressed to the renderer rather than to
+ * the reader, and padding a column by the bytes they occupy would align the
+ * *source* of a table nobody reads that way while pulling the rendered table
+ * out of true. The same reasoning HLR-227 gives for an escape sequence in the
+ * aligned table, applied to the format that has no escape sequences.
+ *
+ * Bytes rather than characters, which is what the widths have always counted:
+ * a multi-byte character already over-counts here and does so identically in
+ * every format, so nothing is made worse and one change is not two.
+ */
+static size_t display_width(const char *text)
+{
+	size_t shown = 0;
+
+	while (*text) {
+		if (*text == '<') {            /* an HTML tag        */
+			while (*text && *text != '>')
+				text++;
+			text += *text ? 1 : 0;
+		} else if (*text == '[') {     /* a link's opening   */
+			text++;
+		} else if (*text == ']' && text[1] == '(') {
+			text += 2;             /* and its target     */
+			while (*text && *text != ')')
+				text++;
+			text += *text ? 1 : 0;
+		} else {
+			shown++;
+			text++;
+		}
+	}
+
+	return shown;
+}
+
+/* The columns this grid actually prints. */
+static size_t grid_visible(const Grid *grid)
+{
+	return grid->band_trailing ? grid->column_count - 1
+	                           : grid->column_count;
+}
 
 /* The headings of the tables a run had nothing to put in.
  *
@@ -154,40 +246,40 @@ typedef struct {
 	size_t  count;
 	size_t  capacity;
 	bool    failed;     /* an allocation gave out; reported once        */
-} EmptyTables;
+} RenderState;
 
-static void empty_tables_add(EmptyTables *empty, const char *heading)
+static void empty_tables_add(RenderState *state, const char *heading)
 {
-	if (!empty || empty->failed)
+	if (!state || state->failed)
 		return;
 
-	if (empty->count == empty->capacity) {
-		size_t  next   = empty->capacity ? empty->capacity * 2 : 16;
-		char  **bigger = realloc(empty->headings,
+	if (state->count == state->capacity) {
+		size_t  next   = state->capacity ? state->capacity * 2 : 16;
+		char  **bigger = realloc(state->headings,
 		                         next * sizeof *bigger);
 
 		if (!bigger) {
-			empty->failed = true;
+			state->failed = true;
 			return;
 		}
-		empty->headings = bigger;
-		empty->capacity = next;
+		state->headings = bigger;
+		state->capacity = next;
 	}
 
-	empty->headings[empty->count] = strdup(heading);
-	if (!empty->headings[empty->count]) {
-		empty->failed = true;
+	state->headings[state->count] = strdup(heading);
+	if (!state->headings[state->count]) {
+		state->failed = true;
 		return;
 	}
-	empty->count++;
+	state->count++;
 }
 
-static void empty_tables_free(EmptyTables *empty)
+static void empty_tables_free(RenderState *state)
 {
-	for (size_t i = 0; i < empty->count; i++)
-		free(empty->headings[i]);
-	free(empty->headings);
-	memset(empty, 0, sizeof *empty);
+	for (size_t i = 0; i < state->count; i++)
+		free(state->headings[i]);
+	free(state->headings);
+	memset(state, 0, sizeof *state);
 }
 
 /* State this table's size in its heading when the aligned table renders it
@@ -212,6 +304,7 @@ static void grid_begin(Grid *grid, const char *heading, size_t columns,
 	memset(grid, 0, sizeof *grid);
 	grid->heading      = heading;
 	grid->column_count = columns;
+	grid->band_target  = -1;
 
 	for (size_t i = 0; i < columns; i++) {
 		grid->columns[i] = names[i];
@@ -273,7 +366,8 @@ static void grid_row(Grid *grid, ...)
 			break;
 		}
 
-		length = (int)strlen(value);
+		length = (int)(grid->markup ? display_width(value)
+		                            : strlen(value));
 		if (length > grid->width[i])
 			grid->width[i] = length;
 	}
@@ -324,37 +418,40 @@ static void title_banner(FILE *out, const char *title)
 static void grid_markdown_cell(const Grid *grid, size_t c, const char *text,
                           FILE *out)
 {
-	fprintf(out, " %*s |",
-	        grid->numeric[c] ? grid->width[c] : -grid->width[c], text);
+	size_t shown = grid->markup ? display_width(text) : strlen(text);
+	int    pad   = grid->width[c] - (int)shown;
+
+	if (pad < 0)
+		pad = 0;
+
+	if (grid->numeric[c])
+		fprintf(out, " %*s%s |", pad, "", text);
+	else
+		fprintf(out, " %s%*s |", text, pad, "");
 }
 
-/* Open a Markdown table behind a disclosure element.
+/* A Markdown table's heading, and the size of the table under it.
  *
- * The heading stays a real `##` heading, and the table goes inside a
- * `<details>` beneath it (HLR-190). Both halves of that are deliberate. The
- * heading is what anchors a section — GitHub derives a link target from it,
- * the table of contents is built out of it, and the report's own tests read
- * the composition off it — so folding it into the `<summary>` would trade a
- * navigable document for a tidy one. The summary therefore says what is
- * *inside* rather than repeating the name above it, which is the one thing a
- * reader deciding whether to expand actually wants to know.
+ * **A real `##` heading, and the table plainly beneath it.** The tables were
+ * folded into `<details>` elements until Phase 35, on the reasoning that a
+ * long report is easier to scan collapsed. Two things retired that. A folded
+ * table is not searchable — neither the browser's find nor GitHub's renders
+ * what it hides — and a fragment pointing into one scrolls to nothing, which
+ * made every cross-reference of HLR-241 a link that did not work. A report
+ * whose evidence cannot be found or linked to is not made better by being
+ * short.
  *
- * The blank line after `</summary>` is load-bearing: GitHub-Flavored Markdown
- * parses the contents of a `<details>` as Markdown only where a blank line
- * separates them from the HTML, and without it the table renders as its own
- * source text (HLR-029).
+ * The count moves into the heading, where the aligned table already puts it
+ * (HLR-235), so nothing is lost with the summary that used to carry it.
  */
-static void markdown_disclosure_open(const Grid *grid, FILE *out)
+static void markdown_heading(const Grid *grid, FILE *out)
 {
-	fprintf(out, "\n## %s\n\n", grid->heading);
-	fprintf(out, "<details>\n<summary>%zu row%s (click to expand)"
-	             "</summary>\n\n",
-	        grid->row_count, grid->row_count == 1 ? "" : "s");
+	fprintf(out, "\n## %s (%zu)\n\n", grid->heading, grid->row_count);
 }
 
 static void grid_render_markdown(const Grid *grid, FILE *out)
 {
-	markdown_disclosure_open(grid, out);
+	markdown_heading(grid, out);
 
 	fputc('|', out);
 	for (size_t c = 0; c < grid->column_count; c++)
@@ -380,9 +477,7 @@ static void grid_render_markdown(const Grid *grid, FILE *out)
 		fputc('\n', out);
 	}
 
-	/* The blank line before the close is the counterpart of the one after
-	 * `<summary>`, and is needed for the same reason. */
-	fputs("\n</details>\n", out);
+	fputc('\n', out);
 }
 
 /* The width the aligned table is held to on this stream, or 0 for none.
@@ -453,14 +548,29 @@ static const char *band_colour(const char *text, size_t length)
  * bound on the line rather than its exact length — which is the side to err on
  * for a limit.
  */
-static int table_width_at(const Grid *grid, int cap)
+/* Whether this column gives up width to make a line fit.
+ *
+ * A number never does — one broken across two lines is not a number. Nor does
+ * a navigable location while `spare_kept` holds, for the same reason and a
+ * different kind of value (HLR-210); that sparing is withdrawn on the second
+ * pass, where the only alternative is breaching the bound.
+ */
+static bool column_narrows(const Grid *grid, size_t c, bool spare_kept)
+{
+	if (grid->numeric[c])
+		return false;
+
+	return !(spare_kept && grid->keep[c]);
+}
+
+static int table_width_at(const Grid *grid, int cap, bool spare_kept)
 {
 	int total = 2;
 
-	for (size_t c = 0; c < grid->column_count; c++) {
+	for (size_t c = 0; c < grid_visible(grid); c++) {
 		int w = grid->width[c];
 
-		if (!grid->numeric[c] && w > cap)
+		if (column_narrows(grid, c, spare_kept) && w > cap)
 			w = cap;
 		total += w + (c ? 2 : 0);
 	}
@@ -487,35 +597,71 @@ static int table_width_at(const Grid *grid, int cap)
  * way either way, and a table squeezed past the point of alignment has lost
  * the property it was chosen for.
  */
-static void table_fit(const Grid *grid, int *width, int limit)
+/* Choose a cap for the text columns under `limit`, sparing the kept columns
+ * or not, and report whether the line fits. `width` is written either way.
+ */
+static bool fit_at(const Grid *grid, int *width, int limit, bool spare_kept)
 {
 	int low  = TABLE_MIN_TEXT_WIDTH;
 	int high = 0;
 
-	for (size_t c = 0; c < grid->column_count; c++) {
+	for (size_t c = 0; c < grid->column_count; c++)
 		width[c] = grid->width[c];
-		if (!grid->numeric[c] && grid->width[c] > high)
-			high = grid->width[c];
-	}
 
-	if (limit <= 0 || high <= low || table_width_at(grid, high) <= limit)
-		return;
+	for (size_t c = 0; c < grid_visible(grid); c++)
+		if (column_narrows(grid, c, spare_kept) &&
+		    grid->width[c] > high)
+			high = grid->width[c];
+
+	int natural = table_width_at(grid, high, spare_kept);
+
+	if (high <= low || natural <= limit)
+		return natural <= limit;
 
 	while (low < high) {
 		int mid = low + (high - low + 1) / 2;
 
-		if (table_width_at(grid, mid) <= limit)
+		if (table_width_at(grid, mid, spare_kept) <= limit)
 			low = mid;
 		else
 			high = mid - 1;
 	}
 
-	if (table_width_at(grid, low) > limit)
+	if (table_width_at(grid, low, spare_kept) > limit)
+		return false;
+
+	for (size_t c = 0; c < grid_visible(grid); c++)
+		if (column_narrows(grid, c, spare_kept) && width[c] > low)
+			width[c] = low;
+
+	return true;
+}
+
+static void table_fit(const Grid *grid, int *width, int limit)
+{
+	if (limit <= 0) {
+		for (size_t c = 0; c < grid->column_count; c++)
+			width[c] = grid->width[c];
+		return;
+	}
+
+	/* **A navigable location is kept whole where the line still fits, and
+	 * wrapped where it does not** (HLR-210, HLR-219). Half a path is not
+	 * one an editor will open, so the other text columns give up their
+	 * width first; but the bound is the bound, and a location long enough
+	 * to breach it on its own is wrapped at a separator like any other
+	 * text rather than pushing the line past the limit. Two passes, and
+	 * the first is preferred only if it succeeds. */
+	if (fit_at(grid, width, limit, true))
+		return;
+	if (fit_at(grid, width, limit, false))
 		return;
 
+	/* Neither fits: every width stays natural and the table goes out wide,
+	 * which is the honest failure — a wide table is worse than a narrow
+	 * one and better than a mangled one. */
 	for (size_t c = 0; c < grid->column_count; c++)
-		if (!grid->numeric[c] && width[c] > low)
-			width[c] = low;
+		width[c] = grid->width[c];
 }
 
 /* How many bytes of `text` belong on a line `width` columns wide, and how many
@@ -575,7 +721,7 @@ static size_t table_break(const char *text, size_t width, size_t *skip)
  */
 static void table_cell(const Grid *grid, const int *width, size_t c,
                        size_t last, const char *text, size_t length,
-                       bool colour, FILE *out)
+                       bool colour, const char *row_band, FILE *out)
 {
 	/* The final text column is normally left unpadded, so a row whose last
 	 * cell is blank does not end in two spaces. Under colour it *is*
@@ -583,9 +729,15 @@ static void table_cell(const Grid *grid, const int *width, size_t c,
 	 * a ground that stopped at the last character would leave a ragged
 	 * right edge that reads as a rendering fault rather than as a row. */
 	bool unpadded = c + 1 == last && !grid->numeric[c] && !colour;
-	const char *band = colour ? band_colour(text, length) : NULL;
+	/* A cell whose column is the band's target takes the row's band; every
+	 * other cell is matched on its own word, so the Severity column and
+	 * the Burden column are still coloured by one rule. */
+	const char *source = (int)c == grid->band_target && row_band
+	                   ? row_band : text;
+	size_t      span   = source == text ? length : strlen(source);
+	const char *band   = colour ? band_colour(source, span) : NULL;
 
-	/* An empty final cell contributes nothing at all — not even the
+	/* An state final cell contributes nothing at all — not even the
 	 * separator that would precede it. Leaving the separator in put two
 	 * spaces at the end of the line, which is the whole of what not
 	 * padding the column was for: a row whose last column is blank is the
@@ -649,7 +801,7 @@ static size_t row_line_columns(const Grid *grid, const char *const *rest,
 {
 	size_t last = 0;
 
-	for (size_t c = grid->column_count; c-- > 0; )
+	for (size_t c = grid_visible(grid); c-- > 0; )
 		if (rest[c][0]) {
 			last = c + 1;
 			break;
@@ -660,13 +812,13 @@ static size_t row_line_columns(const Grid *grid, const char *const *rest,
 
 	/* The first line always prints every column, because it carries the
 	 * row's leading cells whether or not they continue. Under colour every
-	 * line does, empty columns included: a line that stopped early would
+	 * line does, state columns included: a line that stopped early would
 	 * stop its background with it, and a row whose ground is a ragged
 	 * staircase down the right-hand side reads as a rendering fault rather
 	 * than as one row.
 	 */
 	if (line == 0 || colour)
-		return grid->column_count;
+		return grid_visible(grid);
 
 	return last;
 }
@@ -678,8 +830,14 @@ static void table_row(const Grid *grid, const int *width,
 	const char *rest[GRID_MAX_COLUMNS];
 	bool        more = true;
 	size_t      c;
+	/* The row's band, from the column carried for it. The header row is
+	 * passed the column *names*, and "Burden" is not a band word, so the
+	 * legend takes no colour from this and needs no test of its own. */
+	const char *band = grid->band_trailing
+	                 ? cells[grid->column_count - 1]
+	                 : NULL;
 
-	for (c = 0; c < grid->column_count; c++)
+	for (c = 0; c < grid_visible(grid); c++)
 		rest[c] = cells[c] ? cells[c] : "";
 
 	for (size_t line = 0; more; line++) {
@@ -704,7 +862,7 @@ static void table_row(const Grid *grid, const int *width,
 			                          &skip);
 
 			table_cell(grid, width, c, last, rest[c], take,
-			           colour, out);
+			           colour, band, out);
 
 			rest[c] += take + skip;
 			while (*rest[c] == ' ')
@@ -740,7 +898,7 @@ static void grid_render_table(const Grid *grid, FILE *out)
 	table_row(grid, width, grid->columns, false, 0, out);
 
 	fputs("  ", out);
-	for (size_t c = 0; c < grid->column_count; c++) {
+	for (size_t c = 0; c < grid_visible(grid); c++) {
 		if (c)
 			fputs("  ", out);
 		grid_rule(out, width[c], '-');
@@ -757,16 +915,16 @@ static void grid_render_table(const Grid *grid, FILE *out)
 /* Emit the grid in the requested style, then release it.
  *
  * **A grid with no rows is not emitted at all** (HLR-188). The report used to
- * print the heading and the column names over an empty body, on the reasoning
+ * print the heading and the column names over an state body, on the reasoning
  * that an absent heading is indistinguishable from a renderer that forgot.
  * Thirty sections in, that reasoning had inverted: a run over a healthy tree
  * printed a dozen headings with nothing under them, and the sections that did
- * have something to say were what got lost. So an empty grid records its
+ * have something to say were what got lost. So an state grid records its
  * heading instead, and the closing statement names every one of them —
  * which answers the original objection directly, by saying in one place that
  * the section was rendered and found nothing (HLR-189).
  */
-static int grid_render(Grid *grid, Style style, FILE *out, EmptyTables *empty)
+static int grid_render(Grid *grid, Style style, FILE *out, RenderState *state)
 {
 	if (grid->failed) {
 		grid_free(grid);
@@ -774,7 +932,7 @@ static int grid_render(Grid *grid, Style style, FILE *out, EmptyTables *empty)
 	}
 
 	if (grid->row_count == 0) {
-		empty_tables_add(empty, grid->heading);
+		empty_tables_add(state, grid->heading);
 		grid_free(grid);
 		return 0;
 	}
@@ -962,9 +1120,7 @@ static void summary_section(const Report *report, Style style, FILE *out)
 	}
 
 	if (style == STYLE_MARKDOWN) {
-		fputs("\n## Project Summary\n\n", out);
-		fprintf(out, "<details>\n<summary>%zu rows (click to expand)"
-		             "</summary>\n\n", row_count);
+		fprintf(out, "\n## Project Summary (%zu)\n\n", row_count);
 		fprintf(out, "| %-*s | %*s |\n", label, "Metric", value, "Value");
 		fputc('|', out);
 		grid_rule(out, label + 2, '-');
@@ -989,7 +1145,7 @@ static void summary_section(const Report *report, Style style, FILE *out)
 		             rows[i].value, rows[i].text);
 
 	if (style == STYLE_MARKDOWN)
-		fputs("\n</details>\n", out);
+		fputc('\n', out);
 }
 
 /* -------------------------------------------------------- the traversal --
@@ -1013,7 +1169,7 @@ static void summary_section(const Report *report, Style style, FILE *out)
  * thing with a name, and the traversal is a list of them.
  */
 static int callouts_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1034,14 +1190,14 @@ static int callouts_section(const Report *report, Style style,
 		         sum->most_complex, sum->most_complex_file);
 		grid_row(&grid, "Most complex", a, where);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int discovery_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -1052,14 +1208,14 @@ static int discovery_section(const Report *report, Style style,
 		grid_row(&grid, report->routes.items[i].target,
 		         report->routes.items[i].route == ROUTE_REPOSITORY
 		                 ? "repository" : "filesystem");
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int languages_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1079,39 +1235,297 @@ static int languages_section(const Report *report, Style style,
 		snprintf(c, sizeof c, "%" PRIu64, l->eloc);
 		grid_row(&grid, l->language, a, b, c);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
+		return -1;
+
+	return 0;
+}
+
+/* The directory a report's navigable locations are written against, or the
+ * state string where the process cannot name it.
+ *
+ * Asked of the process rather than declared by the user, which is the rule
+ * HLR-219 and HLR-227 already follow for the width and the colour: an option
+ * would be a second spelling of a fact `elc` can observe, and the two can
+ * disagree.
+ */
+static void report_root(char *out, size_t size)
+{
+	if (!getcwd(out, size))
+		out[0] = '\0';
+}
+
+/* `path` written against `root` where it lies beneath it, and returned whole
+ * where it does not (HLR-210).
+ *
+ * **Shortening is the point, not tidiness.** The location column holds the
+ * widest cell in the widest table, and a line over the bound of HLR-219 has
+ * its text columns capped \u2014 which wraps the path, and a path broken across
+ * two lines is not one an editor will open. Writing it against the directory
+ * the reader's terminal is already in is what keeps it on one line, and that
+ * is the same directory the terminal resolves the click against.
+ *
+ * **A path outside the root is returned absolute rather than climbed to with
+ * `..`.** A reference that leaves the tree is one a reader cannot check by
+ * eye, and the absolute form is both shorter to read and the one every other
+ * path in the report takes (HLR-042).
+ */
+static const char *path_from(const char *path, const char *root)
+{
+	size_t n;
+
+	if (!path || !root || !*root)
+		return path;
+
+	n = strlen(root);
+	/* Any root but "/" must be followed by the separator, or "/srcery"
+	 * would be read as a file inside "/src". */
+	while (n > 1 && root[n - 1] == '/')
+		n--;
+
+	if (n == 1 && root[0] == '/')
+		return path[0] == '/' ? path + 1 : path;
+
+	return strncmp(path, root, n) == 0 && path[n] == '/'
+	               ? path + n + 1
+	               : path;
+}
+
+/* Whether some finding's subject is this object (HLR-241).
+ *
+ * Asked by the Globals table so that a name is made a link only where there is
+ * a finding to link to. The alternative — linking every name and letting the
+ * ones with no finding land nowhere — is the failure this pair of tables was
+ * added to remove.
+ */
+static bool finding_for_subject(const Report *report, const char *subject)
+{
+	for (size_t i = 0; i < report->finding_count; i++)
+		if (strcmp(report->findings[i].subject, subject) == 0)
+			return true;
+
+	return false;
+}
+
+/* The anchor naming one row of the Files or Functions table (HLR-241).
+ *
+ * **Keyed on the absolute path, never on the rendered one.** The Functions
+ * table writes its location against the reader's directory (HLR-210) and the
+ * Files table writes it whole; a name built from what is displayed would
+ * differ between the two tables for one file, and the link would point at
+ * nothing. The canonical path is the one fact both ends share.
+ *
+ * **Keyed on the path and the name together**, because a function name is not
+ * unique across a project — two translation units defining a `static helper`
+ * are two rows — and an anchor naming both of them names neither. `name` is
+ * NULL for a file's own row, which is keyed on the path alone.
+ *
+ * Every byte outside `[a-z0-9]` becomes `-`, and runs collapse, so the result
+ * is a legal fragment on every renderer and is the same on two runs (HLR-032).
+ */
+static char anchor_byte(unsigned char ch)
+{
+	if (ch >= 'A' && ch <= 'Z')
+		return (char)(ch + ('a' - 'A'));
+	if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9'))
+		return (char)ch;
+	return 0;
+}
+
+/* Append `s`, collapsing every run of unusable bytes to a single `-`. */
+static size_t anchor_append(char *out, size_t size, size_t n, const char *s,
+                            bool *dash)
+{
+	for (; *s && n + 1 < size; s++) {
+		char ch = anchor_byte((unsigned char)*s);
+
+		if (ch) {
+			out[n++] = ch;
+			*dash    = false;
+		} else if (!*dash) {
+			out[n++] = '-';
+			*dash    = true;
+		}
+	}
+
+	return n;
+}
+
+static void anchor_of(char *out, size_t size, const char *prefix,
+                      const char *path, const char *name)
+{
+	size_t n    = 0;
+	bool   dash = false;
+
+	for (; *prefix && n + 1 < size; prefix++)
+		out[n++] = *prefix;
+
+	n = anchor_append(out, size, n, path, &dash);
+
+	if (name && n + 1 < size) {
+		out[n++] = '-';
+		dash     = true;
+		n        = anchor_append(out, size, n, name, &dash);
+	}
+
+	out[n] = '\0';
+}
+
+/* Whether the image's debug information describes this file: `Y` or `N`.
+ *
+ * **Per file, because that is how debug information arrives.** A build links
+ * translation units compiled with `-g` beside units compiled without, and a
+ * project-level "debug info: yes" answers for the image while saying nothing
+ * about the file whose figures a reader is looking at. The two questions are
+ * separate and the Project Summary answers only the first.
+ *
+ * `N` on every run with no image, which is the truthful answer to *was debug
+ * information available for this file* rather than an unknown: none was.
+ * `coverage_unestablished` alone cannot say so — it is false when the
+ * question never arose — so the image's own flag governs it (HLR-154).
+ */
+static const char *debug_mark(const Report *report, const FileMetrics *f)
+{
+	return report->image_debug_info && !f->coverage_unestablished
+	               ? "Y" : "N";
+}
+
+/* Every global object the source declares: where, what it is called, and the
+ * type it was given (HLR-242).
+ *
+ * **Beside the Files table, and in every composition.** State shared between
+ * functions is the thing a reader of an embedded project asks about first,
+ * and until this table it was answerable only from the Global State analysis
+ * — a detail tier, absent from a default report, and present only where a
+ * graph was built. What the source declares is a fact about the source, so it
+ * is reported wherever the source was read.
+ *
+ * The location is `path:line`, the form an editor acts on, as the Functions
+ * table writes it and for the same reason (HLR-210).
+ */
+static int globals_section(const Report *report, Style style,
+                             FILE *out, RenderState *state)
+{
+	Grid grid;
+	char where[4096];
+	char root[4096];
+	char id[512];
+	char named[4096];
+
+	static const char *const names[] = { "File", "Name", "Type" };
+
+	grid_begin(&grid, "Globals", 3, names, NULL);
+	grid_show_size(&grid);
+	grid.markup  = style == STYLE_MARKDOWN;
+	grid.keep[0] = true;              /* the location (HLR-210) */
+	report_root(root, sizeof root);
+
+	for (size_t i = 0; i < report->global_count; i++) {
+		const DeclaredGlobal *g = &report->globals[i];
+
+		snprintf(where, sizeof where, "%s:%" PRIu32,
+		         path_from(g->file, root), g->line);
+
+		/* The name is both ends of a cross-reference: the row a
+		 * finding about this object points at, and — where a finding
+		 * names it — a link back to that finding (HLR-241). */
+		if (grid.markup) {
+			anchor_of(id, sizeof id, "elc-obj-", g->name, NULL);
+			if (finding_for_subject(report, g->name)) {
+				char target[512];
+
+				anchor_of(target, sizeof target, "elc-finding-",
+				          g->name, NULL);
+				snprintf(named, sizeof named,
+				         "<a id=\"%s\" name=\"%s\"></a>"
+				         "[%s](#%s)",
+				         id, id, g->name, target);
+			} else {
+				anchor_cell(named, sizeof named, id, g->name);
+			}
+		} else {
+			snprintf(named, sizeof named, "%s", g->name);
+		}
+
+		grid_row(&grid, where, named, g->type);
+	}
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int files_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
 	char b[32];
 	char c[32];
+	char   id[512];
+	char   cell[4096];
+	size_t pruned = 0;
 
-	static const char *const names[]   = { "File", "Language",
+	static const char *const names[]   = { "File", "Language", "DBG",
 	                                       "Lines", "ELOC",
 	                                       "Functions" };
-	static const bool        numeric[] = { false, false, true,
+	static const bool        numeric[] = { false, false, false, true,
 	                                       true, true };
 
-	grid_begin(&grid, "Files", 5, names, numeric);
+	grid_begin(&grid, "Files", 6, names, numeric);
 	grid_show_size(&grid);
+	grid.markup = style == STYLE_MARKDOWN;
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
+
+		/* **Under an image, a file the link kept no function from is
+		 * not listed** (HLR-145). The Functions table is the subject
+		 * of a filtered run, and a file contributing nothing to it is
+		 * a row of measurements about code this build does not
+		 * contain — which is noise in the one table a reader scans to
+		 * find where the code is. On `avrOS` it was twenty-eight rows
+		 * of forty-four.
+		 *
+		 * Only under an image. With no filter in force a file with no
+		 * functions is a header of declarations or a unit of data, and
+		 * dropping it would hide a file that was analysed (HLR-012).
+		 *
+		 * The count of what was dropped is reported beneath the table
+		 * rather than left to be inferred from a total that no longer
+		 * matches: a row removed silently is a file a reader cannot
+		 * tell from one that was never discovered. */
+		if (report->image && f->function_count == 0) {
+			pruned++;
+			continue;
+		}
 
 		snprintf(a, sizeof a, "%" PRIu32, f->physical_lines);
 		snprintf(b, sizeof b, "%" PRIu32, f->eloc);
 		snprintf(c, sizeof c, "%zu", f->function_count);
-		grid_row(&grid, f->path, f->language ? f->language : "",
-		         a, b, c);
+		/* The row a finding against this file links to. Only where
+		 * the format has links: an anchor in the aligned table would
+		 * be markup printed at a terminal. */
+		if (grid.markup) {
+			anchor_of(id, sizeof id, "elc-file-", f->path, NULL);
+			anchor_cell(cell, sizeof cell, id, f->path);
+		} else {
+			snprintf(cell, sizeof cell, "%s", f->path);
+		}
+		grid_row(&grid, cell, f->language ? f->language : "",
+		         debug_mark(report, f), a, b, c);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
+
+	/* What the filter removed, said once and plainly. Without it the table
+	 * and the project total disagree by a number the reader has no way to
+	 * account for (HLR-012, HLR-145). */
+	if (pruned)
+		fprintf(out, "%s%zu discovered file%s contributed no function "
+		             "this image defines and %s not listed.\n",
+		        style == STYLE_MARKDOWN ? "\n" : "\n  ",
+		        pruned, pruned == 1 ? "" : "s",
+		        pruned == 1 ? "is" : "are");
 
 	return 0;
 }
@@ -1166,7 +1580,7 @@ static const char *visibility_name(Visibility v)
 }
 
 static int functions_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1177,6 +1591,9 @@ static int functions_section(const Report *report, Style style,
 	char i2[32];
 
 	char where[4096];
+	char root[4096];
+	char id[512];
+	char named[4096];
 
 	/* `Visibility` sits immediately after the name because that is where a
 	 * reader's eye is when they ask which of these functions are the
@@ -1193,20 +1610,31 @@ static int functions_section(const Report *report, Style style,
 	 * anyway, because this is the table a reader of a polyglot project asks
 	 * the question in, and sending them to another table to answer it costs
 	 * more than the repetition does (HLR-007, HLR-014). */
-	static const char *const names[]   = { "File", "Lang", "Function",
-	                                       "Scope", "Reent", "Lines",
+	static const char *const names[]   = { "File", "Function", "L",
+	                                       "Scope", "R", "Lines",
 	                                       "ELOC", "CC", "In", "Out",
 	                                       "WTBI", "Burden" };
 	/* The band is a word and is left-aligned with the other words; the
 	 * figure beside it is a number and is not wrapped, since a number
-	 * divided across two lines is not a number (HLR-219). `Reent` is a
+	 * divided across two lines is not a number (HLR-219). `R` is a
 	 * flag rather than a count and sits with the words. */
 	static const bool        numeric[] = { false, false, false, false,
 	                                       false, true, true, true, true,
 	                                       true, true, false };
+	enum { COLUMN_WTBI = 10 };
 
 	grid_begin(&grid, "Functions", 12, names, numeric);
 	grid_show_size(&grid);
+	grid.markup  = style == STYLE_MARKDOWN;
+	grid.keep[0] = true;              /* the location (HLR-210) */
+	report_root(root, sizeof root);
+
+	/* The aligned table colours the figure and drops the word; every other
+	 * format keeps the word, having no colour to carry it (HLR-227). */
+	if (style == STYLE_TABLE) {
+		grid.band_trailing = true;
+		grid.band_target   = COLUMN_WTBI;
+	}
 	for (size_t i = 0; i < report->file_count; i++) {
 		const FileMetrics *f = report->files[i];
 
@@ -1214,7 +1642,7 @@ static int functions_section(const Report *report, Style style,
 			const FunctionMetric *fn = &f->functions[j];
 
 			snprintf(where, sizeof where, "%s:%" PRIu32,
-			         f->path, fn->start_line);
+			         path_from(f->path, root), fn->start_line);
 			snprintf(a, sizeof a, "%" PRIu32,
 			         fn->end_line - fn->start_line + 1);
 			snprintf(b, sizeof b, "%" PRIu32, fn->eloc);
@@ -1234,14 +1662,23 @@ static int functions_section(const Report *report, Style style,
 			 * second thread of control touches; an answer on every
 			 * other row would be a column of noise with the signal
 			 * hidden in it. */
-			grid_row(&grid, where, f->language ? f->language : "",
-			         fn->name, visibility_name(fn->visibility),
+			if (grid.markup) {
+				anchor_of(id, sizeof id, "elc-fn-",
+				          f->path, fn->name);
+				anchor_cell(named, sizeof named, id,
+				            fn->name);
+			} else {
+				snprintf(named, sizeof named, "%s", fn->name);
+			}
+			grid_row(&grid, where, named,
+			         f->language ? f->language : "",
+			         visibility_name(fn->visibility),
 			         concurrency_mark(fn),
 			         a, b, c, d, e, i2,
 			         elc_wtbi_status(fn->wtbi));
 		}
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
@@ -1262,7 +1699,7 @@ static int functions_section(const Report *report, Style style,
  * it does not help them choose.
  */
 static int threshold_listing_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1300,14 +1737,14 @@ static int threshold_listing_section(const Report *report, Style style,
 		                 ? ""
 		                 : severity_name(e->severity));
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int recursion_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -1343,14 +1780,14 @@ static int recursion_section(const Report *report, Style style,
 		grid_row(&grid, c->count == 1 ? "direct" : "mutual",
 		         buf);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int deepest_chain_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1395,14 +1832,14 @@ static int deepest_chain_section(const Report *report, Style style,
 		snprintf(a, sizeof a, "%zu", i + 1);
 		grid_row(&grid, a, r->file, r->function);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int coupling_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1439,14 +1876,14 @@ static int coupling_section(const Report *report, Style style,
 		                 ? threshold_attribution(MEASURE_BOTTLENECK)
 		                 : "");
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int dependency_cycles_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -1465,14 +1902,14 @@ static int dependency_cycles_section(const Report *report, Style style,
 	for (size_t i = 0; i < report->dep_cycle_count; i++)
 		grid_row(&grid, report->dep_cycles[i].components,
 		         report->dep_cycles[i].path);
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int layering_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1507,7 +1944,7 @@ static int layering_section(const Report *report, Style style,
 		         r->from_stratum, r->from_function,
 		         r->to_stratum, r->to_function, a);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
@@ -1528,7 +1965,7 @@ static int layering_section(const Report *report, Style style,
  * decomposition of a total.
  */
 static int conformance_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1567,7 +2004,7 @@ static int conformance_section(const Report *report, Style style,
 		grid_row(&grid, "Skip-call", report->skip_call.index,
 		         report->skip_call.conforming, a);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
@@ -1582,14 +2019,14 @@ static int conformance_section(const Report *report, Style style,
  * escape the Markdown separator (HLR-064, HLR-166).
  */
 static int dsm_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	/* A matrix over no subjects has no cells, and the convention note and
 	 * corner label that would be all that survived say nothing on their
 	 * own. Named in the closing statement instead, with the heading the
 	 * grid itself would have carried (HLR-188, HLR-189). */
 	if (report->dsm.count == 0) {
-		empty_tables_add(empty, format_dsm_heading(&report->dsm));
+		empty_tables_add(state, format_dsm_heading(&report->dsm));
 		return 0;
 	}
 
@@ -1617,7 +2054,7 @@ static int dsm_section(const Report *report, Style style,
  * (HLR-171, HLR-101).
  */
 static int purification_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -1648,7 +2085,7 @@ static int purification_section(const Report *report, Style style,
 		grid_row(&grid, r->file, r->function, r->class_name,
 		         r->metric, r->value, r->action, r->source);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
@@ -1675,7 +2112,7 @@ static int purification_section(const Report *report, Style style,
  * place of an ordering rather than beside it (HLR-172).
  */
 static int recovery_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid                     grid;
 	Grid                     adopt;
@@ -1721,7 +2158,7 @@ static int recovery_section(const Report *report, Style style,
 	}
 	for (size_t i = 0; i < report->recovery_cycles.count; i++)
 		grid_row(&grid, "cycle", report->recovery_cycles.paths[i], "");
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	/* **The proposal as arguments, not as prose** (HLR-173). Rendering it
@@ -1735,16 +2172,18 @@ static int recovery_section(const Report *report, Style style,
 	           1, adopt_names, NULL);
 	if (report->recovery_proposal)
 		grid_row(&adopt, report->recovery_proposal);
-	if (grid_render(&adopt, style, out, empty) != 0)
+	if (grid_render(&adopt, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int global_state_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
+	char id[512];
+	char cell[4096];
 
 	/* Every global object, with the functions that write it and
 	 * the functions that read it, and the verdict on the pair
@@ -1759,6 +2198,7 @@ static int global_state_section(const Report *report, Style style,
 	                                     "Readers", "Finding" };
 
 	grid_begin(&grid, "Global State", 4, names, NULL);
+	grid.markup = style == STYLE_MARKDOWN;
 	for (size_t i = 0; i < report->global_state_count; i++) {
 		const GlobalStateRow *r     = &report->global_state[i];
 		const char           *where =
@@ -1781,17 +2221,29 @@ static int global_state_section(const Report *report, Style style,
 			finding[0] = '\0';
 			break;
 		}
-		grid_row(&grid, r->object, r->writers, r->readers,
+		/* The object's own anchor belongs to the Globals table, which
+		 * every composition prints (HLR-242). Claiming it here as
+		 * well would put the same name on two rows, and a duplicate
+		 * anchor lands on whichever the renderer saw first — so this
+		 * table links *to* that one rather than competing with it. */
+		if (grid.markup) {
+			anchor_of(id, sizeof id, "elc-obj-", r->object, NULL);
+			snprintf(cell, sizeof cell, "[%s](#%s)",
+			         r->object, id);
+		} else {
+			snprintf(cell, sizeof cell, "%s", r->object);
+		}
+		grid_row(&grid, cell, r->writers, r->readers,
 		         finding);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int unreachable_functions_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1799,7 +2251,7 @@ static int unreachable_functions_section(const Report *report, Style style,
 	/* The headline claim, and the heading says on what basis it
 	 * was or was not made. With no entry points declared nothing
 	 * is listed here — and the heading says *that*, rather than
-	 * leaving an empty table that reads as a clean bill of health
+	 * leaving an state table that reads as a clean bill of health
 	 * (HLR-096, HLR-115). */
 	static const char *const names[]   = { "File", "Function",
 	                                       "Line" };
@@ -1834,14 +2286,14 @@ static int unreachable_functions_section(const Report *report, Style style,
 		snprintf(a, sizeof a, "%" PRIu32, r->line);
 		grid_row(&grid, r->file, r->function, a);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int unreachable_globals_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -1854,14 +2306,14 @@ static int unreachable_globals_section(const Report *report, Style style,
 	           "functions)", 1, names, NULL);
 	for (size_t i = 0; i < report->unreachable_global_count; i++)
 		grid_row(&grid, report->unreachable_globals[i]);
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int dead_code_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -1873,7 +2325,7 @@ static int dead_code_section(const Report *report, Style style,
 	 * (HLR-137, LLR-DED-06).
 	 *
 	 * The heading names the languages the analysis was *not*
-	 * performed for. An empty table under a language with no
+	 * performed for. An state table under a language with no
 	 * dead-code query would otherwise read as a clean file, which
 	 * is a claim elc has not made (HLR-139). */
 	static const char *const names[] = { "File", "Function",
@@ -1913,14 +2365,14 @@ static int dead_code_section(const Report *report, Style style,
 		                 ? "literal condition"
 		                 : "after a terminator");
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int cross_scope_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -1949,14 +2401,136 @@ static int cross_scope_section(const Report *report, Style style,
 		         r->to_scope, r->to_function,
 		         r->object && *r->object ? r->object : "call");
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
+/* The row a finding's subject names, or NULL where it names none (HLR-241).
+ *
+ * **Resolved rather than assumed.** A finding's subject is a function for some
+ * measurements, and for others a component, a global object, an external
+ * callee, a list of names forming a cycle, or the call graph itself — none of
+ * which is a row in either table. Emitting a link for all of them would leave
+ * a reader following references that land nowhere, which is worse than no
+ * link at all, so a subject is looked up and linked only where it is found.
+ *
+ * The file is matched first and the function within it, which is what makes
+ * two files defining one static name resolve to their own rows.
+ */
+static bool finding_row_anchor(const Report *report, const FindingRow *r,
+                               char *out, size_t size)
+{
+	/* An object first, and without a file to go on. Every concurrency and
+	 * scope finding names a global object, carries no file — the object is
+	 * not defined at one place the finding cares about — and is a row in
+	 * the Global State table rather than in either table of code. Looked
+	 * up before the file, because a finding with no `where` would
+	 * otherwise be turned away at the door.
+	 *
+	 * Matched against the Globals table, which is a summary tier and is in
+	 * every composition (HLR-242). It was matched against Global State
+	 * until that table gained a summary-tier sibling, and the difference
+	 * is the whole point of the sibling: an object finding in a default
+	 * report had nowhere to point, because the only table describing the
+	 * object was one that report does not print.
+	 */
+	for (size_t i = 0; i < report->global_count; i++)
+		if (strcmp(report->globals[i].name, r->subject) == 0) {
+			anchor_of(out, size, "elc-obj-", r->subject, NULL);
+			return true;
+		}
+
+	if (!r->where || !*r->where)
+		return false;
+
+	for (size_t i = 0; i < report->file_count; i++) {
+		const FileMetrics *f = report->files[i];
+
+		if (strcmp(f->path, r->where) != 0)
+			continue;
+
+		for (size_t j = 0; j < f->function_count; j++)
+			if (strcmp(f->functions[j].name, r->subject) == 0) {
+				anchor_of(out, size, "elc-fn-", f->path,
+				          f->functions[j].name);
+				return true;
+			}
+
+		/* The subject is not a function of this file, but the file is
+		 * one the report lists: a finding about the file itself. */
+		if (strcmp(f->path, r->subject) == 0) {
+			anchor_of(out, size, "elc-file-", f->path, NULL);
+			return true;
+		}
+		return false;
+	}
+
+	return false;
+}
+
+/* Where the finding is, as `path:line` — the form an editor acts on, as every
+ * other location in the report is written (HLR-210).
+ *
+ * Empty where the finding has no single place, which is a claim and not an
+ * omission: a component's instability, a cycle's membership and the depth of
+ * the call graph are properties of a structure rather than of a line, and a
+ * location invented for them would be a location a reader could not act on.
+ * The line is dropped where it is zero for the same reason.
+ */
+static void finding_where(const FindingRow *r, const char *root,
+                          char *out, size_t size)
+{
+	if (!r->where || !*r->where) {
+		out[0] = '\0';
+		return;
+	}
+
+	if (r->line)
+		snprintf(out, size, "%s:%" PRIu32, path_from(r->where, root),
+		         r->line);
+	else
+		snprintf(out, size, "%s", path_from(r->where, root));
+}
+
+/* The subject as its column shows it: the anchor the Globals table points back
+ * at, and a link on to the row that describes the subject where the report
+ * holds one. Plain text in every format that is not Markdown.
+ *
+ * `first` says this is the first row naming this subject. Only that row
+ * carries the anchor: one object can be the subject of several findings — an
+ * unqualified global is commonly both `confined qualifier` and
+ * `single-function global` — and a name written twice is a duplicate anchor,
+ * which lands on whichever copy the renderer saw first.
+ */
+static void finding_subject(const Report *report, const FindingRow *r,
+                            bool markup, bool first, char *out, size_t size)
+{
+	char id[512];
+	char back[512];
+	char mark[1100];
+
+	if (!markup) {
+		snprintf(out, size, "%s", r->subject);
+		return;
+	}
+
+	mark[0] = '\0';
+	if (first) {
+		anchor_of(back, sizeof back, "elc-finding-", r->subject, NULL);
+		snprintf(mark, sizeof mark, "<a id=\"%s\" name=\"%s\"></a>",
+		         back, back);
+	}
+
+	if (finding_row_anchor(report, r, id, sizeof id))
+		snprintf(out, size, "%s[%s](#%s)", mark, r->subject, id);
+	else
+		snprintf(out, size, "%s%s", mark, r->subject);
+}
+
 static int findings_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -1972,26 +2546,58 @@ static int findings_section(const Report *report, Style style,
 	 * No row advises. Each says what was measured, where, and
 	 * which standard places it outside the range — and stops
 	 * (HLR-101). */
+	/* **The place, beside the subject.** A finding names what was measured
+	 * and which standard places it outside the range, and until Phase 35
+	 * it left the reader to find the subject again themselves. For most
+	 * measurements the cross-reference of HLR-241 answers that — but not
+	 * for every one, and the exception is not rare: a call to a library
+	 * function the standard forbids is attributed to the *callee*, which
+	 * is defined in no file this run analysed and is a row in no table. On
+	 * `avrOS` that is one finding in three, `printf` alone accounting for
+	 * fifty rows of identical text distinguished by nothing at all.
+	 *
+	 * The location is what distinguishes them, it was in the model all
+	 * along, and the XML record has always carried it (HLR-243). */
 	static const char *const names[]   = { "Severity", "Measurement",
-	                                       "Subject", "Detail",
+	                                       "Subject", "Where", "Detail",
 	                                       "Source" };
+	char subject[4096];
+	char where[4096];
+	char root[4096];
 
-	grid_begin(&grid, "Findings", 5, names, NULL);
+	grid_begin(&grid, "Findings", 6, names, NULL);
 	grid_show_size(&grid);
+	grid.markup  = style == STYLE_MARKDOWN;
+	grid.keep[3] = true;              /* the location (HLR-210) */
+	report_root(root, sizeof root);
 	for (size_t i = 0; i < report->finding_count; i++) {
 		const FindingRow *r = &report->findings[i];
 
-		grid_row(&grid, r->severity, r->measurement, r->subject,
-		         r->detail, r->source);
+		/* The first row naming this subject, which is the one that
+		 * carries the anchor. */
+		bool first = true;
+
+		for (size_t j = 0; j < i; j++)
+			if (strcmp(report->findings[j].subject,
+			           r->subject) == 0) {
+				first = false;
+				break;
+			}
+
+		finding_subject(report, r, grid.markup, first,
+		                subject, sizeof subject);
+		finding_where(r, root, where, sizeof where);
+		grid_row(&grid, r->severity, r->measurement, subject,
+		         where, r->detail, r->source);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int definitions_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -2012,14 +2618,14 @@ static int definitions_section(const Report *report, Style style,
 	grid_begin(&grid, heading, 1, names, NULL);
 	for (size_t i = 0; i < report->definition_count; i++)
 		grid_row(&grid, report->definitions[i]);
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int rule_matches_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -2035,7 +2641,7 @@ static int rule_matches_section(const Report *report, Style style,
 	 * honest to put in either (HLR-109, HLR-111).
 	 *
 	 * Emitted whether or not any rule was supplied, like every
-	 * other section: an absent section and an empty one are
+	 * other section: an absent section and an state one are
 	 * different claims (HLR-031). */
 	static const char *const names[] = { "Rule", "File", "Lines" };
 
@@ -2050,14 +2656,14 @@ static int rule_matches_section(const Report *report, Style style,
 		         r->start_line, r->end_line);
 		grid_row(&grid, r->rule, r->file, lines);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int partially_parsed_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -2085,14 +2691,14 @@ static int partially_parsed_section(const Report *report, Style style,
 		snprintf(a, sizeof a, "%" PRIu32, f->unparsed_lines);
 		grid_row(&grid, f->path, a);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int repaired_files_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -2125,14 +2731,14 @@ static int repaired_files_section(const Report *report, Style style,
 			         repair_rule_name((RepairRule)k), a);
 		}
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int expansion_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -2158,14 +2764,14 @@ static int expansion_section(const Report *report, Style style,
 		grid_row(&grid, f->path,
 		         preproc_status_text((PreprocStatus)f->preproc_status));
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int stdlib_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -2214,14 +2820,14 @@ static int stdlib_section(const Report *report, Style style,
 			         stdlib_kind_name((StdlibKind)k), a, list);
 		}
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int skipped_files_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 
@@ -2231,14 +2837,14 @@ static int skipped_files_section(const Report *report, Style style,
 	           names, NULL);
 	for (size_t i = 0; i < report->skipped_files.count; i++)
 		grid_row(&grid, report->skipped_files.paths[i]);
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
 }
 
 static int image_filter_section(const Report *report, Style style,
-                             FILE *out, EmptyTables *empty)
+                             FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -2253,7 +2859,7 @@ static int image_filter_section(const Report *report, Style style,
 	 * the uniform-composition rule gives way and does so by
 	 * requirement rather than by preference: HLR-140 says a run
 	 * without the option reports exactly what it reported before
-	 * the option existed, and an empty section is not nothing.
+	 * the option existed, and an state section is not nothing.
 	 *
 	 * The two counts are different claims and are labelled as
 	 * such. The unresolved count states how complete the filter
@@ -2293,7 +2899,7 @@ static int image_filter_section(const Report *report, Style style,
 	 * many regions it decided (HLR-211). */
 	snprintf(e, sizeof e, "%" PRIu64, report->image_decided_regions);
 	grid_row(&grid, "Regions decided by this build", e);
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
@@ -2324,7 +2930,7 @@ static int image_filter_section(const Report *report, Style style,
  * zero for a body nobody read is not a fan-out of zero.
  */
 static int placed_functions_section(const Report *report, Style style,
-                                    FILE *out, EmptyTables *empty)
+                                    FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -2349,7 +2955,7 @@ static int placed_functions_section(const Report *report, Style style,
 		snprintf(a, sizeof a, "%" PRIu32, r->line);
 		grid_row(&grid, r->function, r->file, a);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
@@ -2367,7 +2973,7 @@ static int placed_functions_section(const Report *report, Style style,
  * reading the report through it (HLR-147, HLR-150, LLR-SUM-06).
  */
 static int absent_functions_section(const Report *report, Style style,
-                                    FILE *out, EmptyTables *empty)
+                                    FILE *out, RenderState *state)
 {
 	Grid grid;
 	char a[32];
@@ -2388,7 +2994,7 @@ static int absent_functions_section(const Report *report, Style style,
 		snprintf(a, sizeof a, "%" PRIu32, r->line);
 		grid_row(&grid, r->function, r->file, a);
 	}
-	if (grid_render(&grid, style, out, empty) != 0)
+	if (grid_render(&grid, style, out, state) != 0)
 		return -1;
 
 	return 0;
@@ -2397,7 +3003,7 @@ static int absent_functions_section(const Report *report, Style style,
 /* The closing statement: the tables this run had nothing to put in.
  *
  * **The report ends by saying what it did not print** (HLR-189). Without it,
- * suppressing an empty table would make a report's shape vary with its
+ * suppressing an state table would make a report's shape vary with its
  * content in a way a reader cannot audit — "there is no Recursion section"
  * would mean either "no recursion was found" or "this build does not look for
  * recursion", and nothing on the page would separate the two.
@@ -2407,10 +3013,10 @@ static int absent_functions_section(const Report *report, Style style,
  * be stated wherever the analysis is not (HLR-115); repeating the heading is
  * what keeps that satisfied by the same words in both cases.
  *
- * Emitted whether or not anything was empty, because a section that appears
+ * Emitted whether or not anything was state, because a section that appears
  * only sometimes is the problem this section exists to solve.
  */
-static void empty_tables_section(const EmptyTables *empty, Style style,
+static void empty_tables_section(const RenderState *state, Style style,
                                  FILE *out)
 {
 	if (style == STYLE_MARKDOWN)
@@ -2418,23 +3024,23 @@ static void empty_tables_section(const EmptyTables *empty, Style style,
 	else
 		fputs("\nNothing To Report\n", out);
 
-	if (empty->count == 0) {
+	if (state->count == 0) {
 		fputs(style == STYLE_MARKDOWN
 		              ? "Every table above carried rows.\n"
 		              : "  Every table above carried rows.\n", out);
 		return;
 	}
 
-	fprintf(out, "%s%zu table%s above %s empty and omitted:\n%s",
+	fprintf(out, "%s%zu table%s above %s state and omitted:\n%s",
 	        style == STYLE_MARKDOWN ? "" : "  ",
-	        empty->count, empty->count == 1 ? "" : "s",
-	        empty->count == 1 ? "was" : "were",
+	        state->count, state->count == 1 ? "" : "s",
+	        state->count == 1 ? "was" : "were",
 	        style == STYLE_MARKDOWN ? "\n" : "");
 
-	for (size_t i = 0; i < empty->count; i++)
+	for (size_t i = 0; i < state->count; i++)
 		fprintf(out, "%s%s\n",
 		        style == STYLE_MARKDOWN ? "- " : "    - ",
-		        empty->headings[i]);
+		        state->headings[i]);
 }
 
 /* Which of the two tiers a section belongs to (HLR-150, HLR-218).
@@ -2504,15 +3110,15 @@ static bool reach_omitted(const Report *report)
 /* The asynchronous roots and the functions both threads can be inside
  * (HLR-227, HLR-228).
  *
- * **The heading carries the state, because an empty table means two different
+ * **The heading carries the state, because an state table means two different
  * things.** A run given an image and finding no handler has looked; a run
- * given neither an image nor a pattern has not. Rendering both as an empty
+ * given neither an image nor a pattern has not. Rendering both as an state
  * section would tell a reader who forgot `--elf` that their program is free of
  * the defects this analysis exists to find, which is the one reading it must
  * not admit (HLR-115).
  */
 static int concurrency_section(const Report *report, Style style, FILE *out,
-                               EmptyTables *empty)
+                               RenderState *state)
 {
 	Grid grid;
 
@@ -2575,7 +3181,7 @@ static int concurrency_section(const Report *report, Style style, FILE *out,
 		grid_row(&grid, r->function, r->file, "re-entrant", via);
 	}
 
-	return grid_render(&grid, style, out, empty);
+	return grid_render(&grid, style, out, state);
 }
 
 /* Whether the concurrency analysis was omitted rather than finding nothing. */
@@ -2624,7 +3230,7 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 	 * the fix: there is one summary composition, and it cannot differ
 	 * between formats because there is nowhere for it to differ. */
 	static const struct {
-		int  (*render)(const Report *, Style, FILE *, EmptyTables *);
+		int  (*render)(const Report *, Style, FILE *, RenderState *);
 		Tier   tier;       /* HLR-150's partition, for every format */
 		bool (*omitted)(const Report *);
 	} SECTIONS[] = {
@@ -2648,6 +3254,7 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		 * gains them because a reader who asks what a tree is made of
 		 * is asking about its files before its functions. */
 		{ files_section,                   S,   NULL                },
+		{ globals_section,                 S,   NULL                },
 		/* From here to the recursion table the order is the reader's
 		 * descent, not the pipeline's: the component, then what is
 		 * wrong inside it, then the functions themselves, then the
@@ -2698,10 +3305,10 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		{ absent_functions_section,        D,   NULL                },
 	};
 
-	EmptyTables empty;
+	RenderState state;
 	int         status = -1;
 
-	memset(&empty, 0, sizeof empty);
+	memset(&state, 0, sizeof state);
 
 	/* The project summary heads every report at either verbosity: it is the
 	 * one tier a reader of a summary is certain to want. */
@@ -2726,13 +3333,13 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 
 		if (!wanted)
 			continue;
-		if (SECTIONS[i].render(report, style, out, &empty) != 0)
+		if (SECTIONS[i].render(report, style, out, &state) != 0)
 			goto done;
 	}
 
-	if (empty.failed)
+	if (state.failed)
 		goto done;
-	empty_tables_section(&empty, style, out);
+	empty_tables_section(&state, style, out);
 
 	/* The stream is checked once, after the last write rather than at every
 	 * one (SDD §14.3.1). A section returns non-zero only where its own
@@ -2743,7 +3350,7 @@ int render_report(const Report *report, Style style, Verbosity verbosity,
 		status = 0;
 
 done:
-	empty_tables_free(&empty);
+	empty_tables_free(&state);
 	return status;
 }
 

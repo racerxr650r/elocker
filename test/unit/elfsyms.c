@@ -12,6 +12,8 @@
 #include <string.h>
 #include <unistd.h>
 
+#include <elf.h>
+
 #include "elfsyms.h"
 
 /* A resolution asserted by value, with the allocation released. `expected` of
@@ -34,6 +36,63 @@ static void resolves(const char *linkage, const char *expected)
 }
 
 /* Verifies LLR-SYM-01: an unencoded linkage name is its source name. */
+/* Verifies LLR-ELF-10: the option is the toolchain's spelling, and a machine
+ * with no spelling contributes nothing.
+ *
+ * Built against a hand-made set rather than an image, because what is under
+ * test is the mapping: an image would put a whole ELF reader between the claim
+ * and the assertion.
+ */
+Test(elfsyms, the_device_flag_is_the_toolchains_spelling)
+{
+	SymbolSet set;
+	char     *flag;
+
+	memset(&set, 0, sizeof set);
+	set.device  = strdup("avr128da28");
+	set.machine = EM_AVR;
+	cr_assert_not_null(set.device);
+
+	flag = elfsyms_device_flag(&set);
+	cr_assert_not_null(flag);
+	cr_assert_str_eq(flag, "-mmcu=avr128da28");
+
+	free(flag);
+	free(set.device);
+}
+
+/* Verifies LLR-ELF-10: **the case that keeps the feature from making things
+ * worse.** Passing an option a compiler does not accept turns a run that would
+ * have expanded into one that falls back, so a machine absent from the table
+ * yields nothing at all. */
+Test(elfsyms, a_machine_with_no_spelling_contributes_no_flag)
+{
+	SymbolSet set;
+
+	memset(&set, 0, sizeof set);
+	set.device  = strdup("cortex-m4");
+	set.machine = EM_ARM;
+	cr_assert_not_null(set.device);
+
+	cr_assert_null(elfsyms_device_flag(&set));
+
+	free(set.device);
+}
+
+/* Verifies LLR-ELF-10: an image naming no device contributes nothing, whatever
+ * its machine — which is every image but the few whose toolchain writes the
+ * note. */
+Test(elfsyms, an_image_naming_no_device_contributes_no_flag)
+{
+	SymbolSet set;
+
+	memset(&set, 0, sizeof set);
+	set.machine = EM_AVR;
+
+	cr_assert_null(elfsyms_device_flag(&set));
+	cr_assert_null(elfsyms_device_flag(NULL));
+}
+
 Test(elfsyms, an_unencoded_name_is_returned_unchanged)
 {
 	resolves("main", "main");

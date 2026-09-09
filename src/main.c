@@ -263,6 +263,15 @@ static int assemble_report(Run *run)
 	if (report_set_dead(&run->report, &run->facts_list) != 0)
 		return -1;
 
+	/* Beside both, and for the third time the same reason: a declaration
+	 * is one file's syntax. The objects a project declares are reported on
+	 * any run that parsed the source, whether or not a graph was built to
+	 * say who touches them (HLR-242). */
+	if (report_set_globals(&run->report, &run->facts_list) != 0) {
+		diag_printf("elc: out of memory collecting global declarations\n");
+		return -1;
+	}
+
 	return 0;
 }
 

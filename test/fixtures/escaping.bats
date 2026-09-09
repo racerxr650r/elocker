@@ -35,7 +35,7 @@ import csv, sys
 rows = list(csv.reader(sys.stdin))
 widths = {len(r) for r in rows if r}
 print(",".join(str(w) for w in sorted(widths)))' <<<"$output"
-	assert_output "12"
+	assert_output "14"
 }
 
 @test "HLR-064: the path survives the round trip intact" {
@@ -45,7 +45,7 @@ print(",".join(str(w) for w in sorted(widths)))' <<<"$output"
 	run python3 -c '
 import csv, sys
 rows = [r for r in csv.reader(sys.stdin) if r]
-print(rows[1][0])' <<<"$output"
+print(rows[1][1])' <<<"$output"
 	assert_output --partial 'tmpl<int, long> & "quoted"'
 }
 
@@ -146,7 +146,7 @@ names = [r[2] for r in rows[1:]]
 widths = {len(r) for r in rows}
 print(",".join(str(w) for w in sorted(widths)), "|", "|".join(sorted(names)))' \
 		<<<"$output"
-	assert_output "12 | combine|combine<int, long>"
+	assert_output "14 | combine|combine<int, long>"
 }
 
 @test "HLR-065: an identifier containing angle brackets is escaped" {

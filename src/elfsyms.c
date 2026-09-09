@@ -399,17 +399,65 @@ static char *device_note(Elf *elf)
 	return NULL;
 }
 
+/* How the toolchain for one machine spells the option that selects a device
+ * (HLR-240).
+ *
+ * One entry, and that is the honest size of it: `.note.gnu.avr.deviceinfo` is
+ * the note this reads, and avr-gcc is the toolchain that writes it. The table
+ * exists so that a second machine recording a device is a row rather than a
+ * rewrite — and so that a machine *not* in it yields nothing, since passing a
+ * flag a compiler does not accept turns a run that would have expanded into
+ * one that falls back.
+ */
+static const char *device_option(unsigned int machine)
+{
+	static const struct { unsigned int id; const char *option; } OPTIONS[] = {
+		{ EM_AVR, "-mmcu=" }
+	};
+
+	for (size_t i = 0; i < sizeof OPTIONS / sizeof *OPTIONS; i++)
+		if (OPTIONS[i].id == machine)
+			return OPTIONS[i].option;
+
+	return NULL;
+}
+
+char *elfsyms_device_flag(const SymbolSet *set)
+{
+	const char *option;
+	char       *flag;
+	size_t      want;
+
+	if (!set || !set->device)
+		return NULL;
+
+	option = device_option(set->machine);
+	if (!option)
+		return NULL;
+
+	want = strlen(option) + strlen(set->device) + 1;
+	flag = malloc(want);
+	if (flag)
+		snprintf(flag, want, "%s%s", option, set->device);
+	return flag;
+}
+
 /* What the image was built for, as specifically as it says (HLR-239). */
-static char *target_of(Elf *elf)
+static char *target_of(Elf *elf, SymbolSet *out)
 {
 	GElf_Ehdr   ehdr;
 	char       *device = device_note(elf);
 	const char *arch;
 	char        buf[128];
 
+	/* Kept apart from the display below it: the device is what a build
+	 * needs told, and `avr128da28 (AVR)` is not a flag (HLR-240). */
+	out->device = device ? strdup(device) : NULL;
+
 	if (!gelf_getehdr(elf, &ehdr))
 		return device;
 
+	out->machine = ehdr.e_machine;
 	arch = machine_name(ehdr.e_machine);
 
 	if (device && arch)
@@ -456,7 +504,7 @@ int elfsyms_open(const char *path, SymbolSet *out)
 
 	/* Read from the descriptor already open, like everything else here:
 	 * the image is opened once and nothing beside it (HLR-141). */
-	out->target = target_of(elf);
+	out->target = target_of(elf, out);
 
 	chosen = symbol_section(elf, &shdr);
 
@@ -567,5 +615,6 @@ void elfsyms_free(SymbolSet *set)
 	originmap_free(&set->origins);
 	includedirs_free(&set->include_dirs);
 	free(set->target);
+	free(set->device);
 	memset(set, 0, sizeof *set);
 }

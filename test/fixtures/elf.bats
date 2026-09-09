@@ -30,7 +30,7 @@ functions_of() {
 	awk '/^Functions [(]/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "File" {next}
-	     s && /^  [^ -]/ {print $3}' "$1" | sort | tr '\n' ' '
+	     s && /^  [^ -]/ {print $2}' "$1" | sort | tr '\n' ' '
 }
 
 # The functions the image does not define, from the section of that name.
@@ -124,14 +124,14 @@ build_evidence() {
 eloc_of() {
 	awk -v want="$2" '/^Functions [(]/ {s=1; next}
 	                  s && /^$/ {exit}
-	                  s && $3 == want {print $6}' "$1"
+	                  s && $2 == want {print $6}' "$1"
 }
 
 # One function's fan-out, from the same tier and the same row.
 fanout_of() {
 	awk -v want="$2" '/^Functions [(]/ {s=1; next}
 	                  s && /^$/ {exit}
-	                  s && $3 == want {print $9}' "$1"
+	                  s && $2 == want {print $9}' "$1"
 }
 
 # One summary row whose value is a word rather than a figure (HLR-239).
@@ -793,7 +793,7 @@ build_ambiguous() {
 	local kept
 	kept="$(printf '%s\n' "$output" |
 		awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $3 == "helper" { sub(/:[0-9]+$/, "", $1); print $1 }')"
+		     f && $2 == "helper" { sub(/:[0-9]+$/, "", $1); print $1 }')"
 	assert_equal "$kept" "$AMB/a.c"
 
 	# And b.c's is reported absent, beside the function that called it.
@@ -863,7 +863,7 @@ build_templated() {
 	local kept
 	kept="$(printf '%s\n' "$output" |
 		awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $3 == "serialize_seq" { sub(/:[0-9]+$/, "", $1); print $1 }')"
+		     f && $2 == "serialize_seq" { sub(/:[0-9]+$/, "", $1); print $1 }')"
 	assert_equal "$kept" "$TPL/micro/plugin.hpp"
 }
 
@@ -1020,16 +1020,34 @@ build_templated() {
 	assert_equal "$(filter_of "$OUT" "ELOC outside any function")" "2"
 }
 
-@test "HLR-145: a file the image kept nothing from still reports its data" {
-	# dropped.c has no function left, and one line of file-scope ELOC. A
-	# reader who could not tell that file from an empty one would have been
-	# told nothing by the filter.
+@test "HLR-145: a file the image kept nothing from is not listed, and is counted" {
+	# dropped.c has no function left. The Files table is the set of files
+	# this build's code is in, so a row of measurements about code the
+	# image does not contain is noise in the one table a reader scans to
+	# find where the code is.
 	build_image
 	report "$TREE" --elf "$IMAGE"
 	assert_success
 
-	run bash -c 'grep -E "dropped\.c +c +23 +1 +0" "$0"' "$OUT"
+	run bash -c 'grep -cE "dropped\.c +c +[YN] +" "$0"' "$OUT"
+	assert_output "0"
+
+	# Removed from the table, never from the account: a row dropped in
+	# silence is a file a reader cannot tell from one never discovered.
+	run bash -c 'grep -cE "^ +[0-9]+ discovered files? contributed no function this image defines and (is|are) not listed\." "$0"' "$OUT"
+	assert_output "1"
+}
+
+@test "HLR-145: the filter alone prunes a file, never the walk" {
+	# The same tree with no image lists dropped.c like any other file. A
+	# file with no functions is a header of declarations or a unit of data,
+	# and dropping it unasked would hide a file that was analysed.
+	report "$TREE"
 	assert_success
+
+	run bash -c 'grep -cE "dropped\.c +c +" "$0"' "$OUT"
+	assert_output "1"
+	refute_line --regexp "contributed no function this image defines"
 }
 
 # ------------------------------------------------------ resolving names --

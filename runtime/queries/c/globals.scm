@@ -1,7 +1,13 @@
 ; globals.scm — global-state access for C.
 ;
-; Contract: capture each global declaration as @global.declaration, each read
-; as @global.read, and each write as @global.write. See ../README.md.
+; Contract: capture each global declaration as @global.declaration, the type it
+; was declared with as @global.type, each read as @global.read, and each write
+; as @global.write. See ../README.md.
+;
+; @global.type is the declaration's `type:` field and nothing else — the base
+; type as written. The pointer and array shape is carried by the declarator
+; the name sits in, and `elc` reads it from the capture that matched rather
+; than by inspecting C: which shapes exist is this file's business.
 ;
 ; Phase 8 uses these for the graph's global-state edges (HLR-074); Phase 10
 ; uses the same captures for hidden-channel analysis. One set of facts, two
@@ -15,20 +21,24 @@
 ; distinction belongs.
 (translation_unit
   (declaration
+    type: (_) @global.type
     declarator: (identifier) @global.declaration))
 
 (translation_unit
   (declaration
+    type: (_) @global.type
     declarator: (init_declarator
       declarator: (identifier) @global.declaration)))
 
 (translation_unit
   (declaration
+    type: (_) @global.type
     declarator: (array_declarator
       declarator: (identifier) @global.declaration)))
 
 (translation_unit
   (declaration
+    type: (_) @global.type
     declarator: (pointer_declarator
       declarator: (identifier) @global.declaration)))
 
@@ -40,6 +50,7 @@
 ; work when in fact nothing had ever reached it.
 (translation_unit
   (declaration
+    type: (_) @global.type
     declarator: (init_declarator
       declarator: (pointer_declarator
         declarator: (identifier) @global.declaration))))

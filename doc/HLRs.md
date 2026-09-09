@@ -1375,14 +1375,20 @@ Every section before this one added a measurement and, with it, a section of the
     The uniformity requirements are unchanged and are satisfied one level up. What HLR-006 fixes across target types, HLR-031 across formats, and HLR-032 across runs is the set of tiers the report **reaches** — presented where they found rows, and named by HLR-189 where they did not — rather than the sequence of headings a particular run prints. The complete-record formats are unaffected: CSV (HLR-028) and XML (HLR-054) carry every element whatever its content, exactly as HLR-152 exempts them from verbosity.
     *Trace:* [SDD Section 14](SDD.md).
 
-*   <a id="HLR-190"></a>**HLR-190: Markdown Tables Presented Behind a Disclosure Element.**
-    In the Markdown report of HLR-029, `elc` shall present every table inside an HTML `<details>` element whose `<summary>` states how many rows the table holds, so that a reader expands the tables they want rather than scrolling past the ones they do not.
+*   <a id="HLR-190"></a>**HLR-190: Markdown Tables Presented Open Beneath Their Headings.**
+    In the Markdown report of HLR-029, `elc` shall present every table openly beneath its `##` heading, and shall place no table inside an HTML `<details>` element or any other construct that hides it until a reader acts.
 
-    **The section's `##` heading shall remain a heading**, outside the element. The heading is what anchors a section: a Markdown renderer derives a link target from it, a table of contents is built out of it, and the report's own composition is read off it. Folding the heading into the `<summary>` would trade a navigable document for a tidy one — so the summary states what is *inside* the element instead, which is the one thing a reader deciding whether to expand does not already know from the heading above it.
+    **This reverses what this requirement said between Phase 22 and Phase 35**, which was that every table be folded behind a disclosure element stating its row count, so that a reader expanded the tables they wanted rather than scrolling past the ones they did not. Two things retired that reasoning, and both are properties a report is *for*.
 
-    The row count in the summary shall be derived from the rows presented, never written down beside them. A count maintained separately from what it counts is a count that drifts.
+    **A folded table cannot be searched.** Neither a browser's find nor a Markdown host's own search reaches text inside a closed `<details>`, so a reader looking for a function by name was told it was not in the report — the one question a code-metrics report exists to answer, answered wrongly. Scrolling past a section costs a moment; being told a thing is absent when it is present costs the reader the report.
 
-    This requirement governs the Markdown report alone. The aligned table (HLR-027) has no disclosure to offer and is unchanged; CSV (HLR-028) and XML (HLR-054) are complete-record formats whose consumers parse them, and HTML in either would be a defect rather than a convenience. Uniform composition across formats (HLR-031) is unaffected: the tiers each format reaches, and the headings it presents them under, are the same as before.
+    **A folded table cannot be linked into.** A fragment identifier pointing inside a hidden element scrolls to nothing in most renderers, which made every cross-reference of HLR-241 a link that silently did not work. A report whose evidence can be pointed at is worth more than one that is short.
+
+    **The row count shall move to the heading**, in the form the aligned table already uses (HLR-235), so that nothing is lost with the `<summary>` that used to carry it. It shall be derived from the rows presented, never written down beside them: a count maintained separately from what it counts is a count that drifts.
+
+    A heading that already carries a parenthesised clause shall not take a second bracket. The dependency-structure matrix names its subjects that way (HLR-166), and its extent is the grid itself, which is square.
+
+    This requirement governs the Markdown report alone. The aligned table (HLR-027) never had a disclosure to offer; CSV (HLR-028) and XML (HLR-054) are complete-record formats whose consumers parse them, and HTML in either would be a defect rather than a convenience. Uniform composition across formats (HLR-031) is unaffected: the tiers each format reaches, and the headings it presents them under, are unchanged.
     *Trace:* [SDD Section 14](SDD.md), [SDD Section 22](SDD.md).
 
 *   <a id="HLR-189"></a>**HLR-189: The Empty Tables Named in a Closing Statement.**
@@ -1663,6 +1669,60 @@ Every measurement in the sections above assumes one. On a bare-metal target ther
 
     A summary row's value may therefore be a word rather than a figure. A word shall be left-aligned, where a figure is right-aligned against the other figures: a path is sixty characters, and letting it set the value column's width would push every number across the page to line up with nothing.
     *Trace:* [SDD Section 13](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-240"></a>**HLR-240: The Device the Image Was Built For.**
+    Where a linked image records the device it was built for, `elc` shall pass that device to the preprocessor as the option the machine's toolchain uses to select one, so that a target whose headers are chosen by device expands without the user restating what the image already records.
+
+    **The same principle as HLR-238, applied to the other half of what a build needs.** The include paths tell the preprocessor *where* to look; on an embedded target they are not enough on their own, because the vendor headers select a register map from a device macro and refuse to compile without one. `avr-libc` fails with `#error "No SLEEP mode defined for this device."` — a diagnostic that has nothing to do with search paths, and that the image can answer: `.note.gnu.avr.deviceinfo` records the device name, needs no extra build switch, and is written by every build.
+
+    **The device flag shall lead the flag list, where the include paths follow the user's.** The two orderings say the same thing by opposite means: `-mmcu` is last-wins, so the user's own must come *after* the image's to override it, while an include path earlier in the list is searched first, so the user's must come *before*. Where the user and the image disagree, the user's declaration wins (HLR-238).
+
+    **The option's spelling is the toolchain's and shall be a table rather than a guess.** A machine `elc` has no spelling for shall contribute no flag: passing an option a compiler does not accept turns a run that would have expanded into one that falls back, which is worse than the fallback the feature exists to prevent. The table's honest size today is one entry, `avr-gcc` being the toolchain that writes the note this reads.
+
+    The device shall be kept apart from the description the project summary states (HLR-239): `avr128da28 (AVR)` is a display and not a flag.
+    *Trace:* [SDD Section 7](SDD.md), [SDD Section 18](SDD.md).
+
+*   <a id="HLR-241"></a>**HLR-241: Findings Cross-Referenced to the Rows That Describe Them.**
+    In the Markdown report of HLR-029, `elc` shall link each finding's subject to the row that describes it, and shall link that row back to the finding, so that a reader moves between a judgement and its evidence by following a reference rather than by searching for a name.
+
+    **The findings table names its subject and stops** (HLR-101, HLR-182). That is deliberate — a finding says what was measured, where, and which standard places it outside the range — but it leaves the reader to find the subject again in a table of hundreds of rows. A reference costs nothing to follow and lets the finding stay as short as it is.
+
+    **A link shall be emitted only where the row it names is present in that report.** A reference that lands nowhere is worse than a plain name: it tells the reader something exists and then fails to produce it. Two consequences follow. A subject that is a component, an external callee, a list of names forming a cycle, or the call graph itself is a row in no table and shall be left as text. And a table a composition does not print is not a destination for that composition (HLR-150, HLR-218) — which is why the objects a finding names are matched against the Globals table of HLR-242, a summary tier present in every composition, rather than against an analysis reached only where a graph was built.
+
+    **An anchor shall name one row.** It shall be derived from the canonical absolute path and the identifier together, never from the rendered location (HLR-210) and never from the name alone: two translation units may define one static name, and an anchor naming both names neither. Where several findings share a subject the first shall carry the anchor — a name written twice is a duplicate anchor, which resolves to whichever copy the renderer saw first.
+
+    **Both spellings of an anchor shall be written**, `id` and `name`. The first is what current renderers resolve a fragment against and the second is the older form some pipelines still emit; writing one and not the other makes a link work in some readers and silently fail in others.
+
+    This requirement is why HLR-190 no longer folds a table: a fragment pointing inside a hidden element scrolls to nothing, so a folded destination is a reference that does not work. It governs the Markdown report alone — the aligned table has nothing to click, and the complete-record formats carry their relations as data.
+    *Trace:* [SDD Section 14](SDD.md).
+
+*   <a id="HLR-242"></a>**HLR-242: The Global Objects a Project Declares.**
+    `elc` shall report every global object the source declares, giving for each the file and line it is declared at, the identifier, and the type it was declared with. The table shall be presented after the files it draws from, in every composition and in every format that carries a report.
+
+    **State shared between functions is the first thing a reader of an embedded project asks about**, and until this table `elc` answered it only through the global-state analysis of HLR-091 — a detail tier, absent from a default report, and reached only where a graph was built. What objects a project declares is a fact about the source, established by the same parse that finds the functions, so it shall be reported wherever the source was read: on a run with no image, no entry point and no graph.
+
+    **It is a different table from that analysis and shall not replace it** (HLR-091 – HLR-093). That one says who writes an object, who reads it, and what the pair amounts to. This one says what exists and where to go and look — the one thing the analysis never needed and a reader always wants.
+
+    **The location shall be `path:line`**, the form an editor acts on, as the function table writes it and for the same reason (HLR-210).
+
+    **The type shall be the type as the language module captured it**, and no more. Which shapes a declaration takes is the query's business and not `elc`'s (HLR-009); a module that captures no type shall leave the column empty rather than have the object dropped for want of it, since the object is declared either way.
+
+    **The objects shall be ordered by file and then by line** — the order the source writes them in — so that two runs over one tree present one order (HLR-032).
+
+    In the record formats the objects shall be carried as their own kind of row. CSV shall name the kind in a column of its own rather than begin a second table: two headers in one document is not a CSV any consumer can load, a strict reader failing at the second and a lenient one reading it as data. XML shall carry them as one list, so that a report regenerated from a record is ordered as a live run's is (HLR-056).
+    *Trace:* [SDD Section 5](SDD.md), [SDD Section 14](SDD.md).
+
+*   <a id="HLR-243"></a>**HLR-243: Every Finding Reports Where It Is.**
+    `elc` shall report, beside each finding, the file and line the finding is about, in the `path:line` form of HLR-210, and shall leave the field empty where the finding has no single place rather than inventing one.
+
+    **A finding a reader cannot locate is a finding they cannot act on.** The findings table named what was measured, the subject, and the standard that draws the line, and left the reader to find the subject again in a table of hundreds of rows. The cross-reference of HLR-241 answers that for a subject the report holds a row for — and the exception is neither rare nor marginal. A call to a library function the standard forbids is attributed to the *callee*: a name defined in no file this run analysed, a row in no table, and therefore beyond any reference. Measured on `avrOS`, sixty-five such findings named `printf` or `fprintf` in rows of identical text distinguished by nothing whatever, and one finding in three was of that kind.
+
+    **The place was in the model throughout.** Every finding is recorded with the file and line its measurement was taken at, and the XML record has carried both since findings existed (HLR-056). Only the human-readable table dropped them, which made the record strictly more useful than the report a reader was given.
+
+    **Empty is an answer.** A component's instability, a cycle's membership and the depth of a call graph are properties of a structure rather than of a line; a location invented for them would be one a reader could not act on, and the blank says truthfully that the finding is not about a place.
+
+    **The location shall not be wrapped** (HLR-219). A path broken across two lines is not a path — a reader cannot click half of one, and reassembling it by hand is the work `path:line` exists to remove — so a column carrying a navigable location shall be exempt from the narrowing that fits a line to the bound, as the numeric columns already are and for the same reason. The remaining text columns absorb the difference; where they cannot, the table goes out wide, which is the failure HLR-219 already prefers to a mangled one.
+    *Trace:* [SDD Section 14](SDD.md).
 
 *   <a id="HLR-236"></a>**HLR-236: The Framed Terminal Report.**
     Where `elc` renders the aligned table (HLR-027), the run shall be presented as two banner-headed blocks: the diagnostics it emitted while reading the source, and the report.

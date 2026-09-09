@@ -36,14 +36,14 @@ functions_of() {
 	awk '/^Functions [(]/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "File" {next}
-	     s && /^  [^ -]/ {print $3}' "$OUT" | LC_ALL=C sort | tr '\n' ' '
+	     s && /^  [^ -]/ {print $2}' "$OUT" | LC_ALL=C sort | tr '\n' ' '
 }
 
 # One function's mark in the Reent column — "I", "R", or empty.
 mark_of() {
 	awk -v want="$1" '/^Functions [(]/ {s=1; next}
 	                  s && /^$/ {exit}
-	                  s && $3 == want {print ($5 == "I" || $5 == "R") ? $5 : ""}' \
+	                  s && $2 == want {print ($5 == "I" || $5 == "R") ? $5 : ""}' \
 		"$OUT"
 }
 
@@ -93,7 +93,8 @@ unreachable_of() {
 	# so its fan-out is two.
 	report
 	assert_success
-	run awk '/^Functions [(]/ {s=1} s && $3 == "TIMER_vect" {print $10}' "$OUT"
+	run awk '/^Functions [(]/ {s=1; next} s && /^$/ {exit}
+	         s && $2 == "TIMER_vect" {print $10}' "$OUT"
 	assert_output "2"
 
 	# One call site stays unresolved and must: `dispatch` calls through a
@@ -105,7 +106,8 @@ unreachable_of() {
 @test "HLR-233: the handler is external, since a vector table resolves it" {
 	report
 	assert_success
-	run awk '/^Functions [(]/ {s=1} s && $3 == "TIMER_vect" {print $4}' "$OUT"
+	run awk '/^Functions [(]/ {s=1; next} s && /^$/ {exit}
+	         s && $2 == "TIMER_vect" {print $4}' "$OUT"
 	assert_output "public"
 }
 

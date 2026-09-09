@@ -843,6 +843,16 @@ typedef enum {
 
 typedef struct {
 	char            *name;     /* the object's identifier; owned       */
+	/* The type the object was declared with, as written, and NULL on
+	 * every access that is not a declaration (HLR-242).
+	 *
+	 * The base type alone: the pointer and array shape belongs to the
+	 * declarator the name sits in, and the language module says which
+	 * shape matched rather than `elc` inspecting the source. NULL rather
+	 * than an empty string where a language's module captures no type at
+	 * all, which is a different claim from a type that is blank.
+	 */
+	char            *type;     /* owned, or NULL                       */
 	size_t           function; /* into functions, or ELC_NO_FUNCTION   */
 	uint32_t         line;     /* 1-based                              */
 	GlobalAccessKind kind;

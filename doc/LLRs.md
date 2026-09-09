@@ -1692,9 +1692,18 @@ The single place every reported collection is ordered. The audit point for deter
     Debug information shall be recorded as present where any of the three things the line reader gathers was found, so that the flag and the analyses that depend on it cannot disagree.
     *Trace:* HLR-239, HLR-141.
 
-*   <a id="LLR-ANL-65"></a>**LLR-ANL-65** — `preproc_expand_configured` shall append the image's include directories to the preprocessor's flags as search paths, after the flags the user supplied and after nothing else (HLR-238).
+*   <a id="LLR-ELF-10"></a>**LLR-ELF-10** — `elfsyms_device_flag` shall return the option that selects the image's device, as a fresh allocation the caller owns, or NULL where the image named no device or the machine has no spelling in the table (HLR-240).
 
-    After the user's own, so that where the two disagree the user's declaration wins — the order of authority a `-D` already has over a region the image would otherwise decide (HLR-208). A run with no image, or with an image carrying no directories, shall pass exactly the flags it passed before, so the feature costs a run that cannot use it nothing.
+    The spelling is the toolchain's, and a machine absent from the table shall yield nothing rather than a guessed option: a flag a compiler rejects turns a run that would have expanded into one that falls back, which is worse than the fallback this exists to prevent. The table is one entry today and is a table so that a second machine recording a device is a row rather than a rewrite.
+    *Trace:* HLR-240.
+
+*   <a id="LLR-ANL-65"></a>**LLR-ANL-65** — `build_flags` shall assemble the preprocessor's flags in one order: the image's device option, the flags the user supplied, the image's include paths, and the `-D` definitions (HLR-238, HLR-240).
+
+    **The device option leads and the include paths follow.** The two placements say the same thing by opposite means, because the options behave differently: `-mmcu` is last-wins, so the user's own must come after the image's to override it, while an include path earlier in the list is searched first, so the user's must come before. Where the user and the image disagree, the user wins — the order of authority a `-D` already has over a region the image would otherwise decide (HLR-208).
+
+    **Every entry shall be owned, the user's flags copied rather than borrowed.** That costs a handful of small allocations per file and removes the index bookkeeping two borrowed ranges either side of an owned one would need, which is what the list became once a flag had to lead it. One loop then releases the whole list, on every path (HLR-125).
+
+    A run with no image shall pass exactly the flags it passed before, so the feature costs a run that cannot use it nothing.
     *Trace:* HLR-238, HLR-208.
 
 *   <a id="LLR-DWL-01"></a>**LLR-DWL-01** — `dwarfline_read` shall obtain the image's debug line information from the ELF descriptor `elfsyms_open` already holds, using the low-level DWARF interface and never the `Dwfl` layer above it. That layer resolves separate debug information by `.gnu_debuglink` and build-id, which opens a file under a separate-debug directory the user never named — forbidden by HLR-141.
