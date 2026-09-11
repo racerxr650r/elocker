@@ -83,7 +83,7 @@ There is no acceptable number of these, so there is nothing to band.
 | `layering violation` | call | warning | a call bypasses a layer, or runs against the declared direction | your `--stratum` declaration |
 | `cross-scope access` | call or shared global | warning | one declared execution scope reaches another | your `--scope` declaration |
 
-### What needs `elc` needs declared
+### What `elc` needs declared
 
 Some findings cannot be reported unless you provide `elc` information it cannot
 infer. The report then says the analysis was *omitted*, never that it was clean:
