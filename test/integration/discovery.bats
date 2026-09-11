@@ -25,7 +25,7 @@ setup() {
 	# and it is a detail tier of the aligned table since HLR-218.
 	elc --verbose "$TREE"
 	assert_success
-	assert_output --partial "Project summary"
+	assert_output --partial "Project Summary"
 	assert_output --partial "$TREE/a.c"
 	assert_output --partial "$TREE/sub/b.c"
 }
@@ -81,7 +81,7 @@ setup() {
 	# "how many sections mention this file" rather than "was it
 	# de-duplicated".
 	assert_equal "$(awk -v p="$TREE/a.c" '
-		/^Files$/ { f = 1; next } f && /^$/ { f = 0 }
+		/^Files [(]/ { f = 1; next } f && /^$/ { f = 0 }
 		f && $1 == p { n++ } END { print n + 0 }' <<<"$output")" "1"
 }
 
@@ -158,7 +158,7 @@ setup() {
 	assert_success
 	assert_output ""
 	run cat "$BATS_TEST_TMPDIR/report.txt"
-	assert_output --partial "Project summary"
+	assert_output --partial "Project Summary"
 	assert_output --partial "$TREE/a.c"
 }
 
@@ -166,7 +166,7 @@ setup() {
 	elc -o "$BATS_TEST_TMPDIR/short.txt" "$TREE"
 	assert_success
 	run cat "$BATS_TEST_TMPDIR/short.txt"
-	assert_output --partial "Project summary"
+	assert_output --partial "Project Summary"
 }
 
 @test "a redirected report is byte-identical to the one on stdout" {

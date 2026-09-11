@@ -49,11 +49,29 @@ record() {
 @test "HLR-057: the same record at two thresholds gives two listings" {
 	# If it did not, the test above would pass for a build that ignored
 	# the threshold entirely.
+	#
+	# Regenerated verbosely, because the listing the two thresholds differ
+	# in is a detail tier: it is evidence for a finding rather than one of
+	# the four questions a default report answers (HLR-150).
 	record
-	run bash -c '"$0" --from-xml "$1" -c 2 2>/dev/null' "$ELC" "$RECORD"
+	run bash -c '"$0" --from-xml "$1" --verbose -c 2 2>/dev/null' \
+		"$ELC" "$RECORD"
 	local low="$output"
-	run bash -c '"$0" --from-xml "$1" -c 99 2>/dev/null' "$ELC" "$RECORD"
+	run bash -c '"$0" --from-xml "$1" --verbose -c 99 2>/dev/null' \
+		"$ELC" "$RECORD"
 	refute_output "$low"
+}
+
+@test "HLR-056: a matrix with no non-zero cell regenerates verbosely" {
+	# A record writes only its non-zero cells, so a tree of one component
+	# carries subjects and no cell element at all — and the reader used to
+	# allocate the grid on the first cell, leaving the renderer to walk a
+	# null pointer over count x count. `--from-xml --verbose` faulted on
+	# almost any record (LLR-XRD-20).
+	record
+	run bash -c '"$0" --from-xml "$1" --verbose 2>/dev/null' "$ELC" "$RECORD"
+	assert_success
+	assert_output --partial "Dependency Structure Matrix"
 }
 
 @test "HLR-055: regeneration reads no source file" {
@@ -154,7 +172,7 @@ record() {
 	record
 	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" "$RECORD"
 	assert_success
-	assert_output --partial "## Project summary"
+	assert_output --partial "## Project Summary"
 }
 
 @test "HLR-063: a format other than Markdown is rejected in regeneration mode" {

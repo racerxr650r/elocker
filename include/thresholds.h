@@ -47,6 +47,17 @@
  */
 #define ELC_OWN_HEURISTIC "elc heuristic — not a published standard"
 
+/* The attribution of a finding judged against something the *user* declared
+ * rather than against a published source or a judgement of `elc`'s own.
+ *
+ * A third kind of authority, and it needs saying as plainly as the second
+ * does. A layering violation is not `elc`'s opinion and is not Martin's — it
+ * is the run's own measurement compared against the architecture the user
+ * stated on the command line, and a reader deciding what to do about it needs
+ * to know that the rule it broke is theirs (HLR-099). */
+#define ELC_DECLARED_ARCHITECTURE "your --stratum declaration"
+#define ELC_DECLARED_SCOPES       "your --scope declaration"
+
 /* One row of the catalogue.
  *
  * `warning_bound` and `critical_bound` are exclusive bounds on a counted
@@ -149,5 +160,17 @@ int report_set_findings(Report *report, const FindingList *findings);
 
 /* Release every finding and the strings each owns. Safe on NULL. */
 void findinglist_free(FindingList *f);
+
+/* Append one finding (HLR-098).
+ *
+ * Public because the analyses of `concurrency.c` produce findings that are not
+ * a band over a counted value — a lock left held on one path is a defect, not
+ * a measurement outside a range — and they must still arrive through the one
+ * list every other finding arrives through, carrying the same severity
+ * vocabulary and the same attribution.
+ */
+int findings_add(FindingList *out, MeasurementKind kind, Severity severity,
+                 const char *subject, const char *where, uint32_t line,
+                 const char *detail);
 
 #endif /* ELC_THRESHOLDS_H */

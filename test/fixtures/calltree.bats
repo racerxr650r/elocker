@@ -20,8 +20,14 @@ undecorated() {
 	# dropped along with the decoration, and it has to be: the blank line
 	# after `<summary>` would otherwise terminate a section extractor at
 	# the very line the table begins on.
+	# The anchor a finding's subject links to (HLR-241) goes with the rest
+	# of the decoration: it is addressed to the renderer, occupies no
+	# column, and would otherwise be read as part of the name beside it.
+	# Only the anchor — `<details>` has to survive to be dropped by name
+	# below, since blanking it in place would leave a blank line, and a
+	# blank line is what terminates a section for every extractor here.
 	printf '%s\n' "$output" |
-		sed 's/^## /  /; s/|/ /g' |
+		sed 's/^## /  /; s/|/ /g; s|</\?a[^>]*>||g' |
 		grep -vE '^(<details>|<summary>|</details>)'
 }
 
@@ -42,9 +48,9 @@ undecorated() {
 function_of() {
 	undecorated |
 		awk -v want="$1" -v col="$2" \
-		    '/^ *Functions$/ { f = 1; next }
+		    '/^ *Functions( \([0-9]+\))?$/ { f = 1; next }
 		     f && /^ *$/ { if (seen) f = 0; next }
-		     f { seen = 1; if ($3 == want) print $col }'
+		     f { seen = 1; if ($2 == want) print $col }'
 }
 
 fan_in_of()  { function_of "$1" 8; }
@@ -54,7 +60,7 @@ fan_out_of() { function_of "$1" 9; }
 # rather than about one cell.
 function_section() {
 	undecorated |
-		awk '/^ *Functions$/ { f = 1 }
+		awk '/^ *Functions( \([0-9]+\))?$/ { f = 1 }
 		     f && /^ *$/ { if (seen) f = 0; next }
 		     f { seen = 1; print }'
 }
@@ -63,7 +69,7 @@ function_section() {
 # which every figure this suite reads has.
 summary_of() {
 	undecorated |
-		awk -v want="$1" '/^ *Project summary/ { f = 1; next }
+		awk -v want="$1" '/^ *Project Summary/ { f = 1; next }
 		                  f && /^ *$/ { if (seen) f = 0; next }
 		                  f { seen = 1; if ($1 == want) print $2 }'
 }
@@ -71,12 +77,12 @@ summary_of() {
 # The deepest-chain heading, which states which of the four outcomes happened.
 # Read from the closing statement too, since an omitted or unbounded chain has
 # no rows and is named there rather than printed (HLR-188, HLR-189).
-depth_heading() { heading_of "Deepest call chain"; }
+depth_heading() { heading_of "Deepest Call Chain"; }
 
 # The chain itself, in order, as function names.
 chain() {
 	printf '%s\n' "$output" |
-		awk '/^Deepest call chain/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Deepest Call Chain/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && $1 ~ /^[0-9]+$/ { print $3 }'
 }
 
@@ -121,7 +127,7 @@ chain() {
 	assert_success
 
 	local rows
-	rows="$(function_section | awk '/^ *\// { n++ } END { print n + 0 }')"
+	rows="$(function_section | awk '/^ *[^ ]+:[0-9]+ / { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "24"
 }
 
@@ -160,7 +166,7 @@ chain() {
 	assert_success
 
 	local rows
-	rows="$(function_section | awk '/^ *\// { n++ } END { print n + 0 }')"
+	rows="$(function_section | awk '/^ *[^ ]+:[0-9]+ / { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "8"
 }
 
@@ -173,7 +179,7 @@ chain() {
 	elc --verbose --entry flow_entry "$TREE/flow.c"
 	assert_success
 
-	assert_output --regexp "Function +Scope +Lines +ELOC +CC +In +Out"
+	assert_output --regexp "Function +L +Scope +R +Lines +ELOC +CC +In +Out"
 	refute_output --partial "Fan-out (distinct callees)"
 	refute_output --partial "Information flow"
 }
@@ -199,7 +205,7 @@ chain() {
 	assert_success
 
 	refute_output --regexp "(^|\n)Recursion\n"
-	assert_output --partial "Nothing to report"
+	assert_output --partial "Nothing To Report"
 	assert_output --partial "    - Recursion"
 }
 
@@ -227,7 +233,7 @@ chain() {
 @test "HLR-087: the hand-counted depth matches" {
 	elc --verbose --entry entry_main "$TREE/depth.c"
 	assert_success
-	assert_output --partial "Deepest call chain (4 layers"
+	assert_output --partial "Deepest Call Chain (4 layers"
 }
 
 @test "HLR-088: the deepest chain is reported in full, in order" {
@@ -284,14 +290,14 @@ mutual"
 	elc --verbose --entry recursive_entry "$TREE/recursion.c"
 	assert_success
 	assert_equal "$(depth_heading)" \
-		"Deepest call chain (unbounded: the call graph is recursive)"
+		"Deepest Call Chain (unbounded: the call graph is recursive)"
 	assert_equal "$(chain)" ""
 }
 
 @test "HLR-090: no finite depth is invented for a recursive graph" {
 	elc --entry recursive_entry "$TREE/recursion.c"
 	assert_success
-	refute_output --regexp "Deepest call chain \([0-9]+ layers"
+	refute_output --regexp "Deepest Call Chain \([0-9]+ layers"
 }
 
 # ------------------------------------------------------------- omissions --
@@ -300,7 +306,7 @@ mutual"
 	elc "$TREE/depth.c"
 	assert_success   # an absent declaration is not a failure
 	assert_equal "$(depth_heading)" \
-		"Deepest call chain (omitted: no entry points declared, see --entry)"
+		"Deepest Call Chain (omitted: no entry points declared, see --entry)"
 }
 
 @test "HLR-115: an omitted depth does not omit the other measurements" {
@@ -324,7 +330,7 @@ mutual"
 	elc --entry no_such_function "$TREE/depth.c"
 	assert_success
 	assert_equal "$(depth_heading)" \
-		"Deepest call chain (omitted: no declared entry point matches an analysed function)"
+		"Deepest Call Chain (omitted: no declared entry point matches an analysed function)"
 }
 
 @test "an unmatched entry point is diagnosed on stderr" {

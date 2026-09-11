@@ -49,26 +49,55 @@ setup() {
 	assert_success
 	# first() spans lines 1-4, second() lines 6-9: the start is in the
 	# navigable location and the extent is the count beside the name.
-	assert_output --regexp "pair\.c:1 +c +first +public +4"
-	assert_output --regexp "pair\.c:6 +c +second +public +4"
+	assert_output --regexp "pair\.c:1 +first +c +public +4"
+	assert_output --regexp "pair\.c:6 +second +c +public +4"
 }
 
 @test "HLR-210: the location is one an editor can act on" {
-	# `path:line`, which VS Code's terminal turns into a jump. The path
-	# stays absolute, because a relative one would resolve against whatever
-	# directory the reader's terminal happens to be in.
+	# `path:line`, which VS Code's terminal turns into a jump. The target
+	# is outside the directory this runs in, so it is named in full: a
+	# reference that left the tree would have to be climbed out of with
+	# `..` to be read, and the absolute form is both shorter and the one
+	# every other path in the report takes.
 	elc --verbose "$TREE/pair.c"
 	assert_success
 	assert_output --partial "$TREE/pair.c:1"
-	# and absolute, not relative to wherever the reader happens to be
-	refute_output --regexp "[^/]pair\.c:1 +c +first"
+}
+
+@test "HLR-210: a file beneath the reader's directory is named from it" {
+	# The shortening is what keeps the row on one line, and a location
+	# broken across two lines is not one an editor will open. Run *from*
+	# the tree, so the file lies beneath it.
+	cd "$TREE"
+	elc --verbose pair.c
+	assert_success
+
+	# Named relative to here, and the line number still on it.
+	assert_line --regexp "^  pair\.c:1 +first"
+	# No row's location column holds an absolute path any more.
+	refute_line --regexp "^  /.*pair\.c:1"
+}
+
+@test "HLR-210: the whole function row fits the terminal bound" {
+	# The reason the location is written this way: over the bound of
+	# HLR-219 the text columns are capped, which wraps the path, and half
+	# a path is not a link. Checked against the bound itself rather than
+	# against a remembered width.
+	cd "$TREE"
+	elc --verbose pair.c
+	assert_success
+
+	local widest
+	widest="$(awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+	               f { print length }' <<<"$output" | sort -rn | head -1)"
+	[ "$widest" -le 128 ]
 }
 
 @test "HLR-014: the reported start is the signature, not the brace" {
 	printf 'int sig(void)\n{\n\treturn 0;\n}\n' > "$TREE/sig.c"
 	elc --verbose "$TREE/sig.c"
 	assert_success
-	assert_output --regexp "sig\.c:1 +c +sig +public +4"
+	assert_output --regexp "sig\.c:1 +sig +c +public +4"
 }
 
 @test "HLR-014: the function table names each function's language" {
@@ -80,25 +109,25 @@ setup() {
 	assert_success
 
 	local langs
-	langs="$(awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	              f && /^  \// { print $2 }' <<<"$output" | sort -u |
+	langs="$(awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+	              f && /^  \// { print $3 }' <<<"$output" | sort -u |
 	         tr '\n' ' ')"
 	assert_equal "$langs" "c python "
 }
 
-@test "HLR-014: the language stands between the location and the name" {
-	# Where the Files table has put it since that table existed, and where
-	# the CSV record carries it. Asserted as an order rather than as a
-	# presence, because a column in the wrong place is the defect the two
-	# views drifting apart produced the first time.
+@test "HLR-014: the language stands beside the name, not before it" {
+	# The name is what a reader scans this table for, so it sits against
+	# the location and the language follows it. Asserted as an order rather
+	# than as a presence, because a column in the wrong place is the defect
+	# the two views drifting apart produced the first time.
 	elc --verbose "$TREE/pair.c"
 	assert_success
 
 	local header
-	header="$(awk '/^Functions$/ { f = 1; next }
+	header="$(awk '/^Functions [(]/ { f = 1; next }
 	               f && $1 == "File" { print $1, $2, $3, $4; exit }' \
 	          <<<"$output")"
-	assert_equal "$header" "File Language Function Scope"
+	assert_equal "$header" "File Function L Scope"
 }
 
 @test "HLR-033: functions are presented in start-line order" {
@@ -108,8 +137,8 @@ setup() {
 	assert_success
 
 	local names
-	names="$(awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	              f && /^  \// { print $3 }' <<<"$output")"
+	names="$(awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+	              f && /^  \// { print $2 }' <<<"$output")"
 	assert_equal "$names" "zeta
 alpha"
 }
@@ -120,7 +149,7 @@ alpha"
 	printf '# not source\n' > "$TREE/notes.md"
 	elc --verbose "$TREE"
 	assert_success
-	assert_output --partial "Skipped files"
+	assert_output --partial "Skipped Files"
 	assert_output --partial "notes.md"
 }
 
@@ -195,7 +224,7 @@ alpha"
 	printf 'int sound(void) { return 0; }\nint broken(void) { ((( \n' \
 		> "$TREE/half.c"
 	run bash -c '"$0" --verbose "$1" 2>/dev/null' "$ELC" "$TREE/half.c"
-	assert_output --partial "Partially parsed files"
+	assert_output --partial "Partially Parsed Files"
 	assert_output --partial "half.c"
 	assert_output --regexp "Unparsed lines +[1-9]"
 }
@@ -209,7 +238,7 @@ alpha"
 
 	local rows
 	rows="$(printf '%s\n' "$output" |
-		awk '/^Partially parsed/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Partially Parsed/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /^  \// { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "0"
 }
@@ -219,7 +248,7 @@ alpha"
 @test "HLR-019: each file reports its own line and function counts" {
 	elc --verbose "$TREE/pair.c"
 	assert_success
-	assert_output --regexp "pair\.c +c +9 +2"
+	assert_output --regexp "pair\.c +c +[YN] +9 +2"
 }
 
 @test "HLR-066: a target of only skipped files still reports zero totals" {
@@ -252,7 +281,7 @@ alpha"
 	printf 'int f(void)\n{\n\tint n = 1;\n\treturn n;\n}\n' > "$TREE/one.c"
 	elc --verbose "$TREE/one.c"
 	assert_success
-	assert_output --regexp "f +public +5 +2"
+	assert_output --regexp "f +c +public +5 +2"
 }
 
 @test "HLR-024: the project summary carries a combined ELOC total" {
@@ -288,7 +317,7 @@ alpha"
 	elc --verbose "$TREE/header.h"
 	assert_success
 	# The header defines one inline function with a single return.
-	assert_output --regexp "header\.h +c +4 +1"
+	assert_output --regexp "header\.h +c +[YN] +4 +1"
 }
 
 # --- determinism over the new sections (HLR-032) ---------------------------
@@ -368,8 +397,8 @@ alpha"
 		> "$TREE/vis.c"
 	elc --verbose "$TREE/vis.c"
 	assert_success
-	assert_output --regexp "hidden +private"
-	assert_output --regexp "shown +public"
+	assert_output --regexp "hidden +c +private"
+	assert_output --regexp "shown +c +public"
 }
 
 @test "HLR-209: the specific pattern decides, not the catch-all" {
@@ -379,7 +408,7 @@ alpha"
 	printf 'static char *dup2(char *p) { return p; }\n' > "$TREE/ptr.c"
 	elc --verbose "$TREE/ptr.c"
 	assert_success
-	assert_output --regexp "dup2 +private"
+	assert_output --regexp "dup2 +c +private"
 }
 
 @test "HLR-209: visibility reports linkage, not class access control" {
@@ -390,8 +419,8 @@ alpha"
 		> "$TREE/w.cpp"
 	elc --verbose "$TREE/w.cpp"
 	assert_success
-	assert_output --regexp "pub +public"
-	assert_output --regexp "priv +public"
+	assert_output --regexp "pub +\S+ +public"
+	assert_output --regexp "priv +\S+ +public"
 }
 
 @test "HLR-209: a C++ anonymous namespace is private, a named one is not" {
@@ -399,16 +428,16 @@ alpha"
 		> "$TREE/ns.cpp"
 	elc --verbose "$TREE/ns.cpp"
 	assert_success
-	assert_output --regexp "tu_local +private"
-	assert_output --regexp "exported +public"
+	assert_output --regexp "tu_local +\S+ +private"
+	assert_output --regexp "exported +\S+ +public"
 }
 
 @test "HLR-209: Rust reports its own pub keyword" {
 	printf 'pub fn open() -> i32 { 1 }\nfn helper() -> i32 { 2 }\n' > "$TREE/v.rs"
 	elc --verbose "$TREE/v.rs"
 	assert_success
-	assert_output --regexp "open +public"
-	assert_output --regexp "helper +private"
+	assert_output --regexp "open +\S+ +public"
+	assert_output --regexp "helper +\S+ +private"
 }
 
 @test "HLR-209: Python reports the leading-underscore convention" {
@@ -419,7 +448,7 @@ alpha"
 		> "$TREE/v.py"
 	elc --verbose "$TREE/v.py"
 	assert_success
-	assert_output --regexp "api +public"
-	assert_output --regexp "_helper +private"
-	assert_output --regexp "__init__ +public"
+	assert_output --regexp "api +\S+ +public"
+	assert_output --regexp "_helper +\S+ +private"
+	assert_output --regexp "__init__ +\S+ +public"
 }

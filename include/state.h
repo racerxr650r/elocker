@@ -116,4 +116,14 @@ int report_set_state(Report *report, const StateResults *state, const Sdg *g,
 /* Release every list the results own. Safe on NULL. */
 void state_results_free(StateResults *r);
 
+/* Mark every node reachable from `roots` over call edges (LLR-RNT-01).
+ *
+ * `seen` is the caller's array of one bool per node and is *marked*, never
+ * cleared, so a caller wanting two reachability sets keeps two arrays and gets
+ * them from one implementation of the walk. Returns 0, or -1 on allocation
+ * failure.
+ */
+int state_reachable(const Sdg *g, const uint32_t *roots, size_t count,
+                    bool *seen);
+
 #endif /* ELC_STATE_H */

@@ -75,6 +75,7 @@ release readiness — is ready to start, and is the last.
 | [31](#phase-31--interactive-html-reporting--semantic-zooming) | The `.html` report format: layers containing files containing functions, opened collapsed | ✅ Complete |
 | [32](#phase-32--the-terminal-report-and-the-10-release) | The terminal report: three tiers, 128 columns, and `v1.0.0` | ✅ Complete |
 | [33](#phase-33--automated-weighted-test-burden-index-wtbi) | Mock Burden Score from parsed signatures, weighted fan-out, and the Testing Burden Index replacing the Adapted Maintainability Index | ✅ Complete |
+| [34](#phase-34--automated-re-entrancy-and-concurrency-safety-analysis) | Asynchronous roots from the image, re-entrancy by reachability, critical sections by control flow, and `volatile` correctness | ⬜ Not started |
 
 ## 0. Required Tools for Development
 
@@ -3510,6 +3511,111 @@ function with a fan-in of eighty and a *WF*~out~ of zero has a TBI equal to its
 cyclomatic complexity. The `.html` report colours a node by its band, and the
 `tbi_status` string in the payload agrees with the band the text report prints
 for the same function.
+
+
+### Phase 34 — Automated Re-entrancy and Concurrency Safety Analysis
+
+Every analysis `elc` performs so far assumes one thread of control. On a
+bare-metal target there are at least two: the application, and whatever the
+hardware calls without asking. A function on both paths is re-entered, and the
+defects that follow — a global torn between a read and a write, a lock taken on
+one path and not released on another, a shared variable the compiler cached in
+a register because nothing told it not to — are invisible to every measurement
+in the report today, and are among the hardest to reproduce once shipped.
+
+This phase adds the second thread of control to the model.
+
+#### The problem this phase has to solve first
+
+**Nothing in C says "this is an interrupt".** A vector table entry is a
+function like any other; the attribute that installs it is compiler-specific,
+the section that holds it is target-specific, and `elc` may use neither
+(PVD §6 Principle 2). So asynchronous roots have to be *inferred*, and the
+inference has to be sound enough that the findings built on it are worth
+reading.
+
+**The proposed test was in-degree zero and alive in the image, and that is not
+sufficient.** The linker's symbol table tells you what survived, not what is
+asynchronous. A function with no caller in the analysed source and a live
+symbol is equally the shape of:
+
+*   an exported API function nothing in the library calls itself;
+*   a function reached only through a function pointer, which `elc` already
+    reports as an unresolved call (HLR-077);
+*   a function whose only caller is in a file this run was not pointed at.
+
+On a library, that is most of the public interface. **So the phase adds a third
+condition, from a fact `elc` already computes**: the function's address is
+taken without being directly called. That is what installing a handler in a
+vector table or registering a callback *is*, and it is already the second half
+of HLR-096's reachability root set. An exported API function is not usually
+address-taken; a vector entry always is.
+
+#### Deliverables
+
+1.  **Asynchronous roots** (HLR-227). A node is an asynchronous root where it
+    is not a declared entry point, its in-degree in the call graph is zero, its
+    name is live in the image supplied by `--elf`, **and** either its address is
+    taken or its name matches a new `--isr-regex`. Where no image and no
+    pattern are supplied, the analysis is *omitted with its reason stated*
+    (HLR-115) rather than guessed at — a root set invented from in-degree alone
+    would put a library's whole API into the asynchronous tree and every
+    finding downstream would inherit the error.
+
+2.  **Re-entrancy by reachability** (HLR-228). Two traversals of the call view:
+    one from the declared entry points, one from the asynchronous roots. A
+    function in both sets is re-entrant, and is marked as such on the node. The
+    traversal is the one `state.c` already performs for HLR-096, run twice
+    against different roots rather than reimplemented.
+
+3.  **A control-flow graph, which does not exist yet** (HLR-229). This is the
+    substantial new machinery of the phase and should be planned as such.
+    Tree-sitter yields a syntax tree, not a control-flow graph: basic blocks
+    and the edges between them have to be constructed from it, covering
+    `if`/`else`, the three loop forms, `switch` with its fallthrough, `goto`
+    and labels, `break`, `continue`, and every early `return`. It is the first
+    analysis in `elc` that is about *paths through* a function rather than
+    counts over it.
+
+4.  **Critical sections validated over that graph** (HLR-229). For each
+    re-entrant function, the synchronisation calls it makes are located by a
+    runtime query — the names are a project's, not a language's, so they are
+    data like every other language fact (HLR-009) — and every path from entry
+    to an exit block is walked. A path that acquires and does not release is a
+    finding against the function.
+
+5.  **`volatile` correctness** (HLR-230, HLR-231). The globals `elc` already
+    tracks gain the qualifier from an extended query. A global touched from
+    both trees and not declared `volatile` is a critical finding, and that
+    direction is sound: two threads of control sharing an unqualified object is
+    a defect whatever else is true of it.
+
+    **The other direction is not sound and is constrained rather than
+    dropped.** `volatile` is also how a memory-mapped register is declared and
+    how an object surviving `longjmp` is declared, and neither involves two
+    execution trees. A `volatile` global confined to one tree is therefore
+    reported — the performance cost is real — but never where the declaration
+    has the shape of a memory-mapped register, and the finding states the
+    measurement without advising removal (HLR-101).
+
+6.  **The drawing carries it** (HLR-232). Each function node gains
+    `is_async_root`, `is_reentrant` and a list of its concurrency violations;
+    each global gains its `volatile` status.
+
+#### What this phase must not claim
+
+**A finding here is a finding about the code as analysed**, and the asynchronous
+tree is an inference. Where the root set is empty the analysis says so; where it
+was inferred from `--isr-regex` rather than from addresses, the report says
+which. Section 14's rule holds: a threshold is a prompt to look (HLR-099), and
+this phase's inputs are softer than a line count's.
+
+**Acceptance:** on `avrOS` with its image, the vector handlers are the
+asynchronous roots and the application's API is not; a global written by a
+handler and read by the main loop without `volatile` is critical; a lock taken
+in a re-entrant function and released on only one branch is reported with the
+path that fails; and a run given no image and no pattern reports the whole
+analysis as omitted, naming what would supply it.
 
 
 ## 9. Risks & Open Questions

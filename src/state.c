@@ -96,9 +96,20 @@ int collect_roots(const Sdg *g, const ElcOptions *opts, uint32_t **out,
 	/* **The half that makes the claim sound.** Phase 8 resolved each
 	 * `@call.address_taken` capture against the whole-project symbol table
 	 * and marked the node; reading the field is all this needs, and
-	 * nothing new is asked of any query file (LLR-RTS-02). */
+	 * nothing new is asked of any query file (LLR-RTS-02).
+	 *
+	 * An asynchronous root joins them, and for the same reason. Nothing in
+	 * the analysed source calls an interrupt handler — that is half of what
+	 * makes it one — so the traversal cannot reach it, and without this
+	 * every handler and everything below it is reported dead code. `elc`
+	 * said so of its own accord on a bare-metal target: eleven vectors and
+	 * the entire queue and event subsystem beneath them, listed unreachable
+	 * on one page while listed as asynchronous roots on the next (HLR-233).
+	 *
+	 * The roots are identified before this runs, which is what lets the
+	 * field be read here rather than recomputed (LLR-STA-05). */
 	for (size_t n = 0; n < g->node_count; n++)
-		if (g->nodes[n].address_taken)
+		if (g->nodes[n].address_taken || g->nodes[n].is_async_root)
 			roots[count++] = (uint32_t)n;
 
 	if (count > 1) {
@@ -159,6 +170,40 @@ static int walk_reachable(const Sdg *g, bool *seen, uint32_t *queue,
 
 cleanup:
 	igraph_vector_int_destroy(&neighbours);
+	return status;
+}
+
+/* The public form of the walk above (LLR-RNT-01).
+ *
+ * `concurrency.c` needs the same reachability from two different root sets,
+ * and a second implementation of "what does this reach" would be a second
+ * answer to one question — the one that drifts being the one nothing else
+ * checks. `seen` is the caller's, one bool per node, and is marked rather than
+ * cleared: a caller wanting two sets keeps two arrays.
+ */
+int state_reachable(const Sdg *g, const uint32_t *roots, size_t count,
+                    bool *seen)
+{
+	uint32_t *queue;
+	size_t    tail = 0;
+	int       status;
+
+	if (!g->node_count)
+		return 0;
+
+	queue = calloc(g->node_count, sizeof *queue);
+	if (!queue)
+		return -1;
+
+	for (size_t i = 0; i < count; i++) {
+		if (roots[i] >= g->node_count || seen[roots[i]])
+			continue;
+		seen[roots[i]] = true;
+		queue[tail++]  = roots[i];
+	}
+
+	status = walk_reachable(g, seen, queue, tail);
+	free(queue);
 	return status;
 }
 

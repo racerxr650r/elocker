@@ -48,6 +48,40 @@
  */
 int diag_open(const char *path, int argc, char **argv);
 
+/* Head the diagnostics of this run with a titled banner (HLR-236).
+ *
+ * The banner is written **once, before the first diagnostic**, and not at all
+ * where a run produces none: a heading over nothing is the shape HLR-188
+ * refuses everywhere else in the report, and a run over clean source is the
+ * common case.
+ *
+ * **It goes to standard error, with the diagnostics it heads.** A banner is a
+ * heading for that block, and HLR-038 forbids the block from moving to the
+ * results stream. Written to standard output instead, it would head nothing —
+ * a redirected report would carry a title with no messages under it while the
+ * messages went elsewhere. In a terminal, where both streams land, the two
+ * arrive in the order a reader expects.
+ *
+ * Called after the command line is parsed, so that a usage error — which is
+ * diagnosed before a format is known and before any file is read — is not
+ * given a heading describing work that never began.
+ */
+void diag_banner(const char *title);
+
+/* Close the diagnostic block, separating it from the report that follows.
+ *
+ * Emits one blank line where the banner was written, and nothing at all where
+ * it was not — a run that diagnosed nothing has no block to close, and a blank
+ * line separating the report from nothing is the same noise a heading over
+ * nothing would be.
+ *
+ * **The blank line belongs here rather than at the head of the report**, which
+ * is written to the other stream and may be written to a file: a report that
+ * opened with a blank line would open with one wherever it went, including in
+ * a `-o report.txt` whose diagnostics the reader saw somewhere else entirely.
+ */
+void diag_banner_end(void);
+
 /* Write one diagnostic to standard error, and to the debug companion where one
  * is open. The format is `printf`'s, and callers pass the message they would
  * have passed to `fprintf(stderr, ...)`. */

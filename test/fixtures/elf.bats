@@ -27,15 +27,15 @@ setup() {
 # follows; the header row is skipped by name rather than by position, because
 # skipping "the first two lines" breaks the moment a column is added.
 functions_of() {
-	awk '/^Functions$/ {s=1; next}
+	awk '/^Functions [(]/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "File" {next}
-	     s && /^  [^ -]/ {print $3}' "$1" | sort | tr '\n' ' '
+	     s && /^  [^ -]/ {print $2}' "$1" | sort | tr '\n' ' '
 }
 
 # The functions the image does not define, from the section of that name.
 absent_of() {
-	awk '/^Functions the image does not define/ {s=1; next}
+	awk '/^Functions The Image Does Not Define/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "Function" {next}
 	     s && /^  [^ -]/ {print $1}' "$1" | sort | tr '\n' ' '
@@ -45,7 +45,7 @@ absent_of() {
 # of that name. Written the way absent_of is, and read beside it: the two are
 # the two directions of one mismatch.
 placed_of() {
-	awk '/^Functions the image places/ {s=1; next}
+	awk '/^Functions The Image Places/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "Function" {next}
 	     s && /^  [^ -]/ {print $1}' "$1" | sort | tr '\n' ' '
@@ -122,16 +122,129 @@ build_evidence() {
 
 # One function's ELOC, from the per-function tier.
 eloc_of() {
-	awk -v want="$2" '/^Functions$/ {s=1; next}
+	awk -v want="$2" '/^Functions [(]/ {s=1; next}
 	                  s && /^$/ {exit}
-	                  s && $3 == want {print $6}' "$1"
+	                  s && $2 == want {print $6}' "$1"
 }
 
 # One function's fan-out, from the same tier and the same row.
 fanout_of() {
-	awk -v want="$2" '/^Functions$/ {s=1; next}
+	awk -v want="$2" '/^Functions [(]/ {s=1; next}
 	                  s && /^$/ {exit}
-	                  s && $3 == want {print $9}' "$1"
+	                  s && $2 == want {print $9}' "$1"
+}
+
+# One summary row whose value is a word rather than a figure (HLR-239).
+summary_text_of() {
+	awk -v want="$2" '$0 ~ "^  " want "  " { $1 = ""; $2 = "";
+	                                         sub(/^ +/, ""); print }' "$1"
+}
+
+# --------------------------------- what the image was built for (HLR-239) --
+
+@test "HLR-239: the summary names the image, the target, and the debug info" {
+	build_image
+	report "$TREE" --elf "$IMAGE"
+	assert_success
+
+	assert_equal "$(summary_text_of "$OUT" "Linked image")" "$IMAGE"
+	# `build_image` compiles without `-g`, so this image carries none —
+	# which is the answer the row exists to give, and the case below
+	# supplies the converse.
+	assert_equal "$(summary_text_of "$OUT" "Debug info")" "no"
+
+	# The architecture the host built for, whatever that is here: read from
+	# the ELF header rather than asserted as a literal, so this holds on
+	# any machine the suite runs on.
+	local target
+	target="$(summary_text_of "$OUT" "Target CPU")"
+	[ -n "$target" ] && [ "$target" != "N/A" ]
+}
+
+@test "HLR-239: a run with no image reports N/A rather than omitting the rows" {
+	# A run with no image and one whose image said nothing are different
+	# claims, and a row that appears only sometimes is a row a reader stops
+	# looking for.
+	report "$TREE"
+	assert_success
+
+	assert_equal "$(summary_text_of "$OUT" "Linked image")" "N/A"
+	assert_equal "$(summary_text_of "$OUT" "Target CPU")" "N/A"
+	assert_equal "$(summary_text_of "$OUT" "Debug info")" "N/A"
+}
+
+@test "HLR-239: an image built with -g reports debug info present" {
+	# The converse of the case above, and the distinction three analyses
+	# depend on: a reader who does not know an image was stripped cannot
+	# tell an analysis that found nothing from one that could not look.
+	require_tool cc "HLR-239 unverified without a compiler"
+	local dbg="$BATS_TEST_TMPDIR/libdbg.so"
+
+	cc -O0 -g -fPIC -shared -o "$dbg" "$TREE/kept.c" 2>/dev/null || \
+		skip "cc cannot link a shared object here: HLR-239 unverified"
+
+	report "$TREE" --elf "$dbg"
+	assert_success
+	assert_equal "$(summary_text_of "$OUT" "Debug info")" "yes"
+	assert_equal "$(summary_text_of "$OUT" "Linked image")" "$dbg"
+}
+
+@test "HLR-239: a word does not widen the column the figures line up in" {
+	# The image path is sixty characters. Letting it set the value column
+	# would push every number across the page to line up with nothing.
+	build_image
+	report "$TREE" --elf "$IMAGE"
+	assert_success
+
+	# "Files" is a single digit here; its value must sit within a few
+	# columns of the label, not out at the width of the path.
+	local column
+	column="$(awk '$0 ~ /^  Files  / { print index($0, $2) }' "$OUT")"
+	[ "$column" -lt 40 ] || {
+		echo "the figures were pushed to column $column" >&2
+		false
+	}
+}
+
+# ------------------------------- include paths from the image (HLR-238) --
+
+@test "HLR-238: the image's include directories reach the preprocessor" {
+	# The first principle applied: a header the build found through -I is
+	# found again without the user restating the flag. `far/` is outside
+	# the tree, so an expansion that did not read the image's directory
+	# table cannot resolve the include.
+	require_tool cc "HLR-238 unverified without a compiler"
+	local far="$BATS_TEST_TMPDIR/far"
+
+	mkdir -p "$far"
+	# The header carries a *function*, not only a macro. DWARF's directory
+	# table lists the directories of files in the line programme's file
+	# table, and a header contributing no code contributes no entry — so a
+	# macro-only header is invisible to this, which is a real limit of the
+	# mechanism and is why the fixture is written this way.
+	printf 'static inline int far_add(int a) { return a + 7; }\n' \
+		> "$far/far.h"
+	printf '#include "far.h"\nint uses(int n) { return far_add(n); }\n' \
+		> "$BATS_TEST_TMPDIR/uses.c"
+
+	# Built *with* the -I, so the image records the directory; measured
+	# without it, so only the image can supply it.
+	cc -O0 -g -I"$far" -fPIC -shared -o "$BATS_TEST_TMPDIR/uses.so" \
+		"$BATS_TEST_TMPDIR/uses.c" 2>/dev/null || \
+		skip "cc cannot build the fixture here: HLR-238 unverified"
+
+	# Without the image the header is unreachable and the file falls back.
+	elc --verbose "$BATS_TEST_TMPDIR/uses.c"
+	assert_success
+	local without="$output"
+
+	elc --verbose --elf "$BATS_TEST_TMPDIR/uses.so" \
+		"$BATS_TEST_TMPDIR/uses.c"
+	assert_success
+
+	# The run given the image expanded the file; the one without did not.
+	printf '%s\n' "$without" | grep -q "Files expanded *0"
+	assert_output --regexp "Files expanded *1"
 }
 
 # ------------------------------------------------------- the hand counts --
@@ -593,7 +706,7 @@ fanout_of() {
 
 	run bash -c '"$0" --verbose --from-xml "$1" 2>/dev/null' "$ELC" "$record"
 	assert_success
-	assert_output --partial "Functions the image places that the parse did not reach (1"
+	assert_output --partial "Functions The Image Places That The Parse Did Not Reach (1"
 	assert_output --partial "from_macro"
 }
 
@@ -607,7 +720,7 @@ fanout_of() {
 	report "$TREE"
 	assert_success
 
-	run bash -c 'grep -c "Linked-image filter" "$0" || true' "$OUT"
+	run bash -c 'grep -c "Linked-Image Filter" "$0" || true' "$OUT"
 	assert_output "0"
 	run bash -c 'grep -c "does not define" "$0" || true' "$OUT"
 	assert_output "0"
@@ -679,8 +792,8 @@ build_ambiguous() {
 	# One helper kept, and it is a.c's.
 	local kept
 	kept="$(printf '%s\n' "$output" |
-		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $3 == "helper" { sub(/:[0-9]+$/, "", $1); print $1 }')"
+		awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && $2 == "helper" { sub(/:[0-9]+$/, "", $1); print $1 }')"
 	assert_equal "$kept" "$AMB/a.c"
 
 	# And b.c's is reported absent, beside the function that called it.
@@ -749,8 +862,8 @@ build_templated() {
 
 	local kept
 	kept="$(printf '%s\n' "$output" |
-		awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		     f && $3 == "serialize_seq" { sub(/:[0-9]+$/, "", $1); print $1 }')"
+		awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && $2 == "serialize_seq" { sub(/:[0-9]+$/, "", $1); print $1 }')"
 	assert_equal "$kept" "$TPL/micro/plugin.hpp"
 }
 
@@ -808,13 +921,13 @@ build_templated() {
 	assert_success
 
 	local last
-	last="$(grep -E '^[A-Z]' "$OUT" | grep -v '^Nothing to report$' | tail -1)"
-	assert_equal "${last%% (*}" "Functions the image does not define"
+	last="$(grep -E '^[A-Z]' "$OUT" | grep -v '^Nothing To Report$' | tail -1)"
+	assert_equal "${last%% (*}" "Functions The Image Does Not Define"
 
 	# And its provenance is not dragged down with it.
 	local filter absent
-	filter="$(grep -n '^Linked-image filter$' "$OUT" | cut -d: -f1)"
-	absent="$(grep -n '^Functions the image does not define' "$OUT" | cut -d: -f1)"
+	filter="$(grep -n '^Linked-Image Filter$' "$OUT" | cut -d: -f1)"
+	absent="$(grep -n '^Functions The Image Does Not Define' "$OUT" | cut -d: -f1)"
 	[ "$filter" -lt "$absent" ]
 }
 
@@ -838,7 +951,7 @@ build_templated() {
 	report "$TREE" --elf "$IMAGE"
 	assert_success
 
-	run bash -c 'grep -c "Unreachable functions (omitted" "$0"' "$OUT"
+	run bash -c 'grep -c "Unreachable Functions (omitted" "$0"' "$OUT"
 	assert_output "1"
 }
 
@@ -907,16 +1020,34 @@ build_templated() {
 	assert_equal "$(filter_of "$OUT" "ELOC outside any function")" "2"
 }
 
-@test "HLR-145: a file the image kept nothing from still reports its data" {
-	# dropped.c has no function left, and one line of file-scope ELOC. A
-	# reader who could not tell that file from an empty one would have been
-	# told nothing by the filter.
+@test "HLR-145: a file the image kept nothing from is not listed, and is counted" {
+	# dropped.c has no function left. The Files table is the set of files
+	# this build's code is in, so a row of measurements about code the
+	# image does not contain is noise in the one table a reader scans to
+	# find where the code is.
 	build_image
 	report "$TREE" --elf "$IMAGE"
 	assert_success
 
-	run bash -c 'grep -E "dropped\.c +c +23 +1 +0" "$0"' "$OUT"
+	run bash -c 'grep -cE "dropped\.c +c +[YN] +" "$0"' "$OUT"
+	assert_output "0"
+
+	# Removed from the table, never from the account: a row dropped in
+	# silence is a file a reader cannot tell from one never discovered.
+	run bash -c 'grep -cE "^ +[0-9]+ discovered files? contributed no function this image defines and (is|are) not listed\." "$0"' "$OUT"
+	assert_output "1"
+}
+
+@test "HLR-145: the filter alone prunes a file, never the walk" {
+	# The same tree with no image lists dropped.c like any other file. A
+	# file with no functions is a header of declarations or a unit of data,
+	# and dropping it unasked would hide a file that was analysed.
+	report "$TREE"
 	assert_success
+
+	run bash -c 'grep -cE "dropped\.c +c +" "$0"' "$OUT"
+	assert_output "1"
+	refute_line --regexp "contributed no function this image defines"
 }
 
 # ------------------------------------------------------ resolving names --
@@ -972,21 +1103,21 @@ build_templated() {
 	elc --elf "$image" "$TREE"
 	[ "$status" -eq 2 ]
 	assert_output --partial "no function symbols"
-	refute_output --partial "Project summary"
+	refute_output --partial "Project Summary"
 }
 
 @test "HLR-146: a file that is not an object file is fatal" {
 	elc --elf "$TREE/kept.c" "$TREE"
 	[ "$status" -eq 2 ]
 	assert_output --partial "not an object file"
-	refute_output --partial "Project summary"
+	refute_output --partial "Project Summary"
 }
 
 @test "HLR-146: an absent image is fatal and names the path" {
 	elc --elf "$BATS_TEST_TMPDIR/no-such-image" "$TREE"
 	[ "$status" -eq 2 ]
 	assert_output --partial "no-such-image"
-	refute_output --partial "Project summary"
+	refute_output --partial "Project Summary"
 }
 
 @test "HLR-146: an unusable image ends the run before anything is measured" {

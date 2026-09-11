@@ -70,6 +70,13 @@ static void add_global(FileFacts *f, const char *name, size_t function,
 	f->globals = realloc(f->globals,
 	                     (f->global_count + 1) * sizeof *f->globals);
 	cr_assert_not_null(f->globals);
+	/* Zero the new element before populating it. `realloc` does not, and
+	 * `filefacts_free` releases every owned pointer a GlobalAccess holds
+	 * — so a field this helper does not set must read as absent rather
+	 * than as whatever the heap last held there. It went unnoticed until
+	 * a second owned field was added, because the first was always set.
+	 */
+	memset(&f->globals[f->global_count], 0, sizeof *f->globals);
 	f->globals[f->global_count].name     = strdup(name);
 	cr_assert_not_null(f->globals[f->global_count].name);
 	f->globals[f->global_count].function = function;

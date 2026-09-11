@@ -410,6 +410,92 @@ static int burden_fields(json_t *data, const Report *r, const SdgNode *n)
 	return rc;
 }
 
+/* The second thread of control, on one function node (HLR-232, LLR-CYT-07).
+ *
+ * **Absent marks are omitted rather than emitted false.** The stylesheet tests
+ * for presence, as it does for the marks of LLR-CYT-05, and stating an absence
+ * on every node says the same thing in several times the bytes — on a project
+ * where a handful of functions are re-entrant, that is the whole payload
+ * carrying a `false` to say nothing.
+ */
+static int concurrency_fields(json_t *data, const SdgNode *n)
+{
+	int rc = 0;
+
+	if (n->is_async_root)
+		rc |= set_new(data, "is_async_root", json_true());
+	if (n->is_interrupt)
+		rc |= set_new(data, "is_interrupt", json_true());
+	if (n->is_reentrant)
+		rc |= set_new(data, "is_reentrant", json_true());
+	/* What the linker calls it, where that is not what the source calls it.
+	 * Carried because the drawing is where a reader meets the handler by
+	 * its source name and the image's tables name it otherwise (HLR-233). */
+	if (n->linkage_name)
+		rc |= set_new(data, "linkage_name",
+		              json_string(n->linkage_name));
+
+	/* The violations as a list, and omitted where there are none: the
+	 * stylesheet tests for presence, and an empty array on every node says
+	 * the same thing in several times the bytes (LLR-CYT-07). */
+	if (n->is_reentrant && (!n->cfg_complete || n->leaks_lock)) {
+		json_t *list = json_array();
+
+		if (!list)
+			return -1;
+		if (n->leaks_lock)
+			json_array_append_new(list,
+			                      json_string("dangling_lock"));
+		if (!n->cfg_complete)
+			json_array_append_new(list,
+			                      json_string("not_analysed"));
+		rc |= set_new(data, "concurrency_violations", list);
+	}
+
+	return rc;
+}
+
+/* Every global object, with what the qualifier analysis concluded (HLR-232).
+ *
+ * A second array beside the elements rather than more elements: the objects
+ * are not drawn as nodes, and Cytoscape is given an array of what it draws.
+ * Each carries the decision the C made rather than the inputs to it, for the
+ * reason every other field here does.
+ */
+static json_t *html_globals(const Sdg *g)
+{
+	static const char *const STATUS[] = {
+		"healthy", "missing_critical", "unnecessary_warning"
+	};
+	json_t *list = json_array();
+
+	if (!list)
+		return NULL;
+
+	for (size_t i = 0; i < g->global_name_count; i++) {
+		json_t *o = json_object();
+		uint8_t st = g->global_status[i];
+
+		if (!o) {
+			json_decref(list);
+			return NULL;
+		}
+		if (set_new(o, "name", json_string(g->global_names[i])) != 0 ||
+		    set_new(o, "is_volatile_shared",
+		            g->global_shared[i] ? json_true()
+		                                : json_false()) != 0 ||
+		    set_new(o, "volatile_status",
+		            json_string(st < 3 ? STATUS[st]
+		                               : "healthy")) != 0 ||
+		    json_array_append_new(list, o) != 0) {
+			json_decref(list);
+			return NULL;
+		}
+	}
+
+	return list;
+}
+
 static int function_fields(json_t *data, const SdgNode *n, size_t index,
                            size_t component_count, const Annotation *a,
                            const Report *r)
@@ -421,7 +507,23 @@ static int function_fields(json_t *data, const SdgNode *n, size_t index,
 		return -1;
 
 	rc |= set_new(data, "id", json_string(id));
-	rc |= set_new(data, "label", json_string(n->name));
+	/* **The mark is in the label, not a column, because the drawing has no
+	 * columns.** A node is a box with a name in it, and a reader scanning
+	 * the graph for the second thread of control has nowhere else to look.
+	 * The two marks are the ones the function table carries and are spelled
+	 * the same way, so a reader moving between the two forms meets one
+	 * vocabulary (HLR-228, HLR-232, HLR-233). The flags are carried as well,
+	 * for a stylesheet that wants to select on them rather than read them.
+	 */
+	if (n->is_interrupt || n->is_reentrant) {
+		char label[512];
+
+		snprintf(label, sizeof label, "%s (%s)", n->name,
+		         n->is_interrupt ? "I" : "R");
+		rc |= set_new(data, "label", json_string(label));
+	} else {
+		rc |= set_new(data, "label", json_string(n->name));
+	}
 	rc |= set_new(data, "tier", json_string("function"));
 	rc |= set_new(data, "file", json_string(n->file ? n->file : ""));
 	rc |= set_new(data, "line", json_integer((json_int_t)n->line_start));
@@ -430,6 +532,7 @@ static int function_fields(json_t *data, const SdgNode *n, size_t index,
 	              json_integer((json_int_t)n->complexity));
 	rc |= annotation_fields(data, a);
 	rc |= burden_fields(data, r, n);
+	rc |= concurrency_fields(data, n);
 
 	/* Unreachable by construction, and handled rather than asserted: the
 	 * failure it would otherwise produce is a `parent` naming a node that
@@ -1239,9 +1342,11 @@ static void write_glue(FILE *out)
 int format_html(const Report *report, const Sdg *g, const ElcOptions *opts,
                 FILE *out)
 {
-	json_t *elements = NULL;
-	char   *payload  = NULL;
-	int     status   = -1;
+	json_t *elements       = NULL;
+	json_t *globals_json   = NULL;
+	char   *payload        = NULL;
+	char   *global_payload = NULL;
+	int     status         = -1;
 
 	/* Serialised before anything is written, so a failure leaves a stream
 	 * the caller can still report on rather than a half-page. A partially
@@ -1260,9 +1365,16 @@ int format_html(const Report *report, const Sdg *g, const ElcOptions *opts,
 		goto done;
 	}
 
+	globals_json = html_globals(g);
+	global_payload = globals_json
+		? json_dumps(globals_json, JSON_COMPACT | JSON_SORT_KEYS)
+		: NULL;
+
 	write_head(out);
 	fputs("<script>\nconst graphData = ", out);
 	write_payload(out, payload);
+	fputs(";\nconst globalData = ", out);
+	write_payload(out, global_payload ? global_payload : "[]");
 	fputs(";\n</script>\n", out);
 	write_glue(out);
 
@@ -1274,6 +1386,8 @@ int format_html(const Report *report, const Sdg *g, const ElcOptions *opts,
 	status = ferror(out) ? -1 : 0;
 
 done:
+	json_decref(globals_json);
+	free(global_payload);
 	free(payload);
 	json_decref(elements);
 	return status;

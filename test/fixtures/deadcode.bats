@@ -21,20 +21,20 @@ setup() {
 # extractor reads whichever comes next.
 dead_lines() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Dead code/ { f = 1; next } f && /^$/ { f = 0 }
+		awk -v want="$1" '/^Dead Code/ { f = 1; next } f && /^$/ { f = 0 }
 		                  f && $2 == want { print $3 }'
 }
 
 # The cause column for one function's findings.
 dead_causes() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Dead code/ { f = 1; next } f && /^$/ { f = 0 }
+		awk -v want="$1" '/^Dead Code/ { f = 1; next } f && /^$/ { f = 0 }
 		                  f && $2 == want { $1 = ""; $2 = ""; $3 = "";
 		                                    sub(/^ +/, ""); print }'
 }
 
 # The section heading, which states which languages were not analysed.
-dead_heading() { heading_of "Dead code"; }
+dead_heading() { heading_of "Dead Code"; }
 
 # --------------------------------------------------- the sibling walk --
 
@@ -169,7 +169,7 @@ after a terminator"
 
 	local rows
 	rows="$(printf '%s\n' "$output" |
-		awk '/^Dead code/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Dead Code/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /^  \// { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "7"
 }
@@ -180,7 +180,7 @@ after a terminator"
 	elc --verbose "$TREE/literal.c"
 	assert_success
 	assert_equal "$(dead_heading)" \
-		"Dead code within functions (every language analysed)"
+		"Dead Code Within Functions (every language analysed)"
 }
 
 @test "HLR-139: a language with no dead-code query is reported not analysed" {
@@ -197,7 +197,7 @@ after a terminator"
 	ELC_RUNTIME_DIR="$runtime" elc --verbose "$BATS_TEST_TMPDIR/p.c"
 	assert_success
 	assert_equal "$(dead_heading)" \
-		"Dead code within functions (not analysed for: c)"
+		"Dead Code Within Functions (not analysed for: c)"
 }
 
 @test "HLR-139: removing a query file makes that language unanalysed, not clean" {
@@ -212,7 +212,7 @@ after a terminator"
 	ELC_RUNTIME_DIR="$rt" run "$ELC" --verbose "$TREE/literal.c"
 	assert_success
 	assert_equal "$(dead_heading)" \
-		"Dead code within functions (not analysed for: c)"
+		"Dead Code Within Functions (not analysed for: c)"
 
 	# And the findings are gone rather than reported as none found.
 	assert_equal "$(dead_lines excluded)" ""
@@ -271,7 +271,7 @@ after a terminator"
 	# Unreachable by traversal...
 	local unreachable
 	unreachable="$(printf '%s\n' "$output" |
-		awk '/^Unreachable functions/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Unreachable Functions/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /^  \// { print $2 }')"
 	assert_equal "$unreachable" "never_called"
 

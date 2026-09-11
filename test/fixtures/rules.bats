@@ -39,13 +39,13 @@ runtime_with_rule() {
 	echo "$dir"
 }
 
-# The rows of the Custom rule matches section, "rule lines" per line.
+# The rows of the Custom Rule Matches section, "rule lines" per line.
 #
 # awk with a blank-line terminator, or the extractor runs into the section
 # that follows. Compared with assert_equal rather than a line matcher, because
 # bats-assert's line matchers read the last `run` and would pass vacuously.
 matches() {
-	awk '/^Custom rule matches/ {s=1; next}
+	awk '/^Custom Rule Matches/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "Rule" {next}
 	     s && /^  [^ -]/ {print $1, $NF}' "$1"
@@ -70,7 +70,7 @@ house-style.jump 30-30"
 		"$ELC" "$RULE" "$OUT" "$TREE"
 	assert_success
 
-	run bash -c 'grep -c "^Custom rule matches (3)$" "$0"' "$OUT"
+	run bash -c 'grep -c "^Custom Rule Matches (3)$" "$0"' "$OUT"
 	assert_output "1"
 }
 
@@ -132,7 +132,7 @@ house-style.jump 30-30"
 	# With none supplied the table has no rows, so it is named in the
 	# closing statement rather than printed — an absent section and one
 	# reported empty are still different claims (HLR-188, HLR-189).
-	run bash -c 'grep -c "^    - Custom rule matches (0)$" "$0"' "$OUT"
+	run bash -c 'grep -c "^    - Custom Rule Matches (0)$" "$0"' "$OUT"
 	assert_output "1"
 }
 
@@ -145,7 +145,7 @@ house-style.jump 30-30"
 	assert_success
 
 	local heading
-	heading="$(awk '/^Custom rule matches/ {getline; print; exit}' "$OUT")"
+	heading="$(awk '/^Custom Rule Matches/ {getline; print; exit}' "$OUT")"
 	case "$heading" in
 	*Severity*|*Source*)
 		echo "a rule match was given a severity or an attribution" >&2
@@ -273,7 +273,7 @@ located.jump 30-30"
 	# With none supplied the table has no rows, so it is named in the
 	# closing statement rather than printed — an absent section and one
 	# reported empty are still different claims (HLR-188, HLR-189).
-	run bash -c 'grep -c "^    - Custom rule matches (0)$" "$0"' "$OUT"
+	run bash -c 'grep -c "^    - Custom Rule Matches (0)$" "$0"' "$OUT"
 	assert_output "1"
 }
 

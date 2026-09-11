@@ -11,16 +11,16 @@
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:noNamespaceSchemaLocation="../tools/project.xsd">
   <metadata>
-    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.28" date="2026-09-02" author="John Anderson"/>
-    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.21" date="2026-09-02" author="John Anderson"/>
-    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.25" date="2026-09-02" author="John Anderson"/>
-    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.32" date="2026-09-02" author="John Anderson"/>
-    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.32" date="2026-09-02" author="John Anderson"/>
+    <document id="SDD"          title="Software Design Document"     source="doc/SDD.md"          version="2.30" date="2026-09-03" author="John Anderson"/>
+    <document id="HLRs"         title="High-Level Requirements"      source="doc/HLRs.md"         version="3.23" date="2026-09-03" author="John Anderson"/>
+    <document id="LLRs"         title="Low-Level Requirements"       source="doc/LLRs.md"         version="2.28" date="2026-09-03" author="John Anderson"/>
+    <document id="STP"          title="Software Test Plan"           source="doc/STP.md"          version="0.34" date="2026-09-03" author="John Anderson"/>
+    <document id="Traceability" title="Traceability Matrix"          source="doc/Traceability.md" version="1.34" date="2026-09-03" author="John Anderson"/>
     <counts>
-      <count name="hlrs"       value="220"/>
-      <count name="llrs"       value="604"/>
-      <count name="tests"      value="1324"/>
-      <count name="test_files" value="60"/>
+      <count name="hlrs"       value="237"/>
+      <count name="llrs"       value="632"/>
+      <count name="tests"      value="1416"/>
+      <count name="test_files" value="64"/>
     </counts>
   </metadata>
 
@@ -854,7 +854,7 @@ The Weighted Test Burden Index has no such published ancestor to decline. It is 
         <responsibility><![CDATA[Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).]]></responsibility>
         <responsibility><![CDATA[Present every per-function figure in one table — lines, ELOC, complexity, fan-in, fan-out, the Mock Burden Score, the weighted fan-out and the Weighted Test Burden Index — rather than in three tables enumerating the same functions (HLR-183, HLR-223).]]></responsibility>
         <responsibility><![CDATA[Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).]]></responsibility>
-        <responsibility><![CDATA[In the Markdown style alone, place each table inside an HTML `<details>` element stating its row count, beneath a heading that stays a heading (HLR-190).]]></responsibility>
+        <responsibility><![CDATA[In the Markdown style alone, present each table openly beneath a `##` heading that states its row count, inside no disclosure element (HLR-190).]]></responsibility>
         <responsibility><![CDATA[Render Markdown with functions grouped under a per-file heading.]]></responsibility>
         <responsibility><![CDATA[Present every tier the uniform-composition rule requires, in both formats.]]></responsibility>
         <responsibility><![CDATA[Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).]]></responsibility>
@@ -879,7 +879,7 @@ The Weighted Test Burden Index has no such published ancestor to decline. It is 
 
 **Verbosity is a second parameter of that same traversal, not a second traversal.** The ordered section list carries, beside each section's render function, the tier it belongs to; the walk emits a section when the verbosity is verbose, when its tier is `TIER_SUMMARY`, or when its analysis was omitted for want of a declaration. That last case is what carries HLR-115's omission notices into the summary: the section is a detail tier, but an omitted analysis produced no rows, so it renders as its heading and the reason in it — which is the notice, and needs no section of its own. A section is therefore written down once and classified once, and the guarantee that a tier cannot exist at one verbosity and not the other holds by the same construction as the guarantee across formats (LLR-SUM-09).
 
-**There are two partitions, in two columns of that one list** (HLR-218, LLR-SUM-19). The aligned table and Markdown default to different tiers, so each section carries two classifications and the style in force selects the column. Two *columns* rather than two lists, and the distinction is the whole of the design: a second array beside the first would satisfy the requirement and give up the property the first exists for, since the next section added would be classified in whichever array its author was looking at and the omission would be invisible until a reader noticed a missing table. A second column cannot be filled in halfway, because the initialiser does not compile without it. The omission predicate is asked about the run rather than the format and so applies under either column.
+**There is one partition, in one column of that one list** (HLR-218, LLR-SUM-19). Each section carries a single classification and the style in force is not consulted: what a default report presents is a property of the report and not of how it is written down. The list carried *two* columns while the aligned table and Markdown defaulted to different tiers — two columns rather than two arrays, so that a section could not be classified in one format and left unclassified in the other — and the second is withdrawn with the second default it served, a classification that must always equal its neighbour being a second place the composition is written down. The omission predicate is asked about the run rather than the format and so applies beside the classification rather than within it.
 
 The partition rule is HLR-150's: a tier presenting a project-level aggregate, a file's own totals, or a finding a reader is expected to act on is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Coupling, the cycles, the layering violations, and the recursive chains fall on the detail side even though each row names a component, because they enumerate the graph one entity at a time — a *file-level aggregate* in the rule's sense is a file's own totals, which is what the Files tier presents. Nothing is lost from the summary by it: each of those measurements that crossed a published line is a finding, and the findings tier is a summary tier.
 
@@ -905,9 +905,7 @@ A cell that outran its column is continued on the lines beneath it, divided at a
 
 Determinism is unaffected (HLR-032). 128 is a constant rather than the terminal's own width, nothing is read from `COLUMNS` or the locale, and the stream is asked one yes-or-no question whose answer selects between two fixed presentations — so two runs to the same kind of destination produce identical bytes.
 
-**In the Markdown style each table is folded behind a disclosure element** (HLR-190). The report runs to hundreds of rows on any real project, and a reader opening it wants to choose which of them to look at. The section's `##` heading stays a heading and stays outside the element — it is what anchors the section, what a table of contents is built from, and what the composition tests read the report's shape off — so the `<summary>` states the row count instead, which is the one thing the heading above it does not already say. The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
-
-The blank lines on either side of the table are load-bearing. GitHub-Flavored Markdown parses the contents of an HTML block as Markdown only where a blank line separates the two, and without them the table renders as its own source text.
+**In the Markdown style each table stands open beneath its heading** (HLR-190). Each was folded behind a disclosure element until Phase 34, so that a reader opening a report of hundreds of rows chose which to look at. That cost two properties worth more than the brevity: text inside a closed `<details>` is reached by no browser's find and no host's search, so a reader was told a function was absent when it was present; and a fragment pointing into a hidden element scrolls to nothing, which made every cross-reference of HLR-241 a link that did not work. The row count moved to the `##` heading, where the aligned table already states it (HLR-235). The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
 
 The table is laid out in tiers, each introduced by a heading and indented beneath it:
 
@@ -1651,6 +1649,47 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
         </dependencies>
       </module>
 
+      <module path="src/cfg.c">
+        <purpose><![CDATA[builds a control-flow graph for one function from its parse, and answers path questions over it. The first analysis in `elc` that is about the routes *through* a function rather than a count over it.]]></purpose>
+        <responsibility><![CDATA[Construct basic blocks and the edges between them from a function's syntax tree, covering `if`/`else`, the three loop forms, `switch` with its fallthrough, `goto` and its labels, `break`, `continue`, and every `return` (HLR-229).]]></responsibility>
+        <responsibility><![CDATA[Answer, for a set of marked acquisitions and releases, whether every path from an acquisition reaches every exit through a release — and name a path that does not.]]></responsibility>
+        <responsibility><![CDATA[Report a function whose control flow cannot be constructed as *not analysed*, never as safe. A silent pass claims a proof that was not attempted, which is the failure mode this module most has to avoid (HLR-138).]]></responsibility>
+        <functions>
+          <function signature="int cfg_build(TSNode body, const LanguageModule *lang, const char *data, Cfg *out)" summary="Construct the control-flow graph of one function body. Blocks are spans of the source; edges carry the condition that selects them where a construct has one. A construct the language module does not describe leaves the graph incomplete and marked so, since a graph missing an edge answers path questions wrongly rather than not at all."/>
+          <function signature="bool cfg_leaks(const Cfg *g, const MarkSet *acquire, const MarkSet *release, CfgPath *out)" summary="Whether any path from an acquisition reaches an exit without a release, and the first such path found. Depth-first with the visited set keyed on (block, held count), so a loop is entered once per distinct lock state rather than once — a lock taken inside a loop and released after it is not a leak, and a search keyed on the block alone cannot tell the two apart."/>
+          <function signature="void cfg_free(Cfg *g)" summary="Release the blocks, the edges, and the retained path."/>
+        </functions>
+        <dependencies>
+          <dep><![CDATA[The parser, for the syntax tree the graph is built from.]]></dep>
+          <dep><![CDATA[`src/registry.c`, for the language's control-flow and synchronisation queries.]]></dep>
+        </dependencies>
+        <error_handling>
+          <case name="A construct the module does not describe"><![CDATA[The graph is marked incomplete and the function is reported as not analysed, with the construct named (HLR-138).]]></case>
+        </error_handling>
+      </module>
+
+      <module path="src/concurrency.c">
+        <purpose><![CDATA[identifies the asynchronous roots, marks the functions both threads of control can be inside, validates their critical sections over the control flow, and checks the qualifier on the state they share.]]></purpose>
+        <responsibility><![CDATA[Identify asynchronous roots by the four conditions of HLR-227, and record which of them supplied each root, since a root inferred from a pattern is a weaker claim than one inferred from an address.]]></responsibility>
+        <responsibility><![CDATA[Mark as re-entrant the intersection of what the declared entry points reach and what the asynchronous roots reach, over call edges alone (HLR-228).]]></responsibility>
+        <responsibility><![CDATA[Declare the analysis omitted, with the reason, where no root set could be identified — never substituting every function of in-degree zero for one (HLR-115, HLR-227).]]></responsibility>
+        <responsibility><![CDATA[Classify each global object's qualifier against the trees that reach it (HLR-230, HLR-231).]]></responsibility>
+        <functions>
+          <function signature="int concurrency_roots(const Sdg *g, const ElcOptions *opts, const SymbolSet *image, RootSet *out)" summary="The asynchronous roots, by HLR-227's four conditions: not a declared entry point, in-degree zero, live in the image, and either address-taken or matching the supplied pattern. Returns an empty set with its reason recorded where no image and no pattern were given — which the caller reports as an omission rather than as a finding of none."/>
+          <function signature="int concurrency_reentrant(const Sdg *g, const NodeSet *entries, const RootSet *async, NodeSet *out)" summary="The intersection of what each root set reaches over call edges. The traversal is `state.c`'s, run twice against different roots rather than reimplemented: two walks that could disagree about what an edge is are two answers to one question."/>
+          <function signature="int concurrency_qualifiers(const Sdg *g, const NodeSet *main_tree, const NodeSet *async_tree, FindingList *out)" summary="Each global object classified by the trees that touch it: shared and unqualified is critical (HLR-230); qualified and confined to one tree is a warning, except where the declaration has the shape of a memory-mapped register (HLR-231)."/>
+        </functions>
+        <dependencies>
+          <dep><![CDATA[`src/graph.c`, for the call view and the address-taken fact.]]></dep>
+          <dep><![CDATA[`src/elfsyms.c`, for the symbols that survived the linker.]]></dep>
+          <dep><![CDATA[`src/cfg.c`, for the path questions of HLR-229.]]></dep>
+        </dependencies>
+        <error_handling>
+          <case name="No image and no pattern"><![CDATA[The whole analysis is omitted and the omission stated, naming what would supply the root set (HLR-115).]]></case>
+          <case name="A re-entrant function whose control flow is incomplete"><![CDATA[Reported as not analysed rather than as safe (HLR-138).]]></case>
+        </error_handling>
+      </module>
+
     </modules>
 
     <data_dictionary>
@@ -1713,6 +1752,11 @@ The handle is `static` and file-scoped, so the exception is confined to the modu
         <field name="complexity" type="uint32_t" desc="1 + decision points"/>
         <field name="fan_in, fan_out" type="uint32_t, uint32_t" desc="The flow degrees, attached to the function rather than kept in a table beside it (HLR-183). analyze.c cannot fill them — they are properties of the whole-project graph, not of one file's syntax — so they are zero until report_attach_flow runs, and zero is also the measured value for a function at either end of the call graph"/>
         <field name="node_id" type="uint32_t" desc="Index of this function's SDG node"/>
+        <field name="linkage_name" type="char *" desc="The name the linker knows this function by, where the image names it something other than the source does; NULL otherwise, which is every ordinary function and every run with no image. A function-shaped macro that writes a definition frequently renames it — `ISR(TCB0_INT_vect)` defines `__vector_12` — so the two are different strings for one function and a filter matching on the name discards it as absent. The join is by where the definition begins, not by name (HLR-233, HLR-193)"/>
+        <field name="macro_defined" type="bool" desc="Whether the definition was written through a function-shaped macro rather than spelled out, from the language's own query. The evidence HLR-227 admits an interrupt handler on: a macro that writes a definition nothing calls exists to attach that body to something the source never names (HLR-233)"/>
+        <field name="is_reentrant" type="bool" desc="Whether both threads of control can be inside this function. On the record as well as on the graph node, because the table renders from the report and the report outlives the graph (HLR-228)"/>
+        <field name="is_interrupt" type="bool" desc="Whether this function begins the second thread of control — an asynchronous root admitted on evidence that names it a handler rather than merely an uncalled function. Mutually exclusive with is_reentrant by construction, a root having an in-degree of zero, so one report column carries both (HLR-233)"/>
+        <field name="has_critical_section" type="bool" desc="Whether any critical section was found in this function at all, a scoped guard included — which acquires nothing an acquisition/release pair would show, so it cannot be read off the acquisition list (HLR-234)"/>
       </type>
       <type name="FileMetrics" header="include/elc.h" summary="Per-file totals and the functions the file defines.">
         <field name="path" type="char *" desc="Canonical absolute path"/>
@@ -2604,7 +2648,19 @@ The language is a property of the file and repeats down every row belonging to o
 
 **The XML record shall continue to report start and end line numbers as separate fields**, because it must remain the thing a report can be rebuilt from and a regenerated report needs both numbers as numbers (HLR-056).
 
-**The CSV record shall carry the same columns as the human-readable function table, in its order and with its meanings** — the language, the location as `path:line`, the extent as a count, and the visibility and flow degrees the table reports. CSV is that table for a consumer that loads it rather than reads it, and one view of one set of rows must be spelled one way. The two move together or they do not move: a column added to one and not the other is how they drifted apart in the first place.
+**The CSV record shall carry the function table's columns in the function table's order** — the language, the location as `path:line`, the extent as a count, and the visibility and flow degrees the table reports. CSV is that table for a consumer that loads it rather than reads it, and one view of one set of rows must be spelled one way. The two move together or they do not move: a column added to one and not the other is how they drifted apart in the first place. The *order* is what is asserted, derived from the table's own header rather than written down beside it, because order is the property that drifts.
+
+Three departures from that, each with a reason the table does not have, and each one the record adds rather than takes away:
+
+*   **A column naming the kind of row** (HLR-242). The record carries the declared globals as well as the functions, and two headers in one document is not a CSV any consumer can load — a strict reader fails at the second, a lenient one reads it as data. One flat record set, every row saying which kind it is, is the only shape that stays loadable.
+
+*   **The columns spelled in full where the table abbreviates.** `L` and `R` are what the aligned table can afford inside the bound of HLR-219; a document with no width has no such constraint, and a column named `l` is one no consumer can read.
+
+*   **The band column the aligned table no longer prints.** There the weighted burden is the colour of the figure beside it (HLR-226); here there is no colour to carry it, and dropping the column would delete the band outright for every consumer that loads this rather than reading it.
+
+*This widens what this requirement said between Phase 30 and Phase 34*, which was that the two carry the same columns with no exception. What retired it is that the table and the record answer to different constraints — one to a terminal's width and a reader's eye, the other to a parser — and a rule that let neither depart from the other made the record the worse of the two. The rule that replaces it is narrower and still bites: the columns they share are in one order, and that order comes from the table.
+
+**The CSV record shall keep the canonical absolute path**, though the table writes its location against the reader's directory (HLR-210). A record is loaded rather than clicked, and a path whose meaning depends on where the run happened is not one a consumer can resolve.
 
 **The XML record needs no language field of its own.** Its function elements are nested inside the file element that states it, so the fact is already there, recorded once for the file rather than once per function — and a second copy would be a second place for one fact to be written down and a second place for it to disagree.
 
@@ -2898,13 +2954,19 @@ Where an output filename and an explicit format option are both supplied and the
       </hlr>
 
       <hlr id="HLR-150" name="Summary Report by Default">
-        <text><![CDATA[By default, a report `elc` renders in a human-readable format shall present the **summary** tiers alone: the project summary (HLR-024 through HLR-026), the discovery route of each directory target (HLR-127), the per-language breakdown (HLR-025), each file's totals (HLR-019), the threshold listing of HLR-021 and HLR-187, the findings ranked by severity (HLR-098, HLR-123) — which HLR-182 places directly after the project summary — the files skipped for want of a language module (HLR-012), any analysis omitted for want of a declaration (HLR-115), any partly unparsed files (HLR-035), and the provenance a run carries — the configuration in force (HLR-136) and the image filtered by (HLR-147).
+        <text><![CDATA[By default, a report `elc` renders in a human-readable format shall present **four tiers and no others**: the project summary (HLR-024 through HLR-026), the findings ranked by severity (HLR-098, HLR-123) — which HLR-182 places directly after the project summary — each file's totals (HLR-019), and the per-function table (HLR-014, HLR-015, HLR-017, HLR-183). Every remaining tier shall be presented on the verbose request of HLR-151, which restores them in full.
 
-It shall omit by default the **detail** tiers: every section presenting one row per function, per global object, per unreachable statement, per graph edge, or per custom-rule match. The partition rule is that a tier reporting a project-level or file-level aggregate, or a finding a reader is expected to act on, is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Which tier each section belongs to shall be stated in the delivered documentation (HLR-129), so that the partition is a published property of the report rather than an artefact of how a renderer was written.
+Those four are the questions every reader of every report has: what was measured, what is wrong with it, what it is made of, and what its functions cost. Everything else is evidence for one of the four, and evidence is what `--verbose` is for.
 
-The default changed with this requirement, and that is deliberate: the full report grew past the length at which it can be read in a terminal, and a default nobody reads is a default that serves nobody. Nothing is lost, because HLR-151 restores it in full and HLR-152 exempts the formats whose whole purpose is completeness.
+**The composition is the same in every human-readable format** (HLR-218). A reader who has to know which format they asked for before knowing whether an answer is in front of them is being served by the partition rather than by it.
 
-**This is the partition for a report that is saved and read as a document.** The aligned table, which is read once in a terminal, has its own and narrower one: HLR-218 states it, states why the same rule does not serve both readers, and states the boundary the two share — which tiers a format presents by default may differ, and what a tier says may not.]]></text>
+The **detail** tiers a default report omits are every section presenting one row per global object, per unreachable statement, per graph edge, or per custom-rule match, together with the aggregates that are evidence rather than answer — the callouts, the discovery routes, the per-language breakdown, the threshold listing, the conformance indices, and the provenance a run carries. The partition rule is that a tier answering one of the four questions above is a summary tier and every other tier is a detail tier. Which tier each section belongs to shall be stated in the delivered documentation (HLR-129), so that the partition is a published property of the report rather than an artefact of how a renderer was written.
+
+**The per-function table is presented although it is one row per analysed entity**, which is the shape every other detail tier has. It is the table the tool exists to produce, and a default report that omitted it would answer every question a reader has except the one they ran the command for. The exception is stated here rather than obtained by calling the table something it is not.
+
+**An analysis omitted for want of a declaration still says so** (HLR-115). The section carrying such a notice is a detail tier and produces no rows, so it is named in the closing statement of HLR-189 with the reason in its heading — at either verbosity, in every format.
+
+The default changed with this requirement, and that is deliberate: the full report grew past the length at which it can be read in a terminal, and a default nobody reads is a default that serves nobody. Nothing is lost, because HLR-151 restores it in full and HLR-152 exempts the formats whose whole purpose is completeness.]]></text>
       <traces>
         <trace target="SDD" ref="13"/>
         <trace target="SDD" ref="14"/>
@@ -2922,21 +2984,19 @@ The option shall govern presentation alone. It shall not change any measurement,
       </traces>
       </hlr>
 
-      <hlr id="HLR-218" name="The Terminal Report's Own Composition">
-        <text><![CDATA[The aligned table (HLR-027) shall present, by default, the project summary (HLR-024 through HLR-026), the findings ranked by severity (HLR-098, HLR-123), and the per-function table (HLR-014, HLR-015, HLR-017, HLR-183) — and no other tier. Every remaining tier shall be presented on the verbose request of HLR-151, which restores them in full.
+      <hlr id="HLR-218" name="One Composition for Every Human-Readable Format">
+        <text><![CDATA[The aligned table (HLR-027) and Markdown (HLR-028) shall present, at the default verbosity, **the same tiers** — the four of HLR-150 — and shall differ only in how those tiers are decorated.
 
-**There are two summary partitions because there are two readers, and neither is a special case of the other.** HLR-150 fixes one partition for every human-readable format, and its rule is a document's rule: a saved report is read by *searching* it, so a long table costs its reader nothing and the tiers worth defaulting to are the aggregates. A report on a terminal is read once, by scrolling back through what a command left behind, and there the aggregate is the cheapest thing to recover — it is a dozen lines and it is at the top — while the per-function figures are the reason the command was run. A reader who types the command with no options wants to know which of their functions are heavy; sending them back with a second option to find out, after a dozen tables they did not ask for, is a default serving the format rather than the reader.
+**This requirement previously stated the opposite, and the reversal is the point of it.** It gave the aligned table a narrower default of its own, on the reasoning that there are two readers and neither is a special case of the other: a saved report is read by *searching* it, so a long table costs its reader nothing and the tiers worth defaulting to are the aggregates; a terminal report is read once, by scrolling back, so the per-function figures are what a reader wants and the aggregates are the cheapest thing to recover.
 
-**The per-function table therefore crosses the partition, and only in this format.** By HLR-150's rule it is a detail tier by construction, enumerating one row per analysed entity. That rule is right for the document and wrong for the terminal, and this requirement states the exception rather than weakening the rule that produces it.
+That reasoning was sound about how the two are read and wrong about what follows from it. What it produced was two default reports to keep in agreement — a tier could be classified in one and left unclassified in the other, and the omission would be invisible until a reader noticed a missing table — and a reader who had to know which format they had asked for before knowing whether an answer was in front of them. The narrower default was the better one; the mistake was applying it to one format and not to both. HLR-150 now states it for every format, and this requirement states that there is nothing left for a format to decide.
 
-**What is given up is stated rather than glossed.** The file totals, the languages, the discovery routes, the threshold listing, the conformance indices and the image provenance all leave this format's default. Every one remains a verbose request away, and every one remains in a report saved in any other format at any verbosity — nothing is removed from the tool, and this requirement removes nothing from any other format.
+**The classification shall be a property of the one shared traversal**, and a single classification per section rather than one per format. A second classification that must always equal the first is a second place the composition is written down, and the one that drifts is the one nothing compiles.
 
-**The difference shall be in which tiers a format presents and never in what a tier says.** A tier presented in two formats shall present the same rows carrying the same figures, taken from the same model. That is the boundary that keeps this from becoming two reports to be kept in agreement, which is the failure HLR-031 exists to prevent; a divergence in the content of a tier is a defect and not a format difference.
-
-**The classification shall be a property of the one shared traversal**, as HLR-150's already is: a second list of sections beside the first would let a tier be classified in one format and left unclassified in the other, which is the construction HLR-031 and HLR-151 are made safe by.]]></text>
-      <traces>
-        <trace target="SDD" ref="14"/>
-      </traces>
+**What a tier says shall not differ between formats.** A tier presented in two formats shall present the same rows carrying the same figures, taken from the same model — which is the guarantee HLR-031 exists for and which this requirement no longer has to defend against a second default. Decoration may differ: the aligned table states a table's size in its heading and Markdown states it in the disclosure summary, which is one fact in two idioms rather than two facts (HLR-235).]]></text>
+        <traces>
+          <trace target="SDD" ref="14"/>
+        </traces>
       </hlr>
 
       <hlr id="HLR-219" name="A Line the Terminal Can Hold">
@@ -2982,11 +3042,17 @@ The option shall govern presentation alone. It shall not change any measurement,
 
 **No option shall ask for colour and none shall suppress it.** That is the rule HLR-219 states for the width and it holds here for the same reason: an option would be a second spelling of a fact the program can observe, and the two can disagree. Nothing shall be read from the environment either — not a terminal's colour capability, not its palette, and not a variable naming one — since HLR-032 requires two runs to the same kind of destination to produce identical bytes, and a presentation varying with the environment would be a run whose output nobody else can reproduce.
 
-**Colour shall carry no information that the text does not.** A reader whose terminal renders none of it, or who is reading a redirected copy, shall lose nothing but ease: every band a colour stands for is written in the cell as a word beside it. Colour is a way of finding a row, never the only way of reading one.
+**Colour shall carry no information the report does not carry in words somewhere a reader without colour can find it.** A reader whose terminal renders none of it loses ease and never an answer.
+
+For every band but one that is the cell beside the figure, exactly as before. The exception is the weighted testing burden of HLR-224 in the function table, where the aligned style colours the figure and omits the word: the band was a twelfth column on the widest table in the report, and the width it cost was width the navigable location of HLR-210 needed in order to stay whole. *This narrows what this requirement said between Phase 32 and Phase 34*, which was that every band be written as a word in the cell beside it without exception.
+
+**What the aligned table renders as colour shall be a word in every format that has no colour to render.** Markdown and CSV keep the band as a column of its own, so a reader of a redirected report, of the Markdown, or of a loaded CSV has the band in words. Losing it in all of them at once is the regression this guards, and it is asserted as such.
+
+**The band shall be the one the catalogue assigned**, carried to the renderer rather than recomputed there from the figure as printed. A value a hundredth below a threshold rounds to a figure on the other side of it, and a colour derived from the rounded figure would contradict the findings table about the same measurement.
 
 **An escape sequence occupies no columns**, so the limit of HLR-219 shall continue to be measured over what is displayed rather than over the bytes emitted. A line whose displayed width is within the limit conforms however many sequences it carries.
 
-**Colour shall reach the aligned table and no other format.** Markdown in particular shall stay plain, whatever it is written to. It has no styling of its own, so a coloured Markdown table would have to be an HTML one carrying inline styles — which would stop the output being the GitHub-Flavored Markdown HLR-029 requires, and would still render uncoloured on the platform that format is named after, since GitHub strips those attributes from Markdown. A format defined by a published dialect is not the place to add a presentation that dialect cannot express. The HTML report of HLR-213 is where a coloured rendering already exists and is the answer for a reader who wants one.
+**Colour shall reach the aligned table and no other format.** Markdown in particular shall stay plain, whatever it is written to — plain of *colour*, which is not the same as plain of markup: the cross-references of HLR-241 are anchors and links, which the dialect carries natively and a reader without them still reads as text. It has no styling of its own, so a coloured Markdown table would have to be an HTML one carrying inline styles — which would stop the output being the GitHub-Flavored Markdown HLR-029 requires, and would still render uncoloured on the platform that format is named after, since GitHub strips those attributes from Markdown. A format defined by a published dialect is not the place to add a presentation that dialect cannot express. The HTML report of HLR-213 is where a coloured rendering already exists and is the answer for a reader who wants one.
 
 **The alternation shall be per row and not per line.** A row continued over several lines by the wrapping of HLR-219 shall carry one background across all of them, so that a wrapped row reads as one row rather than as several of alternating colour.]]></text>
         <traces>
@@ -3532,6 +3598,22 @@ The consequence is deliberate and asymmetric. `elc` will **miss** dead code that
       <traces>
         <trace target="SDD" ref="12"/>
       </traces>
+      </hlr>
+
+      <hlr id="HLR-237" name="The Findings Table Is the Whole List">
+        <text><![CDATA[Every defect `elc` reports shall appear in the findings table. A reader shall be able to learn everything the run found wrong by reading that one table, without assembling it from the sections beneath.
+
+**A report that scatters its conclusions loses them.** A section states a measurement; a finding states that a measurement crossed a line somebody drew. Where a defect appears only in a section of its own, a reader working from the findings table is told the run is clean of it — and the more sections a report grows, the more certain it is that one of them will be missed. Recursion, dependency cycles and the global-state verdicts have always appeared both as a finding and in a section of their own; the layering violations of HLR-079 and HLR-118 and the cross-scope crossings of HLR-094 did not, and shall.
+
+**The section is kept, and is not a duplication to be removed.** The two present different things: a finding is one line a reader acts on, ranked among every other line they must act on, and a section carries the columns the finding's detail cannot hold — the two strata and the ordinal distance for a layering violation, the two scopes and the edge kind for a crossing. The finding is how a defect is *found*; the section is where it is *read*.
+
+**Both shall be attributed to the declaration they were judged against** (HLR-099). Neither is a published standard and neither is a judgement of `elc`'s own: the rule broken is the user's `--stratum` or `--scope`, and a reader deciding what to do about one needs to know that the line it crossed is a line they drew. A third kind of authority is stated as plainly as the second.
+
+Both shall be reported at **warning** severity. `elc` establishes that a call crosses a boundary the declaration draws, not that this particular crossing is a defect — an architecture states an intent, and an intended exception to it is a thing `elc` cannot see (HLR-101).]]></text>
+        <traces>
+          <trace target="SDD" ref="11"/>
+          <trace target="SDD" ref="12"/>
+        </traces>
       </hlr>
 
       <hlr id="HLR-099" name="Threshold Attribution">
@@ -4420,9 +4502,17 @@ Access control within a class — C++'s `private:` and `public:` sections — is
 
 **A location a reader cannot act on is a location they have to retype.** `path:line` is the form editors and terminals already parse — VS Code turns it into a jump to that line of that file — and it costs nothing: the column held the path already, and the line number was in the next column over.
 
-The path shall remain the canonical absolute path every other path in a report takes (HLR-042). A relative path would be shorter and would resolve against whatever directory the reader's terminal happens to be in, which is the one thing a navigable reference must not depend on.
+**The path shall be written against the directory the process is run from**, where the file lies beneath it, and shall be given in full where it does not.
 
-This governs the human-readable report alone. A complete-record format shall keep the path and the line as separate fields, because a consumer that has to split a string to recover a number has been handed a worse record than it was given before.]]></text>
+*This reverses what this requirement said between Phase 29 and Phase 34*, which was that the path remain the canonical absolute form of HLR-042, on the reasoning that a relative one resolves against whatever directory the reader's terminal happens to be in and a navigable reference must not depend on that. What retired it is that the dependency runs the other way: a terminal resolves a click against its own working directory, so writing the path against that directory is what makes the click land, and writing it in full is what makes an editor guess.
+
+The deciding argument is width, not brevity. The location is the widest cell in the widest table, and a line over the bound of HLR-219 has its text columns narrowed — which breaks the path across two lines, and half a path is a path no editor will open. Written against the reader's own directory the function table came inside the bound, and the reference works because it is whole.
+
+A path outside that directory is written in full rather than climbed to with `..`: a reference that leaves the tree is one a reader cannot check by eye, and the absolute form is both shorter to read and the form every other path in the report takes.
+
+**A navigable location shall not be narrowed to make a line fit** while any arrangement without narrowing it fits — the rule the numeric columns of HLR-219 already follow, for the same reason and a different kind of value. Where no such arrangement exists the location wraps at a separator like any other text: the bound is the bound, and a location long enough to breach it on its own is not made navigable by pushing the line past the limit (HLR-243).
+
+This governs the human-readable report alone. A complete-record format shall keep the canonical absolute path — a record is loaded rather than clicked, and a path that meant one thing in the directory it was written in and another in the directory it is read in is not a record. XML shall keep the path and the line as separate fields besides, because a consumer that has to split a string to recover a number has been handed a worse record than it was given before.]]></text>
       <traces>
         <trace target="SDD" ref="14"/>
       </traces>
@@ -4561,14 +4651,20 @@ The uniformity requirements are unchanged and are satisfied one level up. What H
       </traces>
       </hlr>
 
-      <hlr id="HLR-190" name="Markdown Tables Presented Behind a Disclosure Element">
-        <text><![CDATA[In the Markdown report of HLR-029, `elc` shall present every table inside an HTML `<details>` element whose `<summary>` states how many rows the table holds, so that a reader expands the tables they want rather than scrolling past the ones they do not.
+      <hlr id="HLR-190" name="Markdown Tables Presented Open Beneath Their Headings">
+        <text><![CDATA[In the Markdown report of HLR-029, `elc` shall present every table openly beneath its `##` heading, and shall place no table inside an HTML `<details>` element or any other construct that hides it until a reader acts.
 
-**The section's `##` heading shall remain a heading**, outside the element. The heading is what anchors a section: a Markdown renderer derives a link target from it, a table of contents is built out of it, and the report's own composition is read off it. Folding the heading into the `<summary>` would trade a navigable document for a tidy one — so the summary states what is *inside* the element instead, which is the one thing a reader deciding whether to expand does not already know from the heading above it.
+**This reverses what this requirement said between Phase 22 and Phase 34**, which was that every table be folded behind a disclosure element stating its row count, so that a reader expanded the tables they wanted rather than scrolling past the ones they did not. Two things retired that reasoning, and both are properties a report is *for*.
 
-The row count in the summary shall be derived from the rows presented, never written down beside them. A count maintained separately from what it counts is a count that drifts.
+**A folded table cannot be searched.** Neither a browser's find nor a Markdown host's own search reaches text inside a closed `<details>`, so a reader looking for a function by name was told it was not in the report — the one question a code-metrics report exists to answer, answered wrongly. Scrolling past a section costs a moment; being told a thing is absent when it is present costs the reader the report.
 
-This requirement governs the Markdown report alone. The aligned table (HLR-027) has no disclosure to offer and is unchanged; CSV (HLR-028) and XML (HLR-054) are complete-record formats whose consumers parse them, and HTML in either would be a defect rather than a convenience. Uniform composition across formats (HLR-031) is unaffected: the tiers each format reaches, and the headings it presents them under, are the same as before.]]></text>
+**A folded table cannot be linked into.** A fragment identifier pointing inside a hidden element scrolls to nothing in most renderers, which made every cross-reference of HLR-241 a link that silently did not work. A report whose evidence can be pointed at is worth more than one that is short.
+
+**The row count shall move to the heading**, in the form the aligned table already uses (HLR-235), so that nothing is lost with the `<summary>` that used to carry it. It shall be derived from the rows presented, never written down beside them: a count maintained separately from what it counts is a count that drifts.
+
+A heading that already carries a parenthesised clause shall not take a second bracket. The dependency-structure matrix names its subjects that way (HLR-166), and its extent is the grid itself, which is square.
+
+This requirement governs the Markdown report alone. The aligned table (HLR-027) never had a disclosure to offer; CSV (HLR-028) and XML (HLR-054) are complete-record formats whose consumers parse them, and HTML in either would be a defect rather than a convenience. Uniform composition across formats (HLR-031) is unaffected: the tiers each format reaches, and the headings it presents them under, are unchanged.]]></text>
       <traces>
         <trace target="SDD" ref="14"/>
         <trace target="SDD" ref="22"/>
@@ -4764,6 +4860,275 @@ The band shall be carried as the string the C already decided rather than recomp
 The figures shall reach every other format that reports per-function detail on the terms those formats already set (HLR-031), so that the interactive report presents what the others present rather than a measurement available in one place only.]]></text>
         <traces>
           <trace target="SDD" ref="27"/>
+        </traces>
+      </hlr>
+    </section>
+
+    <section number="33" title="Re-entrancy and Concurrency Safety">
+      <intro><![CDATA[Requirements governing a second thread of control (PVD §4 "embedded / bare-metal developer", §6 Principle 1).
+
+Every measurement in the sections above assumes one. On a bare-metal target there are at least two — the application, and whatever the hardware calls without asking — and a function on both paths is re-entered. The defects that follow are among the hardest to reproduce after shipping and are invisible to every other analysis `elc` performs: a global torn between a read and a write, a lock acquired on one path and not released on another, a shared object the compiler cached in a register because nothing told it not to.
+
+**Nothing in C says "this is an interrupt".** A vector table entry is a function like any other; the attribute that installs it is compiler-specific and the section that holds it is target-specific, and `elc` may use neither (HLR-009, PVD §6 Principle 2). The root set is therefore *inferred*, and these requirements are written so that the inference is stated, is narrow, and is declared where it could not be made.]]></intro>
+
+      <hlr id="HLR-227" name="Asynchronous Root Identification">
+        <text><![CDATA[`elc` shall identify the functions that begin an asynchronous thread of control — interrupt handlers, and the entry functions of tasks a scheduler resumes — and shall identify them from facts it already derives rather than from any compiler attribute, pragma, or linker section name (HLR-009).
+
+A function shall be an **asynchronous root** where all of the following hold:
+
+*   it is not one of the entry points declared under HLR-095;
+*   its in-degree in the call view of the SDG is zero — nothing in the analysed source calls it;
+*   its name is defined in the linked image supplied by `--elf` (HLR-141), so that it survived the linker;
+*   **and** either its address is taken without being directly called (HLR-096), or its name matches a pattern supplied by a new command-line option.
+
+**The fourth condition is what makes the set worth reporting from, and it is not redundant.** The image tells `elc` what survived the linker, not what is asynchronous. In-degree zero together with a live symbol is equally the shape of an exported API function that nothing in the library calls itself, of a function reached only through a pointer — which `elc` already reports as an unresolved call (HLR-077) — and of a function whose only caller lives in a file this run was not given. On a library that is most of the public interface. Taking a function's address without calling it is what installing a handler in a vector table or registering a callback *is*, and it is a fact `elc` already computes as half of HLR-096's root set.
+
+**Where the root set cannot be identified the analysis shall be omitted and the omission stated**, naming what would supply it, exactly as depth is omitted where no entry point is declared (HLR-115). It shall not fall back to treating every function of in-degree zero as asynchronous: that root set would place a library's whole interface in the asynchronous tree, and every finding of HLR-228 through HLR-231 would inherit the error while reading as though it had been measured.
+
+**The report shall state how the root set was obtained** — from addresses, from the supplied pattern, or both — since a root inferred from a pattern is a weaker claim than one inferred from an address, and a reader deciding what to do about a finding needs to know which they have.]]></text>
+        <traces>
+          <trace target="SDD" ref="18"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-228" name="Re-entrancy by Reachability">
+        <text><![CDATA[`elc` shall mark as **re-entrant** every function reachable both from the declared entry points (HLR-095) and from any asynchronous root (HLR-227), and shall report the mark per function.
+
+The two reachabilities shall be the traversal of the call view `elc` already performs for HLR-096, run against two root sets, rather than a second implementation of the same walk. Reachability shall follow call edges alone: a global-state edge joins a writer to a reader and is not an invocation, so a function that merely shares an object with a handler is not thereby re-entered (HLR-156).
+
+**A function reachable from an asynchronous root alone is not re-entrant and shall not be marked**, since nothing interrupts it in the middle of itself. It is the *intersection* that is the property: a function is re-entered only where one thread of control can begin it while another is already inside it.
+
+The mark shall be a measurement and not a finding. Re-entrancy is a fact about a program's structure, frequently an intended one; what is reportable is a re-entrant function that is *unsafe*, which is what HLR-229 and HLR-230 measure.]]></text>
+        <traces>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-229" name="Critical Section Validation over the Control Flow">
+        <text><![CDATA[For every function marked re-entrant (HLR-228), `elc` shall determine whether each acquisition of a synchronisation primitive is released on every path from that acquisition to every exit of the function, and shall report a finding against a function on which any path acquires without releasing.
+
+**This requires a control-flow graph, which `elc` does not have.** Every analysis to this point counts over a syntax tree; this one is about the *paths through* a function. The graph shall be constructed from the parse and shall model `if` and `else`, the three loop forms, `switch` including fallthrough, `goto` and its labels, `break`, `continue`, and every `return` — an early return being the commonest way a lock is leaked and therefore the case the analysis exists to find.
+
+**Which calls are synchronisation primitives is a project's fact and not a language's**, and shall be supplied as a query in the runtime location like every other language-specific decision (HLR-009, HLR-107). A name compiled into the binary would be wrong for the first project whose primitives are named differently, which on the targets this analysis exists for is most of them.
+
+A function shall be reported once, naming the primitive and a path that fails to release it. Reporting each failing path separately would bury a single defect under the combinatorial count of the routes to it.
+
+Where a function's control flow cannot be constructed — a computed `goto`, or a construct the language module does not describe — the function shall be reported as not analysed rather than as safe, and the reason stated (HLR-138). A silent pass here is the failure mode that matters: it claims a proof that was never attempted.]]></text>
+        <traces>
+          <trace target="SDD" ref="29"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-230" name="Shared State Without volatile">
+        <text><![CDATA[`elc` shall report at **critical** severity every global object that is accessed by at least one function reachable from a declared entry point *and* by at least one function reachable from an asynchronous root, and whose declaration does not carry the qualifier by which the language marks an object subject to change outside the current thread of control.
+
+The qualifier shall be read from the parse through the language's own query (HLR-009); for C and C++ it is `volatile`.
+
+**This direction is sound whatever else is true of the object.** Two threads of control sharing an unqualified object is a defect independent of the target, the compiler and the optimisation level: the compiler is entitled to cache the object in a register across the very sequence the other thread modifies it in, and the resulting failure is intermittent, timing-dependent, and frequently disappears under the debugger.
+
+The finding shall name the object, the function on each side that reaches it, and the access kinds involved (HLR-091), so that a reader can see the pair that makes it shared rather than being told only that it is.]]></text>
+        <traces>
+          <trace target="SDD" ref="7"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-231" name="volatile Confined to One Thread of Control">
+        <text><![CDATA[`elc` shall report at **warning** severity every global object declared with the qualifier of HLR-230 whose accesses are confined to one thread of control — reachable from the declared entry points alone, or from the asynchronous roots alone — since the qualifier then forbids optimisations that nothing requires to be forbidden.
+
+**This direction is not sound in the way HLR-230's is, and shall be constrained rather than reported plainly.** The qualifier is also how a memory-mapped peripheral register is declared, and how an object that must survive a non-local jump is declared, and neither involves two threads of control. Advising the removal of a qualifier whose absence is a miscompile would be worse than not reporting at all.
+
+Therefore: the finding shall not be raised where the declaration has the shape of a memory-mapped register — an initialiser that casts an integer to a pointer, a declaration through a pointer to a qualified type, or an object placed at an address the build supplies — and shall state, where it is raised, that a cause outside `elc`'s view may still require the qualifier. It shall report the measurement and shall not advise removal (HLR-101).]]></text>
+        <traces>
+          <trace target="SDD" ref="7"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-232" name="Concurrency Facts in the Interactive Payload">
+        <text><![CDATA[The JSON payload each function node carries (HLR-213) shall include whether the function is an asynchronous root, whether it is re-entrant, and the concurrency violations found against it as a list of strings; and the payload shall carry, for each global object, whether it is shared across threads of control and the state of its qualifier.
+
+Each shall be the value `elc` decided rather than a figure for the page to derive, for the reason LLR-CYT-06 gives: a rule spelled once in the binary and once in a script is two rules, and the page is the copy nothing checks.
+
+An empty violation list shall be omitted rather than emitted empty, as the marks of LLR-CYT-05 are: the stylesheet tests for presence, and stating an absence on every node says the same thing in several times the bytes.]]></text>
+        <traces>
+          <trace target="SDD" ref="27"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-233" name="The Handler Written Through a Macro">
+        <text><![CDATA[`elc` shall recognise a function definition written through a function-shaped macro, shall admit such a definition as an asynchronous root under HLR-227 where nothing calls it, and shall join it to the linked image by the position of its definition rather than by its name.
+
+**This is the condition on which the whole of HLR-227 through HLR-231 rests on a bare-metal target, and without it every one of them measured nothing.** `elc` expands no macros (HLR-135), and the idiom that declares an interrupt handler is a macro taking the vector's name — `ISR(TCB0_INT_vect) { ... }`. Unexpanded, that parses without error as a definition whose *type* is the macro's name and whose *declarator* is parenthesised, which no ordinary function-definition pattern matches. The consequences compound: the body's statements fall outside every function and inflate file-scope ELOC (HLR-145); the calls it makes have no caller and are unresolved (HLR-077); the functions it calls are reported as dead code (HLR-096); and the second thread of control does not exist in the graph at all, so the intersection of HLR-228 is empty and the sharing of HLR-230 cannot be seen. Measured on an AVR build of `avrOS`, eleven interrupt vectors and the entire event and queue subsystem beneath them were reported unreachable, while the same run reported the application's own main-loop callbacks as the asynchronous roots.
+
+Three requirements follow, and each is separately necessary:
+
+*   **The definition shall be reported as a function**, named as the source names it, with its statements, decision points, calls and global accesses attributed to it exactly as any other definition's are. The language's own query supplies the shape and marks the match as macro-written (HLR-009); no macro name is written into `elc`.
+
+*   **The image filter shall join it by place.** A macro that writes a definition renames it — `ISR(TCB0_INT_vect)` defines `__vector_12` — so the source name and the linkage name have nothing in common, and the filter of HLR-140 discards a definition the linker plainly kept. Where the image's debug information places a kept symbol inside a parsed definition, and neither the symbol nor the definition is claimed by another, that symbol's name shall be recorded as the definition's linkage name and the definition treated as one the image defines (HLR-193, HLR-212). Ambiguity shall leave the function absent rather than resolve to a guess.
+
+*   **It shall be admitted as an asynchronous root**, as a third origin beside the two of HLR-227 and reported as such. A macro that writes a definition nothing calls exists to attach that body to a table the source never names, which is what installing a handler *is* — the same argument HLR-227 makes for an address taken without a call, on a shape that carries it more strongly.
+
+**The evidence classes are not equal and shall not be merged.** An address taken without a call is equally the shape of a callback the application dispatches from its own loop, on its own thread; a macro-written definition and a name matching a pattern the user supplied for interrupts are claims about a *handler*. `elc` shall record which class admitted each root, shall report the distinction, and shall carry it into every finding built on it (HLR-231).
+
+Two presentations follow from the distinction. The per-function table shall mark a function `I` where `elc` identified it as a handler and `R` where it is re-entrant (HLR-228) — one column, since a root has an in-degree of zero and is therefore never in the re-entrant intersection, so the two answers cannot both be true. And the re-entrancy of HLR-228 shall be reported with the root it is attributed to, preferring a handler's over a callback's, since a function re-entered from an interrupt vector and one re-entered from an application callback are the same mark and not the same claim.]]></text>
+        <traces>
+          <trace target="SDD" ref="7"/>
+          <trace target="SDD" ref="18"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-234" name="The Scoped Critical Section">
+        <text><![CDATA[`elc` shall recognise a critical section written as a scoped guard — one construct that acquires on entry to a region and releases on every exit from it — from the language's own synchronisation query, and shall treat it as balanced rather than as an acquisition.
+
+**Treating it as an acquisition would report a leak on the one idiom that cannot leak.** The construct releases on every path out of the region, `return` included, which is the reason to use one; recorded as an acquire/release pair, the release would fall after the return on that path and HLR-229 would find a section held at an exit on every such function.
+
+In C the idiom is a macro taking a block, and unexpanded it has a shape of its own — the same shape HLR-233 governs, distinguished from it by occurring inside a function body rather than at file scope. Recognising it is what makes HLR-229 answerable on a code base that uses one: `avrOS` guards every critical section with `ATOMIC_BLOCK`, and `elc` measured it as acquiring nothing anywhere while its own query file named that macro among the acquisitions — a name that, being matched as a call, could never match anything.
+
+The function record shall carry whether any critical section was found in it at all, the scoped ones included, so that a section invisible to the acquire/release pair is not mistaken for the absence of one.]]></text>
+        <traces>
+          <trace target="SDD" ref="7"/>
+          <trace target="SDD" ref="30"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-238" name="Include Paths From the Image">
+        <text><![CDATA[Where a linked image is supplied (HLR-141) and carries debug information, `elc` shall read the compile-time include directories from its line-number programme and pass them to the preprocessor as search paths, so that naming an image improves the *expansion* of the source as well as narrowing the measurement.
+
+**This is the product's first principle applied to the one thing an image can say about how the build was made.** `elc` is to extract everything the files it was given will yield, without asking the user to restate what those files already record. A cross-compiled target's headers are not beside its sources — they are in the toolchain's own tree — so before this, expanding such a project meant discovering every `-I` the build used and repeating it on the command line, and a user who did not was silently given a report measured from unexpanded source. The directory table is written by every build with `-g`, needs no extra compiler switch, and is already open in front of `elc`.
+
+`DW_AT_producer` shall **not** be read for this purpose. It carries the build's command line only where the build was made with `-grecord-gcc-switches`, which no toolchain does by default — so a rule keyed on it would work on the builds that least need the help, and would require the user to change their build to benefit, which is the thing this requirement exists to avoid.
+
+The paths shall be **absolute**, a relative entry being joined to its unit's compilation directory, so that they are usable from whatever directory `elc` was invoked in. They shall be **de-duplicated in the order first seen** rather than sorted: search order is significant to a preprocessor, and a sorted list is a different search path from the one the build used. Two runs over one image shall pass the same paths in the same order (HLR-032).
+
+They shall be appended **after** the flags the user supplied, so that where the two disagree the user's declaration wins — the same order of authority a `-D` already has over a region the image would otherwise decide (HLR-208).
+
+An image with no debug information yields no paths and is not a failure, exactly as it yields no line coverage: the absence costs the expansion and nothing else (HLR-141).]]></text>
+        <traces>
+          <trace target="SDD" ref="7"/>
+          <trace target="SDD" ref="18"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-239" name="What the Image Was Built For, in the Project Summary">
+        <text><![CDATA[The project summary (HLR-024 – HLR-026) shall state three things about the linked image a run was given: the **image** by the path the user named, the **target** it was built for, and whether it carried **debug information**.
+
+**Every figure in the report describes a different program when an image is in force**, and a reader who does not know which image — or whether it carried the debug information three of the analyses depend on — cannot tell an analysis that found nothing from one that could not look. The summary is where a reader is given what they need before the tables, and these belong there rather than in a section further down.
+
+The target shall be the most specific description the image carries: the **device name** where a toolchain recorded one in a note section — `avr128da28`, which is the string a build needs as `-mmcu` — and the **architecture** from the ELF header otherwise, with both stated where both are known. A machine `elc` has no name for shall be reported by its ELF machine number rather than guessed at.
+
+Where no image was supplied, each of the three shall read **`N/A`** rather than being omitted. A run with no image and a run whose image said nothing are different claims, and a row that appears only sometimes is a row a reader stops looking for (HLR-188 governs empty *tables*, not the summary's own rows).
+
+A summary row's value may therefore be a word rather than a figure. A word shall be left-aligned, where a figure is right-aligned against the other figures: a path is sixty characters, and letting it set the value column's width would push every number across the page to line up with nothing.]]></text>
+        <traces>
+          <trace target="SDD" ref="13"/>
+          <trace target="SDD" ref="18"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-240" name="The Device the Image Was Built For">
+        <text><![CDATA[Where a linked image records the device it was built for, `elc` shall pass that device to the preprocessor as the option the machine's toolchain uses to select one, so that a target whose headers are chosen by device expands without the user restating what the image already records.
+
+**The same principle as HLR-238, applied to the other half of what a build needs.** The include paths tell the preprocessor *where* to look; on an embedded target they are not enough on their own, because the vendor headers select a register map from a device macro and refuse to compile without one. `avr-libc` fails with `#error "No SLEEP mode defined for this device."` — a diagnostic that has nothing to do with search paths, and that the image can answer: `.note.gnu.avr.deviceinfo` records the device name, needs no extra build switch, and is written by every build.
+
+**The device flag shall lead the flag list, where the include paths follow the user's.** The two orderings say the same thing by opposite means: `-mmcu` is last-wins, so the user's own must come *after* the image's to override it, while an include path earlier in the list is searched first, so the user's must come *before*. Where the user and the image disagree, the user's declaration wins (HLR-238).
+
+**The option's spelling is the toolchain's and shall be a table rather than a guess.** A machine `elc` has no spelling for shall contribute no flag: passing an option a compiler does not accept turns a run that would have expanded into one that falls back, which is worse than the fallback the feature exists to prevent. The table's honest size today is one entry, `avr-gcc` being the toolchain that writes the note this reads.
+
+The device shall be kept apart from the description the project summary states (HLR-239): `avr128da28 (AVR)` is a display and not a flag.]]></text>
+        <traces>
+          <trace target="SDD" ref="7"/>
+          <trace target="SDD" ref="18"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-241" name="Findings Cross-Referenced to the Rows That Describe Them">
+        <text><![CDATA[In the Markdown report of HLR-029, `elc` shall link each finding's subject to the row that describes it, and shall link that row back to the finding, so that a reader moves between a judgement and its evidence by following a reference rather than by searching for a name.
+
+**The findings table names its subject and stops** (HLR-101, HLR-182). That is deliberate — a finding says what was measured, where, and which standard places it outside the range — but it leaves the reader to find the subject again in a table of hundreds of rows. A reference costs nothing to follow and lets the finding stay as short as it is.
+
+**A link shall be emitted only where the row it names is present in that report.** A reference that lands nowhere is worse than a plain name: it tells the reader something exists and then fails to produce it. Two consequences follow. A subject that is a component, an external callee, a list of names forming a cycle, or the call graph itself is a row in no table and shall be left as text. And a table a composition does not print is not a destination for that composition (HLR-150, HLR-218) — which is why the objects a finding names are matched against the Globals table of HLR-242, a summary tier present in every composition, rather than against an analysis reached only where a graph was built.
+
+**An anchor shall name one row.** It shall be derived from the canonical absolute path and the identifier together, never from the rendered location (HLR-210) and never from the name alone: two translation units may define one static name, and an anchor naming both names neither. Where several findings share a subject the first shall carry the anchor — a name written twice is a duplicate anchor, which resolves to whichever copy the renderer saw first.
+
+**Both spellings of an anchor shall be written**, `id` and `name`. The first is what current renderers resolve a fragment against and the second is the older form some pipelines still emit; writing one and not the other makes a link work in some readers and silently fail in others.
+
+This requirement is why HLR-190 no longer folds a table: a fragment pointing inside a hidden element scrolls to nothing, so a folded destination is a reference that does not work. It governs the Markdown report alone — the aligned table has nothing to click, and the complete-record formats carry their relations as data.]]></text>
+        <traces>
+          <trace target="SDD" ref="14"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-242" name="The Global Objects a Project Declares">
+        <text><![CDATA[`elc` shall report every global object the source declares, giving for each the file and line it is declared at, the identifier, and the type it was declared with. The table shall be presented after the files it draws from, in every composition and in every format that carries a report.
+
+**State shared between functions is the first thing a reader of an embedded project asks about**, and until this table `elc` answered it only through the global-state analysis of HLR-091 — a detail tier, absent from a default report, and reached only where a graph was built. What objects a project declares is a fact about the source, established by the same parse that finds the functions, so it shall be reported wherever the source was read: on a run with no image, no entry point and no graph.
+
+**It is a different table from that analysis and shall not replace it** (HLR-091 – HLR-093). That one says who writes an object, who reads it, and what the pair amounts to. This one says what exists and where to go and look — the one thing the analysis never needed and a reader always wants.
+
+**The location shall be `path:line`**, the form an editor acts on, as the function table writes it and for the same reason (HLR-210).
+
+**The type shall be the type as the language module captured it**, and no more. Which shapes a declaration takes is the query's business and not `elc`'s (HLR-009); a module that captures no type shall leave the column empty rather than have the object dropped for want of it, since the object is declared either way.
+
+**The objects shall be ordered by file and then by line** — the order the source writes them in — so that two runs over one tree present one order (HLR-032).
+
+In the record formats the objects shall be carried as their own kind of row. CSV shall name the kind in a column of its own rather than begin a second table: two headers in one document is not a CSV any consumer can load, a strict reader failing at the second and a lenient one reading it as data. XML shall carry them as one list, so that a report regenerated from a record is ordered as a live run's is (HLR-056).]]></text>
+        <traces>
+          <trace target="SDD" ref="5"/>
+          <trace target="SDD" ref="14"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-243" name="Every Finding Reports Where It Is">
+        <text><![CDATA[`elc` shall report, beside each finding, the file and line the finding is about, in the `path:line` form of HLR-210, and shall leave the field empty where the finding has no single place rather than inventing one.
+
+**A finding a reader cannot locate is a finding they cannot act on.** The findings table named what was measured, the subject, and the standard that draws the line, and left the reader to find the subject again in a table of hundreds of rows. The cross-reference of HLR-241 answers that for a subject the report holds a row for — and the exception is neither rare nor marginal. A call to a library function the standard forbids is attributed to the *callee*: a name defined in no file this run analysed, a row in no table, and therefore beyond any reference. Measured on `avrOS`, sixty-five such findings named `printf` or `fprintf` in rows of identical text distinguished by nothing whatever, and one finding in three was of that kind.
+
+**The place was in the model throughout.** Every finding is recorded with the file and line its measurement was taken at, and the XML record has carried both since findings existed (HLR-056). Only the human-readable table dropped them, which made the record strictly more useful than the report a reader was given.
+
+**Empty is an answer.** A component's instability, a cycle's membership and the depth of a call graph are properties of a structure rather than of a line; a location invented for them would be one a reader could not act on, and the blank says truthfully that the finding is not about a place.
+
+**The location shall not be wrapped** (HLR-219). A path broken across two lines is not a path — a reader cannot click half of one, and reassembling it by hand is the work `path:line` exists to remove — so a column carrying a navigable location shall be exempt from the narrowing that fits a line to the bound, as the numeric columns already are and for the same reason. The remaining text columns absorb the difference; where they cannot, the table goes out wide, which is the failure HLR-219 already prefers to a mangled one.]]></text>
+        <traces>
+          <trace target="SDD" ref="14"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-236" name="The Framed Terminal Report">
+        <text><![CDATA[Where `elc` renders the aligned table (HLR-027), the run shall be presented as two banner-headed blocks: the diagnostics it emitted while reading the source, and the report.
+
+**The diagnostic block** shall be headed `Parsing Notifications` with a rule of 128 `-` beneath it, matching the width the aligned table is held to on a terminal (HLR-219), so the two blocks are ruled to one width and read as one page.
+
+The banner shall be written **to standard error, with the diagnostics it heads**. It is a heading for that block, and HLR-038 forbids the block from moving to the results stream; written to standard output instead it would head nothing, since a redirected report would carry a title with no messages beneath it while the messages went elsewhere. In a terminal, where both streams land, the two arrive in the order a reader expects.
+
+The banner shall be written **once, before the first diagnostic, and not at all where a run emits none** — a heading over nothing being the shape HLR-188 refuses everywhere else — and shall not head a usage error, which is diagnosed before a format is known and before any file is read.
+
+**The report block** shall begin with a blank line, the title `Project Summary`, and a rule of the same width, so that the report is separated from the diagnostics above it by something a reader can see. The blank line and both rules belong to the format; a run whose report is Markdown, a record, a companion or a drawing has no terminal session to frame and shall be given neither banner.
+
+**Every word of every section title shall begin with a capital letter** — `Project Summary`, `At Or Over A Threshold`, `Functions The Image Does Not Define`.
+
+The rule is the title alone. A clause following it is prose — stating a threshold, a count, or the reason an analysis was omitted — and is left as written, whether it is parenthesised or set off by an em dash: `Architecture Recovery — the proposal as arguments (elc never applies it)` carries two such clauses and one title. Column headings and the labels of the project summary's own rows are not titles and are unaffected.
+
+The rule is stated as *every* word rather than as conventional title case, which lowercases short function words, because a rule with exceptions is a rule two authors apply differently — and the titles are matched exactly by the closing statement of HLR-189, which names an empty section by its heading.]]></text>
+        <traces>
+          <trace target="SDD" ref="14"/>
+          <trace target="SDD" ref="25"/>
+        </traces>
+      </hlr>
+
+      <hlr id="HLR-235" name="The Size of a Table in Its Heading">
+        <text><![CDATA[Each of the three tables of HLR-150's default composition — the **findings**, the **files**, and the **functions** — shall state its size in its heading where the aligned table renders it: the count of rows, in parentheses after the heading text, as `Findings (34)`.
+
+The figure is the one thing a reader of a long table reaches for first and the one thing the table itself cannot tell them without being counted. The project summary, the fourth tier, needs none — it is a list of counts already.
+
+Two constraints on that count, each of which the figure is wrong without. It shall be the number of rows *presented*, so that it and the table beneath it can never disagree. And a table with no rows shall be named without one: HLR-188 prints no such table and HLR-189 names it in the closing statement instead, where `Findings (0)` would state a size for something that was never rendered.
+
+**This is a decoration and not a difference in what a tier says** (HLR-218). Markdown already states the same figure in its own idiom — the disclosure summary of a rendered table reads "N rows" — so the requirement is that both formats state the size, not that both spell it the same way.]]></text>
+        <traces>
+          <trace target="SDD" ref="14"/>
         </traces>
       </hlr>
     </section>
@@ -6149,6 +6514,32 @@ A blank line shall be skipped rather than counted. It produces no instruction in
         </traces>
       </llr>
 
+      <llr id="LLR-ANL-63">
+        <text><![CDATA[`collect_absent_functions` shall, for a parsed definition the image does not define under its source name, take as that definition's linkage name the one symbol the image's debug information places inside it — and only where exactly one kept symbol falls in its span and exactly one parsed definition in the file contains that symbol's line (HLR-233, HLR-193).
+
+**The join is by place because the names do not match.** A function-shaped macro renames what it defines, so `ISR(TCB0_INT_vect)` writes `__vector_12`, and the filter of HLR-140 comparing names discards a definition the linker plainly kept.
+
+Three constraints, each of which the join is wrong without. The symbol table governs and not the debug information: a link that discards unused sections leaves subprogram entries describing code the image no longer contains, and an alias to one of those resurrects a function that is not there (LLR-RPT-24). Ambiguity in either direction — two kept symbols in one body, or one symbol's line inside a nested pair of definitions — shall leave the function absent, which is where it was before the join existed and is an answer a reader can see rather than a guess they cannot. And the pass shall gather every definition in the file before judging any of them, since the second constraint is a question about the *other* definitions that no one-match-at-a-time loop can answer.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-233"/>
+          <trace target="HLR" ref="HLR-193"/>
+          <trace target="HLR" ref="HLR-140"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-ANL-64">
+        <text><![CDATA[`collect_functions` shall mark a definition the language's query reports through `@function.wrapper` as macro-written, and `collect_sync` shall record a `@sync.scoped` capture apart from the acquisitions and releases, as a balanced region (HLR-233, HLR-234).
+
+Both facts come from the query file and neither names a macro in the binary: which macros write definitions and which guard blocks is a property of a project's idiom, not of C (HLR-009).
+
+The scoped region shall not enter the acquire/release lists. It releases on every exit from the region, `return` included; recorded as a pair, the release would fall after the return on that path and HLR-229 would report a leak on the one construct that cannot leak. It shall set the function's has-a-critical-section fact, so that a section invisible to the pair is not mistaken for the absence of one.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-233"/>
+          <trace target="HLR" ref="HLR-234"/>
+          <trace target="HLR" ref="HLR-009"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-ANL-59">
         <text><![CDATA[`analyze_file` shall establish the absent set in a pass of its own over the function query rather than as a test inside the pass that records functions, since query matches arrive in no source order and a function nested inside an omitted one would otherwise be recorded before the omission that contains it was known.]]></text>
         <traces>
@@ -6826,6 +7217,18 @@ The accumulation shall be in floating point and shall not be rounded before the 
           <trace target="HLR" ref="HLR-091"/>
         </traces>
       </llr>
+      <llr id="LLR-STA-05">
+        <text><![CDATA[`collect_roots` shall include every asynchronous root in the reachability root set beside the declared entry points and the address-taken functions, and the asynchronous roots shall therefore be identified before the measurements that read them (HLR-096, HLR-233).
+
+**Nothing in the analysed source calls an interrupt handler — that is half of what makes it one** — so the traversal cannot reach it, and without this every handler and everything beneath it is reported as dead code. `elc` said exactly that of a bare-metal target: eleven vectors and the whole event and queue subsystem below them listed as unreachable on one page, while the next page listed the same functions as the roots of the second thread of control. Two tables of one run contradicting each other is the failure this closes.
+
+The ordering is the requirement and not an implementation convenience: root identification reads the graph and no measurement, so there is nothing for it to run after.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-096"/>
+          <trace target="HLR" ref="HLR-233"/>
+          <trace target="HLR" ref="HLR-227"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="29" title="`classify_globals` ([src/state.c](../src/state.c))" name="classify_globals" source="src/state.c">
@@ -7085,6 +7488,23 @@ A high value is the bad one here, so the comparison shall be the ordinary one. T
         <traces>
           <trace target="HLR" ref="HLR-224" name="Testing Burden Threshold Classification"/>
           <trace target="HLR" ref="HLR-099" name="Threshold Attribution"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-THR-21">
+        <text><![CDATA[`thresholds_apply` shall raise one finding per call offending against the declared layering and one per edge crossing a declared execution scope, so that the findings table carries every defect the run found (HLR-237, HLR-079, HLR-118, HLR-094).
+
+Each shall run only where its analysis was measured — a run declaring no strata has no layering to offend against, and one declaring no scopes no boundary to cross — so an omitted analysis contributes no findings and is stated as omitted rather than as clean (HLR-115).
+
+The detail shall name the other end of the edge and what it crossed: for a layering violation the callee and whether the call bypassed layers or ran against the declared direction, and for a crossing the two scope names and whether it was a call or a shared object. The subject and location are the *offending* end, which is where a reader goes to fix it.
+
+Both shall be attributed to the user's declaration rather than to a published source or to `elc`'s own heuristic — a third attribution class, spelled once in `thresholds.h` beside the second (HLR-099).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-237"/>
+          <trace target="HLR" ref="HLR-079"/>
+          <trace target="HLR" ref="HLR-118"/>
+          <trace target="HLR" ref="HLR-094"/>
+          <trace target="HLR" ref="HLR-099"/>
         </traces>
       </llr>
     </function>
@@ -7551,9 +7971,11 @@ The tier shall present the indices only where the model carries them rendered, r
       </llr>
 
       <llr id="LLR-SUM-14">
-        <text><![CDATA[`render_summary` shall present every analysed function in one table carrying its file, name, scope, line range, effective lines, cyclomatic complexity, fan-in, fan-out, Weighted Test Burden Index and the band of that index, and shall present no second table enumerating one row per function for any of those measurements.
+        <text><![CDATA[`render_summary` shall present every analysed function in one table carrying its file, language, name, scope, whether it is re-entrant, line range, effective lines, cyclomatic complexity, fan-in, fan-out, Weighted Test Burden Index and the band of that index, and shall present no second table enumerating one row per function for any of those measurements.
 
-The column headings shall be short enough that the file's path keeps the width. On a terminal the table is held to 128 columns (HLR-219) and the path is the cell that pays for every heading longer than its column needs: `Complexity`, `Visibility`, `Fan-in` and `Fan-out` each cost the path more than they told a reader, and are `CC`, `Scope`, `In` and `Out`.
+**Re-entrancy is shown as a mark or as nothing, never as a word in every row.** The column is scanned down for the few functions two threads of control can be inside; spelling an answer on every other row would be a column of noise with the signal hidden in it (HLR-228).
+
+The column headings shall be short enough that the file's path keeps the width. On a terminal the table is held to 128 columns (HLR-219) and the path is the cell that pays for every heading longer than its column needs: `Complexity`, `Visibility`, `Fan-in`, `Fan-out` and `Language` each cost the path more than they told a reader, and are `CC`, `Scope`, `In`, `Out` and `Lang`.
 
 **A heading is not the vocabulary under it.** The scope column is headed `Scope` for width, and the values in it stay the `public` and `private` HLR-209 requires: the heading names the question and the cells answer it, and shortening the one does not re-word the other.
 
@@ -7608,18 +8030,35 @@ The count shall be taken from the rows about to be emitted. The project summary 
       </llr>
 
       <llr id="LLR-SUM-19">
-        <text><![CDATA[`render_summary` shall carry **two** tier classifications for each section — one for the Markdown style and one for the aligned style — and shall select between them by the style already in force for the traversal. At the summary verbosity the aligned style shall present the project summary, the findings and the per-function table alone; the Markdown style shall present the tiers LLR-SUM-09 enumerates (HLR-218).
+        <text><![CDATA[`render_summary` shall carry **one** tier classification per section, applied whatever the style in force, and at the summary verbosity shall present the project summary, the findings, the file totals and the per-function table alone (HLR-150, HLR-218).
 
-The two classifications shall be **two fields of the one ordered section list**, never a second list beside it. A second list would satisfy the requirement and destroy the property the first one exists for: a section is written down once and classified where it is written, so there is nowhere to forget it, and a section added to one list and not the other would be silently unclassified in a format until a reader noticed a missing table. A second field cannot be filled in halfway, because the initialiser does not compile without it.
+**This carried two classifications per section, and the second is withdrawn rather than left to agree with the first.** While the aligned table and Markdown defaulted to different tiers, the two lived in two columns of the one ordered section list — two columns rather than two lists, so that a section could not be classified in one format and left unclassified in the other. With one composition the second column would hold a value that must always equal the first, which is a second place the composition is written down and the one that drifts is the one nothing compiles.
 
-The omission predicate of LLR-SUM-09 shall apply under either classification. It asks a question about the *run* and not about the format — whether an analysis was skipped for want of a declaration — so a detail section carrying such a notice is reached at the summary verbosity in both styles, and its heading reaches the reader through the closing statement in both.
+The style shall not be consulted when the filter is applied. What a default report presents is a property of the report, not of how it is being written down, and a renderer that asked the style would be the mechanism by which the two defaults could part again.
 
-Nothing in this requirement shall change what a tier presents. A tier reached in both styles shall present the same rows and the same figures; only whether a style reaches it without being asked may differ (HLR-031).]]></text>
+The omission predicate of LLR-SUM-09 continues to apply beside the classification. It asks a question about the *run* and not about the format — whether an analysis was skipped for want of a declaration — so a detail section carrying such a notice is reached at the summary verbosity and its heading reaches the reader through the closing statement.
+
+Nothing in this requirement shall change what a tier presents. A tier reached in both styles shall present the same rows and the same figures; only the decoration may differ (HLR-031).]]></text>
         <traces>
-          <trace target="HLR" ref="HLR-218" name="The Terminal Report's Own Composition"/>
+          <trace target="HLR" ref="HLR-218" name="One Composition for Every Human-Readable Format"/>
           <trace target="HLR" ref="HLR-150" name="Summary Report by Default"/>
           <trace target="HLR" ref="HLR-151" name="Verbose Report on Request"/>
           <trace target="HLR" ref="HLR-031" name="Uniform Report Composition Across Formats"/>
+          <trace target="HLR" ref="HLR-235"/>
+        </traces>
+      </llr>
+      <llr id="LLR-SUM-26">
+        <text><![CDATA[`grid_render_table` shall write the row count in parentheses after the heading of a grid whose tier asked for one, and the plain heading otherwise (HLR-235).
+
+**Asked for by the tier and answered at render time**, which the two halves of the design each require. A flag rather than a count built into the heading string, because the count is not known when the heading is — rows arrive after `grid_begin`; and a flag set by the tier rather than by the renderer, because which tables state their size is a decision about the report and not about the aligned style, and a renderer testing headings by name would be a second place the composition is written down.
+
+The heading recorded for HLR-189's closing statement shall carry **no** count. A grid with no rows is named there rather than printed, and a size stated for a table that was never rendered would be a figure describing nothing (HLR-188).
+
+The count shall be the number of rows the grid holds, so that the figure and the table beneath it cannot disagree — including where HLR-219 has narrowed the table, which changes how a row is laid out and never how many there are.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-235"/>
+          <trace target="HLR" ref="HLR-188"/>
+          <trace target="HLR" ref="HLR-189"/>
         </traces>
       </llr>
       <llr id="LLR-SUM-20">
@@ -8032,6 +8471,19 @@ The line-granularity counts travel with the image element rather than with the p
           <trace target="HLR" ref="HLR-058"/>
         </traces>
       </llr>
+      <llr id="LLR-XRD-20">
+        <text><![CDATA[`xml_read_report` shall allocate the dependency matrix's grid from the subject count rather than on the first cell element, so that a record carrying subjects and no non-zero cell is restored as a matrix of zeroes and not as a subject list with no grid (HLR-056, HLR-166).
+
+**A record writes only its non-zero cells.** A matrix over one component, or over several that never call each other, therefore carries `dsm-subject` elements and no `dsm-cell` element at all — which is the commonest shape a small tree produces, not a corner. Allocated on the first cell alone, the grid of such a record stays null while its count says there are subjects, and the renderer walks a null pointer over `count × count` cells: `--from-xml --verbose` faulted on almost any record.
+
+The grid shall be made whether or not any cell element was seen, since the renderer reads every cell of the square whatever it holds.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-056"/>
+          <trace target="HLR" ref="HLR-166"/>
+          <trace target="HLR" ref="HLR-125"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-XRD-19">
         <text><![CDATA[`xml_read_report` shall restore the recovered layering as the record states it, re-deriving nothing, and shall read it back as a proposal and never as a declaration: the strata state, the layering rows, and the conformance indices of a regenerated report shall be exactly what the record carries, so that a report regenerated from a run with no declared strata reports those analyses as omitted just as that run did. What a regenerated report presents is what the run it describes proposed, and a record read as a declaration would make `elc` measure against its own proposal one remove away from where HLR-173 forbids it.]]></text>
         <traces>
@@ -8254,6 +8706,57 @@ The fallback is safe because it is guarded elsewhere: a run in which the fallbac
     </function>
 
     <function number="49.1" title="`dwarfline_read` ([src/dwarfline.c](../src/dwarfline.c))" name="dwarfline_read" source="src/dwarfline.c">
+      <llr id="LLR-DWL-10">
+        <text><![CDATA[`dwarfline_read` shall gather the compile-time include directories from each unit's file table, skipping entry 0, and shall hand them back absolute, de-duplicated, and in the order first seen (HLR-238).
+
+**Entry 0 is the unit's compilation directory and is not an include path.** Passing it as a search path would put the build's working directory on the search path of every file, where the compiler consulted it only for that unit's own relative includes.
+
+De-duplicated on the way in rather than sorted afterwards, because the order is the order the flags are passed in: search order is significant to a preprocessor, and sorting would hand it a different search path from the one the build used. A relative entry shall be joined to its unit's `DW_AT_comp_dir` by the same function the file names use, so one rule makes a path absolute.
+
+An image with no debug information, or a unit with no file table, shall contribute no paths and shall not be a failure.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-238"/>
+          <trace target="HLR" ref="HLR-141"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-ELF-09">
+        <text><![CDATA[`elfsyms_open` shall record what the image was built for and whether it carried debug information, both from the descriptor it already holds open (HLR-239, HLR-141).
+
+The target shall be the device name where a note section records one, and the architecture named by the ELF header otherwise, with both where both are known. The architecture names shall be a table in this module rather than a library call: the name lives in elfutils' `libebl`, which is an internal backend and not a published interface, and a machine absent from the table shall be reported by its number rather than guessed at.
+
+**The note shall be walked with `gelf_getnote` and not scanned raw.** A note's name and descriptor are each padded to four bytes and the owner string sits in the same buffer immediately before the descriptor — a raw scan finds the owner, `AVR`, and reports the architecture as its own device. Within the descriptor the device name is taken as the first printable NUL-terminated run of two characters or more, which is the string table's first entry: the numeric prefix before it is version-dependent, and decoding fields whose meaning may change would be a stricter claim than the report needs.
+
+Debug information shall be recorded as present where any of the three things the line reader gathers was found, so that the flag and the analyses that depend on it cannot disagree.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-239"/>
+          <trace target="HLR" ref="HLR-141"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-ELF-10">
+        <text><![CDATA[`elfsyms_device_flag` shall return the option that selects the image's device, as a fresh allocation the caller owns, or NULL where the image named no device or the machine has no spelling in the table (HLR-240).
+
+The spelling is the toolchain's, and a machine absent from the table shall yield nothing rather than a guessed option: a flag a compiler rejects turns a run that would have expanded into one that falls back, which is worse than the fallback this exists to prevent. The table is one entry today and is a table so that a second machine recording a device is a row rather than a rewrite.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-240"/>
+        </traces>
+      </llr>
+
+      <llr id="LLR-ANL-65">
+        <text><![CDATA[`build_flags` shall assemble the preprocessor's flags in one order: the image's device option, the flags the user supplied, the image's include paths, and the `-D` definitions (HLR-238, HLR-240).
+
+**The device option leads and the include paths follow.** The two placements say the same thing by opposite means, because the options behave differently: `-mmcu` is last-wins, so the user's own must come after the image's to override it, while an include path earlier in the list is searched first, so the user's must come before. Where the user and the image disagree, the user wins — the order of authority a `-D` already has over a region the image would otherwise decide (HLR-208).
+
+**Every entry shall be owned, the user's flags copied rather than borrowed.** That costs a handful of small allocations per file and removes the index bookkeeping two borrowed ranges either side of an owned one would need, which is what the list became once a flag had to lead it. One loop then releases the whole list, on every path (HLR-125).
+
+A run with no image shall pass exactly the flags it passed before, so the feature costs a run that cannot use it nothing.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-238"/>
+          <trace target="HLR" ref="HLR-208"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-DWL-01">
         <text><![CDATA[`dwarfline_read` shall obtain the image's debug line information from the ELF descriptor `elfsyms_open` already holds, using the low-level DWARF interface and never the `Dwfl` layer above it. That layer resolves separate debug information by `.gnu_debuglink` and build-id, which opens a file under a separate-debug directory the user never named — forbidden by HLR-141.
 
@@ -9077,6 +9580,21 @@ The bytes standard error receives shall be identical whether or not a companion 
         </traces>
       </llr>
 
+      <llr id="LLR-DBG-06">
+        <text><![CDATA[`diag_banner` shall record the title this run heads its diagnostics with, and `diag_printf` shall write that banner — the title and a rule of 128 `-` — before the first diagnostic and never again (HLR-236).
+
+**Written on the first diagnostic rather than where it was asked for**, because a run that diagnoses nothing must print no heading, and whether a run will diagnose anything is not known until it does. The recorded title is cleared as it is written, which is what makes "once" a property of the module rather than of its caller.
+
+It goes to standard error, with the diagnostics it heads: a banner on the results stream would head nothing, HLR-038 keeping the messages on the other one.
+
+The rule width is spelled in this module rather than shared with the renderer. `diag.c` knows nothing about a report, and a dependency on `format_text.c` for a constant would run the wrong way against the layering the acyclicity gate enforces (HLR-084).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-236"/>
+          <trace target="HLR" ref="HLR-038"/>
+          <trace target="HLR" ref="HLR-188"/>
+        </traces>
+      </llr>
+
       <llr id="LLR-DBG-02">
         <text><![CDATA[`diag_open` shall write the invocation at the head of the companion, and shall leave the module inert where it is given no path — every later call then writing to standard error alone, so that no call site tests whether a companion exists.
 
@@ -9551,6 +10069,18 @@ The numbers shall be emitted through the same serialiser as every other numeric 
           <trace target="HLR" ref="HLR-213"/>
         </traces>
       </llr>
+
+      <llr id="LLR-CYT-07">
+        <text><![CDATA[`html_elements` shall append ` (R)` to the label of a re-entrant function, the drawing having no columns to put a flag in and a box with a name in it being the only place a reader scanning the graph can look; and shall carry, on each function node, `is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` as a list of strings naming what was found against the function; and shall carry, for each global object, whether it is shared across threads of control and the state of its qualifier (HLR-232).
+
+Each shall be the value the C decided rather than one the page derives, for the reason this module's other fields are: a rule spelled once in the binary and once in a script is two rules, and the page is the copy nothing checks.
+
+An absent mark and an empty violation list shall be omitted rather than emitted false and empty, as the marks of LLR-CYT-05 are: the stylesheet tests for presence, and stating an absence on every node says the same thing in several times the bytes.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-232" name="Concurrency Facts in the Interactive Payload"/>
+          <trace target="HLR" ref="HLR-213"/>
+        </traces>
+      </llr>
     </function>
 
     <function number="73" title="`format_html` ([src/report_html.c](../src/report_html.c))" name="format_html" source="src/report_html.c">
@@ -9839,6 +10369,155 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       </llr>
     </function>
 
+    <function number="77" name="concurrency_roots" source="src/concurrency.c" title="`concurrency_roots` ([src/concurrency.c](../src/concurrency.c))">
+      <llr id="LLR-ASY-01">
+        <text><![CDATA[`concurrency_roots` shall admit a node as an asynchronous root only where it is not a declared entry point, its in-degree over call edges is zero, its name is defined in the supplied image, and either its address is taken without being directly called or its name matches the supplied pattern (HLR-227).
+
+**All four, and the fourth is not redundant.** The image says what survived the linker, not what is asynchronous: in-degree zero with a live symbol is equally an exported function nothing in the library calls, a function reached only through a pointer, and a function whose caller was not among the files analysed. Taking an address without calling is what installing a handler or registering a callback is.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-227"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ASY-02">
+        <text><![CDATA[`concurrency_roots` shall return an empty set, with the reason recorded, where neither an image nor a pattern was supplied, and shall never substitute the set of all functions of in-degree zero for the root set (HLR-227, HLR-115).
+
+That substitution is the one this function exists to refuse. It would place a library's whole public interface in the asynchronous tree, and HLR-228's intersection, HLR-229's paths and HLR-230's sharing would each inherit the error while reading as though they had been measured — a wrong answer wearing the shape of a measured one, which is worse than an omission a reader can see.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-227"/>
+          <trace target="HLR" ref="HLR-115"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ASY-03">
+        <text><![CDATA[`concurrency_roots` shall record, for each root, whether it was admitted by its address being taken, by matching the pattern, or by the macro-written shape of its definition, and the report shall carry that distinction (HLR-227, HLR-233).
+
+A root inferred from a pattern is a claim about a naming convention; a root inferred from an address is a claim about the program. A reader deciding what to do about a finding built on either needs to know which they have.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-227"/>
+          <trace target="HLR" ref="HLR-233"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ASY-04">
+        <text><![CDATA[`concurrency_roots` shall admit a macro-written definition of in-degree zero as an asynchronous root of origin `ROOT_BY_WRAPPER`, and shall test such a definition against the image under its *linkage* name where the join of LLR-ANL-63 supplied one (HLR-233).
+
+Both halves are necessary and the second is the one that is easy to omit. A macro that writes a definition renames it, so a source spelling `TCB0_INT_vect` meets an image spelling `__vector_12`; the third condition of HLR-227 asked of the source name alone rejects every handler on the target as absent from its own image, and a rejected root empties HLR-228 through HLR-231 silently.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-233"/>
+          <trace target="HLR" ref="HLR-227"/>
+        </traces>
+      </llr>
+      <llr id="LLR-ASY-05">
+        <text><![CDATA[`root_is_handler` shall distinguish the origins that name a handler — the macro-written shape and the user's interrupt pattern — from an address taken without a call, and every consumer that treats a root as a second thread of control shall use it rather than testing the origin itself (HLR-233).
+
+**The three origins are not one claim.** Installing a handler in a vector table and registering an ordinary callback are the same shape in the source, and a callback may be dispatched from the application's own loop — on the first thread, not a second. Merging them makes every finding of HLR-230 and HLR-231 as strong as its weakest evidence, and one predicate rather than three comparisons is what keeps the consumers from each drawing the line somewhere else.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-233"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="78" name="concurrency_reentrant" source="src/concurrency.c" title="`concurrency_reentrant` ([src/concurrency.c](../src/concurrency.c))">
+      <llr id="LLR-RNT-01">
+        <text><![CDATA[`concurrency_reentrant` shall mark exactly the functions reachable both from the declared entry points and from some asynchronous root, and shall obtain each reachability from the traversal `state.c` already performs, run against a different root set (HLR-228).
+
+One walk run twice, not two walks. Two implementations of "what does this reach" are two answers to one question, and the one that drifts is the one nothing else checks.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-228"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RNT-02">
+        <text><![CDATA[`concurrency_reentrant` shall follow call edges alone. A global-state edge joins a function that writes an object to one that reads it, which is not an invocation: a function sharing an object with a handler is not thereby entered by it, and counting such an edge would mark most of a program re-entrant on the strength of one shared counter (HLR-156).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-228"/>
+          <trace target="HLR" ref="HLR-156"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RNT-03">
+        <text><![CDATA[`concurrency_reentrant` shall not mark a function reachable from an asynchronous root alone. Nothing interrupts such a function in the middle of itself; it is the *intersection* that is the property, one thread of control being able to begin a function while another is already inside it.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-228"/>
+        </traces>
+      </llr>
+      <llr id="LLR-RNT-04">
+        <text><![CDATA[`concurrency_reentrant` shall, where the caller asks for it, attribute each marked function to one asynchronous root that reaches it, preferring a root whose evidence names it a handler over one admitted by an address alone (HLR-233).
+
+Walked one root at a time and handlers first, because the question is *which* root: a walk from the whole set answers only that some root reaches it. A function both a vector and a callback reach is attributed to the vector, so that the mark a reader acts on rests on the stronger of the two claims rather than on whichever the traversal met first.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-233"/>
+          <trace target="HLR" ref="HLR-228"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="79" name="cfg_build" source="src/cfg.c" title="`cfg_build` ([src/cfg.c](../src/cfg.c))">
+      <llr id="LLR-CFG-01">
+        <text><![CDATA[`cfg_build` shall construct the control-flow graph of one function from its parse, modelling `if` and `else`, the three loop forms, `switch` including fallthrough between labels, `goto` and its labels, `break`, `continue`, and every `return` (HLR-229).
+
+The early `return` is the case the analysis exists to find: it is the commonest way a lock is leaked, and a graph that treated a function as one block would report every function safe.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-229"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CFG-02">
+        <text><![CDATA[`cfg_build` shall mark the graph incomplete, rather than returning a partial one as though it were whole, where it meets a construct the language module does not describe (HLR-138).
+
+A graph missing an edge answers a path question *wrongly* rather than not at all: the path that would have failed is the one the missing edge carried. The caller reports such a function as not analysed.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-229"/>
+          <trace target="HLR" ref="HLR-138"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="80" name="cfg_leaks" source="src/cfg.c" title="`cfg_leaks` ([src/cfg.c](../src/cfg.c))">
+      <llr id="LLR-CFG-03">
+        <text><![CDATA[`cfg_leaks` shall report whether any path from an acquisition reaches an exit block without passing a release, and shall return one such path (HLR-229).
+
+**The visited set shall be keyed on the block together with the number of acquisitions held, not on the block alone.** A lock taken inside a loop and released after it is not a leak, and a search that has already visited a block in a different lock state must visit it again or it will answer from the state it happened to arrive in first.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-229"/>
+        </traces>
+      </llr>
+      <llr id="LLR-CFG-04">
+        <text><![CDATA[`cfg_leaks` shall cause one finding per function naming the primitive and a failing path, not one per failing path. The routes to a single early return are combinatorial in the branches above it, and a defect reported once per route buries itself.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-229"/>
+        </traces>
+      </llr>
+    </function>
+
+    <function number="81" name="concurrency_qualifiers" source="src/concurrency.c" title="`concurrency_qualifiers` ([src/concurrency.c](../src/concurrency.c))">
+      <llr id="LLR-VOL-01">
+        <text><![CDATA[`concurrency_qualifiers` shall report at critical severity every global object touched from both trees whose declaration lacks the language's qualifier for objects changed outside the current thread of control, and shall name the object, a function on each side, and the access kinds (HLR-230, HLR-091).
+
+The qualifier shall be read from the parse through the language's own query and never from a keyword list in the binary (HLR-009).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-230"/>
+          <trace target="HLR" ref="HLR-009"/>
+        </traces>
+      </llr>
+      <llr id="LLR-VOL-02">
+        <text><![CDATA[`concurrency_qualifiers` shall report at warning severity a qualified global whose accesses are confined to one tree, **except where the declaration has the shape of a memory-mapped register** — an initialiser casting an integer to a pointer, a declaration through a pointer to a qualified type, or an object placed at an address the build supplies (HLR-231).
+
+The exception is not a nicety. The qualifier is also how a peripheral register is declared and how an object surviving a non-local jump is declared, and neither involves two threads of control; a finding advising the removal of a qualifier whose absence is a miscompile is worse than no finding. The text shall state that a cause outside `elc`'s view may still require it, and shall not advise removal (HLR-101).]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-231"/>
+          <trace target="HLR" ref="HLR-101"/>
+        </traces>
+      </llr>
+      <llr id="LLR-VOL-03">
+        <text><![CDATA[`concurrency_qualifiers` shall take three trees — the application's, the handlers', and the callbacks' — and shall raise neither the critical finding of HLR-230 nor the confinement warning of HLR-231 on an object the callback tree touches (HLR-231, HLR-233).
+
+**An address-taken root is not shown to be a second thread of control**, so an object it touches is neither provably shared with one nor provably confined away from one. Reporting it either way states as measured a fact the evidence does not reach. Measured on `avrOS`, a tick counter written by the timer interrupt and drained by a state machine the scheduler resumes was reported as reached from an asynchronous root *alone*, and its `volatile` — the one thing keeping the drain correct — as unnecessary.
+
+An object the application and a callback share without the qualifier shall be reported at warning severity, naming the callback and saying that its thread of control could not be placed. The case is real — an interrupt-dispatched callback is exactly this shape — and it is the reader who can settle what `elc` cannot.]]></text>
+        <traces>
+          <trace target="HLR" ref="HLR-231"/>
+          <trace target="HLR" ref="HLR-233"/>
+          <trace target="HLR" ref="HLR-230"/>
+        </traces>
+      </llr>
+    </function>
+
   </llrs>
 
   <!-- Test sources (see tools/Developers_Guide.md §7). -->
@@ -10104,7 +10783,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       </traces>
     </test>
 </file>
-  <file path="test/unit/dwarfline.c" role="unit" count="13">
+  <file path="test/unit/dwarfline.c" role="unit" count="15">
     <test name="an_empty_origin_map_knows_and_places_nothing">
       <purpose><![CDATA[The two questions the origin map answers are separate calls, and the second is meaningful only where the first is true — a single call returning false would conflate "not in that file" with "no debug information", and a caller making the distinction by accident would exclude every function of an image built without it. NULL is the empty map, and the release is safe twice.]]></purpose>
       <traces>
@@ -10159,6 +10838,18 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       <traces>
         <trace target="LLR" ref="LLR-DWL-04"/>
         <trace target="HLR" ref="HLR-125"/>
+      </traces>
+    </test>
+    <test name="the_include_directories_are_optional">
+      <purpose><![CDATA[The directory list is an out-parameter a caller may decline, so a consumer wanting only the line coverage is not made to own a set it will not read.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-10"/>
+      </traces>
+    </test>
+    <test name="freeing_the_directories_is_safe_on_null_and_twice">
+      <purpose><![CDATA[Releasing an empty or already-released set is safe, as every other free in this module is: one teardown serves every stage, including the error paths that reach it before anything was read (HLR-125).]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-10"/>
       </traces>
     </test>
     <test name="reading_a_null_image_yields_an_empty_set">
@@ -10595,7 +11286,28 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
   </file>
 
-  <file path="test/unit/elfsyms.c" role="unit" count="11">
+  <file path="test/unit/elfsyms.c" role="unit" count="14">
+    <test name="the_device_flag_is_the_toolchains_spelling">
+      <purpose><![CDATA[The option a build needs told, in the spelling its toolchain uses. Built against a hand-made set rather than an image, because what is under test is the mapping and an image would put a whole ELF reader between the claim and the assertion.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ELF-10"/>
+        <trace target="HLR" ref="HLR-240"/>
+      </traces>
+    </test>
+    <test name="a_machine_with_no_spelling_contributes_no_flag">
+      <purpose><![CDATA[The case that keeps the feature from making things worse: passing an option a compiler does not accept turns a run that would have expanded into one that falls back, so a machine absent from the table yields nothing at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ELF-10"/>
+        <trace target="HLR" ref="HLR-240"/>
+      </traces>
+    </test>
+    <test name="an_image_naming_no_device_contributes_no_flag">
+      <purpose><![CDATA[An image naming no device contributes nothing whatever its machine, which is every image but the few whose toolchain writes the note. NULL is accepted for the same reason every other accessor here accepts it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ELF-10"/>
+        <trace target="HLR" ref="HLR-240"/>
+      </traces>
+    </test>
     <test name="an_unencoded_name_is_returned_unchanged">
       <purpose><![CDATA[The C case and the `extern "C"` case alike: a linkage name nothing encoded is its source name, and returning it unchanged is the whole of the rule.]]></purpose>
       <traces>
@@ -13003,14 +13715,16 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
         <trace target="LLR" ref="LLR-SUM-23"/>
       </traces>
     </test>
-    <test name="the_markdown_summary_omits_the_per_function_tier">
-      <purpose><![CDATA[The tier boundary at its sharpest: a file's own totals stay in the summary and the per-function table goes, and the verbose render of the same model has it back. Asserted against Markdown, whose partition is the document's rule HLR-150 states; the aligned table answers differently and the test below is where that is stated.]]></purpose>
+    <test name="the_markdown_summary_keeps_the_per_function_tier">
+      <purpose><![CDATA[The exception HLR-150 states, asserted where the rule it is an exception to applies: the per-function table is a detail tier by that rule and the Markdown summary presents it anyway. The global-state tier is checked absent beside it, so this cannot pass against a renderer that had lost the partition altogether.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-SUM-09"/>
+        <trace target="LLR" ref="LLR-SUM-19"/>
+        <trace target="HLR" ref="HLR-235"/>
       </traces>
     </test>
-    <test name="the_terminal_summary_is_the_summary_the_findings_and_the_functions">
-      <purpose><![CDATA[The converse against the same model, so that the two together say the difference is the format's and not the fixture's: the aligned table's default carries the project summary and the function table, and reaches none of the tiers HLR-150 keeps in a Markdown summary. The absences are checked against tiers that *are* summary tiers somewhere — asserting the absence of a tier that is a detail tier in both columns would pass against a renderer that had lost the second partition entirely.]]></purpose>
+    <test name="the_terminal_summary_is_the_four_shared_tiers">
+      <purpose><![CDATA[The converse against the same model, so that the two together say the difference is the format's and not the fixture's: the aligned table's default carries the project summary, the file totals and the function table, and reaches none of the other tiers HLR-150 keeps in a Markdown summary. The absences are checked against tiers that *are* summary tiers somewhere — asserting the absence of a tier that is a detail tier in both columns would pass against a renderer that had lost the second partition entirely.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-SUM-19"/>
         <trace target="HLR" ref="HLR-218"/>
@@ -13066,7 +13780,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       </traces>
     </test>
     <test name="every_tier_is_reached_at_the_verbose_verbosity_in_both_styles">
-      <purpose><![CDATA[The structural property the two partitions left standing: one traversal under two decorations, so every tier is reached by a verbose run of either style and a section forgotten in both columns of the list has nowhere to hide. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it. Asserted at the verbose verbosity alone: the two summaries are deliberately different documents since HLR-218, so a summary run can no longer make this claim.]]></purpose>
+      <purpose><![CDATA[One traversal under two decorations, so every tier is reached by a verbose run of either style and a section forgotten in the list has nowhere to hide. Heading matches are anchored to the start of a line and to the style's decoration, because a tier's name also occurs as a column header — a loose search finds the Files tier's "Functions" column and reports the per-function tier present in a summary that omitted it. Asserted at the verbose verbosity, which is where every tier is reached whatever the composition of a default report.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-SUM-09"/>
         <trace target="LLR" ref="LLR-SUM-02"/>
@@ -14403,7 +15117,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
 </file>
 
-  <file path="test/integration/terminal.bats" role="integration" count="19">
+  <file path="test/integration/terminal.bats" role="integration" count="26">
     <test name="HLR-219: no line of a terminal report exceeds 128 columns">
       <purpose><![CDATA[The width itself, over a target whose paths are long enough to force the narrowing rather than merely permit it. Run on a pseudo-terminal allocated with script(1), because Bats captures output through a pipe and the limit would otherwise never fire — a test written the ordinary way would assert the unwrapped table and pass for the wrong reason forever. There is deliberately no environment variable in src/ to force the behaviour: that would be a test seam in the product, and the seam would be the only thing most runs exercised.]]></purpose>
       <traces>
@@ -14451,21 +15165,71 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
         <trace target="LLR" ref="LLR-SUM-21"/>
       </traces>
     </test>
-    <test name="HLR-218: the report a terminal gets is three sections">
-      <purpose><![CDATA[The composition, end to end over a real run: the project summary, the findings and the functions, and no other heading. The fixture is given a function over a published band on purpose — a report with nothing to report would let this pass against a renderer that had dropped the findings, which is the one of the three a reader is expected to act on.]]></purpose>
+    <test name="HLR-235: every default report presents the same four tiers">
+      <purpose><![CDATA[The shared minimum, asserted as the *intersection* of what the two formats present rather than as a list in either of them — a tier reclassified in one column of the section list and not the other is exactly what that catches.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-19"/>
+        <trace target="HLR" ref="HLR-235"/>
+      </traces>
+    </test>
+    <test name="HLR-236: the diagnostics are headed and ruled">
+      <purpose><![CDATA[A file the runtime has no module for, so the run has something to notify: the banner, the message beneath it, and a rule of 128 columns matching the width the table is held to on a terminal.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DBG-06"/>
+        <trace target="HLR" ref="HLR-236"/>
+      </traces>
+    </test>
+    <test name="HLR-236: a run with nothing to notify prints no heading">
+      <purpose><![CDATA[The converse, and what keeps the case above from passing against a build that always prints the banner. A heading over nothing is the shape HLR-188 refuses everywhere else in the report.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DBG-06"/>
+        <trace target="HLR" ref="HLR-236"/>
+        <trace target="HLR" ref="HLR-188"/>
+      </traces>
+    </test>
+    <test name="HLR-236: the report is headed and ruled beneath the notifications">
+      <purpose><![CDATA[The frame as an ordered sequence rather than as three separate presences — banner, rule, blank line, banner, rule — because the order is the whole of what a frame is.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DBG-06"/>
+        <trace target="HLR" ref="HLR-236"/>
+      </traces>
+    </test>
+    <test name="HLR-236: the banner is on stderr, so a redirected report opens clean">
+      <purpose><![CDATA[HLR-038's line, asserted where it now matters most: the banner heads the diagnostics and stays with them, so a report captured to a file opens at its own title carrying neither the banner nor the blank line beneath it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DBG-06"/>
+        <trace target="HLR" ref="HLR-236"/>
+        <trace target="HLR" ref="HLR-038"/>
+      </traces>
+    </test>
+    <test name="HLR-236: Markdown is given no frame">
+      <purpose><![CDATA[The frame belongs to the aligned table. A saved document has no terminal session to frame, and a banner on its standard error would be decoration nobody asked for — while the diagnostics themselves are written either way.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DBG-06"/>
+        <trace target="HLR" ref="HLR-236"/>
+      </traces>
+    </test>
+    <test name="HLR-236: every word of a section title is capitalised">
+      <purpose><![CDATA[Read off a verbose report rather than asserted as a list, so a section added later is held to the rule without this test being edited. The title is the part before any clause that follows it — parenthesised or set off by an em dash — which is prose either way.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-236"/>
+      </traces>
+    </test>
+    <test name="HLR-218: the report a terminal gets is four sections">
+      <purpose><![CDATA[The composition, end to end over a real run: the project summary, the findings, the file totals and the functions, and no other heading. The fixture is given a function over a published band on purpose — a report with nothing to report would let this pass against a renderer that had dropped the findings, which is the one of the four a reader is expected to act on. The row counts of HLR-235 are stripped, so a composition is compared as a list of tiers rather than of figures.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-218"/>
       </traces>
     </test>
     <test name="HLR-218: the aligned table composes the same way into a file">
-      <purpose><![CDATA[The composition is the format's and not the destination's, which is the opposite of the width: an --output naming a .txt selects the aligned table and gets the aligned table's three tiers. The two properties are decided by different things and this pair of tests is where that is stated.]]></purpose>
+      <purpose><![CDATA[The composition is the format's and not the destination's, which is the opposite of the width: an --output naming a .txt selects the aligned table and gets the aligned table's four tiers. The two properties are decided by different things and this pair of tests is where that is stated.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-218"/>
         <trace target="HLR" ref="HLR-148"/>
       </traces>
     </test>
     <test name="HLR-218: Markdown keeps the tiers the terminal report drops">
-      <purpose><![CDATA[Nothing is removed from the tool, only from one format's default: the same run written as Markdown still carries Files, Languages and Discovery, and still holds back the function table.]]></purpose>
+      <purpose><![CDATA[Nothing is removed from the tool, only from one format's default: the same run written as Markdown still carries the Languages, Discovery and Callouts the terminal report drops, and still holds back the per-object detail. The function table is no longer among what Markdown keeps for itself — since HLR-235 it is the one detail tier both defaults present.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-218"/>
         <trace target="HLR" ref="HLR-150"/>
@@ -14544,7 +15308,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
   </file>
 
-  <file path="test/integration/verbosity.bats" role="integration" count="22">
+  <file path="test/integration/verbosity.bats" role="integration" count="27">
     <test name="HLR-150: the summary tiers are present by default">
       <purpose><![CDATA[Every tier HLR-150 enumerates is present in a default run, checked heading by heading rather than by counting lines — a line count would pass against a renderer that dropped the wrong section.]]></purpose>
       <traces>
@@ -14573,6 +15337,43 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       </traces>
     </test>
 
+    <test name="HLR-235: the three tables of the minimum state their size">
+      <purpose><![CDATA[The figures the aligned headings carry, over a tree whose contents are counted by hand rather than read back from the table — so a renderer taking the heading and the rows from different places fails.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-26"/>
+        <trace target="HLR" ref="HLR-235"/>
+      </traces>
+    </test>
+    <test name="HLR-235: the size is the number of rows presented">
+      <purpose><![CDATA[The property that makes the figure worth printing: it and the table beneath it cannot disagree. The stated count is compared against the rows counted off the body, so a second file in the fixture cannot make it pass against a hard-coded number.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-26"/>
+        <trace target="HLR" ref="HLR-235"/>
+      </traces>
+    </test>
+    <test name="HLR-235: a table that was not rendered is named without a size">
+      <purpose><![CDATA[HLR-188 prints no empty table and HLR-189 names it in the closing statement instead, where a size would state a figure for something that was never a table.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-26"/>
+        <trace target="HLR" ref="HLR-235"/>
+        <trace target="HLR" ref="HLR-189"/>
+      </traces>
+    </test>
+    <test name="HLR-235: a heading that already carries a clause grows no second one">
+      <purpose><![CDATA[A tier stating the thresholds in force or the reason it was omitted does not ask for a size, so no heading grows a second bracket.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-26"/>
+        <trace target="HLR" ref="HLR-235"/>
+      </traces>
+    </test>
+    <test name="HLR-235: Markdown states the same size in its own idiom">
+      <purpose><![CDATA[One fact in two decorations, which is the line HLR-218 draws between a format difference and a difference in what a tier says: the disclosure summary carries the figure the aligned heading carries, and the Markdown heading does not carry it twice.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-SUM-26"/>
+        <trace target="HLR" ref="HLR-235"/>
+        <trace target="HLR" ref="HLR-218"/>
+      </traces>
+    </test>
     <test name="HLR-188: a table with no rows is not printed">
       <purpose><![CDATA[A verbose run over a tree with no recursion prints no recursion table.]]></purpose>
       <traces>
@@ -15075,7 +15876,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
   </file>
 
-  <file path="test/fixtures/regeneration.bats" role="fixture" count="20">
+  <file path="test/fixtures/regeneration.bats" role="fixture" count="21">
     <test name="the hand-counted subject totals match">
       <purpose><![CDATA[The subject's totals match the values in the fixture's header, so a later failure is about the round trip rather than about the subject having changed.]]></purpose>
       <traces>
@@ -15101,6 +15902,14 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       <traces>
         <trace target="HLR" ref="HLR-057"/>
               <trace target="LLR" ref="LLR-CLI-11"/>
+      </traces>
+    </test>
+    <test name="HLR-056: a matrix with no non-zero cell regenerates verbosely">
+      <purpose><![CDATA[The shape a record of a single-component tree has: subjects and no cell element, the writer emitting only non-zero cells. The reader allocated the grid on the first cell, so such a record restored a subject list with no grid and the renderer walked a null pointer over count x count — `--from-xml --verbose` faulted on almost any record, and nothing exercised that pairing until a composition change moved a tier behind it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-XRD-20"/>
+        <trace target="HLR" ref="HLR-056"/>
+        <trace target="HLR" ref="HLR-125"/>
       </traces>
     </test>
     <test name="HLR-055: regeneration reads no source file">
@@ -15618,7 +16427,120 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
   </file>
 
-  <file path="test/fixtures/reachability.bats" role="fixture" count="24">
+  <file path="test/fixtures/concurrency.bats" role="fixture" count="15">
+    <test name="HLR-233: a macro-written definition is reported as a function">
+      <purpose><![CDATA[The failure the fixture exists for. Unexpanded, `ISR(TIMER_vect)` parses without error into a shape no ordinary function pattern matches, so before this the handler was not a function at all: six functions are reported where five were.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-64"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="HLR-233: the macro-written definition's calls resolve to it">
+      <purpose><![CDATA[The consequence, asserted separately: a body outside every function makes its calls unresolved, which is what hid the handler's reach into the rest of the program. Its fan-out is two, and the one call site that stays unresolved is the call through a pointer that never had a name.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-64"/>
+        <trace target="HLR" ref="HLR-233"/>
+        <trace target="HLR" ref="HLR-077"/>
+      </traces>
+    </test>
+    <test name="HLR-233: the handler is external, since a vector table resolves it">
+      <purpose><![CDATA[The symbol the macro defines is the one the vector table resolves against, and a vector table is the other translation unit by definition.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-233"/>
+        <trace target="HLR" ref="HLR-209"/>
+      </traces>
+    </test>
+    <test name="HLR-233: the macro shape admits an asynchronous root with no other evidence">
+      <purpose><![CDATA[No image and no pattern: the source carries the evidence on its own, which is what makes this origin worth having on a run given neither.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-04"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="HLR-233: an address taken is not reported as an interrupt handler">
+      <purpose><![CDATA[`on_idle` is dispatched by `main` through a pointer, on the application's own thread. Merging the two origins would make every finding built on either as strong as the weaker one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-05"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="HLR-233: the function table marks a handler I and a re-entrant R">
+      <purpose><![CDATA[One column, two marks. The reader scanning for the second thread of control finds both in the same place and in the same vocabulary the drawing uses.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-233"/>
+        <trace target="HLR" ref="HLR-228"/>
+      </traces>
+    </test>
+    <test name="HLR-228: a function only the handler reaches is not marked">
+      <purpose><![CDATA[The intersection is the property, over a parsed fixture rather than a hand-built graph. An implementation taking the union passes every other case here and fails this one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RNT-03"/>
+        <trace target="HLR" ref="HLR-228"/>
+      </traces>
+    </test>
+    <test name="HLR-233: a re-entrant mark names the root it is attributed to">
+      <purpose><![CDATA[`bump` is reached from the vector and from `main`, and the row says which — and says the root is a handler rather than a callback, which is the distinction the finding inherits.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RNT-04"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="HLR-233: an asynchronous root is a reachability root">
+      <purpose><![CDATA[Nothing calls a handler, so without this the handler and everything below it is reported dead. elc said exactly that of eleven vectors while listing the same functions as roots on the next page — two tables of one run contradicting each other.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-STA-05"/>
+        <trace target="HLR" ref="HLR-096"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="HLR-231: a global only a callback touches draws no confinement warning">
+      <purpose><![CDATA[`pending` is volatile and reached from `on_idle` alone. A callback's thread of control is not established, so the object is neither shown confined nor shown shared, and advising the removal of a qualifier on that evidence is the false positive this closes.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-03"/>
+        <trace target="HLR" ref="HLR-231"/>
+      </traces>
+    </test>
+    <test name="HLR-230: the handler's shared object is qualified, so nothing is reported">
+      <purpose><![CDATA[`ticks` is written by the application and by the handler and carries the qualifier, so the sound finding does not fire — asserted so the case above cannot pass against an implementation that reports nothing at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-01"/>
+        <trace target="HLR" ref="HLR-230"/>
+      </traces>
+    </test>
+    <test name="HLR-233: a renamed handler survives the image filter">
+      <purpose><![CDATA[`ISR(vec)` defines `vec##_isr`, so the image says one name and the source another. Matching by name discards the handler as absent from an image that plainly contains it; the join is by the line the debug information places the definition on. The image is built here and never committed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-63"/>
+        <trace target="HLR" ref="HLR-233"/>
+        <trace target="HLR" ref="HLR-140"/>
+      </traces>
+    </test>
+    <test name="HLR-233: the record carries the name the linker kept it by">
+      <purpose><![CDATA[The linkage name and the macro-written fact reach the record, without which a regenerated report would disagree with a direct one about which functions are handlers.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-63"/>
+        <trace target="HLR" ref="HLR-152"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="HLR-234: a scoped guard is recorded as a critical section">
+      <purpose><![CDATA[`ATOMIC_BLOCK` is a macro taking a block: a nested definition to the grammar and never a call, so the call pattern that used to name it could match nothing. Exactly one function guards anything, so the case cannot pass by marking every function.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-64"/>
+        <trace target="HLR" ref="HLR-234"/>
+      </traces>
+    </test>
+    <test name="HLR-234: a scoped guard is not reported as a leaked lock">
+      <purpose><![CDATA[Balanced by construction: it releases on every exit, `return` included. Recorded as an acquire/release pair it would report a leak on the one idiom that cannot leak.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ANL-64"/>
+        <trace target="HLR" ref="HLR-234"/>
+        <trace target="HLR" ref="HLR-229"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/reachability.bats" role="fixture" count="27">
     <test name="HLR-097: a clique of unused functions calling one another is reported">
       <purpose><![CDATA[The case textual linters get wrong. Each of the pair has a caller, so a no-caller rule finds neither; traversal reaches neither from any root.]]></purpose>
       <traces>
@@ -15748,6 +16670,28 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
               <trace target="LLR" ref="LLR-RPT-29"/>
       </traces>
     </test>
+    <test name="HLR-237: both crossings are findings, not only rows in a section">
+      <purpose><![CDATA[A defect living only in a section of its own tells a reader working from the findings table that the run is clean of it. Asserted at the default verbosity, where the section is not printed — and the call and the shared object are distinguished, the second being the crossing a reader cannot see in the source.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-21"/>
+        <trace target="HLR" ref="HLR-237"/>
+        <trace target="HLR" ref="HLR-094"/>
+      </traces>
+    </test>
+    <test name="HLR-099: a crossing is attributed to the declaration it broke">
+      <purpose><![CDATA[The rule broken is the user's `--scope`, and a reader deciding what to do about the finding needs to know that the line it crossed is a line they drew.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-21"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-237: no scopes declared means no crossing findings">
+      <purpose><![CDATA[The converse: an omitted analysis contributes no findings and is stated as omitted rather than as clean.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-21"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
     <test name="HLR-115: with no scopes declared the analysis is omitted with a reason">
       <purpose><![CDATA[The heading states the omission rather than leaving an empty table to be read as isolation verified.]]></purpose>
       <traces>
@@ -15792,7 +16736,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
   </file>
 
-  <file path="test/fixtures/arch.bats" role="fixture" count="46">
+  <file path="test/fixtures/arch.bats" role="fixture" count="50">
     <test name="HLR-080: Ca and Ce match the hand-computed table">
       <purpose><![CDATA[The three components' afferent and efferent couplings and their Instability values match the table worked out by hand in the fixture header.]]></purpose>
       <traces>
@@ -15928,6 +16872,35 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
       <traces>
         <trace target="LLR" ref="LLR-LAY-01"/>
         <trace target="HLR" ref="HLR-079"/>
+      </traces>
+    </test>
+    <test name="HLR-237: a layering violation is a finding, not only a section row">
+      <purpose><![CDATA[The findings table is where a reader learns what is wrong. Asserted at the default verbosity, where the Layering section is not printed at all, so the finding has to stand on its own — and the two kinds are distinguished in the detail, a reader's next action differing between bypassing a layer and running against the declared direction.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-21"/>
+        <trace target="HLR" ref="HLR-237"/>
+        <trace target="HLR" ref="HLR-079"/>
+      </traces>
+    </test>
+    <test name="HLR-099: a layering violation is attributed to the declaration it broke">
+      <purpose><![CDATA[Neither a published standard nor a judgement of elc's own: the rule broken is the user's `--stratum`, and the attribution says so rather than borrowing Martin's name or the heuristic label.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-21"/>
+        <trace target="HLR" ref="HLR-099"/>
+      </traces>
+    </test>
+    <test name="HLR-237: no strata declared means no layering findings">
+      <purpose><![CDATA[An omitted analysis contributes no findings. Without this the case above would pass against an implementation that reported a violation against a partition nobody drew.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-21"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="HLR-237: the findings and the section agree on how many there are">
+      <purpose><![CDATA[The two present the same defects differently and must not disagree about which ones there are — a section carrying a row the findings table lacks is exactly the loss this requirement exists to prevent. Counted off both rather than asserted as a literal, so a fixture gaining a violation holds them to each other rather than to a number.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-THR-21"/>
+        <trace target="HLR" ref="HLR-237"/>
       </traces>
     </test>
     <test name="HLR-078: the declared order determines the direction">
@@ -16715,7 +17688,148 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
   </file>
 
-  <file path="test/fixtures/elf.bats" role="fixture" count="61">
+  <file path="test/fixtures/globals.bats" role="fixture" count="17">
+    <test name="HLR-242: every declared global is reported with its place and type">
+      <purpose><![CDATA[The three declaration shapes a C module captures differently — a plain object, an initialised one and an array — each reported at the line it is written on, in source order, with the type as written.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242: the table is present without a graph to build it from">
+      <purpose><![CDATA[No entry point and no image: what a project declares is a fact about the source rather than a product of the analysis, so it is reported wherever the source was read.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242: the table follows the files it draws from">
+      <purpose><![CDATA[The reader's descent — the files, then the state they hold, then the functions — asserted as an order rather than a presence.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242: the table is in both compositions">
+      <purpose><![CDATA[A summary tier, so it is not one of the sections --verbose restores; the objects a finding names must have somewhere to point in a default report.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242: every format carries the objects">
+      <purpose><![CDATA[Markdown, CSV and XML each carry the objects, CSV naming the kind of row in a column of its own rather than starting a second table no consumer could load.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+      </traces>
+    </test>
+    <test name="HLR-242, HLR-056: the objects survive a record round trip">
+      <purpose><![CDATA[A report regenerated from a record names the same objects in the same order, so the record is a complete account of the run.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-242"/>
+        <trace target="HLR" ref="HLR-056"/>
+      </traces>
+    </test>
+    <test name="HLR-241: a finding about an object links to the row describing it">
+      <purpose><![CDATA[The reference a reader follows from a judgement to its evidence, on the subject class that is a row in no table of code.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: the row links back to the finding that names it">
+      <purpose><![CDATA[The reference is symmetric: an object reached from a finding can be read back to the finding that named it.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: every link in the report resolves to an anchor">
+      <purpose><![CDATA[The property the scheme rests on, asserted at both verbosities: a reference that lands nowhere promises a row and then fails to produce one, which is worse than a plain name.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: no anchor is written twice">
+      <purpose><![CDATA[A duplicate anchor resolves to whichever copy the renderer saw first, which is a link that works by accident.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: an anchor carries both spellings">
+      <purpose><![CDATA[`id` is what current renderers resolve a fragment against and `name` is the older form; one without the other works in some readers and silently fails in others.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: a subject with no row of its own is left as text">
+      <purpose><![CDATA[A component, an external callee or the call graph itself is a row in no table, and is named rather than linked.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-241: the aligned table carries no markup">
+      <purpose><![CDATA[The references are the Markdown report's alone: a terminal has nothing to click, and an anchor there would be markup printed at a reader.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-241"/>
+      </traces>
+    </test>
+    <test name="HLR-243: the findings table has a column for the place">
+      <purpose><![CDATA[The column is present whether or not this run's findings have a place to put in it, so a reader never has to wonder whether the report would have said.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-243"/>
+      </traces>
+    </test>
+    <test name="HLR-243: a library call names its call site, not just the callee">
+      <purpose><![CDATA[The case the column exists for: the finding is attributed to a callee defined in no file this run analysed and a row in no table, so no cross-reference can reach it and the location is the only thing that says where the call is.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-243"/>
+      </traces>
+    </test>
+    <test name="HLR-243: a finding about no single place leaves the column empty">
+      <purpose><![CDATA[A component's instability and the depth of a call graph are properties of a structure rather than of a line; an invented location would be one a reader could not act on.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-243"/>
+      </traces>
+    </test>
+    <test name="HLR-243, HLR-219: the location is never wrapped">
+      <purpose><![CDATA[A path broken across two lines is not a path, so the column carrying it is exempt from the narrowing that fits a line to the bound, as the numeric columns already are.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-243"/>
+        <trace target="HLR" ref="HLR-219"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/fixtures/elf.bats" role="fixture" count="67">
+    <test name="HLR-239: the summary names the image, the target, and the debug info">
+      <purpose><![CDATA[The three things a reader needs before any figure beneath them means anything, since every one of those figures describes a different program when an image is in force. The architecture is read off the header rather than asserted as a literal, so the case holds on whatever machine the suite runs on.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ELF-09"/>
+        <trace target="HLR" ref="HLR-239"/>
+      </traces>
+    </test>
+    <test name="HLR-239: a run with no image reports N/A rather than omitting the rows">
+      <purpose><![CDATA[A run with no image and one whose image said nothing are different claims, and a row that appears only sometimes is a row a reader stops looking for.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-239"/>
+      </traces>
+    </test>
+    <test name="HLR-239: an image built with -g reports debug info present">
+      <purpose><![CDATA[The converse of the stripped case, and the distinction three analyses depend on: a reader who does not know an image carried no debug information cannot tell an analysis that found nothing from one that could not look.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ELF-09"/>
+        <trace target="HLR" ref="HLR-239"/>
+      </traces>
+    </test>
+    <test name="HLR-239: a word does not widen the column the figures line up in">
+      <purpose><![CDATA[The image path is sixty characters; letting a word set the value column would push every number across the page to line up with nothing. Asserted as a column position rather than as a rendering, so it fails on the symptom a reader would notice.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-239"/>
+      </traces>
+    </test>
+    <test name="HLR-238: the image's include directories reach the preprocessor">
+      <purpose><![CDATA[The first principle applied end to end: a header the build found through `-I` is found again without the user restating the flag. The directory is outside the tree, and the same file is measured with and without the image — expanded with it, fallen back without. The fixture header carries a function rather than only a macro, because DWARF's directory table lists the directories of files in the line programme and a header contributing no code contributes no entry, which is a real limit of the mechanism.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-DWL-10"/>
+        <trace target="LLR" ref="LLR-ANL-65"/>
+        <trace target="HLR" ref="HLR-238"/>
+      </traces>
+    </test>
     <test name="the hand-counted totals match with no image">
       <purpose><![CDATA[Two files, 61 physical lines, five functions and 13 ELOC, against a table worked out by hand in the fixture's README. The unfiltered figures are the baseline every filtered one is read against.]]></purpose>
       <traces>
@@ -17075,8 +18189,15 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
         <trace target="LLR" ref="LLR-ANL-53"/>
       </traces>
     </test>
-    <test name="HLR-145: a file the image kept nothing from still reports its data">
-      <purpose><![CDATA[A file with no function left reports its one line of file-scope ELOC, so a reader can tell a file of retained functions from a file of retained data.]]></purpose>
+    <test name="HLR-145: a file the image kept nothing from is not listed, and is counted">
+      <purpose><![CDATA[A file the link kept no function from is absent from the Files table, and the statement beneath it accounts for how many were dropped — so the filter removes noise without removing the record that they existed.]]></purpose>
+      <traces>
+        <trace target="HLR" ref="HLR-145"/>
+        <trace target="LLR" ref="LLR-ANL-53"/>
+      </traces>
+    </test>
+    <test name="HLR-145: the filter alone prunes a file, never the walk">
+      <purpose><![CDATA[The same tree with no image lists the same file: with no filter in force a file with no functions is a header or a unit of data, and dropping it unasked would hide a file that was analysed.]]></purpose>
       <traces>
         <trace target="HLR" ref="HLR-145"/>
         <trace target="LLR" ref="LLR-ANL-53"/>
@@ -18636,6 +19757,205 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
     </test>
   </file>
 
+  <file path="test/unit/concurrency.c" role="unit" count="22">
+    <test name="a_macro_written_definition_nothing_calls_is_a_root">
+      <purpose><![CDATA[The shape an interrupt handler has on a target whose handlers are declared by a macro — nothing calls it, and a function-shaped macro wrote the definition. No address is taken and no pattern is given, so the macro shape is the only evidence, which is the point: without it the handler is not a function at all and every analysis below it measures an application talking to itself.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-04"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="an_address_taken_root_is_not_claimed_to_be_a_handler">
+      <purpose><![CDATA[The three origins are not one claim. An address taken is equally the shape of a callback the application's own loop dispatches, so it is the one origin that does not name a handler — and every consumer treating a root as a second thread of control turns on exactly this predicate.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-05"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="a_renamed_handler_is_matched_against_the_image_by_linkage">
+      <purpose><![CDATA[The image is asked about the name the linker knows. A macro that writes a definition renames it, so asking under the source name alone rejects the handler as absent from its own image — and a rejected root empties HLR-228 through HLR-231 without saying so. Asserted in both directions against one image, so the case cannot pass by admitting everything.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-04"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="a_global_a_callback_touches_is_not_reported_confined">
+      <purpose><![CDATA[The false positive that advised removing a qualifier the program depends on. An object reached from the application and from a callback is not shown confined to one thread of control: the callback may be dispatched from the application's own loop. On avrOS this fired on a tick counter written by the timer interrupt and drained by a scheduler-resumed state machine.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-03"/>
+        <trace target="HLR" ref="HLR-231"/>
+      </traces>
+    </test>
+    <test name="a_global_confined_away_from_the_application_is_still_a_warning">
+      <purpose><![CDATA[The converse, so the case above cannot pass against an implementation that has simply stopped reporting confinement. A handler tree does establish it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-03"/>
+        <trace target="HLR" ref="HLR-231"/>
+      </traces>
+    </test>
+    <test name="a_global_shared_with_a_callback_is_a_warning_not_a_critical">
+      <purpose><![CDATA[Shared with a callback and unqualified is reported, and reported as the weaker claim it is: the case is real — an interrupt-dispatched callback is exactly this shape — but the second thread of control was not established, so the severity is warning and the text names what is missing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-03"/>
+        <trace target="HLR" ref="HLR-230"/>
+      </traces>
+    </test>
+    <test name="a_global_shared_with_a_handler_is_still_critical">
+      <purpose><![CDATA[The handler tree still raises the critical finding, which is what keeps the stratification from being a way of reporting nothing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-03"/>
+        <trace target="LLR" ref="LLR-VOL-01"/>
+        <trace target="HLR" ref="HLR-230"/>
+      </traces>
+    </test>
+    <test name="a_mark_reachable_from_both_kinds_is_attributed_to_the_handler">
+      <purpose><![CDATA[A function a vector and a callback both reach is attributed to the vector, so the mark a reader acts on rests on the stronger of the two claims rather than on whichever root the traversal met first.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RNT-04"/>
+        <trace target="HLR" ref="HLR-233"/>
+      </traces>
+    </test>
+    <test name="an_address_taken_function_of_in_degree_zero_is_an_async_root">
+      <purpose><![CDATA[The shape a vector-table entry has: nothing calls it, its address is installed somewhere, and the linker kept it. All four conditions hold and it is admitted.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="an_exported_function_never_called_is_not_an_async_root">
+      <purpose><![CDATA[The false positive the fourth condition exists to exclude, and the reason this test matters more than the one above it. An exported API function has in-degree zero and a live symbol and is not asynchronous; without the address-taken condition a library's whole interface would be a root set.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="a_function_absent_from_the_image_is_not_an_async_root">
+      <purpose><![CDATA[A function the linker discarded is not entered by anything, whatever its in-degree. The image is what says so.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="the_declared_entry_point_is_never_an_async_root">
+      <purpose><![CDATA[`main` has in-degree zero by construction and would otherwise satisfy every other condition, making the intersection of HLR-228 the whole program.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="a_name_matching_the_pattern_is_a_root_without_an_address">
+      <purpose><![CDATA[Where the build installs handlers by a means the source does not show, the pattern supplies the root set. Recorded as pattern-derived, since that is a weaker claim than an address.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-01"/>
+        <trace target="LLR" ref="LLR-ASY-03"/>
+        <trace target="HLR" ref="HLR-227"/>
+      </traces>
+    </test>
+    <test name="no_image_and_no_pattern_yields_an_omission_not_a_root_set">
+      <purpose><![CDATA[The substitution this function exists to refuse: every function of in-degree zero treated as asynchronous. The set is empty and the reason recorded, so the caller reports an omission a reader can see rather than findings that inherited an invented root set.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-ASY-02"/>
+        <trace target="HLR" ref="HLR-227"/>
+        <trace target="HLR" ref="HLR-115"/>
+      </traces>
+    </test>
+    <test name="a_function_both_trees_reach_is_re_entrant">
+      <purpose><![CDATA[The intersection is the property. A function the main tree reaches and a handler's tree also reaches can be begun by one thread while another is inside it.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RNT-01"/>
+        <trace target="HLR" ref="HLR-228"/>
+      </traces>
+    </test>
+    <test name="a_function_only_the_async_tree_reaches_is_not_re_entrant">
+      <purpose><![CDATA[Nothing interrupts it in the middle of itself. Asserted separately because an implementation taking the union rather than the intersection passes the test above and fails this one.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RNT-03"/>
+        <trace target="HLR" ref="HLR-228"/>
+      </traces>
+    </test>
+    <test name="a_global_edge_does_not_make_a_function_re_entrant">
+      <purpose><![CDATA[Sharing an object with a handler is not being called by it. Counting global edges would mark most of a program re-entrant on the strength of one shared counter.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-RNT-02"/>
+        <trace target="HLR" ref="HLR-156"/>
+      </traces>
+    </test>
+    <test name="a_shared_global_without_the_qualifier_is_critical">
+      <purpose><![CDATA[Written by a handler, read by the main loop, and not volatile. Sound whatever else is true of the object: the compiler may cache it across the sequence the other thread modifies it in.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-01"/>
+        <trace target="HLR" ref="HLR-230"/>
+      </traces>
+    </test>
+    <test name="a_shared_global_with_the_qualifier_yields_no_finding">
+      <purpose><![CDATA[The same object correctly declared produces nothing, so the finding marks the defect rather than the sharing.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-01"/>
+        <trace target="HLR" ref="HLR-230"/>
+      </traces>
+    </test>
+    <test name="a_qualified_global_confined_to_one_tree_is_a_warning">
+      <purpose><![CDATA[The qualifier forbids optimisations nothing requires to be forbidden, and the cost is real.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-02"/>
+        <trace target="HLR" ref="HLR-231"/>
+      </traces>
+    </test>
+    <test name="a_memory_mapped_register_is_never_reported_unnecessary">
+      <purpose><![CDATA[A qualified object initialised by casting an integer to a pointer is a peripheral register, is confined to one tree by construction, and must keep its qualifier. Advising its removal would be advising a miscompile, so the exemption is asserted rather than assumed.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-02"/>
+        <trace target="HLR" ref="HLR-231"/>
+      </traces>
+    </test>
+    <test name="the_unnecessary_finding_states_the_measurement_and_advises_nothing">
+      <purpose><![CDATA[Neither remove nor refactor appears: the finding says what was measured and that a cause outside elc's view may still require the qualifier (HLR-101).]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-VOL-02"/>
+        <trace target="HLR" ref="HLR-101"/>
+      </traces>
+    </test>
+  </file>
+
+  <file path="test/unit/cfg.c" role="unit" count="5">
+    <test name="an_early_return_between_acquire_and_release_leaks">
+      <purpose><![CDATA[The case the analysis exists for, and the one a single-block model reports safe: a lock taken, a guard clause returning, and the release below it never reached.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-01"/>
+        <trace target="LLR" ref="LLR-CFG-03"/>
+        <trace target="HLR" ref="HLR-229"/>
+      </traces>
+    </test>
+    <test name="a_release_on_every_path_does_not_leak">
+      <purpose><![CDATA[Both arms of a branch release, so no path reaches an exit holding the lock. The converse of the test above, and what keeps the analysis from reporting every function that locks at all.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-03"/>
+        <trace target="HLR" ref="HLR-229"/>
+      </traces>
+    </test>
+    <test name="a_lock_taken_and_released_inside_a_loop_does_not_leak">
+      <purpose><![CDATA[The case the visited set's key decides. A search keyed on the block alone revisits the loop head in whatever lock state it first arrived in and reports a leak that is not there; keyed on the block and the held count, it does not.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-03"/>
+        <trace target="HLR" ref="HLR-229"/>
+      </traces>
+    </test>
+    <test name="a_function_is_reported_once_however_many_paths_fail">
+      <purpose><![CDATA[Ten branches above one early return are a thousand failing routes and one defect. The finding names the primitive and one path.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-04"/>
+        <trace target="HLR" ref="HLR-229"/>
+      </traces>
+    </test>
+    <test name="a_construct_the_module_does_not_describe_is_not_analysed">
+      <purpose><![CDATA[The graph is marked incomplete and the function reported as not analysed rather than as safe. A silent pass here claims a proof that was never attempted, which is the failure mode that matters most.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CFG-02"/>
+        <trace target="HLR" ref="HLR-138"/>
+      </traces>
+    </test>
+  </file>
+
     <file path="test/unit/annotate.c" role="unit" count="9">
       <test name="a_finding_lands_on_the_definition_site_not_the_name">
         <purpose><![CDATA[Verifies that a finding reaches the node at the definition site it names and not a second function sharing that name, which is what separates matching a site from matching a name.]]></purpose>
@@ -18696,7 +20016,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
         </traces>
       </test>
 </file>
-    <file path="test/unit/report_html.c" role="unit" count="24">
+    <file path="test/unit/report_html.c" role="unit" count="26">
       <test name="a_node_is_emitted_for_each_declared_layer">
         <purpose><![CDATA[Verifies that one node is emitted per declared stratum, identified by its ordinal, and that no layer is emitted for a directory nobody declared.]]></purpose>
         <traces>
@@ -18859,7 +20179,7 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
           <trace target="LLR" ref="LLR-HTM-10"/>
         </traces>
       </test>
-    <test name="a_function_node_carries_mock_burden_tbi_and_status">
+    <test name="a_function_node_carries_the_index_and_its_band">
       <purpose><![CDATA[All three fields are present in the node's `data` object, with the score and the index as JSON numbers and the status as one of the three permitted strings.]]></purpose>
       <traces>
         <trace target="LLR" ref="LLR-CYT-06"/>
@@ -18872,6 +20192,20 @@ A function whose cyclomatic complexity is recorded as zero — which no analysed
         <trace target="LLR" ref="LLR-CYT-06"/>
         <trace target="LLR" ref="LLR-THR-20"/>
         <trace target="HLR" ref="HLR-225"/>
+      </traces>
+    </test>
+    <test name="a_function_node_carries_its_concurrency_marks">
+      <purpose><![CDATA[`is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` naming what was found, each the value the C decided rather than one the page derives.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYT-07"/>
+        <trace target="HLR" ref="HLR-232"/>
+      </traces>
+    </test>
+    <test name="an_absent_concurrency_mark_and_an_empty_list_are_omitted">
+      <purpose><![CDATA[Presence is what the stylesheet tests, so a false mark and an empty list say the same thing in several times the bytes.]]></purpose>
+      <traces>
+        <trace target="LLR" ref="LLR-CYT-07"/>
+        <trace target="HLR" ref="HLR-232"/>
       </traces>
     </test>
 </file>

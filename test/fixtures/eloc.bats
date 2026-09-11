@@ -13,7 +13,7 @@ setup() {
 # The file-level and function-level figures elc reports for one fixture.
 totals() {
 	elc "$1"
-	awk '/^Project summary/ { s = 1 } s && /^  ELOC/ { print $2; exit }' \
+	awk '/^Project Summary/ { s = 1 } s && /^  ELOC/ { print $2; exit }' \
 		<<<"$output"
 }
 
@@ -21,15 +21,15 @@ totals() {
 # the default composition omits.
 subject_row() {
 	elc --verbose "$1"
-	awk -v want="$2" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	                  f && $3 == want { print $6, $7 }' <<<"$output"
+	awk -v want="$2" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+	                  f && $2 == want { print $6, $7 }' <<<"$output"
 }
 
 # The ELOC figure elc reports for a named function.
 function_eloc() {
 	elc --verbose "$SUBJECT"
-	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	                  f && $3 == want { print $6 }' <<<"$output"
+	awk -v want="$1" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+	                  f && $2 == want { print $6 }' <<<"$output"
 }
 
 @test "the hand-counted category totals match" {
@@ -47,7 +47,7 @@ function_eloc() {
 @test "HLR-019: the file's ELOC includes code outside any function" {
 	elc --verbose "$SUBJECT"
 	# 18 inside categories(), plus the initialised global on line 8.
-	assert_output --regexp "categories\.c +c +40 +19"
+	assert_output --regexp "categories\.c +c +[YN] +40 +19"
 }
 
 @test "HLR-049 – HLR-052: blanks, braces, bare declarations and directives are excluded" {
@@ -62,7 +62,7 @@ function_eloc() {
 	assert_success
 	# 1 + for + if + else-if's if + while + case 0 = 6. The switch itself,
 	# the default label, and the goto are not decisions.
-	assert_output --regexp "categories +public +30 +18 +6"
+	assert_output --regexp "categories +c +public +30 +18 +6"
 }
 
 @test "HLR-017: a straight-line function is one" {
@@ -71,7 +71,7 @@ function_eloc() {
 	elc --verbose "$f"
 	assert_success
 	# Capturing the function itself as a decision point would report 2.
-	assert_output --regexp "f +public +5 +2 +1"
+	assert_output --regexp "f +c +public +5 +2 +1"
 }
 
 @test "HLR-017: a short-circuit operator is a decision point" {
@@ -80,7 +80,7 @@ function_eloc() {
 	elc --verbose "$f"
 	assert_success
 	# 1 + the if + the && = 3.
-	assert_output --regexp "f +public +6 +3 +3"
+	assert_output --regexp "f +c +public +6 +3 +3"
 }
 
 @test "HLR-017: a default label and a goto are not decisions" {
@@ -90,7 +90,7 @@ function_eloc() {
 	assert_success
 	# 1 + the single `case` = 2. The switch, the default, and the goto add
 	# nothing.
-	assert_output --regexp "f +public +11 +[0-9]+ +2"
+	assert_output --regexp "f +c +public +11 +[0-9]+ +2"
 }
 
 @test "HLR-044: an assignment or operation counts" {
@@ -178,7 +178,7 @@ function_eloc() {
 	elc --verbose "$f"
 	assert_success
 	# 1 + the catch. `try` and `throw` choose nothing.
-	assert_output --regexp "f +public +9 +5 +2"
+	assert_output --regexp "f +\\S+ +public +9 +5 +2"
 }
 
 @test "HLR-011: a language with no exception construct still reports" {

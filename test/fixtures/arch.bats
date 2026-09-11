@@ -26,7 +26,7 @@ setup() {
 # section too, and an unterminated extractor reads whichever comes next.
 coupling_of() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Component coupling/ { f = 1; next }
+		awk -v want="$1" '/^Component Coupling/ { f = 1; next }
 		                  f && /^$/ { f = 0 }
 		                  f && $1 ~ want"$" { print $2, $3, $4 }'
 }
@@ -34,7 +34,7 @@ coupling_of() {
 # The Finding column of one component's row, or empty.
 finding_of() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Component coupling/ { f = 1; next }
+		awk -v want="$1" '/^Component Coupling/ { f = 1; next }
 		                  f && /^$/ { f = 0 }
 		                  f && $1 ~ want"$" { $1 = ""; $2 = ""; $3 = "";
 		                                      $4 = ""; sub(/^ +/, "");
@@ -47,14 +47,14 @@ finding_of() {
 # the loop's own separators are single-spaced arrows.
 cycle_path() {
 	printf '%s\n' "$output" |
-		awk '/^Component dependency/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Component Dependency/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /->/ { print }' |
 		sed 's#[^ ,]*/##g; s/^ *//; s/^.*  //'
 }
 
 cycle_rows() {
 	printf '%s\n' "$output" |
-		awk '/^Component dependency/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Component Dependency/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /^  \// { n++ } END { print n + 0 }'
 }
 
@@ -70,26 +70,26 @@ layering_heading() { heading_of "Layering"; }
 # One conformance row as "Violating Conforming Of".
 conformance_of() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Architecture conformance/ { f = 1; next }
+		awk -v want="$1" '/^Architecture Conformance/ { f = 1; next }
 		                  f && /^$/ { f = 0 }
 		                  f && $1 == want { print $2, $3, $4 }'
 }
 
-conformance_heading() { heading_of "Architecture conformance"; }
+conformance_heading() { heading_of "Architecture Conformance"; }
 
 # The matrix rows, with directory paths reduced to their last component so the
 # grid reads the same wherever the checkout lives. The corner cell and the
 # rule row are dropped; what is left is one line per subject.
 matrix() {
 	printf '%s\n' "$output" |
-		awk '/^Dependency structure matrix/ { f = 1; next }
+		awk '/^Dependency Structure Matrix/ { f = 1; next }
 		     f && /^$/ { f = 0 }
 		     f && /^  [^ ]/ && !/^  Rows are callers/ &&
 		     !/^  caller/ && !/^  -/ { print }' |
 		sed 's#[^ ]*/##g; s/^ *//; s/  */ /g'
 }
 
-matrix_heading() { heading_of "Dependency structure matrix"; }
+matrix_heading() { heading_of "Dependency Structure Matrix"; }
 
 # --------------------------------------------------------------- coupling --
 
@@ -134,7 +134,7 @@ matrix_heading() { heading_of "Dependency structure matrix"; }
 
 	local rows
 	rows="$(printf '%s\n' "$output" |
-		awk '/^Component coupling/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Component Coupling/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /^  \// { n++ } END { print n + 0 }')"
 	assert_equal "$rows" "3"
 }
@@ -273,6 +273,53 @@ inverted"
 	distances="$(layering | awk '{ print $NF }')"
 	assert_equal "$distances" "2
 1"
+}
+
+@test "HLR-237: a layering violation is a finding, not only a section row" {
+	# The findings table is where a reader learns what is wrong. Asserted
+	# at the *default* verbosity, where the Layering section is not printed
+	# at all: the finding has to stand on its own there.
+	elc "${STRATA[@]}" "$TREE"
+	assert_success
+
+	local found
+	found="$(printf '%s\n' "$output" |
+		awk '/^Findings [(]/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && /layering violation/ { n++ } END { print n + 0 }')"
+	assert_equal "$found" "2"
+
+	# The two kinds are distinguished in the detail, a reader's next action
+	# differing between them.
+	assert_output --partial "bypassing 2 layers"
+	assert_output --partial "running against the declared direction over 1 layer"
+}
+
+@test "HLR-099: a layering violation is attributed to the declaration it broke" {
+	elc "${STRATA[@]}" "$TREE"
+	assert_success
+	assert_output --partial "your --stratum declaration"
+	refute_output --regexp "layering violation.*elc heuristic"
+}
+
+@test "HLR-237: no strata declared means no layering findings" {
+	elc "$TREE"
+	assert_success
+	refute_output --partial "layering violation"
+}
+
+@test "HLR-237: the findings and the section agree on how many there are" {
+	# The two present the same defects differently and must not disagree
+	# about which ones there are: a section carrying a row the findings
+	# table lacks is the loss this requirement exists to prevent.
+	elc --verbose "${STRATA[@]}" "$TREE"
+	assert_success
+
+	local rows found
+	rows="$(layering | wc -l)"
+	found="$(printf '%s\n' "$output" |
+		awk '/^Findings [(]/ { f = 1; next } f && /^$/ { f = 0 }
+		     f && /layering violation/ { n++ } END { print n + 0 }')"
+	assert_equal "$found" "$rows"
 }
 
 @test "HLR-078: the declared order determines the direction" {
@@ -417,7 +464,7 @@ inverted"
 	elc --verbose "$TREE"
 	assert_success
 	assert_equal "$(conformance_heading)" \
-		"Architecture conformance (omitted: no architectural strata declared, see --stratum)"
+		"Architecture Conformance (omitted: no architectural strata declared, see --stratum)"
 }
 
 # ------------------------------------------------------------- the matrix --
@@ -465,7 +512,7 @@ app 1 2 0"
 drv 0 0 0
 hal 1 2 0"
 	assert_equal "$(matrix_heading)" \
-		"Dependency structure matrix (directories: no strata declared, see --stratum)"
+		"Dependency Structure Matrix (directories: no strata declared, see --stratum)"
 }
 
 @test "HLR-161: a component outside every stratum reaches no matrix cell" {
@@ -493,33 +540,24 @@ hal 1 2 0"
 	assert_output --partial "$convention"
 }
 
-@test "HLR-190: the Markdown matrix folds the grid and keeps the convention out" {
-	# The grid goes behind a disclosure like every other Markdown table.
-	# The convention does not: it is the sentence that makes a cell below
-	# the diagonal a back-call rather than a number, and the reader who has
-	# not expanded the grid is the one deciding whether to (HLR-166).
-	local convention="Rows are callers, columns callees, in ascending order."
-
+@test "HLR-190: the Markdown matrix leads with its convention" {
+	# The convention comes before the grid: it is the sentence that makes a
+	# cell below the diagonal a back-call rather than a number, and it is
+	# read on the way in (HLR-166). It stood above a fold until Phase 34
+	# removed the fold; the order it guaranteed is kept and asserted here
+	# directly, which is what the fold was standing in for.
 	elc --verbose -f md "${STRATA[@]}" "$TREE"
 	assert_success
 
-	# heading, blank, convention, blank, <details> — in that order, with
-	# the convention above the fold.
+	# heading, blank, convention, blank, grid — in that order, and with no
+	# disclosure element anywhere between them.
 	local shape
-	shape="$(awk '/^## Dependency structure matrix/ { s = 1 }
-	              s && /^<details>$/ { print "details"; exit }
-	              s && /^<summary>/  { print "summary" }
-	              s && /Rows are callers/ { print "convention" }' <<<"$output")"
+	shape="$(awk '/^## Dependency Structure Matrix/ { s = 1; next }
+	              s && /^<details/ { print "details"; exit }
+	              s && /Rows are callers/ { print "convention" }
+	              s && /^\|/ { print "grid"; exit }' <<<"$output")"
 	assert_equal "$shape" "convention
-details"
-
-	assert_output --regexp "<summary>[0-9]+ rows? \(click to expand\)</summary>"
-
-	# The aligned rendering gains no element, and still carries the note.
-	elc --verbose "${STRATA[@]}" "$TREE"
-	assert_success
-	assert_output --partial "$convention"
-	refute_output --partial "<details>"
+grid"
 }
 
 @test "HLR-166: the CSV companion carries the grid the report shows" {
@@ -559,7 +597,7 @@ details"
 	cd "$BATS_TEST_TMPDIR"
 	elc --dsm --verbose "${STRATA[@]}" "$TREE"
 	assert_success
-	assert_output --partial "Dependency structure matrix"
+	assert_output --partial "Dependency Structure Matrix"
 
 	run bash -c 'ls "$1"/*.dsm.csv 2>/dev/null | wc -l' _ "$BATS_TEST_TMPDIR"
 	assert_output "0"

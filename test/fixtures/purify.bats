@@ -17,7 +17,7 @@ setup() {
 
 # The purification heading, or empty.
 purify_heading() {
-	printf '%s\n' "$output" | awk '/^Graph purification/ { print; exit }'
+	printf '%s\n' "$output" | awk '/^Graph Purification/ { print; exit }'
 }
 
 # One classified function's row, as "class metric ... action". The section is
@@ -26,7 +26,7 @@ purify_heading() {
 # next.
 purify_row() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Graph purification/ { f = 1; next }
+		awk -v want="$1" '/^Graph Purification/ { f = 1; next }
 		                  f && /^$/ { f = 0 }
 		                  f && $2 == want { $1 = ""; sub(/^ +/, "");
 		                                    print }'
@@ -37,7 +37,7 @@ purify_row() {
 # are two words and one is not.
 class_of() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Graph purification/ { f = 1; next }
+		awk -v want="$1" '/^Graph Purification/ { f = 1; next }
 		                  f && /^$/ { f = 0 }
 		                  f && $2 == want {
 		                          if ($3 == "utility") print "utility sink"
@@ -48,7 +48,7 @@ class_of() {
 
 purify_rows() {
 	printf '%s\n' "$output" |
-		awk '/^Graph purification/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Graph Purification/ { f = 1; next } f && /^$/ { f = 0 }
 		     f && /^  \// { n++ } END { print n + 0 }'
 }
 
@@ -56,9 +56,9 @@ purify_rows() {
 # HLR-183 leaves them in.
 flow_of() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Functions$/ { f = 1; next }
+		awk -v want="$1" '/^Functions [(]/ { f = 1; next }
 		                  f && /^$/ { f = 0 }
-		                  f && $3 == want { print $6, $8, $9 }'
+		                  f && $2 == want { print $6, $8, $9 }'
 }
 
 # ------------------------------------------------- the classifications --
@@ -163,19 +163,19 @@ flow_of() {
 	elc --verbose "$TREE"
 	assert_success
 	without="$(printf '%s\n' "$output" |
-		awk '/^Graph purification|^Architecture recovery/ { f = 1 }
+		awk '/^Graph Purification|^Architecture Recovery/ { f = 1 }
 		     f && /^$/ { f = 0; next } !f { print }')"
 
 	elc --verbose --core-depth 1 "$TREE"
 	assert_success
 	with_shallow="$(printf '%s\n' "$output" |
-		awk '/^Graph purification|^Architecture recovery/ { f = 1 }
+		awk '/^Graph Purification|^Architecture Recovery/ { f = 1 }
 		     f && /^$/ { f = 0; next } !f { print }')"
 
 	elc --verbose --core-depth 3 "$TREE"
 	assert_success
 	with_deep="$(printf '%s\n' "$output" |
-		awk '/^Graph purification|^Architecture recovery/ { f = 1 }
+		awk '/^Graph Purification|^Architecture Recovery/ { f = 1 }
 		     f && /^$/ { f = 0; next } !f { print }')"
 
 	assert_equal "$with_shallow" "$without"
@@ -261,7 +261,7 @@ flow_of() {
 	run bash -c '"$0" --verbose -o "$1" "$2"' "$ELC" "$out" "$TREE"
 	assert_success
 	assert_output ""
-	grep -q "^Graph purification" "$out"
+	grep -q "^Graph Purification" "$out"
 }
 
 @test "HLR-150: the section is a detail tier" {
@@ -279,11 +279,11 @@ flow_of() {
 @test "HLR-031: both human formats present the section" {
 	elc --verbose "$TREE"
 	assert_success
-	assert_output --partial "Graph purification"
+	assert_output --partial "Graph Purification"
 
 	elc --verbose -f md "$TREE"
 	assert_success
-	assert_output --partial "## Graph purification"
+	assert_output --partial "## Graph Purification"
 }
 
 @test "HLR-054: the record carries the classifications and regenerates them" {
@@ -326,14 +326,14 @@ flow_of() {
 	assert_success
 	local first
 	first="$(printf '%s\n' "$output" |
-		awk '/^Graph purification/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Graph Purification/ { f = 1; next } f && /^$/ { f = 0 }
 		     f { print }')"
 
 	elc --verbose "$TREE/util" "$TREE/store" "$TREE/feat" "$TREE/app"
 	assert_success
 	local second
 	second="$(printf '%s\n' "$output" |
-		awk '/^Graph purification/ { f = 1; next } f && /^$/ { f = 0 }
+		awk '/^Graph Purification/ { f = 1; next } f && /^$/ { f = 0 }
 		     f { print }')"
 
 	assert_equal "$second" "$first"

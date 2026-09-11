@@ -24,7 +24,7 @@ analysed() {
 	# table since HLR-218.
 	elc --verbose "$@"
 	printf '%s\n' "$output" |
-		awk '/^Files$/ { f = 1; next } f && /^$/ { f = 0 } f && /^  \// { print $1 }' |
+		awk '/^Files [(]/ { f = 1; next } f && /^$/ { f = 0 } f && /^  \// { print $1 }' |
 		sed "s|^$TREE_REAL/||"
 }
 

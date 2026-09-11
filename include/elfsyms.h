@@ -50,7 +50,49 @@ typedef struct {
 	 * information, which is what makes an ambiguous name fatal rather than
 	 * silently resolved (HLR-193). */
 	OriginMap    origins;
+	/* The compile-time include directories the same debug information
+	 * records, read from the same open for the reason the two above it
+	 * are (HLR-141, HLR-238). Handed to the preprocessor as `-I` paths, so
+	 * that naming an image improves the *expansion* as well as narrowing
+	 * the measurement — a cross-compiled target whose headers are not
+	 * beside its sources expands where it previously fell back. Empty
+	 * where the build wrote no debug information. */
+	IncludeDirs  include_dirs;
+	/* What the image says it was built for and built with — the two things
+	 * a reader needs before any figure beneath them means anything, since
+	 * every one of those figures describes a different program when an
+	 * image is in force (HLR-239).
+	 *
+	 * `target` is the most specific description the image carries: the
+	 * device where a toolchain recorded one, and the architecture from the
+	 * ELF header otherwise. NULL where the machine is one `elc` has no
+	 * name for, which the report states rather than guessing at.
+	 *
+	 * `debug_info` is whether the image carried any debug information at
+	 * all. It governs three of the analyses — line pruning, the placement
+	 * of macro-written definitions, and the include paths of HLR-238 — and
+	 * a reader who does not know an image was stripped cannot tell an
+	 * analysis that found nothing from one that could not look. */
+	char        *target;      /* owned */
+	/* The device on its own, as a toolchain spelled it, and the ELF
+	 * header's machine number. `target` above is the *display* of these
+	 * two and is not a flag; this is what a build needs told (HLR-240). */
+	char        *device;      /* owned; NULL where none was recorded */
+	unsigned int machine;
+	bool         debug_info;
 } SymbolSet;
+
+/* The compiler flag that selects the device this image was built for, as a
+ * fresh allocation the caller owns, or NULL where the image named no device or
+ * `elc` does not know how that machine's toolchain spells the option
+ * (HLR-240).
+ *
+ * **The flag's spelling is the toolchain's, and the mapping is a short table
+ * rather than a guess.** `avr-gcc` takes `-mmcu=`; a machine absent from the
+ * table yields nothing, because passing a flag a compiler does not accept
+ * turns a run that would have expanded into one that falls back.
+ */
+char *elfsyms_device_flag(const SymbolSet *set);
 
 /* Read the named image and populate its function set.
  *

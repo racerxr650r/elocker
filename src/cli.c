@@ -450,6 +450,18 @@ void cli_usage(FILE *stream)
 "                     source functions the image does not define are listed,\n"
 "                     and the linkage names elc could not decode are counted.\n"
 "                     With no --elf nothing is filtered\n"
+"      --isr-regex PATTERN\n",
+	      stream);
+
+	/* Split again, and for the same reason as every break above it: adding
+	 * this option carried the literal past the 4095 characters ISO C99
+	 * requires a compiler to support, and the compiler said so. */
+	fputs(
+"                     treat a function whose name matches PATTERN as the\n"
+"                     start of an asynchronous thread of control, for a\n"
+"                     build that installs its handlers by a means the\n"
+"                     source does not show. Without this or an --elf, the\n"
+"                     concurrency analysis is omitted rather than guessed\n"
 "      --rules LANG:PATH\n"
 "                     check the analysed source against the custom rule query\n"
 "                     in PATH, compiled for language LANG. Repeatable. Rules\n"
@@ -533,7 +545,7 @@ enum { OPT_FROM_XML = 1000, OPT_GRAPHML, OPT_NO_DOT, OPT_ENTRY,
        OPT_DSM, OPT_SINK_AUTHORITY, OPT_SINK_HUB, OPT_GOD_BETWEENNESS,
        OPT_GOD_HUB, OPT_CORE_DEPTH, OPT_MANIFEST, OPT_WRITE_MANIFEST,
        OPT_PURIFY_DOT, OPT_DBG, OPT_NO_EXPAND, OPT_CC, OPT_CC_FLAG,
-       OPT_VERSION };
+       OPT_VERSION, OPT_ISR_REGEX };
 
 /* What reading one option needs: the options being built, and the record of
  * how the format came to be what it is. All three outlive the option that
@@ -908,6 +920,18 @@ static int opt_verbose(const char *arg, CliParse *p)
 	return CLI_OK;
 }
 
+/* The pattern that admits an asynchronous root by name (HLR-227).
+ *
+ * Borrowed from argv like the rules, and not compiled here: whether it is a
+ * usable expression is a question for the module that will match with it, and
+ * answering it in the parser would put a second copy of that knowledge here.
+ */
+static int opt_isr_regex(const char *arg, CliParse *p)
+{
+	p->out->isr_regex = arg;
+	return CLI_OK;
+}
+
 static int opt_rules(const char *arg, CliParse *p)
 {
 	/* Recorded unsplit and unvalidated. Whether the named language exists
@@ -984,6 +1008,7 @@ static const struct { int code; OptionFn handle; } OPTION_HANDLERS[] = {
 	{ OPT_CC_FLAG,       opt_cc_flag       },
 	{ 'v',               opt_verbose       },
 	{ OPT_RULES,         opt_rules         },
+	{ OPT_ISR_REGEX,     opt_isr_regex     },
 	{ 'D',               opt_define        },
 	{ OPT_ELF,           opt_elf           }
 };
@@ -1264,6 +1289,7 @@ int cli_parse(int argc, char *argv[], ElcOptions *out)
 		{ "verbose",              no_argument,       NULL, 'v' },
 		{ "entry",                required_argument, NULL, OPT_ENTRY },
 		{ "rules",                required_argument, NULL, OPT_RULES },
+		{ "isr-regex",            required_argument, NULL, OPT_ISR_REGEX },
 		{ "elf",                  required_argument, NULL, OPT_ELF },
 		{ "define",               required_argument, NULL, 'D' },
 		{ "scope",                required_argument, NULL, OPT_SCOPE },

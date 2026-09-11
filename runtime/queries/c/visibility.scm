@@ -56,3 +56,13 @@
                 declarator: (pointer_declarator
                               declarator: (function_declarator
                                             declarator: (identifier) @function.public))))
+
+; ISR(TCB0_INT_vect) { ... } — the macro-written definition functions.scm
+; matches. External, because the symbol the macro defines is the one the vector
+; table resolves against, and a vector table is the other translation unit by
+; definition. Anchored for the reason functions.scm anchors: the same shape
+; inside a body is a scoped guard, which is not a function and has no linkage.
+(translation_unit
+  (function_definition
+    type: (type_identifier)
+    declarator: (parenthesized_declarator (identifier) @function.public)))

@@ -56,14 +56,14 @@ section_rows() {
 	# over an empty string, which is the failure mode a self-check has to
 	# be proof against.
 	local threshold
-	threshold="$(awk 'match($0, /^At or over a threshold \(complexity listed at ([0-9]+)/, m) { print m[1]; exit }' "$REPORT")"
+	threshold="$(awk 'match($0, /^At Or Over A Threshold \(complexity listed at ([0-9]+)/, m) { print m[1]; exit }' "$REPORT")"
 	[ -n "$threshold" ] || {
 		echo "the threshold listing heading was not found in the report" >&2
 		grep -n 'threshold' "$REPORT" >&2
 		false
 	}
 
-	rows="$(section_rows 'At or over a threshold' |
+	rows="$(section_rows 'At Or Over A Threshold' |
 		awk -v t="$threshold" '$3 >= t')"
 	if [ -n "$rows" ]; then
 		echo "elc reports its own functions at or over the threshold:" >&2
@@ -138,7 +138,7 @@ section_rows() {
 }
 
 @test "LLR-BLD-24: elc's own components hold no dependency cycle" {
-	rows="$(section_rows 'Component dependency cycles')"
+	rows="$(section_rows 'Component Dependency Cycles')"
 	if [ -n "$rows" ]; then
 		echo "elc reports a dependency cycle among its own modules:" >&2
 		echo "$rows" >&2
@@ -166,7 +166,7 @@ section_rows() {
 	# construct's file and line in the section below it.
 	grep -qE '^  Unparsed lines +0$' "$REPORT" || {
 		echo "elc could not parse part of its own source:" >&2
-		grep -A 6 '^Partially parsed files' "$REPORT" >&2
+		grep -A 6 '^Partially Parsed Files' "$REPORT" >&2
 		false
 	}
 }
@@ -174,7 +174,7 @@ section_rows() {
 @test "LLR-BLD-14: no source file of elc is skipped for want of a module" {
 	grep -qE '^  Skipped +0$' "$REPORT" || {
 		echo "elc skipped one of its own source files:" >&2
-		grep -A 6 '^Skipped files' "$REPORT" >&2
+		grep -A 6 '^Skipped Files' "$REPORT" >&2
 		false
 	}
 }

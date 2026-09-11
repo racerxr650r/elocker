@@ -16,26 +16,26 @@ setup() {
 # not about what a default report presents.
 metrics() {
 	elc --verbose "$1"
-	awk -v want="$2" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	                  f && $3 == want { print $6, $7 }' <<<"$output"
+	awk -v want="$2" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+	                  f && $2 == want { print $6, $7 }' <<<"$output"
 }
 
 reported() {
 	elc --verbose "$1"
-	awk '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	     f && /^  \// { print $3 }' <<<"$output" | sort | tr '\n' ' '
+	awk '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+	     f && /^  [^ ]+:[0-9]+ / { print $2 }' <<<"$output" | sort | tr '\n' ' '
 }
 
 function_eloc() {
 	elc --verbose "$SUBJECT"
-	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	                  f && $3 == want { print $6 }' <<<"$output"
+	awk -v want="$1" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+	                  f && $2 == want { print $6 }' <<<"$output"
 }
 
 function_complexity() {
 	elc --verbose "$SUBJECT"
-	awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-	                  f && $3 == want { print $7 }' <<<"$output"
+	awk -v want="$1" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+	                  f && $2 == want { print $7 }' <<<"$output"
 }
 
 @test "the hand-counted nesting totals match" {
@@ -80,7 +80,7 @@ function_complexity() {
 @test "HLR-019: the file counts each statement line once" {
 	# Eight statements on eight distinct lines, however they are attributed.
 	elc --verbose "$SUBJECT"
-	assert_output --regexp "nested\.c +c +23 +8"
+	assert_output --regexp "nested\.c +c +[YN] +23 +8"
 }
 
 @test "HLR-032: nested attribution is deterministic across runs" {

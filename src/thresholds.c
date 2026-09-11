@@ -115,6 +115,30 @@ static const Threshold CATALOGUE[] = {
 	  (uint32_t)ELC_WTBI_WARNING - 1, (uint32_t)ELC_WTBI_CRITICAL - 1,
 	  false, SEVERITY_INFO, false, ELC_OWN_HEURISTIC, true },
 
+	/* Shared state without the qualifier: the one row in this group with a
+	 * standard behind it. C11 §6.7.3 is what makes the qualifier mean
+	 * anything, and §7.14.1.1 is the standard saying in as many words that
+	 * an object a handler and the rest of the program share must carry it.
+	 * The finding is the occurrence; there is nothing to band. */
+	{ MEASURE_SHARED_UNQUALIFIED, "shared state",
+	  0, 0, false, SEVERITY_CRITICAL, true,
+	  "C11 §6.7.3, §7.14.1.1", false },
+
+	/* The converse, and `elc`'s own, because it is a judgement rather than
+	 * a rule: nothing published says a qualifier confined to one thread of
+	 * control is wrong, and it may be required for a reason outside what
+	 * `elc` can see. The row is a warning and the finding says so
+	 * (HLR-231). */
+	{ MEASURE_VOLATILE_CONFINED, "confined qualifier",
+	  0, 0, false, SEVERITY_WARNING, true, ELC_OWN_HEURISTIC, true },
+
+	/* A lock held on a path that leaves the function. Also `elc`'s own:
+	 * the defect is real and uncontroversial, but no published source
+	 * bands it, and inventing a citation for a judgement is the thing the
+	 * label exists to prevent (HLR-099). */
+	{ MEASURE_CRITICAL_SECTION, "critical section",
+	  0, 0, false, SEVERITY_CRITICAL, true, ELC_OWN_HEURISTIC, true },
+
 	/* Depth: an embedded constraint rather than a numbered rule. Beyond 8
 	 * to 12 layers the stack risks colliding with the heap on a target
 	 * with a couple of kilobytes of SRAM. */
@@ -157,7 +181,28 @@ static const Threshold CATALOGUE[] = {
 	 * MISRA's name (HLR-099, HLR-207). */
 	{ MEASURE_MISRA_LIBRARY, "misra library", 0, 0, false,
 	  SEVERITY_WARNING, true,
-	  "MISRA C:2012", false }
+	  "MISRA C:2012", false },
+
+	/* A call offending against the layering the *user* declared, which is
+	 * what makes this row's authority theirs rather than `elc`'s or a
+	 * published source's. The rule broken is `--stratum` and its ordering;
+	 * `elc` measured the call and compared it against the declaration, and
+	 * the attribution says exactly that (HLR-079, HLR-118, HLR-099).
+	 *
+	 * Occurrence is the finding. There is no acceptable number of calls
+	 * that run against a declared direction, and the *proportion* that
+	 * conform is a separate measurement with a section of its own
+	 * (HLR-162, HLR-163). */
+	{ MEASURE_LAYERING_VIOLATION, "layering violation", 0, 0, false,
+	  SEVERITY_WARNING, true, ELC_DECLARED_ARCHITECTURE, false },
+
+	/* An edge by which one declared execution scope reaches another. The
+	 * declaration is the user's for the same reason, and the severity is
+	 * the same: `elc` cannot know whether a given crossing is the one the
+	 * design intends, only that the declaration says the two are separate
+	 * (HLR-094, HLR-101). */
+	{ MEASURE_CROSS_SCOPE, "cross-scope access", 0, 0, false,
+	  SEVERITY_WARNING, true, ELC_DECLARED_SCOPES, false }
 };
 
 /* The C library facilities MISRA C:2012 §21 forbids, with the rule that
@@ -329,9 +374,9 @@ bool thresholds_band(MeasurementKind kind, uint32_t value, Severity *out)
 
 /* ------------------------------------------------------------- findings -- */
 
-static int finding_add(FindingList *out, MeasurementKind kind,
-                       Severity severity, const char *subject,
-                       const char *where, uint32_t line, const char *detail)
+int findings_add(FindingList *out, MeasurementKind kind,
+                 Severity severity, const char *subject,
+                 const char *where, uint32_t line, const char *detail)
 {
 	if (out->count == out->capacity) {
 		size_t   next   = out->capacity ? out->capacity * 2 : 16;
@@ -403,7 +448,7 @@ static int apply_fan_out(const TreeResults *tree, const Sdg *g,
 
 		snprintf(detail, sizeof detail, "calls %" PRIu32
 		         " distinct subroutines", tree->fan_out[i]);
-		if (finding_add(out, MEASURE_FAN_OUT, severity,
+		if (findings_add(out, MEASURE_FAN_OUT, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -431,7 +476,7 @@ static int apply_fan_in(const TreeResults *tree, const Sdg *g,
 
 		snprintf(detail, sizeof detail, "called by %" PRIu32
 		         " distinct functions", tree->fan_in[i]);
-		if (finding_add(out, MEASURE_FAN_IN, severity,
+		if (findings_add(out, MEASURE_FAN_IN, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -465,7 +510,7 @@ static int apply_complexity(const Sdg *g, FindingList *out)
 		snprintf(detail, sizeof detail,
 		         "cyclomatic complexity %" PRIu32,
 		         g->nodes[i].complexity);
-		if (finding_add(out, MEASURE_COMPLEXITY, severity,
+		if (findings_add(out, MEASURE_COMPLEXITY, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -492,7 +537,7 @@ static int apply_depth(const TreeResults *tree, FindingList *out)
 	snprintf(detail, sizeof detail,
 	         "%" PRIu32 " layers deep; a lower bound, %zu calls unresolved",
 	         tree->depth, tree->unresolved_calls);
-	return finding_add(out, MEASURE_CALL_DEPTH, severity, "call graph", "",
+	return findings_add(out, MEASURE_CALL_DEPTH, severity, "call graph", "",
 	                   0, detail);
 }
 
@@ -526,7 +571,7 @@ static int apply_recursion(const TreeResults *tree, const Sdg *g,
 			line = g->nodes[tree->cycles[i].members[0]].line_start;
 		}
 
-		if (finding_add(out, MEASURE_RECURSION, t->fixed, members, file,
+		if (findings_add(out, MEASURE_RECURSION, t->fixed, members, file,
 		                line, detail) != 0)
 			return -1;
 	}
@@ -576,8 +621,61 @@ static int apply_cycles(const ArchResults *arch, const Sdg *g,
 		                            ? g->component_paths[cycle->members[0]]
 		                            : "";
 
-		if (finding_add(out, MEASURE_COMPONENT_CYCLE, t->fixed, first,
+		if (findings_add(out, MEASURE_COMPONENT_CYCLE, t->fixed, first,
 		                first, 0, detail) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
+/* One finding per edge by which a declared execution scope reaches another
+ * (HLR-094).
+ *
+ * A call and a global-state edge are both crossings and both reported, the
+ * detail naming which — a scope reached through a shared object is the harder
+ * one to see in the source, and the one a reader most needs told.
+ *
+ * Reported at warning rather than critical because the declaration cannot say
+ * which crossings are intended: `elc` knows the two scopes were declared
+ * separate, not that this particular edge is a defect (HLR-101).
+ */
+static int apply_cross_scope(const StateResults *state, const Sdg *g,
+                             const ElcOptions *opts, FindingList *out)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_CROSS_SCOPE);
+
+	if (!t || state->scope_state != SCOPES_MEASURED)
+		return 0;
+
+	for (size_t i = 0; i < state->violation_count; i++) {
+		const ScopeViolation *v = &state->violations[i];
+		char                  detail[256];
+		const char           *file;
+
+		if (v->from >= g->node_count || v->to >= g->node_count ||
+		    v->from_scope >= opts->scopes.count ||
+		    v->to_scope >= opts->scopes.count)
+			continue;
+
+		file = g->nodes[v->from].file;
+
+		if (v->object && *v->object)
+			snprintf(detail, sizeof detail,
+			         "in scope %s, shares %s with %s in scope %s",
+			         opts->scopes.items[v->from_scope].name,
+			         v->object, g->nodes[v->to].name,
+			         opts->scopes.items[v->to_scope].name);
+		else
+			snprintf(detail, sizeof detail,
+			         "in scope %s, calls %s in scope %s",
+			         opts->scopes.items[v->from_scope].name,
+			         g->nodes[v->to].name,
+			         opts->scopes.items[v->to_scope].name);
+
+		if (findings_add(out, MEASURE_CROSS_SCOPE, t->fixed,
+		                 g->nodes[v->from].name, file ? file : "",
+		                 g->nodes[v->from].line_start, detail) != 0)
 			return -1;
 	}
 
@@ -612,7 +710,7 @@ static int apply_globals(const StateResults *state, FindingList *out)
 
 		if (!t)
 			continue;
-		if (finding_add(out, kind, t->fixed, row->object, "", 0,
+		if (findings_add(out, kind, t->fixed, row->object, "", 0,
 		                detail) != 0)
 			return -1;
 	}
@@ -683,7 +781,7 @@ static int apply_instability(const ArchResults *arch, const Sdg *g,
 		         "instability %.2f, but declared in layer %s, which the "
 		         "declaration places at %.2f",
 		         k->instability, opts->strata.items[layer].name, expected);
-		if (finding_add(out, MEASURE_INSTABILITY, t->fixed,
+		if (findings_add(out, MEASURE_INSTABILITY, t->fixed,
 		                g->component_paths[c], g->component_paths[c], 0,
 		                detail) != 0)
 			return -1;
@@ -712,7 +810,7 @@ static int apply_bottlenecks(const ArchResults *arch, const Sdg *g,
 		         "the threshold of %" PRIu32,
 		         arch->coupling[c].ca, arch->coupling[c].ce,
 		         opts->bottleneck_threshold);
-		if (finding_add(out, MEASURE_BOTTLENECK, t->fixed,
+		if (findings_add(out, MEASURE_BOTTLENECK, t->fixed,
 		                g->component_paths[c], g->component_paths[c], 0,
 		                detail) != 0)
 			return -1;
@@ -757,7 +855,7 @@ static int apply_weighted_test_burden(const TreeResults *tree, const Sdg *g,
 
 		snprintf(detail, sizeof detail,
 		         "weighted test burden %.2f", wtbi);
-		if (finding_add(out, MEASURE_WEIGHTED_TEST_BURDEN, severity,
+		if (findings_add(out, MEASURE_WEIGHTED_TEST_BURDEN, severity,
 		                g->nodes[i].name, g->nodes[i].file,
 		                g->nodes[i].line_start, detail) != 0)
 			return -1;
@@ -777,10 +875,61 @@ static int apply_calltree_rows(const TreeResults *tree, const Sdg *g,
 }
 
 /* The catalogue rows read off the architecture results. */
+/* One finding per call offending against the declared layering (HLR-079,
+ * HLR-118).
+ *
+ * **The Layering section states the same thing, and that is not a duplication
+ * to be removed.** A finding is what a reader is expected to act on, and the
+ * findings table is where they are expected to find all of it — recursion,
+ * dependency cycles and the global-state verdicts each appear both as a
+ * finding and in a section of their own, and these two were the anomaly. A
+ * reader who has to assemble the list of what is wrong from six tables will
+ * miss one of them, which is how a report loses information it plainly holds.
+ *
+ * The section keeps its columns: it carries the two strata, the two functions,
+ * and the ordinal distance, which is more than a finding's detail can hold.
+ */
+static int apply_layering(const ArchResults *arch, const Sdg *g,
+                          FindingList *out)
+{
+	const Threshold *t = thresholds_lookup(MEASURE_LAYERING_VIOLATION);
+
+	if (!t || arch->strata_state != STRATA_MEASURED)
+		return 0;
+
+	for (size_t i = 0; i < arch->violation_count; i++) {
+		const LayerViolation *v = &arch->violations[i];
+		char                  detail[256];
+		const char           *from, *to, *file;
+
+		if (v->from >= g->node_count || v->to >= g->node_count)
+			continue;
+
+		from = g->nodes[v->from].name;
+		to   = g->nodes[v->to].name;
+		file = g->nodes[v->from].file;
+
+		snprintf(detail, sizeof detail,
+		         "calls %s, %s %zu layer%s", to,
+		         v->kind == LAYER_SKIP_LEVEL ? "bypassing"
+		                                     : "running against the "
+		                                       "declared direction over",
+		         v->layers_crossed, v->layers_crossed == 1 ? "" : "s");
+
+		if (findings_add(out, MEASURE_LAYERING_VIOLATION, t->fixed,
+		                 from, file ? file : "",
+		                 g->nodes[v->from].line_start, detail) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
 static int apply_arch_rows(const ArchResults *arch, const Sdg *g,
                            const ElcOptions *opts, FindingList *out)
 {
 	return (apply_cycles(arch, g, out) != 0 ||
+	        apply_layering(arch, g, out) != 0 ||
 	        apply_instability(arch, g, opts, out) != 0 ||
 	        apply_bottlenecks(arch, g, opts, out) != 0) ? -1 : 0;
 }
@@ -807,7 +956,7 @@ static int apply_misra_library(const Sdg *g, FindingList *out)
 		snprintf(detail, sizeof detail,
 		         "%s is not available to a compliant program (Rule %s)",
 		         c->callee, rule);
-		if (finding_add(out, MEASURE_MISRA_LIBRARY, SEVERITY_WARNING,
+		if (findings_add(out, MEASURE_MISRA_LIBRARY, SEVERITY_WARNING,
 		                c->callee, c->file ? c->file : "", c->line,
 		                detail) != 0)
 			return -1;
@@ -832,6 +981,7 @@ int thresholds_apply(const ArchResults *arch, const TreeResults *tree,
 	    apply_misra_library(g, out) != 0 ||
 	    (tree && apply_calltree_rows(tree, g, out) != 0) ||
 	    (state && apply_globals(state, out) != 0) ||
+	    (state && apply_cross_scope(state, g, opts, out) != 0) ||
 	    (arch && apply_arch_rows(arch, g, opts, out) != 0)) {
 		findinglist_free(out);
 		return -1;

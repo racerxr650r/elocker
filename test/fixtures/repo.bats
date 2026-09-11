@@ -26,7 +26,7 @@ analysed() {
 	# discovered.
 	elc --verbose "$@"
 	printf '%s\n' "$output" |
-		awk '/^Files$/ { f = 1; next } f && /^$/ { f = 0 } f && /^  \// { print $1 }' |
+		awk '/^Files [(]/ { f = 1; next } f && /^$/ { f = 0 } f && /^  \// { print $1 }' |
 		sed "s|^$REPO_REAL/||"
 }
 
@@ -248,18 +248,24 @@ src/b.c"
 @test "HLR-006: a repository target produces the same report shape as any other" {
 	# The man page has claimed since Phase 5 that a single file, a plain
 	# directory, and a repository all produce the same headings. Two
-	# thirds of that were tested; this is the third. Column widths vary
-	# with content, so the headings are what is compared.
+	# thirds of that were tested; this is the third.
+	#
+	# `report_shape` is the shared definition of "shape" the other two
+	# thirds already compare on: it keeps a heading up to its first " (",
+	# so a column width, a threshold, and the row count of HLR-235 are all
+	# properties of what a tree holds rather than of the shape it is
+	# reported in. One helper rather than a second spelling here, so the
+	# three tests cannot come to disagree about what a shape is.
 	mkdir -p "$BATS_TEST_TMPDIR/plain"
 	printf 'int p(void) { return 0; }\n' > "$BATS_TEST_TMPDIR/plain/p.c"
 
 	elc "$BATS_TEST_TMPDIR/plain"
 	local plain_shape
-	plain_shape="$(grep -E '^[A-Z]' <<<"$output")"
+	plain_shape="$(report_shape "$output")"
 
 	elc "$REPO"
 	local repo_shape
-	repo_shape="$(grep -E '^[A-Z]' <<<"$output")"
+	repo_shape="$(report_shape "$output")"
 
 	assert_equal "$repo_shape" "$plain_shape"
 }
@@ -274,14 +280,17 @@ src/b.c"
 	# (regeneration/README.md).
 	local record="$BATS_TEST_TMPDIR/record.xml"
 
-	run bash -c '"$0" -f md "$1" 2>/dev/null' "$ELC" "$REPO"
+	# Both verbosely: the discovery route this test is about is a detail
+	# tier, evidence for the figures rather than one of the four questions
+	# a default report answers (HLR-150).
+	run bash -c '"$0" --verbose -f md "$1" 2>/dev/null' "$ELC" "$REPO"
 	assert_success
 	local direct="$output"
 
 	run bash -c '"$0" -f xml "$1" > "$2" 2>/dev/null' "$ELC" "$REPO" "$record"
 	assert_success
 
-	run bash -c '"$0" --from-xml "$1" 2>/dev/null' "$ELC" "$record"
+	run bash -c '"$0" --from-xml "$1" --verbose 2>/dev/null' "$ELC" "$record"
 	assert_success
 	assert_equal "$output" "$direct"
 

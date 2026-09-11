@@ -100,6 +100,36 @@ typedef struct {
 	bool            present;
 } OriginMap;
 
+/* The compile-time include directories the image's debug information records.
+ *
+ * **The one thing an image can tell `elc` about how to *reproduce* the build**,
+ * and it costs the user nothing: DWARF's line-number program carries a
+ * directory table per compilation unit, written by every build with `-g`,
+ * needing no extra compiler switch and no declaration on the command line.
+ * Handed to the preprocessor as `-I` paths, it lets `elc` expand a file whose
+ * headers are not beside it — which is most cross-compiled targets — where
+ * before it fell back and measured the source as written (HLR-238).
+ *
+ * `DW_AT_producer` is the other place a build's flags can be found and is
+ * deliberately not read: it carries the command line only where the build was
+ * made with `-grecord-gcc-switches`, which is not a default, so a rule keyed on
+ * it would work on the builds that least need the help.
+ *
+ * Paths are absolute, de-duplicated, and in the order first seen, so two runs
+ * over one image pass the same flags in the same order (HLR-032). A relative
+ * entry is joined to its unit's compilation directory, which is what makes it
+ * usable from whatever directory `elc` was invoked in.
+ */
+typedef struct {
+	char  **paths;      /* absolute, de-duplicated; owned */
+	size_t  count;
+	size_t  capacity;
+} IncludeDirs;
+
+/* Release the directory list and every path it owns. Safe on NULL, and safe
+ * twice. */
+void includedirs_free(IncludeDirs *dirs);
+
 /* Read the line information of an already-opened image.
  *
  * `elf` is the `Elf *` handle `elfsyms.c` holds, passed opaquely so that no
@@ -111,7 +141,8 @@ typedef struct {
  * debug information: its absence costs the finer granularity and nothing
  * else. Non-zero is returned only on allocation failure.
  */
-int dwarfline_read(void *elf, LineCoverage *out, OriginMap *origins);
+int dwarfline_read(void *elf, LineCoverage *out, OriginMap *origins,
+                   IncludeDirs *dirs);
 
 /* Whether the image described any function's origin at all.
  *

@@ -260,7 +260,7 @@ rather than computed. A file nothing depends on that depends on nothing is
 entirely ordinary, and reporting 0 there would claim maximum stability for a
 component with no relationships at all.
 .PP
-.B Component dependency cycles
+.B Component Dependency Cycles
 are the mutually dependent groups of the component projection, each reported
 with its whole membership and with a concrete loop through it \(em the group
 is what must be broken up, and the loop says which edge to cut. This is a
@@ -284,7 +284,7 @@ file matching no declaration lies outside the partition, and a call touching it
 is neither. Only calls are considered \(em a global two layers share is a
 different fact with its own analyses.
 .PP
-.B Architecture conformance
+.B Architecture Conformance
 aggregates those findings into two proportions of the run's
 .I inter-layer call edges
 \(em the call edges joining two components that lie in different declared
@@ -317,7 +317,7 @@ Both are counted from the layering findings already listed, never re-derived
 from the graph, so the percentage and the table printed beside it are two views
 of one answer rather than two opinions that can drift apart.
 .PP
-.B Unreachable functions
+.B Unreachable Functions
 are found by traversing the call graph forward from a root set, and reporting
 everything the traversal never visits. The root set is the declared entry
 points
@@ -355,7 +355,7 @@ stderr diagnostics alongside any drawing taken from a tree with duplicate
 .B static
 names in it.
 .PP
-.B Global state
+.B Global State
 is reported for every object: the set of functions that write it and the set
 that read it. Two arrangements are flagged, both under MISRA C Rule 8.9. An
 object whose identifier appears in a single function belongs at block scope. An
@@ -574,8 +574,8 @@ The columns are the ones the
 table of a human\-readable report carries, in its order:
 .IP
 .EX
-file,language,function,scope,lines,eloc,cc,in,out,wtbi,burden
-/src/a.c:12,c,measure,public,9,4,2,3,1,6.00,healthy
+file,lang,function,scope,reent,lines,eloc,cc,in,out,wtbi,burden
+/src/a.c:12,c,measure,public,,9,4,2,3,1,6.00,healthy
 .EE
 .IP
 .B file
@@ -953,6 +953,27 @@ nothing is filtered. See
 .B FILTERING BY A LINKED IMAGE
 below.
 .TP
+.BI \-\-isr\-regex " PATTERN"
+Treat a function whose name matches
+.I PATTERN
+as the start of an asynchronous thread of control \(em an interrupt handler,
+or the entry function of a task a scheduler resumes.
+.IP
+.B elc
+otherwise identifies such a function by what it can see: nothing in the source
+calls it, the linker kept its symbol, and its address is taken without being
+called, which is what installing a handler in a vector table is. Where a build
+installs its handlers by a means the source does not show, this option supplies
+the set instead. A root admitted by this pattern is reported as such, because a
+name matching a convention is a weaker claim than an address taken.
+.IP
+With neither this nor
+.BR \-\-elf ,
+the re-entrancy and concurrency analysis is omitted and the omission stated.
+It is not guessed at: every function nothing calls is not an interrupt handler,
+and a root set built that way would put a library's whole interface into the
+asynchronous tree.
+.TP
 .BI \-\-rules " LANG:PATH"
 Check the analysed source against the custom rule query in
 .IR PATH ,
@@ -1327,7 +1348,7 @@ cross-compiled tree that is most of them.
 .PP
 A repair is a guess the grammar could not make, so a report resting on one says
 so: a
-.B Repaired regions
+.B Repaired Regions
 table names each rule that fired and how many regions it rewrote, and
 .B \-\-dbg
 records each repair with the text before and after. The count carries no
@@ -1383,21 +1404,21 @@ results stream, so output may be piped or captured without being corrupted by
 diagnostic text.
 .PP
 The default format is an aligned table in tiers, and by default it presents
-three of them \(em the project summary, the findings, and the per\-function
-table \(em with every other tier a
+four of them \(em the project summary, the findings, each file's totals, and
+the per\-function table \(em with every other tier a
 .B \-\-verbose
 away. See
 .B REPORT VERBOSITY
 below, which gives the partition for both human\-readable formats. A section
 with no rows is not emitted at all; the report closes with a
-.B Nothing to report
+.B Nothing To Report
 statement naming every one that was empty. The example below is of a
 .B \-\-verbose
 run and is abridged. Column widths are taken from the longest value in each
 column so the figures line up:
 .PP
 .EX
-Project summary
+Project Summary
   Files               2
   Physical lines     42
   ELOC               18
@@ -1421,32 +1442,32 @@ Languages
   --------  -----  -----  ----
   c             2     42    18
 
-Files
+Files (2)
   File                  Language  Lines  ELOC  Functions
   --------------------  --------  -----  ----  ---------
   /home/u/proj/src/a.c  c            18    12          2
   /home/u/proj/src/b.c  c            24     6          1
 
-At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and testing burden banded)
+At Or Over A Threshold (complexity listed at 5; complexity, fan-in, fan-out and testing burden banded)
   File                  Function  Complexity  Fan-in  Fan-out  MI  Severity
   --------------------  --------  ----------  ------  -------  --  --------
   /home/u/proj/src/a.c  parse              7       1        2  62
 
-Functions
+Functions (3)
   File                  Function    Lines  ELOC  Complexity  Fan-in  Fan-out   MI
   --------------------  ----------  -----  ----  ----------  ------  -------  ---
   /home/u/proj/src/a.c  parse        5-19     9           7       1        2   77
   /home/u/proj/src/a.c  emit        21-24     3           1       1        0   90
   /home/u/proj/src/b.c  main         3-11     6           2       0        1   83
 
-Skipped files (no language module)
+Skipped Files (no language module)
   /home/u/proj/src/notes.md
 
-Nothing to report
+Nothing To Report
   4 tables above were empty and omitted:
-    - Component dependency cycles
+    - Component Dependency Cycles
     - Recursion
-    - Deepest call chain (omitted: no entry points declared, see --entry)
+    - Deepest Call Chain (omitted: no entry points declared, see --entry)
     - Layering (omitted: no architectural strata declared, see --stratum)
 .EE
 .PP
@@ -1479,7 +1500,7 @@ function — an initialised global, say — counts for the file and for no
 function. It may also fall below that sum, where two functions share a line.
 .PP
 A section with no rows is not emitted, and the closing
-.B Nothing to report
+.B Nothing To Report
 statement names every one that was, by its full heading \(em so a section
 omitted for want of a
 .B \-\-stratum
@@ -1547,27 +1568,42 @@ to act on is a summary tier. A tier enumerating one row per analysed entity
 \(em per function, per global object, per unreachable statement, per graph
 edge, per custom\-rule match \(em is a detail tier.
 .PP
-.B There are two summary partitions, one per human\-readable format,
-because there are two readers. The rule above is the partition for
-.BR md :
-a saved report is read by searching it, so a long table costs you nothing and
-the tiers worth defaulting to are the aggregates.
+.B There is one summary partition, and it serves every human\-readable format.
+There were two for a while, one per format, because there are two readers: a
+saved report is read by searching it, so a long table costs you nothing there,
+while a terminal report is read once by scrolling back.
 .PP
-The aligned table is read in a terminal, once, by scrolling back through what
-the command left behind. There the aggregate is the cheapest thing to recover
+That is true of how the two are read and did not survive what followed from it
+\(em two default reports to keep in agreement, and a reader who had to know
+which format they asked for. The terminal's narrower default was the better one
+and now serves both. There the aggregate is the cheapest thing to recover
 \(em it is twelve lines and it is at the top \(em while the per\-function
-figures are what you ran the command for. So the aligned table presents
-.BR "Project summary" ,
+figures are what you ran the command for. So a default report presents
+.BR "Project Summary" ,
 .BR Findings ,
+.BR Files ,
 and
 .BR Functions ,
 and nothing else; every other tier is a
 .B \-\-verbose
-away, and every one of them is in a saved report whatever the verbosity.
+away.
 .PP
-The difference is in
+.B Those four are the whole of it, in every format.
+Markdown presents the same four and no others, so you never have to know which
+format you chose before knowing whether an answer is in front of you. This
+requirement once gave the aligned table a narrower default of its own; the
+narrower default was the better one, and it now applies to both.
+.PP
+.B Functions
+is the exception the rule above states rather than a reading of it: by that
+rule it is a detail tier, enumerating one row per analysed entity, and it is
+presented regardless because it is the table
+.B elc
+exists to produce.
+.PP
+What differs between the formats is decoration alone, never
 .I which
-tiers a format presents by default, never in
+tiers are presented and never
 .I what
 a tier says. The
 .B Functions
@@ -1575,14 +1611,31 @@ table on your terminal is the
 .B Functions
 table in your
 .BR report.md ,
-to the row and to the figure.
+to the row and to the figure \(em the terminal states its size in the heading
+and Markdown states it in the fold above the table, which is one fact in two
+idioms.
 .PP
-The summary tiers of the
-.B md
-format, in the order they are presented:
+.B A run on a terminal is framed.
+Where the report is the aligned table, anything
+.B elc
+has to say about reading the source is headed
+.B Parsing Notifications
+and ruled beneath, a blank line closes that block, and the report opens with
+.B Project Summary
+ruled the same width. The banner goes to standard error with the messages it
+heads, so a redirected report carries neither it nor the blank line; a run that
+has nothing to say prints no heading at all.
+.PP
+.B Every word of a section title begins with a capital letter
+\(em
+.BR "At Or Over A Threshold" ,
+.BR "Functions The Image Does Not Define" .
+A parenthesised clause after the title is prose and is left as written.
+.PP
+The summary tiers, in the order they are presented, in either format:
 .RS
 .IP \(bu 2
-Project summary.
+Project Summary.
 .IP \(bu 2
 Findings \(em every measurement that crossed a published line, ranked by
 severity. They come second, ahead of every table that supplies their
@@ -1597,7 +1650,12 @@ Languages \(em the totals broken down by language.
 .IP \(bu 2
 Files \(em each file's own totals.
 .IP \(bu 2
-At or over a threshold \(em the threshold listing: every function at or over
+Functions \(em one row per analysed function, carrying its line range, ELOC,
+cyclomatic complexity, fan\-in, fan\-out, and its Weighted Test Burden Index
+with the band beside it. A detail tier by the rule above and presented
+regardless, which is the exception stated at the head of this section.
+.IP \(bu 2
+At Or Over A Threshold \(em the threshold listing: every function at or over
 the configured complexity threshold, together with every function a
 complexity, fan\-in or fan\-out band names.
 .IP \(bu 2
@@ -1606,7 +1664,7 @@ carrying the notice is a detail tier, but the notice itself is not: an
 analysis nobody declared for is something you must be told at either
 verbosity.
 .IP \(bu 2
-Architecture conformance \(em the two violation indices, which are
+Architecture Conformance \(em the two violation indices, which are
 project\-level aggregates rather than one row per anything.
 .IP \(bu 2
 Conditional\-compilation definitions \(em the configuration in force.
@@ -1614,23 +1672,15 @@ Conditional\-compilation definitions \(em the configuration in force.
 Linked\-image filter \(em the image the run was filtered by, where one was
 named.
 .IP \(bu 2
-Partially parsed files.
+Partially Parsed Files.
 .IP \(bu 2
-Skipped files.
+Skipped Files.
 .RE
 .PP
-The detail tiers of the
-.B md
-format, presented only with
-.BR \-\-verbose
-\(em and, but for
-.BR Functions ,
-the tiers the aligned table also holds back until then:
+The detail tiers, presented only with
+.BR \-\-verbose ,
+in either format:
 .RS
-.IP \(bu 2
-Functions \(em one row per analysed function, carrying its line range, ELOC,
-cyclomatic complexity, fan\-in, fan\-out, and its Weighted Test Burden Index
-with the band beside it.
 .IP \(bu 2
 Recursion, the deepest call chain, component coupling, component dependency
 cycles, and layering \(em the measurements taken over the dependence graph,
@@ -1639,17 +1689,17 @@ finding, and the findings are in the summary.
 .IP \(bu 2
 The dependency structure matrix \(em one row per layer or per directory.
 .IP \(bu 2
-Graph purification \(em one row per function set aside from the
+Graph Purification \(em one row per function set aside from the
 architecture\-recovery view, with the metric and value that classified it and
 what the masking did about it.
 .IP \(bu 2
-Global state, and the globals reachable from nothing.
+Global State, and the globals reachable from nothing.
 .IP \(bu 2
-Unreachable functions, and dead code within functions.
+Unreachable Functions, and dead code within functions.
 .IP \(bu 2
 Cross\-scope access.
 .IP \(bu 2
-Custom rule matches.
+Custom Rule Matches.
 .RE
 .PP
 The functions a linked image does not define are a detail tier too, and are
@@ -1662,7 +1712,7 @@ meets it before the figures it qualifies.
 .PP
 A tier a verbosity reaches but which found no rows is not printed; it is
 named in the closing
-.B Nothing to report
+.B Nothing To Report
 statement instead. A tier a verbosity filtered out appears in neither place,
 which is how a run that found nothing is told apart from a run that did not
 look.
@@ -1911,10 +1961,10 @@ How completely the image could be read: the claim the
 figure makes about the graph, and for the same reason \(em a filter whose
 accuracy is unstated cannot be acted on.
 .TP
-.B Functions the image does not define
+.B Functions The Image Does Not Define
 The finding the option exists to produce. This is dead code established by what
 the linker did, rather than inferred from the call graph as the
-.B Unreachable functions
+.B Unreachable Functions
 section is, so the two are reported separately and neither is presented as the
 other.
 .PP
@@ -1946,7 +1996,7 @@ a function. The image's debug information does, and says which file and which
 line.
 .PP
 Such a function is reported, on a filtered run, under
-.B Functions the image places that the parse did not reach
+.B Functions The Image Places That The Parse Did Not Reach
 \(em with its name and its location, and with no figure of any kind beside it.
 .B elc
 has no body for it, so it has no ELOC, no complexity, no testing burden
@@ -1963,7 +2013,7 @@ only decides where they are. The two disagree ordinarily rather than
 exceptionally: a link that discards unused sections removes the code while the
 compiler's entry describing it stays behind, so a function the link dropped is
 reported under
-.B Functions the image does not define
+.B Functions The Image Does Not Define
 and never here.
 .PP
 Where

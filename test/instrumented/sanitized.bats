@@ -197,7 +197,7 @@ sanitized_run() {
 	sanitized_run "a run reaching graph purification" --verbose \
 		-o "$BATS_TEST_TMPDIR/purified.txt" "$tree"
 	assert_equal "$status" 0
-	grep -q "^Graph purification" "$BATS_TEST_TMPDIR/purified.txt"
+	grep -q "^Graph Purification" "$BATS_TEST_TMPDIR/purified.txt"
 }
 
 @test "HLR-125: a rejected manifest exits leak-clean" {

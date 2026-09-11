@@ -309,6 +309,13 @@ static int build_nodes(const Report *report, Sdg *g)
 			n->eloc       = fm->functions[i].eloc;
 			n->complexity = fm->functions[i].complexity;
 			n->mock_burden = fm->functions[i].mock_burden;
+			n->leaks_lock   = fm->functions[i].leaks_lock;
+			n->cfg_complete = fm->functions[i].cfg_complete;
+			/* Borrowed like every other string here: the report
+			 * model outlives the graph, and NULL wherever the
+			 * source name is the linkage name (HLR-233). */
+			n->linkage_name  = fm->functions[i].linkage_name;
+			n->macro_defined = fm->functions[i].macro_defined;
 		}
 	}
 
@@ -479,11 +486,29 @@ static size_t declared_globals(const FactList *facts, const char **into)
 	return count;
 }
 
+/* The five tables the global objects need, one entry per name.
+ *
+ * Split out because five allocations and their one check are five decision
+ * points in a function whose job is de-duplication, and together they carried
+ * it to fifteen against the threshold `elc` holds its own source to.
+ */
+static int alloc_global_tables(Sdg *out, size_t n)
+{
+	out->global_names    = calloc(n, sizeof *out->global_names);
+	out->global_volatile = calloc(n, sizeof *out->global_volatile);
+	out->global_mmio     = calloc(n, sizeof *out->global_mmio);
+	out->global_shared   = calloc(n, sizeof *out->global_shared);
+	out->global_status   = calloc(n, sizeof *out->global_status);
+
+	return (out->global_names && out->global_volatile &&
+	        out->global_mmio && out->global_shared &&
+	        out->global_status) ? 0 : -1;
+}
+
 /* One owned copy per distinct name, over an already-sorted list. */
 static int intern_distinct(const char *const *declared, size_t count, Sdg *out)
 {
-	out->global_names = calloc(count ? count : 1, sizeof *out->global_names);
-	if (!out->global_names)
+	if (alloc_global_tables(out, count ? count : 1) != 0)
 		return -1;
 
 	for (size_t i = 0; i < count; i++) {
@@ -505,6 +530,38 @@ static int intern_distinct(const char *const *declared, size_t count, Sdg *out)
  * an edge holding a freed fact's string renders as a plausible object name
  * rather than crashing, which is the worst way for it to be wrong (LLR-SDG-12).
  */
+/* Mark the interned names that were declared with the qualifier, and those
+ * whose declaration has the shape of a memory-mapped address (HLR-230,
+ * HLR-231).
+ *
+ * A second pass over the same facts rather than a branch inside the first,
+ * because the marks are per *name* and the names are not interned until the
+ * first pass has finished: a mark recorded against a name that has not been
+ * de-duplicated yet has nowhere to go.
+ */
+static void mark_qualified(const FactList *facts, Sdg *out)
+{
+	for (size_t i = 0; i < facts->count; i++)
+		for (size_t j = 0; j < facts->items[i]->global_count; j++) {
+			const GlobalAccess *g = &facts->items[i]->globals[j];
+			bool  vol  = g->kind == GLOBAL_VOLATILE;
+			bool  mmio = g->kind == GLOBAL_MMIO;
+
+			if (!vol && !mmio)
+				continue;
+
+			for (size_t n = 0; n < out->global_name_count; n++) {
+				if (strcmp(out->global_names[n], g->name) != 0)
+					continue;
+				if (vol)
+					out->global_volatile[n] = true;
+				else
+					out->global_mmio[n] = true;
+				break;
+			}
+		}
+}
+
 static int intern_global_names(const FactList *facts, Sdg *out)
 {
 	const char **declared;
@@ -519,6 +576,8 @@ static int intern_global_names(const FactList *facts, Sdg *out)
 	qsort(declared, count, sizeof *declared, graph_by_string);
 
 	status = intern_distinct(declared, count, out);
+	if (status == 0)
+		mark_qualified(facts, out);
 
 	free(declared);
 	return status;
@@ -884,6 +943,40 @@ cleanup:
 	return status;
 }
 
+/* The declared entry points, as node identifiers (HLR-095).
+ *
+ * A name matching no analysed function is diagnosed and skipped rather than
+ * failing the run: analysing one directory of a project whose entry point
+ * lives in another is ordinary.
+ *
+ * `calltree.c` and `state.c` each hold a private copy of this loop, written
+ * before there was a third caller. They are left alone here — consolidating
+ * them is a change to two working analyses and belongs in its own commit —
+ * but new callers use this one rather than making a fourth.
+ */
+int graph_entry_nodes(const Sdg *g, const ElcOptions *opts, uint32_t **out,
+                      size_t *out_count)
+{
+	uint32_t *nodes = calloc(opts->entry_point_count ?
+	                         opts->entry_point_count : 1, sizeof *nodes);
+	size_t    found = 0;
+
+	if (!nodes)
+		return -1;
+
+	for (size_t i = 0; i < opts->entry_point_count; i++)
+		for (size_t n = 0; n < g->node_count; n++)
+			if (strcmp(g->nodes[n].name,
+			           opts->entry_points[i]) == 0) {
+				nodes[found++] = (uint32_t)n;
+				break;
+			}
+
+	*out       = nodes;
+	*out_count = found;
+	return 0;
+}
+
 size_t graph_unresolved_count(const Sdg *g)
 {
 	return g ? g->unresolved : 0;
@@ -909,6 +1002,10 @@ void graph_free(Sdg *g)
 	for (size_t i = 0; i < g->global_name_count; i++)
 		free(g->global_names[i]);
 	free(g->global_names);
+	free(g->global_volatile);
+	free(g->global_mmio);
+	free(g->global_shared);
+	free(g->global_status);
 	free(g->touches);
 	for (size_t i = 0; i < g->unresolved_name_count; i++)
 		free(g->unresolved_names[i]);

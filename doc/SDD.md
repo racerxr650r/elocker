@@ -1,7 +1,7 @@
 # Software Design Document: elocker (elc)
 
-**Version:** 2.28
-**Date:** 2026-09-02
+**Version:** 2.30
+**Date:** 2026-09-03
 **Author(s):** John Anderson
 
 ## 1. Introduction
@@ -107,8 +107,10 @@ Everything language-specific lives in `runtime/` as data: a Tree-sitter grammar 
 *   Section 26: Detailed design for [src/format_dsm.c](../src/format_dsm.c).
 *   Section 27: Detailed design for [src/report_html.c](../src/report_html.c).
 *   Section 28: Detailed design for [src/annotate.c](../src/annotate.c).
-*   Section 29: Data Dictionary.
-*   Section 30: Traceability.
+*   Section 29: Detailed design for [src/cfg.c](../src/cfg.c).
+*   Section 30: Detailed design for [src/concurrency.c](../src/concurrency.c).
+*   Section 31: Data Dictionary.
+*   Section 32: Traceability.
 
 ## 2. System Overview
 
@@ -1016,7 +1018,7 @@ The Weighted Test Burden Index has no such published ancestor to decline. It is 
 *   Present the findings immediately after the project summary, ahead of every table that supplies their evidence (HLR-182).
 *   Present every per-function figure in one table — lines, ELOC, complexity, fan-in, fan-out, the Mock Burden Score, the weighted fan-out and the Weighted Test Burden Index — rather than in three tables enumerating the same functions (HLR-183, HLR-223).
 *   Emit no table that has no rows, and close the report with a statement naming the ones that were empty, by their full headings (HLR-188, HLR-189).
-*   In the Markdown style alone, place each table inside an HTML `<details>` element stating its row count, beneath a heading that stays a heading (HLR-190).
+*   In the Markdown style alone, present each table openly beneath a `##` heading that states its row count, inside no disclosure element (HLR-190).
 *   Render Markdown with functions grouped under a per-file heading.
 *   Present every tier the uniform-composition rule requires, in both formats.
 *   Classify each tier as a summary or a detail tier, and present the summary tiers alone unless the verbose report was asked for (HLR-150, HLR-151).
@@ -1047,7 +1049,7 @@ The Weighted Test Burden Index has no such published ancestor to decline. It is 
 
 **Verbosity is a second parameter of that same traversal, not a second traversal.** The ordered section list carries, beside each section's render function, the tier it belongs to; the walk emits a section when the verbosity is verbose, when its tier is `TIER_SUMMARY`, or when its analysis was omitted for want of a declaration. That last case is what carries HLR-115's omission notices into the summary: the section is a detail tier, but an omitted analysis produced no rows, so it renders as its heading and the reason in it — which is the notice, and needs no section of its own. A section is therefore written down once and classified once, and the guarantee that a tier cannot exist at one verbosity and not the other holds by the same construction as the guarantee across formats (LLR-SUM-09).
 
-**There are two partitions, in two columns of that one list** (HLR-218, LLR-SUM-19). The aligned table and Markdown default to different tiers, so each section carries two classifications and the style in force selects the column. Two *columns* rather than two lists, and the distinction is the whole of the design: a second array beside the first would satisfy the requirement and give up the property the first exists for, since the next section added would be classified in whichever array its author was looking at and the omission would be invisible until a reader noticed a missing table. A second column cannot be filled in halfway, because the initialiser does not compile without it. The omission predicate is asked about the run rather than the format and so applies under either column.
+**There is one partition, in one column of that one list** (HLR-218, LLR-SUM-19). Each section carries a single classification and the style in force is not consulted: what a default report presents is a property of the report and not of how it is written down. The list carried *two* columns while the aligned table and Markdown defaulted to different tiers — two columns rather than two arrays, so that a section could not be classified in one format and left unclassified in the other — and the second is withdrawn with the second default it served, a classification that must always equal its neighbour being a second place the composition is written down. The omission predicate is asked about the run rather than the format and so applies beside the classification rather than within it.
 
 The partition rule is HLR-150's: a tier presenting a project-level aggregate, a file's own totals, or a finding a reader is expected to act on is a summary tier; a tier enumerating one row per analysed entity is a detail tier. Coupling, the cycles, the layering violations, and the recursive chains fall on the detail side even though each row names a component, because they enumerate the graph one entity at a time — a *file-level aggregate* in the rule's sense is a file's own totals, which is what the Files tier presents. Nothing is lost from the summary by it: each of those measurements that crossed a published line is a finding, and the findings tier is a summary tier.
 
@@ -1073,9 +1075,7 @@ A cell that outran its column is continued on the lines beneath it, divided at a
 
 Determinism is unaffected (HLR-032). 128 is a constant rather than the terminal's own width, nothing is read from `COLUMNS` or the locale, and the stream is asked one yes-or-no question whose answer selects between two fixed presentations — so two runs to the same kind of destination produce identical bytes.
 
-**In the Markdown style each table is folded behind a disclosure element** (HLR-190). The report runs to hundreds of rows on any real project, and a reader opening it wants to choose which of them to look at. The section's `##` heading stays a heading and stays outside the element — it is what anchors the section, what a table of contents is built from, and what the composition tests read the report's shape off — so the `<summary>` states the row count instead, which is the one thing the heading above it does not already say. The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
-
-The blank lines on either side of the table are load-bearing. GitHub-Flavored Markdown parses the contents of an HTML block as Markdown only where a blank line separates the two, and without them the table renders as its own source text.
+**In the Markdown style each table stands open beneath its heading** (HLR-190). Each was folded behind a disclosure element until Phase 34, so that a reader opening a report of hundreds of rows chose which to look at. That cost two properties worth more than the brevity: text inside a closed `<details>` is reached by no browser's find and no host's search, so a reader was told a function was absent when it was present; and a fragment pointing into a hidden element scrolls to nothing, which made every cross-reference of HLR-241 a link that did not work. The row count moved to the `##` heading, where the aligned table already states it (HLR-235). The count comes from the rows about to be emitted; the project summary, which is not built from a grid, gathers its figures into an array first so that its count is derived from the same place its rows are.
 
 The table is laid out in tiers, each introduced by a heading and indented beneath it:
 
@@ -2023,7 +2023,60 @@ The pigment. This module says a node is critical; `format_graph.c` decides that 
 *   `graph.h` and `report.h` for the two collections it walks, and `thresholds.h` for the severity ranking and the catalogue lookups — the judgement it places and never forms (HLR-099).
 *   Depended upon by `format_graph.c` and `report_html.c`, which is the whole reason it exists: two drawings of one graph reading one set of answers rather than deriving two (HLR-217).
 
-## 29. Data Dictionary
+
+## 29. Detailed Design for [src/cfg.c](../src/cfg.c)
+
+### 29.1 Purpose and Responsibilities
+[src/cfg.c](../src/cfg.c) builds a control-flow graph for one function from its parse, and answers path questions over it. The first analysis in `elc` that is about the routes *through* a function rather than a count over it.
+
+*   Construct basic blocks and the edges between them from a function's syntax tree, covering `if`/`else`, the three loop forms, `switch` with its fallthrough, `goto` and its labels, `break`, `continue`, and every `return` (HLR-229).
+*   Answer, for a set of marked acquisitions and releases, whether every path from an acquisition reaches every exit through a release — and name a path that does not.
+*   Report a function whose control flow cannot be constructed as *not analysed*, never as safe. A silent pass claims a proof that was not attempted, which is the failure mode this module most has to avoid (HLR-138).
+
+
+### 29.3 Internal Structure
+#### 29.3.1 Key Functions
+
+*   **`int cfg_build(TSNode body, const LanguageModule *lang, const char *data, Cfg *out)`** — Construct the control-flow graph of one function body. Blocks are spans of the source; edges carry the condition that selects them where a construct has one. A construct the language module does not describe leaves the graph incomplete and marked so, since a graph missing an edge answers path questions wrongly rather than not at all.
+*   **`bool cfg_leaks(const Cfg *g, const MarkSet *acquire, const MarkSet *release, CfgPath *out)`** — Whether any path from an acquisition reaches an exit without a release, and the first such path found. Depth-first with the visited set keyed on (block, held count), so a loop is entered once per distinct lock state rather than once — a lock taken inside a loop and released after it is not a leak, and a search keyed on the block alone cannot tell the two apart.
+*   **`void cfg_free(Cfg *g)`** — Release the blocks, the edges, and the retained path.
+### 29.4 Dependencies
+
+*   The parser, for the syntax tree the graph is built from.
+*   `src/registry.c`, for the language's control-flow and synchronisation queries.
+
+### 29.5 Error Handling and Logging
+
+*   **A construct the module does not describe** The graph is marked incomplete and the function is reported as not analysed, with the construct named (HLR-138).
+
+## 30. Detailed Design for [src/concurrency.c](../src/concurrency.c)
+
+### 30.1 Purpose and Responsibilities
+[src/concurrency.c](../src/concurrency.c) identifies the asynchronous roots, marks the functions both threads of control can be inside, validates their critical sections over the control flow, and checks the qualifier on the state they share.
+
+*   Identify asynchronous roots by the four conditions of HLR-227, and record which of them supplied each root, since a root inferred from a pattern is a weaker claim than one inferred from an address.
+*   Mark as re-entrant the intersection of what the declared entry points reach and what the asynchronous roots reach, over call edges alone (HLR-228).
+*   Declare the analysis omitted, with the reason, where no root set could be identified — never substituting every function of in-degree zero for one (HLR-115, HLR-227).
+*   Classify each global object's qualifier against the trees that reach it (HLR-230, HLR-231).
+
+
+### 30.3 Internal Structure
+#### 30.3.1 Key Functions
+
+*   **`int concurrency_roots(const Sdg *g, const ElcOptions *opts, const SymbolSet *image, RootSet *out)`** — The asynchronous roots, by HLR-227's four conditions: not a declared entry point, in-degree zero, live in the image, and either address-taken or matching the supplied pattern. Returns an empty set with its reason recorded where no image and no pattern were given — which the caller reports as an omission rather than as a finding of none.
+*   **`int concurrency_reentrant(const Sdg *g, const NodeSet *entries, const RootSet *async, NodeSet *out)`** — The intersection of what each root set reaches over call edges. The traversal is `state.c`'s, run twice against different roots rather than reimplemented: two walks that could disagree about what an edge is are two answers to one question.
+*   **`int concurrency_qualifiers(const Sdg *g, const NodeSet *main_tree, const NodeSet *async_tree, FindingList *out)`** — Each global object classified by the trees that touch it: shared and unqualified is critical (HLR-230); qualified and confined to one tree is a warning, except where the declaration has the shape of a memory-mapped register (HLR-231).
+### 30.4 Dependencies
+
+*   `src/graph.c`, for the call view and the address-taken fact.
+*   `src/elfsyms.c`, for the symbols that survived the linker.
+*   `src/cfg.c`, for the path questions of HLR-229.
+
+### 30.5 Error Handling and Logging
+
+*   **No image and no pattern** The whole analysis is omitted and the omission stated, naming what would supply the root set (HLR-115).
+*   **A re-entrant function whose control flow is incomplete** Reported as not analysed rather than as safe (HLR-138).
+## 31. Data Dictionary
 
 *   **`ElcOptions`** (defined in [include/elc.h](../include/elc.h)) — The complete, validated configuration of one run. Populated only by cli.c and read-only thereafter.
 
@@ -2099,6 +2152,11 @@ The pigment. This module says a node is critical; `format_graph.c` decides that 
 | `complexity` | `uint32_t` | 1 + decision points |
 | `fan_in, fan_out` | `uint32_t, uint32_t` | The flow degrees, attached to the function rather than kept in a table beside it (HLR-183). analyze.c cannot fill them — they are properties of the whole-project graph, not of one file's syntax — so they are zero until report_attach_flow runs, and zero is also the measured value for a function at either end of the call graph |
 | `node_id` | `uint32_t` | Index of this function's SDG node |
+| `linkage_name` | `char *` | The name the linker knows this function by, where the image names it something other than the source does; NULL otherwise, which is every ordinary function and every run with no image. A function-shaped macro that writes a definition frequently renames it — `ISR(TCB0_INT_vect)` defines `__vector_12` — so the two are different strings for one function and a filter matching on the name discards it as absent. The join is by where the definition begins, not by name (HLR-233, HLR-193) |
+| `macro_defined` | `bool` | Whether the definition was written through a function-shaped macro rather than spelled out, from the language's own query. The evidence HLR-227 admits an interrupt handler on: a macro that writes a definition nothing calls exists to attach that body to something the source never names (HLR-233) |
+| `is_reentrant` | `bool` | Whether both threads of control can be inside this function. On the record as well as on the graph node, because the table renders from the report and the report outlives the graph (HLR-228) |
+| `is_interrupt` | `bool` | Whether this function begins the second thread of control — an asynchronous root admitted on evidence that names it a handler rather than merely an uncalled function. Mutually exclusive with is_reentrant by construction, a root having an in-degree of zero, so one report column carries both (HLR-233) |
+| `has_critical_section` | `bool` | Whether any critical section was found in this function at all, a scoped guard included — which acquires nothing an acquisition/release pair would show, so it cannot be read off the acquisition list (HLR-234) |
 *   **`FileMetrics`** (defined in [include/elc.h](../include/elc.h)) — Per-file totals and the functions the file defines.
 
     | Field | Type | Description |
@@ -2545,7 +2603,7 @@ The failure is recorded here rather than merely fixed because nothing about it i
 *   Every one of these is released on error paths as well as the success path. A run ending in an invalid target or a rejected record must still exit leak-clean, which means teardown cannot live only at the bottom of a successful pipeline.
 
 **Consequence for the igraph build.** `elc` writes GraphML itself, so igraph's own GraphML reader and writer are unused — and enabling them links a second XML library the project has no other need for. igraph must therefore be built with `IGRAPH_GRAPHML_SUPPORT` **off**. A distribution package built with it enabled reintroduces that dependency transitively, so the condition is checked at configure time rather than assumed; `make check-prereqs` reports it.
-## 30. Traceability
+## 32. Traceability
 
 The following table maps the high-level requirements in
 [doc/HLRs.md](HLRs.md) and the low-level requirements in

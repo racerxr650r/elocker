@@ -494,6 +494,89 @@ void originmap_free(OriginMap *origins)
 	memset(origins, 0, sizeof *origins);
 }
 
+/* Append one directory, made absolute and only if it is new (HLR-238).
+ *
+ * De-duplicated on the way in rather than sorted afterwards, because the order
+ * is the order the flags are passed in and must be the order the units were
+ * walked in: `-I` search order is significant, and sorting it would hand the
+ * preprocessor a different search path from the one the build used.
+ */
+static int dirs_add(IncludeDirs *dirs, const char *path, const char *comp_dir)
+{
+	char *joined = absolute(path, comp_dir);
+
+	if (!joined)
+		return -1;
+
+	for (size_t i = 0; i < dirs->count; i++)
+		if (strcmp(dirs->paths[i], joined) == 0) {
+			free(joined);
+			return 0;
+		}
+
+	if (dirs->count == dirs->capacity) {
+		size_t  next   = dirs->capacity ? dirs->capacity * 2 : 8;
+		char  **bigger = realloc(dirs->paths, next * sizeof *bigger);
+
+		if (!bigger) {
+			free(joined);
+			return -1;
+		}
+		dirs->paths    = bigger;
+		dirs->capacity = next;
+	}
+
+	dirs->paths[dirs->count++] = joined;
+	return 0;
+}
+
+/* One compilation unit's include-directory table (HLR-238).
+ *
+ * Entry 0 of the table is the unit's own compilation directory, which is not
+ * an include path and is skipped: passing it as `-I` would put the build's
+ * working directory on the search path of every file, which is a path the
+ * compiler only searched for that unit's own relative includes.
+ */
+static int unit_dirs(Dwarf_Die *cu, IncludeDirs *dirs)
+{
+	Dwarf_Files       *files = NULL;
+	const char *const *table  = NULL;
+	size_t             nfiles = 0;
+	size_t             ndirs  = 0;
+	Dwarf_Attribute    attr;
+	const char        *comp_dir = NULL;
+
+	if (!dirs)
+		return 0;
+	if (dwarf_getsrcfiles(cu, &files, &nfiles) != 0)
+		return 0;   /* no file table; not a failure */
+	if (dwarf_getsrcdirs(files, &table, &ndirs) != 0)
+		return 0;
+
+	if (dwarf_attr(cu, DW_AT_comp_dir, &attr))
+		comp_dir = dwarf_formstring(&attr);
+
+	for (size_t i = 1; i < ndirs; i++) {
+		if (!table[i] || table[i][0] == '\0')
+			continue;
+		if (dirs_add(dirs, table[i], comp_dir) != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
+void includedirs_free(IncludeDirs *dirs)
+{
+	if (!dirs)
+		return;
+
+	for (size_t i = 0; i < dirs->count; i++)
+		free(dirs->paths[i]);
+	free(dirs->paths);
+	memset(dirs, 0, sizeof *dirs);
+}
+
 /* One compilation unit's line table into the coverage set. */
 static int unit_lines(Dwarf_Die *cu, LineCoverage *out)
 {
@@ -557,13 +640,46 @@ static int unit_lines(Dwarf_Die *cu, LineCoverage *out)
 	return 0;
 }
 
-int dwarfline_read(void *elf, LineCoverage *out, OriginMap *origins)
+/* Every compilation unit the image describes, gathering all three answers in
+ * one pass.
+ *
+ * One walk rather than three, because the unit is what is expensive to reach:
+ * `dwarf_nextcu` and `dwarf_offdie` are the cost, and asking three questions
+ * of a unit already in hand is nearly free. Split from its caller because the
+ * two together stood at fifteen against the threshold `elc` enforces on
+ * everyone else, and said so of itself (LLR-BLD-23).
+ */
+static int walk_units(Dwarf *dw, LineCoverage *out, OriginMap *origins,
+                      IncludeDirs *dirs)
+{
+	Dwarf_Off offset      = 0;
+	Dwarf_Off next        = 0;
+	size_t    header_size = 0;
+
+	while (dwarf_nextcu(dw, offset, &next, &header_size, NULL, NULL,
+	                    NULL) == 0) {
+		Dwarf_Die  storage;
+		Dwarf_Die *cu = dwarf_offdie(dw, offset + header_size,
+		                             &storage);
+
+		if (cu && unit_lines(cu, out) != 0)
+			return -1;
+		if (cu && origins && unit_origins(cu, origins) != 0)
+			return -1;
+		if (cu && unit_dirs(cu, dirs) != 0)
+			return -1;
+
+		offset = next;
+	}
+
+	return 0;
+}
+
+int dwarfline_read(void *elf, LineCoverage *out, OriginMap *origins,
+                   IncludeDirs *dirs)
 {
 	Dwarf     *dw;
-	Dwarf_Off  offset      = 0;
-	Dwarf_Off  next        = 0;
-	size_t     header_size = 0;
-	int        status      = -1;
+	int        status = -1;
 
 	memset(out, 0, sizeof *out);
 	if (origins)
@@ -581,18 +697,8 @@ int dwarfline_read(void *elf, LineCoverage *out, OriginMap *origins)
 	if (!dw)
 		return 0;   /* no debug information; not a failure */
 
-	while (dwarf_nextcu(dw, offset, &next, &header_size, NULL, NULL,
-	                    NULL) == 0) {
-		Dwarf_Die  storage;
-		Dwarf_Die *cu = dwarf_offdie(dw, offset + header_size, &storage);
-
-		if (cu && unit_lines(cu, out) != 0)
-			goto cleanup;
-		if (cu && origins && unit_origins(cu, origins) != 0)
-			goto cleanup;
-
-		offset = next;
-	}
+	if (walk_units(dw, out, origins, dirs) != 0)
+		goto cleanup;
 
 	compact(out);
 	if (origins && origins->count > 1)
@@ -605,6 +711,7 @@ cleanup:
 	if (status != 0) {
 		dwarfline_free(out);
 		originmap_free(origins);
+		includedirs_free(dirs);
 	}
 	return status;
 }

@@ -1,7 +1,7 @@
 # Low-Level Requirements
 
-**Version:** 2.25
-**Date:** 2026-09-02
+**Version:** 2.28
+**Date:** 2026-09-03
 **Author(s):** John Anderson
 
 ## 1. `main` ([src/main.c](../src/main.c))
@@ -623,6 +623,20 @@ Note on the division of labour, which determines where a failure lives: the requ
     A blank line shall be skipped rather than counted. It produces no instruction in any build, so its absence from the mapping says nothing about this one, and counting it would inflate the figure of HLR-155 with lines no measurement rested on.
     *Trace:* HLR-153 (Debug-Line Pruning From the Image), HLR-154 (Pruning Confined to Established Coverage), HLR-155 (Debug-Line Pruning Recorded and Reported), HLR-145 (Code Outside Any Function Retained and Separately Reported).
 
+*   <a id="LLR-ANL-63"></a>**LLR-ANL-63** — `collect_absent_functions` shall, for a parsed definition the image does not define under its source name, take as that definition's linkage name the one symbol the image's debug information places inside it — and only where exactly one kept symbol falls in its span and exactly one parsed definition in the file contains that symbol's line (HLR-233, HLR-193).
+
+    **The join is by place because the names do not match.** A function-shaped macro renames what it defines, so `ISR(TCB0_INT_vect)` writes `__vector_12`, and the filter of HLR-140 comparing names discards a definition the linker plainly kept.
+
+    Three constraints, each of which the join is wrong without. The symbol table governs and not the debug information: a link that discards unused sections leaves subprogram entries describing code the image no longer contains, and an alias to one of those resurrects a function that is not there (LLR-RPT-24). Ambiguity in either direction — two kept symbols in one body, or one symbol's line inside a nested pair of definitions — shall leave the function absent, which is where it was before the join existed and is an answer a reader can see rather than a guess they cannot. And the pass shall gather every definition in the file before judging any of them, since the second constraint is a question about the *other* definitions that no one-match-at-a-time loop can answer.
+    *Trace:* HLR-233, HLR-193, HLR-140.
+
+*   <a id="LLR-ANL-64"></a>**LLR-ANL-64** — `collect_functions` shall mark a definition the language's query reports through `@function.wrapper` as macro-written, and `collect_sync` shall record a `@sync.scoped` capture apart from the acquisitions and releases, as a balanced region (HLR-233, HLR-234).
+
+    Both facts come from the query file and neither names a macro in the binary: which macros write definitions and which guard blocks is a property of a project's idiom, not of C (HLR-009).
+
+    The scoped region shall not enter the acquire/release lists. It releases on every exit from the region, `return` included; recorded as a pair, the release would fall after the return on that path and HLR-229 would report a leak on the one construct that cannot leak. It shall set the function's has-a-critical-section fact, so that a section invisible to the pair is not mistaken for the absence of one.
+    *Trace:* HLR-233, HLR-234, HLR-009.
+
 *   <a id="LLR-ANL-59"></a>**LLR-ANL-59** — `analyze_file` shall establish the absent set in a pass of its own over the function query rather than as a test inside the pass that records functions, since query matches arrive in no source order and a function nested inside an omitted one would otherwise be recorded before the omission that contains it was known.
     *Trace:* HLR-144 (Scope of the Filter), HLR-032 (Deterministic Output).
 
@@ -942,6 +956,13 @@ Global-state coupling, execution-scope isolation, and reachability.
 *   <a id="LLR-STA-04"></a>**LLR-STA-04** — `state_analyse` shall perform the global-access mapping whether or not any declaration was supplied, so that omitting one analysis for want of a declaration does not omit its neighbours.
     *Trace:* HLR-115 (Analyses Requiring User Declarations), HLR-091.
 
+*   <a id="LLR-STA-05"></a>**LLR-STA-05** — `collect_roots` shall include every asynchronous root in the reachability root set beside the declared entry points and the address-taken functions, and the asynchronous roots shall therefore be identified before the measurements that read them (HLR-096, HLR-233).
+
+    **Nothing in the analysed source calls an interrupt handler — that is half of what makes it one** — so the traversal cannot reach it, and without this every handler and everything beneath it is reported as dead code. `elc` said exactly that of a bare-metal target: eleven vectors and the whole event and queue subsystem below them listed as unreachable on one page, while the next page listed the same functions as the roots of the second thread of control. Two tables of one run contradicting each other is the failure this closes.
+
+    The ordering is the requirement and not an implementation convenience: root identification reads the graph and no measurement, so there is nothing for it to run after.
+    *Trace:* HLR-096, HLR-233, HLR-227.
+
 ## 29. `classify_globals` ([src/state.c](../src/state.c))
 
 *   <a id="LLR-GLB-01"></a>**LLR-GLB-01** — `classify_globals` shall report, for every global object, the set of functions that write it and the set that read it.
@@ -1075,6 +1096,15 @@ Evaluation of every measurement against the published threshold catalogue, and a
 
     A high value is the bad one here, so the comparison shall be the ordinary one. The catalogue carries an `inverted` flag because the retired Adapted Maintainability Index ran the other way; no row runs that way now, and the flag stays because a measurement that does is a measurement the catalogue must be able to hold rather than one it must be rewritten for.
     *Trace:* HLR-224 (Testing Burden Threshold Classification), HLR-099 (Threshold Attribution).
+
+*   <a id="LLR-THR-21"></a>**LLR-THR-21** — `thresholds_apply` shall raise one finding per call offending against the declared layering and one per edge crossing a declared execution scope, so that the findings table carries every defect the run found (HLR-237, HLR-079, HLR-118, HLR-094).
+
+    Each shall run only where its analysis was measured — a run declaring no strata has no layering to offend against, and one declaring no scopes no boundary to cross — so an omitted analysis contributes no findings and is stated as omitted rather than as clean (HLR-115).
+
+    The detail shall name the other end of the edge and what it crossed: for a layering violation the callee and whether the call bypassed layers or ran against the declared direction, and for a crossing the two scope names and whether it was a call or a shared object. The subject and location are the *offending* end, which is where a reader goes to fix it.
+
+    Both shall be attributed to the user's declaration rather than to a published source or to `elc`'s own heuristic — a third attribution class, spelled once in `thresholds.h` beside the second (HLR-099).
+    *Trace:* HLR-237, HLR-079, HLR-118, HLR-094, HLR-099.
 
 ## 35. `report_assemble` ([src/report.c](../src/report.c))
 
@@ -1275,9 +1305,11 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-SUM-13"></a>**LLR-SUM-13** — `render_summary` shall present the recovered layering as a detail tier in both human-facing formats, stating in its heading that what follows is a proposal and never the baseline conformance is measured against, and shall present the proposal itself as the argument list `--stratum` and `--stratum-order` accept rather than as prose. A table of layers printed under an architecture report is otherwise easy to read as a verdict; and rendering the proposal as arguments is what makes adoption a copy rather than a transcription, and is the boundary HLR-173 draws in the one form a reader cannot mistake for a measurement. Where no layering could be read the heading shall say which of the two reasons applied, and where the view was cyclic the mutually reachable groups shall be listed in place of the layers.
     *Trace:* HLR-173 (A Recovered Layering Is a Proposal, Never a Baseline), HLR-172, HLR-150, HLR-031.
 
-*   <a id="LLR-SUM-14"></a>**LLR-SUM-14** — `render_summary` shall present every analysed function in one table carrying its file, name, scope, line range, effective lines, cyclomatic complexity, fan-in, fan-out, Weighted Test Burden Index and the band of that index, and shall present no second table enumerating one row per function for any of those measurements.
+*   <a id="LLR-SUM-14"></a>**LLR-SUM-14** — `render_summary` shall present every analysed function in one table carrying its file, language, name, scope, whether it is re-entrant, line range, effective lines, cyclomatic complexity, fan-in, fan-out, Weighted Test Burden Index and the band of that index, and shall present no second table enumerating one row per function for any of those measurements.
 
-    The column headings shall be short enough that the file's path keeps the width. On a terminal the table is held to 128 columns (HLR-219) and the path is the cell that pays for every heading longer than its column needs: `Complexity`, `Visibility`, `Fan-in` and `Fan-out` each cost the path more than they told a reader, and are `CC`, `Scope`, `In` and `Out`.
+    **Re-entrancy is shown as a mark or as nothing, never as a word in every row.** The column is scanned down for the few functions two threads of control can be inside; spelling an answer on every other row would be a column of noise with the signal hidden in it (HLR-228).
+
+    The column headings shall be short enough that the file's path keeps the width. On a terminal the table is held to 128 columns (HLR-219) and the path is the cell that pays for every heading longer than its column needs: `Complexity`, `Visibility`, `Fan-in`, `Fan-out` and `Language` each cost the path more than they told a reader, and are `CC`, `Scope`, `In`, `Out` and `Lang`.
 
     **A heading is not the vocabulary under it.** The scope column is headed `Scope` for width, and the values in it stay the `public` and `private` HLR-209 requires: the heading names the question and the cells answer it, and shortening the one does not re-word the other.
 
@@ -1307,14 +1339,25 @@ The single place every reported collection is ordered. The audit point for deter
     The count shall be taken from the rows about to be emitted. The project summary is not built from a grid and shall gather its figures before printing any of them, so that its count is derived from the same array the rows are, rather than written down beside it.
     *Trace:* HLR-190 (Markdown Tables Presented Behind a Disclosure Element), HLR-029 (Markdown Output Format).
 
-*   <a id="LLR-SUM-19"></a>**LLR-SUM-19** — `render_summary` shall carry **two** tier classifications for each section — one for the Markdown style and one for the aligned style — and shall select between them by the style already in force for the traversal. At the summary verbosity the aligned style shall present the project summary, the findings and the per-function table alone; the Markdown style shall present the tiers LLR-SUM-09 enumerates (HLR-218).
+*   <a id="LLR-SUM-19"></a>**LLR-SUM-19** — `render_summary` shall carry **one** tier classification per section, applied whatever the style in force, and at the summary verbosity shall present the project summary, the findings, the file totals and the per-function table alone (HLR-150, HLR-218).
 
-    The two classifications shall be **two fields of the one ordered section list**, never a second list beside it. A second list would satisfy the requirement and destroy the property the first one exists for: a section is written down once and classified where it is written, so there is nowhere to forget it, and a section added to one list and not the other would be silently unclassified in a format until a reader noticed a missing table. A second field cannot be filled in halfway, because the initialiser does not compile without it.
+    **This carried two classifications per section, and the second is withdrawn rather than left to agree with the first.** While the aligned table and Markdown defaulted to different tiers, the two lived in two columns of the one ordered section list — two columns rather than two lists, so that a section could not be classified in one format and left unclassified in the other. With one composition the second column would hold a value that must always equal the first, which is a second place the composition is written down and the one that drifts is the one nothing compiles.
 
-    The omission predicate of LLR-SUM-09 shall apply under either classification. It asks a question about the *run* and not about the format — whether an analysis was skipped for want of a declaration — so a detail section carrying such a notice is reached at the summary verbosity in both styles, and its heading reaches the reader through the closing statement in both.
+    The style shall not be consulted when the filter is applied. What a default report presents is a property of the report, not of how it is being written down, and a renderer that asked the style would be the mechanism by which the two defaults could part again.
 
-    Nothing in this requirement shall change what a tier presents. A tier reached in both styles shall present the same rows and the same figures; only whether a style reaches it without being asked may differ (HLR-031).
-    *Trace:* HLR-218 (The Terminal Report's Own Composition), HLR-150 (Summary Report by Default), HLR-151 (Verbose Report on Request), HLR-031 (Uniform Report Composition Across Formats).
+    The omission predicate of LLR-SUM-09 continues to apply beside the classification. It asks a question about the *run* and not about the format — whether an analysis was skipped for want of a declaration — so a detail section carrying such a notice is reached at the summary verbosity and its heading reaches the reader through the closing statement.
+
+    Nothing in this requirement shall change what a tier presents. A tier reached in both styles shall present the same rows and the same figures; only the decoration may differ (HLR-031).
+    *Trace:* HLR-218 (One Composition for Every Human-Readable Format), HLR-150 (Summary Report by Default), HLR-151 (Verbose Report on Request), HLR-031 (Uniform Report Composition Across Formats), HLR-235.
+
+*   <a id="LLR-SUM-26"></a>**LLR-SUM-26** — `grid_render_table` shall write the row count in parentheses after the heading of a grid whose tier asked for one, and the plain heading otherwise (HLR-235).
+
+    **Asked for by the tier and answered at render time**, which the two halves of the design each require. A flag rather than a count built into the heading string, because the count is not known when the heading is — rows arrive after `grid_begin`; and a flag set by the tier rather than by the renderer, because which tables state their size is a decision about the report and not about the aligned style, and a renderer testing headings by name would be a second place the composition is written down.
+
+    The heading recorded for HLR-189's closing statement shall carry **no** count. A grid with no rows is named there rather than printed, and a size stated for a table that was never rendered would be a figure describing nothing (HLR-188).
+
+    The count shall be the number of rows the grid holds, so that the figure and the table beneath it cannot disagree — including where HLR-219 has narrowed the table, which changes how a row is laid out and never how many there are.
+    *Trace:* HLR-235, HLR-188, HLR-189.
 
 *   <a id="LLR-SUM-20"></a>**LLR-SUM-20** — The aligned style shall hold its lines to 128 columns where — and only where — the stream it is writing to is a terminal, determined by asking that stream and not by an option, an environment variable, or a value threaded from the caller (HLR-219).
 
@@ -1512,6 +1555,13 @@ The single place every reported collection is ordered. The audit point for deter
 *   <a id="LLR-XRD-18"></a>**LLR-XRD-18** — `xml_read_report` shall restore the classifications and the thresholds a record carries as the run rendered them, recomputing no centrality, and shall reject as malformed a classification element lacking the class, the metric, the value, or the action. A regenerated report must say what the run it describes said rather than what this build would conclude today; and a classification without the number that produced it is precisely what HLR-174 forbids reporting, so it is rejected rather than half-read.
     *Trace:* HLR-174 (Purification Reported Before It Is Relied On), HLR-056, HLR-058.
 
+*   <a id="LLR-XRD-20"></a>**LLR-XRD-20** — `xml_read_report` shall allocate the dependency matrix's grid from the subject count rather than on the first cell element, so that a record carrying subjects and no non-zero cell is restored as a matrix of zeroes and not as a subject list with no grid (HLR-056, HLR-166).
+
+    **A record writes only its non-zero cells.** A matrix over one component, or over several that never call each other, therefore carries `dsm-subject` elements and no `dsm-cell` element at all — which is the commonest shape a small tree produces, not a corner. Allocated on the first cell alone, the grid of such a record stays null while its count says there are subjects, and the renderer walks a null pointer over `count × count` cells: `--from-xml --verbose` faulted on almost any record.
+
+    The grid shall be made whether or not any cell element was seen, since the renderer reads every cell of the square whatever it holds.
+    *Trace:* HLR-056, HLR-166, HLR-125.
+
 *   <a id="LLR-XRD-19"></a>**LLR-XRD-19** — `xml_read_report` shall restore the recovered layering as the record states it, re-deriving nothing, and shall read it back as a proposal and never as a declaration: the strata state, the layering rows, and the conformance indices of a regenerated report shall be exactly what the record carries, so that a report regenerated from a run with no declared strata reports those analyses as omitted just as that run did. What a regenerated report presents is what the run it describes proposed, and a record read as a declaration would make `elc` measure against its own proposal one remove away from where HLR-173 forbids it.
     *Trace:* HLR-173 (A Recovered Layering Is a Proposal, Never a Baseline), HLR-056, HLR-115.
 
@@ -1623,6 +1673,38 @@ The single place every reported collection is ordered. The audit point for deter
     *Trace:* HLR-143 (Both Directions of Mismatch Counted and Reported).
 
 ## 49.1. `dwarfline_read` ([src/dwarfline.c](../src/dwarfline.c))
+
+*   <a id="LLR-DWL-10"></a>**LLR-DWL-10** — `dwarfline_read` shall gather the compile-time include directories from each unit's file table, skipping entry 0, and shall hand them back absolute, de-duplicated, and in the order first seen (HLR-238).
+
+    **Entry 0 is the unit's compilation directory and is not an include path.** Passing it as a search path would put the build's working directory on the search path of every file, where the compiler consulted it only for that unit's own relative includes.
+
+    De-duplicated on the way in rather than sorted afterwards, because the order is the order the flags are passed in: search order is significant to a preprocessor, and sorting would hand it a different search path from the one the build used. A relative entry shall be joined to its unit's `DW_AT_comp_dir` by the same function the file names use, so one rule makes a path absolute.
+
+    An image with no debug information, or a unit with no file table, shall contribute no paths and shall not be a failure.
+    *Trace:* HLR-238, HLR-141.
+
+*   <a id="LLR-ELF-09"></a>**LLR-ELF-09** — `elfsyms_open` shall record what the image was built for and whether it carried debug information, both from the descriptor it already holds open (HLR-239, HLR-141).
+
+    The target shall be the device name where a note section records one, and the architecture named by the ELF header otherwise, with both where both are known. The architecture names shall be a table in this module rather than a library call: the name lives in elfutils' `libebl`, which is an internal backend and not a published interface, and a machine absent from the table shall be reported by its number rather than guessed at.
+
+    **The note shall be walked with `gelf_getnote` and not scanned raw.** A note's name and descriptor are each padded to four bytes and the owner string sits in the same buffer immediately before the descriptor — a raw scan finds the owner, `AVR`, and reports the architecture as its own device. Within the descriptor the device name is taken as the first printable NUL-terminated run of two characters or more, which is the string table's first entry: the numeric prefix before it is version-dependent, and decoding fields whose meaning may change would be a stricter claim than the report needs.
+
+    Debug information shall be recorded as present where any of the three things the line reader gathers was found, so that the flag and the analyses that depend on it cannot disagree.
+    *Trace:* HLR-239, HLR-141.
+
+*   <a id="LLR-ELF-10"></a>**LLR-ELF-10** — `elfsyms_device_flag` shall return the option that selects the image's device, as a fresh allocation the caller owns, or NULL where the image named no device or the machine has no spelling in the table (HLR-240).
+
+    The spelling is the toolchain's, and a machine absent from the table shall yield nothing rather than a guessed option: a flag a compiler rejects turns a run that would have expanded into one that falls back, which is worse than the fallback this exists to prevent. The table is one entry today and is a table so that a second machine recording a device is a row rather than a rewrite.
+    *Trace:* HLR-240.
+
+*   <a id="LLR-ANL-65"></a>**LLR-ANL-65** — `build_flags` shall assemble the preprocessor's flags in one order: the image's device option, the flags the user supplied, the image's include paths, and the `-D` definitions (HLR-238, HLR-240).
+
+    **The device option leads and the include paths follow.** The two placements say the same thing by opposite means, because the options behave differently: `-mmcu` is last-wins, so the user's own must come after the image's to override it, while an include path earlier in the list is searched first, so the user's must come before. Where the user and the image disagree, the user wins — the order of authority a `-D` already has over a region the image would otherwise decide (HLR-208).
+
+    **Every entry shall be owned, the user's flags copied rather than borrowed.** That costs a handful of small allocations per file and removes the index bookkeeping two borrowed ranges either side of an owned one would need, which is what the list became once a flag had to lead it. One loop then releases the whole list, on every path (HLR-125).
+
+    A run with no image shall pass exactly the flags it passed before, so the feature costs a run that cannot use it nothing.
+    *Trace:* HLR-238, HLR-208.
 
 *   <a id="LLR-DWL-01"></a>**LLR-DWL-01** — `dwarfline_read` shall obtain the image's debug line information from the ELF descriptor `elfsyms_open` already holds, using the low-level DWARF interface and never the `Dwfl` layer above it. That layer resolves separate debug information by `.gnu_debuglink` and build-id, which opens a file under a separate-debug directory the user never named — forbidden by HLR-141.
 
@@ -2028,6 +2110,15 @@ The diagnostic stream, and the debug companion that records it. The one module h
     The bytes standard error receives shall be identical whether or not a companion is open. The companion records a run and is not a result of one; a diagnostic aid that altered what it observed would be worse than none (HLR-194).
     *Trace:* HLR-194 (The Debug Companion), HLR-038.
 
+*   <a id="LLR-DBG-06"></a>**LLR-DBG-06** — `diag_banner` shall record the title this run heads its diagnostics with, and `diag_printf` shall write that banner — the title and a rule of 128 `-` — before the first diagnostic and never again (HLR-236).
+
+    **Written on the first diagnostic rather than where it was asked for**, because a run that diagnoses nothing must print no heading, and whether a run will diagnose anything is not known until it does. The recorded title is cleared as it is written, which is what makes "once" a property of the module rather than of its caller.
+
+    It goes to standard error, with the diagnostics it heads: a banner on the results stream would head nothing, HLR-038 keeping the messages on the other one.
+
+    The rule width is spelled in this module rather than shared with the renderer. `diag.c` knows nothing about a report, and a dependency on `format_text.c` for a constant would run the wrong way against the layering the acyclicity gate enforces (HLR-084).
+    *Trace:* HLR-236, HLR-038, HLR-188.
+
 *   <a id="LLR-DBG-02"></a>**LLR-DBG-02** — `diag_open` shall write the invocation at the head of the companion, and shall leave the module inert where it is given no path — every later call then writing to standard error alone, so that no call site tests whether a companion exists.
 
     A companion that cannot be opened shall be a diagnostic and a recorded failure rather than a fatal one: the user asked for a report and a debug file, and losing the second is no reason to withhold the first.
@@ -2319,6 +2410,13 @@ The compound-node data model: three tiers of nodes joined by a `parent` referenc
     The numbers shall be emitted through the same serialiser as every other numeric field on the node, so that a score is written in the locale-independent form the payload requires and a reader of the JSON sees `0.85` on every machine.
     *Trace:* HLR-225 (Testing Burden in the Interactive Report Payload), HLR-213.
 
+*   <a id="LLR-CYT-07"></a>**LLR-CYT-07** — `html_elements` shall append ` (R)` to the label of a re-entrant function, the drawing having no columns to put a flag in and a box with a name in it being the only place a reader scanning the graph can look; and shall carry, on each function node, `is_async_root` and `is_reentrant` where they hold, and `concurrency_violations` as a list of strings naming what was found against the function; and shall carry, for each global object, whether it is shared across threads of control and the state of its qualifier (HLR-232).
+
+    Each shall be the value the C decided rather than one the page derives, for the reason this module's other fields are: a rule spelled once in the binary and once in a script is two rules, and the page is the copy nothing checks.
+
+    An absent mark and an empty violation list shall be omitted rather than emitted false and empty, as the marks of LLR-CYT-05 are: the stylesheet tests for presence, and stating an absence on every node says the same thing in several times the bytes.
+    *Trace:* HLR-232 (Concurrency Facts in the Interactive Payload), HLR-213.
+
 ## 73. `format_html` ([src/report_html.c](../src/report_html.c))
 
 The page itself: when it is written, what its shell contains, how the payload survives being embedded in it, and what the viewer is told to do with it.
@@ -2517,3 +2615,89 @@ Placing a run's findings on the graph they describe, once, for every drawing tha
 
     A function whose cyclomatic complexity is recorded as zero — which no analysed function has, every path count being at least one — shall yield an index of zero rather than a special case, the multiplication doing the work without a guard.
     *Trace:* HLR-223.
+
+## 77. `concurrency_roots` ([src/concurrency.c](../src/concurrency.c))
+
+*   <a id="LLR-ASY-01"></a>**LLR-ASY-01** — `concurrency_roots` shall admit a node as an asynchronous root only where it is not a declared entry point, its in-degree over call edges is zero, its name is defined in the supplied image, and either its address is taken without being directly called or its name matches the supplied pattern (HLR-227).
+
+    **All four, and the fourth is not redundant.** The image says what survived the linker, not what is asynchronous: in-degree zero with a live symbol is equally an exported function nothing in the library calls, a function reached only through a pointer, and a function whose caller was not among the files analysed. Taking an address without calling is what installing a handler or registering a callback is.
+    *Trace:* HLR-227.
+
+*   <a id="LLR-ASY-02"></a>**LLR-ASY-02** — `concurrency_roots` shall return an empty set, with the reason recorded, where neither an image nor a pattern was supplied, and shall never substitute the set of all functions of in-degree zero for the root set (HLR-227, HLR-115).
+
+    That substitution is the one this function exists to refuse. It would place a library's whole public interface in the asynchronous tree, and HLR-228's intersection, HLR-229's paths and HLR-230's sharing would each inherit the error while reading as though they had been measured — a wrong answer wearing the shape of a measured one, which is worse than an omission a reader can see.
+    *Trace:* HLR-227, HLR-115.
+
+*   <a id="LLR-ASY-03"></a>**LLR-ASY-03** — `concurrency_roots` shall record, for each root, whether it was admitted by its address being taken, by matching the pattern, or by the macro-written shape of its definition, and the report shall carry that distinction (HLR-227, HLR-233).
+
+    A root inferred from a pattern is a claim about a naming convention; a root inferred from an address is a claim about the program. A reader deciding what to do about a finding built on either needs to know which they have.
+    *Trace:* HLR-227, HLR-233.
+
+*   <a id="LLR-ASY-04"></a>**LLR-ASY-04** — `concurrency_roots` shall admit a macro-written definition of in-degree zero as an asynchronous root of origin `ROOT_BY_WRAPPER`, and shall test such a definition against the image under its *linkage* name where the join of LLR-ANL-63 supplied one (HLR-233).
+
+    Both halves are necessary and the second is the one that is easy to omit. A macro that writes a definition renames it, so a source spelling `TCB0_INT_vect` meets an image spelling `__vector_12`; the third condition of HLR-227 asked of the source name alone rejects every handler on the target as absent from its own image, and a rejected root empties HLR-228 through HLR-231 silently.
+    *Trace:* HLR-233, HLR-227.
+
+*   <a id="LLR-ASY-05"></a>**LLR-ASY-05** — `root_is_handler` shall distinguish the origins that name a handler — the macro-written shape and the user's interrupt pattern — from an address taken without a call, and every consumer that treats a root as a second thread of control shall use it rather than testing the origin itself (HLR-233).
+
+    **The three origins are not one claim.** Installing a handler in a vector table and registering an ordinary callback are the same shape in the source, and a callback may be dispatched from the application's own loop — on the first thread, not a second. Merging them makes every finding of HLR-230 and HLR-231 as strong as its weakest evidence, and one predicate rather than three comparisons is what keeps the consumers from each drawing the line somewhere else.
+    *Trace:* HLR-233.
+
+## 78. `concurrency_reentrant` ([src/concurrency.c](../src/concurrency.c))
+
+*   <a id="LLR-RNT-01"></a>**LLR-RNT-01** — `concurrency_reentrant` shall mark exactly the functions reachable both from the declared entry points and from some asynchronous root, and shall obtain each reachability from the traversal `state.c` already performs, run against a different root set (HLR-228).
+
+    One walk run twice, not two walks. Two implementations of "what does this reach" are two answers to one question, and the one that drifts is the one nothing else checks.
+    *Trace:* HLR-228.
+
+*   <a id="LLR-RNT-02"></a>**LLR-RNT-02** — `concurrency_reentrant` shall follow call edges alone. A global-state edge joins a function that writes an object to one that reads it, which is not an invocation: a function sharing an object with a handler is not thereby entered by it, and counting such an edge would mark most of a program re-entrant on the strength of one shared counter (HLR-156).
+    *Trace:* HLR-228, HLR-156.
+
+*   <a id="LLR-RNT-03"></a>**LLR-RNT-03** — `concurrency_reentrant` shall not mark a function reachable from an asynchronous root alone. Nothing interrupts such a function in the middle of itself; it is the *intersection* that is the property, one thread of control being able to begin a function while another is already inside it.
+    *Trace:* HLR-228.
+
+*   <a id="LLR-RNT-04"></a>**LLR-RNT-04** — `concurrency_reentrant` shall, where the caller asks for it, attribute each marked function to one asynchronous root that reaches it, preferring a root whose evidence names it a handler over one admitted by an address alone (HLR-233).
+
+    Walked one root at a time and handlers first, because the question is *which* root: a walk from the whole set answers only that some root reaches it. A function both a vector and a callback reach is attributed to the vector, so that the mark a reader acts on rests on the stronger of the two claims rather than on whichever the traversal met first.
+    *Trace:* HLR-233, HLR-228.
+
+## 79. `cfg_build` ([src/cfg.c](../src/cfg.c))
+
+*   <a id="LLR-CFG-01"></a>**LLR-CFG-01** — `cfg_build` shall construct the control-flow graph of one function from its parse, modelling `if` and `else`, the three loop forms, `switch` including fallthrough between labels, `goto` and its labels, `break`, `continue`, and every `return` (HLR-229).
+
+    The early `return` is the case the analysis exists to find: it is the commonest way a lock is leaked, and a graph that treated a function as one block would report every function safe.
+    *Trace:* HLR-229.
+
+*   <a id="LLR-CFG-02"></a>**LLR-CFG-02** — `cfg_build` shall mark the graph incomplete, rather than returning a partial one as though it were whole, where it meets a construct the language module does not describe (HLR-138).
+
+    A graph missing an edge answers a path question *wrongly* rather than not at all: the path that would have failed is the one the missing edge carried. The caller reports such a function as not analysed.
+    *Trace:* HLR-229, HLR-138.
+
+## 80. `cfg_leaks` ([src/cfg.c](../src/cfg.c))
+
+*   <a id="LLR-CFG-03"></a>**LLR-CFG-03** — `cfg_leaks` shall report whether any path from an acquisition reaches an exit block without passing a release, and shall return one such path (HLR-229).
+
+    **The visited set shall be keyed on the block together with the number of acquisitions held, not on the block alone.** A lock taken inside a loop and released after it is not a leak, and a search that has already visited a block in a different lock state must visit it again or it will answer from the state it happened to arrive in first.
+    *Trace:* HLR-229.
+
+*   <a id="LLR-CFG-04"></a>**LLR-CFG-04** — `cfg_leaks` shall cause one finding per function naming the primitive and a failing path, not one per failing path. The routes to a single early return are combinatorial in the branches above it, and a defect reported once per route buries itself.
+    *Trace:* HLR-229.
+
+## 81. `concurrency_qualifiers` ([src/concurrency.c](../src/concurrency.c))
+
+*   <a id="LLR-VOL-01"></a>**LLR-VOL-01** — `concurrency_qualifiers` shall report at critical severity every global object touched from both trees whose declaration lacks the language's qualifier for objects changed outside the current thread of control, and shall name the object, a function on each side, and the access kinds (HLR-230, HLR-091).
+
+    The qualifier shall be read from the parse through the language's own query and never from a keyword list in the binary (HLR-009).
+    *Trace:* HLR-230, HLR-009.
+
+*   <a id="LLR-VOL-02"></a>**LLR-VOL-02** — `concurrency_qualifiers` shall report at warning severity a qualified global whose accesses are confined to one tree, **except where the declaration has the shape of a memory-mapped register** — an initialiser casting an integer to a pointer, a declaration through a pointer to a qualified type, or an object placed at an address the build supplies (HLR-231).
+
+    The exception is not a nicety. The qualifier is also how a peripheral register is declared and how an object surviving a non-local jump is declared, and neither involves two threads of control; a finding advising the removal of a qualifier whose absence is a miscompile is worse than no finding. The text shall state that a cause outside `elc`'s view may still require it, and shall not advise removal (HLR-101).
+    *Trace:* HLR-231, HLR-101.
+
+*   <a id="LLR-VOL-03"></a>**LLR-VOL-03** — `concurrency_qualifiers` shall take three trees — the application's, the handlers', and the callbacks' — and shall raise neither the critical finding of HLR-230 nor the confinement warning of HLR-231 on an object the callback tree touches (HLR-231, HLR-233).
+
+    **An address-taken root is not shown to be a second thread of control**, so an object it touches is neither provably shared with one nor provably confined away from one. Reporting it either way states as measured a fact the evidence does not reach. Measured on `avrOS`, a tick counter written by the timer interrupt and drained by a state machine the scheduler resumes was reported as reached from an asynchronous root *alone*, and its `volatile` — the one thing keeping the drain correct — as unnecessary.
+
+    An object the application and a callback share without the qualifier shall be reported at warning severity, naming the callback and saying that its thread of control could not be placed. The case is real — an interrupt-dispatched callback is exactly this shape — and it is the reader who can settle what `elc` cannot.
+    *Trace:* HLR-231, HLR-233, HLR-230.

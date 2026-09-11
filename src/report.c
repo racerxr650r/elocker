@@ -731,6 +731,15 @@ int report_set_image(Report *report, const SymbolSet *image)
 		return -1;
 	}
 	report->image_unresolved = elfsyms_unresolved(image);
+	report->image_debug_info = image->debug_info;
+	if (image->target) {
+		report->image_target = strdup(image->target);
+		if (!report->image_target) {
+			diag_printf("elc: out of memory recording the "
+			            "image\n");
+			return -1;
+		}
+	}
 
 	/* Here rather than in `report_assemble`, which has the option but not
 	 * the image: the rows are read off the debug information, and this is
@@ -1701,6 +1710,17 @@ static int by_severity(const void *a, const void *b)
 	return strcmp(x->detail, y->detail);
 }
 
+void report_set_concurrency(Report *report, ConcurrencyState state,
+                            AsyncRootRow *roots, size_t root_count,
+                            ReentrantRow *reentrant, size_t reentrant_count)
+{
+	report->concurrency_state = state;
+	report->async_roots       = roots;
+	report->async_root_count  = root_count;
+	report->reentrant         = reentrant;
+	report->reentrant_count   = reentrant_count;
+}
+
 int report_set_findings(Report *report, const FindingList *findings)
 {
 	if (!findings || findings->count == 0)
@@ -1935,6 +1955,77 @@ int report_set_rules(Report *report, const FactList *facts)
 	return 0;
 }
 
+/* Order the globals as the source writes them: by file, then by line. Sorted
+ * rather than left in parse order so two runs present one order (HLR-032). */
+static int by_declared_global(const void *a, const void *b)
+{
+	const DeclaredGlobal *x = a;
+	const DeclaredGlobal *y = b;
+	int              c = strcmp(x->file, y->file);
+
+	if (c != 0)
+		return c;
+	if (x->line != y->line)
+		return x->line < y->line ? -1 : 1;
+	return strcmp(x->name, y->name);
+}
+
+int report_set_globals(Report *report, const FactList *facts)
+{
+	size_t capacity = 0;
+
+	for (size_t f = 0; f < report->file_count; f++) {
+		const FileMetrics *file = report->files[f];
+		const FileFacts   *ff   = facts_for_path(facts, file->path);
+
+		for (size_t g = 0; ff && g < ff->global_count; g++) {
+			const GlobalAccess *access = &ff->globals[g];
+			DeclaredGlobal     *row;
+
+			/* Declarations alone. A read and a write name the same
+			 * object from somewhere else in the file, and a table
+			 * of every mention would be a table of the accesses
+			 * rather than of the objects. */
+			if (access->kind != GLOBAL_DECLARATION)
+				continue;
+
+			if (report->global_count == capacity) {
+				size_t     next = capacity ? capacity * 2 : 16;
+				DeclaredGlobal *more =
+					realloc(report->globals,
+				                          next * sizeof *more);
+
+				if (!more)
+					return -1;
+				report->globals = more;
+				capacity        = next;
+			}
+
+			row       = &report->globals[report->global_count];
+			row->file = strdup(file->path);
+			row->name = strdup(access->name);
+			/* Empty rather than absent where the module captured
+			 * no type: the object is still declared here, and a
+			 * row dropped for want of one column would lose it. */
+			row->type = strdup(access->type ? access->type : "");
+			row->line = access->line;
+			if (!row->file || !row->name || !row->type) {
+				free(row->file);
+				free(row->name);
+				free(row->type);
+				return -1;
+			}
+			report->global_count++;
+		}
+	}
+
+	if (report->global_count > 1)
+		qsort(report->globals, report->global_count,
+		      sizeof *report->globals, by_declared_global);
+
+	return 0;
+}
+
 int report_set_dead(Report *report, const FactList *facts)
 {
 	size_t capacity = 0;
@@ -2035,6 +2126,12 @@ static void free_state_rows(Report *report)
 		free(report->global_state[i].participants);
 	}
 	free(report->global_state);
+	for (size_t i = 0; i < report->global_count; i++) {
+		free(report->globals[i].file);
+		free(report->globals[i].name);
+		free(report->globals[i].type);
+	}
+	free(report->globals);
 	report->global_state       = NULL;
 	report->global_state_count = 0;
 
@@ -2060,6 +2157,18 @@ static void free_state_rows(Report *report)
 		free(report->cross_scope[i].object);
 	}
 	free(report->cross_scope);
+
+	for (size_t i = 0; i < report->async_root_count; i++) {
+		free(report->async_roots[i].function);
+		free(report->async_roots[i].file);
+	}
+	free(report->async_roots);
+	for (size_t i = 0; i < report->reentrant_count; i++) {
+		free(report->reentrant[i].function);
+		free(report->reentrant[i].file);
+		free(report->reentrant[i].via);
+	}
+	free(report->reentrant);
 	report->cross_scope       = NULL;
 	report->cross_scope_count = 0;
 
@@ -2104,7 +2213,9 @@ static void free_source_rows(Report *report)
 	report->placed_count = 0;
 
 	free(report->image);
-	report->image = NULL;
+	free(report->image_target);
+	report->image        = NULL;
+	report->image_target = NULL;
 }
 
 static void free_purification_rows(Report *report)

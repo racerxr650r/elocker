@@ -174,10 +174,26 @@ static void write_files(const Report *report, FILE *out)
 			fprintf(out, " start-line=\"%" PRIu32 "\" end-line=\"%"
 			        PRIu32 "\" eloc=\"%" PRIu32 "\" complexity=\"%"
 			        PRIu32 "\" visibility=\"%d\""
-			        " mock-burden=\"%.2f\"/>\n",
+			        " mock-burden=\"%.2f\" reentrant=\"%d\"",
 			        fn->start_line, fn->end_line,
 			        fn->eloc, fn->complexity, (int)fn->visibility,
-			        fn->mock_burden);
+			        fn->mock_burden, fn->is_reentrant ? 1 : 0);
+			/* Both facts about the second thread of control, and
+			 * neither recomputable from a record: regeneration has
+			 * no graph to walk and no image to join against, so a
+			 * regenerated report without them would disagree with a
+			 * direct one about which functions are handlers
+			 * (HLR-152, HLR-233). The linkage name goes with them
+			 * because it is what the join produced. */
+			fprintf(out, " interrupt=\"%d\" macro-defined=\"%d\""
+			        " critical-section=\"%d\"",
+			        fn->is_interrupt ? 1 : 0,
+			        fn->macro_defined ? 1 : 0,
+			        fn->has_critical_section ? 1 : 0);
+			if (fn->linkage_name)
+				write_attribute(out, "linkage",
+				                fn->linkage_name);
+			fputs("/>\n", out);
 		}
 
 		fputs("    </file>\n", out);
@@ -188,6 +204,28 @@ static void write_files(const Report *report, FILE *out)
 /* A measurement of the run, so it lives in the record beside the others: it
  * cannot be recomputed later, since regeneration has no graph and no source to
  * build one from (HLR-054, HLR-056). */
+/* Every global object the source declares (HLR-242).
+ *
+ * A section of its own rather than an attribute of the file that declares it:
+ * the reader rebuilds it as one list, sorted, exactly as a live run builds it,
+ * and a record that scattered the objects across their files would have to
+ * re-sort them to regenerate the same report (HLR-032, HLR-056).
+ */
+static void write_globals(const Report *report, FILE *out)
+{
+	fputs("  <globals>\n", out);
+	for (size_t i = 0; i < report->global_count; i++) {
+		const DeclaredGlobal *g = &report->globals[i];
+
+		fputs("    <declared-global", out);
+		write_attribute(out, "file", g->file);
+		write_attribute(out, "name", g->name);
+		write_attribute(out, "type", g->type);
+		fprintf(out, " line=\"%" PRIu32 "\"/>\n", g->line);
+	}
+	fputs("  </globals>\n", out);
+}
+
 static void write_graph(const Report *report, FILE *out)
 {
 	fprintf(out, "  <graph unresolved-calls=\"%zu\"/>\n",
@@ -258,8 +296,10 @@ static void write_calltree(const Report *report, FILE *out)
  * citation that disagrees with a live run's (LLR-GLB-04). */
 static void write_state(const Report *report, FILE *out)
 {
-	fprintf(out, "  <state reach-state=\"%d\" scope-state=\"%d\">\n",
-	        (int)report->reach_state, (int)report->scope_state);
+	fprintf(out, "  <state reach-state=\"%d\" scope-state=\"%d\""
+	        " concurrency-state=\"%d\">\n",
+	        (int)report->reach_state, (int)report->scope_state,
+	        (int)report->concurrency_state);
 	for (size_t i = 0; i < report->global_state_count; i++) {
 		const GlobalStateRow *r = &report->global_state[i];
 
@@ -293,6 +333,28 @@ static void write_state(const Report *report, FILE *out)
 		write_attribute(out, "object", r->object ? r->object : "");
 		fputs("/>\n", out);
 	}
+	/* The second thread of control, in the record because it cannot be
+	 * recomputed from one: regeneration has no graph and no image, so a
+	 * regenerated report that recomputed this would report every program
+	 * as having no asynchronous roots (HLR-152, HLR-056). */
+	for (size_t i = 0; i < report->async_root_count; i++) {
+		fputs("    <async-root", out);
+		write_attribute(out, "function",
+		                report->async_roots[i].function);
+		write_attribute(out, "file", report->async_roots[i].file);
+		fprintf(out, " by-address=\"%d\" by-wrapper=\"%d\"/>\n",
+		        report->async_roots[i].by_address ? 1 : 0,
+		        report->async_roots[i].by_wrapper ? 1 : 0);
+	}
+	for (size_t i = 0; i < report->reentrant_count; i++) {
+		fputs("    <reentrant", out);
+		write_attribute(out, "function", report->reentrant[i].function);
+		write_attribute(out, "file", report->reentrant[i].file);
+		write_attribute(out, "via", report->reentrant[i].via);
+		fprintf(out, " via-handler=\"%d\"/>\n",
+		        report->reentrant[i].via_handler ? 1 : 0);
+	}
+
 	fputs("  </state>\n", out);
 }
 
@@ -373,6 +435,15 @@ static void write_image(const Report *report, FILE *out)
 
 	fputs("  <image", out);
 	write_attribute(out, "path", report->image);
+	/* What the image was built for and whether it carried debug
+	 * information, both stated in the project summary and neither
+	 * recomputable from a record: regeneration has no image to read them
+	 * off, so a report rebuilt without them would name an image and then
+	 * say "N/A" about it (HLR-152, HLR-239). */
+	if (report->image_target)
+		write_attribute(out, "target", report->image_target);
+	fprintf(out, " debug-info=\"%d\"",
+	        report->image_debug_info ? 1 : 0);
 	/* The line-granularity counts travel with the image element rather
 	 * than with the per-file metrics, for the reason file-scope ELOC does:
 	 * they are properties of what the filter did to the run, and
@@ -664,6 +735,7 @@ int xml_write_report(const Report *report, FILE *out)
 		write_summary,
 		write_languages,
 		write_files,
+		write_globals,
 		write_graph,
 		write_calltree,
 		write_state,
@@ -718,10 +790,17 @@ typedef struct {
 	size_t              deepest_count;
 	ReachState          reach_state;
 	ScopeState          scope_state;
+	ConcurrencyState    concurrency_state;
+	AsyncRootRow       *async_roots;
+	size_t              async_root_count;
+	ReentrantRow       *reentrant;
+	size_t              reentrant_count;
 	GlobalStateRow     *global_state;
 	size_t              global_state_count;
 	UnreachableRow     *unreachable;
 	size_t              unreachable_count;
+	DeclaredGlobal     *globals;
+	size_t              global_count;
 	char              **unreachable_globals;
 	size_t              unreachable_global_count;
 	CrossScopeRow      *cross_scope;
@@ -761,6 +840,8 @@ typedef struct {
 	uint64_t            undecided_regions;
 	char               *image;
 	uint64_t            image_unresolved;
+	char               *image_target;
+	bool                image_debug_info;
 	uint64_t            file_scope_eloc;
 	uint64_t            pruned_lines;
 	uint64_t            uncovered_files;
@@ -1156,7 +1237,92 @@ static void on_state(ReadState *state, const XML_Char **atts)
 	}
 	state->reach_state = (ReachState)strtol(reach, NULL, 10);
 	state->scope_state = (ScopeState)strtol(scope, NULL, 10);
+
+	/* Optional, like every attribute added after a format version was cut:
+	 * a record written by an older build carries none, and its absence
+	 * reads as the measured state, which is what such a record described
+	 * (LLR-XRD-04). */
+	{
+		const char *conc = attribute(atts, "concurrency-state");
+
+		state->concurrency_state = conc
+			? (ConcurrencyState)strtol(conc, NULL, 10)
+			: CONCURRENCY_MEASURED;
+	}
 	return;
+}
+
+static void on_async_root(ReadState *state, const XML_Char **atts)
+{
+	const char   *fn   = attribute(atts, "function");
+	const char   *file = attribute(atts, "file");
+	const char   *addr = attribute(atts, "by-address");
+	const char   *wrap = attribute(atts, "by-wrapper");
+	AsyncRootRow *grown;
+
+	if (!fn) {
+		fail(state, "an async-root element is incomplete");
+		return;
+	}
+
+	grown = realloc(state->async_roots,
+	                (state->async_root_count + 1) * sizeof *grown);
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->async_roots = grown;
+
+	AsyncRootRow *row = &state->async_roots[state->async_root_count];
+
+	memset(row, 0, sizeof *row);
+	row->function   = strdup(fn);
+	row->file       = strdup(file ? file : "");
+	row->by_address = addr && strtol(addr, NULL, 10) != 0;
+	/* Absent from a record an older `elc` wrote, which knew two origins.
+	 * False is the right reading of its absence: that `elc` admitted a root
+	 * by an address or by a pattern and never by a macro (HLR-056). */
+	row->by_wrapper = wrap && strtol(wrap, NULL, 10) != 0;
+	if (!row->function || !row->file) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->async_root_count++;
+}
+
+static void on_reentrant(ReadState *state, const XML_Char **atts)
+{
+	const char   *fn   = attribute(atts, "function");
+	const char   *file = attribute(atts, "file");
+	const char   *via  = attribute(atts, "via");
+	const char   *hand = attribute(atts, "via-handler");
+	ReentrantRow *grown;
+
+	if (!fn) {
+		fail(state, "a reentrant element is incomplete");
+		return;
+	}
+
+	grown = realloc(state->reentrant,
+	                (state->reentrant_count + 1) * sizeof *grown);
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->reentrant = grown;
+
+	ReentrantRow *row = &state->reentrant[state->reentrant_count];
+
+	memset(row, 0, sizeof *row);
+	row->function    = strdup(fn);
+	row->file        = strdup(file ? file : "");
+	row->via         = strdup(via ? via : "");
+	row->via_handler = hand && strtol(hand, NULL, 10) != 0;
+	if (!row->function || !row->file || !row->via) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->reentrant_count++;
 }
 
 static void on_global(ReadState *state, const XML_Char **atts)
@@ -1197,6 +1363,45 @@ static void on_global(ReadState *state, const XML_Char **atts)
 	row->verdict = (GlobalVerdict)strtol(verdict, NULL, 10);
 	state->global_state_count++;
 	return;
+}
+
+static void on_declared_global(ReadState *state, const XML_Char **atts)
+{
+	const char *file = attribute(atts, "file");
+	const char *name = attribute(atts, "name");
+	const char *type = attribute(atts, "type");
+	const char *line = attribute(atts, "line");
+
+	/* `type` may be empty and must still be present: a language whose
+	 * module captures no type writes an empty attribute, and its absence
+	 * is a truncated record rather than an untyped object. */
+	if (!file || !name || !type || !line) {
+		fail(state, "a declared-global element is incomplete");
+		return;
+	}
+
+	DeclaredGlobal *grown = realloc(state->globals,
+	                                (state->global_count + 1)
+	                                        * sizeof *grown);
+
+	if (!grown) {
+		fail(state, "out of memory");
+		return;
+	}
+	state->globals = grown;
+
+	DeclaredGlobal *row = &state->globals[state->global_count];
+
+	memset(row, 0, sizeof *row);
+	row->file = strdup(file);
+	row->name = strdup(name);
+	row->type = strdup(type);
+	if (!row->file || !row->name || !row->type) {
+		fail(state, "out of memory");
+		return;
+	}
+	row->line = (uint32_t)strtoul(line, NULL, 10);
+	state->global_count++;
 }
 
 static void on_unreachable_function(ReadState *state, const XML_Char **atts)
@@ -1386,6 +1591,23 @@ static void on_image(ReadState *state, const XML_Char **atts)
 		fail(state, "out of memory");
 		return;
 	}
+	const char *target = attribute(atts, "target");
+	const char *dbg    = attribute(atts, "debug-info");
+
+	free(state->image_target);
+	state->image_target = NULL;
+	if (target) {
+		state->image_target = strdup(target);
+		if (!state->image_target) {
+			fail(state, "out of memory");
+			return;
+		}
+	}
+	/* Absent from a record an older `elc` wrote, which read as no debug
+	 * information — the honest reading, that build having had no way to
+	 * establish otherwise (HLR-056). */
+	state->image_debug_info = dbg && strtol(dbg, NULL, 10) != 0;
+
 	state->image_unresolved = uint_attribute(state, atts,
 	                                         "unresolved");
 	state->file_scope_eloc  = uint_attribute(state, atts,
@@ -1742,6 +1964,32 @@ static void on_dsm_subject(ReadState *state, const XML_Char **atts)
  * document, so the order of the matrix is known before any index into it
  * arrives. A record whose cells preceded its subjects would name indices into
  * a grid of unknown size, and those cells are dropped rather than guessed at. */
+/* The matrix's grid, allocated once the subject count is known (LLR-XRD-25).
+ *
+ * **A record writes only its non-zero cells**, so a matrix of one subject that
+ * calls nothing — or of several that never call each other — carries subjects
+ * and no `dsm-cell` element at all. Allocated on the first cell alone, the grid
+ * of such a record stays NULL while its count says there are subjects, and the
+ * renderer walks a null pointer over `count * count` cells. A matrix over a
+ * single-component tree is the commonest shape there is, so this was reachable
+ * by `--from-xml --verbose` on almost any record.
+ *
+ * Returns 0 with `cells` allocated, or -1 having failed the parse.
+ */
+static int dsm_cells_ready(ReadState *state)
+{
+	if (state->dsm.cells)
+		return 0;
+
+	state->dsm.cells = calloc(state->dsm.count * state->dsm.count,
+	                          sizeof *state->dsm.cells);
+	if (!state->dsm.cells) {
+		fail(state, "out of memory");
+		return -1;
+	}
+	return 0;
+}
+
 static void on_dsm_cell(ReadState *state, const XML_Char **atts)
 {
 	uint64_t row   = uint_attribute(state, atts, "row");
@@ -1751,14 +1999,8 @@ static void on_dsm_cell(ReadState *state, const XML_Char **atts)
 	if (state->dsm.count == 0)
 		return;
 
-	if (!state->dsm.cells) {
-		state->dsm.cells = calloc(state->dsm.count * state->dsm.count,
-		                          sizeof *state->dsm.cells);
-		if (!state->dsm.cells) {
-			fail(state, "out of memory");
-			return;
-		}
-	}
+	if (dsm_cells_ready(state) != 0)
+		return;
 
 	if (row >= state->dsm.count || col >= state->dsm.count) {
 		fail(state, "a dsm-cell element names a cell outside the grid");
@@ -2098,9 +2340,25 @@ static void on_function(ReadState *state, const XML_Char **atts)
 		/* Optional, like every attribute added after a format version
 		 * was cut: absent means the base tax was never measured, and
 		 * zero is the value that says so (LLR-XRD-04). */
-		const char *mb = attribute(atts, "mock-burden");
+		const char *mb   = attribute(atts, "mock-burden");
+		const char *re   = attribute(atts, "reentrant");
+		const char *irq  = attribute(atts, "interrupt");
+		const char *macd = attribute(atts, "macro-defined");
+		const char *link = attribute(atts, "linkage");
+		const char *sect = attribute(atts, "critical-section");
 
-		fn->mock_burden = mb ? strtod(mb, NULL) : 0.0;
+		fn->mock_burden   = mb ? strtod(mb, NULL) : 0.0;
+		fn->is_reentrant  = re && strtol(re, NULL, 10) != 0;
+		fn->is_interrupt  = irq && strtol(irq, NULL, 10) != 0;
+		fn->macro_defined = macd && strtol(macd, NULL, 10) != 0;
+		fn->has_critical_section = sect && strtol(sect, NULL, 10) != 0;
+		if (link) {
+			fn->linkage_name = strdup(link);
+			if (!fn->linkage_name) {
+				fail(state, "out of memory");
+				return;
+			}
+		}
 	}
 	/* Absent in a record written before the field existed, which reads back
 	 * as unknown — the honest answer for a run that could not have
@@ -2125,9 +2383,12 @@ static const struct {
 	{ "step",                on_step },
 	{ "state",               on_state },
 	{ "global",              on_global },
+	{ "declared-global",     on_declared_global },
 	{ "unreachable-function", on_unreachable_function },
 	{ "unreachable-global",  on_unreachable_global },
 	{ "cross-scope",         on_cross_scope },
+	{ "async-root",          on_async_root },
+	{ "reentrant",           on_reentrant },
 	{ "unanalysed",          on_unanalysed },
 	{ "span",                on_span },
 	{ "image",               on_image },
@@ -2238,6 +2499,12 @@ static void free_global_state(ReadState *state)
 		free(state->unreachable[i].file);
 	}
 	free(state->unreachable);
+	for (size_t i = 0; i < state->global_count; i++) {
+		free(state->globals[i].file);
+		free(state->globals[i].name);
+		free(state->globals[i].type);
+	}
+	free(state->globals);
 	for (size_t i = 0; i < state->unreachable_global_count; i++)
 		free(state->unreachable_globals[i]);
 	free(state->unreachable_globals);
@@ -2331,6 +2598,7 @@ static void free_source_state(ReadState *state)
 	}
 	free(state->placed);
 	free(state->image);
+	free(state->image_target);
 	for (size_t i = 0; i < state->dead_unanalysed.count; i++)
 		free(state->dead_unanalysed.paths[i]);
 	free(state->dead_unanalysed.paths);
@@ -2415,10 +2683,17 @@ static void move_to_report(ReadState *state, Report *out)
 
 	out->reach_state              = state->reach_state;
 	out->scope_state              = state->scope_state;
+	out->concurrency_state        = state->concurrency_state;
+	out->async_roots              = state->async_roots;
+	out->async_root_count         = state->async_root_count;
+	out->reentrant                = state->reentrant;
+	out->reentrant_count          = state->reentrant_count;
 	out->global_state             = state->global_state;
 	out->global_state_count       = state->global_state_count;
 	out->unreachable              = state->unreachable;
 	out->unreachable_count        = state->unreachable_count;
+	out->globals                  = state->globals;
+	out->global_count             = state->global_count;
 	out->unreachable_globals      = state->unreachable_globals;
 	out->unreachable_global_count = state->unreachable_global_count;
 	out->cross_scope              = state->cross_scope;
@@ -2435,6 +2710,12 @@ static void move_to_report(ReadState *state, Report *out)
 	out->layering_count           = state->layering_count;
 	out->back_call                = state->back_call;
 	out->skip_call                = state->skip_call;
+	/* A record whose matrix has subjects and no non-zero cell reaches here
+	 * with no grid allocated, no `dsm-cell` element having called for one.
+	 * The renderer reads `count * count` cells whatever they hold, so the
+	 * grid is made before the model is handed over (LLR-XRD-25). */
+	if (state->dsm.count && !state->dsm.cells)
+		(void)dsm_cells_ready(state);
 	out->dsm                      = state->dsm;
 	out->purification             = state->purification;
 	out->purification_count       = state->purification_count;
@@ -2466,6 +2747,8 @@ static void move_to_report(ReadState *state, Report *out)
 	 * record was written, and re-sorting a record's contents would let a
 	 * regenerated report disagree with the one it came from. */
 	out->image                      = state->image;
+	out->image_target               = state->image_target;
+	out->image_debug_info           = state->image_debug_info;
 	out->image_unresolved           = state->image_unresolved;
 	out->file_scope_eloc            = state->file_scope_eloc;
 	out->pruned_lines               = state->pruned_lines;
@@ -2480,6 +2763,12 @@ static void move_to_report(ReadState *state, Report *out)
 	state->global_state_count       = 0;
 	state->unreachable              = NULL;
 	state->unreachable_count        = 0;
+	/* Nulled with the rest: the handover moves ownership, and a pointer
+	 * left in the read state is freed twice when that state is released.
+	 * The count goes with it — the teardown walks the count, so a NULL
+	 * pointer beside a live count is a dereference of nothing. */
+	state->globals                  = NULL;
+	state->global_count             = 0;
 	state->unreachable_globals      = NULL;
 	state->unreachable_global_count = 0;
 	state->cross_scope              = NULL;
@@ -2504,6 +2793,7 @@ static void move_to_report(ReadState *state, Report *out)
 	state->definitions              = NULL;
 	state->definition_count         = 0;
 	state->image                    = NULL;
+	state->image_target             = NULL;
 	state->absent                   = NULL;
 	state->absent_count             = 0;
 	state->placed                   = NULL;

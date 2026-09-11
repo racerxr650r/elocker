@@ -1,13 +1,21 @@
 /* format_csv.c — the RFC 4180 renderer.
  *
- * One record per function over the complete dataset: no threshold is applied
- * here, because CSV is the view a consumer filters for itself (HLR-028,
- * LLR-CSV-01). The architectural findings are absent by design rather than
+ * One record per function and one per declared global, over the complete
+ * dataset: no threshold is applied here, because CSV is the view a consumer
+ * filters for itself (HLR-028, LLR-CSV-01).
+ *
+ * **Two kinds of row in one record set, and a `record` column that says
+ * which** (HLR-242). Two headers in one document is not a CSV any consumer can
+ * load — a strict reader fails at the second, and a lenient one reads the
+ * header as data — so the globals join the functions as rows rather than as a
+ * second table, each row naming its own kind and leaving the columns of the
+ * other kind empty. The architectural findings are absent by design rather than
  * by omission — they are not expressible as a single flat record set, and
  * XML is the format that carries a complete run (LLR-CSV-02).
  *
- * **The columns are the Functions table's columns, in its order.** CSV is that
- * table for a consumer that loads it rather than reads it, and the two had
+ * **The function columns are the Functions table's columns, in its order.** CSV
+ * is that table for a consumer that loads it rather than reads it, and the two
+ * had
  * drifted: the table gained a visibility, a navigable location and the flow
  * degrees, and this still wrote a start and end line nothing else reported.
  * One view of one set of rows, spelled two ways, is two views nobody
@@ -94,15 +102,27 @@ static const char *csv_visibility(Visibility v)
 
 int format_csv(const Report *report, FILE *out)
 {
-	/* **The table's column names, lowercased, and nothing else.** HLR-014
-	 * makes the record and the aligned table one view of one set of rows,
-	 * and a reader who has to translate `Scope` into `visibility` to move
+	/* **The table's columns, in the table's order.** HLR-014 makes the
+	 * record and the aligned table one view of one set of rows, and a
+	 * reader who has to translate `Scope` into `visibility` to move
 	 * between them is a reader for whom they are two views. The names
 	 * drifted once already, which is why the whole header is asserted in
-	 * test/integration/formats.bats rather than a prefix of it. */
+	 * test/integration/formats.bats rather than a prefix of it.
+	 *
+	 * **Spelled in full where the table abbreviates** (HLR-014). `L` and
+	 * `R` are what the aligned table can afford inside the bound of
+	 * HLR-219; a document with no width has no such reason, and a column
+	 * named `l` is one no consumer can read. The order is the fact the two
+	 * views share, and it is the order that is asserted.
+	 *
+	 * **`burden` stays, though the aligned table no longer prints it.**
+	 * There the band is the colour of the figure beside it; here there is
+	 * no colour to carry it, and dropping the column would delete the band
+	 * outright for every consumer that loads this rather than reading it.
+	 */
 	static const char *const header[] = {
-		"file", "language", "function", "scope", "lines", "eloc",
-		"cc", "in", "out", "wtbi", "burden"
+		"record", "file", "name", "lang", "scope", "reent", "lines",
+		"eloc", "cc", "in", "out", "wtbi", "burden", "type"
 	};
 	const size_t columns = sizeof header / sizeof *header;
 
@@ -120,10 +140,12 @@ int format_csv(const Report *report, FILE *out)
 			char fan_in[16], fan_out[16];
 			char wtbi[32];
 			const char *fields[] = {
-				where, f->language ? f->language : "",
-				fn->name, csv_visibility(fn->visibility),
+				"function", where, fn->name,
+				f->language ? f->language : "",
+				csv_visibility(fn->visibility),
+				concurrency_mark(fn),
 				lines, eloc, complexity, fan_in, fan_out,
-				wtbi, elc_wtbi_status(fn->wtbi)
+				wtbi, elc_wtbi_status(fn->wtbi), ""
 			};
 
 			/* `path:line`, the same field the table carries. The
@@ -147,6 +169,23 @@ int format_csv(const Report *report, FILE *out)
 
 			write_record(out, columns, fields);
 		}
+	}
+
+	/* Then every global the source declares (HLR-242). A second kind of
+	 * row rather than a second document: two headers in one file is not a
+	 * CSV any consumer can load, and the `record` column is what lets one
+	 * flat record set carry both without either having to guess which it
+	 * is reading. */
+	for (size_t i = 0; i < report->global_count; i++) {
+		const DeclaredGlobal *g = &report->globals[i];
+		char                  where[4096];
+		const char           *fields[] = {
+			"global", where, g->name, "", "", "", "", "", "", "",
+			"", "", "", g->type
+		};
+
+		snprintf(where, sizeof where, "%s:%" PRIu32, g->file, g->line);
+		write_record(out, columns, fields);
 	}
 
 	if (fflush(out) != 0 || ferror(out))

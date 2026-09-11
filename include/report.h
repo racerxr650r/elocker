@@ -59,6 +59,23 @@ typedef struct {
 	uint32_t  line;
 } ChainRow;
 
+/* One global object as the source declares it: where it is written down, what
+ * it is called, and the type it was given (HLR-242).
+ *
+ * **A different row from GlobalStateRow, and deliberately so.** That one is
+ * the *analysis* of an object — who writes it, who reads it, and the verdict
+ * on the pair — and it exists only where a graph was built. This one is what
+ * the parse saw, so it is there on any run that read the source at all, and
+ * it carries the one thing the analysis never needed and a reader always
+ * wants: the place to go and look.
+ */
+typedef struct {
+	char     *file;   /* the declaring file, canonical; owned */
+	char     *name;   /* the object's identifier; owned       */
+	char     *type;   /* as declared, or empty; owned         */
+	uint32_t  line;   /* 1-based                              */
+} DeclaredGlobal;
+
 /* One global object as the report presents it: by name, with the functions
  * that write it and the functions that read it (HLR-091).
  *
@@ -152,6 +169,37 @@ typedef struct {
 	char *to_function;   /* owned */
 	char *object;        /* the shared global, or NULL for a call; owned */
 } CrossScopeRow;
+
+/* One asynchronous root, and how it came to be one. The origin is reported
+ * because a name matching a convention is a weaker claim than an address
+ * taken, and a reader deciding what to do about a finding built on it needs
+ * to know which they have (HLR-227). */
+typedef struct {
+	char *function;   /* owned                                        */
+	char *file;       /* owned                                        */
+	bool  by_address; /* false where a pattern or a macro admitted it */
+	/* Which of the other two admitted it, where `by_address` is false.
+	 * Three origins need two bits, and they are carried apart rather than
+	 * as an enum so that a record written by an older `elc` — which knew
+	 * two — still reads back as the two it meant (HLR-233). */
+	bool  by_wrapper;
+} AsyncRootRow;
+
+/* One function two threads of control can be inside, and the root that puts it
+ * there (HLR-228, HLR-233).
+ *
+ * **The attributing root is the row's whole value beyond the name.** A function
+ * re-entered from an interrupt vector and one re-entered from a callback the
+ * application itself dispatches are marked identically and are not the same
+ * claim, and a reader deciding whether to add a critical section needs to know
+ * which they have — the same reason HLR-227 reports how each root was admitted.
+ */
+typedef struct {
+	char *function;   /* owned                                        */
+	char *file;       /* owned; empty where the graph knew none       */
+	char *via;        /* owned; the attributing root, or empty        */
+	bool  via_handler; /* the root's evidence names it a handler      */
+} ReentrantRow;
 
 /* One component's coupling as the report presents it, by path rather than by
  * index (HLR-080 – HLR-082).
@@ -432,12 +480,24 @@ typedef struct {
 	 * point at (SDD §18). */
 	GlobalStateRow *global_state;   /* sorted by object; owned (HLR-091) */
 	size_t          global_state_count;
+	/* Every global the source declares, sorted by file then line, which is
+	 * the order they are written in (HLR-242). */
+	DeclaredGlobal      *globals;
+	size_t          global_count;
 	ReachState      reach_state;
 	UnreachableRow *unreachable;    /* sorted by file, line; owned      */
 	size_t          unreachable_count;
 	char          **unreachable_globals; /* sorted; owned (HLR-096)     */
 	size_t          unreachable_global_count;
 	ScopeState      scope_state;
+	/* The second thread of control (HLR-227, HLR-228). The roots and the
+	 * re-entrant functions are rows; the state says whether an empty set
+	 * of rows means "none" or "not looked for". */
+	ConcurrencyState concurrency_state;
+	AsyncRootRow   *async_roots;    /* sorted by name; owned            */
+	size_t          async_root_count;
+	ReentrantRow   *reentrant;      /* sorted; owned                    */
+	size_t          reentrant_count;
 	CrossScopeRow  *cross_scope;    /* sorted; owned (HLR-094)          */
 	size_t          cross_scope_count;
 
@@ -548,6 +608,13 @@ typedef struct {
 	 * nothing (HLR-031, HLR-145).
 	 */
 	char          *image;            /* owned                            */
+	/* What the image says it was built for, and whether it carried debug
+	 * information — both read off the image and both stated in the project
+	 * summary, since every figure beneath them describes a different
+	 * program when an image is in force (HLR-239). NULL and false on a run
+	 * with no image, which the summary renders as "N/A". */
+	char          *image_target;     /* owned                            */
+	bool           image_debug_info;
 	/* Linkage names carrying a mangling this build does not decode. The
 	 * first direction of mismatch: it states the completeness of the
 	 * filter, as the unresolved-call count states the completeness of the
@@ -623,6 +690,19 @@ int report_assemble(MetricsAccumulator *acc, const RouteList *routes,
  */
 void report_set_unresolved(Report *report, size_t unresolved);
 
+/* Carry the second thread of control into the report (HLR-227, HLR-228).
+ *
+ * Takes ownership of both arrays, which the caller has already built out of
+ * the graph — the report outlives the graph, as it does for every other row in
+ * this model. `report.h` is deliberately not given sight of `RootSet`: the
+ * report is the model every renderer reads, and a model that had to include an
+ * analysis's header to describe its own fields would tie the two together for
+ * nothing.
+ */
+void report_set_concurrency(Report *report, ConcurrencyState state,
+                            AsyncRootRow *roots, size_t root_count,
+                            ReentrantRow *reentrant, size_t reentrant_count);
+
 /* Record the image the run was filtered by, and the count of linkage names it
  * could not resolve.
  *
@@ -656,6 +736,15 @@ int report_check_image_ambiguity(const Report *report, const SymbolSet *image);
  * is why it is recorded during the parse and carried straight through
  * (HLR-137, LLR-DED-06). Must be called before the facts are released.
  */
+/* Record every global object the parse declared, with the file, line and type
+ * it was declared at (HLR-242).
+ *
+ * Taken from the facts rather than from the graph, so a run whose graph was
+ * never built still reports the objects the source declares — which is the
+ * run whose reader most needs to be told what state exists.
+ */
+int report_set_globals(Report *report, const FactList *facts);
+
 int report_set_dead(Report *report, const FactList *facts);
 
 /* Copy the custom-rule matches onto an assembled report, sorted for

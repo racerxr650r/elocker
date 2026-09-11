@@ -17,8 +17,8 @@ setup() {
 # One function's ELOC and complexity from the one function table.
 figures() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && $3 == want { print $6, $7 }'
+		awk -v want="$1" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+		                  f && $2 == want { print $6, $7 }'
 }
 
 # One function's reported location — `path:line`, the navigable reference the
@@ -27,8 +27,8 @@ figures() {
 # must not move when the buffer is expanded.
 range_of() {
 	printf '%s\n' "$output" |
-		awk -v want="$1" '/^Functions$/ { f = 1; next } f && /^$/ { f = 0 }
-		                  f && $3 == want { print $1 }'
+		awk -v want="$1" '/^Functions [(]/ { f = 1; next } f && /^$/ { f = 0 }
+		                  f && $2 == want { print $1 }'
 }
 
 summary() {
@@ -117,13 +117,13 @@ require_cc() {
 	elc --verbose "$TREE/sound.c"
 	assert_success
 	local a
-	a="$(printf '%s\n' "$output" | sed -n '/^Project summary/,/^$/p' |
+	a="$(printf '%s\n' "$output" | sed -n '/^Project Summary/,/^$/p' |
 	     grep -v 'Files expanded\|Measured as written')"
 
 	elc --verbose --no-expand "$TREE/sound.c"
 	assert_success
 	assert_equal "$a" "$(printf '%s\n' "$output" |
-	     sed -n '/^Project summary/,/^$/p' |
+	     sed -n '/^Project Summary/,/^$/p' |
 	     grep -v 'Files expanded\|Measured as written')"
 }
 
@@ -175,7 +175,7 @@ require_cc() {
 @test "HLR-206: a fallen-back file is named with its reason" {
 	elc --verbose --cc /nonexistent/cc "$TREE/sound.c"
 	assert_success
-	assert_output --partial "Measured as written (macros not expanded)"
+	assert_output --partial "Measured As Written (macros not expanded)"
 	assert_output --regexp "sound\.c +no preprocessor available"
 }
 
@@ -185,7 +185,7 @@ require_cc() {
 		> "$BATS_TEST_TMPDIR/uses.c"
 	elc --verbose "$BATS_TEST_TMPDIR/uses.c"
 	assert_success
-	assert_output --partial "Standard-library dependence"
+	assert_output --partial "Standard-Library Dependence"
 	assert_output --regexp "uses\.c +C +[0-9]+ +.*stdio\.h"
 }
 
@@ -260,7 +260,7 @@ require_cc() {
 	# what tells a reader which files could be asked.
 	elc --cc /nonexistent/cc "$TREE/sound.c"
 	assert_success
-	refute_output --regexp "^Standard-library dependence"
+	refute_output --regexp "^Standard-Library Dependence"
 }
 
 @test "LLR-PRE-02: comments are preserved and no flag is invented" {

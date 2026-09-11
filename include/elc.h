@@ -271,6 +271,17 @@ typedef struct {
 	 * would allocate two strings for a decision `registry.c` has to make
 	 * anyway — it is the module that knows which languages exist. */
 	const char  **rules;
+	/* A pattern naming the functions that begin an asynchronous thread of
+	 * control, for a build that installs its handlers by a means the
+	 * source does not show (HLR-227).
+	 *
+	 * The second of the two ways a root can be admitted, and the weaker
+	 * one: an address taken is a fact about the program, a name matching a
+	 * pattern is a fact about a naming convention. The report says which
+	 * supplied each root for that reason. NULL where none was given, which
+	 * with no image is what makes the whole analysis an omission rather
+	 * than a guess. */
+	const char   *isr_regex;
 	size_t        rule_count;
 	size_t        rule_capacity;
 	/* The conditional-compilation symbols in force, each as given: `NAME`
@@ -425,9 +436,29 @@ typedef enum {
 typedef struct {
 	char     *name;       /* copied out of the mapping before it is
 	                       * released, since the name outlives it        */
+	/* The name the linker knows this function by, where the image names it
+	 * something other than the source does; NULL otherwise, which is every
+	 * ordinary function and every run with no image (HLR-233).
+	 *
+	 * A function-shaped macro that writes a definition frequently renames
+	 * it — `ISR(TCB0_INT_vect)` defines `__vector_12` — so the source name
+	 * and the linkage name are two different strings for one function, and
+	 * a filter matching on the name alone discards it as absent. The join is
+	 * by *where the definition begins*, which the image's debug information
+	 * records and the parse also knows, rather than by name (HLR-193). */
+	char     *linkage_name;
 	uint32_t  start_line; /* 1-based; TSPoint.row is 0-based and
 	                       * converted exactly once                      */
 	uint32_t  end_line;   /* 1-based                                     */
+	/* Whether the definition was written through a function-shaped macro
+	 * rather than spelled out (HLR-233).
+	 *
+	 * A fact about the *syntax*, taken from the language's own query, and
+	 * the evidence HLR-227 admits an interrupt handler on: a macro that
+	 * writes a definition nothing calls exists to attach that body to
+	 * something the source never names, which is what installing a handler
+	 * is. */
+	bool      macro_defined;
 	/* What the language says about this function's reach, from that
 	 * language's own visibility query. Unknown where the module supplies
 	 * none, which the report states rather than resolving (HLR-209). */
@@ -468,7 +499,63 @@ typedef struct {
 	 * indistinguishable here for the same reason and by the same rule. */
 	double    wf_out;
 	double    wtbi;
+	/* Whether some path out of this function leaves a critical section
+	 * held, and whether its control flow could be built at all (HLR-229).
+	 *
+	 * Decided here, during the one parse, rather than when re-entrancy is
+	 * known — which is only after the whole graph exists, by which time
+	 * the syntax tree is gone. PVD Principle 7 admits one parse and no
+	 * copies, so the question is answered for every function and the
+	 * answer reported only for the ones it matters for. */
+	/* Whether both threads of control can be inside this function
+	 * (HLR-228). On the record as well as on the graph node, because the
+	 * table renders from the report and the report outlives the graph. */
+	bool      is_reentrant;
+	/* Whether this function *begins* the second thread of control — an
+	 * asynchronous root admitted on evidence that names it a handler rather
+	 * than merely an uncalled function (HLR-233).
+	 *
+	 * Beside re-entrancy rather than folded into it because the two are
+	 * opposite ends of one relation and are mutually exclusive by
+	 * construction: a root has an in-degree of zero, so nothing on the
+	 * application's side can reach it, so it is never in the intersection
+	 * HLR-228 marks. One column carries both without ambiguity. */
+	bool      is_interrupt;
+	bool      leaks_lock;
+	bool      cfg_complete;
+	/* Whether a critical section was found in this function at all — a
+	 * scoped guard included, which acquires nothing an acquisition/release
+	 * pair would show (HLR-234). False also means "no synchronisation query
+	 * for this language", which the report distinguishes by whether any
+	 * function in the run has one. */
+	bool      has_critical_section;
 } FunctionMetric;
+
+/* What one column says about a function's relation to the second thread of
+ * control (HLR-228, HLR-233).
+ *
+ * **One column and not two, because the two answers cannot both be true.** An
+ * asynchronous root has an in-degree of zero — nothing in the analysed source
+ * calls it — so nothing on the application's side reaches it, so it is never in
+ * the intersection that marks a function re-entrant. A second column would
+ * therefore be a column that is blank on every row the first one fills.
+ *
+ * Blank is the third answer and the common one. The column is scanned down for
+ * the few functions the analysis has something to say about, and a mark on
+ * every row would bury them (HLR-219).
+ *
+ * Defined once, here, so that the aligned table, the Markdown, the CSV and the
+ * drawing are given one decision rather than each spelling it again — the same
+ * reason `elc_wtbi_status` lives beside it (LLR-CYT-06).
+ */
+static inline const char *concurrency_mark(const FunctionMetric *fn)
+{
+	if (fn->is_interrupt)
+		return "I";
+	if (fn->is_reentrant)
+		return "R";
+	return "";
+}
 
 /* One function the source defines and the linked image does not (HLR-143).
  *
@@ -618,6 +705,20 @@ typedef enum {
 	SCOPES_OMITTED_NONE_DECLARED
 } ScopeState;
 
+/* Whether the second thread of control was found, and where it was not, why
+ * (HLR-227, HLR-115).
+ *
+ * **The two ways of having no asynchronous roots are different claims and are
+ * reported as such.** A run given an image and finding no handler has looked
+ * and found none; a run given neither an image nor a pattern has not looked.
+ * Rendering both as silence would tell a reader who forgot `--elf` that their
+ * program is free of the defects this analysis exists to find. */
+typedef enum {
+	CONCURRENCY_MEASURED = 0,
+	CONCURRENCY_NO_ROOTS,        /* looked, and the program has none    */
+	CONCURRENCY_OMITTED_NO_EVIDENCE /* neither --elf nor --isr-regex    */
+} ConcurrencyState;
+
 /* The severity of a finding: a closed, ordered set, exactly one per finding
  * (HLR-123).
  *
@@ -655,6 +756,11 @@ typedef enum {
 	MEASURE_BOTTLENECK,        /* per component  (HLR-081)  */
 	MEASURE_MISRA_LIBRARY,     /* per call site  (HLR-207)  */
 	MEASURE_WEIGHTED_TEST_BURDEN,    /* per function   (HLR-224)  */
+	MEASURE_SHARED_UNQUALIFIED,      /* per global     (HLR-230)  */
+	MEASURE_VOLATILE_CONFINED,       /* per global     (HLR-231)  */
+	MEASURE_CRITICAL_SECTION,        /* per function   (HLR-229)  */
+	MEASURE_LAYERING_VIOLATION,      /* per call edge  (HLR-079, HLR-118) */
+	MEASURE_CROSS_SCOPE,             /* per edge       (HLR-094)  */
 	MEASURE_KIND_COUNT
 } MeasurementKind;
 
@@ -720,11 +826,33 @@ typedef struct {
 typedef enum {
 	GLOBAL_DECLARATION = 0,
 	GLOBAL_READ,
-	GLOBAL_WRITE
+	GLOBAL_WRITE,
+	/* A declaration that also carries the language's qualifier for an
+	 * object changed outside the current thread of control, and a
+	 * declaration whose shape says it is a memory-mapped address rather
+	 * than a variable (HLR-230, HLR-231).
+	 *
+	 * Both arrive as *additional* captures on the same identifier the
+	 * declaration captured, so a qualified global is recorded twice and
+	 * the second record carries the qualifier. That keeps the declaration
+	 * patterns untouched and keeps every spelling of the qualifier in the
+	 * query where the language's facts live (HLR-009). */
+	GLOBAL_VOLATILE,
+	GLOBAL_MMIO
 } GlobalAccessKind;
 
 typedef struct {
 	char            *name;     /* the object's identifier; owned       */
+	/* The type the object was declared with, as written, and NULL on
+	 * every access that is not a declaration (HLR-242).
+	 *
+	 * The base type alone: the pointer and array shape belongs to the
+	 * declarator the name sits in, and the language module says which
+	 * shape matched rather than `elc` inspecting the source. NULL rather
+	 * than an empty string where a language's module captures no type at
+	 * all, which is a different claim from a type that is blank.
+	 */
+	char            *type;     /* owned, or NULL                       */
 	size_t           function; /* into functions, or ELC_NO_FUNCTION   */
 	uint32_t         line;     /* 1-based                              */
 	GlobalAccessKind kind;

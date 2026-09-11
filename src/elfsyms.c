@@ -273,6 +273,207 @@ static int read_symbols(Elf *elf, Elf_Scn *chosen, const GElf_Shdr *shdr,
 	return 0;
 }
 
+/* The architectures `elc` has a name for, by the ELF header's own machine
+ * number (HLR-239).
+ *
+ * A table rather than a library call, because libelf has none: the name lives
+ * in `libebl`, which is elfutils' internal backend and not a published
+ * interface. Short deliberately — these are the machines a reader of this tool
+ * is plausibly building for — and a machine absent from it is reported by its
+ * number rather than guessed at.
+ */
+static const char *machine_name(unsigned int machine)
+{
+	static const struct { unsigned int id; const char *name; } MACHINES[] = {
+		{ EM_386,     "x86"     }, { EM_X86_64,  "x86-64"  },
+		{ EM_ARM,     "ARM"     }, { EM_AARCH64, "AArch64" },
+		{ EM_AVR,     "AVR"     }, { EM_RISCV,   "RISC-V"  },
+		{ EM_MSP430,  "MSP430"  }, { EM_XTENSA,  "Xtensa"  },
+		{ EM_PPC,     "PowerPC" }, { EM_PPC64,   "PowerPC64" },
+		{ EM_MIPS,    "MIPS"    }, { EM_SPARC,   "SPARC"   },
+		{ EM_68K,     "m68k"    }, { EM_SH,      "SuperH"  },
+		{ EM_ARC,     "ARC"     }, { EM_S390,    "S/390"   }
+	};
+
+	for (size_t i = 0; i < sizeof MACHINES / sizeof *MACHINES; i++)
+		if (MACHINES[i].id == machine)
+			return MACHINES[i].name;
+
+	return NULL;
+}
+
+/* The device name a toolchain recorded in a note section, where it did.
+ *
+ * **The one place an image names the exact part rather than the architecture
+ * family.** avr-gcc writes `.note.gnu.avr.deviceinfo`, whose descriptor is a
+ * short run of numbers followed by a string table holding the device name —
+ * `avr128da28` for the image this was written against. That is the string a
+ * build needs as `-mmcu`, and the ELF header alone cannot supply it: `avr:104`
+ * names an instruction-set variant shared by dozens of parts.
+ *
+ * Read defensively and never required. The descriptor's numeric prefix is
+ * version-dependent, so rather than decoding fields whose meaning may change,
+ * this takes the first printable, NUL-terminated run in it — which is the
+ * string table's first entry, and is the device name in every version of the
+ * note that exists. A descriptor holding no such run yields nothing, and the
+ * architecture name is what the report then carries.
+ */
+static char *first_string(const unsigned char *p, size_t len)
+{
+	for (size_t i = 0; i < len; i++) {
+		size_t j = i;
+
+		while (j < len && p[j] >= 0x21 && p[j] <= 0x7e)
+			j++;
+		/* At least two characters and NUL-terminated, so a stray byte
+		 * in the numeric prefix is never read as a name. */
+		if (j - i >= 2 && j < len && p[j] == '\0')
+			return strndup((const char *)p + i, j - i);
+		i = j;
+	}
+
+	return NULL;
+}
+
+/* Every note in one section, descriptor by descriptor.
+ *
+ * Walked with `gelf_getnote` rather than by hand: a note's name and descriptor
+ * are each padded to four bytes, and the owner string — `AVR` — sits in the
+ * same buffer immediately before the descriptor. Scanning the buffer raw finds
+ * the owner and reports the architecture as its own device.
+ */
+static char *section_device(Elf_Data *data)
+{
+	GElf_Nhdr nhdr;
+	size_t    name_off = 0, desc_off = 0, off = 0;
+
+	while ((off = gelf_getnote(data, off, &nhdr, &name_off,
+	                           &desc_off)) > 0) {
+		char *found = first_string((const unsigned char *)data->d_buf
+		                           + desc_off, nhdr.n_descsz);
+
+		if (found)
+			return found;
+	}
+
+	return NULL;
+}
+
+/* Whether this section is a note a toolchain records a device in. */
+static bool is_device_note(Elf *elf, Elf_Scn *scn, size_t shstrndx)
+{
+	GElf_Shdr   shdr;
+	const char *name;
+
+	if (!gelf_getshdr(scn, &shdr) || shdr.sh_type != SHT_NOTE)
+		return false;
+
+	name = elf_strptr(elf, shstrndx, shdr.sh_name);
+	return name && strstr(name, "deviceinfo") != NULL;
+}
+
+static char *device_note(Elf *elf)
+{
+	size_t   shstrndx;
+	Elf_Scn *scn = NULL;
+
+	if (elf_getshdrstrndx(elf, &shstrndx) != 0)
+		return NULL;
+
+	while ((scn = elf_nextscn(elf, scn)) != NULL) {
+		Elf_Data *data;
+		char     *found;
+
+		if (!is_device_note(elf, scn, shstrndx))
+			continue;
+
+		data = elf_getdata(scn, NULL);
+		if (!data || !data->d_buf)
+			continue;
+
+		found = section_device(data);
+		if (found)
+			return found;
+	}
+
+	return NULL;
+}
+
+/* How the toolchain for one machine spells the option that selects a device
+ * (HLR-240).
+ *
+ * One entry, and that is the honest size of it: `.note.gnu.avr.deviceinfo` is
+ * the note this reads, and avr-gcc is the toolchain that writes it. The table
+ * exists so that a second machine recording a device is a row rather than a
+ * rewrite — and so that a machine *not* in it yields nothing, since passing a
+ * flag a compiler does not accept turns a run that would have expanded into
+ * one that falls back.
+ */
+static const char *device_option(unsigned int machine)
+{
+	static const struct { unsigned int id; const char *option; } OPTIONS[] = {
+		{ EM_AVR, "-mmcu=" }
+	};
+
+	for (size_t i = 0; i < sizeof OPTIONS / sizeof *OPTIONS; i++)
+		if (OPTIONS[i].id == machine)
+			return OPTIONS[i].option;
+
+	return NULL;
+}
+
+char *elfsyms_device_flag(const SymbolSet *set)
+{
+	const char *option;
+	char       *flag;
+	size_t      want;
+
+	if (!set || !set->device)
+		return NULL;
+
+	option = device_option(set->machine);
+	if (!option)
+		return NULL;
+
+	want = strlen(option) + strlen(set->device) + 1;
+	flag = malloc(want);
+	if (flag)
+		snprintf(flag, want, "%s%s", option, set->device);
+	return flag;
+}
+
+/* What the image was built for, as specifically as it says (HLR-239). */
+static char *target_of(Elf *elf, SymbolSet *out)
+{
+	GElf_Ehdr   ehdr;
+	char       *device = device_note(elf);
+	const char *arch;
+	char        buf[128];
+
+	/* Kept apart from the display below it: the device is what a build
+	 * needs told, and `avr128da28 (AVR)` is not a flag (HLR-240). */
+	out->device = device ? strdup(device) : NULL;
+
+	if (!gelf_getehdr(elf, &ehdr))
+		return device;
+
+	out->machine = ehdr.e_machine;
+	arch = machine_name(ehdr.e_machine);
+
+	if (device && arch)
+		snprintf(buf, sizeof buf, "%s (%s)", device, arch);
+	else if (device)
+		snprintf(buf, sizeof buf, "%s", device);
+	else if (arch)
+		snprintf(buf, sizeof buf, "%s", arch);
+	else
+		snprintf(buf, sizeof buf, "ELF machine %u",
+		         (unsigned)ehdr.e_machine);
+
+	free(device);
+	return strdup(buf);
+}
+
 int elfsyms_open(const char *path, SymbolSet *out)
 {
 	Elf      *elf       = NULL;
@@ -301,6 +502,10 @@ int elfsyms_open(const char *path, SymbolSet *out)
 	if (open_image(path, &fd, &elf) != 0)
 		goto cleanup;
 
+	/* Read from the descriptor already open, like everything else here:
+	 * the image is opened once and nothing beside it (HLR-141). */
+	out->target = target_of(elf, out);
+
 	chosen = symbol_section(elf, &shdr);
 
 	if (read_symbols(elf, chosen, &shdr, out, &functions) != 0)
@@ -323,11 +528,19 @@ int elfsyms_open(const char *path, SymbolSet *out)
 	 * debug information yields an empty set and is not a failure: HLR-141
 	 * forbids requiring it, so its absence costs the line granularity and
 	 * nothing else (HLR-153). */
-	if (dwarfline_read(elf, &out->lines, &out->origins) != 0) {
+	if (dwarfline_read(elf, &out->lines, &out->origins,
+	                   &out->include_dirs) != 0) {
 		diag_printf("elc: out of memory reading the image's line "
 		      "information\n");
 		goto cleanup;
 	}
+
+	/* Whether the image carried debug information at all, which governs
+	 * three analyses and is reported so a reader can tell one that found
+	 * nothing from one that could not look (HLR-239). Any of the three
+	 * things `dwarfline_read` gathers is evidence of it. */
+	out->debug_info = out->lines.present || dwarfline_any(&out->origins) ||
+	                  out->include_dirs.count > 0;
 
 	status = 0;
 
@@ -400,5 +613,8 @@ void elfsyms_free(SymbolSet *set)
 	free(set->path);
 	dwarfline_free(&set->lines);
 	originmap_free(&set->origins);
+	includedirs_free(&set->include_dirs);
+	free(set->target);
+	free(set->device);
 	memset(set, 0, sizeof *set);
 }

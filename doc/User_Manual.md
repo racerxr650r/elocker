@@ -256,7 +256,7 @@ the tiers the default omits. Which tiers belong to which is set out in
 [Summary and verbose reports](#summary-and-verbose-reports).
 
 ```
-Project summary
+Project Summary
   Files               2
   Physical lines     42
   ELOC               18
@@ -280,32 +280,32 @@ Languages
   --------  -----  -----  ----
   c             2     42    18
 
-Files
+Files (2)
   File                  Language  Lines  ELOC  Functions
   --------------------  --------  -----  ----  ---------
   /home/u/proj/src/a.c  c            18    12          2
   /home/u/proj/src/b.c  c            24     6          1
 
-At or over a threshold (complexity listed at 5; complexity, fan-in, fan-out and weighted test burden banded)
+At Or Over A Threshold (complexity listed at 5; complexity, fan-in, fan-out and weighted test burden banded)
   File                  Function  Complexity  Fan-in  Fan-out   WTBI  Severity
   --------------------  --------  ----------  ------  -------  -----  --------
   /home/u/proj/src/a.c  parse              7       1        2  14.00
 
-Functions
-  File                     Language  Function  Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
-  -----------------------  --------  --------  ------  -----  ----  --  ------  -------  -----  -------
-  /home/u/proj/src/a.c:5   c         parse     public     15     9   7       1        2  14.00  healthy
-  /home/u/proj/src/a.c:21  c         emit      public      4     3   1       1        0   1.00  healthy
-  /home/u/proj/src/b.c:3   c         main      public      9     6   2       0        1   2.00  healthy
+Functions (3)
+  File                     Lang  Function  Scope   Reent  Lines  ELOC  CC  In  Out   WTBI  Burden
+  -----------------------  ----  --------  ------  -----  -----  ----  --  --  ---  -----  -------
+  /home/u/proj/src/a.c:5   c     parse     public  R         15     9   7   1    2  14.00  healthy
+  /home/u/proj/src/a.c:21  c     emit      public             4     3   1   1    0   1.00  healthy
+  /home/u/proj/src/b.c:3   c     main      public             9     6   2   0    1   2.00  healthy
 
-Skipped files (no language module)
+Skipped Files (no language module)
   /home/u/proj/src/notes.md
 
-Nothing to report
+Nothing To Report
   4 tables above were empty and omitted:
-    - Component dependency cycles
+    - Component Dependency Cycles
     - Recursion
-    - Deepest call chain (omitted: no entry points declared, see --entry)
+    - Deepest Call Chain (omitted: no entry points declared, see --entry)
     - Layering (omitted: no architectural strata declared, see --stratum)
 ```
 
@@ -327,7 +327,7 @@ table that supplies their evidence. The example above has none, so the section
 is absent; a run with findings puts them second.
 
 **A table with no rows is not printed.** Instead the report ends with a
-`Nothing to report` statement naming every one that was empty, by its full
+`Nothing To Report` statement naming every one that was empty, by its full
 heading — which is how a section omitted for want of a `--stratum` or
 `--entry` declaration still tells you why. The statement is there whether or
 not anything was empty.
@@ -465,7 +465,7 @@ elc -c 1 src/           # list everything
 ```
 
 ```
-At or over a threshold (complexity listed at 10; complexity, fan-in, fan-out and weighted test burden banded)
+At Or Over A Threshold (complexity listed at 10; complexity, fan-in, fan-out and weighted test burden banded)
   File                  Function  Complexity  Fan-in  Fan-out   WTBI  Severity
   --------------------  --------  ----------  ------  -------  -----  --------
   /home/u/proj/src/a.c  parse             17       2        4  51.00  critical
@@ -549,10 +549,10 @@ the lines beneath them:
 
 ```console
 $ elc src/
-Functions
-  File                                    Language  Function  Lines  ELOC  CC
-  --------------------------------------  --------  --------  -----  ----  ----------
-  /home/you/very/long/path/to/a/project/  c         measure       9     4           2
+Functions (1)
+  File                                    Lang  Function  Lines  ELOC  CC
+  --------------------------------------  ----  --------  -----  ----  --
+  /home/you/very/long/path/to/a/project/  c     measure       9     4   2
   src/measure.c:12
 ```
 
@@ -589,7 +589,7 @@ They carry the same columns, in the same order:
 
 ```console
 $ elc -f csv src/ | head -3
-file,language,function,scope,lines,eloc,cc,in,out,wtbi,burden
+file,lang,function,scope,reent,lines,eloc,cc,in,out,wtbi,burden
 /home/you/src/measure.c:12,c,measure,public,9,4,2,3,1,84
 /home/you/src/measure.c:24,c,scale,private,6,3,1,1,0,91
 ```
@@ -703,30 +703,96 @@ complete formats are untouched.
 
 ### There are two summaries, because there are two readers
 
-Which tiers the *summary* presents depends on the format, and the difference
-is not an inconsistency — it is the same question answered for two different
-documents.
-
-A `report.md` is read by **searching** it. You scroll, you fold sections, you
-use your browser's find. A long table costs you nothing there, and the tiers
-worth putting in front of you are the aggregates: the totals, the per-file
-figures, the languages.
-
-A report on your **terminal** is read once, by scrolling back through what the
-command left behind. There the aggregate is the cheapest thing to recover — it
-is twelve lines and it is at the top — while the per-function figures are the
-reason you ran the command. So the terminal report is three sections:
+A default report is four sections, whatever format you asked for:
 
 ```sh
-elc src/            # Project summary, Findings, Functions — and nothing else
-elc -o report.md src/   # the aggregates, the routes, the files; no Functions
-elc --verbose src/  # everything, in either
+elc src/                # Project Summary, Findings, Files, Functions
+elc -o report.md src/   # the same four
+elc --verbose src/      # everything, in either
 ```
 
-**What a tier *says* never differs.** The `Functions` table on your terminal is
-the `Functions` table in your `report.md`, to the row and to the figure. Only
-which tiers you are shown without asking differs, and `--verbose` collapses
-even that.
+They answer the questions every reader has: what was measured, what is wrong
+with it, what it is made of, and what its functions cost. You never have to
+know which format you picked before knowing whether the answer is in front of
+you.
+
+`Functions` is the interesting one. By the rule below it is a *detail* tier —
+one row per analysed entity — and it is presented anyway, because it is the
+table the tool exists to produce. That is an exception to the rule, stated
+rather than smuggled in.
+
+> **This used to differ by format**, and the reasoning was that there are two
+> readers: a `report.md` is read by *searching* it, so a long table costs you
+> nothing there, while a terminal report is read once by scrolling back. That
+> is true of how the two are read, and what followed from it was two default
+> reports to keep in agreement and a reader who had to know which format they
+> had asked for. The terminal's narrower default was the better one; it now
+> serves both.
+
+**What a tier *says* never differs either.** The `Functions` table on your
+terminal is the `Functions` table in your `report.md`, to the row and to the
+figure. Only the decoration differs.
+
+### A run on your terminal is framed
+
+Where the report is the aligned table, `elc` frames the session in two blocks:
+
+```text
+Parsing Notifications
+----------------------------------------------------------------------------
+elc: src/notes.md: no usable language module; skipped
+elc: src/uart.c:112: 3 lines could not be parsed; the rest of the file is measured
+
+Project Summary
+----------------------------------------------------------------------------
+  Files                44
+  ...
+```
+
+Three things about that frame are worth knowing:
+
+* **The banner goes to standard error, with the messages it heads.** Results go
+  to stdout and diagnostics to stderr, always — so `elc src/ > report.txt`
+  gives you a file that opens at `Project Summary`, with the notifications on
+  your terminal where you can see them. Putting the banner on stdout would head
+  nothing in that file.
+* **A clean run prints no heading at all.** If there is nothing to notify, the
+  banner and the blank line beneath it are not written, exactly as an empty
+  table is not printed.
+* **It is the aligned table's frame.** A `-f md`, a record, or a companion has
+  no terminal session to frame and gets neither banner.
+
+### Every word of a section title is capitalised
+
+`Project Summary`, `At Or Over A Threshold`, `Functions The Image Does Not
+Define`. The rule is the title alone — a clause after it states a threshold, a
+count, or the reason an analysis was omitted, and reads as the prose it is,
+whether it is in parentheses or after an em dash. Column headings and the
+project summary's own row labels are not titles and are left alone.
+
+### The size of a table is in its heading
+
+On the terminal, each of the three tables of that minimum states how many rows
+it has:
+
+```text
+Findings (34)
+Files (12)
+Functions (85)
+```
+
+It is the figure you would otherwise get by counting, and the one a long table
+cannot tell you about itself. The project summary needs none — it is a list of
+counts already.
+
+The count is always the number of rows actually printed, so it and the table
+beneath it cannot disagree; and a table with no rows is named in the closing
+statement without one, because a size for something that was never printed
+would describe nothing.
+
+Markdown states the same figure in its own idiom — the fold above each table
+already reads `85 rows (click to expand)` — so both formats tell you the size,
+each in the way that format is read.
 
 If you want one command that gives you a readable terminal report *and* a full
 saved one, ask for both — the report goes to the file and the companions are
@@ -745,35 +811,34 @@ summary tier of a *document*. A tier enumerating one row per analysed entity —
 per function, per global object, per unreachable statement, per graph edge, per
 custom-rule match — is a detail tier.
 
-The `table` column below is where the terminal report departs from that rule,
-and it departs in exactly two places: it keeps `Functions`, and it holds back
-everything else.
+One column, because there is one partition: what a default report presents is
+a property of the report and not of how it is written down.
 
-| Tier | `md` summary | `table` summary | Verbose |
-| ---- | ------------ | --------------- | ------- |
-| Project summary, Findings | ✅ | ✅ | ✅ |
-| Functions | — | ✅ | ✅ |
-| Callouts | ✅ | — | ✅ |
-| Discovery | ✅ | — | ✅ |
-| Languages | ✅ | — | ✅ |
-| Files | ✅ | — | ✅ |
-| At or over a threshold | ✅ | — | ✅ |
-| An analysis omitted for want of a declaration, with its reason | ✅ | ✅ | ✅ |
-| Architecture conformance | ✅ | — | ✅ |
-| Conditional-compilation definitions | ✅ | — | ✅ |
-| Linked-image filter | ✅ | — | ✅ |
-| Partially parsed files | ✅ | — | ✅ |
-| Skipped files | ✅ | — | ✅ |
-| Recursion, Deepest call chain | — | — | ✅ |
-| Component coupling, Component dependency cycles, Layering | — | — | ✅ |
-| Dependency structure matrix | — | — | ✅ |
-| Graph purification | — | — | ✅ |
-| Global state, Unreachable globals | — | — | ✅ |
-| Unreachable functions, Dead code within functions | — | — | ✅ |
-| Cross-scope access | — | — | ✅ |
-| Custom rule matches | — | — | ✅ |
-| Functions the image places that the parse did not reach | — | — | ✅ |
-| Functions the image does not define (**last**) | — | — | ✅ |
+| Tier | Summary | Verbose |
+| ---- | ------- | ------- |
+| Project Summary, Findings | ✅ | ✅ |
+| Files | ✅ | ✅ |
+| Functions | ✅ | ✅ |
+| An analysis omitted for want of a declaration, with its reason | ✅ | ✅ |
+| Callouts | — | ✅ |
+| Discovery | — | ✅ |
+| Languages | — | ✅ |
+| At Or Over A Threshold | — | ✅ |
+| Architecture Conformance | — | ✅ |
+| Conditional-Compilation Definitions | — | ✅ |
+| Linked-Image Filter | — | ✅ |
+| Partially Parsed Files | — | ✅ |
+| Skipped Files | — | ✅ |
+| Recursion, Deepest Call Chain | — | ✅ |
+| Component Coupling, Component Dependency Cycles, Layering | — | ✅ |
+| Dependency Structure Matrix | — | ✅ |
+| Graph Purification | — | ✅ |
+| Global State, Unreachable Globals | — | ✅ |
+| Unreachable Functions, Dead Code Within Functions | — | ✅ |
+| Cross-Scope Access | — | ✅ |
+| Custom Rule Matches | — | ✅ |
+| Functions The Image Places That The Parse Did Not Reach | — | ✅ |
+| Functions The Image Does Not Define (**last**) | — | ✅ |
 
 **The last row is last on purpose.** The functions a linked image does not
 define is the longest table a filtered run produces, and it answers a question
@@ -782,7 +847,7 @@ answer — so it closes the report. The image itself stays in the summary, where
 you meet it before the figures it qualifies.
 
 **A tier reached but empty is named, not printed.** A table with no rows is
-not printed at all, and the report closes with a `Nothing to report`
+not printed at all, and the report closes with a `Nothing To Report`
 statement listing every one that was empty — by its full heading, so an
 omitted analysis still states its reason there. A tier a summary run filters
 out appears in neither place, which is how you tell "this run found nothing"
@@ -801,7 +866,7 @@ entry point, the summary still tells you that reachability was not measured,
 rather than leaving an absence you might read as a clean bill of health.
 
 ```
-Unreachable functions (omitted: no entry points declared, see --entry)
+Unreachable Functions (omitted: no entry points declared, see --entry)
   File  Function  Line
   ----  --------  ----
 ```
@@ -929,7 +994,7 @@ and never merged.
 The project summary reports a count:
 
 ```text
-Project summary
+Project Summary
   Files               3
   ...
   Unresolved calls    2
@@ -958,12 +1023,12 @@ table introduced in [The report](#the-report) — and its last two columns are
 the function's two degrees:
 
 ```text
-Functions
-  File                     Language  Function  Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
-  -----------------------  --------  --------  ------  -----  ----  --  ------  -------  -----  -------
-  /home/u/proj/src/a.c:5   c         main      public     15    12   3       0        4   3.00  healthy
-  /home/u/proj/src/a.c:21  c         parse     public     50    31   9       3        7  27.00  warning
-  /home/u/proj/src/a.c:72  c         chomp     public      7     4   1       6        0   1.00  healthy
+Functions (3)
+  File                     Lang  Function  Scope   Reent  Lines  ELOC  CC  In  Out   WTBI  Burden
+  -----------------------  ----  --------  ------  -----  -----  ----  --  --  ---  -----  -------
+  /home/u/proj/src/a.c:5   c     main      public             15    12   3   0    4   3.00  healthy
+  /home/u/proj/src/a.c:21  c     parse     public  R          50    31   9   3    7  27.00  warning
+  /home/u/proj/src/a.c:72  c     chomp     public             7      4   1   6    0   1.00  healthy
 ```
 
 **Fan-out** is the number of *distinct subroutines a function invokes*.
@@ -1040,7 +1105,7 @@ call among the listed functions breaks the recursion.
 ### The deepest call chain
 
 ```text
-Deepest call chain (4 layers; a lower bound, 3 calls unresolved)
+Deepest Call Chain (4 layers; a lower bound, 3 calls unresolved)
   Step  File                  Function
   ----  --------------------  --------
   1     /home/u/proj/src/a.c  main
@@ -1083,10 +1148,10 @@ no finite answer. `elc` reports the cycle instead of a number, rather than
 picking some finite value that would be wrong, or looping forever trying to
 find one.
 
-### Component coupling
+### Component Coupling
 
 ```text
-Component coupling (I = Ce/(Ce+Ca), Martin; bottleneck at Ca and Ce >= 5)
+Component Coupling (I = Ce/(Ce+Ca), Martin; bottleneck at Ca and Ce >= 5)
   Component             Ca  Ce  Instability  Finding
   --------------------  --  --  -----------  -------
   /home/u/proj/app.c     1   2         0.67
@@ -1133,10 +1198,10 @@ else `elc` bands comes from a published source, and presenting an invented
 line beside McCabe, Henry–Kafura, Martin and MISRA without saying so would
 lend it authority it has not got.
 
-### Component dependency cycles
+### Component Dependency Cycles
 
 ```text
-Component dependency cycles
+Component Dependency Cycles
   Components                  Example loop
   --------------------------  ----------------------------------------
   /u/p/a.c, /u/p/b.c, /u/p/c.c  /u/p/a.c -> /u/p/b.c -> /u/p/c.c -> /u/p/a.c
@@ -1206,7 +1271,7 @@ reported on standard error and kept anyway — dropping it would renumber the
 layers below it and change what everything else is compared against.
 
 Only **calls** are checked here. A global two layers happen to share is a
-different fact, with its own findings in Global state and `--scope`.
+different fact, with its own findings in Global State and `--scope`.
 
 With no `--stratum` at all the section states that it was omitted. The coupling
 table above it is still produced.
@@ -1217,7 +1282,7 @@ The Layering section says *which* calls breach the declaration. The two
 conformance indices say *how much of the code base* does not:
 
 ```text
-Architecture conformance (over 6 inter-layer call edges; undefined where there are none)
+Architecture Conformance (over 6 inter-layer call edges; undefined where there are none)
   Index      Violating  Conforming  Of
   ---------  ---------  ----------  --
   Back-call     16.67%      83.33%   6
@@ -1238,7 +1303,7 @@ before you compare a figure against your own count:
 * A call touching a file **no `--stratum` names**. It lies outside the
   partition, exactly as it does in the Layering section.
 * A **shared global**. It is coupling, not invocation, and has its own
-  findings in Global state.
+  findings in Global State.
 
 A repeated call counts once, as everywhere else: one function calling another
 in forty places is one edge, so the percentages are over the same figure the
@@ -1248,7 +1313,7 @@ tables beside them show.
 and not 100% conforming:
 
 ```text
-Architecture conformance (over 0 inter-layer call edges; undefined where there are none)
+Architecture Conformance (over 0 inter-layer call edges; undefined where there are none)
   Index      Violating   Conforming  Of
   ---------  ----------  ----------  --
   Back-call   undefined   undefined   0
@@ -1277,7 +1342,7 @@ The indices say how much conforms; the matrix says **where** the dependencies
 are:
 
 ```text
-Dependency structure matrix (declared layers)
+Dependency Structure Matrix (declared layers)
   Rows are callers, columns callees, in ascending order. Above the diagonal: the declared direction. On it: within one subject. Below it: back-calls.
   caller \ callee  app  hal  drv
   ---------------  ---  ---  ---
@@ -1306,7 +1371,7 @@ directories instead, ordered by path (the convention line is printed here too
 and is elided below for width):
 
 ```text
-Dependency structure matrix (directories: no strata declared, see --stratum)
+Dependency Structure Matrix (directories: no strata declared, see --stratum)
   caller \ callee      /home/u/proj/src/app  /home/u/proj/src/drv  /home/u/proj/src/hal
   -------------------  --------------------  --------------------  --------------------
   /home/u/proj/src/app                    0                     1                     2
@@ -1344,7 +1409,7 @@ companion is off unless you ask for it and needs `--output` to derive a name
 from — but unlike `--graphml`, it works in regeneration mode too, because a
 saved record carries the matrix where it carries no graph.
 
-### Graph purification
+### Graph Purification
 
 A raw call graph rarely sorts into layers. A logger everything calls, and a
 dispatcher that calls everything, each join parts of a program that have
@@ -1355,7 +1420,7 @@ So `elc` builds a second graph — a **recovery view** — with those functions
 set aside, and reports every classification it made in doing so.
 
 ```text
-Graph purification (recovery view only, no measurement above is taken over it; elc heuristic — not a published standard: sink at authority >= 90% and hub <= 10%, god object at betweenness >= 90% and hub >= 90%, peripheral below core depth 2; 9 functions retained, 12 call edges masked)
+Graph Purification (recovery view only, no measurement above is taken over it; elc heuristic — not a published standard: sink at authority >= 90% and hub <= 10%, god object at betweenness >= 90% and hub >= 90%, peripheral below core depth 2; 9 functions retained, 12 call edges masked)
   File                    Function  Class         Metric       Value                                            Action
   ----------------------  --------  ------------  -----------  -----------------------------------------------  ----------------------
   /home/u/proj/app/d.c    dispatch  god object    betweenness  14.00, above 100% of functions (hub above 100%)   all edges masked
@@ -1462,14 +1527,14 @@ order into layers — a description of the architecture your code already has,
 for a reader who has declared none:
 
 ```text
-Architecture recovery (a proposal, never the baseline conformance is measured against; 3 layers over 3 directories, 0 functions masked and 0 excluded)
+Architecture Recovery (a proposal, never the baseline conformance is measured against; 3 layers over 3 directories, 0 functions masked and 0 excluded)
   Layer  Directory or cycle       Functions
   -----  -----------------------  ---------
   0      /home/u/proj/app                 2
   1      /home/u/proj/svc                 3
   2      /home/u/proj/hal                 2
 
-Architecture recovery — the proposal as arguments (elc never applies it; passing it back is what declares it)
+Architecture Recovery — the proposal as arguments (elc never applies it; passing it back is what declares it)
   Adopt with
   ----------------------------------------------------------------------------------
   --stratum app:'/home/u/proj/app/*' --stratum hal:'/home/u/proj/hal/*' --stratum svc:'/home/u/proj/svc/*' --stratum-order 'app>svc>hal'
@@ -1515,7 +1580,7 @@ no layer at all.
 Where the recovery view is still cyclic, no ordering of it exists:
 
 ```text
-Architecture recovery (omitted: the recovery view is cyclic, so no ordering exists; the mutually reachable groups below are reported in its place)
+Architecture Recovery (omitted: the recovery view is cyclic, so no ordering exists; the mutually reachable groups below are reported in its place)
   Layer  Directory or cycle                       Functions
   -----  ---------------------------------------  ---------
   cycle  hal_init, hal_stop, svc_open, svc_close
@@ -1599,7 +1664,7 @@ a project whose manifest covers all of it is ordinary use.
 ### Dead code between functions
 
 ```text
-Unreachable functions (3; from the declared entry points and every address-taken function)
+Unreachable Functions (3; from the declared entry points and every address-taken function)
   File                  Function   Line
   --------------------  ---------  ----
   /home/u/proj/src/a.c  clique_a     41
@@ -1641,7 +1706,7 @@ as dead because you did not tell it where execution starts.
 Storage goes the same way as the code:
 
 ```text
-Unreachable globals (touched only by unreachable functions)
+Unreachable Globals (touched only by unreachable functions)
   Object
   ------------
   orphan_state
@@ -1652,10 +1717,10 @@ itself unreachable. An object *no* analysed function touches at all is
 deliberately left unclaimed: it may be written to from outside any function,
 or from a source file outside what you pointed `elc` at.
 
-### Global state
+### Global State
 
 ```text
-Global state
+Global State
   Object       Writers   Readers     Finding
   -----------  --------  ----------  ------------------------------------------------------------
   channel      producer  consumer    hidden channel — {producer} {consumer} never call each other (MISRA C Rule 8.9)
@@ -1691,7 +1756,7 @@ warning would fire on every shared variable and mean nothing.
 ### Dead code within a function
 
 ```text
-Dead code within functions (every language analysed)
+Dead Code Within Functions (every language analysed)
   File                  Function  Lines  Cause
   --------------------  --------  -----  ------------------
   /home/u/proj/src/a.c  parse     88-88  after a terminator
@@ -1739,7 +1804,7 @@ exactly the false claim above. When a language has no query the heading says
 so:
 
 ```text
-Dead code within functions (not analysed for: some_language)
+Dead Code Within Functions (not analysed for: some_language)
 ```
 
 *Not analysed* and *none found* are different claims. A reader who cannot tell
@@ -1759,7 +1824,7 @@ elc --scope 'host:*/harness/*' --scope 'target:*/firmware/*' src/
 ```
 
 ```text
-Cross-scope access (2)
+Cross-Scope Access (2)
   From  Function     To      Function      Via
   ----  -----------  ------  ------------  -------
   host  host_drives  target  target_entry  call
@@ -2203,7 +2268,7 @@ elc --rules c:house-style.scm src/
 ```
 
 ```text
-Custom rule matches (2)
+Custom Rule Matches (2)
   Rule                     File                Lines
   -----------------------  ------------------  -----
   house-style.allocation   /home/u/src/a.c     4-4
@@ -2376,7 +2441,7 @@ New sections appear, and only when you supply an image — a run without
 `--elf` reports exactly what it reported before the option existed:
 
 ```
-Linked-image filter
+Linked-Image Filter
   Property                          Value
   --------------------------------  ------------------
   Image                             build/app.elf
@@ -2386,12 +2451,12 @@ Linked-image filter
   Files with no debug coverage      1
   Regions decided by this build     3
 
-Functions the image places that the parse did not reach (1; no figures are measured for them)
+Functions The Image Places That The Parse Did Not Reach (1; no figures are measured for them)
   Function     File            Line
   -----------  --------------  ----
   __vector_12  /src/sys.c        44
 
-Functions the image does not define (2)
+Functions The Image Does Not Define (2)
   Function      File                Line
   ------------  ------------------  ----
   unlinked_add  /src/dropped.c        13
@@ -2412,9 +2477,9 @@ unstated cannot be acted on. A large count means many of the image's symbols
 used a mangling scheme this build cannot decode, so the filter is
 correspondingly incomplete.
 
-**Functions the image does not define** is the finding the option exists to
+**Functions The Image Does Not Define** is the finding the option exists to
 produce. It is dead code established by what your linker did, rather than
-inferred from a call-graph traversal the way **Unreachable functions** is. The
+inferred from a call-graph traversal the way **Unreachable Functions** is. The
 two are reported separately and neither is offered as the other.
 
 ### The finer granularity: lines the build did not compile
@@ -2547,7 +2612,7 @@ expression. No repair helps, because a repair does not know that the macro
 and which line:
 
 ```text
-Functions the image places that the parse did not reach (11; no figures are measured for them)
+Functions The Image Places That The Parse Did Not Reach (11; no figures are measured for them)
   Function     File                        Line
   -----------  --------------------------  ----
   __vector_12  /home/u/avrOS/sys/sys.c       44
@@ -2576,7 +2641,7 @@ the graph cannot represent is counted, a call into libc among them.
 only decides *where* they are. The two disagree ordinarily rather than
 exceptionally: a link that discards unused sections removes the code while the
 compiler's entry describing it stays behind. A function the link dropped is
-reported under **Functions the image does not define** and never here — on a
+reported under **Functions The Image Does Not Define** and never here — on a
 real AVR build, trusting the debug information alone would have listed 82
 functions where 11 were real, and the other 71 were already named, rightly, in
 the other table.
@@ -2610,7 +2675,7 @@ reported among the functions the image does not define, beside its namesake
 that survived:
 
 ```text
-Functions the image does not define (2)
+Functions The Image Does Not Define (2)
   Function  File                  Line
   --------  --------------------  ----
   helper    /home/u/proj/src/b.c     1
@@ -2838,7 +2903,9 @@ for. Six query files are required and four are optional — a module that omits
 `deadcode.scm` is analysed for everything else while the report states that
 dead-code analysis was not performed for that language, one that omits
 `visibility.scm` reports every function's visibility as unknown rather than
-guessing that it is public, and one that omits `signature.scm` scores every
+guessing that it is public, and one that omits `sync.scm` reports no critical section
+(the names of the primitives being a project's fact, not a language's), and one
+that omits `signature.scm` scores every
 function at the base mocking tax alone, so its Weighted Test Burden Index
 rests on complexity and fan-in and never on what its callees cost to mock.
 The contract a module
@@ -2869,6 +2936,7 @@ comparable.
 | `--core-depth` | `N` | `2` | Core depth below which a function is peripheral and left out of the recovery view |
 | `-D`, `--define` | `NAME[=VALUE]` | none | Define a conditional-compilation symbol, so the metrics describe that configuration; repeatable |
 | `--elf` | `FILE` | none | Restrict every measurement to the functions the linked image `FILE` defines |
+| `--isr-regex` | `PATTERN` | none | Treat a function whose name matches `PATTERN` as the start of an asynchronous thread of control |
 | `--rules` | `LANG:PATH` | none | Check the source against the custom rule query in `PATH`, compiled for `LANG`; repeatable |
 | `--graphml` | — | off | Also write the dependence graph as GraphML, named from `--output` |
 | `--dsm` | — | off | Also write the dependency structure matrix as CSV, named from `--output` |
@@ -3081,7 +3149,7 @@ language and the reason.
 measured`, exit 1** — the grammar could not follow something at that line.
 `elc` runs no preprocessor, so a macro that expands to something syntactically
 significant is the usual cause. The file is still measured: only those N lines
-are missing, they are listed under **Partially parsed files**, and the project
+are missing, they are listed under **Partially Parsed Files**, and the project
 total appears as **Unparsed lines** in the summary.
 
 The commonest case in embedded C is a run of macros standing in for string
@@ -3166,7 +3234,7 @@ section of the report, immediately after the project summary, ahead of every
 table that supplies its evidence:
 
 ```text
-Findings
+Findings (6)
   Severity  Measurement                 Subject    Detail                                Source
   --------  --------------------------  ---------  ------------------------------------  ----------------------------
   critical  complexity                  helper     cyclomatic complexity 16              McCabe (NIST SP 500-235)
@@ -3252,7 +3320,7 @@ Every function a band names is collected into one table, alongside the
 functions at or over the complexity threshold `--complexity-threshold` sets:
 
 ```text
-At or over a threshold (complexity listed at 15; complexity, fan-in, fan-out and weighted test burden banded)
+At Or Over A Threshold (complexity listed at 15; complexity, fan-in, fan-out and weighted test burden banded)
   File                  Function  Complexity  Fan-in  Fan-out  Severity
   --------------------  --------  ----------  ------  -------  --------
   /home/u/proj/src/a.c  parse             12       3        7  warning
@@ -3406,12 +3474,12 @@ Because two files in one report may then have been measured two different ways,
 and nothing in the figures says which, `elc` tells you:
 
 ```text
-Project summary
+Project Summary
   ...
   Files expanded        16
-  Measured as written    6
+  Measured As Written    6
 
-Measured as written (macros not expanded)
+Measured As Written (macros not expanded)
   File            Why
   --------------  ----------------------------------
   src/arch.c      the preprocessor rejected the file
@@ -3465,7 +3533,7 @@ Three properties make it safe to trust:
 And because a repair is a guess, the report says it made one:
 
 ```text
-Repaired regions (rewritten in elc's buffer to be measured; the files are untouched)
+Repaired Regions (rewritten in elc's buffer to be measured; the files are untouched)
   File        Rule                        Repairs
   ----------  --------------------------  -------
   drv/uart.c  macro adjacent to a string       29
@@ -3486,7 +3554,7 @@ MISRA C:2012 §21 names the C library facilities a compliant program does not
 use. `elc` reports each call to one as a **warning**, citing the rule:
 
 ```text
-Findings
+Findings (3)
   Severity  Measurement    Subject  Detail                                                    Source
   --------  -------------  -------  --------------------------------------------------------  ------------
   warning   misra library  malloc   malloc is not available to a compliant program (Rule 21.3) MISRA C:2012
@@ -3516,7 +3584,7 @@ The filter sees every header the preprocessor opened, so it can tell you what
 it would take to build this somewhere else:
 
 ```text
-Standard-library dependence
+Standard-Library Dependence
   File       Library  Headers  Which
   ---------  -------  -------  ---------------------------------
   app.cpp    C             11  wchar.h stddef.h stdarg.h locale.h ...
@@ -3536,10 +3604,10 @@ asked.
 ## Reading the Functions table
 
 ```text
-Functions
-  File                     Language  Function          Scope   Lines  ELOC  CC  In  Out   WTBI  Burden
+Functions (2)
+  File                     Lang  Function          Scope   Reent  Lines  ELOC  CC  In  Out   WTBI  Burden
   -----------------------  --------  ----------------  ----------  -----  ----  ----------  ------  -------  ---
-  /home/u/proj/src/a.c:21  c         parse             public         50    31           9       3        7   62
+  /home/u/proj/src/a.c:21  c         parse             public              50    31           9       3        7   62
   /home/u/proj/src/a.c:88  c         parse_one_header  private        14     9           3       1        2   81
 ```
 
@@ -3564,7 +3632,7 @@ the source already states it:
 > **This column has nothing to do with `--scope`.** That option declares an
 > *execution* scope: a named set of **files** sharing a memory map, used to
 > find the calls by which one reaches another (see
-> [Cross-scope access](#cross-scope-access)). This column is a property of a
+> [Cross-Scope Access](#cross-scope-access)). This column is a property of a
 > **symbol** — whether the linker can see its name from another translation
 > unit — and a function reported `public` here is in no declared scope by
 > virtue of that. The two are unrelated and the report never mixes them: the
@@ -3588,6 +3656,34 @@ program's interface.
 A language whose module supplies no `visibility.scm` reports `—` for every
 function. That is *not analysed*, which is a different claim from *public*.
 
+**Reent is where the second thread of control shows up**, and it carries two
+marks and a blank:
+
+| Mark | Means |
+|---|---|
+| `I` | `elc` identified this function as an interrupt handler — an asynchronous root admitted on evidence that names it one |
+| `R` | **re-entrant**: both the application and an asynchronous root can be inside it, so one thread can begin it while another is already there |
+| blank | neither, which is nearly every function |
+
+One column carries both because the two answers cannot both be true. A root has
+an in-degree of zero — nothing in the analysed source calls it, which is half of
+what makes it a root — so nothing on the application's side reaches it, so it is
+never in the intersection that marks a function re-entrant.
+
+Blank is deliberate rather than an omission. You scan this column for the few
+rows that are marked, and an answer on every other row would be a column of
+noise with the signal hidden in it.
+
+**An `I` is a claim about a handler, and `elc` only makes it on evidence that
+supports one.** Two shapes do: a definition written through a function-shaped
+macro that nothing calls — `ISR(TIMER0_COMPA_vect) { ... }`, which is how a
+bare-metal target declares a handler — and a name matching the `--isr-regex`
+you supplied. A function registered by its *address* is an asynchronous root
+and gets no `I`, because taking an address without calling is equally the shape
+of an ordinary callback your own main loop dispatches, on your own thread.
+The [Concurrency](#concurrency) table names the origin for each root so you can
+see which you have.
+
 **Lines is a count**, not a range: how many lines the function occupies. Its
 first line is in the location beside it, so the range is the two read
 together — and a count is the figure you compare between two functions, where
@@ -3607,12 +3703,12 @@ see below). A grammar occasionally meets something it cannot follow, and when
 that happens **only the lines it could not read are lost**:
 
 ```text
-Project summary
+Project Summary
   Physical lines  5151
   ELOC            1006
   Unparsed lines    35
 
-Partially parsed files (measured except for these lines)
+Partially Parsed Files (measured except for these lines)
   File                Unparsed lines
   ------------------  --------------
   drv/mem.c                       13

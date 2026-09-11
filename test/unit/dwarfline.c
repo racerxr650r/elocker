@@ -313,13 +313,44 @@ Test(dwarfline, free_is_safe_on_null_and_twice)
 Test(dwarfline, reading_a_null_image_yields_an_empty_set)
 {
 	LineCoverage c;
+	IncludeDirs  dirs;
+
+	memset(&dirs, 0, sizeof dirs);
 
 	/* Not a failure. An image with no debug information is ordinary, and
 	 * HLR-141 forbids requiring it: the set comes back empty and the run
-	 * proceeds at function granularity alone. */
-	cr_assert_eq(dwarfline_read(NULL, &c, NULL), 0);
+	 * proceeds at function granularity alone. The include paths of
+	 * HLR-238 come back empty for the same reason and by the same rule —
+	 * their absence costs the expansion and nothing else. */
+	cr_assert_eq(dwarfline_read(NULL, &c, NULL, &dirs), 0);
 	cr_assert_eq(c.count, 0);
 	cr_assert_not(c.present);
+	cr_assert_eq(dirs.count, 0);
 
 	dwarfline_free(&c);
+	includedirs_free(&dirs);
+}
+
+/* Verifies LLR-DWL-10: the directory list is optional, so a caller wanting
+ * only the line coverage passes NULL and is not made to own a set it will not
+ * read. */
+Test(dwarfline, the_include_directories_are_optional)
+{
+	LineCoverage c;
+
+	cr_assert_eq(dwarfline_read(NULL, &c, NULL, NULL), 0);
+	dwarfline_free(&c);
+}
+
+/* Verifies LLR-DWL-10: releasing an empty or already-released set is safe, as
+ * every other free in this module is — one teardown serves every stage. */
+Test(dwarfline, freeing_the_directories_is_safe_on_null_and_twice)
+{
+	IncludeDirs dirs;
+
+	memset(&dirs, 0, sizeof dirs);
+	includedirs_free(NULL);
+	includedirs_free(&dirs);
+	includedirs_free(&dirs);
+	cr_assert_eq(dirs.count, 0);
 }

@@ -21,8 +21,8 @@ setup() {
 @test "HLR-027: table is the format when none is selected" {
 	elc "$TREE"
 	assert_success
-	assert_output --partial "Project summary"
-	refute_output --partial "## Project summary"
+	assert_output --partial "Project Summary"
+	refute_output --partial "## Project Summary"
 }
 
 @test "HLR-027: table may also be selected explicitly" {
@@ -35,7 +35,7 @@ setup() {
 @test "HLR-028: csv produces one record per function" {
 	elc -f csv "$TREE"
 	assert_success
-	assert_output --partial "file,language,function"
+	assert_output --partial "record,file,name"
 	assert_output --partial ",f,"
 }
 
@@ -52,28 +52,44 @@ setup() {
 	# header only records what the CSV said on the day it was written: when
 	# the table's columns were renamed, this expectation was updated to the
 	# CSV's spelling and went on passing while the two names differed —
-	# asserting the opposite of what it is called. Taking the table's own
-	# header and lowercasing it means the two cannot drift without this
-	# failing, which is the property the test's name claims.
+	# asserting the opposite of what it is called. Deriving it from the
+	# table's own header means the two cannot drift without this failing,
+	# which is the property the test's name claims.
+	#
+	# **Two spellings are translated rather than compared.** The aligned
+	# table abbreviates `Lang` and `Reent` to fit the bound of HLR-219; a
+	# document with no width does not, and a CSV column named `l` is one no
+	# consumer can read. The translation is fixed and small, and the
+	# *order* — the fact that actually drifts — still comes from the table.
 	local want
 	want="$("$ELC" --verbose "$TREE" 2>/dev/null |
-		sed -n '/^Functions$/,$p' | sed -n '2p' |
+		sed -n '/^Functions [(]/,$p' | sed -n '2p' |
 		tr -s ' ' | sed 's/^ //; s/ $//' | tr ' ' ',' |
-		tr '[:upper:]' '[:lower:]')"
+		tr '[:upper:]' '[:lower:]' |
+		sed 's/,l,/,lang,/; s/,r,/,reent,/')"
 	[ -n "$want" ]
+	# `function` is the table's word for the row's subject; the record holds
+	# two kinds of row and calls it `name` (HLR-242).
+	want="${want/,function,/,name,}"
+	# The record leads with the kind of row it is, and closes with the two
+	# columns the table has no place for: the band, which there is a colour
+	# on the figure beside it, and the declared type of a global.
+	want="record,$want,burden,type"
 
 	run bash -c '"$0" -f csv "$1" 2>/dev/null | tr -d "\r"' "$ELC" "$TREE"
 	assert_success
 	assert_line --index 0 "$want"
 	# And the location is the table's location: `path:line`, which an
-	# editor acts on, with the extent beside it as a count (HLR-210).
-	assert_output --regexp "$TREE/a\.c:[0-9]+,c,f,public,[0-9]+,"
+	# editor acts on, with the extent beside it as a count (HLR-210). The
+	# record spells the path in full, being a thing consumers load rather
+	# than a thing a terminal resolves a click against.
+	assert_output --regexp "$TREE/a\.c:[0-9]+,f,c,public,,[0-9]+,"
 }
 
 @test "HLR-029: md produces GitHub-Flavored Markdown" {
 	elc -f md "$TREE"
 	assert_success
-	assert_output --partial "## Project summary"
+	assert_output --partial "## Project Summary"
 	assert_output --partial "| File "
 }
 
@@ -108,13 +124,16 @@ setup() {
 	# both formats and says the same thing there; which tiers each shows
 	# *by default* is the second axis HLR-150 opened and HLR-218 widened,
 	# and it is asserted in verbosity.bats rather than here.
+	# The row counts of HLR-235 are a decoration of the aligned style, so
+	# they are stripped before the two lists of tiers are compared.
 	elc --verbose "$TREE"
 	local plain
-	plain="$(grep -E '^[A-Z]' <<<"$output")"
+	plain="$(grep -E '^[A-Z]' <<<"$output" |
+		grep -v '^Parsing Notifications$' | sed -E 's/ \([0-9]+\)$//')"
 
 	elc --verbose -f md "$TREE"
 	local marked
-	marked="$(sed -n 's/^## //p' <<<"$output")"
+	marked="$(sed -n 's/^## //p' <<<"$output" | sed -E 's/ \([0-9]+\)$//')"
 
 	assert_equal "$marked" "$plain"
 }
@@ -124,38 +143,53 @@ setup() {
 	# tier is not printed — and both formats say so, in the same words
 	# (HLR-188, HLR-189).
 	elc --verbose "$TREE"
-	refute_output --regexp "^At or over a threshold"
-	assert_output --partial "- At or over a threshold"
+	refute_output --regexp "^At Or Over A Threshold"
+	assert_output --partial "- At Or Over A Threshold"
 	elc --verbose -f md "$TREE"
-	refute_output --regexp "^## At or over a threshold"
-	assert_output --partial "- At or over a threshold"
+	refute_output --regexp "^## At Or Over A Threshold"
+	assert_output --partial "- At Or Over A Threshold"
 }
 
-@test "HLR-190: every Markdown table sits inside a disclosure element" {
+@test "HLR-190: no Markdown table is folded behind a disclosure element" {
 	elc --verbose -f md "$TREE"
 	assert_success
 
-	# One `<details>` per `##` heading, minus the one section that is not
-	# a table: the closing statement of HLR-189 is prose.
-	local headings details
-	headings="$(grep -c '^## ' <<<"$output")"
-	details="$(grep -c '^<details>$' <<<"$output")"
-	assert_equal "$details" "$(( headings - 1 ))"
-
-	# Every summary states a row count, and every element is closed.
-	assert_equal \
-		"$(grep -cE '^<summary>[0-9]+ rows? \(click to expand\)</summary>$' \
-			<<<"$output")" "$details"
-	assert_equal "$(grep -c '^</details>$' <<<"$output")" "$details"
+	# The tables were folded into `<details>` until Phase 34. A folded table
+	# is not searchable — neither a browser's find nor GitHub's renders what
+	# it hides — and a fragment pointing into one scrolls to nothing, which
+	# made every cross-reference of HLR-241 a link that did not work.
+	refute_output --partial "<details"
+	refute_output --partial "<summary>"
+	refute_output --partial "</details>"
 }
 
-@test "HLR-190: the heading stays outside the element and stays a heading" {
+@test "HLR-235: every Markdown heading states the size of its table" {
+	# The count the `<summary>` used to carry, now on the heading where the
+	# aligned table already puts it — so nothing was lost with the element.
+	elc --verbose -f md "$TREE"
+	assert_success
+
+	local headings sized
+	headings="$(grep -c '^## ' <<<"$output")"
+	sized="$(grep -cE '^## .+ \([0-9]+\)$' <<<"$output")"
+
+	# Every heading but two. The closing statement of HLR-189 is prose
+	# rather than a table and has no rows to count; the matrix heading
+	# already carries a parenthesised clause naming its subjects, and two
+	# brackets on one heading is one too many — its size is the grid, which
+	# is square and states its own extent.
+	local unsized
+	unsized="$(grep '^## ' <<<"$output" | grep -vcE ' \([0-9]+\)$')"
+	assert_equal "$unsized" "2"
+	assert_equal "$sized" "$(( headings - 2 ))"
+}
+
+@test "HLR-190: the heading is a heading and the table follows it" {
 	# A section keeps its anchor, and the composition is still readable
 	# off the `##` lines — which is what the uniformity tests above do.
 	elc -f md "$TREE"
 	assert_success
-	assert_output --partial "## Files"
-	refute_output --partial "<summary><strong>"
+	assert_line --regexp "^## Files \([0-9]+\)$"
 }
 
 @test "HLR-190: the complete-record formats carry no HTML" {
@@ -260,8 +294,8 @@ setup() {
 	# The filename has already said what the format is; nothing should have
 	# to say it twice. Each file is identified by a marker only that format
 	# produces.
-	for pair in "txt:Project summary" "md:## Project summary" \
-	            "csv:file,language,function" "xml:<?xml"; do
+	for pair in "txt:Project Summary" "md:## Project Summary" \
+	            "csv:record,file,name" "xml:<?xml"; do
 		local extension="${pair%%:*}" marker="${pair#*:}"
 		local file="$BATS_TEST_TMPDIR/named.$extension"
 
@@ -271,7 +305,7 @@ setup() {
 		run head -1 "$file"
 		case "$extension" in
 		txt|csv|xml) assert_output --partial "$marker" ;;
-		md)          run grep -c "^## Project summary$" "$file"
+		md)          run grep -c "^## Project Summary (" "$file"
 		             assert_output "1" ;;
 		esac
 	done
@@ -333,7 +367,7 @@ setup() {
 	run bash -c '"$0" -f md -o "$1" "$2" 2>/dev/null' "$ELC" \
 		"$BATS_TEST_TMPDIR/agree.md" "$TREE"
 	assert_success
-	run grep -c "^## Project summary$" "$BATS_TEST_TMPDIR/agree.md"
+	run grep -c "^## Project Summary (" "$BATS_TEST_TMPDIR/agree.md"
 	assert_output "1"
 }
 
@@ -342,7 +376,7 @@ setup() {
 	# keeps a machine-readable format available to a caller that pipes.
 	elc -f csv "$TREE"
 	assert_success
-	assert_output --partial "file,language,function"
+	assert_output --partial "record,file,name"
 }
 
 @test "HLR-148: the companion artefacts keep their own extensions" {
@@ -377,7 +411,7 @@ setup() {
 	run bash -c '"$0" --from-xml "$1" -o "$2" 2>/dev/null' "$ELC" \
 		"$BATS_TEST_TMPDIR/rec.xml" "$BATS_TEST_TMPDIR/out.md"
 	assert_success
-	run grep -c "^## Project summary$" "$BATS_TEST_TMPDIR/out.md"
+	run grep -c "^## Project Summary (" "$BATS_TEST_TMPDIR/out.md"
 	assert_output "1"
 }
 

@@ -21,7 +21,7 @@ functions_of() {
 	awk '/^Functions/ {s=1; next}
 	     s && /^$/ {exit}
 	     s && $1 == "File" {next}
-	     s && /^  [^ -]/ {print $3}' "$1" | sort | tr '\n' ' '
+	     s && /^  [^ -]/ {print $2}' "$1" | sort | tr '\n' ' '
 }
 
 summary_of() {
@@ -190,7 +190,7 @@ report() {
 	report "$TREE" -DFEATURE -DLEAN
 	assert_success
 
-	run bash -c 'grep -c "^Conditional-compilation definitions (2)$" "$0"' \
+	run bash -c 'grep -c "^Conditional-Compilation Definitions (2)$" "$0"' \
 		"$OUT"
 	assert_output "1"
 }
@@ -205,7 +205,7 @@ report() {
 	# With none supplied the table has no rows, so it is named in the
 	# closing statement rather than printed — which is still the claim
 	# being made, in the same words (HLR-188, HLR-189).
-	run bash -c 'grep -c "^    - Conditional-compilation definitions (0)$" "$0"' \
+	run bash -c 'grep -c "^    - Conditional-Compilation Definitions (0)$" "$0"' \
 		"$OUT"
 	assert_output "1"
 }
@@ -292,13 +292,14 @@ report() {
 	# would be: the table gains columns on both sides, and a count from
 	# either end silently starts reading a different measurement rather
 	# than failing. The name is the only part of this that is stable.
+	# Counted from the right: a blank cell before this column collapses
+	# under awk's field splitting, so a header index does not land on the
+	# row. Out and WTBI are populated on every row; the burden band is a
+	# colour on the figure rather than a column of its own (HLR-226).
 	local fanout
-	fanout="$(awk '/^Functions$/ {s=1; next}
+	fanout="$(awk '/^Functions [(]/ {s=1; next}
 	               s && /^$/     {exit}
-	               s && !col     {for (i = 1; i <= NF; i++)
-	                                      if ($i == "Out") col = i
-	                              next}
-	               s && col && $3 == "caller" {print $col}' "$OUT")"
+	               s && $2 == "caller" {print $(NF-1)}' "$OUT")"
 	assert_equal "$fanout" "0"
 }
 
@@ -307,9 +308,9 @@ report() {
 	assert_success
 
 	local complexity
-	complexity="$(awk '/^Functions$/ {s=1; next}
+	complexity="$(awk '/^Functions [(]/ {s=1; next}
 	                   s && /^$/ {exit}
-	                   s && $3 == "caller" {print $7}' "$OUT")"
+	                   s && $2 == "caller" {print $7}' "$OUT")"
 	assert_equal "$complexity" "1"
 }
 
@@ -320,7 +321,7 @@ report() {
 	# shared_flag is declared outside the region and read only inside it,
 	# so this build touches it nowhere and no row describes it.
 	local rows
-	rows="$(awk '/^Global state/ {s=1; next}
+	rows="$(awk '/^Global State/ {s=1; next}
 	             s && /^$/ {exit}
 	             s && /^  [^ -]/ && $1 != "Object" {print}' "$OUT" | wc -l)"
 	assert_equal "$rows" "0"
